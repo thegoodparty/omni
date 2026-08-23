@@ -3,8 +3,8 @@
 Matches BallotReady offices to L2 districts. Reads its worklist
 (`int__l2_br_match_pending_offices`) and its menu source
 (`int__l2_district_universe`) from Databricks, holds embeddings in memory for
-the run, and returns terminal results. Writes nothing -- the Databricks write
-path lands in a later PR.
+the run, and returns terminal results. The matcher itself writes nothing --
+`l2_br_match_writer.py` holds the Databricks write path and run lifecycle.
 
 ## Directory structure
 
@@ -12,6 +12,7 @@ path lands in a later PR.
 prod_gold_data/
 ├── l2_br_matcher.py           # The matcher: class L2BrMatcher
 ├── l2_br_match_schema.py      # Schema of record for llm_l2_br_match_results
+├── l2_br_match_writer.py      # The write path and run lifecycle: class MatchRunWriter
 └── vector_store_generator.py  # Unrelated laptop tool, out of scope here --
                                 # still feeds bronze_data's pickle-based path
 ```
@@ -40,6 +41,18 @@ status column on the result or in `llm_l2_br_match_results`, so a populated
 district name is the whole signal. A technical error (an LLM or embedding call
 raising, or a malformed LLM response) fails the run instead of being recorded
 as a match or coerced into an abstention.
+
+## The write path and run lifecycle
+
+`MatchRunWriter` (`l2_br_match_writer.py`) is the only writer of
+`model_predictions.llm_l2_br_match_runs` / `llm_l2_br_match_results`. Four
+small operations, driven by hand during the supervised cutover: create a
+run, append its (validated) results, complete it, or revoke it plus every
+run sequenced after it. Per-row validation runs over the whole batch before
+the first insert; four set-level invariants run after the rows land and
+before a run is completed, since neither `status` nor `match_status` carries
+a database CHECK constraint -- this validation is the only enforcement they
+get.
 
 ## What is frozen
 

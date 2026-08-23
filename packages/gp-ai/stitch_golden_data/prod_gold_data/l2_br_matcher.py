@@ -13,7 +13,8 @@ persists only matches and abstentions -- a technical error fails the run
 instead of being recorded as a match.
 
 This module writes nothing. `run()` returns terminal results for the caller
-to print or inspect; the Databricks write path is a later PR.
+to print or inspect; the Databricks write path and run lifecycle live beside
+it in l2_br_match_writer.py.
 """
 
 import argparse
@@ -45,6 +46,15 @@ STATE_QUERY_INSERT_INDEX = 10  # 11th slot
 THREAD_POOL_SIZE = 1500
 
 _STATE_CODE_RE = re.compile(r"^[A-Z]{2}$")
+# A bare 429 would match any message carrying those digits -- "School District 429",
+# an office id like 4290 -- and _is_quota_exhausted also folds in exc.__cause__, so the
+# surface is wide. Require the digits to sit next to status/code wording instead. The
+# cost of a false positive is a misleading log line at exactly the moment an operator is
+# diagnosing a stalled supervised run.
+_QUOTA_EXHAUSTED_RE = re.compile(
+    r"resource_exhausted|quota|too many requests|(?:status|code|http)[^0-9]{0,10}429",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -179,6 +189,29 @@ def _validate_district_universe(universe_df: pd.DataFrame) -> None:
         blank_mask = universe_df[column].isna() | (universe_df[column].astype(str).str.strip() == "")
         if blank_mask.any():
             raise ValueError(f"{int(blank_mask.sum())} district universe row(s) have a null or blank {column}")
+
+
+def _is_quota_exhausted(exc: BaseException) -> bool:
+    """True if `exc` (or its wrapped cause) carries a Gemini quota-exhaustion
+    signature.
+
+    The deleted matcher had three branches naming this explicitly and
+    cancelling remaining work; shared/llm_gemini_3.py and
+    shared/llm_gemini.py retry every exception identically and blindly
+    (max_retries=11, base_delay=1.0 -- up to ~1023s of blocking sleep per
+    call), so nothing today tells an operator "this is quota, waiting will
+    not help" versus a real bug. The two clients wrap a spent-quota response
+    differently -- a raw google.genai ClientError from the LLM path (str()
+    reads "429 RESOURCE_EXHAUSTED. ..."), a RuntimeError wrapping an
+    httpx.HTTPStatusError from the embedding path (str() carries "429 Too
+    Many Requests") -- so matching on the final message text is the one
+    detection surface common to both without reaching into shared/'s
+    exception types.
+    """
+    text = str(exc)
+    if exc.__cause__ is not None:
+        text = f"{text} {exc.__cause__}"
+    return bool(_QUOTA_EXHAUSTED_RE.search(text))
 
 
 def _district_embedding_text(state: str, district_type: str, district_name: str) -> str:
@@ -739,8 +772,13 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
                 self.logger.info(f"Matched {len(results)}/{len(offices)} offices")
 
             return results
-        except Exception:
+        except Exception as exc:
             embedding_cost, llm_cost = self._cost_deltas()
+            if _is_quota_exhausted(exc):
+                # By the time this is reached, shared/'s retry loop has
+                # already spent its own full backoff finding out -- naming
+                # the cause is the only thing this layer can still add.
+                self.logger.error(f"QUOTA EXHAUSTED -- aborting run; retrying immediately hits the same wall: {exc}")
             self.logger.error(
                 f"Run failed. Partial cost before failure -- embedding: ${embedding_cost:.6f}, "
                 f"LLM: ${llm_cost:.6f}, total: ${embedding_cost + llm_cost:.6f}"
@@ -772,6 +810,29 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         self.logger.info(f"LLM cost: ${llm_cost:.6f}")
         self.logger.info(f"Total cost: ${embedding_cost + llm_cost:.6f}")
 
+    # -- Resource lifecycle ----------------------------------------------
+
+    def close(self) -> None:
+        """Shut down this matcher's thread pool and Databricks connection.
+
+        Under the fail-fast contract, an exception can abort run() with up
+        to a batch of calls still mid-retry in non-daemon threads; without
+        this the interpreter's atexit join for concurrent.futures.thread
+        waits them out (their own full backoff, shared/llm_gemini_3.py /
+        shared/llm_gemini.py) after the operator has already seen the
+        traceback. cancel_futures=True drops anything still queued -- a call
+        already running keeps running to completion in the background,
+        which no shutdown call can stop.
+        """
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        self.databricks.close()
+
+    def __enter__(self) -> "L2BrMatcher":
+        return self
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        self.close()
+
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Match BallotReady offices to L2 districts. Dry run: writes nothing.")
@@ -796,17 +857,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def main() -> None:
     args = _parse_args()
-    matcher = L2BrMatcher()
-    try:
-        results = await matcher.run(
-            states=args.states,
-            limit=args.limit,
-            batch_size=args.batch_size,
-            embedding_batch_size=args.embedding_batch_size,
-        )
-        matcher.print_summary(results)
-    finally:
-        flush_logs()
+    with L2BrMatcher() as matcher:
+        try:
+            results = await matcher.run(
+                states=args.states,
+                limit=args.limit,
+                batch_size=args.batch_size,
+                embedding_batch_size=args.embedding_batch_size,
+            )
+            matcher.print_summary(results)
+        finally:
+            flush_logs()
 
 
 if __name__ == "__main__":
