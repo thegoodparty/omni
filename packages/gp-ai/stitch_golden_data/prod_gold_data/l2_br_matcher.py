@@ -103,26 +103,50 @@ class _StateUniverse:
 
 
 def _normalize_state(value: Any) -> str:
-    """Strip and upper-case, applied on BOTH sides of the universe dict -- the
-    worklist state that looks a state up, and the warehouse state that keys it.
+    """Strip and upper-case one value.
 
-    Normalizing one side only moves the bug rather than fixing it, which is
-    what the first attempt at this did.
-
-    The old code upper-cased only inside the two SQL WHERE clauses, so a
-    lower-case pending `state` keyed the universe dict under 'DE' but was
-    looked up as 'de', silently abstaining the entire state while the run
-    still exited 0 and reported a 100% abstention rate as though the model
-    had judged every office.
+    Callers must normalize the whole COLUMN before grouping or keying
+    anything by it, not just the key or the lookup side alone -- wrapping
+    only the groupby key here once let two raw spellings of one state
+    collapse into one dict key, with the later group silently overwriting
+    the earlier's districts. Normalizing the column first means every
+    consumer (the dict key, the embedding text, the candidate,
+    `MatchResult.l2_state`) sees the same canonical value by construction.
     """
     return str(value).strip().upper()
+
+
+def _validate_states_filter(states: list[str]) -> list[str]:
+    """Normalize and validate a `states` filter (e.g. --states) and return
+    the normalized list. Must run before EITHER SQL string that depends on
+    it is built.
+
+    `load_pending_offices` splices this straight into its own WHERE clause.
+    `_validate_pending_offices` cannot protect that query: it validates the
+    ROWS the query already returned, after it has already run -- it only
+    protects the later `load_district_universe` call, built from the
+    result. A non-canonical value here (e.g. "DE') or 1=1 --") would
+    otherwise reach `load_pending_offices`'s WHERE clause unescaped and
+    read far more than the requested state.
+    """
+    normalized = [_normalize_state(s) for s in states]
+    bad = sorted({s for s in normalized if not _STATE_CODE_RE.match(s)})
+    if bad:
+        raise ValueError(f"Not a canonical two-letter state code: {bad}")
+    return normalized
 
 
 def _validate_pending_offices(pending_df: pd.DataFrame) -> None:
     """Fail closed on a state or a name a later step would otherwise accept
     silently. `state` must already be normalized (see `_normalize_state`).
 
-    A non-canonical state would reach `load_district_universe`'s SQL
+    This validates the ROWS `load_pending_offices`'s query already
+    returned, so it protects the LATER `load_district_universe` call (built
+    from these rows' `state` values) -- not `load_pending_offices`'s own
+    query, which is already built and executed by the time this runs. See
+    `_validate_states_filter` for that.
+
+    A non-canonical state here would reach `load_district_universe`'s SQL
     IN-clause unescaped -- that value is warehouse data, not operator
     input, so one apostrophe in it breaks or extends the query. A blank
     name still embeds cleanly (`"race name: "`) and gets back a real,
@@ -134,9 +158,28 @@ def _validate_pending_offices(pending_df: pd.DataFrame) -> None:
         bad_states = sorted(pending_df.loc[bad_state_mask, "state"].unique())
         raise ValueError(f"Pending offices carry a non-canonical state code: {bad_states}")
 
-    blank_name_mask = pending_df["name"].fillna("").str.strip() == ""
+    blank_name_mask = pending_df["name"].isna() | (pending_df["name"].astype(str).str.strip() == "")
     if blank_name_mask.any():
         raise ValueError(f"{int(blank_name_mask.sum())} pending office(s) have a blank or null name")
+
+
+def _validate_district_universe(universe_df: pd.DataFrame) -> None:
+    """Fail closed on a null or blank state, district type, or name.
+
+    pandas `groupby` defaults to `dropna=True`, so a null `state_postal_code`
+    is silently dropped rather than caught -- that district simply never
+    enters any state's menu, with no error. A null `district_type` or
+    `district_name` is not caught by the groupby at all: it survives into
+    the embedding text as the literal string "nan" and, if the LLM ever
+    selects it, into `MatchResult.l2_district_name` as a float -- on a row
+    whose docstring says that field is None only when ABSTAINED. Rule 3
+    then re-offers that office on every dbt build, re-paying the LLM cost
+    forever.
+    """
+    for column in ("state_postal_code", "district_type", "district_name"):
+        blank_mask = universe_df[column].isna() | (universe_df[column].astype(str).str.strip() == "")
+        if blank_mask.any():
+            raise ValueError(f"{int(blank_mask.sum())} district universe row(s) have a null or blank {column}")
 
 
 def _district_embedding_text(state: str, district_type: str, district_name: str) -> str:
@@ -183,12 +226,15 @@ def _selection_from_response(response: dict[str, Any], num_candidates: int) -> t
     before either key is read individually and before a `None` response
     (TypeError on subscript) reaches any attribute access -- a guard that
     caught a bad index and then read a second key unguarded right after is
-    what this replaces.
+    what this replaces. `OverflowError` is in the tuple too: `json.loads`
+    yields an arbitrary-precision int for a bare "number" field, and
+    `math.isfinite` raises `OverflowError`, not `ValueError`, on one too
+    large to convert to a float.
     """
     try:
         selected_index = _require_integral(response["selected_candidate_number"], "selected_candidate_number")
         confidence = _require_integral(response["selection_confidence"], "selection_confidence")
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"Malformed LLM response, expected a numeric selection and confidence: {response!r}") from exc
 
     if not 0 <= selected_index <= num_candidates:
@@ -204,6 +250,16 @@ def _positive_int(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError(f"must be a positive integer, got {value!r}")
     return parsed
+
+
+def _canonical_state_arg(value: str) -> str:
+    """argparse `type=` for --states: validate and normalize at parse time,
+    before `main` ever constructs a matcher or either query is built.
+    """
+    try:
+        return _validate_states_filter([value])[0]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 class L2BrMatcher:
@@ -269,18 +325,34 @@ class L2BrMatcher:
         """Read the worklist. Exactly the three columns this PR needs -- the
         geography columns exist on the table but belong to the next PR.
 
+        `states=None` means no filter (read every state); `states=[]` is an
+        explicit empty selection and reads nothing -- a bare `if states:`
+        cannot tell those apart, and treated them oppositely from
+        `build_universe`, so a programmatic `run(states=[])` (a sharding
+        loop, say) would silently read and bill the entire backlog instead
+        of doing nothing.
+
+        `--states` is validated (`_validate_states_filter`) and normalized
+        BEFORE the query is built, not after it returns: a non-canonical
+        value spliced unescaped into the WHERE clause below can widen or
+        break the query, and nothing downstream can catch that after the
+        fact.
+
         Deterministic order (by br_database_id): with no ORDER BY, `--limit
         N` would return a different N offices on every invocation, and
         comparability against the January holdout is what this work is
         measured on.
 
-        State values are normalized (see `_normalize_state`) and validated
-        (see `_validate_pending_offices`) here, since this is the sole
-        place any caller reads them.
+        State values in the RESULT are normalized (see `_normalize_state`)
+        and validated (see `_validate_pending_offices`) here, since this is
+        the sole place any caller reads them.
         """
+        if states is not None and not states:
+            return pd.DataFrame(columns=["br_database_id", "name", "state"])
+
         where_clause = ""
-        if states:
-            states_str = "', '".join(_normalize_state(s) for s in states)
+        if states is not None:
+            states_str = "', '".join(_validate_states_filter(states))
             where_clause = f"where state in ('{states_str}')"
         limit_clause = f"limit {limit}" if limit is not None else ""
 
@@ -302,7 +374,7 @@ class L2BrMatcher:
 
     def load_district_universe(self, states: list[str]) -> pd.DataFrame:
         """Read the menu source for exactly the states the worklist needs."""
-        states_str = "', '".join(s.upper() for s in states)
+        states_str = "', '".join(_normalize_state(s) for s in states)
         query = f"""
         select state_postal_code, district_type, district_name
         from {self.district_universe_path}
@@ -313,15 +385,34 @@ class L2BrMatcher:
     async def build_universe(self, states: list[str], embedding_batch_size: int) -> None:
         """Read and embed int__l2_district_universe for exactly these
         states, held in memory only.
+
+        Clears any prior entries first: without this, a second run() whose
+        universe read comes back empty (a dbt rebuild in flight, a delivery
+        gap) would leave the FIRST run's entries in place, `groupby` would
+        yield no groups, and run()'s missing-states guard would find
+        nothing missing even though every entry is now stale.
+
+        Normalizes the state COLUMN once, before the groupby -- not just the
+        group key. Normalizing only the key let two raw spellings of one
+        state (`'DE'`, `'de'`) collapse into one dict key, with the later
+        group silently overwriting the earlier's districts, and still left
+        the unnormalized value flowing into the frozen embedding text, the
+        candidate, and `MatchResult.l2_state` (which the pending list's rule
+        3 join then can never match). Normalizing the column first means
+        the key, the text, the candidate and the result all carry the same
+        canonical value by construction, not by three call sites agreeing.
         """
+        self._universe_by_state = {}
         if not states:
             return
         universe_df = self.load_district_universe(states)
-        # Normalized on BOTH sides. The pending side alone is not enough: this key
-        # comes straight off the warehouse, and normalizing only the lookup leaves the
-        # same asymmetry pointing the other way.
+        if universe_df.empty:
+            return
+        universe_df = universe_df.copy()
+        _validate_district_universe(universe_df)
+        universe_df["state_postal_code"] = universe_df["state_postal_code"].map(_normalize_state)
         for state, group in universe_df.groupby("state_postal_code"):
-            await self._embed_state_universe(_normalize_state(state), group, embedding_batch_size)
+            await self._embed_state_universe(state, group, embedding_batch_size)
 
     async def _embed_state_universe(self, state: str, district_rows: pd.DataFrame, embedding_batch_size: int) -> None:
         """Embed one state's district universe, batched (FROZEN:
@@ -354,18 +445,23 @@ class L2BrMatcher:
             district_names.append(row_district_name)
             texts.append(_district_embedding_text(row_state, row_district_type, row_district_name))
 
-        # vector_store_generator.py:204 is the only other caller of this
-        # document path and passes these same values for the same workload.
-        # The client defaults (max_concurrent_batches=2, rate_limit_delay=2.0)
-        # would make a national build thousands of batches at two-way
-        # concurrency behind two-second sleeps.
+        # Left at the client defaults (max_concurrent_batches=2,
+        # rate_limit_delay=2.0) deliberately. rate_limit_delay is not just
+        # the inter-batch pause: shared/llm_gemini.py:794 seeds the 429
+        # retry backoff from it, :867 computes each retry's sleep as
+        # current_delay * 2**attempt, and :844 ratchets current_delay back
+        # toward this floor on every success -- so a low value (0.01, tried
+        # in an earlier round to match vector_store_generator.py's settings)
+        # collapses roughly 4,000s of total retry sleep across 11 attempts
+        # to roughly 20s, worst exactly when concurrency is high enough to
+        # make a 429 wave likely. Tuning these wants a measured run, not a
+        # guess; that measured run is what the write-path PR and the
+        # supervised cutover produce.
         embeddings = await self._run_in_pool(
             self.embedding_client.create_embeddings,
             texts,
             parallel=True,
             batch_size=embedding_batch_size,
-            max_concurrent_batches=800,
-            rate_limit_delay=0.01,
         )
         self._universe_by_state[state] = _StateUniverse(
             embeddings=embeddings,
@@ -644,7 +740,9 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Match BallotReady offices to L2 districts. Dry run: writes nothing.")
-    parser.add_argument("--states", nargs="+", type=str, help="Limit to these state codes (e.g. --states DE CA)")
+    parser.add_argument(
+        "--states", nargs="+", type=_canonical_state_arg, help="Limit to these state codes (e.g. --states DE CA)"
+    )
     parser.add_argument("--limit", type=_positive_int, help="Limit the number of pending offices read (positive)")
     parser.add_argument(
         "--batch-size",

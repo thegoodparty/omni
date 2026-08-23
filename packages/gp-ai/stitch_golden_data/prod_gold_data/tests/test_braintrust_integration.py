@@ -125,6 +125,49 @@ class TestTraceNamePassthrough:
         assert call_kwargs["trace_name"] == "stitch-match-selection"
 
 
+class TestFrozenPromptReachesTheModel:
+    """3: replacing the entire fallback prompt with the single character `x`
+    left every existing test green, because the only assertions anywhere in
+    this file about the prompt were `is not None` and `len(...) > 0`. The
+    PR's central "frozen, and verified rather than asserted" claim had no
+    standing enforcement -- the AST diff that verified it at review time was
+    a one-time manual check, not a test.
+    """
+
+    def test_prompt_carries_a_distinctive_phrase_and_the_rendered_candidates(self, mock_dependencies):
+        """Failure this catches: the frozen prompt drifts and every run is
+        scored against a different prompt than January's, with nothing
+        failing. Deliberately does NOT mock build_cached_prompt: Braintrust
+        is disabled for every test (root conftest.py), so the real function
+        falls through to rendering the fallback prompt below, exactly as it
+        does in production whenever no cached prompt is available -- and
+        only then does the assertion see the actual prompt text, not a
+        stand-in string.
+        """
+        matcher = L2BrMatcher()
+        candidates = [
+            DistrictCandidate(
+                l2_state="DE", l2_district_type="CITY_COUNCIL", l2_district_name="City Council District 1"
+            ),
+        ]
+        mock_dependencies["llm"].generate_structured_content.return_value = {
+            "selected_candidate_number": 1,
+            "selection_confidence": 90,
+            "reasoning": "ok",
+            "is_exact_district_match": True,
+        }
+
+        asyncio.run(matcher._select_candidate("Wilmington City Council", candidates))
+
+        prompt = mock_dependencies["llm"].generate_structured_content.call_args[1]["prompt"]
+        # A stable, distinctive substring from the template -- not the whole
+        # thirty lines, which would false-fail on a reflow and teach people
+        # to delete the assertion -- plus the rendered candidate list, which
+        # proves the menu actually reached the model.
+        assert "Analyze the BR position and select the BEST matching candidate." in prompt
+        assert "1. City Council District 1 (CITY_COUNCIL)" in prompt
+
+
 class TestDistrictEmbeddingText:
     def test_district_embedding_text_matches_the_producer(self):
         """Failure this catches: if the embedding text format drifts, every
@@ -329,11 +372,14 @@ class TestRunEndToEnd:
         return np.array([[1.0, 0.0]] * len(texts))
 
     def test_run_builds_the_universe_and_reaches_office_matching(self, mock_dependencies):
-        pending_df = pd.DataFrame({"br_database_id": [1], "name": ["Test Race"], "state": ["DE"]})
+        # Lower case on BOTH sides, deliberately: with only the universe side
+        # lower-cased, this test could pass on an accidental fix to just the
+        # groupby key (round 1's mistake) while the pending side's own
+        # normalization silently stayed broken (round 1's commit claimed
+        # coverage of both sides that this test did not actually have).
+        pending_df = pd.DataFrame({"br_database_id": [1], "name": ["Test Race"], "state": ["de"]})
         universe_df = pd.DataFrame(
             {
-                # Lower case on purpose: the worklist side is normalized, so if the
-                # universe key is not, this state goes missing and run() raises.
                 "state_postal_code": ["de", "de"],
                 "district_type": ["House", "State"],
                 "district_name": ["District 5", "Delaware"],
