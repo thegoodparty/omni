@@ -2,6 +2,7 @@ import asyncio
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from stitch_golden_data.prod_gold_data.l2_br_matcher import (
@@ -10,8 +11,10 @@ from stitch_golden_data.prod_gold_data.l2_br_matcher import (
     DistrictCandidate,
     L2BrMatcher,
     _district_embedding_text,
+    _selection_from_response,
     _StateUniverse,
 )
+from stitch_golden_data.prod_gold_data.vector_store_generator import VectorStoreGenerator
 
 
 @pytest.fixture(autouse=True)
@@ -68,16 +71,10 @@ class TestPromptBuilding:
 
         candidates = [
             DistrictCandidate(
-                l2_state="DE",
-                l2_district_type="CITY_COUNCIL",
-                l2_district_name="City Council District 1",
-                similarity_score=0.95,
+                l2_state="DE", l2_district_type="CITY_COUNCIL", l2_district_name="City Council District 1"
             ),
             DistrictCandidate(
-                l2_state="DE",
-                l2_district_type="COUNTY_BOARD",
-                l2_district_name="County Board District 2",
-                similarity_score=0.85,
+                l2_state="DE", l2_district_type="COUNTY_BOARD", l2_district_name="County Board District 2"
             ),
         ]
 
@@ -112,12 +109,7 @@ class TestTraceNamePassthrough:
         matcher = L2BrMatcher()
 
         candidates = [
-            DistrictCandidate(
-                l2_state="NY",
-                l2_district_type="SCHOOL_BOARD",
-                l2_district_name="School Board",
-                similarity_score=0.88,
-            ),
+            DistrictCandidate(l2_state="NY", l2_district_type="SCHOOL_BOARD", l2_district_name="School Board"),
         ]
 
         mock_dependencies["llm"].generate_structured_content.return_value = {
@@ -134,19 +126,102 @@ class TestTraceNamePassthrough:
 
 
 class TestDistrictEmbeddingText:
-    def test_district_embedding_text_matches_frozen_format(self):
+    def test_district_embedding_text_matches_the_producer(self):
         """Failure this catches: if the embedding text format drifts, every
         cosine similarity score changes and the menu silently differs from
-        January's, making the holdout comparison meaningless.
+        January's, making the holdout comparison meaningless. Compares
+        against vector_store_generator.create_embedding_texts's own output
+        rather than a hand-typed literal, so a drift in either copy fails --
+        `self` is unused inside that method, so it is safe to call unbound.
         """
+        df = pd.DataFrame({"l2_district_name": ["District 5"], "l2_district_type": ["House"], "state": ["DE"]})
+        producer_texts, _ = VectorStoreGenerator.create_embedding_texts(None, df, "DE")
+
         text = _district_embedding_text("DE", "House", "District 5")
 
-        assert text == "state: DE, district type: House, district name: District 5"
+        assert text == producer_texts[0]
+
+
+class TestSelectionValidation:
+    """C: the response schema declares selected_candidate_number as a bare
+    number, and shared/llm_gemini_3.py returns bare json.loads with no
+    client-side validation, so a non-integral, boolean, or out-of-range
+    value must raise rather than be silently truncated or coerced.
+    """
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            {"selected_candidate_number": 3.9, "selection_confidence": 90},
+            {"selected_candidate_number": True, "selection_confidence": 90},
+            {"selected_candidate_number": 1, "selection_confidence": "95"},
+            {"selected_candidate_number": 1, "selection_confidence": 950},
+            {"selected_candidate_number": 1, "selection_confidence": 87.5},
+        ],
+        ids=[
+            "fractional-index",
+            "boolean-index",
+            "string-confidence",
+            "out-of-range-confidence",
+            "fractional-confidence",
+        ],
+    )
+    def test_malformed_selection_or_confidence_raises(self, response):
+        """Failure this catches: `int(float(3.9)) == 3` silently records the
+        model's 4th choice as its 3rd, `int(float(True)) == 1` lets a
+        boolean select candidate 1, and a string/out-of-range/fractional
+        confidence writes cleanly into a `confidence bigint` column that
+        expects an integer 0-100.
+        """
+        with pytest.raises(ValueError):
+            _selection_from_response(response, num_candidates=5)
+
+
+class TestTaskTypeInvariant:
+    """K: create_embeddings dispatches on `len(texts) == 1` to decide task
+    type. A mock stubbed with a bare `return_value` is insensitive to its
+    call arguments, so batching the two query embeddings into one call would
+    stay green even though it moves both into RETRIEVAL_DOCUMENT space.
+    """
+
+    def test_query_embeddings_are_never_batched_together(self, mock_dependencies):
+        """Failure this catches: queries batched into one call move into
+        RETRIEVAL_DOCUMENT space, changing every similarity score, and
+        nothing raises.
+        """
+        matcher = L2BrMatcher()
+        matcher._universe_by_state["DE"] = _StateUniverse(
+            embeddings=np.array([[1.0, 0.0]]), states=["DE"], district_types=["House"], district_names=["District 5"]
+        )
+        # Size-aware, not a flat return_value: a flat return would make a
+        # wrongly-batched call still unpack cleanly (a false negative), so
+        # the call-count/call-shape assertions below are what would ever
+        # fail rather than an incidental unpacking crash.
+        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kwargs: np.array(
+            [[1.0, 0.0]] * len(texts)
+        )
+        mock_dependencies["llm"].generate_structured_content.return_value = {
+            "selected_candidate_number": 1,
+            "selection_confidence": 90,
+            "reasoning": "Clean match",
+            "is_exact_district_match": True,
+        }
+
+        with patch("stitch_golden_data.prod_gold_data.l2_br_matcher.build_cached_prompt", return_value="prompt"):
+            asyncio.run(matcher.match_office(br_database_id=1, br_name="Test Race", state="DE"))
+
+        calls = mock_dependencies["embedding"].create_embeddings.call_args_list
+        assert len(calls) == 2, f"expected one create_embeddings call per query, got {len(calls)}"
+        for call in calls:
+            texts = call.args[0]
+            assert len(texts) == 1, (
+                "a query embedding call must carry exactly one text or it moves into RETRIEVAL_DOCUMENT space"
+            )
 
 
 class TestTerminalStatusContract:
-    """SPEC 3.4: a run persists only MATCHED and ABSTAINED. A technical error
-    fails the run instead of being delivered as a match.
+    """A run persists only MATCHED and ABSTAINED. A technical error fails
+    the run instead of being delivered as a match.
     """
 
     @staticmethod
@@ -214,7 +289,7 @@ class TestTerminalStatusContract:
         mock_dependencies["embedding"].create_embeddings.return_value = np.array([[1.0, 0.0]])
         mock_dependencies["llm"].generate_structured_content.return_value = {
             "selected_candidate_number": 1,
-            "selection_confidence": 95,
+            "selection_confidence": 95.0,
             "reasoning": "Clean match",
             "is_exact_district_match": True,
         }
@@ -227,3 +302,61 @@ class TestTerminalStatusContract:
         assert result.l2_district_type == "House"
         assert result.l2_district_name == "District 5"
         assert result.confidence == 95
+        assert isinstance(result.confidence, int)
+
+
+class TestRunEndToEnd:
+    """A: build_universe is called from run()'s own event loop, and
+    create_embeddings does `asyncio.run(...)` internally for any multi-text
+    input (shared/llm_gemini.py:941) -- calling it directly, not through a
+    thread, raises `RuntimeError: asyncio.run() cannot be called from a
+    running event loop`. Every state's real universe has at least two rows
+    (real districts plus the synthetic 'State' row), so the single-text
+    escape never applies. This drives run() end to end with the Databricks
+    reads mocked but the universe built through the real code path -- the
+    other tests in this file all pre-seed `_universe_by_state` by hand and
+    never exercise it.
+    """
+
+    @staticmethod
+    def _create_embeddings_side_effect(texts, **kwargs):
+        if len(texts) != 1:
+            # Reproduce the real client's behavior for a multi-text call:
+            # asyncio.run(...) internally. This raises if called directly
+            # from a running event loop, which is exactly the crash this
+            # test exists to catch, without needing the real Gemini client.
+            asyncio.run(asyncio.sleep(0))
+        return np.array([[1.0, 0.0]] * len(texts))
+
+    def test_run_builds_the_universe_and_reaches_office_matching(self, mock_dependencies):
+        pending_df = pd.DataFrame({"br_database_id": [1], "name": ["Test Race"], "state": ["DE"]})
+        universe_df = pd.DataFrame(
+            {
+                "state_postal_code": ["DE", "DE"],
+                "district_type": ["House", "State"],
+                "district_name": ["District 5", "Delaware"],
+            }
+        )
+        mock_dependencies["databricks"].return_value.execute_query.side_effect = [pending_df, universe_df]
+        mock_dependencies["embedding"].create_embeddings.side_effect = self._create_embeddings_side_effect
+        # Realistic (not auto-MagicMock) cost-stat returns: run() reads these
+        # for its cost baseline regardless of outcome, and a failure logs a
+        # delta against them, so an unconfigured mock would fail on a
+        # MagicMock-minus-MagicMock format string rather than on the actual
+        # assertion.
+        mock_dependencies["embedding"].get_cost_stats.return_value = {"total_cost": 0.0}
+        mock_dependencies["llm"].get_usage_stats.return_value = {"total_cost": 0.0}
+        mock_dependencies["llm"].generate_structured_content.return_value = {
+            "selected_candidate_number": 1,
+            "selection_confidence": 90,
+            "reasoning": "Clean match",
+            "is_exact_district_match": True,
+        }
+
+        matcher = L2BrMatcher()
+        with patch("stitch_golden_data.prod_gold_data.l2_br_matcher.build_cached_prompt", return_value="prompt"):
+            results = asyncio.run(matcher.run())
+
+        assert len(results) == 1
+        assert results[0].match_status == MATCHED
+        assert results[0].br_database_id == 1

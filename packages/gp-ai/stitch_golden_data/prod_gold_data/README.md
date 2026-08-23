@@ -23,8 +23,11 @@ uv run stitch_golden_data/prod_gold_data/l2_br_matcher.py --states DE --limit 10
 
 `--states` limits to specific state codes; omit it to process every state
 present in the pending worklist. `--limit` caps how many pending offices are
-read. `--batch-size` controls how many offices are matched concurrently per
-group (default 100).
+read (must be positive). `--batch-size` controls how many offices are matched
+concurrently per group (default 100); `--embedding-batch-size` controls how
+many district texts go into one `create_embeddings` call when building the
+universe (default 100) -- the two are unrelated knobs for unrelated
+workloads, not one shared setting.
 
 ## Terminal-status contract
 
