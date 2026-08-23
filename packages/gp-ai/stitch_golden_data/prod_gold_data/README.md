@@ -1,61 +1,41 @@
-# Golden Data Production Matcher
+# L2-to-BallotReady district matcher
 
-BR (Ballot Ready) to L2 district matching system for generating golden data.
+Matches BallotReady offices to L2 districts. Reads its worklist
+(`int__l2_br_match_pending_offices`) and its menu source
+(`int__l2_district_universe`) from Databricks, holds embeddings in memory for
+the run, and returns terminal results. Writes nothing -- the Databricks write
+path lands in a later PR.
 
-## Directory Structure
+## Directory structure
 
 ```
 prod_gold_data/
-├── output/                    # Match results
-│   ├── full_state_matching_*.parquet  # Per-state results
-│   └── full_state_matching.parquet    # Combined (run merge script)
-├── vector_store/              # L2 embeddings by state
-│   └── l2_embeddings_*.pkl
-├── production_matcher.py      # Main matching script
-└── vector_store_generator.py  # Generate L2 embeddings
+├── l2_br_matcher.py           # The matcher: class L2BrMatcher
+└── vector_store_generator.py  # Unrelated laptop tool, out of scope here --
+                                # still feeds bronze_data's pickle-based path
 ```
 
-## Running the Matcher
-
-### Single State
-```bash
-uv run stitch_golden_data/prod_gold_data/production_matcher.py TX
-```
-
-### All States
-```bash
-uv run stitch_golden_data/prod_gold_data/production_matcher.py all_states --max-workers 1500 --max-concurrent-states 2
-```
-
-## Merging State Files
-
-After running `all_states`, individual state parquet files are saved separately. To create a single combined file:
+## Running
 
 ```bash
-uv run stitch_golden_data/merge_all_states.py
+uv run stitch_golden_data/prod_gold_data/l2_br_matcher.py --states DE --limit 100
 ```
 
-This creates `output/full_state_matching.parquet` (~73 MB, 283K records).
+`--states` limits to specific state codes; omit it to process every state
+present in the pending worklist. `--limit` caps how many pending offices are
+read. `--batch-size` controls how many offices are matched concurrently per
+group (default 100).
 
-## Output Schema
+## Terminal-status contract
 
-| Column | Description |
-|--------|-------------|
-| `name` | BR position name |
-| `id` | BR position ID |
-| `br_database_id` | BR database ID |
-| `state` | State code |
-| `l2_district_name` | Matched L2 district name |
-| `l2_district_type` | Matched L2 district type |
-| `is_matched` | Whether a match was found |
-| `llm_reason` | LLM reasoning for match decision |
-| `confidence` | Match confidence (0-100) |
-| `embeddings` | Top embedding candidates considered |
-| `top_embedding_score` | Highest embedding similarity score |
+A run persists only `MATCHED` or `ABSTAINED`. A technical error (an LLM or
+embedding call raising, or a malformed LLM response) fails the run instead of
+being recorded as a match or coerced into an abstention.
 
-## Statistics
+## What is frozen
 
-- Total records: 283,821
-- Match rate: 95.8%
-- Average confidence: 98.9%
-- False positive rate: 0.01% (27 records)
+The matcher core -- the district and query embedding text, the menu
+construction (top 13 by cosine, plus the bare "state" query inserted at
+index 10), the LLM prompt, its response schema, and the Braintrust project
+and prompt identifiers -- is an owner-decided constraint and is not touched
+here.
