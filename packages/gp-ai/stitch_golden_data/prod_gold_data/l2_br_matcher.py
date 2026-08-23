@@ -103,8 +103,11 @@ class _StateUniverse:
 
 
 def _normalize_state(value: Any) -> str:
-    """Strip and upper-case once, at the point the worklist is read, so the
-    same value keys the universe dict and looks it up.
+    """Strip and upper-case, applied on BOTH sides of the universe dict -- the
+    worklist state that looks a state up, and the warehouse state that keys it.
+
+    Normalizing one side only moves the bug rather than fixing it, which is
+    what the first attempt at this did.
 
     The old code upper-cased only inside the two SQL WHERE clauses, so a
     lower-case pending `state` keyed the universe dict under 'DE' but was
@@ -314,8 +317,11 @@ class L2BrMatcher:
         if not states:
             return
         universe_df = self.load_district_universe(states)
+        # Normalized on BOTH sides. The pending side alone is not enough: this key
+        # comes straight off the warehouse, and normalizing only the lookup leaves the
+        # same asymmetry pointing the other way.
         for state, group in universe_df.groupby("state_postal_code"):
-            await self._embed_state_universe(state, group, embedding_batch_size)
+            await self._embed_state_universe(_normalize_state(state), group, embedding_batch_size)
 
     async def _embed_state_universe(self, state: str, district_rows: pd.DataFrame, embedding_batch_size: int) -> None:
         """Embed one state's district universe, batched (FROZEN:

@@ -332,7 +332,9 @@ class TestRunEndToEnd:
         pending_df = pd.DataFrame({"br_database_id": [1], "name": ["Test Race"], "state": ["DE"]})
         universe_df = pd.DataFrame(
             {
-                "state_postal_code": ["DE", "DE"],
+                # Lower case on purpose: the worklist side is normalized, so if the
+                # universe key is not, this state goes missing and run() raises.
+                "state_postal_code": ["de", "de"],
                 "district_type": ["House", "State"],
                 "district_name": ["District 5", "Delaware"],
             }
