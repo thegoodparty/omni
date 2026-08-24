@@ -15,15 +15,6 @@ from stitch_golden_data.prod_gold_data.l2_br_matcher import (
 from stitch_golden_data.prod_gold_data.vector_store_generator import VectorStoreGenerator
 
 
-@pytest.fixture(autouse=True)
-def reset_braintrust_singleton():
-    from shared.braintrust import BraintrustClient
-
-    BraintrustClient.reset_instance()
-    yield
-    BraintrustClient.reset_instance()
-
-
 @pytest.fixture
 def mock_dependencies():
     with (
@@ -360,6 +351,8 @@ class TestRunEndToEnd:
     never exercise it.
     """
 
+    embedded_texts: list[list[str]] = []
+
     @staticmethod
     def _create_embeddings_side_effect(texts, **kwargs):
         if len(texts) != 1:
@@ -368,9 +361,11 @@ class TestRunEndToEnd:
             # from a running event loop, which is exactly the crash this
             # test exists to catch, without needing the real Gemini client.
             asyncio.run(asyncio.sleep(0))
+            TestRunEndToEnd.embedded_texts.append(list(texts))
         return np.array([[1.0, 0.0]] * len(texts))
 
     def test_run_builds_the_universe_and_reaches_office_matching(self, mock_dependencies):
+        TestRunEndToEnd.embedded_texts = []
         # Lower case on BOTH sides, deliberately: with only the universe side
         # lower-cased, this test could pass on an accidental fix to just the
         # groupby key (round 1's mistake) while the pending side's own
@@ -412,6 +407,21 @@ class TestRunEndToEnd:
         # slot 1 is the frozen tie-break's business, pinned elsewhere, and
         # asserting it would red this test on an unrelated menu change.
         assert results[0].l2_district_name is not None
+
+        # The district text as it was actually assembled at the call site,
+        # not as _district_embedding_text produces it in isolation. Those are
+        # different things: the frozen-format test imports the function
+        # directly, so it cannot see a caller that reads the three columns in
+        # the wrong order. That swap yields a plausible string and a
+        # different embedding, silently changing every match -- the failure
+        # _embed_state_universe's own comment names, and which nothing
+        # detected before this assertion.
+        assert TestRunEndToEnd.embedded_texts == [
+            [
+                "state: DE, district type: House, district name: District 5",
+                "state: DE, district type: State, district name: Delaware",
+            ]
+        ]
 
 
 class TestLoadPendingOfficesStatesFilter:

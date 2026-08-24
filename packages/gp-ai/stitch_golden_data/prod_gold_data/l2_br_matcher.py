@@ -287,10 +287,6 @@ class L2BrMatcher:
         # concurrency it is sized for.
         self._executor = ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE)
 
-        # Both clients report a LIFETIME cumulative total and are constructed
-        # fresh just above, so this is always 0.0 here -- run() takes the real
-        # snapshot at its own start, since a construction-time baseline would
-        # make a second run() on this instance report the first run's spend too.
         self._embedding_cost_baseline = 0.0
         self._llm_cost_baseline = 0.0
 
@@ -405,11 +401,23 @@ class L2BrMatcher:
         if not states:
             return
         universe_df = self.load_district_universe(states)
-        if universe_df.empty:
-            return
         universe_df = universe_df.copy()
-        _validate_district_universe(universe_df)
-        universe_df["state_postal_code"] = universe_df["state_postal_code"].map(_normalize_state)
+        if not universe_df.empty:
+            _validate_district_universe(universe_df)
+            universe_df["state_postal_code"] = universe_df["state_postal_code"].map(_normalize_state)
+
+        # Before the embedding loop, not after it. A state the current L2
+        # delivery does not carry is an infrastructure failure that aborts the
+        # run and persists nothing, so checking it once every OTHER state has
+        # already been embedded means paying the full embedding bill for a run
+        # that cannot finish. The gap this catches is not hypothetical: prod
+        # rebuilds this model several times an hour, so a delivery can land
+        # mid-run.
+        present = set(universe_df["state_postal_code"]) if not universe_df.empty else set()
+        missing = sorted(s for s in {_normalize_state(s) for s in states} if s not in present)
+        if missing:
+            raise ValueError(f"No district universe entry for state(s): {missing}")
+
         for state, group in universe_df.groupby("state_postal_code"):
             await self._embed_state_universe(state, group, embedding_batch_size)
 
@@ -419,10 +427,12 @@ class L2BrMatcher:
 
         `create_embeddings` does `asyncio.run(...)` internally for any
         multi-text input (shared/llm_gemini.py:941), and every state's
-        universe has at least two rows (real districts plus the synthetic
-        `district_type='State'` row) -- so calling it directly from this
-        coroutine would raise `RuntimeError: asyncio.run() cannot be called
-        from a running event loop`. vector_store_generator.py:204 is the
+        universe has at least two rows -- int__l2_district_universe.sql
+        emits one synthetic `district_type='State'` row per state
+        unconditionally, on top of that state's real districts, and every
+        state carries real districts today -- so calling it directly
+        from this coroutine would raise `RuntimeError: asyncio.run() cannot
+        be called from a running event loop`. vector_store_generator.py:204 is the
         only other caller of this same document path and already wraps the
         identical call in a thread for exactly this reason.
 
@@ -445,7 +455,20 @@ class L2BrMatcher:
             texts.append(_district_embedding_text(row_state, row_district_type, row_district_name))
 
         # Left at the client defaults (max_concurrent_batches=2,
-        # rate_limit_delay=2.0) deliberately. rate_limit_delay is not just
+        # rate_limit_delay=2.0). Only one of those is an argued choice.
+        #
+        # max_concurrent_batches=2 is NOT tuned, and it is the throughput
+        # ceiling: shared/llm_gemini.py:797 sizes the semaphore from it, and
+        # :822 posts each text in a batch SEQUENTIALLY inside that slot, so at
+        # most two requests are ever in flight no matter what
+        # --embedding-batch-size is set to. Raising the batch size makes each
+        # slot's work longer, not wider. The stagger at :805-811 also sleeps
+        # while holding the semaphore. The producer this replaces used 800.
+        # Changing it alters no vector, since taskType and text are unaffected,
+        # so it is a throughput question for the measured run rather than
+        # something to guess at here.
+        #
+        # rate_limit_delay is the argued one. It is not just
         # the inter-batch pause: shared/llm_gemini.py:794 seeds the 429
         # retry backoff from it, :867 computes each retry's sleep as
         # current_delay * 2**attempt, and :844 ratchets current_delay back
@@ -639,14 +662,6 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         """
         candidates = await self._build_menu(br_name, state)
 
-        # Reserved for a later PR's geography filters, which can legitimately
-        # empty a menu (no eligible district type) -- that is a judgment, not
-        # an infrastructure failure, and abstains before the LLM is called.
-        # _build_menu never returns an empty list today; it raises instead,
-        # because nothing yet empties a menu this way.
-        if not candidates:
-            return MatchResult(br_database_id, None, None, None, confidence=None)
-
         response = await self._select_candidate(br_name, candidates)
         selected_index, confidence = _selection_from_response(response, len(candidates))
 
@@ -674,8 +689,10 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         """Match the pending worklist. Writes nothing -- this returns
         terminal results for the caller to print or persist.
 
-        Takes the cost-baseline snapshot here, not at construction: see the
-        comment in __init__.
+        Takes the cost-baseline snapshot here, not at construction. Both
+        clients report a LIFETIME cumulative total, so a construction-time
+        baseline would make a second run() on the same instance report the
+        first run's spend too.
         """
         self._embedding_cost_baseline = self.embedding_client.get_cost_stats()["total_cost"]
         self._llm_cost_baseline = self.llm.get_usage_stats()["total_cost"]
@@ -689,10 +706,6 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
             worklist_states = sorted(pending_df["state"].unique())
             self.logger.info(f"Building the district universe for {len(worklist_states)} state(s)")
             await self.build_universe(worklist_states, embedding_batch_size)
-
-            missing_states = [s for s in worklist_states if s not in self._universe_by_state]
-            if missing_states:
-                raise ValueError(f"No district universe entry for state(s): {missing_states}")
 
             offices = list(pending_df.itertuples(index=False))
             results: list[MatchResult] = []
