@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -9,6 +9,54 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
 }))
+
+// MediaRecorder / getUserMedia don't exist in jsdom, so replace the recorder
+// hook with a light stateful fake that transitions the same idle -> recording
+// -> preview -> saved states the UI keys off, without touching the DOM media
+// APIs. Same tactic as the Calendar stub below.
+vi.mock('./useRobocallRecorder', async () => {
+  const { useState, useCallback } = await import('react')
+  const clip = {
+    blob: new Blob(['x'], { type: 'audio/webm' }),
+    url: 'blob:mock',
+    durationSec: 5,
+  }
+  return {
+    useRobocallRecorder: () => {
+      const [status, setStatus] = useState('idle')
+      const [recording, setRecording] = useState<typeof clip | null>(null)
+      // Stable identities: RobocallFlow's open-effect lists `reset` as a
+      // dependency, so a fresh function each render would re-fire it every
+      // render and blow the update-depth limit.
+      const start = useCallback(() => setStatus('recording'), [])
+      const stop = useCallback(() => {
+        setRecording(clip)
+        setStatus('preview')
+      }, [])
+      const discard = useCallback(() => {
+        setRecording(null)
+        setStatus('idle')
+      }, [])
+      const save = useCallback(() => setStatus('saved'), [])
+      const reset = useCallback(() => {
+        setRecording(null)
+        setStatus('idle')
+      }, [])
+      return {
+        status,
+        elapsedSec: 0,
+        recording,
+        error: null,
+        start,
+        stop,
+        discard,
+        save,
+        uploadFile: stop,
+        reset,
+      }
+    },
+  }
+})
 
 // useListWizardCount (reached only in the builder) reads the active org slug.
 vi.mock('@shared/organization-picker', () => ({
@@ -112,23 +160,92 @@ const mockCreateListError = () =>
     data: { message: 'boom' },
   })
 
-const gotoAudience = async () => {
+const mockDraft = (
+  draft = 'Hi, this is Alex, and I am running for City Council.',
+) =>
+  api.mock('POST /v1/outreach/robocall/draft', {
+    status: 200,
+    data: { draft },
+  })
+
+const mockDraftError = () =>
+  api.mock('POST /v1/outreach/robocall/draft', {
+    status: 500,
+    data: { message: 'boom' },
+  })
+
+// Purpose -> audience -> schedule, then set a valid date+time and Continue into
+// compose WITHOUT pre-mocking a successful draft, so the caller controls
+// whether the on-entry draft succeeds or fails.
+const gotoComposeRaw = async (purposeLabel = 'Persuade likely voters') => {
+  await gotoSchedule(purposeLabel)
+  await userEvent.click(screen.getByText('Pick a date'))
+  await userEvent.click(await screen.findByText('mock-pick-future'))
+  await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+  await userEvent.click(await screen.findByRole('option', { name: '10:00 AM' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+}
+
+// Mocks the presign endpoint and stubs the direct S3 POST. `s3Ok` controls
+// whether the upload succeeds; non-S3 requests fall through to MSW.
+// Restore any global.fetch spy (mockAudioUpload) so it doesn't leak a
+// neutered fetch into later tests.
+afterEach(() => vi.restoreAllMocks())
+
+const mockAudioUpload = (s3Ok = true) => {
+  api.mock('POST /v1/outreach/robocall/audio/presign', {
+    status: 200,
+    data: {
+      url: 'https://s3.example/robocall-audio-dev',
+      fields: { key: 'k', 'Content-Type': 'audio/webm', policy: 'p' },
+      key: 'robocall/42/clip.webm',
+      expiresIn: 600,
+    },
+  })
+  const realFetch = global.fetch
+  vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+    const url = input instanceof Request ? input.url : input.toString()
+    if (url.includes('s3.example')) {
+      return Promise.resolve(new Response(null, { status: s3Ok ? 204 : 500 }))
+    }
+    return realFetch(input, init)
+  })
+}
+
+const gotoAudience = async (purposeLabel = 'Persuade likely voters') => {
   render(<RobocallFlow open onClose={vi.fn()} />)
-  fireEvent.click(screen.getByText('Persuade likely voters'))
+  fireEvent.click(screen.getByText(purposeLabel))
 }
 
 // Purpose -> audience -> pick a saved list -> Continue, landing on the schedule
 // ("When") step.
-const gotoSchedule = async () => {
+const gotoSchedule = async (purposeLabel = 'Persuade likely voters') => {
   mockSavedLists()
   mockListDetail(80)
-  await gotoAudience()
+  await gotoAudience(purposeLabel)
   await userEvent.click(await screen.findByText('Choose a voter list'))
   await userEvent.click(await screen.findByText('Renters in 98103'))
   await userEvent.click(
     await screen.findByRole('button', { name: /Continue \(80\)/ }),
   )
   await screen.findByLabelText('Campaign name')
+}
+
+// Schedule -> set a comfortably-future date + time -> Continue, landing on the
+// compose ("What do you want to say?") step.
+const gotoCompose = async (purposeLabel = 'Persuade likely voters') => {
+  mockDraft()
+  await gotoSchedule(purposeLabel)
+  await userEvent.click(screen.getByText('Pick a date'))
+  await userEvent.click(await screen.findByText('mock-pick-future'))
+  await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+  await userEvent.click(await screen.findByRole('option', { name: '10:00 AM' }))
+  const continueBtn = screen.getByRole('button', { name: 'Continue' })
+  await waitFor(() => expect(continueBtn).toBeEnabled())
+  await userEvent.click(continueBtn)
+  // Compose-step landing: keyed on the Intro body (unique to this step; the
+  // "What do you want to say?" title also renders in the sheet's a11y title).
+  await screen.findByText(/Read the script below into your microphone/)
 }
 
 describe('RobocallFlow', () => {
@@ -454,7 +571,8 @@ describe('RobocallFlow', () => {
     )
   })
 
-  it('advances to the placeholder once a valid date and time are set', async () => {
+  it('advances to the compose step once a valid date and time are set', async () => {
+    mockDraft()
     await gotoSchedule()
 
     // Open the date popover and pick a comfortably-future day (clears the 48h
@@ -469,7 +587,9 @@ describe('RobocallFlow', () => {
     const continueBtn = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(continueBtn).toBeEnabled())
     await userEvent.click(continueBtn)
-    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Read the script below into your microphone/),
+    ).toBeInTheDocument()
   })
 
   it('warns and blocks when the chosen day+time is inside the 48-hour window', async () => {
@@ -488,5 +608,212 @@ describe('RobocallFlow', () => {
       await screen.findByText(/Sends need at least 48 hours/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('drafts a script on entering compose and gates Continue on a saved recording', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    // The AI draft (grounded self-ID opener) renders read-only for a
+    // non-custom purpose.
+    expect(
+      await screen.findByText(/Hi, this is Alex, and I am running/),
+    ).toBeInTheDocument()
+
+    // No recording yet -> Continue disabled.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // Record -> the live timer shows elapsed over the 60s cap ("0:00 / 1:00").
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    expect(screen.getByText('0:00 / 1:00')).toBeInTheDocument()
+
+    // -> stop lands on preview (not yet committed): still disabled.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    expect(
+      await screen.findByText('Preview your recording'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // Save uploads to S3 then commits -> Continue enables and advances.
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Recording saved')).toBeInTheDocument()
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(continueBtn).toBeEnabled())
+    await userEvent.click(continueBtn)
+    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+  })
+
+  it('keeps the recording uncommitted when the S3 upload fails', async () => {
+    await gotoCompose()
+    mockAudioUpload(false)
+    await screen.findByText(/Hi, this is Alex, and I am running/)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Upload failed: surface the error, stay in preview, keep Continue locked.
+    expect(
+      await screen.findByText(/We couldn't upload your recording/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Preview your recording')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('drops the saved recording when backing out of compose', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Recording saved')
+
+    // Back to schedule, then re-advance: the saved clip is gone, so Continue
+    // is locked again until the user re-records (no stale-clip pass-through).
+    await userEvent.click(screen.getByLabelText('Back'))
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/Read the script below into your microphone/)
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Start recording' }),
+    ).toBeInTheDocument()
+  })
+
+  it('drops the saved recording when the tone changes', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Recording saved')
+
+    // Switching tone re-drafts the script the clip was read against, so the
+    // recording is dropped and Continue locks until the candidate re-records.
+    mockDraft('A punchier take for the urgent tone.')
+    await userEvent.click(screen.getByText('Urgent'))
+
+    expect(
+      await screen.findByRole('button', { name: 'Start recording' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('re-drafts when a different tone is chosen', async () => {
+    await gotoCompose()
+    expect(
+      await screen.findByText(/Hi, this is Alex, and I am running/),
+    ).toBeInTheDocument()
+
+    // A tone-pill click re-requests a draft; the new copy replaces the old.
+    mockDraft('Friends, election day is almost here — make your plan to vote.')
+    await userEvent.click(screen.getByText('Direct'))
+    expect(
+      await screen.findByText(/election day is almost here/),
+    ).toBeInTheDocument()
+  })
+
+  it('re-drafts on Regenerate', async () => {
+    await gotoCompose()
+    expect(
+      await screen.findByText(/Hi, this is Alex, and I am running/),
+    ).toBeInTheDocument()
+
+    mockDraft('A fresh take on why your vote matters this November.')
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    expect(
+      await screen.findByText(/A fresh take on why your vote matters/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the draft error card, and Try again re-drafts', async () => {
+    mockDraftError()
+    await gotoComposeRaw()
+
+    // The on-entry draft failed -> error card.
+    expect(
+      await screen.findByText(/We couldn't draft your script just now/),
+    ).toBeInTheDocument()
+
+    // Try again with a working draft: the script renders and the card clears.
+    mockDraft('A recovered draft for you.')
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(
+      await screen.findByText(/A recovered draft for you/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We couldn't draft your script just now/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('clears the draft error when switching to a custom purpose', async () => {
+    mockDraftError()
+    await gotoComposeRaw()
+    expect(
+      await screen.findByText(/We couldn't draft your script just now/),
+    ).toBeInTheDocument()
+
+    // Back to the purpose step: compose -> schedule -> audience -> purpose.
+    await userEvent.click(screen.getByLabelText('Back'))
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByLabelText('Back'))
+    await userEvent.click(screen.getByLabelText('Back'))
+    await screen.findByText('Write my own script')
+
+    // Custom never drafts, so only the purpose-change reset can clear the
+    // error. Switch to custom and return to compose (schedule kept its date).
+    await userEvent.click(screen.getByText('Write my own script'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+    )
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Custom textarea shows and the stale error card is gone.
+    expect(
+      await screen.findByRole('textbox', { name: 'Robocall script' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We couldn't draft your script just now/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('lets a custom purpose write its own script and never auto-drafts', async () => {
+    await gotoCompose('Write my own script')
+    // Arm a sentinel AFTER navigating (gotoCompose registers its own draft
+    // mock); custom must never fire a draft, so this must never render.
+    mockDraft('SHOULD-NOT-APPEAR auto draft')
+
+    // No tone pills, no "Suggested for" line, and an editable textarea.
+    expect(screen.queryByText('Direct')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Suggested for/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('SHOULD-NOT-APPEAR auto draft'),
+    ).not.toBeInTheDocument()
+
+    const textarea = screen.getByRole('textbox', { name: 'Robocall script' })
+    await userEvent.type(textarea, 'Hi, this is my own script.')
+    expect(textarea).toHaveValue('Hi, this is my own script.')
   })
 })
