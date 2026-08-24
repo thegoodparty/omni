@@ -11,6 +11,7 @@ import {
 } from '@styleguide'
 import {
   EyeIcon,
+  GiftIcon,
   InfoIcon,
   Loader2Icon,
   MessageSquareIcon,
@@ -28,7 +29,9 @@ import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { Intro } from '../social/Intro'
 
-const money = (cents: number): string => (cents / 100).toFixed(2)
+// The checkout-session endpoint returns amount in DOLLARS
+// (stripe.service.ts divides amount_total by 100).
+const money = (dollars: number): string => dollars.toFixed(2)
 
 const fmtDate = (d: Date) =>
   d.toLocaleDateString('en-US', {
@@ -86,13 +89,10 @@ export const SmsReviewStep = ({
   const hasFetchedSession = useRef(false)
 
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
-  const discount = hasFreeTextsOffer
-    ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT)
-    : 0
   const isFree =
     checkoutSession?.amount === 0 ||
     (hasFreeTextsOffer && contactCount <= FREE_TEXTS_OFFER.COUNT)
-  const totalCents = isFree ? 0 : (checkoutSession?.amount ?? 0)
+  const totalDollars = isFree ? 0 : (checkoutSession?.amount ?? 0)
 
   useEffect(() => {
     if (!outreachId || hasFetchedSession.current) return
@@ -212,11 +212,11 @@ export const SmsReviewStep = ({
               <dd className="text-foreground">${pricePerContact.toFixed(3)}</dd>
             </div>
             {hasFreeTextsOffer && (
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted-foreground">Free texts discount</dt>
-                <dd className="text-success">
-                  Up to {discount.toLocaleString()} free
-                </dd>
+              <div className="flex items-center gap-2 pt-1 text-link">
+                <GiftIcon className="size-4" />
+                <span className="text-sm font-medium">
+                  {FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included
+                </span>
               </div>
             )}
           </dl>
@@ -228,8 +228,10 @@ export const SmsReviewStep = ({
               '\u2014'
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
+            ) : isFree ? (
+              'Free'
             ) : (
-              `$${money(totalCents)}`
+              `$${money(totalDollars)}`
             )}
           </span>
         </div>
@@ -287,7 +289,7 @@ export const SmsReviewStep = ({
           disabled={isRedeeming}
           loading={isRedeeming}
         >
-          Schedule text
+          Pay $0.00
         </Button>
       ) : (
         <>
@@ -299,7 +301,7 @@ export const SmsReviewStep = ({
             />
           </Card>
           <Alert variant="info" icon={<InfoIcon className="size-4" />}>
-            <AlertTitle>${money(totalCents)} due today</AlertTitle>
+            <AlertTitle>${money(totalDollars)} due today</AlertTitle>
             <AlertDescription>
               One-time charge for this campaign. Your Pro subscription is billed
               separately.

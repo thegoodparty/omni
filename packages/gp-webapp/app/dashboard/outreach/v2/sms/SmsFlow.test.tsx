@@ -253,7 +253,7 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(await screen.findByText('1,200')).toBeInTheDocument()
     const scheduleButton = await screen.findByRole('button', {
-      name: 'Schedule text',
+      name: 'Pay $0.00',
     })
     await userEvent.click(scheduleButton)
 
