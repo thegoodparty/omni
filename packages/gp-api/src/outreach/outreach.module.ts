@@ -10,6 +10,7 @@ import { PurchaseService } from 'src/payments/services/purchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
+import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PaymentsModule } from '../payments/payments.module'
@@ -48,6 +49,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     AiModule,
     LlmModule,
     SlackModule,
+    StripeModule,
     // ContactsModule pulls in CampaignsModule (and onward to Peerly), which
     // loops back to Outreach — defer this edge so the module graph resolves.
     forwardRef(() => ContactsModule),

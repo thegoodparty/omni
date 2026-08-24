@@ -29,6 +29,7 @@ import type {
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
   SummarySource,
+  CancelOutreachResponse,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
   OutreachDetail,
@@ -275,6 +276,14 @@ export type APIEndpoints = {
   'PATCH /v1/outreach/:id/archive': {
     Request: OutreachArchiveRequest
     Response: OutreachArchiveResponse
+  }
+
+  // Cancel-before-send (SMS): permanent — deletes the Peerly job and issues
+  // the automatic Stripe refund (refunded=false on free-texts campaigns).
+  // Campaign-scoped; only `pending` (scheduled) rows are cancelable.
+  'POST /v1/outreach/:id/cancel': {
+    Request: {}
+    Response: CancelOutreachResponse
   }
 
   // Synchronous, stateless: one structured LLM call writes the compose-step

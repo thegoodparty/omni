@@ -752,6 +752,10 @@ export {
   OutreachArchiveResponseSchema,
   type OutreachArchiveResponse,
 } from './outreach/OutreachArchive.schema'
+export {
+  CancelOutreachResponseSchema,
+  type CancelOutreachResponse,
+} from './outreach/OutreachCancel.schema'
 
 export {
   SMS_PURPOSE_VALUES,

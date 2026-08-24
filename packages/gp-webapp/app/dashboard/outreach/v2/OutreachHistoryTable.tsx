@@ -168,6 +168,7 @@ const STATUS_FILTERS = [
   'In progress',
   'Done',
   'Pending payment',
+  'Canceled',
 ] as const
 
 // Representative timestamp for newest-first sorting: the row's own date,

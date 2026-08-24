@@ -20,6 +20,7 @@ type StatusKey =
   | 'in_progress'
   | 'completed'
   | 'pending_payment'
+  | 'canceled'
 
 // P2P rows (phoneListId != null): `pending` is a real unfinished draft.
 const p2pStatusLabels: { [K in StatusKey]: string } = {
@@ -30,6 +31,7 @@ const p2pStatusLabels: { [K in StatusKey]: string } = {
   in_progress: 'Scheduled',
   completed: 'Done',
   pending_payment: 'Pending payment',
+  canceled: 'Canceled',
 }
 
 // Rows without a phone list (robocall, legacy text, social): `pending` means
@@ -43,6 +45,7 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   in_progress: 'Scheduled',
   completed: 'Done',
   pending_payment: 'Pending payment',
+  canceled: 'Canceled',
 }
 
 const isStatusKey = (key: string | null | undefined): key is StatusKey =>
@@ -53,9 +56,10 @@ const getP2pStatusLabel = (row: HistoryRow): string | null => {
   if (!p2pJob?.status || !status || !isStatusKey(status)) {
     return null
   }
-  // An active Peerly job displays as sent regardless of the spine status.
+  // An active Peerly job displays as sent regardless of the spine status —
+  // except a canceled row, whose vendor job was deleted by the cancel.
   const displayStatus: StatusKey =
-    p2pJob.status === 'active' ? 'completed' : status
+    p2pJob.status === 'active' && status !== 'canceled' ? 'completed' : status
   return p2pStatusLabels[displayStatus]
 }
 

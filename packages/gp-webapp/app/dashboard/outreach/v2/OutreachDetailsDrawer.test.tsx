@@ -387,3 +387,89 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
+
+describe('OutreachDetailsDrawer — cancel before send', () => {
+  const scheduledSmsRow: HistoryRow = {
+    id: 41,
+    createdAt: '2026-08-20T00:00:00Z',
+    outreachType: 'p2p',
+    name: 'Likely voters — SMS',
+    status: 'pending',
+    phoneListId: 9,
+  }
+  const smsDetail = {
+    ...baseDetail,
+    id: 41,
+    outreachType: 'p2p' as const,
+    name: 'Likely voters — SMS',
+    status: 'pending' as const,
+    phoneListId: 9,
+  }
+
+  it('confirms, cancels, updates the row, and notes the refund', async () => {
+    const successSnackbar = vi.fn()
+    vi.mocked(useSnackbar).mockReturnValue({
+      displaySnackbar: vi.fn(),
+      errorSnackbar: vi.fn(),
+      successSnackbar,
+    })
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    let cancelParams: unknown
+    api.mock('POST /v1/outreach/:id/cancel', ({ params }) => {
+      cancelParams = params
+      return {
+        status: 200,
+        data: {
+          outreach: { ...smsDetail, status: 'canceled' },
+          refunded: true,
+        },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Cancel campaign' }),
+    )
+    expect(await screen.findByText('Cancel this campaign?')).toBeInTheDocument()
+
+    // The dialog's destructive action shares the trigger's name.
+    const dialogButtons = screen.getAllByRole('button', {
+      name: 'Cancel campaign',
+    })
+    await userEvent.click(
+      dialogButtons[dialogButtons.length - 1] as HTMLElement,
+    )
+
+    expect(cancelParams).toEqual({ id: '41' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(successSnackbar).toHaveBeenCalledWith(
+      'Campaign canceled. Your refund will arrive in 5-10 business days.',
+    )
+  })
+
+  it('offers no cancel action on a completed row', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...smsDetail, status: 'completed' },
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...scheduledSmsRow, status: 'completed' }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+    expect(
+      (await screen.findAllByText('Likely voters — SMS')).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+  })
+})

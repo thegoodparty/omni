@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -6,6 +7,7 @@ import {
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Campaign,
+  Outreach,
   OutreachStatus,
   OutreachType,
   User,
@@ -17,7 +19,9 @@ import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyJobStatus } from 'src/vendors/peerly/peerly.types'
 import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
@@ -50,6 +54,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly materializationService: OutreachMaterializationService,
     private readonly s3: S3Service,
+    private readonly stripeService: StripeService,
   ) {
     super()
   }
@@ -577,6 +582,94 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       where: { id },
       select: { id: true, archivedAt: true },
     })
+  }
+
+  // Durable payment link for cancel-before-send. Idempotent by shape (same
+  // session id on every webhook retry); scoped to the paying campaign like
+  // finalize, since outreachId rides in client-influenced metadata.
+  async recordCheckoutSession(
+    outreachId: number,
+    campaignId: number,
+    checkoutSessionId: string,
+  ): Promise<void> {
+    await this.model.updateMany({
+      where: { id: outreachId, campaignId },
+      data: { stripeCheckoutSessionId: checkoutSessionId },
+    })
+  }
+
+  /**
+   * Cancel-before-send (product decision: permanent, vendor job deleted,
+   * automatic refund). Cancelable = status `pending` only: that is the
+   * scheduled-not-started state finalize leaves a paid campaign in;
+   * `in_progress`/`completed` rows have sent messages and are not
+   * refundable here.
+   *
+   * Ordering is the failure policy. The vendor delete runs first — if it
+   * fails, nothing changed and the user keeps their campaign. The refund
+   * runs second — if IT fails, the row deliberately stays `pending`: the
+   * cancel CTA stays live, and a retry re-runs both steps safely (the
+   * vendor status write is idempotent, and the refund's idempotency key is
+   * stable per outreach, so it can neither be lost nor doubled). Only after
+   * both succeed does the status flip.
+   */
+  async cancelOutreach(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<{ outreach: Outreach; refunded: boolean }> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (outreach.status === OutreachStatus.canceled) {
+      return { outreach, refunded: false }
+    }
+    if (outreach.status !== OutreachStatus.pending) {
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
+
+    if (outreach.projectId) {
+      await this.peerlyP2pJobService.updateJobStatus(
+        outreach.projectId,
+        PeerlyJobStatus.DELETED,
+      )
+    }
+
+    let refunded = false
+    if (outreach.stripeCheckoutSessionId) {
+      try {
+        const session = await this.stripeService.retrieveCheckoutSession(
+          outreach.stripeCheckoutSessionId,
+        )
+        const paymentIntentId =
+          typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : session.payment_intent?.id
+        if (paymentIntentId) {
+          await this.stripeService.refundPaymentIntent(
+            paymentIntentId,
+            `outreach-cancel-${outreachId}`,
+          )
+          refunded = true
+        }
+      } catch (error) {
+        this.logger.error(
+          { err: error },
+          `Refund failed canceling outreach ${outreachId}; row left pending for retry`,
+        )
+        throw new BadGatewayException(
+          'The refund could not be processed. Try canceling again.',
+        )
+      }
+    }
+
+    const updated = await this.model.update({
+      where: { id: outreachId },
+      data: { status: OutreachStatus.canceled },
+    })
+    return { outreach: updated, refunded }
   }
 
   async findByCampaignId(campaignId: number) {

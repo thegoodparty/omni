@@ -22,6 +22,7 @@ enum OutreachStatus {
   in_progress
   completed
   pending_payment
+  canceled
 }
 
 model Outreach {
@@ -61,6 +62,10 @@ model Outreach {
   textCount                         Int?                               @map("text_count")
   billableTextCount                 Int?                               @map("billable_text_count")
   campaignPlanDueDate               String?                            @map("campaign_plan_due_date")
+  // The paid checkout session that funded this outreach, written at
+  // finalize. Cancel-before-send resolves its payment intent for the
+  // automatic refund; free-texts redemptions never set it.
+  stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill.
   organizationSlug                  String?                            @map("organization_slug")

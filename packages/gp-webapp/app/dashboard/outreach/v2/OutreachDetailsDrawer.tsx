@@ -49,6 +49,7 @@ import {
   Share2Icon,
   Trash2Icon,
   UsersRoundIcon,
+  XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -162,7 +163,7 @@ export const OutreachDetailsDrawer = ({
 
   const [outreaches, setOutreaches] = useOutreach()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const { errorSnackbar } = useSnackbar()
+  const { errorSnackbar, successSnackbar } = useSnackbar()
   const deleteMutation = useMutation({
     mutationFn: () => {
       // The AlertDialog renders outside the row guard, so the confirm can
@@ -180,6 +181,41 @@ export const OutreachDetailsDrawer = ({
     },
     onError: () =>
       errorSnackbar("Couldn't delete this list. Please try again."),
+  })
+
+  // Cancel-before-send: only a paid, scheduled-not-started text campaign
+  // (spine status `pending`, created through the P2P flow) is cancelable —
+  // the backend enforces the same set.
+  const isCancelableSms =
+    (row?.outreachType === OUTREACH_TYPES.text ||
+      row?.outreachType === OUTREACH_TYPES.p2p) &&
+    row?.status === 'pending' &&
+    row?.phoneListId != null
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const cancelMutation = useMutation({
+    mutationFn: () => {
+      const rowId = row?.id
+      if (!rowId) return Promise.reject(new Error('row unavailable'))
+      return clientRequest('POST /v1/outreach/:id/cancel', {
+        id: String(rowId),
+      })
+    },
+    onSuccess: ({ data }) => {
+      setOutreaches(
+        outreaches.map((o) =>
+          o.id === row?.id ? { ...o, status: data.outreach.status } : o,
+        ),
+      )
+      setCancelConfirmOpen(false)
+      onOpenChange(false)
+      successSnackbar(
+        data.refunded
+          ? 'Campaign canceled. Your refund will arrive in 5-10 business days.'
+          : 'Campaign canceled.',
+      )
+    },
+    onError: () =>
+      errorSnackbar("Couldn't cancel this campaign. Please try again."),
   })
 
   const isArchived = Boolean(row?.archivedAt)
@@ -524,6 +560,22 @@ export const OutreachDetailsDrawer = ({
               </DrawerFooter>
             )}
 
+            {isCancelableSms && (
+              <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
+                <div className="mx-auto flex w-full max-w-[608px]">
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+                    disabled={cancelMutation.isPending}
+                    onClick={() => setCancelConfirmOpen(true)}
+                  >
+                    <XCircleIcon className="size-4" />
+                    Cancel campaign
+                  </Button>
+                </div>
+              </DrawerFooter>
+            )}
+
             {/* Archive applies to every completed row (the history's
                 Archive toggle filters all types); Delete stays
                 phone-banking-only — it calls the list-delete endpoint. */}
@@ -555,6 +607,28 @@ export const OutreachDetailsDrawer = ({
           </>
         )}
       </DrawerContent>
+
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure? This can&apos;t be undone. Your texts won&apos;t
+              send, and any payment is refunded automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep campaign</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={cancelMutation.isPending}
+              onClick={() => cancelMutation.mutate()}
+            >
+              Cancel campaign
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>

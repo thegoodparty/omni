@@ -16,6 +16,7 @@ export const P2P_ERROR_MESSAGES = {
   LIST_ASSIGNMENT_FAILED:
     'List assignment failed; job exists in Peerly and may require manual recovery',
   RETRIEVE_JOB_FAILED: 'Failed to fetch P2P job',
+  UPDATE_JOB_FAILED: 'Failed to update P2P job',
   RETRIEVE_JOBS_FAILED: 'Failed to fetch P2P jobs',
 } as const
 

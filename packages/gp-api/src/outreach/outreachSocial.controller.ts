@@ -9,6 +9,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  CancelOutreachResponse,
+  CancelOutreachResponseSchema,
   OutreachArchiveRequest,
   OutreachArchiveRequestSchema,
   OutreachArchiveResponse,
@@ -133,6 +135,17 @@ export class OutreachSocialController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<OutreachDetail> {
     return this.socialService.findDetail(campaign.id, id)
+  }
+
+  // Campaign-scoped like finalize: cancel moves the owning campaign's money
+  // and vendor job, so the org-level archive posture does not apply.
+  @Post(':id/cancel')
+  @ResponseSchema(CancelOutreachResponseSchema)
+  async cancel(
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<CancelOutreachResponse> {
+    return this.outreachService.cancelOutreach(id, campaign.id)
   }
 
   // Org-scoped, like the phone-banking list's own DELETE — an outreach row

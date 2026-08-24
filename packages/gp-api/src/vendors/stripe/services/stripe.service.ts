@@ -87,6 +87,16 @@ export class StripeService {
     })
   }
 
+  // Full refund of a completed one-time payment (cancel-before-send).
+  // Callers pass a stable idempotency key so a retried cancel can never
+  // refund twice.
+  async refundPaymentIntent(paymentIntentId: string, idempotencyKey: string) {
+    return await this.stripe.refunds.create(
+      { payment_intent: paymentIntentId },
+      { idempotencyKey },
+    )
+  }
+
   async retrieveCheckoutSession(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }

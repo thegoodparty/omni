@@ -112,6 +112,7 @@ const STATUS_DISPLAY: Record<
   'In progress': { icon: <CircleDotIcon />, tone: 'primary' },
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
+  Canceled: { icon: <XCircleIcon />, tone: 'muted' },
 }
 
 export const HistoryStatusText = ({ label }: { label: string | null }) => {
