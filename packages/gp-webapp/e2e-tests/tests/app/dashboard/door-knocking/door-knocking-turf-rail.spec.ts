@@ -79,17 +79,27 @@ test.describe('native door-knocking turf rail', () => {
     ).toBeEnabled()
 
     // The pack never loads in this environment (no district tiles), so the
-    // audience and door sections are asserted only as far as their headings —
-    // enough to catch the sections disappearing, without depending on figures
-    // this spec has no data to produce.
+    // sections are asserted only as far as their titles — enough to catch one
+    // disappearing, without depending on figures this spec has no data to
+    // produce. `getByText`, not `getByRole('heading')`: the shared drawer's
+    // section titles are the styleguide `Eyebrow`, a `p`, which is what the
+    // outreach history drawer has always used.
+    await expect(page.getByText('Overview', { exact: true })).toBeVisible()
     await expect(
-      page.getByRole('heading', { name: 'Doors in this list' }),
-    ).toBeVisible()
-    await expect(
-      page.getByText(/Street addresses arrive with the route/),
+      page.getByText('Applied filters', { exact: true }),
     ).toBeVisible()
 
-    await page.getByRole('button', { name: 'Close details' }).click()
+    // Overview only — the drawer reports about the list, never about the
+    // people in it. `TurfRoster` and the section that held it are gone, and
+    // this is the assertion that stops them coming back by accident.
+    await expect(page.getByText('Doors in this list')).toHaveCount(0)
+    await expect(
+      page.getByText(/Street addresses arrive with the route/),
+    ).toHaveCount(0)
+
+    // The close moved into the shared shell, where it carries the drawer's own
+    // name rather than one this surface invented.
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(row).toBeVisible()
   })
 })
