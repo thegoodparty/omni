@@ -96,6 +96,59 @@ describe('PersonSheet header', () => {
   })
 })
 
+// The door sheet is the one surface used one-handed on a porch, so the two
+// layout facts below are behavior rather than styling: which shape it takes at
+// which width, and what stays on screen while the body scrolls.
+describe('PersonSheet layout', () => {
+  const panel = () =>
+    screen.getByRole('heading', { name: 'Dorian Fen' }).closest('div.fixed')!
+
+  it('is a bottom drawer below lg and a right-hand sheet at lg', () => {
+    renderSheet([target()])
+    const classes = panel().className.split(' ')
+
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        'max-lg:inset-x-0',
+        'max-lg:bottom-0',
+        'max-lg:max-h-[85dvh]',
+        'lg:right-0',
+        'lg:top-0',
+        'lg:w-[430px]',
+      ]),
+    )
+    // One breakpoint for the whole feature — the landing rail becomes a sheet
+    // at `lg` as well, so a second breakpoint here would give the walk two
+    // layouts that change at different widths on the same phone.
+    expect(
+      classes.filter((name) => /^(max-)?(sm|md|xl|2xl):/.test(name)),
+    ).toEqual([])
+  })
+
+  // The form is pinned to the footer, so logging a door scrolls the body past
+  // anything sitting at the top of it. The switcher is the control a canvasser
+  // reaches for at exactly that moment — when the person who opened the door
+  // turns out to be the housemate — so it sits with the name it changes.
+  it('keeps the resident switcher with the name rather than in the scrolling body', () => {
+    renderSheet([
+      target(),
+      target({ stopTargetId: 22, personId: 'person-2', name: 'Marisol Vega' }),
+    ])
+    const switcher = screen.getByRole('button', { name: /Marisol Vega/ })
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    expect(body.contains(switcher)).toBe(false)
+    expect(
+      screen
+        .getByRole('heading', { name: 'Dorian Fen' })
+        .closest('div.border-b')!
+        .contains(switcher),
+    ).toBe(true)
+  })
+})
+
 describe('PersonSheet section headers', () => {
   it('marks each card with a glyph for what it holds', () => {
     renderSheet([target()])
@@ -148,6 +201,24 @@ describe('PersonSheet phone numbers', () => {
     expect(
       within(contactCard()).getByText('No phone number on file.'),
     ).toBeInTheDocument()
+  })
+
+  // The stop's own coordinates, not its address text: the route was bought
+  // against them, and a geocoder handed the address string is exactly what puts
+  // a canvasser on the wrong rural driveway. Google's universal maps URL, so a
+  // phone hands off to the Maps app rather than opening a web map — and a new
+  // tab, because leaving this one unmounts the walk and its replay keys.
+  it('opens the stop in Google Maps at its frozen coordinates', () => {
+    renderSheet([target()])
+
+    const link = within(contactCard()).getByRole('link', {
+      name: 'Open in Maps',
+    })
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.google.com/maps/search/?api=1&query=36.16,-86.78',
+    )
+    expect(link).toHaveAttribute('target', '_blank')
   })
 
   // A mover has no live row at all, which is the same reason the numbers are
