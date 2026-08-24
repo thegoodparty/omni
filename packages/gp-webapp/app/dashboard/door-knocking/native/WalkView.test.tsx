@@ -9,8 +9,8 @@ import {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import WalkView from './WalkView'
-import { STATUS_DOT_COLORS } from './statusPresentation'
+import WalkView, { stopNumeralColor } from './WalkView'
+import { STATUS_DOT_COLORS, STATUS_RGB } from './statusPresentation'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -138,6 +138,13 @@ const closePersonSheet = async () => {
   await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 }
 
+// The stop rows are the only list items on this surface, and their button is
+// what carries `aria-current` — the row saying it is the stop the walk is on.
+const stopRow = (index: number): HTMLElement =>
+  (screen.getAllByRole('listitem')[index] as HTMLElement).querySelector(
+    'button',
+  ) as HTMLElement
+
 describe('WalkView', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -169,10 +176,14 @@ describe('WalkView', () => {
     ).toBeTruthy()
   })
 
-  // Aug 14 walkthrough: the list view shows housing information, not step
-  // numbers. Ordering stays where it's actually walked — the map pins and the
-  // printed sheet — while the circle keeps carrying the stop's status color.
-  it('renders each stop as a status circle with no sequence number', async () => {
+  // The Aug 14 walkthrough took these numerals out; the 2026-08-20 product call
+  // put them back, and this test was written to encode their absence. The map
+  // draws `seq` on every pin, so a list with no numerals gives a canvasser no
+  // way to turn the pin under their thumb into the row that opens its door.
+  // `seq` and not the DOM position, so the list, the pins and the printed sheet
+  // cannot name the same stop three ways — the fixture is served out of order
+  // for exactly that reason.
+  it('numbers each stop by its route order, on the circle that carries its status', async () => {
     render(<WalkView turfId={3} />)
 
     await waitFor(() =>
@@ -181,25 +192,30 @@ describe('WalkView', () => {
     const rows = screen.getAllByRole('listitem')
 
     const elmDot = (rows[0] as HTMLElement).querySelector('span.h-7')
-    expect(elmDot).toHaveTextContent('')
+    expect(elmDot).toHaveTextContent('Stop 1')
     expect(elmDot).toHaveStyle({ backgroundColor: STATUS_DOT_COLORS.unknown })
     const cedarDot = (rows[1] as HTMLElement).querySelector('span.h-7')
-    expect(cedarDot).toHaveTextContent('')
+    expect(cedarDot).toHaveTextContent('Stop 2')
     expect(cedarDot).toHaveStyle({
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
+  })
 
-    // The seq numeral lived inside the colored circle, so a colored element
-    // carrying a digit anywhere in either row means it came back.
-    for (const row of rows) {
-      const numbered = Array.from(
-        (row as HTMLElement).querySelectorAll<HTMLElement>('span[style]'),
-      ).filter(
-        (element) =>
-          element.style.backgroundColor && /\d/.test(element.textContent ?? ''),
-      )
-      expect(numbered).toHaveLength(0)
-    }
+  // A row tap and a pin tap set one selection, so the numbered row and the
+  // numbered pin are two views of where the canvasser is. It outlives the sheet
+  // deliberately: the door just worked is the one worth keeping marked, and a
+  // mark that cleared on close would leave a fifty-row list with nothing saying
+  // where in the street the walk had got to.
+  it('marks the stop the walk is on, and keeps it marked after the sheet closes', async () => {
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+
+    expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
+    expect(stopRow(1)).not.toHaveAttribute('aria-current')
+
+    await closePersonSheet()
+
+    expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
   })
 
   // The offline story: paper is reached from the walk, and the sheet has to
@@ -317,8 +333,8 @@ describe('WalkView', () => {
       expect(screen.getByText('210 Cedar Row')).toBeInTheDocument(),
     )
     const row = screen.getAllByRole('listitem')[0] as HTMLElement
-    // The stop's own circle, the one the rollup colors — no longer identifiable
-    // by a sequence number, since the list view doesn't print one.
+    // The stop's own circle, the one the rollup colors and the one its number
+    // is printed on — as against the per-resident dots asserted below.
     expect(row.querySelector('span.h-7')).toHaveStyle({
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
@@ -1025,6 +1041,28 @@ describe('WalkView auto-advance', () => {
     expect(screen.getByText('Log this door')).toBeInTheDocument()
   })
 
+  // The list's mark is the door the sheet is offering, not a history of taps —
+  // so advancing has to move it, or a canvasser who closes the sheet after a
+  // few doors is returned to a list pointing at the one they started on.
+  it('moves the list’s mark onto the door it advances to', async () => {
+    mockRoute([
+      stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+      stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+    ])
+    logNotHome('person-21')
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
+
+    knockNotHome()
+
+    await waitFor(() =>
+      expect(stopRow(1)).toHaveAttribute('aria-current', 'true'),
+    )
+    expect(stopRow(0)).not.toHaveAttribute('aria-current')
+  })
+
   // A door already logged earlier in the walk isn't worth stopping at again.
   it('skips a door that already has a status', async () => {
     mockRoute([
@@ -1500,6 +1538,44 @@ describe('WalkView auto-advance', () => {
   })
 })
 
+// The numeral rides the stop's status fill, which is seven fixed colors from
+// yellow to black — one numeral color cannot be legible on all of them, and the
+// two the walk list can choose between are white and black. This asserts the
+// rule picks a readable one for every status rather than the palette happening
+// to suit whichever was hardcoded.
+describe('WalkView stop numerals', () => {
+  const channel = (value: number): number => {
+    const scaled = value / 255
+    return scaled <= 0.03928
+      ? scaled / 12.92
+      : ((scaled + 0.055) / 1.055) ** 2.4
+  }
+  const luminance = ([red, green, blue]: [number, number, number]): number =>
+    0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+  const contrast = (
+    numeral: string,
+    fill: [number, number, number],
+  ): number => {
+    const numeralLuminance = numeral === '#ffffff' ? 1 : 0
+    const [lighter, darker] = [
+      Math.max(numeralLuminance, luminance(fill)),
+      Math.min(numeralLuminance, luminance(fill)),
+    ]
+    return ((lighter as number) + 0.05) / ((darker as number) + 0.05)
+  }
+
+  it('stays legible on every status color', () => {
+    for (const [status, rgb] of Object.entries(STATUS_RGB)) {
+      expect(
+        contrast(
+          stopNumeralColor(status as keyof typeof STATUS_RGB),
+          rgb as [number, number, number],
+        ),
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+})
+
 // A pin is what a canvasser is actually standing in front of, so tapping one
 // has to reach the same PersonSheet a stop row reaches. The page owns the map
 // and turns a tap into this request; the view turns it into an open door.
@@ -1599,6 +1675,32 @@ describe('WalkView map pin taps', () => {
       ).toBeInTheDocument(),
     )
     expect(screen.getByText('Log this door')).toBeInTheDocument()
+  })
+
+  // The other half of the map's selection: the list follows the pin. The map
+  // band and the list are stacked, so the tapped stop's row is usually scrolled
+  // off screen — closing the sheet would otherwise leave a canvasser looking at
+  // some other part of the street, with the numbered pin they tapped nowhere in
+  // view.
+  it('brings the list to the stop whose pin was tapped', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    try {
+      await walkThenTap(
+        [
+          stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+          stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+        ],
+        { stopId: 12, token: 1 },
+      )
+
+      await waitFor(() =>
+        expect(stopRow(1)).toHaveAttribute('aria-current', 'true'),
+      )
+      expect(stopRow(0)).not.toHaveAttribute('aria-current')
+      expect(scrollIntoView).toHaveBeenCalled()
+    } finally {
+      scrollIntoView.mockRestore()
+    }
   })
 
   // The row expands for a household so the canvasser can pick; a pin has no
