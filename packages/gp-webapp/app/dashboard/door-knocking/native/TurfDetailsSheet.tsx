@@ -385,19 +385,24 @@ export default function TurfDetailsSheet({
     turfId: turf.id,
     routeId: route?.route.id ?? null,
     routeUnavailable: routeFailed,
-    onArchived: ({ mirrorFailed }) => {
+    // The row the server wrote, never the render-time `isArchived` beside it:
+    // this callback is re-read at settlement, and `turfsQueryOptions` has no
+    // staleTime, so a background refetch landing mid-flight can move
+    // `liveTurf` to the post-mutation value before this runs — and the message
+    // would then name the opposite of what just happened.
+    onArchived: ({ turf: written, mirrorFailed }) => {
       if (mirrorFailed) {
         // The list IS shelved; what did not land is the history row. Reporting
         // a failed archive here would send someone to press it again against a
         // list that already moved.
         errorSnackbar(
-          isArchived
-            ? 'List restored, but your outreach history has not caught up yet.'
-            : 'List archived, but your outreach history has not caught up yet.',
+          written.archivedAt
+            ? 'List archived, but your outreach history has not caught up yet.'
+            : 'List restored, but your outreach history has not caught up yet.',
         )
         return
       }
-      successSnackbar(isArchived ? 'List restored' : 'List archived')
+      successSnackbar(written.archivedAt ? 'List archived' : 'List restored')
     },
   })
 
