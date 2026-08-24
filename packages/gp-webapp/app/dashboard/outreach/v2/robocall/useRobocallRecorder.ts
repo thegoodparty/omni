@@ -35,14 +35,16 @@ const pickMimeType = (): string | undefined => {
 }
 
 // Read an audio file's duration (seconds) via a throwaway <audio> element, so
-// an uploaded clip can be length-checked the same way a recording is.
-const readAudioDuration = (url: string): Promise<number> =>
+// an uploaded clip can be length-checked the same way a recording is. Resolves
+// null when the browser can't decode the file, so the caller rejects it rather
+// than treating an undecodable file as a 0-second (length-passing) clip.
+const readAudioDuration = (url: string): Promise<number | null> =>
   new Promise((resolve) => {
     const el = new Audio()
     el.preload = 'metadata'
     el.onloadedmetadata = () =>
-      resolve(Number.isFinite(el.duration) ? Math.round(el.duration) : 0)
-    el.onerror = () => resolve(0)
+      resolve(Number.isFinite(el.duration) ? Math.round(el.duration) : null)
+    el.onerror = () => resolve(null)
     el.src = url
   })
 
@@ -181,6 +183,11 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
       }
       const url = URL.createObjectURL(file)
       void readAudioDuration(url).then((durationSec) => {
+        if (durationSec === null) {
+          URL.revokeObjectURL(url)
+          setError("We couldn't read that audio file. Try a different format.")
+          return
+        }
         if (durationSec > maxSeconds) {
           URL.revokeObjectURL(url)
           setError(`Audio must be ${maxSeconds} seconds or less`)
