@@ -61,6 +61,8 @@ export {
   Mic as MicIcon,
   Minus as MinusIcon,
   Plus as PlusIcon,
+  Play as PlayIcon,
+  Pause as PauseIcon,
   MoreHorizontal as MoreHorizontalIcon,
   Paperclip as PaperclipIcon,
   Pencil as PencilIcon,

@@ -6,8 +6,14 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { addressPreviewQueryOptions } from './turfQueries'
-import CreateListFlow, { CreateFlowStep } from './createFlow/CreateListFlow'
+import {
+  addressPreviewQueryOptions,
+  savedListsQueryOptions,
+} from './turfQueries'
+import { voterPackQueryOptions } from './useVoterPack'
+import CreateListFlow from './createFlow/CreateListFlow'
+import type { CreateFlowStep } from './createFlow/CreateListFlow'
+import { audienceOptions } from './createFlow/savedListOptions'
 import type { PolygonRing } from './VoterMapCanvas'
 import type { PolygonStats } from './filterEngine'
 
@@ -96,9 +102,17 @@ export const DrawHintOverlay = ({
 // gp-api. That is now the whole address-preview machinery (ADR 0010) — which
 // shape was asked about, whether the answer still describes it, and the four
 // props the draw step reads off it — because nothing outside this flow has
-// ever read a preview. The canvas grows this to purpose → who → draw → confirm
-// plus a conditional name step; a step added here needs nothing from the
-// orchestrator beyond the `CreateFlowStep` union.
+// ever read a preview. It also owns the who step's list picker and the
+// district counts beside it, for the same reason: nothing outside this flow
+// asks that question either.
+//
+// The wizard is now purpose → who → draw → confirm plus a conditional name
+// step, and it grew those WITHOUT the orchestrator learning about them:
+// `CreateFlowStep` still has its three frozen values, and the three pre-draw
+// stages live inside `filters`. See `createFlow/createFlowSteps.ts` — the page
+// starts a drawing session on exactly the `filters` → `draw` transition, so
+// that pair has to stay the boundary between deciding an audience and cutting
+// a shape however many stages the deciding takes.
 //
 // The orchestrator owns: the map, and therefore everything the map also reads.
 // `filters` shades dots while the flow is open and `ring` comes back off the
@@ -197,6 +211,20 @@ export default function CreateListSurface({
   const previewCurrent = previewRing !== null && previewRing === ring
   const addressPreview = previewCurrent ? (previewQuery.data ?? null) : null
 
+  // The who step's list picker. Both reads are the page's own queries by key,
+  // so this costs nothing: the saved lists are already warm (the rail resolves
+  // every turf's filter through them) and the pack is `enabled: false` because
+  // fetching one is emphatically not this surface's job — the page owns it,
+  // gates the whole feature on it, and disables the button that opens this
+  // flow until it has decoded. Reading it through an observer rather than
+  // `getQueryData` is what makes the counts appear if it lands late.
+  const savedListsQuery = useQuery(savedListsQueryOptions)
+  const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
+  const audience = useMemo(
+    () => audienceOptions(savedListsQuery.data, packQuery.data ?? null),
+    [savedListsQuery.data, packQuery.data],
+  )
+
   return (
     <CreateListFlow
       step={step}
@@ -214,6 +242,8 @@ export default function CreateListSurface({
       }}
       onClose={onClose}
       districtHouseholds={districtHouseholds}
+      savedLists={audience.lists}
+      allContactsHouseholds={audience.allContactsHouseholds}
       ring={ring}
       turfStats={turfStats}
       addressPreview={addressPreview}

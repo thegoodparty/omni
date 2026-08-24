@@ -6,11 +6,12 @@ import type {
   RecordPhoneBankingCall,
   RecordPhoneBankingCallResponse,
 } from '@goodparty_org/contracts'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachDetailQueryKey } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import PhoneBankingCallerPage from './PhoneBankingCallerPage'
 
 vi.mock('helpers/useSnackbar', () => ({
@@ -96,6 +97,7 @@ const mockGetList = (list: PhoneBankingList) =>
   api.mock('GET /v1/phone-banking/lists/:id', { status: 200, data: list })
 
 const mockPush = vi.mocked(router.push!)
+const mockRefresh = vi.mocked(router.refresh)
 
 beforeEach(() => {
   vi.mocked(useSnackbar).mockReturnValue({
@@ -104,6 +106,7 @@ beforeEach(() => {
     successSnackbar: vi.fn(),
   })
   mockPush.mockClear()
+  mockRefresh.mockClear()
   vi.mocked(trackEvent).mockClear()
   // The entry panel always mounts PhoneBankingNotes for the active person;
   // stub it to empty so notes aren't the thing under test here.
@@ -123,6 +126,19 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(screen.getByText('0/3 called')).toBeInTheDocument()
     expect(screen.getByText('Alex Solo')).toBeInTheDocument()
     expect(screen.getAllByText('Not called').length).toBeGreaterThan(0)
+  })
+
+  it('the back arrow refreshes the router, busting a stale Router Cache snapshot of the hub', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    await user.click(
+      screen.getByRole('link', { name: 'Back to Voter Outreach' }),
+    )
+
+    expect(mockRefresh).toHaveBeenCalled()
   })
 
   it('an answered save carries the active tab personId, and switching tabs shows a different logged record', async () => {
@@ -548,6 +564,56 @@ describe('<PhoneBankingCallerPage>', () => {
     await screen.findByText('August GOTV')
 
     expect(screen.getByText('Wrong number')).toBeInTheDocument()
+  })
+
+  it('saving a call outcome invalidates the hub-cached outreach-detail entry', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    api.mock('POST /v1/phone-banking/lists/:id/calls', () => {
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 1,
+        results: [
+          {
+            personId: 'solo-1',
+            interaction: {
+              outcome: 'refused',
+              supportAnswer: null,
+              willVote: null,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+
+    // Simulates the hub's history-table metric having already cached this
+    // envelope's 0/0 counts before the calling session started — the exact
+    // staleness ENG-10934 fixes.
+    const detailQueryKey = outreachDetailQueryKey(LIST_ID)
+    testQueryClient.setQueryData(detailQueryKey, {
+      id: LIST_ID,
+      phoneBanking: { peopleCalled: 0, peopleTotal: 3, supporters: 0 },
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    await user.click(screen.getByText('Alex Solo'))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    const engageRefused = within(dialog).getAllByRole('radio', {
+      name: 'Refused',
+    })[1]!
+    await user.click(engageRefused)
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(testQueryClient.getQueryState(detailQueryKey)?.isInvalidated).toBe(
+        true,
+      ),
+    )
   })
 
   it('Delete removes the list and returns to the hub', async () => {

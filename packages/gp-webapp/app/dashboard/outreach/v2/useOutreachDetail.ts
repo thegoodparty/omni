@@ -4,7 +4,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { OutreachDetail } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 
-export const outreachDetailQueryKey = (id: number) => ['outreach-detail', id]
+// Shared so callers that write outside a single detail's cache entry (e.g. a
+// calling session that never mounts this hook) can invalidate the whole
+// family with one prefix match instead of duplicating the string literal.
+export const outreachDetailQueryPrefix = ['outreach-detail']
+
+export const outreachDetailQueryKey = (id: number) => [
+  ...outreachDetailQueryPrefix,
+  id,
+]
 
 // One cached detail per row, shared by the history table's social metric
 // ("N platforms") and the details drawer, so opening the drawer after the
