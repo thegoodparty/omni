@@ -332,14 +332,22 @@ export default function CreateListFlow({
   // Anything the candidate typed, picked or drew. A pristine flow closes
   // without a question, which is the one thing that keeps the confirm from
   // becoming noise on the X nobody meant to press twice.
+  //
+  // "Save and draw another" keeps the audience on purpose — the page keeps
+  // `filters` across it too, because the second turf is usually the same list
+  // cut somewhere else — so from that point on the purpose, the list and the
+  // pills are SAVED work, not work in progress. Counting them would make the
+  // X ask about a session that has nothing in it yet.
+  const [savedAny, setSavedAny] = useState(false)
+  const unsavedShape =
+    ring !== null || drawPointCount > 0 || name.trim().length > 0
   const dirty =
-    purpose !== null ||
-    savedListId !== null ||
-    activeFilterCount > 0 ||
-    ring !== null ||
-    drawPointCount > 0 ||
-    savedName.trim().length > 0 ||
-    name.trim().length > 0
+    unsavedShape ||
+    (!savedAny &&
+      (purpose !== null ||
+        savedListId !== null ||
+        activeFilterCount > 0 ||
+        savedName.trim().length > 0))
   const requestClose = () => {
     if (dirty) {
       setDiscardOpen(true)
@@ -353,14 +361,23 @@ export default function CreateListFlow({
   // or the purpose they picked. The suggestion is a THIRD record rather than
   // the purpose card's own copy (#1385) — a card label doubling as a default
   // title is how a copy correction renamed live campaigns.
-  const seededRef = useRef(false)
+  //
+  // It follows the upstream records until the candidate types, so backing out
+  // to rename the list and returning brings the new name rather than the one
+  // this box was seeded with on the first visit. One keystroke ends that for
+  // good — a box they have written in is theirs.
+  //
+  // A save spends the suggestion too, so the second turf of a "draw another"
+  // run opens blank and its Save stays disabled until it is named. The
+  // audience behind it is unchanged, so re-offering the name just used is an
+  // invitation to end up with two lists called the same thing.
+  const suggestionSpent = useRef(false)
   useEffect(() => {
-    if (step !== 'confirm' || seededRef.current) return
-    seededRef.current = true
+    if (step !== 'confirm' || suggestionSpent.current) return
     const suggestion =
       savedName.trim() ||
       (purpose ? doorKnockingPurposeNameSuggestion(purpose) : '')
-    if (suggestion) setName((current) => current || suggestion)
+    if (suggestion) setName(suggestion)
   }, [step, savedName, purpose])
 
   // Stops are what the router and its 150-stop cap are denominated in; doors
@@ -429,7 +446,8 @@ export default function CreateListFlow({
         queryKey: ['door-knocking-saved-lists'],
       })
       setName('')
-      seededRef.current = false
+      suggestionSpent.current = true
+      setSavedAny(true)
       // The page owns the post-save transition (next draw vs close).
       onSaved(drawAnother)
     },
@@ -810,7 +828,10 @@ export default function CreateListFlow({
                   value={name}
                   maxLength={MAX_TURF_NAME_LENGTH}
                   placeholder="Name this list"
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    suggestionSpent.current = true
+                    setName(e.target.value)
+                  }}
                 />
               </div>
               <div className="flex flex-col gap-1.5">

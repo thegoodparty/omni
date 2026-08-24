@@ -78,6 +78,27 @@ const preview = (
     ),
 })
 
+// What gp-api hands back for a created turf. Only the request bodies matter to
+// the tests that use it; the response is here to satisfy the mock's contract.
+const savedTurf = {
+  id: 5,
+  voterFileFilterId: 21,
+  name: 'Tuesday evening',
+  color: '#2563eb',
+  geoPoly: {
+    type: 'Polygon' as const,
+    coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
+  },
+  locked: false,
+  doorCount: null,
+  peopleCount: null,
+  loggedCount: null,
+  completedAt: null,
+  archivedAt: null,
+  createdAt: new Date('2026-08-20T00:00:00Z'),
+  updatedAt: new Date('2026-08-20T00:00:00Z'),
+}
+
 // The flow opens on the goal cards, and all three pre-draw stages live inside
 // the orchestrator's single `filters` step — so a test about the filters walks
 // through a goal card to reach them, exactly as a candidate does.
@@ -970,27 +991,7 @@ describe('CreateListFlow steps', () => {
     })
     api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
       bodies.push({ kind: 'turf', name: (body as { name: string }).name })
-      return {
-        status: 200,
-        data: {
-          id: 5,
-          voterFileFilterId: 21,
-          name: 'Tuesday evening',
-          color: '#2563eb',
-          geoPoly: {
-            type: 'Polygon' as const,
-            coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
-          },
-          locked: false,
-          doorCount: null,
-          peopleCount: null,
-          loggedCount: null,
-          completedAt: null,
-          archivedAt: null,
-          createdAt: new Date('2026-08-20T00:00:00Z'),
-          updatedAt: new Date('2026-08-20T00:00:00Z'),
-        },
-      }
+      return { status: 200, data: savedTurf }
     })
     const onSaved = vi.fn()
 
@@ -1120,6 +1121,120 @@ describe('CreateListFlow steps', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  // The audience survives a "draw another" on purpose — the page keeps the
+  // filters across it too — so from the second turf on it is saved work, and
+  // an X pressed before a single point is placed has nothing to ask about.
+  it('closes without a question on the turf after a save', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', {
+      status: 200,
+      data: savedTurf,
+    })
+    const onClose = vi.fn()
+    const onSaved = vi.fn()
+
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        filters={{ partyDemocrat: true }}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save and draw another' }),
+    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true))
+
+    // What the page hands back: a fresh drawing session on the same audience.
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        filters={{ partyDemocrat: true }}
+        ring={null}
+        drawPointCount={0}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Discard this list?')).toBeNull()
+  })
+
+  // The name box follows the list's name until it is typed in, so renaming
+  // the list and coming back brings the new name rather than the first seed.
+  it('re-seeds the route name when the list is renamed, and never over a typed one', () => {
+    const props = { ...baseProps, filters: { partyDemocrat: true } }
+    const { rerender } = renderAtWho(props)
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
+    )
+    fireEvent.change(screen.getByLabelText('List name'), {
+      target: { value: 'Homeowners' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    rerender(<CreateListFlow {...props} step="confirm" />)
+    expect(screen.getByLabelText('Route name')).toHaveValue('Homeowners')
+
+    // Back to the name step, rename, forward again.
+    rerender(<CreateListFlow {...props} step="filters" />)
+    fireEvent.change(screen.getByLabelText('List name'), {
+      target: { value: 'Precinct 2 homeowners' },
+    })
+    rerender(<CreateListFlow {...props} step="confirm" />)
+    expect(screen.getByLabelText('Route name')).toHaveValue(
+      'Precinct 2 homeowners',
+    )
+
+    // One keystroke and the box is theirs: a third rename upstream leaves it.
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    rerender(<CreateListFlow {...props} step="filters" />)
+    fireEvent.change(screen.getByLabelText('List name'), {
+      target: { value: 'Renamed again' },
+    })
+    rerender(<CreateListFlow {...props} step="confirm" />)
+    expect(screen.getByLabelText('Route name')).toHaveValue('Tuesday evening')
+  })
+
+  it('opens the next turf’s name box empty rather than reusing the one just saved', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', {
+      status: 200,
+      data: savedTurf,
+    })
+    const onSaved = vi.fn()
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />,
+    )
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save and draw another' }),
+    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true))
+
+    rerender(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
+    expect(screen.getByLabelText('Route name')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Save and exit' })).toBeDisabled()
   })
 
   it('returns from the draw step to whichever pre-draw step was left', () => {
