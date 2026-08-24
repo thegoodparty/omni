@@ -51,7 +51,16 @@ describe('DatabricksVoterService', () => {
 
   beforeEach(() => {
     query = vi.fn()
-    service = new DatabricksVoterService(stubClient())
+    service = new DatabricksVoterService(
+      {
+        setContext: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      } as never,
+      stubClient(),
+    )
   })
 
   describe('resolveDistrict', () => {

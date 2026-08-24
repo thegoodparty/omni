@@ -3,8 +3,8 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
-  Logger,
 } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import type { FastifyReply } from 'fastify'
 import { createGzip } from 'node:zlib'
 import { once } from 'node:events'
@@ -20,12 +20,13 @@ import {
 
 @Injectable()
 export class DatabricksVoterDownloadService {
-  private readonly logger = new Logger(DatabricksVoterDownloadService.name)
-
   constructor(
+    private readonly logger: PinoLogger,
     private readonly client: PeopleDbxStatementClient,
     private readonly voters: DatabricksVoterService,
-  ) {}
+  ) {
+    this.logger.setContext(DatabricksVoterDownloadService.name)
+  }
 
   async streamPeopleCsv(
     dto: DownloadPeopleDTO,

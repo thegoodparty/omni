@@ -55,7 +55,13 @@ describe('PeopleDbxStatementClient', () => {
 
     fetchMock = vi.fn(() => Promise.resolve(jsonResponse(succeeded([['1']]))))
     vi.stubGlobal('fetch', fetchMock)
-    client = new PeopleDbxStatementClient()
+    client = new PeopleDbxStatementClient({
+      setContext: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    } as never)
   })
 
   afterEach(() => {

@@ -4,9 +4,9 @@ import {
   GatewayTimeoutException,
   Injectable,
   InternalServerErrorException,
-  Logger,
   NotFoundException,
 } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
@@ -87,7 +87,6 @@ const NUMERIC_LIST_COLUMNS = new Set<string>([
 
 @Injectable()
 export class DatabricksVoterService {
-  private readonly logger = new Logger(DatabricksVoterService.name)
   // District rows are immutable reference data and one list-detail request
   // resolves the same district four times over, so caching saves three round
   // trips per request rather than shaving a query.
@@ -97,7 +96,12 @@ export class DatabricksVoterService {
   // once per process: the schema does not change under a running task.
   private voterColumns: Set<string> | null = null
 
-  constructor(private readonly client: PeopleDbxStatementClient) {}
+  constructor(
+    private readonly logger: PinoLogger,
+    private readonly client: PeopleDbxStatementClient,
+  ) {
+    this.logger.setContext(DatabricksVoterService.name)
+  }
 
   async resolveDistrict(districtId: string): Promise<DbxDistrict> {
     const cached = this.districts.get(districtId)

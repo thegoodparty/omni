@@ -84,6 +84,13 @@ describe('DatabricksVoterDownloadService', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     service = new DatabricksVoterDownloadService(
+      {
+        setContext: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      } as never,
       { startCsvExport, fetchCsvChunk } as unknown as PeopleDbxStatementClient,
       {
         resolveDistrict: vi.fn().mockResolvedValue(DISTRICT),

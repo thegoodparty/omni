@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import {
   PEOPLE_DBX_CATALOG,
@@ -141,7 +142,10 @@ const SUCCEEDED = 'SUCCEEDED'
 
 @Injectable()
 export class PeopleDbxStatementClient {
-  private readonly logger = new Logger(PeopleDbxStatementClient.name)
+  constructor(private readonly logger: PinoLogger) {
+    this.logger.setContext(PeopleDbxStatementClient.name)
+  }
+
   private token: { value: string; expiresAt: number } | null = null
 
   private config(): PeopleDbxConfig {

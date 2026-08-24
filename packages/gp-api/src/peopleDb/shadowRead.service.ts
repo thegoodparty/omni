@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { DatabricksVoterService } from './databricks/databricksVoter.service'
 import { resolvePeopleDbxConfig } from './databricks/peopleDbx.config'
 
@@ -23,9 +24,15 @@ const SHADOW_MESSAGE = 'people-db shadow read'
 
 @Injectable()
 export class ShadowReadService {
-  private readonly logger = new Logger(ShadowReadService.name)
-
-  constructor(readonly databricks: DatabricksVoterService) {}
+  // PinoLogger, not @nestjs/common's Logger: only Pino's (object, message)
+  // signature puts these fields at the top level of the log line, and the
+  // whole point of the comparison is being able to aggregate them in LogQL.
+  constructor(
+    private readonly logger: PinoLogger,
+    readonly databricks: DatabricksVoterService,
+  ) {
+    this.logger.setContext(ShadowReadService.name)
+  }
 
   // Off unless explicitly enabled AND the credential resolves, so an
   // environment without Databricks configured cannot start paying for a
@@ -130,7 +137,7 @@ export class ShadowReadService {
       pgFailed,
       dbxError: dbx.error,
     }
-    this.logger.log(entry, SHADOW_MESSAGE)
+    this.logger.info(entry, SHADOW_MESSAGE)
   }
 
   // A fingerprint is diagnostics, so a bad one must not turn into a failed

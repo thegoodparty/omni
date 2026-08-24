@@ -22,7 +22,10 @@ describe('ShadowReadService', () => {
   beforeEach(() => {
     saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]))
     for (const k of ENV_KEYS) delete process.env[k]
-    service = new ShadowReadService({} as never)
+    service = new ShadowReadService(
+      { setContext: vi.fn(), info: vi.fn(), log: vi.fn() } as never,
+      {} as never,
+    )
   })
 
   afterEach(() => {
