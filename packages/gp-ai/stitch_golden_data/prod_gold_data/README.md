@@ -4,7 +4,7 @@ Matches BallotReady offices to L2 districts. Reads its worklist
 (`int__l2_br_match_pending_offices`) and its menu source
 (`int__l2_district_universe`) from Databricks, holds embeddings in memory for
 the run, and returns terminal results. The matcher itself writes nothing --
-`l2_br_match_writer.py` holds the Databricks write path and run lifecycle.
+`l2_br_match_writer.py` holds the Databricks write path.
 
 ## Directory structure
 
@@ -12,7 +12,7 @@ the run, and returns terminal results. The matcher itself writes nothing --
 prod_gold_data/
 ├── l2_br_matcher.py           # The matcher: class L2BrMatcher
 ├── l2_br_match_schema.py      # Schema of record for llm_l2_br_match_results
-├── l2_br_match_writer.py      # The write path and run lifecycle: class MatchRunWriter
+├── l2_br_match_writer.py      # The write path: class MatchResultWriter
 └── vector_store_generator.py  # Unrelated laptop tool, out of scope here --
                                 # still feeds bronze_data's pickle-based path
 ```
@@ -42,20 +42,39 @@ district name is the whole signal. A technical error (an LLM or embedding call
 raising, or a malformed LLM response) fails the run instead of being recorded
 as a match or coerced into an abstention.
 
-## The write path and run lifecycle
+## The write path
 
-`MatchRunWriter` (`l2_br_match_writer.py`) is the only writer of
-`model_predictions.llm_l2_br_match_runs` / `llm_l2_br_match_results`. Four
-small operations, driven by hand during the supervised cutover: create a
-run, append its (validated) results, complete it, or revoke it plus every
-run sequenced after it. Per-row validation runs over the whole batch before
-the first insert; `append_results` is single-shot per run (refuses a run
-that already has rows, since the connector has no transactions to make a
-retry after a partial failure safe). Four set-level invariants run after
-the rows land -- `complete_run` runs them itself before publishing (`force`
-skips this for a human overriding a known-benign failure), since neither
-`status` nor `match_status` carries a database CHECK constraint and an
-operator forgetting a separate verification step is not enforcement.
+`MatchResultWriter` (`l2_br_match_writer.py`) is the only writer of
+`model_predictions.llm_l2_br_match_results`. Two operations, driven by hand
+during the supervised cutover: append a batch of results under a run key, or
+delete a run.
+
+`attempted_at` is the run key, and the caller passes it in so a sharded or
+resumed run keeps one key. `append_results` skips offices already written
+under that key, validates what is left, inserts it in chunks, then counts what
+the table holds for the key and raises if it is short. That count is what
+replaces a transaction: the connector has none, so a failure part-way leaves
+an *incomplete* run rather than a corrupt one -- every row stands on its own,
+and an office whose row never arrived is still on the pending list.
+`delete_run(attempted_at)` is both the rollback and the repair for a short
+write.
+
+The label check that SPEC 3.5 requires -- re-testing every matched label
+against a freshly rebuilt universe just before publication -- is deliberately
+**not** here. It has to run after the warehouse rebuild in cutover step 5,
+which this module cannot do, and dbt already ships the generic test for it
+(`l2_district_tuple_exists`). It belongs to the serving PR's undated staging
+model, pointed at `int__l2_district_universe`.
+
+## Operations
+
+Both Gemini clients retry every exception blindly (`max_retries=11`,
+`base_delay=1.0`), so a run that hits a 429 wall stalls in backoff for up to
+roughly 1,023s per call before surfacing anything. At `--batch-size 100`
+against `max_connections=1200` that is usually per-minute throttling rather
+than an exhausted daily quota: **lower `--batch-size` and rerun.** Making the
+clients themselves fail fast means changing `shared/`, which every other
+service in this package imports, and belongs with the containerization work.
 
 ## What is frozen
 

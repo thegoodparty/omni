@@ -542,6 +542,22 @@ class TestUniverseCoverageGuard:
         # the loop would have paid for them before raising. This is the
         # assertion that actually pins the ordering.
         mock_dependencies["embedding"].create_embeddings.assert_not_called()
+class TestMatcherShutdown:
+    def test_close_cancels_queued_work_instead_of_waiting_it_out(self, mock_dependencies):
+        """Failure this catches: the shutdown call deleted.
+
+        `concurrent.futures.thread` registers an atexit hook that JOINS its
+        non-daemon threads, so without this the CLI sits there after printing
+        a traceback for as long as the in-flight Gemini retries take -- up to
+        roughly 1,023s at max_retries=11. Nothing else in the suite observes
+        that, because the hang happens at interpreter exit.
+        """
+        matcher = L2BrMatcher()
+        matcher._executor = MagicMock()
+
+        matcher.close()
+
+        matcher._executor.shutdown.assert_called_once_with(wait=False, cancel_futures=True)
 
 
 class TestLoadPendingOfficesStatesFilter:

@@ -1,540 +1,267 @@
-"""Databricks write path and run lifecycle for the L2-to-BallotReady matcher.
+"""Databricks write path for the L2-to-BallotReady match results.
 
-Four small, separately-callable operations over the two tables T1 created
-outside dbt (dbt/scripts/llm_l2_br_match_tables.sql) and reads only as
-sources: create a run, append its results, complete it, or revoke it plus
-every run sequenced after it. The supervised cutover drives these by hand --
-a human reviews the rows a run just wrote before deciding to complete it
-(SPEC 3.4 step 3).
+Three operations over the one table the matcher owns: validate a batch,
+append it, and delete a run. The schema of record is `l2_br_match_schema.py`
+beside this module -- the matcher creates that table, and dbt reads it as a
+source and never creates it, which is already the convention here.
 
-Lives beside the matcher, not in shared/: shared/ is imported by every other
-service in this package and held to mypy's strict disallow_untyped_defs, so
-giving it its first write capability for one caller is a blast radius this
+Lives beside the matcher rather than in shared/: shared/ is imported by every
+other service in this package and held to mypy's strict disallow_untyped_defs,
+so giving it its first write capability for one caller is a blast radius this
 module avoids by depending on shared.databricks_client.DatabricksClient
-rather than becoming part of it. shared/ is not modified.
+instead of becoming part of it. shared/ is not modified.
 
-Per-row validation here is the ONLY enforcement `status` and `match_status`
-get: neither column carries a CHECK constraint (a deliberate ledger
-decision -- SPEC 3.5 puts the guard in the container instead), and Unity
-Catalog PRIMARY KEY / UNIQUE constraints on this schema are informational,
-not enforced. `sequence` is the one exception: Delta itself refuses an
-explicit write to a `generated always as identity` column, which is why
-that column never appears in any INSERT below.
+The write does not have to be atomic, and this module deliberately does not
+try to make it so. A half-written run is incomplete, not corrupt: there is no
+status column and no cross-row invariant left for a row to violate, every row
+stands on its own, and an office whose row never arrived is still on the
+pending list, which is where it started. So what the writer owes instead of a
+transaction is detection -- `append_results` counts what landed against what
+it was asked to write -- and a documented recovery, which is `delete_run`.
+That is why there is no staging table, no CREATE on one, and no truncate step.
 
-`append_results` is single-shot per run (refuses a run that already has
-rows) and `complete_run` runs the set-level invariants itself: the
-connector has no transactions (`Connection.commit()` is a documented no-op,
-`rollback()` raises `NotSupportedError`), so a retry after a partial
-failure, or an operator who forgets a separate verification step, are both
-real ways to publish something wrong. See append_results' and
-complete_run's own docstrings.
+`attempted_at` is the run key. One run stamps one value across every row it
+writes, and the CALLER passes it in rather than each writer minting its own,
+so a run that is sharded or resumed keeps a single key. A resumed run
+anti-joins what it already wrote under that key: the matcher is not
+deterministic, so two rows for one office at one timestamp are two different
+answers with no rule for choosing between them.
 """
 
-import uuid
 from collections.abc import Iterator
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from databricks.sql.client import Cursor
 
 from shared.databricks_client import DatabricksClient
 from shared.logger import get_logger
-from stitch_golden_data.prod_gold_data.l2_br_matcher import ABSTAINED, MATCHED, MatchResult
+from stitch_golden_data.prod_gold_data.l2_br_match_schema import RESULTS_TABLE_PATH
+from stitch_golden_data.prod_gold_data.l2_br_matcher import MatchResult
 
-CATALOG = "goodparty_data_catalog"
-MODEL_PREDICTIONS_SCHEMA = "model_predictions"
-RUNS_TABLE = "llm_l2_br_match_runs"
-RESULTS_TABLE = "llm_l2_br_match_results"
-DISTRICT_UNIVERSE_SCHEMA = "dbt"
-DISTRICT_UNIVERSE_TABLE = "int__l2_district_universe"
-
-RUNNING = "RUNNING"
-COMPLETE = "COMPLETE"
-REVOKED = "REVOKED"
-
-# 8 columns x 500 rows/statement = 4,000 bound parameters per INSERT, well
-# inside one request. ceil(20,166 / 500) = 41 round trips for the measured
-# backlog (IMPLEMENTATION-LEDGER, "the number the cutover rests on"). Not
-# tuned against a live warehouse. Verified directly (fix-round review
-# question): 4,000 positional parameters, shaped exactly like this INSERT
-# (500 groups of 8), bind and execute cleanly over the same connector
-# version and the same default (Thrift) backend this module uses -- a
-# read-only `SELECT count(*) FROM (VALUES ...)` touching no table, run by
-# hand against the real warehouse. No 256-parameter ceiling exists for
-# positional markers here.
+# 6 columns x 500 rows = 3,000 bound parameters per INSERT, inside the 4,000
+# verified by hand against the real warehouse -- 500 groups of 8, over this
+# same connector version and the same default (Thrift) backend, as a read-only
+# `SELECT count(*) FROM (VALUES ...)` touching no table. No 256-parameter
+# ceiling exists for positional markers on this path. ceil(20,166 / 500) = 41
+# round trips for the measured backlog. Not tuned against a live warehouse.
 RESULTS_INSERT_CHUNK_SIZE = 500
 
 
-@dataclass
-class ResultRow:
-    """One llm_l2_br_match_results row about to be written: a MatchResult
-    plus the two columns the write path owns rather than the matcher (see
-    MatchResult's own docstring) -- `run_id`, generated before any row
-    exists to carry it, and `attempted_at`, the column the 30-day pending
-    clock reads.
-    """
+def validate_results(results: list[MatchResult]) -> None:
+    """Per-row validation over the WHOLE batch, before the first insert.
+    Raises ValueError naming every failing row and why, without writing
+    anything.
 
-    run_id: str
-    br_database_id: int
-    l2_state: str | None
-    l2_district_type: str | None
-    l2_district_name: str | None
-    match_status: str
-    confidence: int | None
-    attempted_at: datetime
+    Two rules, and only two, because only two are both unenforced elsewhere
+    and reachable from a batch this module can be handed:
 
+    - **The district key is all set or all null.** A partial key is a writer
+      bug. It is deliberately not a dbt test or a Delta CHECK (that decision
+      is in the epic's ledger: per-row validation belongs in the container),
+      so this is its only enforcement. The damage is quiet rather than loud:
+      a partial key misses the universe join, so the office reopens on every
+      pending-list build and re-pays the LLM cost forever.
+    - **No duplicate br_database_id inside one batch.** The anti-join in
+      `append_results` covers rows already durable under this run key; it
+      cannot see two rows for one office inside the in-memory batch it is
+      handed, which a sharded or concatenated run can produce. "Latest
+      attempt wins" has no answer for two rows at one timestamp.
 
-def _to_result_rows(run_id: str, results: list[MatchResult], attempted_at: datetime) -> list[ResultRow]:
-    """Tag a batch of matcher output with the two columns it does not carry.
-
-    One `attempted_at` for the whole call, not one per office: a live run's
-    offices are all matched inside one bounded window, and the 30-day
-    pending clock does not need finer resolution than that. The caller
-    supplies the value explicitly rather than this function defaulting to
-    its own `datetime.now()`, so a bug that calls `append_results` twice for
-    what is conceptually one attempt cannot silently mint two different
-    timestamps.
-    """
-    return [
-        ResultRow(
-            run_id=run_id,
-            br_database_id=r.br_database_id,
-            l2_state=r.l2_state,
-            l2_district_type=r.l2_district_type,
-            l2_district_name=r.l2_district_name,
-            match_status=r.match_status,
-            confidence=r.confidence,
-            attempted_at=attempted_at,
-        )
-        for r in results
-    ]
-
-
-def validate_result_rows(rows: list[ResultRow]) -> None:
-    """Per-row validation over the WHOLE batch, before the first insert
-    (SPEC 3.5). Raises ValueError naming every failing row and why, without
-    writing anything -- this is the only enforcement `match_status` and the
-    district-key nullability rule get, since neither is a CHECK constraint.
-
-    Runtime-checks types rather than trusting MatchResult's annotations:
-    dataclasses do not enforce them, and nothing downstream will catch a
-    wrong type either.
+    Not checked here, deliberately, with the reason each:
+    `attempted_at` and `br_database_id` nullity are `not null` in the DDL and
+    Delta enforces that on write. `confidence` range is validated
+    unconditionally upstream in `_selection_from_response` (integrality and
+    0-100), which is the only producer of the value and the only place with a
+    real failure story for it -- a model returning 3.9 and truncating to 3.
+    A second gate here would guard a path that does not run.
     """
     errors: list[str] = []
     seen_ids: set[int] = set()
 
-    for i, row in enumerate(rows):
+    for i, row in enumerate(results):
         row_errors: list[str] = []
 
+        # int-ness is load-bearing for the duplicate check below, not a type
+        # assertion for its own sake: an unhashable or non-int id cannot be
+        # deduped. `bool` is an `int` subclass, so it is excluded explicitly.
         if not isinstance(row.br_database_id, int) or isinstance(row.br_database_id, bool):
             row_errors.append(f"br_database_id must be an int, got {row.br_database_id!r}")
         elif row.br_database_id in seen_ids:
-            # The results table is append-only with no key (module
-            # docstring), so a duplicate inside one run makes "latest
-            # attempt wins" ambiguous within that run's own rows.
             row_errors.append(f"br_database_id {row.br_database_id} is duplicated in this batch")
         else:
             seen_ids.add(row.br_database_id)
 
         district_fields = (row.l2_state, row.l2_district_type, row.l2_district_name)
-        if row.match_status == MATCHED:
-            if any(field is None for field in district_fields):
-                row_errors.append("MATCHED row must have l2_state, l2_district_type and l2_district_name all non-null")
-        elif row.match_status == ABSTAINED:
-            if any(field is not None for field in district_fields):
-                row_errors.append("ABSTAINED row must have l2_state, l2_district_type and l2_district_name all null")
-        else:
-            row_errors.append(f"match_status must be {MATCHED!r} or {ABSTAINED!r}, got {row.match_status!r}")
-
-        if row.confidence is not None and (
-            isinstance(row.confidence, bool) or not isinstance(row.confidence, int) or not 0 <= row.confidence <= 100
-        ):
-            row_errors.append(f"confidence must be null or an int in [0, 100], got {row.confidence!r}")
-
-        if row.attempted_at is None:
-            row_errors.append("attempted_at must be present")
+        if any(f is None for f in district_fields) and any(f is not None for f in district_fields):
+            row_errors.append(
+                "l2_state, l2_district_type and l2_district_name must be all set (a match) "
+                f"or all null (an attempt that found nothing), got {district_fields!r}"
+            )
 
         if row_errors:
             errors.append(f"row {i} (br_database_id={row.br_database_id!r}): " + "; ".join(row_errors))
 
     if errors:
-        raise ValueError(f"{len(errors)} of {len(rows)} row(s) failed validation:\n" + "\n".join(errors))
+        raise ValueError(f"{len(errors)} of {len(results)} row(s) failed validation:\n" + "\n".join(errors))
 
 
-def _chunked(rows: list[ResultRow], size: int) -> Iterator[list[ResultRow]]:
+def _chunked(rows: list[MatchResult], size: int) -> Iterator[list[MatchResult]]:
     for start in range(0, len(rows), size):
         yield rows[start : start + size]
 
 
-class MatchRunWriter:
-    """The run lifecycle: create, append, complete, revoke. Each method is
-    one deliberate action a human triggers by hand during the supervised
-    cutover (SPEC 3.4/3.5); nothing here decides FOR the operator whether a
-    run should be completed or revoked.
+class MatchResultWriter:
+    """Appends match results and deletes a run. Nothing here decides FOR the
+    operator whether a run should be kept or rolled back.
     """
 
     def __init__(
         self,
-        catalog: str = CATALOG,
-        model_predictions_schema: str = MODEL_PREDICTIONS_SCHEMA,
-        district_universe_schema: str = DISTRICT_UNIVERSE_SCHEMA,
+        results_table: str = RESULTS_TABLE_PATH,
         databricks: DatabricksClient | None = None,
     ) -> None:
-        """`databricks` is injectable so the cutover can share the matcher's
-        own session instead of opening a second one -- DatabricksClient
-        memoizes its connection and never health-checks it, and the cutover
-        is hand-driven across a long session with a human review pause in
-        the middle. `close()` only closes a connection this instance opened
-        itself (see `close`): closing a shared, injected one out from under
+        """`databricks` is injectable so the supervised cutover can share the
+        matcher's own session instead of opening a second one --
+        DatabricksClient memoizes its connection and never health-checks it,
+        and the cutover is hand-driven across a long session with a human
+        review pause in the middle. `close()` only closes a connection this
+        instance opened itself: closing a shared, injected one out from under
         its other owner would defeat the point of sharing it.
         """
         self.logger = get_logger(__name__)
         self._owns_databricks = databricks is None
         self.databricks = databricks or DatabricksClient()
-        self._closed = False
-        self.runs_table = f"{catalog}.{model_predictions_schema}.{RUNS_TABLE}"
-        self.results_table = f"{catalog}.{model_predictions_schema}.{RESULTS_TABLE}"
-        self.district_universe_table = f"{catalog}.{district_universe_schema}.{DISTRICT_UNIVERSE_TABLE}"
-
-    def _check_not_closed(self) -> None:
-        if self._closed:
-            raise RuntimeError("This MatchRunWriter has been closed; construct a new one")
+        self.results_table = results_table
 
     def _cursor(self) -> Cursor:
         return self.databricks.connect().cursor()
 
-    def _run_status(self, cursor: Cursor, run_id: str) -> str:
-        cursor.execute(f"select status from {self.runs_table} where run_id = ?", [run_id])
-        row = cursor.fetchone()
-        if row is None:
-            raise ValueError(f"No run with run_id={run_id!r}")
-        status: str = row[0]
-        return status
+    def _written_ids(self, cursor: Cursor, attempted_at: datetime) -> set[int]:
+        cursor.execute(
+            f"select br_database_id from {self.results_table} where attempted_at = ?",
+            [attempted_at],
+        )
+        return {row[0] for row in cursor.fetchall()}
 
-    # -- create -------------------------------------------------------------
+    def _row_count(self, cursor: Cursor, attempted_at: datetime) -> int:
+        cursor.execute(
+            f"select count(*) from {self.results_table} where attempted_at = ?",
+            [attempted_at],
+        )
+        (count,) = cursor.fetchone()
+        return int(count)
 
-    def create_run(self) -> str:
-        """Insert one RUNNING row and return its run_id.
+    def append_results(self, results: list[MatchResult], attempted_at: datetime) -> int:
+        """Append `results` under the run key `attempted_at`, and return how
+        many rows this call wrote.
 
-        Generated here, not by the database: `sequence` is the identity
-        column that gives the run its order, but a result row needs its
-        run_id before `sequence` can exist to assign it.
-        """
-        self._check_not_closed()
-        run_id = str(uuid.uuid4())
-        cursor = self._cursor()
-        try:
-            cursor.execute(
-                f"insert into {self.runs_table} (run_id, status, started_at) values (?, ?, ?)",
-                [run_id, RUNNING, datetime.now(UTC)],
-            )
-        finally:
-            cursor.close()
-        self.logger.info(f"Created run {run_id}")
-        return run_id
-
-    # -- append ---------------------------------------------------------------
-
-    def append_results(self, run_id: str, results: list[MatchResult], attempted_at: datetime) -> int:
-        """Validate the whole batch, then bulk-insert it under `run_id`.
-
-        Single-shot per run: refuses to append when the run already has ANY
-        result rows. The connector has no transactions -- `Connection.
-        commit()` is a documented no-op and `rollback()` raises
-        `NotSupportedError` -- so each chunk auto-commits independently. A
-        retry after a partial failure (chunk 12 of 41 fails on a warehouse
-        restart, say) would otherwise pass every other guard: the run is
-        still RUNNING, and `validate_result_rows`' duplicate check only ever
-        sees the rows in THIS call, never the ones already durable in the
-        table, so a naive re-call double-writes. Revoking the run
-        (`revoke_run`) and starting a fresh one is the fix -- not a MERGE,
-        which is a bigger mechanism than the problem.
-
-        Refuses to append to a run that is not RUNNING for a second reason:
-        run status is what makes a result real (SPEC 3.4), so writing rows
-        under an already-COMPLETE run would make them live without ever
-        passing through the human review step that completing is supposed
-        to gate.
+        Skips any office already written under this key (the anti-join), then
+        validates what is left, then inserts it in chunks, then counts what
+        the table holds for this key and raises if it is short of what it
+        should be. That count is the whole of what replaces a transaction:
+        the connector has none -- `Connection.commit()` is a documented no-op
+        and `rollback()` raises `NotSupportedError` -- so each chunk commits
+        independently and a failure part-way leaves an incomplete run. That
+        is recoverable and not corrupt; `delete_run(attempted_at)` is the
+        documented repair.
 
         Multi-row INSERT with bound parameters throughout, chunked at
-        RESULTS_INSERT_CHUNK_SIZE -- never Cursor.executemany, which issues
-        one sequential request per row with no batching (its own docstring).
+        RESULTS_INSERT_CHUNK_SIZE -- never `Cursor.executemany`, which by its
+        own docstring is a naive loop issuing one sequential request per row
+        with no batching.
         """
-        self._check_not_closed()
         if not results:
-            self.logger.warning(f"append_results called with zero rows for run {run_id}; nothing to do")
+            self.logger.warning("append_results called with zero rows; nothing to do")
             return 0
 
         cursor = self._cursor()
         try:
-            status = self._run_status(cursor, run_id)
-            if status != RUNNING:
-                raise ValueError(f"Cannot append to run {run_id}: status is {status!r}, expected {RUNNING!r}")
-
-            cursor.execute(f"select count(*) from {self.results_table} where run_id = ?", [run_id])
-            (existing_count,) = cursor.fetchone()
-            if existing_count:
-                raise ValueError(
-                    f"Run {run_id} already has {existing_count} result row(s); append_results is "
-                    f"single-shot and refuses to add more (see this method's docstring). Revoke this "
-                    f"run with MatchRunWriter.revoke_run and start a new one instead."
+            already_written = self._written_ids(cursor, attempted_at)
+            to_write = [r for r in results if r.br_database_id not in already_written]
+            if already_written:
+                self.logger.info(
+                    f"Resuming run {attempted_at.isoformat()}: {len(already_written)} office(s) already "
+                    f"written under this key, {len(to_write)} of {len(results)} left to write"
                 )
+            if not to_write:
+                self.logger.info("Every office in this batch is already written under this run key")
+                return 0
 
-            rows = _to_result_rows(run_id, results, attempted_at)
-            validate_result_rows(rows)
+            validate_results(to_write)
 
-            for chunk in _chunked(rows, RESULTS_INSERT_CHUNK_SIZE):
-                placeholders = ", ".join(["(?, ?, ?, ?, ?, ?, ?, ?)"] * len(chunk))
+            for chunk in _chunked(to_write, RESULTS_INSERT_CHUNK_SIZE):
+                placeholders = ", ".join(["(?, ?, ?, ?, ?, ?)"] * len(chunk))
                 params = [
                     value
                     for row in chunk
                     for value in (
-                        row.run_id,
                         row.br_database_id,
                         row.l2_state,
                         row.l2_district_type,
                         row.l2_district_name,
-                        row.match_status,
                         row.confidence,
-                        row.attempted_at,
+                        attempted_at,
                     )
                 ]
                 cursor.execute(
                     f"""
                     insert into {self.results_table}
-                        (run_id, br_database_id, l2_state, l2_district_type, l2_district_name,
-                         match_status, confidence, attempted_at)
+                        (br_database_id, l2_state, l2_district_type, l2_district_name,
+                         confidence, attempted_at)
                     values {placeholders}
                     """,
                     params,
                 )
-        finally:
-            cursor.close()
-        self.logger.info(f"Appended {len(results)} result row(s) to run {run_id}")
-        return len(results)
 
-    # -- set-level invariants (after the rows land, before COMPLETE) --------
-
-    def check_set_level_invariants(self, run_id: str, expected_row_count: int) -> None:
-        """Four aggregate checks that can only run once the rows exist
-        (SPEC 3.5). Not enumerated in the SPEC text -- my own derivation;
-        flagged in the PR report. Collects every failure rather than
-        stopping at the first, so a human revoking the run gets the full
-        picture in one pass.
-
-        Public for a dry look, but `complete_run` also calls this itself
-        before completing (see its docstring) -- calling it here first is
-        not a substitute for that: an operator can simply forget the
-        separate call, and an unchecked run publishing is a Tier-1 failure.
-
-        Every query below filters the RESULTS table by run_id and none
-        joins the runs table, so a mistyped or stale run_id would otherwise
-        read as zero duplicates, zero bad statuses, zero orphans and a
-        count of 0 -- reporting a clean pass for a run that does not exist.
-        The explicit existence check below is what stops that.
-        """
-        cursor = self._cursor()
-        try:
-            self._run_status(cursor, run_id)  # raises "No run with run_id=..." if it does not exist
-            failures = [
-                message
-                for message in (
-                    self._check_row_count(cursor, run_id, expected_row_count),
-                    self._check_no_duplicate_br_database_id(cursor, run_id),
-                    self._check_match_status_values(cursor, run_id),
-                    self._check_matched_rows_in_universe(cursor, run_id),
-                )
-                if message is not None
-            ]
-        finally:
-            cursor.close()
-        if failures:
-            raise RuntimeError(f"Run {run_id} failed {len(failures)} set-level invariant(s):\n" + "\n".join(failures))
-
-    def _check_row_count(self, cursor: Cursor, run_id: str, expected_row_count: int) -> str | None:
-        """`expected_row_count` is the size of the one append this run will
-        ever get: `append_results` refuses a second call against a run that
-        already has rows, so "cumulative for this run" and "this batch" are
-        the same number by construction, not two things that could drift.
-        """
-        cursor.execute(f"select count(*) from {self.results_table} where run_id = ?", [run_id])
-        (actual,) = cursor.fetchone()
-        if actual != expected_row_count:
-            return f"row count is {actual}, expected {expected_row_count}"
-        return None
-
-    def _check_no_duplicate_br_database_id(self, cursor: Cursor, run_id: str) -> str | None:
-        cursor.execute(
-            f"""
-            select count(*) from (
-                select br_database_id from {self.results_table}
-                where run_id = ?
-                group by br_database_id
-                having count(*) > 1
-            )
-            """,
-            [run_id],
-        )
-        (duplicate_count,) = cursor.fetchone()
-        if duplicate_count:
-            return f"{duplicate_count} br_database_id(s) appear more than once"
-        return None
-
-    def _check_match_status_values(self, cursor: Cursor, run_id: str) -> str | None:
-        cursor.execute(
-            f"select count(*) from {self.results_table} where run_id = ? and match_status not in (?, ?)",
-            [run_id, MATCHED, ABSTAINED],
-        )
-        (bad_count,) = cursor.fetchone()
-        if bad_count:
-            return f"{bad_count} row(s) carry a match_status outside {{MATCHED, ABSTAINED}}"
-        return None
-
-    def _check_matched_rows_in_universe(self, cursor: Cursor, run_id: str) -> str | None:
-        """Normalizes `u.state_postal_code` on the join, not `r.l2_state`:
-        `build_universe` rewrites the state column in memory with
-        `_normalize_state` (strip + upper) before anything is embedded or
-        matched, so every `l2_state` this module ever writes is already
-        canonical. `state_postal_code` here is read fresh from the LIVE
-        universe table, bypassing that in-memory step -- one lower-cased L2
-        delivery would otherwise make every MATCHED row in that state
-        compare unequal and read as an orphan, failing an otherwise-good run.
-        """
-        cursor.execute(
-            f"""
-            select count(*)
-            from {self.results_table} r
-            left join {self.district_universe_table} u
-              on r.l2_state = upper(trim(u.state_postal_code))
-             and r.l2_district_type = u.district_type
-             and r.l2_district_name = u.district_name
-            where r.run_id = ? and r.match_status = ? and u.state_postal_code is null
-            """,
-            [run_id, MATCHED],
-        )
-        (orphan_count,) = cursor.fetchone()
-        if orphan_count:
-            return f"{orphan_count} MATCHED row(s) reference a district outside the current universe"
-        return None
-
-    # -- complete / revoke ----------------------------------------------------
-
-    def complete_run(self, run_id: str, expected_row_count: int, force: bool = False) -> None:
-        """RUNNING -> COMPLETE, running `check_set_level_invariants` itself
-        first (unless `force=True`).
-
-        "Small and separately callable" operations mean an operator can
-        complete a run without ever calling `check_set_level_invariants` --
-        that is not enforcement, since a human can simply forget the
-        separate step, and `int__l2_br_match_pending_offices` inner-joins on
-        `status = 'COMPLETE'` with no further filter, so an unchecked run
-        publishes immediately. `force=True` exists for a human knowingly
-        overriding a benign, already-understood failure; it does not skip
-        the RUNNING guard below.
-
-        The transition is a conditional UPDATE (`... and status = ?`), not
-        a read-then-blind-write: a plain re-check is not atomic against a
-        concurrent `revoke_run` landing in the gap between the read and the
-        write, which would otherwise let this UPDATE overwrite a deliberate
-        rollback back to COMPLETE with `revoked_reason` still populated.
-        Re-reads afterward to confirm the write actually took effect, since
-        `Cursor.rowcount` on this connector is hard-coded to -1 and cannot
-        report what the UPDATE touched -- `rowcount` being unpopulated stops
-        it from REPORTING what changed, not from making the WHERE clause
-        itself uphold the guard, which is what the added condition does.
-        """
-        self._check_not_closed()
-        cursor = self._cursor()
-        try:
-            status = self._run_status(cursor, run_id)
-            if status != RUNNING:
-                raise ValueError(f"Cannot complete run {run_id}: status is {status!r}, expected {RUNNING!r}")
-        finally:
-            cursor.close()
-
-        if not force:
-            self.check_set_level_invariants(run_id, expected_row_count)
-
-        cursor = self._cursor()
-        try:
-            cursor.execute(
-                f"update {self.runs_table} set status = ?, completed_at = ? where run_id = ? and status = ?",
-                [COMPLETE, datetime.now(UTC), run_id, RUNNING],
-            )
-            confirmed_status = self._run_status(cursor, run_id)
-            if confirmed_status != COMPLETE:
-                raise ValueError(
-                    f"Cannot complete run {run_id}: status is {confirmed_status!r} after the update, "
-                    f"expected {COMPLETE!r} -- a concurrent revoke likely landed between the guard "
-                    f"and the write"
-                )
-        finally:
-            cursor.close()
-        self.logger.info(f"Completed run {run_id}")
-
-    def revoke_run(self, run_id: str, reason: str) -> None:
-        """REVOKED for `run_id` and every run sequenced after it (SPEC 3.4):
-        rollback restores whatever was true before a LATER run's mistakes
-        landed, not just before this one's -- revoking only the target run
-        would leave a later, also-bad run COMPLETE and still being read.
-        Unconditional on the current status of each affected run, by
-        design: a COMPLETE run must be revocable at all, which is the whole
-        point of rollback, so this is not narrowed to `... and status = ?`
-        the way `complete_run`'s transition now is.
-
-        `coalesce(revoked_reason, ?)` sets the reason only where it is
-        currently null, so re-running the cascade over an already-revoked
-        run (a normal side effect of revoking an earlier one) does not
-        clobber that run's own, possibly more specific, recorded reason --
-        the column's own DDL comment says it exists so a REVOKED run is not
-        an operational dead end, and overwriting an earlier note defeats
-        that in the same method that requires a reason at all.
-        """
-        self._check_not_closed()
-        if not reason or not reason.strip():
-            raise ValueError("revoke_run requires a non-blank reason")
-        cursor = self._cursor()
-        try:
-            cursor.execute(f"select sequence from {self.runs_table} where run_id = ?", [run_id])
-            row = cursor.fetchone()
-            if row is None:
-                raise ValueError(f"No run with run_id={run_id!r}")
-            (target_sequence,) = row
-            cursor.execute(
-                f"update {self.runs_table} set status = ?, revoked_reason = coalesce(revoked_reason, ?) "
-                f"where sequence >= ?",
-                [REVOKED, reason, target_sequence],
-            )
-            confirmed_status = self._run_status(cursor, run_id)
-            if confirmed_status != REVOKED:
+            expected = len(already_written) + len(to_write)
+            actual = self._row_count(cursor, attempted_at)
+            if actual != expected:
                 raise RuntimeError(
-                    f"Run {run_id} read back as {confirmed_status!r}, not {REVOKED!r}, immediately "
-                    f"after revoking it -- the write may not have landed"
+                    f"Short write for run {attempted_at.isoformat()}: the table holds {actual} row(s) "
+                    f"for this key, expected {expected}. The run is incomplete, not corrupt -- delete "
+                    f"it with MatchResultWriter.delete_run and run it again."
                 )
         finally:
             cursor.close()
-        self.logger.info(f"Revoked run {run_id} and every run sequenced at or after {target_sequence}: {reason}")
 
-    # -- resource lifecycle ---------------------------------------------------
+        self.logger.info(f"Wrote {len(to_write)} result row(s) under run key {attempted_at.isoformat()}")
+        return len(to_write)
+
+    def delete_run(self, attempted_at: datetime) -> None:
+        """Delete every row stamped with this run key.
+
+        The rollback, and also the repair for a short write. The previous
+        answer for each of those offices becomes current again, since the
+        staging model takes the newest row per office by `attempted_at`. To
+        undo a release, delete the target run and every run after it, then
+        rebuild. The DELETE itself stays in Delta history, so what happened
+        and when is still answerable afterwards.
+        """
+        cursor = self._cursor()
+        try:
+            cursor.execute(
+                f"delete from {self.results_table} where attempted_at = ?",
+                [attempted_at],
+            )
+        finally:
+            cursor.close()
+        self.logger.info(f"Deleted run {attempted_at.isoformat()}")
 
     def close(self) -> None:
         """Close the Databricks connection this instance opened itself.
 
-        A no-op if `databricks` was injected at construction (see
-        `__init__`) -- closing a session another owner is still using would
-        defeat the point of sharing it -- and a no-op if already closed.
+        A no-op if `databricks` was injected at construction (see `__init__`).
+        `DatabricksClient.close()` is itself idempotent, so a second call is
+        harmless and needs no flag here to make it so.
         """
-        if self._closed:
-            return
-        self._closed = True
         if self._owns_databricks:
             self.databricks.close()
 
-    def __enter__(self) -> "MatchRunWriter":
+    def __enter__(self) -> "MatchResultWriter":
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object) -> None:
         try:
             self.close()
         except Exception:
-            self.logger.exception("Error while closing MatchRunWriter; any original exception takes priority")
+            self.logger.exception("Error while closing MatchResultWriter; any original exception takes priority")
