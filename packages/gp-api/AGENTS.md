@@ -145,6 +145,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Campaigns / plans / tasks                                | `src/campaigns/AGENTS.md`                            |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
+| Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md` + `docs/adr/`                |
 | Campaign plan PDF sharing                                | `src/campaignPlanShares/AGENTS.md`                   |
 | Voter file / L2 lookups                                  | `src/voters/AGENTS.md`                               |
 | Stripe payments / pro upgrades                           | `src/payments/AGENTS.md`                             |

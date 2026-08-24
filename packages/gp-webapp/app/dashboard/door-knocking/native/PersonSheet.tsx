@@ -120,28 +120,34 @@ export default function PersonSheet({
         onClick={onClose}
       />
       <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[85dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
-        <div className="flex items-start gap-3 border-b border-border p-4">
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-xl font-semibold">
-              {target.name ?? 'Name unavailable'}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {[
-                target.age !== null ? `${target.age} years old` : null,
-                target.politicalParty,
-              ]
-                .filter(Boolean)
-                .join(' · ') || 'No details on file'}
-            </p>
+        <div className="flex flex-col gap-3 border-b border-border p-4">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-xl font-semibold">
+                {target.name ?? 'Name unavailable'}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {[
+                  target.age !== null ? `${target.age} years old` : null,
+                  target.politicalParty,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || 'No details on file'}
+              </p>
+            </div>
+            <IconButton aria-label="Close person details" onClick={onClose}>
+              <XMarkIcon size={18} />
+            </IconButton>
           </div>
-          <IconButton aria-label="Close person details" onClick={onClose}>
-            <XMarkIcon size={18} />
-          </IconButton>
-        </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {/* In the header beside the name, not at the top of the scrolling
+              body: the form is pinned to the footer, so a canvasser logging a
+              door has usually scrolled the body past the switcher — and the one
+              moment they need it is the one where they realize the person who
+              opened the door is the housemate. Under the name because the name
+              is what the switcher changes. */}
           {targets.length > 1 && (
-            <div className="mb-4 flex gap-1.5 overflow-x-auto rounded-lg bg-muted p-1.5">
+            <div className="flex gap-1.5 overflow-x-auto rounded-lg bg-muted p-1.5">
               {targets.map((candidate) => {
                 const marker = targetMarker(candidate)
                 return (
@@ -177,7 +183,9 @@ export default function PersonSheet({
               })}
             </div>
           )}
+        </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <section className="mb-4 rounded-lg border border-border">
             <SheetSectionHeader
               icon={CircleUserRoundIcon}
@@ -204,9 +212,17 @@ export default function PersonSheet({
                     No phone number on file.
                   </p>
                 )}
+              {/* Google's documented universal maps URL, which hands off to
+                  the Maps app on both phone platforms rather than opening a web
+                  map in a tab over the walk. The query is the STOP's frozen
+                  coordinates, not its address text: the route was built from
+                  them, and a rural or newly-built door is exactly where a
+                  geocoder searching the address string lands somewhere else.
+                  New tab for the reason the printed sheet uses one — leaving
+                  this tab unmounts the walk and discards its replay keys. */}
               <a
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
-                href={`https://maps.google.com/?q=${stop.lat},${stop.lng}`}
+                href={`https://www.google.com/maps/search/?api=1&query=${stop.lat},${stop.lng}`}
                 target="_blank"
                 rel="noreferrer"
               >

@@ -4,10 +4,12 @@ import { PersonProfilesController } from './person-profiles.controller'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
+import { PersonLookupService } from '../services/person-lookup.service'
 import { UsersService } from '@/users/services/users.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import type {
   ClearPersonProfileRemovalDto,
+  ListPersonProfileRemovalsDto,
   SetPersonProfileRemovalDto,
 } from '../schemas/PersonProfileRemoval.schema'
 
@@ -26,11 +28,13 @@ const guardsFor = (method: keyof PersonProfilesController) =>
 
 describe('PersonProfilesController removals', () => {
   const PERSON_ID = '22222222-2222-2222-2222-222222222222'
+  const OPERATOR = 'ops@goodparty.org'
 
   let controller: PersonProfilesController
   let profiles: {
     setRemoval: ReturnType<typeof vi.fn>
     clearRemoval: ReturnType<typeof vi.fn>
+    listRemovals: ReturnType<typeof vi.fn>
   }
   let revalidation: { revalidatePerson: ReturnType<typeof vi.fn> }
 
@@ -38,6 +42,7 @@ describe('PersonProfilesController removals', () => {
     profiles = {
       setRemoval: vi.fn().mockResolvedValue({ personId: PERSON_ID }),
       clearRemoval: vi.fn().mockResolvedValue(undefined),
+      listRemovals: vi.fn().mockResolvedValue([]),
     }
     revalidation = { revalidatePerson: vi.fn() }
     controller = new PersonProfilesController(
@@ -46,36 +51,88 @@ describe('PersonProfilesController removals', () => {
       {} as unknown as S3Service,
       {} as unknown as PersonIdBackfillService,
       {} as unknown as UsersService,
+      {} as unknown as PersonLookupService,
     )
   })
 
-  it('gates both removal endpoints behind AdminOrM2MGuard', () => {
+  it('gates every removal endpoint behind AdminOrM2MGuard', () => {
     // A dropped decorator would silently expose an unauthenticated write that
     // can flip any person's public page to "removed", so pin the guard here.
+    // The reads matter just as much: listRemovals is the only removal shape
+    // that carries the ops note and the actor, and lookupPerson turns a public
+    // slug into identity fields (personId, name, state, office).
     expect(guardsFor('setRemoval')).toContain(AdminOrM2MGuard)
     expect(guardsFor('clearRemoval')).toContain(AdminOrM2MGuard)
+    expect(guardsFor('listRemovals')).toContain(AdminOrM2MGuard)
+    expect(guardsFor('lookupPerson')).toContain(AdminOrM2MGuard)
   })
 
   it('setRemoval delegates to the service and busts the marketing cache', async () => {
     const body = {
       personId: PERSON_ID,
+      appliedBy: OPERATOR,
       note: 'court order',
     } as SetPersonProfileRemovalDto
 
     const result = await controller.setRemoval(body)
 
-    expect(profiles.setRemoval).toHaveBeenCalledWith(PERSON_ID, 'court order')
+    expect(profiles.setRemoval).toHaveBeenCalledWith(
+      PERSON_ID,
+      OPERATOR,
+      'court order',
+    )
     expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID)
     expect(result).toEqual({ personId: PERSON_ID, removed: true })
   })
 
   it('clearRemoval delegates to the service and busts the marketing cache', async () => {
-    const body = { personId: PERSON_ID } as ClearPersonProfileRemovalDto
+    const body = {
+      personId: PERSON_ID,
+      clearedBy: OPERATOR,
+    } as ClearPersonProfileRemovalDto
 
     const result = await controller.clearRemoval(body)
 
-    expect(profiles.clearRemoval).toHaveBeenCalledWith(PERSON_ID)
+    expect(profiles.clearRemoval).toHaveBeenCalledWith(PERSON_ID, OPERATOR)
     expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID)
     expect(result).toEqual({ personId: PERSON_ID, removed: false })
+  })
+
+  // The actor is the entire point of the attribution work: M2M callers are
+  // anonymous to gp-api, so a handler that drops the field on the floor leaves
+  // no record of who took a page down.
+  it('forwards the operator on both writes', async () => {
+    await controller.setRemoval({
+      personId: PERSON_ID,
+      appliedBy: 'system:privacy-backfill',
+    } as SetPersonProfileRemovalDto)
+    await controller.clearRemoval({
+      personId: PERSON_ID,
+      clearedBy: 'system:privacy-backfill',
+    } as ClearPersonProfileRemovalDto)
+
+    expect(profiles.setRemoval).toHaveBeenCalledWith(
+      PERSON_ID,
+      'system:privacy-backfill',
+      undefined,
+    )
+    expect(profiles.clearRemoval).toHaveBeenCalledWith(
+      PERSON_ID,
+      'system:privacy-backfill',
+    )
+  })
+
+  it('lists active takedowns by default and cleared ones on request', async () => {
+    await controller.listRemovals({} as ListPersonProfileRemovalsDto)
+    expect(profiles.listRemovals).toHaveBeenCalledWith({
+      includeCleared: false,
+    })
+
+    await controller.listRemovals({
+      includeCleared: true,
+    } as ListPersonProfileRemovalsDto)
+    expect(profiles.listRemovals).toHaveBeenCalledWith({
+      includeCleared: true,
+    })
   })
 })

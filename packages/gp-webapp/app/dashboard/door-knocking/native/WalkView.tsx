@@ -10,7 +10,7 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
+import { ChevronDownIcon, ChevronRightIcon, cn } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
@@ -20,6 +20,7 @@ import {
   rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
+  STATUS_RGB,
   stopIsKnockable,
   targetMarker,
 } from './statusPresentation'
@@ -28,6 +29,29 @@ const formatDuration = (seconds: number): string => {
   const minutes = Math.round(seconds / 60)
   if (minutes < 60) return `${minutes}m`
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+// The numeral sits ON the stop's status color, so it has to invert with it the
+// way the map's pin numerals do — white on `not_home` yellow is a number nobody
+// can read at arm's length in daylight. Whichever of white and black contrasts
+// better by relative luminance (WCAG's own formula); the crossover is 0.179,
+// and every one of the seven statuses clears 4.8:1 under this rule. Fixed hex
+// rather than `text-foreground`, because the fill it sits on is a fixed hex too
+// and does not follow the theme.
+const linearChannel = (value: number): number => {
+  const channel = value / 255
+  return channel <= 0.03928
+    ? channel / 12.92
+    : ((channel + 0.055) / 1.055) ** 2.4
+}
+
+export const stopNumeralColor = (status: DoorKnockStatus): string => {
+  const [red, green, blue] = STATUS_RGB[status]
+  const luminance =
+    0.2126 * linearChannel(red) +
+    0.7152 * linearChannel(green) +
+    0.0722 * linearChannel(blue)
+  return luminance > 0.179 ? '#000000' : '#ffffff'
 }
 
 interface WalkViewProps {
@@ -96,6 +120,14 @@ export default function WalkView({
     notAVoterReason: NotAVoterReason | undefined,
   ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
+  // Which stop the canvasser is on, shared by the list and the map: a pin tap
+  // and a row tap set the same value, so the numbered row and the numbered pin
+  // are two views of one selection rather than two places to keep your place.
+  // It survives closing the sheet — the door just worked is the one worth
+  // keeping marked — and auto-advance moves it, so the highlighted row is
+  // always the door the sheet is offering.
+  const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
+  const stopRowRefs = useRef(new Map<number, HTMLLIElement | null>())
   const [sheet, setSheet] = useState<{
     stopId: number
     targetId: number
@@ -166,6 +198,7 @@ export default function WalkView({
       return next
     })
     setSheet({ stopId, targetId })
+    setSelectedStopId(stopId)
     refreshFeedFor(targetId)
   }
   const clientKeyFor = (targetId: number): string =>
@@ -269,6 +302,12 @@ export default function WalkView({
   // and its `STATUS_CHANGE` row instead, so the tap answers "why am I being told
   // to skip this house?" at the doorstep — the only place a flag set on the
   // wrong resident gets caught — without offering a knock to log.
+  //
+  // It also brings the list to the tapped stop. The map band and the list are
+  // stacked, so the row for the pin under the thumb is usually scrolled off
+  // screen: without this, closing the sheet returns the canvasser to a list
+  // showing some other part of the street, and the numbered pin has no numbered
+  // row to match. `openSheet` selects; this is the half only a map tap needs.
   const openStopFromMap = (stop: RoutePayloadStop) => {
     const stopTargets = targetsForStop(stop)
     const target = stopTargets.find(isKnockable) ?? stopTargets[0]
@@ -278,6 +317,10 @@ export default function WalkView({
       stopTargets.map((t) => t.stopTargetId),
       target.stopTargetId,
     )
+    stopRowRefs.current.get(stop.id)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    })
   }
   // Held in a ref because the effect below has to re-run on `stops` — a request
   // that arrives before the serve does retries when it lands — while an
@@ -400,11 +443,23 @@ export default function WalkView({
             </div>
             <ol className="divide-y divide-border">
               {stops.map((stop) => (
-                <li key={stop.id}>
+                <li
+                  key={stop.id}
+                  ref={(element) => {
+                    stopRowRefs.current.set(stop.id, element)
+                  }}
+                >
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50"
+                    aria-current={selectedStopId === stop.id || undefined}
+                    className={cn(
+                      'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
+                      selectedStopId === stop.id
+                        ? 'bg-primary/10'
+                        : 'hover:bg-muted/50',
+                    )}
                     onClick={() => {
+                      setSelectedStopId(stop.id)
                       // One resident: straight to their sheet. Several:
                       // expand so the canvasser picks (the demo's behavior).
                       const stopTargets = targetsForStop(stop)
@@ -419,17 +474,32 @@ export default function WalkView({
                       setOpenStopId(openStopId === stop.id ? null : stop.id)
                     }}
                   >
-                    {/* The stop's rolled-up status, and only that: the
-                        sequence number came out of the list view (Aug 14
-                        walkthrough) because the list is not walked in order —
-                        the map pins and the printed sheet are where an
-                        ordering is the point. */}
+                    {/* One circle carrying both of the stop's facts: the
+                        rolled-up status as the fill, and `seq` — the route's
+                        own order, the numeral the map's pin layer draws and the
+                        printed sheet prints — as the digit on it. The three
+                        surfaces have to name a stop the same way for a pin to
+                        be findable in the list at all, which is what the
+                        numbering is for; an index would drift from `seq` the
+                        moment anything but the whole route is listed. Selection
+                        is a ring rather than a fill, so it cannot take the
+                        status color's place. */}
                     <span
-                      className="h-7 w-7 shrink-0 rounded-full"
+                      className={cn(
+                        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',
+                        selectedStopId === stop.id && 'ring-2 ring-primary',
+                      )}
                       style={{
                         backgroundColor: STATUS_DOT_COLORS[stopStatus(stop)],
+                        color: stopNumeralColor(stopStatus(stop)),
                       }}
-                    />
+                    >
+                      {/* A numeral in a circle at the head of a row reads as a
+                          position on screen and as a bare digit to a screen
+                          reader, which has none of that layout. */}
+                      <span className="sr-only">Stop </span>
+                      {stop.seq}
+                    </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">
                         {primaryTargetName(stop) ?? stop.displayAddress}

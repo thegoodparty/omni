@@ -4,6 +4,7 @@ import { PersonProfilesController } from './person-profiles.controller'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
+import { PersonLookupService } from '../services/person-lookup.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UsersService } from '@/users/services/users.service'
 import { User } from '../../generated/prisma'
@@ -49,6 +50,7 @@ describe('testSetPersonId', () => {
       {} as unknown as S3Service,
       {} as unknown as PersonIdBackfillService,
       users as unknown as UsersService,
+      {} as unknown as PersonLookupService,
     )
   })
 

@@ -154,7 +154,6 @@ describe('CampaignStrategyContextService', () => {
       projected_turnout: 10000,
       projected_turnout_lower: 8000,
       projected_turnout_upper: 13000,
-      projected_voter_turnout: null,
       registered_voters: 18000,
       unique_cellphones: 12500,
       unique_landlines: 5500,
@@ -222,7 +221,6 @@ describe('CampaignStrategyContextService', () => {
     expect(result.projected_turnout).toBe(10000)
     expect(result.projected_turnout_lower).toBe(8000)
     expect(result.projected_turnout_upper).toBe(13000)
-    expect(result.projected_voter_turnout).toBeNull()
     expect(result.win_number_effective).toBe(5001)
     expect(result.win_number_lower).toBe(4001)
     expect(result.win_number_upper).toBe(6501)
