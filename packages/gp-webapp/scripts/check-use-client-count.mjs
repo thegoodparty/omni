@@ -252,7 +252,10 @@ import { dirname, join, relative } from 'node:path'
 // RobocallComposeStep owns the tone pills, AI-draft display, and record-bar
 // interaction, and its useRobocallRecorder hook drives MediaRecorder state and
 // object-URL lifecycle — both hold browser-only state, so both are client.
-const BASELINE = 603
+// 2026-08-24: 603 -> 604 for useRobocallAudioUpload — the hook that presigns
+// and POSTs the recording to S3 holds upload/error/key state and calls
+// clientRequest, so it can't run on the server.
+const BASELINE = 604
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -44,6 +44,8 @@ import type {
   PhoneBankingScriptDraftResponse,
   RobocallScriptDraftRequest,
   RobocallScriptDraftResponse,
+  RobocallAudioPresignRequest,
+  RobocallAudioPresignResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
 } from '@goodparty_org/contracts'
@@ -317,6 +319,13 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/draft': {
     Request: RobocallScriptDraftRequest
     Response: RobocallScriptDraftResponse
+  }
+
+  // Presigned S3 POST for the recorded robocall audio. The browser submits the
+  // returned form fields + file to `url`, then holds `key` for the send.
+  'POST /v1/outreach/robocall/audio/presign': {
+    Request: RobocallAudioPresignRequest
+    Response: RobocallAudioPresignResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -16,7 +16,11 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 // APIs. Same tactic as the Calendar stub below.
 vi.mock('./useRobocallRecorder', async () => {
   const { useState, useCallback } = await import('react')
-  const clip = { blob: new Blob(['x']), url: 'blob:mock', durationSec: 5 }
+  const clip = {
+    blob: new Blob(['x'], { type: 'audio/webm' }),
+    url: 'blob:mock',
+    durationSec: 5,
+  }
   return {
     useRobocallRecorder: () => {
       const [status, setStatus] = useState('idle')
@@ -163,6 +167,32 @@ const mockDraft = (
     status: 200,
     data: { draft },
   })
+
+// Mocks the presign endpoint and stubs the direct S3 POST. `s3Ok` controls
+// whether the upload succeeds; non-S3 requests fall through to MSW.
+// Restore any global.fetch spy (mockAudioUpload) so it doesn't leak a
+// neutered fetch into later tests.
+afterEach(() => vi.restoreAllMocks())
+
+const mockAudioUpload = (s3Ok = true) => {
+  api.mock('POST /v1/outreach/robocall/audio/presign', {
+    status: 200,
+    data: {
+      url: 'https://s3.example/robocall-audio-dev',
+      fields: { key: 'k', 'Content-Type': 'audio/webm', policy: 'p' },
+      key: 'robocall/42/clip.webm',
+      expiresIn: 600,
+    },
+  })
+  const realFetch = global.fetch
+  vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+    const url = input instanceof Request ? input.url : input.toString()
+    if (url.includes('s3.example')) {
+      return Promise.resolve(new Response(null, { status: s3Ok ? 204 : 500 }))
+    }
+    return realFetch(input, init)
+  })
+}
 
 const gotoAudience = async (purposeLabel = 'Persuade likely voters') => {
   render(<RobocallFlow open onClose={vi.fn()} />)
@@ -564,6 +594,7 @@ describe('RobocallFlow', () => {
 
   it('drafts a script on entering compose and gates Continue on a saved recording', async () => {
     await gotoCompose()
+    mockAudioUpload()
 
     // The AI draft (grounded self-ID opener) renders read-only for a
     // non-custom purpose.
@@ -589,13 +620,34 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
-    // Save commits it -> Continue enables and advances to the placeholder.
+    // Save uploads to S3 then commits -> Continue enables and advances.
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('Recording saved')).toBeInTheDocument()
     const continueBtn = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(continueBtn).toBeEnabled())
     await userEvent.click(continueBtn)
     expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+  })
+
+  it('keeps the recording uncommitted when the S3 upload fails', async () => {
+    await gotoCompose()
+    mockAudioUpload(false)
+    await screen.findByText(/Hi, this is Alex, and I am running/)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Upload failed: surface the error, stay in preview, keep Continue locked.
+    expect(
+      await screen.findByText(/We couldn't upload your recording/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Preview your recording')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
   it('re-drafts when a different tone is chosen', async () => {

@@ -22,6 +22,7 @@ import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
 import { RobocallComposeStep } from './RobocallComposeStep'
 import { useRobocallRecorder } from './useRobocallRecorder'
+import { useRobocallAudioUpload } from './useRobocallAudioUpload'
 import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
 
 // Steps grow as later slices land (compliance, review + pay). For now: pick a
@@ -116,7 +117,24 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const draftRequestRef = useRef(0)
   const recorder = useRobocallRecorder(MAX_RECORDING_SECONDS)
   const { reset: resetRecorder } = recorder
+  const audioUpload = useRobocallAudioUpload()
+  const { reset: resetAudioUpload } = audioUpload
   const isCustomPurpose = purpose === 'custom'
+
+  // Save commits the recording: upload it to S3 first, and only mark it saved
+  // (which unlocks Continue) once the upload succeeds. The stored key rides in
+  // audioUpload.key for the send-creation step.
+  const handleSaveRecording = async () => {
+    const rec = recorder.recording
+    if (!rec) return
+    const key = await audioUpload.uploadAudio(rec.blob)
+    if (key) recorder.save()
+  }
+
+  // Re-recording (status back to idle) drops any prior upload key/error.
+  useEffect(() => {
+    if (recorder.status === 'idle') resetAudioUpload()
+  }, [recorder.status, resetAudioUpload])
 
   const draftMutation = useMutation({
     mutationFn: async (input: RobocallScriptDraftRequest) => {
@@ -159,8 +177,9 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setScript('')
     draftRequestRef.current = 0
     resetRecorder()
+    resetAudioUpload()
     resetAudience()
-  }, [open, resetAudience, resetRecorder])
+  }, [open, resetAudience, resetRecorder, resetAudioUpload])
 
   // Validate against the combined UTC instant so it's tz-correct: the send must
   // be at least 48h out. `earliest` (now + lead) drives both the "earliest
@@ -387,6 +406,9 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           audienceName={audience.selectedList?.name ?? 'your list'}
           recorder={recorder}
           maxSeconds={MAX_RECORDING_SECONDS}
+          onSaveRecording={handleSaveRecording}
+          isUploading={audioUpload.isUploading}
+          uploadError={audioUpload.error}
         />
       ) : (
         <div className="space-y-2 py-8 text-center">

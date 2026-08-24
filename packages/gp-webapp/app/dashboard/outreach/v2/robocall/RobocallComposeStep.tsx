@@ -58,6 +58,11 @@ interface RobocallComposeStepProps {
   audienceName: string
   recorder: RobocallRecorder
   maxSeconds: number
+  // Save uploads the recording to S3, then marks it saved; while it runs the
+  // Save button shows a spinner, and a failure surfaces uploadError.
+  onSaveRecording: () => void
+  isUploading: boolean
+  uploadError: string | null
 }
 
 export const RobocallComposeStep = ({
@@ -72,6 +77,9 @@ export const RobocallComposeStep = ({
   audienceName,
   recorder,
   maxSeconds,
+  onSaveRecording,
+  isUploading,
+  uploadError,
 }: RobocallComposeStepProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -186,10 +194,14 @@ export const RobocallComposeStep = ({
         onAudioPlay={() => setPlaying(true)}
         onAudioPause={() => setPlaying(false)}
         fileInputRef={fileInputRef}
+        onSave={onSaveRecording}
+        isUploading={isUploading}
       />
 
-      {recorder.error && (
-        <p className="text-sm text-destructive">{recorder.error}</p>
+      {(recorder.error || uploadError) && (
+        <p className="text-sm text-destructive">
+          {recorder.error ?? uploadError}
+        </p>
       )}
     </div>
   )
@@ -204,6 +216,8 @@ interface RecordBarProps {
   onAudioPlay: () => void
   onAudioPause: () => void
   fileInputRef: React.RefObject<HTMLInputElement | null>
+  onSave: () => void
+  isUploading: boolean
 }
 
 const RecordBar = ({
@@ -215,6 +229,8 @@ const RecordBar = ({
   onAudioPlay,
   onAudioPause,
   fileInputRef,
+  onSave,
+  isUploading,
 }: RecordBarProps) => {
   if (recorder.status === 'recording') {
     return (
@@ -290,11 +306,18 @@ const RecordBar = ({
               size="small"
               aria-label="Discard"
               onClick={recorder.discard}
+              disabled={isUploading}
             >
               <Trash2Icon className="size-4" />
             </IconButton>
-            <Button type="button" size="small" onClick={recorder.save}>
-              Save
+            <Button
+              type="button"
+              size="small"
+              onClick={onSave}
+              disabled={isUploading}
+            >
+              {isUploading && <Loader2Icon className="size-4 animate-spin" />}
+              {isUploading ? 'Saving…' : 'Save'}
             </Button>
           </>
         )}
