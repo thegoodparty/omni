@@ -12,11 +12,11 @@ import {
   DoorOpenIcon,
   MapPinIcon,
   PencilIcon,
+  RefreshIcon,
   ToggleGroup,
   ToggleGroupItem,
   UsersIcon,
 } from '@styleguide'
-import { useSnackbar } from 'helpers/useSnackbar'
 import {
   DetailsSection,
   FilterGroup,
@@ -41,7 +41,7 @@ import { unpreviewableDisclosureLabels } from './createFlow/voterFilterPreview'
 import type { DimSlice, PolygonStats } from './filterEngine'
 import { ageBucketLabel, routeAudienceMix } from './audienceMix'
 import DeleteTurfControl, { LOCKED_TURF_MESSAGE } from './DeleteTurfControl'
-import { useListArchive } from './useListArchive'
+import { canArchiveTurf, turfStage, useTurfLifecycle } from './turfLifecycle'
 import { countDoors, knockableTargets } from '../routeCounts'
 
 // The age field's own options plus the retired overlapping ranges ENG-10752
@@ -215,7 +215,6 @@ export default function TurfDetailsSheet({
   onDeleted,
 }: TurfDetailsSheetProps) {
   const [editOpen, setEditOpen] = useState(false)
-  const { successSnackbar, errorSnackbar } = useSnackbar()
   // Which mode the travel figure is being read in. Display-only and
   // deliberately never persisted: door_knocking_route.doorKnockingTurfId is
   // unique, the row is never written after the knock transaction commits (both
@@ -376,35 +375,14 @@ export default function TurfDetailsSheet({
       ? estimateTravelSeconds(route.route.totalMeters, shownMode)
       : (route?.route.totalSeconds ?? 0)
 
-  const isArchived = Boolean(liveTurf.archivedAt)
-  // The one archive action for this list, turf first and the outreach envelope
-  // mirrored off it — see useListArchive for why the mirror only runs in that
-  // direction. The route id is the join key and it is only knowable once the
-  // serve payload lands, which is also the only state archive is offered in.
-  const archive = useListArchive({
-    turfId: turf.id,
-    routeId: route?.route.id ?? null,
-    routeUnavailable: routeFailed,
-    // The row the server wrote, never the render-time `isArchived` beside it:
-    // this callback is re-read at settlement, and `turfsQueryOptions` has no
-    // staleTime, so a background refetch landing mid-flight can move
-    // `liveTurf` to the post-mutation value before this runs — and the message
-    // would then name the opposite of what just happened.
-    onArchived: ({ turf: written, mirrorFailed }) => {
-      if (mirrorFailed) {
-        // The list IS shelved; what did not land is the history row. Reporting
-        // a failed archive here would send someone to press it again against a
-        // list that already moved.
-        errorSnackbar(
-          written.archivedAt
-            ? 'List archived, but your outreach history has not caught up yet.'
-            : 'List restored, but your outreach history has not caught up yet.',
-        )
-        return
-      }
-      successSnackbar(written.archivedAt ? 'List archived' : 'List restored')
-    },
-  })
+  // The rail's own lifecycle hook, not a second one of this drawer's. Archive
+  // writes two rows — the turf and the outreach envelope reporting it — and
+  // the whole point of closing that seam is that exactly one place writes
+  // them; a drawer with its own mutation would be the second writer that lets
+  // them drift apart again. It carries its own snackbars, so this surface and
+  // the card say the same thing about the same act.
+  const stage = turfStage(liveTurf)
+  const lifecycle = useTurfLifecycle(liveTurf)
 
   return (
     <>
@@ -455,18 +433,25 @@ export default function TurfDetailsSheet({
           </div>
         }
         footer={
-          // The canvas's `edit` mode, landed on the one object in this product
-          // that really has both endpoints behind it: an unknocked list, which
-          // PUT and DELETE both accept. Once it is knocked the list becomes the
-          // canvas's `done` row — and `done`'s primary slot there is "Show
-          // results", which on this surface is the drawer already being read,
-          // so it carries the list-management action instead. There is
-          // deliberately no `continue` mode here: the walk is entered from the
-          // rail's Knock control, which the orchestrator owns behind a frozen
-          // prop interface, so "Continue knocking" lives in the outreach
-          // history drawer where it is a plain link.
+          // The canvas's modes, read off the same lifecycle the rail sections
+          // on. An unknocked list is `edit` — the one object in this product
+          // with both a PUT and a DELETE genuinely behind it, which is why
+          // that mode lands here rather than on a paid campaign nobody can
+          // edit. A knocked list still being walked is `continue`, and carries
+          // no CTA: the walk is entered from the rail's Knock control, which
+          // the orchestrator owns behind a frozen prop interface, so "Continue
+          // knocking" lives in the outreach history drawer where it is a plain
+          // link. Done or archived is `done`, whose canvas primary is "Show
+          // results" — on this surface that is the drawer already being read,
+          // so the slot carries the shelf action instead.
           <ListDetailsFooter
-            mode={liveTurf.locked ? 'done' : 'edit'}
+            mode={
+              !liveTurf.locked
+                ? 'edit'
+                : stage === 'active'
+                  ? 'continue'
+                  : 'done'
+            }
             destructive={
               // Rendered locked or not — disabled rather than absent. gp-api
               // still refuses the call, so this changes nothing about what is
@@ -500,20 +485,33 @@ export default function TurfDetailsSheet({
                   }
             }
             secondary={
-              liveTurf.locked && (
+              // The same gate the rail card uses, so one list cannot offer the
+              // shelf from its card and refuse it from its drawer: gp-api
+              // applies the transition to a knocked list only, and archiving a
+              // walk still in progress would shelve it mid-stride.
+              stage === 'archived' ? (
                 <Button
                   variant="outline"
                   className="w-full"
-                  // Held until the route lands, because its id is the join key
-                  // to the outreach envelope: archiving a moment earlier would
-                  // succeed on the list and quietly skip the mirror, which is
-                  // the exact drift this control exists to close.
-                  disabled={archive.isPending || routePending}
-                  onClick={() => archive.mutate(!isArchived)}
+                  disabled={lifecycle.pendingAction === 'restore'}
+                  onClick={lifecycle.restore}
                 >
-                  <ArchiveIcon className="size-4" />
-                  {isArchived ? 'Restore from archive' : 'Move to archive'}
+                  <RefreshIcon className="size-4" />
+                  Restore
                 </Button>
+              ) : (
+                canArchiveTurf(liveTurf) &&
+                stage === 'done' && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={lifecycle.pendingAction === 'archive'}
+                    onClick={lifecycle.moveToArchive}
+                  >
+                    <ArchiveIcon className="size-4" />
+                    Move to Archive
+                  </Button>
+                )
               )
             }
           />

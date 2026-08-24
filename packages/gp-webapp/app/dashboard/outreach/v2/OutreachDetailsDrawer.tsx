@@ -313,7 +313,7 @@ export const OutreachDetailsDrawer = ({
                 // row is the campaign-reporting projection of that list, and a
                 // second writer that could only reach the projection is exactly
                 // how the two `archivedAt` columns drift apart. See the note
-                // below and `door-knocking/native/useListArchive.ts`.
+                // below and `door-knocking/native/turfLifecycle.ts`.
                 footerMode === 'done' &&
                 !isDoorKnocking && (
                   <Button
