@@ -1,13 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import {
-  PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
   type PhoneBankingCreateResponse,
-  type PhoneBankingFilters,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
   type SocialTone,
@@ -15,18 +13,17 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
-import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
+import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
+import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import {
+  OutreachAudienceStep,
+  type OutreachAudienceCopy,
+} from '../audience/OutreachAudienceStep'
+import { useOutreachAudience } from '../audience/useOutreachAudience'
 import { phoneBankingPurposeNameSuggestion } from '../phoneBankingPurposes'
 import { PurposeStep } from './PurposeStep'
-import {
-  WhoStep,
-  type BuilderCountStatus,
-  type PhoneBankingFilterState,
-  type SavedPhoneBankingList,
-  type WhoAudienceSource,
-  type WhoSubStep,
-} from './WhoStep'
 import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
@@ -45,11 +42,27 @@ const STEP_TITLES: Record<StepId, string> = {
 const GENERIC_CREATE_ERROR_MESSAGE =
   "We couldn't create this call list. Try again."
 
-const EMPTY_BUILDER_COUNT_STATUS: BuilderCountStatus = {
-  hasActiveFilter: false,
-  pending: false,
-  failed: false,
-  count: null,
+// Phone banking is free (volunteers make the calls) — 0 tells the shared
+// audience step to omit the cost line entirely rather than show "for $0.00".
+const PRICE_PER_CONTACT =
+  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.phoneBanking)?.cost ??
+  0
+
+// ENG-10930/ENG-10931: the audience step is the shared OutreachAudienceStep +
+// useOutreachAudience (same wiring as RobocallFlow) — no hardcoded
+// "Recommended list" default, and the builder exposes every CRM filter
+// dimension (VoterFileStep) instead of the four PhoneBankingFiltersSchema
+// used to restrict it to.
+const PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
+  pickerTitle: 'Who are you calling?',
+  pickerBody: 'We recommend reaching all voters to increase awareness.',
+  filtersTitle: 'Build a voter list',
+  filtersBody: 'Pick filters to define who this campaign reaches.',
+  nameTitle: 'Name your list',
+  nameBody: 'You can rename it any time.',
+  reachVerb: 'Reach',
+  reachNoun: 'voters by phone banking',
+  unitCostLabel: '',
 }
 
 interface PhoneBankingFlowProps {
@@ -59,8 +72,9 @@ interface PhoneBankingFlowProps {
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
-// as SocialFlow): no server drafts — nothing persists until the final
-// create call, and reopening starts fresh.
+// as SocialFlow/RobocallFlow): no server drafts — nothing persists until the
+// audience is picked/built and the final create call, and reopening starts
+// fresh.
 export const PhoneBankingFlow = ({
   open,
   onClose,
@@ -69,29 +83,6 @@ export const PhoneBankingFlow = ({
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingPurpose | null>(null)
-
-  // Who step: three audience sources (design canvas anatomy). `all` is the
-  // default — the recommended, no-filter audience. `saved` carries
-  // selectedListId; `custom` carries the committed builder output
-  // (customFilters/customListName). whoSubStep tracks the picker's own
-  // sub-flow (builder → naming) for the create-a-new-list path; it never
-  // moves the shell's step stepper.
-  const [audienceSource, setAudienceSource] = useState<WhoAudienceSource>('all')
-  const [selectedListId, setSelectedListId] = useState<number | null>(null)
-  const [whoSubStep, setWhoSubStep] = useState<WhoSubStep>('picker')
-  const [customFilters, setCustomFilters] = useState<PhoneBankingFilterState>(
-    {},
-  )
-  const [customListName, setCustomListName] = useState('')
-  const [builderFilters, setBuilderFilters] = useState<PhoneBankingFilterState>(
-    {},
-  )
-  const [builderName, setBuilderName] = useState('')
-  const [listCountFailed, setListCountFailed] = useState(false)
-  const [listCountPending, setListCountPending] = useState(false)
-  const [builderCountStatus, setBuilderCountStatus] = useState(
-    EMPTY_BUILDER_COUNT_STATUS,
-  )
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
@@ -106,25 +97,12 @@ export const PhoneBankingFlow = ({
   // flow) clobbering a newer draft — same convention as SocialFlow.
   const draftRequestRef = useRef(0)
 
-  const savedListsQuery = useQuery({
-    queryKey: ['phone-banking-saved-lists'],
-    queryFn: () =>
-      clientRequest('GET /v1/voters/voter-file/filters', {}).then(({ data }) =>
-        (data || [])
-          .filter(
-            (list) =>
-              typeof list.name === 'string' &&
-              !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
-          )
-          .map(
-            (list): SavedPhoneBankingList => ({
-              id: list.id,
-              name: list.name,
-            }),
-          ),
-      ),
-    enabled: open,
+  const audience = useOutreachAudience({
+    open,
+    active: stepId === 'who',
+    reachabilityKey: 'phoneBanking',
   })
+  const { reset: resetAudience } = audience
 
   const draftMutation = useMutation({
     mutationFn: async (input: PhoneBankingScriptDraftRequest) => {
@@ -138,33 +116,17 @@ export const PhoneBankingFlow = ({
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const base = {
+      const voterFileFilterId = audience.selectedListId
+      if (voterFileFilterId === null) {
+        throw new Error('No audience selected')
+      }
+      const { data } = await clientRequest('POST /v1/phone-banking/lists', {
         name: name.trim(),
         script: script.trim(),
         sheetCount,
         purpose: purpose as PhoneBankingPurpose,
-      }
-      const { data } = await clientRequest(
-        'POST /v1/phone-banking/lists',
-        audienceSource === 'saved' && selectedListId !== null
-          ? { ...base, voterFileFilterId: selectedListId }
-          : audienceSource === 'custom'
-            ? {
-                ...base,
-                filters: customFilters as PhoneBankingFilters,
-                filterName: customListName.trim(),
-              }
-            : // `all` — the default, recommended audience: an empty filter
-              // object with no phoneBanking-specific gate. Verified against
-              // PhoneBankingCreateSchema and the gp-api service: an empty
-              // filters object is accepted, and a zero-phone audience 400s
-              // (rendered inline) exactly like a narrow custom filter would.
-              {
-                ...base,
-                filters: {} as PhoneBankingFilters,
-                filterName: 'All voters',
-              },
-      )
+        voterFileFilterId,
+      })
       return data
     },
     onSuccess: (response) => {
@@ -173,9 +135,10 @@ export const PhoneBankingFlow = ({
       setStepId('download')
       trackEvent(EVENTS.Outreach.PhoneBanking.ListCreated, {
         product: 'phoneBanking',
-        filtersApplied:
-          audienceSource === 'custom' &&
-          Object.values(customFilters).some(Boolean),
+        // Always true now: every audience is a saved VoterFileFilter (picked
+        // or just built) — the filter-less "All voters" default is gone
+        // (ENG-10930). Kept for analytics-schema continuity.
+        filtersApplied: true,
         listSize: response.personCount,
       })
       if (response.outreachId != null) {
@@ -194,16 +157,6 @@ export const PhoneBankingFlow = ({
     draftRequestRef.current += 1
     setStepId('purpose')
     setPurpose(null)
-    setAudienceSource('all')
-    setSelectedListId(null)
-    setWhoSubStep('picker')
-    setCustomFilters({})
-    setCustomListName('')
-    setBuilderFilters({})
-    setBuilderName('')
-    setListCountFailed(false)
-    setListCountPending(false)
-    setBuilderCountStatus(EMPTY_BUILDER_COUNT_STATUS)
     setTone('warm')
     setScript('')
     setSheetCount(1)
@@ -213,20 +166,12 @@ export const PhoneBankingFlow = ({
     setCreateResponse(null)
     resetDraftMutation()
     resetCreateMutation()
-  }, [open, resetDraftMutation, resetCreateMutation])
+    resetAudience()
+  }, [open, resetDraftMutation, resetCreateMutation, resetAudience])
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
-  const selectedSavedList =
-    audienceSource === 'saved'
-      ? (savedListsQuery.data ?? []).find((list) => list.id === selectedListId)
-      : undefined
-  const audienceLabel =
-    audienceSource === 'all'
-      ? 'All voters'
-      : audienceSource === 'saved'
-        ? (selectedSavedList?.name ?? 'Saved list')
-        : customListName
+  const audienceLabel = audience.selectedList?.name ?? ''
 
   // Requests an AI script draft for the given purpose/tone; with
   // currentDraft it polishes that text in place (Improve with AI) instead
@@ -292,74 +237,44 @@ export const PhoneBankingFlow = ({
     setName(phoneBankingPurposeNameSuggestion(purpose))
   }, [stepId, purpose, nameEdited])
 
-  const handleSelectAll = () => {
-    setAudienceSource('all')
-    setSelectedListId(null)
-  }
-
-  const handleSelectSaved = (id: number) => {
-    setAudienceSource('saved')
-    setSelectedListId(id)
-  }
-
-  const handleEnterBuilder = () => {
-    setWhoSubStep('builder')
-  }
-
-  const handleBuilderContinue = () => {
-    setWhoSubStep('naming')
-  }
-
-  const handleNamingContinue = () => {
-    setCustomFilters(builderFilters)
-    setCustomListName(
-      builderName.trim().slice(0, PHONE_BANKING_FILTER_NAME_MAX_LENGTH),
-    )
-    setAudienceSource('custom')
-    setSelectedListId(null)
-    setWhoSubStep('picker')
-    setBuilderFilters({})
-    setBuilderName('')
-    setStepId('script')
+  const handleCreateListContinue = async () => {
+    try {
+      await audience.createList()
+      setStepId('script')
+    } catch {
+      // createListError renders the inline message below the step.
+    }
   }
 
   const handleBack = () => {
-    if (stepId === 'who') {
-      if (whoSubStep === 'naming') {
-        setWhoSubStep('builder')
-        return
-      }
-      if (whoSubStep === 'builder') {
-        setWhoSubStep('picker')
-        setBuilderFilters({})
-        setBuilderName('')
-        return
-      }
+    // Within the builder, Back walks the sub-modes: name -> filters (keeps the
+    // built filters), filters -> picker (resetBuilder clears them).
+    if (stepId === 'who' && audience.mode === 'name') {
+      // Drop any failed-create error so it can't re-flash when the user
+      // returns to the name step; keep the built filters.
+      audience.clearCreateError()
+      audience.setMode('filters')
+      return
+    }
+    if (stepId === 'who' && audience.mode === 'filters') {
+      audience.resetBuilder()
+      return
     }
     const previous = STEP_ORDER[stepIndex - 1]
-    if (previous) setStepId(previous)
+    if (!previous) return
+    // Backing OFF the who step discards the picked list so a re-entry starts
+    // from an empty picker instead of resuming a selection the user just
+    // backed out of. Backing INTO who from a later step keeps the selection.
+    if (stepId === 'who') resetAudience()
+    setStepId(previous)
   }
 
-  const handleCountStatusChange = useCallback(
-    ({ failed, pending }: { failed: boolean; pending: boolean }) => {
-      setListCountFailed(failed)
-      setListCountPending(pending)
-    },
-    [],
+  const hasBuilderSelection = hasAnyVoterFileSelection(
+    audience.builderFilters,
+    audience.builderSupportStatus,
   )
 
-  const handleBuilderCountStatusChange = useCallback(
-    (status: BuilderCountStatus) => setBuilderCountStatus(status),
-    [],
-  )
-
-  const dirty =
-    !saved &&
-    (purpose !== null ||
-      script.trim().length > 0 ||
-      selectedListId !== null ||
-      audienceSource === 'custom' ||
-      Object.values(builderFilters).some(Boolean))
+  const dirty = !saved && purpose !== null
 
   const createErrorMessage = createMutation.isError
     ? (extractApiErrorInfo(
@@ -369,13 +284,41 @@ export const PhoneBankingFlow = ({
       ).message ?? GENERIC_CREATE_ERROR_MESSAGE)
     : null
 
-  const builderCtaLabel =
-    builderCountStatus.hasActiveFilter &&
-    !builderCountStatus.pending &&
-    !builderCountStatus.failed &&
-    builderCountStatus.count !== null
-      ? `Continue (${builderCountStatus.count.toLocaleString()})`
-      : 'Continue'
+  const audienceCta: FlowShellCta =
+    audience.mode === 'filters'
+      ? {
+          label: audience.builderCounting
+            ? 'Continue'
+            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+          onClick: () => audience.setMode('name'),
+          disabled:
+            !hasBuilderSelection ||
+            audience.builderCounting ||
+            audience.builderZeroMatch ||
+            audience.builderCapError,
+          loading: hasBuilderSelection && audience.builderCounting,
+        }
+      : audience.mode === 'name'
+        ? {
+            label: 'Create list',
+            onClick: () => {
+              void handleCreateListContinue()
+            },
+            disabled: audience.builderName.trim().length === 0,
+            loading: audience.createListPending,
+          }
+        : {
+            label:
+              audience.reachableCount !== null
+                ? `Continue (${audience.reachableCount.toLocaleString()})`
+                : 'Continue',
+            onClick: () => setStepId('script'),
+            disabled:
+              !audience.selectedList ||
+              audience.reachableLoading ||
+              audience.reachableCount === null ||
+              audience.reachableCount === 0,
+          }
 
   const cta: FlowShellCta | null = saved
     ? {
@@ -387,28 +330,7 @@ export const PhoneBankingFlow = ({
         },
       }
     : stepId === 'who'
-      ? whoSubStep === 'builder'
-        ? {
-            label: builderCtaLabel,
-            onClick: handleBuilderContinue,
-            disabled:
-              !builderCountStatus.hasActiveFilter ||
-              builderCountStatus.pending ||
-              builderCountStatus.failed,
-          }
-        : whoSubStep === 'naming'
-          ? {
-              label: 'Continue',
-              onClick: handleNamingContinue,
-              disabled: builderName.trim().length === 0,
-            }
-          : {
-              label: 'Continue',
-              onClick: () => setStepId('script'),
-              disabled:
-                audienceSource === 'saved' &&
-                (listCountFailed || listCountPending),
-            }
+      ? audienceCta
       : stepId === 'script'
         ? {
             label: 'Continue',
@@ -441,22 +363,37 @@ export const PhoneBankingFlow = ({
       {stepId === 'purpose' ? (
         <PurposeStep selected={purpose} onSelect={handleSelectPurpose} />
       ) : stepId === 'who' ? (
-        <WhoStep
-          savedLists={savedListsQuery.data ?? []}
-          audienceSource={audienceSource}
-          selectedListId={selectedListId}
-          audienceLabel={audienceLabel}
-          onSelectAll={handleSelectAll}
-          onSelectSaved={handleSelectSaved}
-          subStep={whoSubStep}
-          onEnterBuilder={handleEnterBuilder}
-          builderFilters={builderFilters}
-          onBuilderFiltersChange={setBuilderFilters}
-          builderName={builderName}
-          onBuilderNameChange={setBuilderName}
-          onCountStatusChange={handleCountStatusChange}
-          onBuilderCountStatusChange={handleBuilderCountStatusChange}
-        />
+        <>
+          <OutreachAudienceStep
+            channel="phoneBanking"
+            copy={PHONE_BANKING_AUDIENCE_COPY}
+            mode={audience.mode}
+            lists={audience.lists}
+            listsLoading={audience.listsLoading}
+            selectedId={audience.selectedListId}
+            onSelect={audience.onSelect}
+            onStartBuilder={audience.startBuilder}
+            reachableCount={audience.reachableCount}
+            reachableLoading={audience.reachableLoading}
+            pricePerContact={PRICE_PER_CONTACT}
+            builderFilters={audience.builderFilters}
+            onBuilderFiltersChange={audience.setBuilderFilters}
+            builderSupportStatus={audience.builderSupportStatus}
+            onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
+            builderName={audience.builderName}
+            onBuilderNameChange={audience.setBuilderName}
+            isElectedOfficial={audience.isElectedOfficial}
+            builderCount={audience.builderCount}
+            builderCounting={audience.builderCounting}
+            builderCapError={audience.builderCapError}
+            builderCountErrorMessage={audience.builderCountErrorMessage}
+          />
+          {audience.createListError && audience.mode === 'name' && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t create this list. Try again.
+            </p>
+          )}
+        </>
       ) : stepId === 'script' ? (
         <ScriptStep
           name={name}

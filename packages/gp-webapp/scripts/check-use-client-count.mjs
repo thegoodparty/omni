@@ -248,7 +248,7 @@ import { dirname, join, relative } from 'node:path'
 // stay directive-free and inherit the boundary from their importers, the
 // savedListFilters.ts rule: turfLifecycle.ts is a hooks module with no JSX, and
 // TurfLegend.tsx holds no state and binds only handlers it is handed.
-const BASELINE = 601
+const BASELINE = 600
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

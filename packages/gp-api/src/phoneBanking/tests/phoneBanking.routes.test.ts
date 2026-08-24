@@ -336,9 +336,7 @@ describe('phone banking routes', () => {
       expect(get.data.purpose).toBe('election-day')
     })
 
-    it('persists a named VoterFileFilter for an inline filter build', async () => {
-      mockPeoplePage([fakePerson({ cellPhone: '3075559000' })])
-
+    it('400s an inline-filters body — the audience is always a saved filter', async () => {
       const res = await service.client.post(
         '/v1/phone-banking/lists',
         buildBody({
@@ -346,16 +344,11 @@ describe('phone banking routes', () => {
           filters: { hasCellPhone: true },
           filterName: 'Inline audience',
         }),
-        orgHeaders(),
+        { ...orgHeaders(), validateStatus: () => true },
       )
 
-      expect(res.status).toBe(201)
-      const created = await service.prisma.voterFileFilter.findFirst({
-        where: { organizationSlug: orgSlug, name: 'Inline audience' },
-      })
-      expect(created).not.toBeNull()
-      expect(created?.hasCellPhone).toBe(true)
-      expect(created?.firstUsedForOutreachAt).not.toBeNull()
+      expect(res.status).toBe(400)
+      expect(await service.prisma.phoneBankingList.count()).toBe(0)
     })
 
     it('404s a voterFileFilterId that belongs to another organization', async () => {
