@@ -21,7 +21,7 @@ import {
   CreateJobResponseDto,
   GetJobResponseDto,
 } from '../schemas/peerlyP2pSms.schema'
-import { CreateJobParams, PeerlyJob, PeerlyJobStatus } from '../peerly.types'
+import { CreateJobParams, PeerlyJob } from '../peerly.types'
 
 interface CreateP2pJobParams {
   campaignId: number
@@ -156,18 +156,17 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   }
 
   // Peerly has no DELETE verb for jobs: cancellation is a status write on
-  // the job (observed vocabulary includes 'deleted'/'paused'; the docs leave
-  // status values unenumerated). Only { status } is sent — the update
-  // endpoint overwrites the templates array with whatever is passed, so no
-  // other keys may ride along. See
+  // DELETE /1to1/jobs/{id} (204). The endpoint is documented but missing
+  // from Peerly's llms.txt index
+  // (https://api-docs.peerly.com/reference/delete-1to1-sms-job). See
   // scratch/voter-outreach/research/peerly-job-cancel.md.
-  async updateJobStatus(jobId: string, status: PeerlyJobStatus): Promise<void> {
+  async deleteJob(jobId: string): Promise<void> {
     try {
-      this.logger.debug(`Setting P2P job ${jobId} status to ${status}`)
-      await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, { status })
+      this.logger.debug(`Deleting P2P job ${jobId}`)
+      await this.peerlyHttpService.delete(`/1to1/jobs/${jobId}`)
     } catch (error) {
-      this.logger.error({ error }, P2P_ERROR_MESSAGES.UPDATE_JOB_FAILED)
-      throw new BadGatewayException(P2P_ERROR_MESSAGES.UPDATE_JOB_FAILED)
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
     }
   }
 

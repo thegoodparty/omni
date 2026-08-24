@@ -7,7 +7,7 @@ import { OutreachStatus, OutreachType } from '../../generated/prisma'
 
 const service = useTestService()
 
-const updateJobStatus = vi.fn()
+const deleteJob = vi.fn()
 const retrieveCheckoutSession = vi.fn()
 const refundPaymentIntent = vi.fn()
 
@@ -17,12 +17,12 @@ let campaignId: number
 beforeEach(async () => {
   // clearMocks resets calls, not implementations — a persistent
   // mockRejectedValue from one test must not leak into the next.
-  updateJobStatus.mockReset().mockResolvedValue(undefined)
+  deleteJob.mockReset().mockResolvedValue(undefined)
   retrieveCheckoutSession.mockReset()
   refundPaymentIntent.mockReset()
 
   const peerly = service.app.get(PeerlyP2pJobService)
-  vi.spyOn(peerly, 'updateJobStatus').mockImplementation(updateJobStatus)
+  vi.spyOn(peerly, 'deleteJob').mockImplementation(deleteJob)
   const stripe = service.app.get(StripeService)
   vi.spyOn(stripe, 'retrieveCheckoutSession').mockImplementation(
     retrieveCheckoutSession,
@@ -87,7 +87,7 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.refunded).toBe(true)
     expect(res.data.outreach.status).toBe('canceled')
-    expect(updateJobStatus).toHaveBeenCalledWith('peerly-job-1', 'deleted')
+    expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
     expect(refundPaymentIntent).toHaveBeenCalledWith(
       'pi_test_1',
       `outreach-cancel-${row.id}`,
@@ -115,7 +115,7 @@ describe('POST /v1/outreach/:id/cancel', () => {
     const res = await postCancel(row.id)
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(updateJobStatus).not.toHaveBeenCalled()
+    expect(deleteJob).not.toHaveBeenCalled()
   })
 
   it('is idempotent: canceling a canceled row is a no-op', async () => {
@@ -128,12 +128,12 @@ describe('POST /v1/outreach/:id/cancel', () => {
 
     expect(second.status).toBe(HttpStatus.CREATED)
     expect(second.data.refunded).toBe(false)
-    expect(updateJobStatus).toHaveBeenCalledTimes(1)
+    expect(deleteJob).toHaveBeenCalledTimes(1)
     expect(refundPaymentIntent).toHaveBeenCalledTimes(1)
   })
 
   it('aborts untouched when the vendor delete fails', async () => {
-    updateJobStatus.mockRejectedValue(new Error('peerly down'))
+    deleteJob.mockRejectedValue(new Error('peerly down'))
     const row = await seedOutreach()
 
     const res = await postCancel(row.id)

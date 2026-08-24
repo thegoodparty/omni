@@ -21,7 +21,6 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
-import { PeerlyJobStatus } from 'src/vendors/peerly/peerly.types'
 import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
@@ -631,10 +630,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     if (outreach.projectId) {
-      await this.peerlyP2pJobService.updateJobStatus(
-        outreach.projectId,
-        PeerlyJobStatus.DELETED,
-      )
+      await this.peerlyP2pJobService.deleteJob(outreach.projectId)
     }
 
     let refunded = false
