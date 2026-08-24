@@ -45,8 +45,10 @@ test.describe('native door-knocking turf rail', () => {
     const row = turfRow(page, turf.id)
     await expect(row).toBeVisible({ timeout: 30_000 })
     await expect(row.getByRole('button', { name, exact: true })).toBeVisible()
+    // Parenthesised, and counting the ACTIVE lists only — the archived ones are
+    // sectioned under their own heading below this one.
     await expect(
-      page.getByRole('heading', { name: 'Saved lists · 1' }),
+      page.getByRole('heading', { name: 'Saved lists (1)' }),
     ).toBeVisible()
 
     // Delete is offered on the row itself, which is where lists get compared —
