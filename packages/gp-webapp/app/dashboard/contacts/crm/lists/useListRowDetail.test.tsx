@@ -56,6 +56,48 @@ describe('useListRowDetail', () => {
     expect(result.current.peopleCount).toBeUndefined()
   })
 
+  // The regression this guards: without a cap, ListsIndex mounts one hook per
+  // saved list and they all fire together - 19 lists meant 19 requests and ~76
+  // people-db aggregates at once, which is what 504'd in prod. Assert on peak
+  // CONCURRENCY, not total calls: all 19 must still complete, just never more
+  // than MAX_IN_FLIGHT at a time.
+  it('never has more than 3 row fetches in flight at once', async () => {
+    let inFlight = 0
+    let peak = 0
+    let completed = 0
+    const release: Array<() => void> = []
+
+    api.mock('GET /v1/contacts/list-detail', () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      return new Promise((resolve) => {
+        release.push(() => {
+          inFlight -= 1
+          completed += 1
+          resolve({ status: 200, data: detailResponse })
+        })
+      })
+    })
+
+    const segments = Array.from({ length: 19 }, (_, i) => 1000 + i)
+    for (const id of segments) {
+      renderHook(() => useListRowDetail(id, true), { wrapper })
+    }
+    await flush()
+
+    // Nothing has resolved yet, so this is the true peak.
+    expect(peak).toBeLessThanOrEqual(3)
+    expect(peak).toBeGreaterThan(0)
+
+    // Drain: each release lets a queued row through, so all 19 still finish.
+    for (let i = 0; i < segments.length; i += 1) {
+      release[i]?.()
+      await flush()
+    }
+    await waitFor(() => expect(completed).toBe(segments.length))
+    expect(peak).toBeLessThanOrEqual(3)
+  })
+
   it('fires the request when enabled', async () => {
     const onRequest = vi.fn()
     api.mock('GET /v1/contacts/list-detail', () => {

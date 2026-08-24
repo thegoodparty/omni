@@ -208,6 +208,12 @@ describe('DoorKnockingResidents schemas', () => {
     ).toThrow()
   })
 
+  // This fixture had gone stale and the test was failing on main: it predates
+  // the phone columns landing on the target shape, which are required keys, so
+  // it had been asserting a parse failure as a pass ever since. The demographic
+  // profile below is required for the same reason — a target on the S2S
+  // residents response either carries every attribute or the service's own
+  // `.parse()` rejects it, which is the point of that boundary.
   it('accepts a response with live targets and name-only residents', () => {
     const response = {
       addresses: [
@@ -220,6 +226,19 @@ describe('DoorKnockingResidents schemas', () => {
               lastName: 'Vega',
               age: 47,
               politicalParty: 'Independent',
+              cellPhone: '(615) 555-0142',
+              landline: null,
+              registeredVoter: true,
+              turnoutLikelihood: 'Super',
+              maritalStatus: 'Likely Married',
+              hasChildrenUnder18: 'Yes',
+              veteranStatus: 'Yes',
+              homeowner: 'Likely',
+              businessOwner: null,
+              levelOfEducation: 'Graduate Degree',
+              estimatedIncomeAmount: 82000,
+              language: 'Spanish',
+              ethnicityGroup: 'Hispanic',
             },
           ],
           otherResidents: [

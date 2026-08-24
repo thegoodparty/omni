@@ -4,6 +4,7 @@ import type { Harness } from './harness'
 import { buildLatencyCases } from './cases'
 import { summarize } from './stats'
 import { COHORTS, checkDrift } from './cohorts'
+import { writeArtifactHtml } from './writeArtifactHtml'
 import {
   artifactPath,
   buildArtifact,
@@ -28,6 +29,10 @@ export const runLatency = async (
   }
 
   const cases = buildLatencyCases()
+  // Materialize the outreach id sets BEFORE the timed loop. Sampling is setup,
+  // not measurement, and folding it into the first outreach cell of each band
+  // inflated that one cell by ~50s.
+  await harness.prepare(cases)
   const results: CaseResult[] = []
 
   for (const c of cases) {
@@ -110,5 +115,9 @@ export const runLatency = async (
     ),
   )
   console.log(`\nartifact: ${path}`)
+  // Emitted on every run, not on request: a pass that only leaves JSON behind
+  // is a pass nobody reads.
+  const htmlPath = writeArtifactHtml(path)
+  console.log(`artifact (html): ${htmlPath}`)
   return results
 }

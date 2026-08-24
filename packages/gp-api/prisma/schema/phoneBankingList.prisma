@@ -1,0 +1,35 @@
+// Storage vocabulary for PhoneBankingCreateSchema's purpose (contracts uses
+// kebab/plain values like "vote-early"; Postgres enum labels must be valid
+// identifiers, so these are the snake_case equivalents — the service layer
+// maps between the two).
+enum PhoneBankingPurpose {
+  introduce
+  persuade
+  event
+  vote_early
+  election_day
+  custom
+}
+
+model PhoneBankingList {
+  id                              Int                              @id @default(autoincrement())
+  createdAt                       DateTime                         @default(now()) @map("created_at")
+  updatedAt                       DateTime                         @updatedAt @map("updated_at")
+  organizationSlug                String                           @map("organization_slug")
+  organization                    Organization                     @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  // Deleting a filter never deletes the list or its person rows — used
+  // filters are delete-locked at the app layer instead, so this relation
+  // carries no onDelete: Cascade.
+  voterFileFilter                 VoterFileFilter                  @relation(fields: [voterFileFilterId], references: [id])
+  voterFileFilterId               Int                              @map("voter_file_filter_id")
+  name                            String
+  script                          String                           @db.Text
+  sheetCount                      Int                              @map("sheet_count") @db.SmallInt
+  purpose                         PhoneBankingPurpose
+  entries                         PhoneBankingListEntry[]
+  outreach                        Outreach?
+  contactInteractionPhoneBankings ContactInteractionPhoneBanking[]
+
+  @@index([organizationSlug])
+  @@map("phone_banking_list")
+}

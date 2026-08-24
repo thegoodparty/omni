@@ -4,8 +4,10 @@ import {
   ContactStatusSource,
   DoorKnockOutcome,
   OutreachType,
+  PhoneBankCallOutcome,
   SupportAnswer,
 } from '@/generated/prisma'
+import type { ActivityConditionAction } from '@goodparty_org/contracts'
 import { BadRequestException } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ActivityConditionResolutionService } from '../services/activityConditionResolution.service'
@@ -447,6 +449,130 @@ describe('ActivityConditionResolutionService', () => {
         activityConditions: [
           {
             outreachType: 'doorKnocking',
+            outreachId: null,
+            actions: ['support_no'],
+          },
+        ],
+      })
+      expect(no).toEqual({ kind: 'filter', idFilter: { in: ['p-no'] } })
+    })
+
+    it('resolves phone-banking outcome actions (answered, no_answer, voicemail, wrong_number, refused)', async () => {
+      const org = await seedOrganization('org-pb-outcomes')
+      const seedPhoneBanking = (
+        personId: string,
+        outcome: PhoneBankCallOutcome,
+      ) =>
+        service.prisma.contactInteractionPhoneBanking.create({
+          data: {
+            organizationSlug: org,
+            personId,
+            occurredAt: new Date(),
+            outcome,
+            manual: true,
+          },
+        })
+      await seedPhoneBanking('p-answered', PhoneBankCallOutcome.answered)
+      await seedPhoneBanking('p-no-answer', PhoneBankCallOutcome.no_answer)
+      await seedPhoneBanking('p-voicemail', PhoneBankCallOutcome.voicemail)
+      await seedPhoneBanking(
+        'p-wrong-number',
+        PhoneBankCallOutcome.wrong_number,
+      )
+      await seedPhoneBanking('p-refused', PhoneBankCallOutcome.refused)
+
+      const resolveAction = (action: ActivityConditionAction) =>
+        resolution.resolveIdFilter(org, {
+          activityConditions: [
+            {
+              outreachType: 'phoneBanking',
+              outreachId: null,
+              actions: [action],
+            },
+          ],
+        })
+
+      expect(await resolveAction('answered')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-answered'] },
+      })
+      expect(await resolveAction('no_answer')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-no-answer'] },
+      })
+      expect(await resolveAction('voicemail')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-voicemail'] },
+      })
+      expect(await resolveAction('wrong_number')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-wrong-number'] },
+      })
+      expect(await resolveAction('refused')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-refused'] },
+      })
+    })
+
+    it('resolves phone-banking support-answer actions (support_yes, support_unsure, support_no)', async () => {
+      const org = await seedOrganization('org-pb-support-answers')
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: org,
+          personId: 'p-yes',
+          occurredAt: new Date(),
+          outcome: PhoneBankCallOutcome.answered,
+          supportAnswer: SupportAnswer.supporter,
+          manual: true,
+        },
+      })
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: org,
+          personId: 'p-unsure',
+          occurredAt: new Date(),
+          outcome: PhoneBankCallOutcome.answered,
+          supportAnswer: SupportAnswer.unsure,
+          manual: true,
+        },
+      })
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: org,
+          personId: 'p-no',
+          occurredAt: new Date(),
+          outcome: PhoneBankCallOutcome.answered,
+          supportAnswer: SupportAnswer.non_supporter,
+          manual: true,
+        },
+      })
+
+      const yes = await resolution.resolveIdFilter(org, {
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: null,
+            actions: ['support_yes'],
+          },
+        ],
+      })
+      expect(yes).toEqual({ kind: 'filter', idFilter: { in: ['p-yes'] } })
+
+      const unsure = await resolution.resolveIdFilter(org, {
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: null,
+            actions: ['support_unsure'],
+          },
+        ],
+      })
+      expect(unsure).toEqual({ kind: 'filter', idFilter: { in: ['p-unsure'] } })
+
+      const no = await resolution.resolveIdFilter(org, {
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
             outreachId: null,
             actions: ['support_no'],
           },

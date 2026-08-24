@@ -13,26 +13,13 @@ import {
   WILL_VOTE_OPTIONS,
   WILL_VOTE_QUESTION,
 } from '../native/knockQuestions'
-import { STATUS_LABELS } from '../native/statusPresentation'
-import { formatDistance } from '../native/routeFormat'
-import { countDoors, countPeople } from '../routeCounts'
-
-const formatDuration = (seconds: number): string => {
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes} min`
-  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
-}
-
-// Age and party are the two things a canvasser uses to open a conversation,
-// and they're the only enrichment worth the ink.
-const describeTarget = (target: RoutePayloadTarget): string =>
-  [
-    target.age === null ? null : `${target.age}`,
-    target.politicalParty,
-    target.mayHaveMoved ? 'may have moved' : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+import { skipInstruction, STATUS_LABELS } from '../native/statusPresentation'
+import {
+  describeTarget,
+  formatDuration,
+  lastContactLine,
+  walkSummary,
+} from './walkFacts'
 
 // An empty square to tick. Printers drop background colors by default, so
 // every mark on this page has to be a border or text.
@@ -69,6 +56,8 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   // Already recorded in the app: print the answer instead of blank boxes, so
   // a door isn't knocked twice and a transcriber doesn't overwrite it.
   const recorded = target.knockStatus !== 'unknown'
+  const skip = skipInstruction(target)
+  const lastContact = lastContactLine(target)
 
   return (
     <div className="break-inside-avoid px-2 py-1.5">
@@ -78,7 +67,22 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
         </span>
         {detail && <span className="text-[10px]">{detail}</span>}
       </div>
-      {recorded ? (
+      {/* ENG-10876. Above whatever follows, because it is what the canvasser
+          reads before deciding how to open — and it prints whichever of the
+          three branches below applies, since "have we been here before" is a
+          fact about the resident rather than about the form. Same helper the
+          PDF's row model reads, so the two formats cannot word one history two
+          ways. */}
+      {lastContact && <div className="text-[10px]">{lastContact}</div>}
+      {/* ADR 0007 and 0008. Turf evaluation keeps flagged people off new
+          lists, but it cannot reach a route already frozen — and paper freezes
+          again the moment it prints. The name stays so the sheet still matches
+          the app's stop numbering; the tick-boxes go, because there is nothing
+          to ask. Checked before `recorded`: a flagged resident is not to be
+          knocked whatever was logged there before. */}
+      {skip ? (
+        <div className="text-[10px] font-semibold">{skip}</div>
+      ) : recorded ? (
         <div className="text-[10px] italic">
           Already logged: {STATUS_LABELS[target.knockStatus]}
         </div>
@@ -158,6 +162,7 @@ const StopBlock = ({ stop }: { stop: RoutePayloadStop }) => {
 }
 
 interface WalkSheetProps {
+  turfId: string
   turfName: string
   payload: DoorKnockingRoutePayload
 }
@@ -167,12 +172,12 @@ interface WalkSheetProps {
 // deliberately a server component with no interactivity — a canvasser hitting
 // this URL on a phone with one bar should get a printable page, not a
 // hydration wait.
-export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
+export default function WalkSheet({
+  turfId,
+  turfName,
+  payload,
+}: WalkSheetProps) {
   const stops = payload.stops.slice().sort((a, b) => a.seq - b.seq)
-  // Doors, not people: this used to sum targets, so a sheet for the same route
-  // the app called "40 doors" printed a larger number in its own header.
-  const doorCount = countDoors(stops)
-  const personCount = countPeople(stops)
 
   return (
     <div className="mx-auto max-w-3xl bg-white p-6 text-black print:max-w-none print:p-0">
@@ -185,17 +190,27 @@ export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
           the list in the app and log each door — nothing on paper reaches your
           voter records on its own.
         </p>
+        {/* A plain link, not a button: the file is built by a route handler, so
+            downloading it costs this page no JavaScript at all and works with
+            scripting off. */}
+        <p className="mt-2">
+          <a
+            href={`/dashboard/door-knocking/print/${turfId}/pdf`}
+            className="font-semibold underline underline-offset-2"
+          >
+            Download PDF
+          </a>{' '}
+          for a landscape grid with a row per resident — easier to fill in on a
+          clipboard, and the version to hand a volunteer.
+        </p>
       </div>
 
       <header className="mb-3 border-b-2 border-black pb-2">
         <h1 className="text-lg font-bold">{turfName}</h1>
-        <p className="text-xs">
-          {stops.length} stops · {doorCount} doors · {personCount} people ·{' '}
-          {payload.route.mode === 'walk' ? 'Walking' : 'Driving'}
-          {payload.route.loop ? ' loop' : ''} ·{' '}
-          {formatDuration(payload.route.totalSeconds)} ·{' '}
-          {formatDistance(payload.route.totalMeters)}
-        </p>
+        {/* Stops, doors and people are three different numbers, and the PDF
+            quotes the same sentence from the same helper — the app and the
+            paper have reported different door counts for one route before. */}
+        <p className="text-xs">{walkSummary(stops, payload.route)}</p>
         {/* Deliberately no printed date. This renders in Node, whose clock is
             UTC, so an evening print anywhere in the US would be stamped
             tomorrow — and formatting it as UTC only makes the wrong date a

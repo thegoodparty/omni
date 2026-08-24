@@ -994,6 +994,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListExported, {
       listSize: 100,
+      surface: 'listDetail',
     })
   })
 
@@ -1015,7 +1016,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     expect(eventCalls(EVENTS.ConstituentData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ConstituentData.ListExported,
-      { listSize: 100 },
+      { listSize: 100, surface: 'listDetail' },
     )
   })
 

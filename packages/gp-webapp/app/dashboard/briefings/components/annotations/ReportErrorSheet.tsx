@@ -16,8 +16,8 @@ import type { SheetState } from './sheetState'
 import type { PredictedPosition } from './enrichForCycler'
 import { useClearSelectionOnOpen } from './useClearSelectionOnOpen'
 import { AnchoredQuote } from './AnchoredQuote'
-import { useDictationAppend } from '../../shared/useDictationAppend'
-import { DictationMicButton } from '../../shared/DictationMicButton'
+import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
+import { DictationMicButton } from '../../../shared/dictation/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
 
 type Props = {

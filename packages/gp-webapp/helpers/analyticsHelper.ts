@@ -65,6 +65,13 @@ export const EVENTS = {
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',
     lowConfidenceModalClicked: 'Polls - Low Confidence Modal Clicked',
   },
+  // Shared across every polls surface that can hard-block on missing
+  // constituent data (onboarding, create, expand) — one event with a `source`
+  // rather than three near-duplicates.
+  Polls: {
+    ConstituentDataUnavailableViewed:
+      'Polls - Constituent Data Unavailable Viewed',
+  },
   createPoll: {
     createPollClicked: 'Polls - Create Poll Clicked',
     pollQuestionViewed: 'Polls - Poll Question Viewed',
@@ -619,6 +626,17 @@ export const EVENTS = {
     },
     PhoneBanking: {
       Complete: 'Outreach - Phone Banking: Complete',
+      // v2 create flow (phase 1 TDD): fires once the create call succeeds.
+      ListCreated: 'Voter Outreach - Phone Banking Call List Created',
+      // Fires from every entry point that links to the print/[listId]/pdf
+      // route (the flow's download step, and later the call-session header
+      // button) — ENG-10918.
+      SheetDownloaded: 'Voter Outreach - Phone Banking Call Sheet Downloaded',
+      // ENG-10921: the in-app caller page. Distinct from the legacy
+      // Dashboard.VoterContact.PhoneBanking group above, which belongs to
+      // the pre-native script/download surface.
+      ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
+      CallLogged: 'Outreach - Phone Banking: Call Logged',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },
@@ -762,6 +780,17 @@ export const EVENTS = {
     SessionCompleted: 'Door Knocking - Session Completed',
     SessionAbandoned: 'Door Knocking - Session Abandoned',
     DoorLogged: 'Door Knocking - Door Logged',
+    // ADR 0007. Both directions, because the ratio is the signal: a rising
+    // clear rate means the button is being mis-tapped, not that voters changed
+    // their minds.
+    DoNotKnockSet: 'Door Knocking - Do Not Knock Set',
+    DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
+    // ADR 0008. Both directions for the same reason, and the Set event carries
+    // which reason was given: the follow-up is optional, so how often it is
+    // answered at all — and how the two answers split — is the only way to tell
+    // whether the question is worth asking.
+    NotAVoterReasonSet: 'Door Knocking - Not A Voter Reason Set',
+    NotAVoterReasonCleared: 'Door Knocking - Not A Voter Reason Cleared',
   },
 } as const
 

@@ -163,6 +163,7 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
   it.each<[ComplianceStateOutput['peerlyCvStatus']]>([
     [PeerlyCvVerificationStatus.REQUESTED],
     [PeerlyCvVerificationStatus.IN_REVIEW],
+    [PeerlyCvVerificationStatus.REJECTED],
     [null],
   ])(
     'hides the PIN box for a `submitted` record whose CV is %s (no PIN sent yet)',

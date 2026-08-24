@@ -152,10 +152,11 @@ describe('VoterDownloadService', () => {
       // The party column is exported by default — this is the fact that
       // makes the exclusion mechanism below necessary (ENG-10696).
       expect(sql).toContain('v."Parties_Description" AS "Registered Party"')
-      // ENG-10766: curated legacy subset only — no raw L2 turnout dump.
-      expect(sql).not.toContain('"AnyElection_')
+      // ENG-10766: curated subset only, not a raw L2 turnout dump.
+      // AnyElection and PresidentialPrimary are now curated entries
+      // (DATA-2281); what stays out is OtherElection and the two per-row
+      // columns the retired people-api CSV appended.
       expect(sql).not.toContain('"OtherElection_')
-      expect(sql).not.toContain('"PresidentialPrimary_')
       expect(sql).not.toContain('"electionLocation"')
       expect(sql).not.toContain('"electionType"')
     })

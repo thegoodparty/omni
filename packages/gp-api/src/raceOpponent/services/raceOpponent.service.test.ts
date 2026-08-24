@@ -312,6 +312,171 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   })
 })
 
+// ENG-10893: KYO previously iterated only race_opponent rows in groupByOpponent,
+// so an opponent rostered in campaign_strategy_opponent whose collection agent
+// found no public sources silently disappeared from the KYO page while the
+// plan's Executive Summary/Opposition Research (which reads the same roster)
+// still surfaced them. get() must union rostered names into the response so the
+// two views stay consistent.
+describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
+  const COLLECTED_AT = new Date('2026-06-30T10:00:00.000Z')
+  const SUMMARY_AFTER = new Date('2026-06-30T10:05:00.000Z')
+
+  const campaign = {
+    id: 42,
+    organizationSlug: 'org-42',
+    isPro: true,
+    user: { id: 7, clerkId: 'user_abc' },
+  } as unknown as CampaignWith<'user'>
+
+  const collectedRow = {
+    id: 1,
+    campaignId: 42,
+    runId: 'collection-run',
+    opponentName: 'Jane Doe',
+    sourceType: 'ballotpedia',
+    sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+    content: { text: 'jane bio' },
+    createdAt: COLLECTED_AT,
+  }
+
+  const setup = ({
+    rows,
+    rosterOpponents,
+  }: {
+    rows: (typeof collectedRow)[]
+    rosterOpponents: Array<{
+      fullName: string
+      partyAffiliation: string | null
+      incumbent: boolean | null
+      websiteUrl?: string | null
+    }>
+  }): RaceOpponentService => {
+    const service = new RaceOpponentService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    )
+    Object.defineProperty(service, '_prisma', {
+      value: {
+        raceOpponent: {
+          findMany: vi.fn().mockResolvedValue(rows),
+          count: vi.fn().mockResolvedValue(rows.length),
+        },
+        campaignStrategy: {
+          findUnique: vi.fn().mockResolvedValue({ opponents: rosterOpponents }),
+        },
+        raceOpponentSummary: { findMany: vi.fn().mockResolvedValue([]) },
+        raceOpponentFieldAnalysis: {
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
+        raceOpponentStandoutAction: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+        experimentRun: {
+          findFirst: vi.fn().mockResolvedValue({
+            runId: 'collection-run',
+            status: ExperimentRunStatus.COMPLETED,
+            createdAt: COLLECTED_AT,
+          }),
+          findUnique: vi.fn().mockResolvedValue({
+            status: ExperimentRunStatus.COMPLETED,
+            createdAt: SUMMARY_AFTER,
+          }),
+        },
+      },
+      writable: true,
+    })
+    Object.defineProperty(service, 'logger', {
+      value: createMockLogger(),
+      writable: true,
+    })
+    return service
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('surfaces a rostered opponent with zero collected rows', async () => {
+    const service = setup({
+      rows: [collectedRow],
+      rosterOpponents: [
+        {
+          fullName: 'Jane Doe',
+          partyAffiliation: 'Democratic',
+          incumbent: false,
+        },
+        {
+          fullName: 'Michael Foster',
+          partyAffiliation: 'Republican',
+          incumbent: true,
+          websiteUrl: 'michaelforcity.com',
+        },
+      ],
+    })
+
+    const { opponents } = await service.get(campaign)
+
+    const names = opponents.map((o) => o.opponentName)
+    expect(names).toContain('Michael Foster')
+    const foster = opponents.find((o) => o.opponentName === 'Michael Foster')
+    expect(foster?.items).toEqual([])
+    expect(foster?.summary).toBeNull()
+    expect(foster?.party).toBe('Republican')
+    expect(foster?.isIncumbent).toBe(true)
+    expect(foster?.websiteUrl).toBe('michaelforcity.com')
+  })
+
+  it('does not duplicate an opponent that has both roster and collected rows', async () => {
+    const service = setup({
+      rows: [collectedRow],
+      rosterOpponents: [
+        // Different case + whitespace: the normalized-name check must still
+        // treat this as the same opponent so we don't double up.
+        {
+          fullName: ' JANE DOE ',
+          partyAffiliation: 'Democratic',
+          incumbent: false,
+        },
+      ],
+    })
+
+    const { opponents } = await service.get(campaign)
+
+    expect(
+      opponents.filter((o) => /jane doe/i.test(o.opponentName)),
+    ).toHaveLength(1)
+    const jane = opponents.find((o) => /jane doe/i.test(o.opponentName))
+    expect(jane?.opponentName).toBe('Jane Doe')
+    expect(jane?.items).toHaveLength(1)
+  })
+
+  it('orders roster-only opponents (no threat tier) after tiered opponents', async () => {
+    const service = setup({
+      rows: [collectedRow],
+      rosterOpponents: [
+        {
+          fullName: 'Michael Foster',
+          partyAffiliation: null,
+          incumbent: null,
+        },
+      ],
+    })
+
+    const { opponents } = await service.get(campaign)
+
+    // No summaries seeded — every opponent lands in the 'none' bucket (rank 3),
+    // and Array.prototype.sort is stable, so the collected row (inserted first)
+    // still leads the roster-only entry.
+    expect(opponents.map((o) => o.opponentName)).toEqual([
+      'Jane Doe',
+      'Michael Foster',
+    ])
+  })
+})
+
 // A summary run completing must re-chain a fresh summary when an overlapping
 // re-collection landed newer rows while it was in flight (dispatchSummary's
 // in-flight dedup skipped them), or collectionStatus would trap on 'running'

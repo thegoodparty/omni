@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
+import { hsScoreSemantics } from './hsScoreSemantics'
 import {
   buildDistrictTopicsTool,
   DISTRICT_TOPICS_CATALOG,
@@ -103,14 +103,14 @@ describe('buildDistrictTopicsTool', () => {
 })
 
 describe('off-center baseline marker coupling', () => {
-  // The EXCEPTION rule in HS_SCORE_SEMANTICS keys on the literal marker text
+  // The EXCEPTION rule in hsScoreSemantics keys on the literal marker text
   // carried by annotated catalog meanings — the two must quote the same string.
   const OFFCENTER_MARKER = 'not centered at 50'
   const COVERAGE_MARKER = 'limited coverage'
 
   it('quotes both markers in the score semantics', () => {
-    expect(HS_SCORE_SEMANTICS).toContain(OFFCENTER_MARKER)
-    expect(HS_SCORE_SEMANTICS).toContain(COVERAGE_MARKER)
+    expect(hsScoreSemantics('constituent')).toContain(OFFCENTER_MARKER)
+    expect(hsScoreSemantics('constituent')).toContain(COVERAGE_MARKER)
   })
 
   it('carries the off-center marker on both shifted-baseline columns', () => {

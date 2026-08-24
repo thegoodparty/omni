@@ -3,11 +3,9 @@
 // `fenced` flag there) — re-exported here so existing importers don't churn.
 export type { PeopleAggregatesResponse } from '@goodparty_org/contracts'
 
-// Stable error code returned when a campaign cannot use the People-API voter
-// data path (district can't be resolved, or the campaign fails the
-// federal/state download-access rule). The webapp maps it to a clean
-// empty/ineligible state instead of treating the 4xx as an error.
-export const VOTER_DATA_UNAVAILABLE_ERROR_CODE = 'VOTER_DATA_UNAVAILABLE'
+// Moved to shared/ so peopleDb can raise it too — re-exported here so
+// existing importers don't churn.
+export { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '@/shared/constants/voterData.consts'
 
 export type DistrictStatsBucket = {
   label: string

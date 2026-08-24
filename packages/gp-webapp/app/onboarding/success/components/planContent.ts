@@ -85,6 +85,10 @@ export interface PlanInput {
   registeredVoters: number | null
   uniqueCellphones: number | null
   uniqueLandlines: number | null
+  projectedTurnoutLower: number | null
+  projectedTurnoutUpper: number | null
+  winNumberLower: number | null
+  winNumberUpper: number | null
   raceCandidates: RaceCandidate[]
   // Per-category BR milestone windows. Null when election-api couldn't
   // fetch them; individual category nullable when BR has no data for it.
@@ -242,14 +246,8 @@ export interface PlanData {
   contactWindowStart: string
 
   winNumber: number
-  winNumberLow: number
-  winNumberHigh: number
   projectedTurnout: number
-  projectedTurnoutLow: number
-  projectedTurnoutHigh: number
   registeredVoters: number
-  registeredVotersLow: number
-  registeredVotersHigh: number
   voterContactGoal: number
 
   opponentCount: number
@@ -825,9 +823,9 @@ const GLOSSARY: GlossaryRow[] = [
       'The share of records in a voter file that are successfully appended with a phone number from a commercial data vendor.',
   },
   {
-    term: 'Standard Error / 95% CI',
+    term: '70% prediction interval',
     definition:
-      'A range around an estimate such that, under the modeling assumptions, the true value is expected to fall within the range 95% of the time.',
+      "A range around a projection, measured from how far the model's past projections landed from actual results. The true value is expected to fall inside it about 70% of the time.",
   },
   {
     term: 'GOTV',
@@ -1012,39 +1010,37 @@ const DATA_SOURCES: DataSourceRow[] = [
   },
 ]
 
+// The model supplies an interval for turnout and, through the win-number
+// math, for votes needed. It has none for registered voters, which is a count
+// rather than a projection, so that row shows no range at all.
+const formatRange = (low: number | null, high: number | null): string =>
+  low !== null && high !== null
+    ? `${low.toLocaleString('en-US')}–${high.toLocaleString('en-US')}`
+    : ''
+
 const buildConfidenceEstimates = (
   registeredVoters: number,
-  registeredVotersLow: number,
-  registeredVotersHigh: number,
   projectedTurnout: number,
-  projectedTurnoutLow: number,
-  projectedTurnoutHigh: number,
+  projectedTurnoutRange: string,
   winNumber: number,
-  winNumberLow: number,
-  winNumberHigh: number,
+  winNumberRange: string,
 ): ConfidenceRow[] => [
   {
     estimate: 'Registered voters',
     pointValue: registeredVoters.toLocaleString('en-US'),
-    range: `${registeredVotersLow.toLocaleString(
-      'en-US',
-    )}–${registeredVotersHigh.toLocaleString('en-US')}`,
+    range: '',
     notes: 'Based on the latest voter file for your district.',
   },
   {
     estimate: 'Projected voter turnout',
     pointValue: projectedTurnout.toLocaleString('en-US'),
-    range: `${projectedTurnoutLow.toLocaleString(
-      'en-US',
-    )}–${projectedTurnoutHigh.toLocaleString('en-US')}`,
+    range: projectedTurnoutRange,
     notes: 'Based on 3-cycle turnout average.',
   },
   {
     estimate: 'Projected votes needed to win',
     pointValue: winNumber.toLocaleString('en-US'),
-    range: `${winNumberLow.toLocaleString(
-      'en-US',
-    )}–${winNumberHigh.toLocaleString('en-US')}`,
+    range: winNumberRange,
     notes: 'Moves with the targeted voters.',
   },
 ]
@@ -1081,11 +1077,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     winNumber,
   )
 
-  const winNumberLow = Math.max(0, Math.round(winNumber * 0.9))
-  const winNumberHigh = Math.round(winNumber * 1.1)
-  const projectedTurnoutLow = Math.max(0, Math.round(projectedTurnout * 0.9))
-  const projectedTurnoutHigh = Math.round(projectedTurnout * 1.1)
-
   // Prefer the real registered-voter count from election-api when present.
   // Falls back to the ~22%-turnout heuristic on projectedTurnout when the
   // race hash didn't resolve or upstream data is sparse.
@@ -1095,8 +1086,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
       : projectedTurnout > 0
         ? Math.round(projectedTurnout / 0.22)
         : 0
-  const registeredVotersLow = Math.max(0, Math.round(registeredVoters * 0.9))
-  const registeredVotersHigh = Math.round(registeredVoters * 1.1)
 
   const averageTouchesPerVoter =
     projectedTurnout > 0
@@ -1142,14 +1131,10 @@ export const buildPlanData = (input: PlanInput): PlanData => {
 
   const confidenceEstimates = buildConfidenceEstimates(
     registeredVoters,
-    registeredVotersLow,
-    registeredVotersHigh,
     projectedTurnout,
-    projectedTurnoutLow,
-    projectedTurnoutHigh,
+    formatRange(input.projectedTurnoutLower, input.projectedTurnoutUpper),
     winNumber,
-    winNumberLow,
-    winNumberHigh,
+    formatRange(input.winNumberLower, input.winNumberUpper),
   )
   const planAtAGlance = buildPlanAtAGlance(
     projectedTurnout,
@@ -1246,14 +1231,8 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     planGenerationDate,
     contactWindowStart,
     winNumber,
-    winNumberLow,
-    winNumberHigh,
     projectedTurnout,
-    projectedTurnoutLow,
-    projectedTurnoutHigh,
     registeredVoters,
-    registeredVotersLow,
-    registeredVotersHigh,
     voterContactGoal,
     opponentCount,
     volunteerHourTarget,

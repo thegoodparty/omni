@@ -55,6 +55,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
+| Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |

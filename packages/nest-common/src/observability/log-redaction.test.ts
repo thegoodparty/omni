@@ -237,6 +237,118 @@ describe('log-redaction', () => {
         upstream: 'Authorization: Bearer [REDACTED]',
       })
     })
+
+    it('redacts non-Bearer schemes in the raw header form', async () => {
+      const redactLine = await loadRedactLine()
+
+      const result = redactLine(
+        jsonLine({
+          basic: 'Authorization: Basic dXNlcjpwYXNzd29yZA==',
+          jwt: 'Authorization: JWT header.payload.signature',
+          unknown: 'Authorization: Weirdscheme abc123def456',
+        }),
+      )
+      expect(JSON.parse(result)).toEqual({
+        basic: 'Authorization: Basic [REDACTED]',
+        jwt: 'Authorization: JWT [REDACTED]',
+        unknown: 'Authorization: Weirdscheme [REDACTED]',
+      })
+    })
+
+    it('redacts the JSON-serialized header form for any scheme', async () => {
+      const redactLine = await loadRedactLine()
+
+      const result = redactLine(
+        jsonLine({
+          config: {
+            headers: {
+              Authorization: 'JWT header.payload.signature',
+              'Content-Type': 'application/json',
+            },
+          },
+        }),
+      )
+      expect(JSON.parse(result)).toEqual({
+        config: {
+          headers: {
+            Authorization: 'JWT [REDACTED]',
+            'Content-Type': 'application/json',
+          },
+        },
+      })
+    })
+
+    it('redacts the JSON-serialized header form regardless of key case', async () => {
+      const redactLine = await loadRedactLine()
+
+      const result = redactLine(
+        jsonLine({
+          lower: { authorization: 'Bearer lowercase-key-token' },
+          upper: { AUTHORIZATION: 'Basic dXNlcjpwYXNz' },
+        }),
+      )
+      expect(JSON.parse(result)).toEqual({
+        lower: { authorization: 'Bearer [REDACTED]' },
+        upper: { AUTHORIZATION: 'Basic [REDACTED]' },
+      })
+    })
+
+    it('redacts a schemeless credential value', async () => {
+      const redactLine = await loadRedactLine()
+
+      const result = redactLine(
+        jsonLine({ headers: { authorization: 'rawtokenvalue123' } }),
+      )
+      expect(JSON.parse(result)).toEqual({
+        headers: { authorization: '[REDACTED]' },
+      })
+    })
+
+    it('leaves neighbouring header values intact', async () => {
+      const redactLine = await loadRedactLine()
+
+      const result = redactLine(
+        jsonLine({
+          headers: {
+            accept: 'application/json',
+            authorization: 'JWT header.payload.signature',
+            'user-agent': 'axios/1.7.7',
+          },
+        }),
+      )
+      expect(JSON.parse(result)).toEqual({
+        headers: {
+          accept: 'application/json',
+          authorization: 'JWT [REDACTED]',
+          'user-agent': 'axios/1.7.7',
+        },
+      })
+    })
+
+    it('does not redact prose that merely mentions authorization', async () => {
+      const redactLine = await loadRedactLine()
+
+      const line = jsonLine({
+        msg: 'Request failed because authorization was missing',
+        detail: 'The authorization header is required for this endpoint',
+      })
+      expect(redactLine(line)).toBe(line)
+    })
+
+    it('stays linear on a very long line', async () => {
+      const redactLine = await loadRedactLine()
+
+      const line = jsonLine({
+        headers: { authorization: `Bearer ${'a'.repeat(50_000)}` },
+        padding: 'x'.repeat(200_000),
+      })
+
+      const start = performance.now()
+      const result = redactLine(line)
+      expect(performance.now() - start).toBeLessThan(2000)
+      expect(result).toContain('"authorization":"Bearer [REDACTED]"')
+      expect(result).not.toContain('aaaa')
+    })
   })
 
   describe('sensitive query parameter redaction', () => {

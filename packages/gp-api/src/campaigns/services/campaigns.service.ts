@@ -1102,11 +1102,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       return {
         ...contextMetrics,
         ...overrideMetrics,
-        // The general-election baseline is district-derived too, and
-        // buildRaceTargetDetails only resolves turnout for the campaign's
-        // own election date. No override equivalent, so drop it rather
-        // than pass the wrong district's through.
-        projectedVoterTurnout: null,
+        // Same for the prediction interval: it brackets the race district's
+        // projection, so carrying it over would print a range that does not
+        // contain the override district's point values.
+        projectedTurnoutLower: null,
+        projectedTurnoutUpper: null,
+        winNumberLower: null,
+        winNumberUpper: null,
       }
     }
 
@@ -1244,7 +1246,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       registeredVoters: context.registered_voters,
       uniqueCellphones: context.unique_cellphones,
       uniqueLandlines: context.unique_landlines,
-      projectedVoterTurnout: context.projected_voter_turnout,
       projectedTurnoutLower: context.projected_turnout_lower ?? null,
       projectedTurnoutUpper: context.projected_turnout_upper ?? null,
       winNumberLower: context.win_number_lower ?? null,
@@ -1331,7 +1332,6 @@ const emptyContextFields = (): Omit<
   registeredVoters: null,
   uniqueCellphones: null,
   uniqueLandlines: null,
-  projectedVoterTurnout: null,
   projectedTurnoutLower: null,
   projectedTurnoutUpper: null,
   winNumberLower: null,

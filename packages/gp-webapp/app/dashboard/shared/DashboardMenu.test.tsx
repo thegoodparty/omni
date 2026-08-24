@@ -11,6 +11,7 @@ const links = ({
   ecanvasserConnected = false,
   nativeEnabled = false,
   districtResolvable = true,
+  proAccess = true,
 }: {
   serveAccessEnabled?: boolean
   isElectedOffice?: boolean
@@ -21,6 +22,7 @@ const links = ({
   ecanvasserConnected?: boolean
   nativeEnabled?: boolean
   districtResolvable?: boolean
+  proAccess?: boolean
 } = {}) =>
   getDashboardMenuItems(
     serveAccessEnabled,
@@ -30,7 +32,7 @@ const links = ({
     campaignStoryEnabled,
     communityIssuesEnabled,
     ordinancesEnabled,
-    { ecanvasserConnected, nativeEnabled, districtResolvable },
+    { ecanvasserConnected, nativeEnabled, districtResolvable, proAccess },
   )
 
 const hasDoorKnocking = (options: Parameters<typeof links>[0] = {}): boolean =>
@@ -307,6 +309,38 @@ describe('getDashboardMenuItems — Door Knocking nav gating', () => {
     expect(hasDoorKnocking({ districtResolvable: true })).toBe(false)
     expect(
       hasDoorKnocking({ ecanvasserConnected: true, districtResolvable: false }),
+    ).toBe(true)
+  })
+
+  // ENG-10888: every native route is Pro-gated in gp-api, so the link would
+  // only reach an upgrade prompt.
+  it('hides the item on the native flag for a non-Pro org', () => {
+    expect(hasDoorKnocking({ nativeEnabled: true, proAccess: false })).toBe(
+      false,
+    )
+  })
+
+  it('shows the item on the native flag for a Pro org', () => {
+    expect(hasDoorKnocking({ nativeEnabled: true, proAccess: true })).toBe(true)
+  })
+
+  // Same reason an eCanvasser record can't rescue a missing district: the flag
+  // decides which product the route renders, and the native one needs both.
+  it('does not let an eCanvasser record rescue a non-Pro org on the flag', () => {
+    expect(
+      hasDoorKnocking({
+        nativeEnabled: true,
+        ecanvasserConnected: true,
+        proAccess: false,
+      }),
+    ).toBe(false)
+  })
+
+  // The control path is entitlement-free and stays that way — the legacy
+  // eCanvasser dashboard was never Pro-gated and this change must not gate it.
+  it('leaves the legacy item visible for a non-Pro integrated org', () => {
+    expect(
+      hasDoorKnocking({ ecanvasserConnected: true, proAccess: false }),
     ).toBe(true)
   })
 })

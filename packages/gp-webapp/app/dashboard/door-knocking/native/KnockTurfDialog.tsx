@@ -18,6 +18,7 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { suggestTravelMode, WALKABLE_LEG_SECONDS } from './travelMode'
 
 const KNOCK_ERROR_FALLBACK =
   'Route building failed — nothing was saved. Try again in a moment.'
@@ -33,8 +34,25 @@ const toKnockErrorMessage = (error: unknown): string =>
     extractApiErrorInfo(error.data).message) ||
   KNOCK_ERROR_FALLBACK
 
+const SuggestedTag = () => (
+  <span className="rounded-full border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
+    Suggested
+  </span>
+)
+
+const SUGGESTION_REASON: Record<DoorKnockingMode, string> = {
+  walk: `Suggested because every stop is within a ${WALKABLE_LEG_SECONDS / 60}-minute walk of the next one.`,
+  drive: `Suggested because at least one stop is more than a ${WALKABLE_LEG_SECONDS / 60}-minute walk from the rest, so the whole list is a drive.`,
+}
+
 interface KnockTurfDialogProps {
   turf: DoorKnockingTurf
+  // This turf's stops as [lng, lat], from the pack the page holds. They exist
+  // before the route is bought, which is the only moment the mode is still a
+  // choice — so this is what turns walk-vs-drive from a guess into a default.
+  // Null while the pack or the turf's saved list is unresolved, which leaves
+  // the dialog with no suggestion rather than a confident wrong one.
+  stops: Array<[number, number]> | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onRouteReady: (turfId: number) => void
@@ -42,12 +60,19 @@ interface KnockTurfDialogProps {
 
 export default function KnockTurfDialog({
   turf,
+  stops,
   open,
   onOpenChange,
   onRouteReady,
 }: KnockTurfDialogProps) {
   const queryClient = useQueryClient()
-  const [mode, setMode] = useState<DoorKnockingMode>('walk')
+  // Derived rather than seeded into state: the pack decodes on its own
+  // schedule, so a suggestion that arrives after this dialog mounts still has
+  // to land. `mode` is the override once there is one, the suggestion until
+  // then, and walking when there is nothing to suggest from.
+  const suggested = stops ? suggestTravelMode(stops) : null
+  const [override, setOverride] = useState<DoorKnockingMode | null>(null)
+  const mode = override ?? suggested ?? 'walk'
   const [loop, setLoop] = useState(true)
 
   const knock = useMutation({
@@ -63,6 +88,11 @@ export default function KnockTurfDialog({
         mode,
         loop,
         stopCount: data.route.stopCount,
+        // Beside `mode`, this is the only read on whether the geometry-derived
+        // default is any good: equal means it was accepted, different means it
+        // was deliberately overruled, null means there was nothing to suggest
+        // from yet.
+        suggestedMode: suggested,
         // False when the turf was already knocked (by a teammate, or in
         // another tab) and gp-api returned the frozen route instead of
         // building one. No vendor call, no new route — worth telling apart.
@@ -94,22 +124,29 @@ export default function KnockTurfDialog({
         <div className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
             This builds the route and locks the turf — the list of doors is
-            frozen so everyone works from the same plan. You only do this once
-            per turf.
+            frozen so everyone works from the same plan, and the directions are
+            bought for the travel mode you pick. You only do this once per turf.
           </p>
           <div className="flex flex-col gap-1.5">
             <Label>Travel mode</Label>
             <RadioGroup
               value={mode}
-              onValueChange={(value) => setMode(value as DoorKnockingMode)}
+              onValueChange={(value) => setOverride(value as DoorKnockingMode)}
             >
               <label className="flex items-center gap-2 text-sm">
                 <RadioGroupItem value="walk" /> Walking
+                {suggested === 'walk' && <SuggestedTag />}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <RadioGroupItem value="drive" /> Driving
+                {suggested === 'drive' && <SuggestedTag />}
               </label>
             </RadioGroup>
+            {suggested && (
+              <p className="text-xs text-muted-foreground">
+                {SUGGESTION_REASON[suggested]}
+              </p>
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox

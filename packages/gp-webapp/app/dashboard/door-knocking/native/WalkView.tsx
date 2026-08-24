@@ -1,24 +1,27 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
+  NotAVoterReason,
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
-import { countDoors } from '../routeCounts'
+import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
-  rollupStatuses,
+  rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
+  stopIsKnockable,
+  targetMarker,
 } from './statusPresentation'
 
 const formatDuration = (seconds: number): string => {
@@ -33,15 +36,35 @@ interface WalkViewProps {
   // statuses are baked into the cached pack, so new knocks are invisible
   // there until it reloads.
   onKnockRecorded?: () => void
+  // A stop the canvasser tapped on the map. The page owns the map, this view
+  // owns which door is open, so the tap arrives as a request rather than as
+  // state — and `token` is what makes tapping the same pin again reopen the
+  // sheet that was just closed.
+  openStopRequest?: { stopId: number; token: number } | null
 }
 
-export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
+export default function WalkView({
+  turfId,
+  onKnockRecorded,
+  openStopRequest,
+}: WalkViewProps) {
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
   // Recorded statuses patch the route query cache itself (not component
   // state), so they survive leaving and re-opening the walk view within the
   // cache window; a real refetch replaces them with the server's derivation.
-  const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) => {
+  const patchPerson = (
+    personId: string,
+    patch: (target: RoutePayloadTarget) => RoutePayloadTarget,
+  ) => {
+    // A serve already in flight was built before this patch and would
+    // overwrite it on arrival, putting a logged door back to unknown — so it
+    // is cancelled first, the standard order for an optimistic write. A
+    // cancelled query keeps its data and reports no error, so nothing about
+    // this reaches the canvasser.
+    void queryClient.cancelQueries({
+      queryKey: ['door-knocking-route', turfId],
+    })
     queryClient.setQueryData<DoorKnockingRoutePayload>(
       ['door-knocking-route', turfId],
       (old) =>
@@ -52,20 +75,81 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             addresses: stop.addresses.map((address) => ({
               ...address,
               targets: address.targets.map((target) =>
-                target.personId === personId
-                  ? { ...target, knockStatus }
-                  : target,
+                target.personId === personId ? patch(target) : target,
               ),
             })),
           })),
         },
     )
   }
+  const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) =>
+    patchPerson(personId, (target) => ({ ...target, knockStatus }))
+  // ADR 0007. Same cache patch as a knock, so the marker sticks while the
+  // canvasser moves down the list; the server is the truth on refetch.
+  const applyDoNotKnock = (personId: string, doNotKnock: boolean) =>
+    patchPerson(personId, (target) => ({ ...target, doNotKnock }))
+  // ADR 0008. `cleared` arrives from the server as an absent reason, which is
+  // how the route payload spells it too — so undoing a flag patches the same
+  // key back to nothing rather than needing a second notion of "not flagged".
+  const applyNotAVoter = (
+    personId: string,
+    notAVoterReason: NotAVoterReason | undefined,
+  ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
   const [sheet, setSheet] = useState<{
     stopId: number
     targetId: number
   } | null>(null)
+  // ADR 0009. A resident's activity feed rides the route payload, so a door
+  // logged during the walk is missing from that resident's own feed until the
+  // next serve — while the status it produced updates everywhere else in the
+  // panel, which makes the feed read as broken rather than as stale. The row
+  // is the server's to build (its id, its outcome, its wording), so the fix is
+  // to ask for it, never to assemble a second one here from the rollup.
+  //
+  // Whose feed the served payload predates. Refetching after every door would
+  // put a serve-sized request at every doorstep, on the one connection this
+  // feature exists to work without; asking for it when a resident logged this
+  // session is opened *again* pays it only where the staleness is on screen. A
+  // straight walk down the list never advances onto a logged door, so it never
+  // pays it at all, and the canvasser checking "did that save?" pays once.
+  const [loggedPersonIds, setLoggedPersonIds] = useState<Set<string>>(new Set())
+  const targetForId = (targetId: number): RoutePayloadTarget | undefined =>
+    routeQuery.data?.stops
+      .flatMap((stop) => stop.addresses.flatMap((address) => address.targets))
+      .find((target) => target.stopTargetId === targetId)
+  const refreshFeedForPerson = (personId: string | undefined) => {
+    if (!personId || !loggedPersonIds.has(personId)) return
+    // Never awaited and never surfaced: the knock is already saved, so a serve
+    // this walk cannot reach has to leave the feed showing what it was served
+    // with rather than turn a successful door into a visible failure. Nothing
+    // is tracked as "refreshed" either — a reopen after a failed serve simply
+    // asks again. `cancelRefetch: false` so flicking between two logged
+    // housemates reuses the serve in flight instead of restarting it.
+    void routeQuery.refetch({ cancelRefetch: false })
+  }
+  const refreshFeedFor = (targetId: number) =>
+    refreshFeedForPerson(targetForId(targetId)?.personId)
+  // ADR 0009's one documented residual, and the reason it was left as one: a
+  // `not_a_voter` door deliberately keeps its sheet open so the ADR 0008
+  // follow-up can be answered, so neither trigger above ever fires for that
+  // resident. Refreshing on the knock is what the ADR ruled out — the serve
+  // rebuilds `NotAVoterControl`, whose two branches switch on
+  // `notAVoterReason`, underneath the question being answered.
+  //
+  // So the refresh is deferred rather than dropped: it goes out once the
+  // follow-up is resolved. Answering it is handled where the answer lands; this
+  // is the other resolution, walking away from the question unanswered. The
+  // sheet is already unmounting, so there is nothing left for the serve to
+  // arrive under. Narrow on purpose — every other outcome auto-advances and is
+  // covered by `openSheet`, and refreshing on every sheet close would be the
+  // per-door serve ADR 0009 rejected. A reason already given takes this branch
+  // out, because that path asked for its own serve.
+  const refreshFeedOnAbandonedFollowUp = (targetId: number) => {
+    const target = targetForId(targetId)
+    if (target?.knockStatus !== 'not_a_voter' || target.notAVoterReason) return
+    refreshFeedForPerson(target.personId)
+  }
   // One replay key per target, minted when its form first opens and kept
   // across close→reopen (a remounted form must retry with the SAME key or
   // the server-side upsert can't dedupe). Cleared on success so a later,
@@ -82,6 +166,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       return next
     })
     setSheet({ stopId, targetId })
+    refreshFeedFor(targetId)
   }
   const clientKeyFor = (targetId: number): string =>
     clientKeys.get(targetId) ?? ''
@@ -90,32 +175,129 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     () => (routeQuery.data?.stops ?? []).slice().sort((a, b) => a.seq - b.seq),
     [routeQuery.data],
   )
-  const allTargets = (stopList: RoutePayloadStop[]) =>
-    stopList.flatMap((stop) =>
-      stop.addresses.flatMap((address) => address.targets),
-    )
+  // Progress is over knockable doors only (see routeCounts). A flagged door
+  // would otherwise sit under the `unknown` chip as outstanding work; its
+  // recorded history, if any, still lives in the CRM.
   const targetCount = (stopList: RoutePayloadStop[]) =>
-    allTargets(stopList).length
-  const reachedCount = (stopList: RoutePayloadStop[]) =>
-    allTargets(stopList).filter((target) => target.knockStatus !== 'unknown')
-      .length
+    knockableTargets(stopList).length
+  // "Logged", not "reached": `not_home`, `inaccessible` and `refused` all
+  // satisfy this predicate, so a canvasser who knocked forty doors and spoke to
+  // nobody would read "40/40 reached" — a claim about conversations that never
+  // happened. What the bar actually measures is doors with an answer written
+  // down, which is the thing a canvasser is working through.
+  const loggedCount = (stopList: RoutePayloadStop[]) =>
+    knockableTargets(stopList).filter(
+      (target) => target.knockStatus !== 'unknown',
+    ).length
   const statusCount = (stopList: RoutePayloadStop[], status: DoorKnockStatus) =>
-    allTargets(stopList).filter((target) => target.knockStatus === status)
+    knockableTargets(stopList).filter((target) => target.knockStatus === status)
       .length
-  const stopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
-    rollupStatuses(
-      stop.addresses.flatMap((address) =>
-        address.targets.map((target) => target.knockStatus),
-      ),
-    )
+  const stopStatus = rollupStopStatus
   const primaryTargetName = (stop: RoutePayloadStop): string | null =>
     stop.addresses[0]?.targets[0]?.name ?? null
   const targetsForStop = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
     stop.addresses.flatMap((address) => address.targets)
+  const stopKnockable = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
+    targetsForStop(stop).filter(isKnockable)
+  // Distinct markers only: three deceased residents at one stop is one thing to
+  // read, not three.
+  const stopMarkers = (stop: RoutePayloadStop): string[] => [
+    ...new Set(
+      targetsForStop(stop)
+        .map(targetMarker)
+        .filter((marker): marker is string => marker !== null),
+    ),
+  ]
 
   const sheetStop = sheet
     ? (stops.find((stop) => stop.id === sheet.stopId) ?? null)
     : null
+
+  // Every target in walk order, flattened: the unit the canvasser actually
+  // moves through is a person at a door, not a stop.
+  const walkOrder = useMemo(
+    () =>
+      stops.flatMap((stop) =>
+        stop.addresses.flatMap((address) =>
+          address.targets.map((target) => ({ stop, target })),
+        ),
+      ),
+    [stops],
+  )
+
+  // "Always show the next door so there is no thinking between houses."
+  // Forward only: jumping backward to a door the canvasser walked past would
+  // send them back up the street, so anything skipped is left for the list.
+  const advanceFrom = (loggedTargetId: number) => {
+    const position = walkOrder.findIndex(
+      (entry) => entry.target.stopTargetId === loggedTargetId,
+    )
+    const next = walkOrder.slice(position + 1).find(
+      ({ target }) =>
+        // This closure still sees the pre-patch cache, so the just-logged
+        // target reads as unknown — excluded by id rather than by status.
+        target.stopTargetId !== loggedTargetId &&
+        target.knockStatus === 'unknown' &&
+        isKnockable(target),
+    )
+    if (!next) {
+      setSheet(null)
+      return
+    }
+    openSheet(
+      next.stop.id,
+      targetsForStop(next.stop).map((t) => t.stopTargetId),
+      next.target.stopTargetId,
+    )
+  }
+
+  // A map pin tap opens the same `PersonSheet` a stop row opens, through the
+  // same `openSheet` — the pin is a way INTO the door-logging surface, never a
+  // second one, so replay keys and the ADR 0009 feed refresh come along with it.
+  //
+  // It goes straight to the sheet even for a multi-resident stop, where the row
+  // expands instead: the row's list is right under the finger that pressed it,
+  // while a pin is on a map band the list is scrolled away from, and the sheet's
+  // own resident switcher is the same picker one step further in.
+  //
+  // Whom it opens is the first resident still worth knocking, so a household
+  // with one flagged member lands on the person there is a conversation to have
+  // with. A hollow pin — `stopIsKnockable` false, nobody left — falls through to
+  // the first resident, deliberately: a tap that does nothing is the bug being
+  // fixed, and a sheet is not a form. `PersonSheet` withholds the script and
+  // `RecordKnockForm` for a flagged resident and renders the flag's own control
+  // and its `STATUS_CHANGE` row instead, so the tap answers "why am I being told
+  // to skip this house?" at the doorstep — the only place a flag set on the
+  // wrong resident gets caught — without offering a knock to log.
+  const openStopFromMap = (stop: RoutePayloadStop) => {
+    const stopTargets = targetsForStop(stop)
+    const target = stopTargets.find(isKnockable) ?? stopTargets[0]
+    if (!target) return
+    openSheet(
+      stop.id,
+      stopTargets.map((t) => t.stopTargetId),
+      target.stopTargetId,
+    )
+  }
+  // Held in a ref because the effect below has to re-run on `stops` — a request
+  // that arrives before the serve does retries when it lands — while an
+  // ordinary dependency on this function would re-run it on every render.
+  const openStopFromMapRef = useRef(openStopFromMap)
+  openStopFromMapRef.current = openStopFromMap
+  // The token this view has already acted on. Every knock patches the route
+  // cache and so rebuilds `stops`; without this the effect would reopen the
+  // sheet on each one, under a canvasser who had closed it.
+  const handledPinTapRef = useRef(0)
+  const requestToken = openStopRequest?.token ?? 0
+  const requestStopId = openStopRequest?.stopId ?? null
+  useEffect(() => {
+    if (requestToken === 0 || requestStopId === null) return
+    if (handledPinTapRef.current === requestToken) return
+    const stop = stops.find((candidate) => candidate.id === requestStopId)
+    if (!stop) return
+    handledPinTapRef.current = requestToken
+    openStopFromMapRef.current(stop)
+  }, [requestToken, requestStopId, stops])
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">
@@ -124,7 +306,11 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
           <LoadingAnimation />
         </div>
       )}
-      {routeQuery.isError && (
+      {/* Only when there is no route to walk. A background serve that fails —
+          the feed refresh below, or a window-focus refetch — leaves the walk
+          fully usable on the payload already in cache, and announcing it
+          beside a door that saved fine reads as the knock having failed. */}
+      {routeQuery.isError && !routeQuery.data && (
         <p className="text-sm text-destructive">
           The route could not load. Refresh to try again.
         </p>
@@ -159,9 +345,9 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                 In this list
               </span>
               <span className="rounded-full bg-tertiary-dark px-3 py-1 text-xs font-semibold tabular-nums text-tertiary-foreground">
-                {`${reachedCount(routeQuery.data.stops)}/${targetCount(
+                {`${loggedCount(routeQuery.data.stops)}/${targetCount(
                   routeQuery.data.stops,
-                )} reached`}
+                )} logged`}
               </span>
             </div>
             <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -171,7 +357,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                   width: `${
                     targetCount(routeQuery.data.stops) > 0
                       ? Math.round(
-                          (reachedCount(routeQuery.data.stops) /
+                          (loggedCount(routeQuery.data.stops) /
                             targetCount(routeQuery.data.stops)) *
                             100,
                         )
@@ -202,7 +388,13 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
               <span className="text-sm tabular-nums text-muted-foreground">
                 {routeQuery.data.route.stopCount} stops ·{' '}
                 {countDoors(routeQuery.data.stops)} doors ·{' '}
-                {formatDuration(routeQuery.data.route.totalSeconds)} ·{' '}
+                {/* "travel", because that is all Geoapify measures: the jobs
+                    we send it carry no per-stop duration, so this is the
+                    movement between doors with zero time spent AT them. Bare,
+                    in a row of route facts, it read as the cost of the outing
+                    and undersold it by more than half. The per-leg number
+                    below already names its mode for the same reason. */}
+                {formatDuration(routeQuery.data.route.totalSeconds)} travel ·{' '}
                 {formatDistance(routeQuery.data.route.totalMeters)}
               </span>
             </div>
@@ -227,14 +419,17 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                       setOpenStopId(openStopId === stop.id ? null : stop.id)
                     }}
                   >
+                    {/* The stop's rolled-up status, and only that: the
+                        sequence number came out of the list view (Aug 14
+                        walkthrough) because the list is not walked in order —
+                        the map pins and the printed sheet are where an
+                        ordering is the point. */}
                     <span
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold tabular-nums text-primary-foreground"
+                      className="h-7 w-7 shrink-0 rounded-full"
                       style={{
                         backgroundColor: STATUS_DOT_COLORS[stopStatus(stop)],
                       }}
-                    >
-                      {stop.seq}
-                    </span>
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">
                         {primaryTargetName(stop) ?? stop.displayAddress}
@@ -243,18 +438,49 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                         {stop.displayAddress}
                       </span>
                       <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <span className="tabular-nums">
-                          {targetsForStop(stop).length}
-                        </span>
-                        {targetsForStop(stop).map((target) => (
+                        {/* ADR 0007 and 0008. The count is knockable people,
+                            like every other people figure (routeCounts), and a
+                            flagged resident knocked before the flag was set
+                            still carries a status whose dot would sit next to a
+                            marker saying the opposite. A stop with nobody left
+                            says so outright rather than reading as an empty
+                            house — its rollup color is the same grey as
+                            still-to-knock, and the marker is the only thing
+                            that tells those two apart. */}
+                        {!stopIsKnockable(stop) ? (
+                          <span className="font-medium text-warning">
+                            Nobody to knock here
+                          </span>
+                        ) : (
+                          <>
+                            <span className="tabular-nums">
+                              {stopKnockable(stop).length}
+                            </span>
+                            {stopKnockable(stop).map((target) => (
+                              <span
+                                key={target.stopTargetId}
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    STATUS_DOT_COLORS[target.knockStatus],
+                                }}
+                              />
+                            ))}
+                          </>
+                        )}
+                        {/* On the collapsed row, because a single-resident stop
+                            opens the sheet instead of expanding — without this,
+                            the common case shows an ordinary dot and the
+                            canvasser walks up to the door. Distinct markers
+                            only: three deceased residents is one thing to
+                            read. */}
+                        {stopMarkers(stop).map((marker) => (
                           <span
-                            key={target.stopTargetId}
-                            className="h-1.5 w-1.5 rounded-full"
-                            style={{
-                              backgroundColor:
-                                STATUS_DOT_COLORS[target.knockStatus],
-                            }}
-                          />
+                            key={marker}
+                            className="font-medium text-warning"
+                          >
+                            {marker}
+                          </span>
                         ))}
                       </span>
                     </span>
@@ -291,16 +517,25 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                           <span className="min-w-0 flex-1 truncate">
                             {target.name ?? 'Name unavailable'}
                           </span>
-                          <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                            <span
-                              className="h-2 w-2 rounded-full"
-                              style={{
-                                backgroundColor:
-                                  STATUS_DOT_COLORS[target.knockStatus],
-                              }}
-                            />
-                            {STATUS_LABELS[target.knockStatus]}
-                          </span>
+                          {/* ADR 0007 and 0008. Read before walking up, not
+                              after opening the sheet, so the marker replaces
+                              the knock status rather than sitting beside it. */}
+                          {targetMarker(target) ? (
+                            <span className="shrink-0 text-xs font-medium text-warning">
+                              {targetMarker(target)}
+                            </span>
+                          ) : (
+                            <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                              <span
+                                className="h-2 w-2 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    STATUS_DOT_COLORS[target.knockStatus],
+                                }}
+                              />
+                              {STATUS_LABELS[target.knockStatus]}
+                            </span>
+                          )}
                           <ChevronRightIcon size={14} className="shrink-0" />
                         </button>
                       ))}
@@ -315,20 +550,49 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       {sheetStop && sheet && (
         <PersonSheet
           stop={sheetStop}
-          initialTargetId={sheet.targetId}
+          selectedTargetId={sheet.targetId}
+          onSelectTarget={(targetId) => {
+            setSheet({ stopId: sheet.stopId, targetId })
+            // The other way back to a resident already logged: the switcher
+            // inside the sheet, which never goes through openSheet.
+            refreshFeedFor(targetId)
+          }}
           statusFor={(target) => target.knockStatus}
           clientKeyFor={clientKeyFor}
           onRecorded={(targetId, personId, knockStatus) => {
             applyKnockStatus(personId, knockStatus)
+            // ADR 0009. The served payload now predates this resident's own
+            // history, so reopening them asks for a fresh one.
+            setLoggedPersonIds((current) => new Set(current).add(personId))
             onKnockRecorded?.()
             setClientKeys((current) => {
               const next = new Map(current)
               next.delete(targetId)
               return next
             })
-            setSheet(null)
+            // ADR 0008. Every other outcome walks on; this one has a follow-up
+            // waiting in the sheet, and advancing would ask "what happened?"
+            // and take the answer away in the same frame. The door is already
+            // saved either way, so a canvasser who ignores the question and
+            // taps the next stop has still logged it.
+            if (knockStatus === 'not_a_voter') return
+            advanceFrom(targetId)
           }}
-          onClose={() => setSheet(null)}
+          onDoNotKnockChanged={applyDoNotKnock}
+          onNotAVoterChanged={(personId, notAVoterReason) => {
+            applyNotAVoter(personId, notAVoterReason)
+            // ADR 0009's residual, closed. The question this resident's sheet
+            // was held open for has just been answered, so the control a serve
+            // would rebuild is already the marker that answer resolves to —
+            // which is what makes the deferred refresh safe here and not on
+            // the knock. After the patch, so the patch's own cancellation of
+            // an older in-flight serve can't take this one with it.
+            refreshFeedForPerson(personId)
+          }}
+          onClose={() => {
+            setSheet(null)
+            refreshFeedOnAbandonedFollowUp(sheet.targetId)
+          }}
         />
       )}
     </div>

@@ -8,7 +8,6 @@ declare global {
       logo?: string
       theme?: string
       main?: {
-        title?: string
         tagline?: string
         image?: string
       }

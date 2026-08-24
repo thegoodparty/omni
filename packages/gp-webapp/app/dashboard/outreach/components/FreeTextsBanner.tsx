@@ -4,7 +4,6 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { OUTREACH_TYPES } from '../constants'
 import TaskFlow from '../../components/tasks/flows/TaskFlow'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 
@@ -22,10 +21,9 @@ export const FreeTextsBanner = ({
   tcrCompliance,
 }: FreeTextsBannerProps) => {
   const [campaign] = useCampaign()
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const [flowModalTask, setFlowModalTask] = useState<FlowModalTask | null>(null)
 
-  if (!p2pUxEnabled || !campaign?.hasFreeTextsOffer) {
+  if (!campaign?.hasFreeTextsOffer) {
     return null
   }
 

@@ -12,7 +12,13 @@ import { ProUpgradePrompt } from './ProUpgradePrompt'
 import { usePathname, useRouter } from 'next/navigation'
 import { weeksTill } from 'helpers/dateHelper'
 import { Campaign } from 'helpers/types'
-import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
+import {
+  Separator,
+  Sidebar,
+  SidebarInset,
+  SidebarProvider,
+  useSidebar,
+} from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
@@ -25,7 +31,8 @@ import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 
 export interface DashboardNavHeaderConfig {
-  icon: NavHeaderIconKey
+  // Omitted = label-only bar (the Voter Outreach design carries no icon).
+  icon?: NavHeaderIconKey
   label: string
   centered?: boolean
 }
@@ -163,7 +170,7 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/ordinances', 'Ordinances'],
   ['/dashboard/race-opponent', NAV_LABELS.knowYourOpponent],
   ['/dashboard/campaign-story', NAV_LABELS.campaignStory],
-  ['/dashboard/outreach', 'Voter Outreach'],
+  ['/dashboard/outreach', NAV_LABELS.voterOutreach],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
@@ -228,9 +235,17 @@ const MobileMenuTrigger = () => {
             />
           </Link>
           {pageTitle && (
-            <h1 className="truncate text-base font-semibold text-foreground">
-              {pageTitle}
-            </h1>
+            <>
+              {/* Same logo | title divider anatomy as the styleguide's
+                  PageHeader (which this hand-rolled bar predates). */}
+              <Separator
+                orientation="vertical"
+                className="data-[orientation=vertical]:h-5"
+              />
+              <h1 className="truncate text-base font-semibold text-foreground">
+                {pageTitle}
+              </h1>
+            </>
           )}
         </div>
         <button

@@ -30,7 +30,6 @@ import {
 import { buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { FREE_TEXTS_OFFER } from '../../../outreach/constants'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { PhoneListInput } from 'helpers/createP2pPhoneList'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import { fetchListDetail } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
@@ -117,7 +116,6 @@ export default function AudienceStep({
   preselectedListId,
 }: AudienceStepProps): React.JSX.Element {
   const [campaign] = useCampaign()
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const [count, setCount] = useState(0)
   // ENG-10808: the saved list's raw membership (demographics.people),
   // tracked alongside the channel-eligible `count` so the audience step can
@@ -281,7 +279,7 @@ export default function AudienceStep({
       return
     }
 
-    const needsPhoneList = p2pUxEnabled && isTextType
+    const needsPhoneList = isTextType
     // Only a saved list the user picked from the dropdown carries a
     // voterFileFilterId here — an ad-hoc audience built from checkboxes
     // stays undefined even though onCreateVoterFileFilter() also persists a
@@ -478,8 +476,7 @@ export default function AudienceStep({
   } else if (isTextType) {
     price = TEXT_PRICE
   }
-  const hasFreeTextsOffer =
-    p2pUxEnabled && campaign?.hasFreeTextsOffer && isTextType
+  const hasFreeTextsOffer = campaign?.hasFreeTextsOffer && isTextType
 
   const calculateCost = (textCount: number): number => {
     if (hasFreeTextsOffer && textCount > 0 && price !== undefined) {
