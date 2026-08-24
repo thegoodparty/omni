@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ShadowReadService } from './shadowRead.service'
 
 const ENV_KEYS = [
-  'PEOPLE_DB_SHADOW_READ',
+  'PEOPLE_DB_DUAL_READ',
   'PEOPLE_DATABRICKS_SERVER_HOSTNAME',
   'PEOPLE_DATABRICKS_HTTP_PATH',
   'PEOPLE_DATABRICKS_API_KEY',
 ] as const
 
 const configure = (): void => {
-  process.env.PEOPLE_DB_SHADOW_READ = 'true'
+  process.env.PEOPLE_DB_DUAL_READ = 'true'
   process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME = 'example.databricks.com'
   process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/abc123'
   process.env.PEOPLE_DATABRICKS_API_KEY = 'token'
@@ -35,82 +35,85 @@ describe('ShadowReadService', () => {
     }
   })
 
+  // authoritative = Databricks, comparison = Postgres
   const call = (
-    primary: () => Promise<string>,
-    shadow: () => Promise<string>,
+    authoritative: () => Promise<string>,
+    comparison: () => Promise<string>,
   ) =>
     service.compare({
       op: 'count',
       districtId: 'd1',
-      primary,
-      shadow,
-      fingerprintPrimary: (v) => v,
-      fingerprintShadow: (v) => v,
+      authoritative,
+      comparison,
+      fingerprintAuthoritative: (v: string) => v,
+      fingerprintComparison: (v: string) => v,
     })
 
-  it('does not run the shadow read when disabled', async () => {
-    const shadow = vi.fn()
-    expect(await call(() => Promise.resolve('pg'), shadow)).toBe('pg')
-    expect(shadow).not.toHaveBeenCalled()
-  })
-
-  it('stays disabled when the flag is on but no credential resolves', async () => {
-    process.env.PEOPLE_DB_SHADOW_READ = 'true'
-    const shadow = vi.fn()
+  it('is disabled without the flag', () => {
     expect(service.enabled).toBe(false)
-    await call(() => Promise.resolve('pg'), shadow)
-    expect(shadow).not.toHaveBeenCalled()
   })
 
-  it('returns the postgres value, never the shadow value', async () => {
+  it('stays disabled when the flag is on but no credential resolves', () => {
+    process.env.PEOPLE_DB_DUAL_READ = 'true'
+    expect(service.enabled).toBe(false)
+  })
+
+  it('is enabled only with both the flag and a credential', () => {
+    configure()
+    expect(service.enabled).toBe(true)
+  })
+
+  it('returns the databricks value, not the postgres one', async () => {
     configure()
     const result = await call(
-      () => Promise.resolve('pg'),
       () => Promise.resolve('dbx'),
+      () => Promise.resolve('pg'),
     )
-    expect(result).toBe('pg')
+    expect(result).toBe('dbx')
   })
 
-  it('a rejecting shadow read cannot fail the request', async () => {
+  it('a rejecting postgres comparison cannot fail the request', async () => {
     configure()
     const result = await call(
-      () => Promise.resolve('pg'),
-      () => Promise.reject(new Error('warehouse unreachable')),
+      () => Promise.resolve('dbx'),
+      () => Promise.reject(new Error('statement timeout')),
     )
-    expect(result).toBe('pg')
+    expect(result).toBe('dbx')
   })
 
-  it('a hanging shadow read cannot delay the response', async () => {
+  it('a hanging postgres comparison cannot delay the response', async () => {
     configure()
     let settle: (v: string) => void = () => undefined
     const started = performance.now()
     const result = await call(
-      () => Promise.resolve('pg'),
+      () => Promise.resolve('dbx'),
       () => new Promise<string>((resolve) => (settle = resolve)),
     )
-    // Resolved while the shadow is still outstanding, which is the whole point.
-    expect(result).toBe('pg')
+    // Resolved while the comparison is still outstanding, which is the point.
+    expect(result).toBe('dbx')
     expect(performance.now() - started).toBeLessThan(500)
     settle('late')
   })
 
-  it('propagates the original postgres error untouched', async () => {
+  it('propagates a databricks failure as the original error', async () => {
     configure()
-    const boom = new Error('statement timeout')
+    // Databricks is authoritative, so its failure is the request's failure —
+    // deliberately NOT masked by falling back to Postgres.
+    const boom = new Error('warehouse unreachable')
     await expect(
       call(
         () => Promise.reject(boom),
-        () => Promise.resolve('dbx'),
+        () => Promise.resolve('pg'),
       ),
     ).rejects.toBe(boom)
   })
 
-  it('starts the shadow read even when postgres fails', async () => {
+  it('still runs the comparison when databricks fails', async () => {
     configure()
-    const shadow = vi.fn().mockResolvedValue('dbx')
+    const comparison = vi.fn().mockResolvedValue('pg')
     await expect(
-      call(() => Promise.reject(new Error('nope')), shadow),
+      call(() => Promise.reject(new Error('nope')), comparison),
     ).rejects.toThrow('nope')
-    expect(shadow).toHaveBeenCalledTimes(1)
+    expect(comparison).toHaveBeenCalledTimes(1)
   })
 })

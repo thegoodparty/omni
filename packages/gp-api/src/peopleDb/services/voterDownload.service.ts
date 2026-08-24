@@ -12,6 +12,8 @@ import { CopyToStreamQuery, to as copyTo } from 'pg-copy-streams'
 import { createGzip } from 'node:zlib'
 import { PeopleDbUrlProvider } from '../peopleDbUrl.provider'
 import { DistrictService } from './district.service'
+import { ShadowReadService } from '../shadowRead.service'
+import { DatabricksVoterDownloadService } from '../databricks/databricksVoterDownload.service'
 import { DownloadPeopleDTO } from '../schemas/people.schema'
 import { DOWNLOAD_COLUMNS, ExcludableVoterColumn } from '../voter.select'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.util'
@@ -34,6 +36,8 @@ export class VoterDownloadService
   private unsubscribe: (() => void) | null = null
 
   constructor(
+    private readonly shadow: ShadowReadService,
+    private readonly databricksDownload: DatabricksVoterDownloadService,
     private readonly districtService: DistrictService,
     private readonly peopleDbUrl: PeopleDbUrlProvider,
   ) {}
@@ -115,6 +119,13 @@ export class VoterDownloadService
       extraHeaders?: Record<string, string>
     },
   ): Promise<void> {
+    // No comparison export here, deliberately. A statewide CSV is minutes of
+    // work and gigabytes of egress; running a second one per download to
+    // measure something the benchmark suite already covers would be real money
+    // for no new information.
+    if (this.shadow.enabled) {
+      return this.databricksDownload.streamPeopleCsv(dto, res, responseOptions)
+    }
     const { state, useVoterOnlyPath, districtId } = await resolveDistrict(
       this.districtService,
       dto,

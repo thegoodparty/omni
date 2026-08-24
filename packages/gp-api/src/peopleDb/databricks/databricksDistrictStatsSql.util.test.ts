@@ -1,4 +1,3 @@
-import { parseISO } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 import type { DbxDistrict } from './databricksVoterSql.util'
 import {
@@ -150,9 +149,7 @@ describe('mapDistrictStatsRow', () => {
     expect(stats?.districtId).toBe('d1')
     expect(stats?.totalConstituents).toBe(100)
     expect(stats?.totalConstituentsWithCellPhone).toBe(42)
-    expect(parseISO(stats?.computedAt ?? '').getTime()).toBe(
-      COMPUTED_AT.getTime(),
-    )
+    expect(stats?.updatedAt.getTime()).toBe(COMPUTED_AT.getTime())
   })
 
   it('omits zero-count labels entirely', () => {

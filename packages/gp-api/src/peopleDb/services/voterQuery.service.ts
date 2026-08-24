@@ -15,7 +15,10 @@ import {
 } from '../schemas/people.schema'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { VoterSampleService } from './voterSample.service'
-import { ShadowReadService } from '../shadowRead.service'
+import {
+  COMPARISON_STATEMENT_TIMEOUT_MS,
+  ShadowReadService,
+} from '../shadowRead.service'
 
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { DistrictService } from './district.service'
@@ -96,13 +99,14 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async findPeople(dto: ListPeopleDTO) {
+    if (!this.shadow.enabled) return this.findPeopleFromPostgres(dto)
     return this.shadow.compare({
       op: 'list',
       districtId: dto.districtId,
-      primary: () => this.findPeopleFromPostgres(dto),
-      shadow: () => this.shadow.databricks.findPeople(dto),
-      fingerprintPrimary: (result) => result.pagination.totalResults,
-      fingerprintShadow: (result) => result.pagination.totalResults,
+      authoritative: () => this.shadow.databricks.findPeople(dto),
+      comparison: () => this.findPeopleFromPostgres(dto),
+      fingerprintAuthoritative: (result) => result.pagination.totalResults,
+      fingerprintComparison: (result) => result.pagination.totalResults,
     })
   }
 
@@ -214,13 +218,14 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // membership (ENG-10706) — distinct from StatsService.getStats, which only
   // serves the precomputed, unfiltered DistrictStats row.
   async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
+    if (!this.shadow.enabled) return this.getAggregatesFromPostgres(dto)
     return this.shadow.compare({
       op: 'aggregates',
       districtId: dto.districtId,
-      primary: () => this.getAggregatesFromPostgres(dto),
-      shadow: () => this.shadow.databricks.getAggregates(dto),
-      fingerprintPrimary: (result) => result.count,
-      fingerprintShadow: (result) => result.count,
+      authoritative: () => this.shadow.databricks.getAggregates(dto),
+      comparison: () => this.getAggregatesFromPostgres(dto),
+      fingerprintAuthoritative: (result) => result.count,
+      fingerprintComparison: (result) => result.count,
     })
   }
 
@@ -264,13 +269,14 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   async getOverlapCount(
     dto: OverlapCountDTO,
   ): Promise<PeopleOverlapCountResponse> {
+    if (!this.shadow.enabled) return this.getOverlapCountFromPostgres(dto)
     return this.shadow.compare({
       op: 'overlap',
       districtId: dto.districtId,
-      primary: () => this.getOverlapCountFromPostgres(dto),
-      shadow: () => this.shadow.databricks.getOverlapCount(dto),
-      fingerprintPrimary: (result) => result.count,
-      fingerprintShadow: (result) => result.count,
+      authoritative: () => this.shadow.databricks.getOverlapCount(dto),
+      comparison: () => this.getOverlapCountFromPostgres(dto),
+      fingerprintAuthoritative: (result) => result.count,
+      fingerprintComparison: (result) => result.count,
     })
   }
 
@@ -301,6 +307,21 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async samplePeople(dto: SamplePeopleDTO) {
+    if (!this.shadow.enabled) return this.samplePeopleFromPostgres(dto)
+    return this.shadow.compare({
+      op: 'sample',
+      districtId: dto.districtId,
+      authoritative: () => this.shadow.databricks.samplePeople(dto),
+      comparison: () => this.samplePeopleFromPostgres(dto),
+      // A sample is deliberately non-deterministic, so the row count is the
+      // only thing worth comparing: identical ids would mean the seed had
+      // stopped rotating, not that the stores agreed.
+      fingerprintAuthoritative: (people) => people.length,
+      fingerprintComparison: (people) => people.length,
+    })
+  }
+
+  private async samplePeopleFromPostgres(dto: SamplePeopleDTO) {
     return this.sampleService
       .samplePeople(dto)
       .then((people) => people.map(transformToPersonOutput))
@@ -414,6 +435,13 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       sql,
       this.logger,
       'The voter query took too long to run. Narrow the audience and try again.',
+      // In dual-read mode these queries are comparison-only — Databricks
+      // serves the request — so they get a tighter ceiling than a user-facing
+      // 25s. A slow comparison must not hold a pooled connection when nothing
+      // is waiting on its answer. SET LOCAL means Postgres cancels the query
+      // itself rather than us abandoning it client-side and letting it burn
+      // CPU for another 17 seconds.
+      this.shadow.enabled ? COMPARISON_STATEMENT_TIMEOUT_MS : undefined,
     )
   }
 

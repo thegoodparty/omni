@@ -8,12 +8,14 @@ import { VoterDoorKnockingService } from './services/voterDoorKnocking.service'
 import { VoterPackService } from './services/voterPack.service'
 import { ShadowReadService } from './shadowRead.service'
 import { DatabricksVoterService } from './databricks/databricksVoter.service'
+import { DatabricksVoterDownloadService } from './databricks/databricksVoterDownload.service'
 import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client'
 
 @Module({
   providers: [
     PeopleDbxStatementClient,
     DatabricksVoterService,
+    DatabricksVoterDownloadService,
     ShadowReadService,
     DistrictService,
     StatsService,

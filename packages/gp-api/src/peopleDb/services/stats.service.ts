@@ -14,14 +14,17 @@ export class StatsService extends createPeopleDbBase(
   private readonly shadow!: ShadowReadService
 
   async findStats(dto: StatsDTO): Promise<DistrictStats | null> {
+    if (!this.shadow.enabled) {
+      return this.model.findUnique({ where: { districtId: dto.districtId } })
+    }
     return this.shadow.compare({
       op: 'stats',
       districtId: dto.districtId,
-      primary: () =>
+      authoritative: () => this.shadow.databricks.findStats(dto.districtId),
+      comparison: () =>
         this.model.findUnique({ where: { districtId: dto.districtId } }),
-      shadow: () => this.shadow.databricks.findStats(dto.districtId),
-      fingerprintPrimary: (result) => result?.totalConstituents ?? null,
-      fingerprintShadow: (result) => result?.totalConstituents ?? null,
+      fingerprintAuthoritative: (result) => result?.totalConstituents ?? null,
+      fingerprintComparison: (result) => result?.totalConstituents ?? null,
     })
   }
 

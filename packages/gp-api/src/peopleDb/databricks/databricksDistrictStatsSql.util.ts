@@ -1,4 +1,3 @@
-import { formatISO } from 'date-fns'
 import {
   VOTER_TABLE,
   buildScopeSql,
@@ -146,7 +145,7 @@ export type DistrictStatsBuckets = Record<
 
 export type ComputedDistrictStats = {
   districtId: string
-  computedAt: string
+  updatedAt: Date
   totalConstituents: number
   totalConstituentsWithCellPhone: number
   buckets: DistrictStatsBuckets
@@ -224,7 +223,7 @@ export const mapDistrictStatsRow = (
 
   return {
     districtId,
-    computedAt: formatISO(computedAt),
+    updatedAt: computedAt,
     totalConstituents: total,
     totalConstituentsWithCellPhone: toCount(row[1]),
     buckets: {
