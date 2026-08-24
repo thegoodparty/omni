@@ -1,5 +1,3 @@
-'use client'
-
 import { Card, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {

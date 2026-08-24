@@ -1,5 +1,3 @@
-'use client'
-
 import { Input, Label } from '@styleguide'
 import { MAX_TURF_NAME_LENGTH } from '../turfQueries'
 
