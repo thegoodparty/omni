@@ -226,14 +226,16 @@ const RecordBar = ({
           aria-label="Stop recording"
           onClick={recorder.stop}
         >
-          <SquareIcon className="size-5 fill-current" />
+          <SquareIcon className="size-5" />
         </IconButton>
-        <div className="flex flex-1 items-center gap-1">
-          {Array.from({ length: 20 }).map((_, i) => (
+        <div className="flex h-8 flex-1 items-center gap-[3px]">
+          {Array.from({ length: 24 }).map((_, i) => (
             <span
               key={i}
-              className="block h-6 w-0.5 animate-pulse rounded-full bg-destructive/70"
-              style={{ animationDelay: `${(i % 8) * 90}ms` }}
+              className="block h-full w-[3px] origin-center rounded-full bg-destructive/70"
+              style={{
+                animation: `gp-bar 800ms ease-in-out ${(i % 8) * 90}ms infinite`,
+              }}
             />
           ))}
         </div>

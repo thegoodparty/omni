@@ -57,6 +57,10 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
   const chunksRef = useRef<Blob[]>([])
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const capRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Mirror of the elapsed count that onstop can read synchronously — reading
+  // it here keeps side effects out of the setElapsedSec updater, which React
+  // (StrictMode) invokes twice and would otherwise run setCaptured twice.
+  const elapsedRef = useRef(0)
   // The URL currently held in `recording`; revoked before replacing so
   // discarded/re-recorded clips don't leak object URLs.
   const urlRef = useRef<string | null>(null)
@@ -134,19 +138,24 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
           const type = recorder.mimeType || mimeType || 'audio/webm'
           const blob = new Blob(chunksRef.current, { type })
           const url = URL.createObjectURL(blob)
-          // elapsedSec is the wall-clock recording length; the blob has no
+          // elapsedRef is the wall-clock recording length; the blob has no
           // reliable duration metadata, so the timer is the source of truth.
-          setElapsedSec((secs) => {
-            setCaptured({ blob, url, durationSec: Math.max(1, secs) })
-            return secs
+          setCaptured({
+            blob,
+            url,
+            durationSec: Math.max(1, elapsedRef.current),
           })
         }
+        elapsedRef.current = 0
         setElapsedSec(0)
         setStatus('recording')
         // Timeslice so ondataavailable fires each second instead of only once
         // at stop — some browsers otherwise deliver nothing on a short clip.
         recorder.start(1000)
-        tickRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000)
+        tickRef.current = setInterval(() => {
+          elapsedRef.current += 1
+          setElapsedSec(elapsedRef.current)
+        }, 1000)
         // Hard cap: a recorded clip can never exceed the delivery limit.
         capRef.current = setTimeout(() => stop(), maxSeconds * 1000)
       })
@@ -176,6 +185,7 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
 
   const discard = useCallback(() => {
     revokeUrl()
+    elapsedRef.current = 0
     setRecording(null)
     setElapsedSec(0)
     setStatus('idle')
@@ -189,6 +199,7 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
     clearTimers()
     stopStream()
     revokeUrl()
+    elapsedRef.current = 0
     recorderRef.current = null
     chunksRef.current = []
     setRecording(null)
