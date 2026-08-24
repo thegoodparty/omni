@@ -119,11 +119,6 @@ export class CampaignStrategyContextService extends createPrismaBase(
       projected_turnout: projectedTurnout,
       projected_turnout_lower: projectedTurnoutLower,
       projected_turnout_upper: projectedTurnoutUpper,
-      // A race's relevant turnout is its own day's. The always-November
-      // baseline this used to carry is what put a November electorate next
-      // to a primary-day win number; the field itself retires with the
-      // date-keyed serving path.
-      projected_voter_turnout: null,
       registered_voters: district?.registeredVoters ?? null,
       unique_cellphones: district?.uniqueCellphones ?? null,
       unique_landlines: district?.uniqueLandlines ?? null,

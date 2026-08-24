@@ -114,8 +114,8 @@ const isTestCandidateRaw = (c: ApiCandidateRaw): boolean =>
 
 // election-api returns the roster already in the snake_case shape the
 // experiment expects, so candidates pass through untouched (test rows
-// filtered). Deliberately omits civics_win_number, win_number_estimate, and
-// projected_voter_turnout — the CAP experiments dropped those.
+// filtered). Deliberately omits civics_win_number and win_number_estimate —
+// the CAP experiments dropped those.
 const toStrategyContext = (data: ApiResponse): StrategyContext => {
   const candidates = data.candidates.filter((c) => !isTestCandidateRaw(c))
   return {
