@@ -68,9 +68,34 @@ describe('GET /v1/public-person-profiles', () => {
     expect(res.data.deletedAt).toBeUndefined()
   })
 
-  it('404s when the profile is unpublished (draft)', async () => {
+  it('marks an unpublished (draft) profile rather than 404ing', async () => {
     await seedProfile({ publishedAt: null })
     const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.unpublished).toBe(true)
+    expect(res.data.personId).toBe(PERSON_ID)
+  })
+
+  it('leaks no authored content on the unpublished marker', async () => {
+    // The owner wrote this and chose not to publish it. The marker exists so
+    // the page can stop inviting them to claim what they already own — it must
+    // not become a back door to the draft itself.
+    await seedProfile({ publishedAt: null })
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.displayName).toBeNull()
+    expect(res.data.bioOverride).toBeNull()
+    expect(res.data.publishedAt).toBeNull()
+    expect(res.data.issues).toEqual([])
+  })
+
+  it('404s when no profile row exists at all', async () => {
+    // The distinction the marker exists for: nobody has claimed this person,
+    // so the page legitimately shows claim CTAs.
+    const res = await get()
+
     expect(res.status).toBe(404)
   })
 
@@ -217,9 +242,41 @@ describe('public profile render-gate scenarios (local DB)', () => {
   })
 
   it('treats a deleted draft as gone (410 takes precedence over unpublished)', async () => {
+    // Deleting is a stronger request than unpublishing: the owner asked for
+    // the page to be gone, not merely hidden for now.
     await seedProfile({ publishedAt: null, deletedAt: new Date() })
     const res = await get()
     expect(res.status).toBe(410)
+  })
+
+  it('serves the live overlay again once a draft is published', async () => {
+    await seedProfile({ publishedAt: null })
+    expect((await get()).data.unpublished).toBe(true)
+
+    await service.prisma.personProfile.update({
+      where: { personId: PERSON_ID },
+      data: { publishedAt: new Date() },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.unpublished).toBeUndefined()
+    expect(res.data.displayName).toBe('Jane Rivera')
+  })
+
+  it('marks a live profile the owner unpublished', async () => {
+    // The bug this fixes: someone who claimed and then deliberately hid their
+    // profile was indistinguishable from a stranger who never claimed one.
+    await seedProfile()
+    await service.prisma.personProfile.update({
+      where: { personId: PERSON_ID },
+      data: { publishedAt: null },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.unpublished).toBe(true)
+    expect(res.data.displayName).toBeNull()
   })
 
   it('returns visible issues ordered by sortOrder ascending', async () => {
@@ -429,6 +486,20 @@ describe('GET /v1/public-person-profiles removal gate', () => {
     expect(res.data.displayName).toBeNull()
     expect(res.data.bioOverride).toBeNull()
     expect(res.data.issues).toEqual([])
+  })
+
+  it('removal wins over an unpublished draft', async () => {
+    // Both are 200 markers now, so precedence has to be explicit: a takedown
+    // noindexes the page, an unpublished draft does not.
+    await seedProfile({ publishedAt: null })
+    await service.prisma.personProfileRemoval.create({
+      data: { personId: PERSON_ID },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.removed).toBe(true)
+    expect(res.data.unpublished).toBeUndefined()
   })
 
   it('removal wins over a live, published profile (privacy takedown)', async () => {

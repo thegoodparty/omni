@@ -110,13 +110,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_activism', label: 'Engaged in activism' },
   {
     name: 'hs_affordability_changed_what_you_buy_no',
-    label:
-      'Says affordability has not changed what they buy (limited coverage: no data in 12 states; null there)',
+    label: 'Says affordability has not changed what they buy',
   },
   {
     name: 'hs_affordability_changed_what_you_buy_yes',
-    label:
-      'Says affordability has changed what they buy (limited coverage: no data in 12 states; null there)',
+    label: 'Says affordability has changed what they buy',
   },
   {
     name: 'hs_affordable_housing_gov_has_role',
@@ -159,18 +157,15 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_area_identity_rural',
-    label:
-      'Identifies where they live as rural (limited coverage: no data in 12 states; null there)',
+    label: 'Identifies where they live as rural',
   },
   {
     name: 'hs_area_identity_suburban',
-    label:
-      'Identifies where they live as suburban (limited coverage: no data in 12 states; null there)',
+    label: 'Identifies where they live as suburban',
   },
   {
     name: 'hs_area_identity_urban',
-    label:
-      'Identifies where they live as urban (limited coverage: no data in 12 states; null there)',
+    label: 'Identifies where they live as urban',
   },
   {
     name: 'hs_artificial_intelligence_excited',
@@ -188,13 +183,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_campaign_finance_reform_high_priority',
-    label:
-      'Sees campaign finance reform as a high priority (limited coverage: no data in 12 states; null there)',
+    label: 'Sees campaign finance reform as a high priority',
   },
   {
     name: 'hs_campaign_finance_reform_less_important',
-    label:
-      'Sees campaign finance reform as less important (limited coverage: no data in 12 states; null there)',
+    label: 'Sees campaign finance reform as less important',
   },
   {
     name: 'hs_candidate_mail_do_not_read',
@@ -208,13 +201,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_candidate_mail_readership_do_not_read',
-    label:
-      'Does not read candidate campaign mail (limited coverage: no data in 12 states; null there)',
+    label: 'Does not read candidate campaign mail',
   },
   {
     name: 'hs_candidate_mail_readership_read_carefully',
-    label:
-      'Reads candidate campaign mail carefully (limited coverage: no data in 12 states; null there)',
+    label: 'Reads candidate campaign mail carefully',
   },
   {
     name: 'hs_capitalism_believe_flawed',
@@ -290,23 +281,19 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_community_not_integrated',
-    label:
-      'Does not feel integrated into their local community (limited coverage: no data in 12 states; null there)',
+    label: 'Does not feel integrated into their local community',
   },
   {
     name: 'hs_community_very_integrated',
-    label:
-      'Feels very integrated into their local community (limited coverage: no data in 12 states; null there)',
+    label: 'Feels very integrated into their local community',
   },
   {
     name: 'hs_concerned_job_loss_due_to_ai_no',
-    label:
-      'Not concerned about losing their job to AI (limited coverage: no data in 12 states; null there)',
+    label: 'Not concerned about losing their job to AI',
   },
   {
     name: 'hs_concerned_job_loss_due_to_ai_yes',
-    label:
-      'Concerned about losing their job to AI (limited coverage: no data in 12 states; null there)',
+    label: 'Concerned about losing their job to AI',
   },
   {
     name: 'hs_conspiracy_believer',
@@ -363,13 +350,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_dating_optimistic',
-    label:
-      'Optimistic about dating (limited coverage: no data in 12 states; null there)',
+    label: 'Optimistic about dating',
   },
   {
     name: 'hs_dating_pessimistic',
-    label:
-      'Pessimistic about dating (limited coverage: no data in 12 states; null there)',
+    label: 'Pessimistic about dating',
   },
   { name: 'hs_death_penalty_oppose', label: 'Opposes the death penalty' },
   { name: 'hs_death_penalty_support', label: 'Supports the death penalty' },
@@ -408,13 +393,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_domestic_deployment_of_troops_oppose',
-    label:
-      'Opposes deploying troops domestically (limited coverage: no data in 12 states; null there)',
+    label: 'Opposes deploying troops domestically',
   },
   {
     name: 'hs_domestic_deployment_of_troops_support',
-    label:
-      'Supports deploying troops domestically (limited coverage: no data in 12 states; null there)',
+    label: 'Supports deploying troops domestically',
   },
   {
     name: 'hs_dropoff_fill_entire_ballot',
@@ -436,12 +419,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_economic_despondency_ahead',
     label:
-      'Feels ahead of where they expected to be at this stage of life — newer survey vintage (limited coverage: no data in 12 states; null there)',
+      'Feels ahead of where they expected to be at this stage of life — newer survey vintage',
   },
   {
     name: 'hs_economic_despondency_far_behind',
     label:
-      'Feels far behind where they expected to be at this stage of life — newer survey vintage (limited coverage: no data in 12 states; null there)',
+      'Feels far behind where they expected to be at this stage of life — newer survey vintage',
   },
   {
     name: 'hs_electric_vehicle_likely_buyer',
@@ -454,13 +437,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_epstein_files_important',
-    label:
-      'Sees the Epstein files as important (limited coverage: no data in 12 states; null there)',
+    label: 'Sees the Epstein files as important',
   },
   {
     name: 'hs_epstein_files_unimportant_or_hoax',
-    label:
-      'Sees the Epstein files as unimportant or a hoax (limited coverage: no data in 12 states; null there)',
+    label: 'Sees the Epstein files as unimportant or a hoax',
   },
   {
     name: 'hs_family_medical_leave_oppose',
@@ -482,13 +463,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_gamer_no',
-    label:
-      'Does not play video games (limited coverage: no data in 12 states; null there)',
+    label: 'Does not play video games',
   },
   {
     name: 'hs_gamer_yes',
-    label:
-      'Identifies as a gamer (limited coverage: no data in 12 states; null there)',
+    label: 'Identifies as a gamer',
   },
   {
     name: 'hs_gas_tax_oppose',
@@ -528,23 +507,19 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_gun_control_support', label: 'Supports gun control' },
   {
     name: 'hs_ice_actions_oppose',
-    label:
-      'Opposes ICE enforcement actions (limited coverage: no data in 12 states; null there)',
+    label: 'Opposes ICE enforcement actions',
   },
   {
     name: 'hs_ice_actions_support',
-    label:
-      'Supports ICE enforcement actions (limited coverage: no data in 12 states; null there)',
+    label: 'Supports ICE enforcement actions',
   },
   {
     name: 'hs_illegal_imm_process_unfair',
-    label:
-      'More concerned the US is unfair or inhumane to immigrants (limited coverage: no data in 12 states; null there)',
+    label: 'More concerned the US is unfair or inhumane to immigrants',
   },
   {
     name: 'hs_illegal_imm_undesirable',
-    label:
-      'More concerned too many undesirable people are immigrating (limited coverage: no data in 12 states; null there)',
+    label: 'More concerned too many undesirable people are immigrating',
   },
   {
     name: 'hs_immigration_process_unfair',
@@ -597,13 +572,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_israel_committing_genocide_no',
-    label:
-      'Does not believe Israel is committing genocide (limited coverage: no data in 12 states; null there)',
+    label: 'Does not believe Israel is committing genocide',
   },
   {
     name: 'hs_israel_committing_genocide_yes',
-    label:
-      'Believes Israel is committing genocide (limited coverage: no data in 12 states; null there)',
+    label: 'Believes Israel is committing genocide',
   },
   {
     name: 'hs_israel_military_actions_oppose',
@@ -661,33 +634,27 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_likely_vbm', label: 'Likely to vote by mail (absentee ballot)' },
   {
     name: 'hs_listen_podcaster_carlson',
-    label:
-      "Listens to Tucker Carlson's podcast (limited coverage: no data in 12 states; null there)",
+    label: "Listens to Tucker Carlson's podcast",
   },
   {
     name: 'hs_listen_podcaster_daily',
-    label:
-      'Most likely to listen to The Daily among political podcasts (limited coverage: no data in 12 states; null there)',
+    label: 'Most likely to listen to The Daily among political podcasts',
   },
   {
     name: 'hs_listen_podcaster_left_leaning',
-    label:
-      'Listens to left-leaning podcasts (limited coverage: no data in 12 states; null there)',
+    label: 'Listens to left-leaning podcasts',
   },
   {
     name: 'hs_listen_podcaster_meidas',
-    label:
-      'Listens to the MeidasTouch podcast (limited coverage: no data in 12 states; null there)',
+    label: 'Listens to the MeidasTouch podcast',
   },
   {
     name: 'hs_listen_podcaster_right_leaning',
-    label:
-      'Listens to right-leaning podcasts (limited coverage: no data in 12 states; null there)',
+    label: 'Listens to right-leaning podcasts',
   },
   {
     name: 'hs_listen_podcaster_rogan',
-    label:
-      "Listens to Joe Rogan's podcast (limited coverage: no data in 12 states; null there)",
+    label: "Listens to Joe Rogan's podcast",
   },
   {
     name: 'hs_marijuana_legal_oppose',
@@ -726,8 +693,7 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_military_family_self',
-    label:
-      'Personally served in the US military (limited coverage: no data in 12 states; null there)',
+    label: 'Personally served in the US military',
   },
   {
     name: 'hs_min_wage_15_increase_oppose',
@@ -762,13 +728,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_news_independent',
-    label:
-      'Prefers independent news sources (limited coverage: no data in 12 states; null there)',
+    label: 'Prefers independent news sources',
   },
   {
     name: 'hs_news_mainstream',
-    label:
-      'Prefers mainstream news sources (limited coverage: no data in 12 states; null there)',
+    label: 'Prefers mainstream news sources',
   },
   { name: 'hs_obamacare_aca_expand', label: 'Supports expanding the ACA' },
   { name: 'hs_obamacare_aca_oppose', label: 'Opposes the ACA' },
@@ -810,13 +774,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_political_troll_entertaining',
-    label:
-      'Finds political trolling entertaining (limited coverage: no data in 12 states; null there)',
+    label: 'Finds political trolling entertaining',
   },
   {
     name: 'hs_political_troll_negative',
-    label:
-      'Views political trolling negatively (limited coverage: no data in 12 states; null there)',
+    label: 'Views political trolling negatively',
   },
   {
     name: 'hs_public_transit_oppose',
@@ -858,12 +820,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_right_wing_conspiracy_believer',
     label:
-      'Does not rule out that the 2024 hurricanes were artificially created — newer survey vintage (limited coverage: no data in 12 states; null there)',
+      'Does not rule out that the 2024 hurricanes were artificially created — newer survey vintage',
   },
   {
     name: 'hs_right_wing_conspiracy_nonbeliever',
     label:
-      'Firmly rejects the claim that the 2024 hurricanes were artificially created — newer survey vintage (limited coverage: no data in 12 states; null there)',
+      'Firmly rejects the claim that the 2024 hurricanes were artificially created — newer survey vintage',
   },
   { name: 'hs_same_sex_marriage_oppose', label: 'Opposes same-sex marriage' },
   { name: 'hs_same_sex_marriage_support', label: 'Supports same-sex marriage' },
@@ -886,13 +848,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_snap_not_important',
-    label:
-      'Does not see protecting SNAP benefits as important (limited coverage: no data in 12 states; null there)',
+    label: 'Does not see protecting SNAP benefits as important',
   },
   {
     name: 'hs_snap_protect',
-    label:
-      'Wants SNAP food assistance benefits protected (limited coverage: no data in 12 states; null there)',
+    label: 'Wants SNAP food assistance benefits protected',
   },
   {
     name: 'hs_social_media_truth_vs_speech_free_speech',
@@ -911,8 +871,7 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_social_media_user_frequent',
-    label:
-      'Frequent social media user (limited coverage: no data in 12 states; null there)',
+    label: 'Frequent social media user',
   },
   {
     name: 'hs_social_media_user_no_or_infrequent',
@@ -958,12 +917,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_super_power_policy_oppose',
     label:
-      'Believes US policy should not prioritize maintaining economic and military superpower dominance (limited coverage: no data in 12 states; null there)',
+      'Believes US policy should not prioritize maintaining economic and military superpower dominance',
   },
   {
     name: 'hs_super_power_policy_support',
     label:
-      'Believes US policy should prioritize maintaining economic and military superpower dominance (limited coverage: no data in 12 states; null there)',
+      'Believes US policy should prioritize maintaining economic and military superpower dominance',
   },
   { name: 'hs_tax_cuts_oppose', label: 'Opposes tax cuts' },
   { name: 'hs_tax_cuts_support', label: 'Supports tax cuts' },
@@ -977,13 +936,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_traditional_gender_roles_negative',
-    label:
-      'Views traditional gender roles negatively (limited coverage: no data in 12 states; null there)',
+    label: 'Views traditional gender roles negatively',
   },
   {
     name: 'hs_traditional_gender_roles_positive',
-    label:
-      'Views traditional gender roles positively (limited coverage: no data in 12 states; null there)',
+    label: 'Views traditional gender roles positively',
   },
   { name: 'hs_trans_athlete_no', label: 'Opposes trans athlete participation' },
   {
@@ -1022,23 +979,19 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_tv_news_source_most_trusted_cnn',
-    label:
-      'Trusts CNN most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
+    label: 'Trusts CNN most for TV news — newer survey vintage',
   },
   {
     name: 'hs_tv_news_source_most_trusted_fox',
-    label:
-      'Trusts Fox most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
+    label: 'Trusts Fox most for TV news — newer survey vintage',
   },
   {
     name: 'hs_tv_news_source_most_trusted_msnbc',
-    label:
-      'Trusts MSNBC most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
+    label: 'Trusts MSNBC most for TV news — newer survey vintage',
   },
   {
     name: 'hs_tv_news_source_most_trusted_newsmax',
-    label:
-      'Trusts Newsmax most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
+    label: 'Trusts Newsmax most for TV news — newer survey vintage',
   },
   {
     name: 'hs_tv_viewer_free_streaming',
@@ -1078,13 +1031,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_violent_crime_worried',
-    label:
-      'Worried about violent crime (limited coverage: no data in 12 states; null there)',
+    label: 'Worried about violent crime',
   },
   {
     name: 'hs_voting_fraud_concern_barriers',
     label:
-      'More concerned about barriers to voting than voter fraud — newer survey vintage (limited coverage: no data in 12 states; null there)',
+      'More concerned about barriers to voting than voter fraud — newer survey vintage',
   },
   {
     name: 'hs_voting_fraud_concern_fraud',
