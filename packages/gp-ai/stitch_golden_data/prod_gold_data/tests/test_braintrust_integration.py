@@ -12,6 +12,7 @@ from stitch_golden_data.prod_gold_data.l2_br_matcher import (
     _selection_from_response,
     _StateUniverse,
     _validate_district_universe,
+    _validate_pending_offices,
 )
 from stitch_golden_data.prod_gold_data.vector_store_generator import VectorStoreGenerator
 
@@ -242,6 +243,41 @@ class TestValidateDistrictUniverse:
         which would fail every run rather than none.
         """
         _validate_district_universe(self._universe())
+
+
+class TestValidatePendingOffices:
+    """The fail-closed guard on the worklist, and the sibling of
+    TestValidateDistrictUniverse.
+
+    Its two branches fail differently. A non-canonical state reaches
+    `load_district_universe`'s IN-clause unescaped -- and unlike `--states`,
+    that value is warehouse data rather than operator input, so one apostrophe
+    in it breaks or widens the query. A blank name is worse: it embeds
+    cleanly as "race name: " and comes back with a real, arbitrary match,
+    which is a link the pending list's own 30-day rule never reopens.
+    """
+
+    @staticmethod
+    def _pending(state: str = "DE", name: str = "Test Race") -> pd.DataFrame:
+        return pd.DataFrame({"br_database_id": [1], "name": [name], "state": [state]})
+
+    @pytest.mark.parametrize(
+        "state", ["de", "D", "DEE", "D E", "DE') or 1=1 --"], ids=["lower", "one", "three", "space", "injection"]
+    )
+    def test_a_non_canonical_state_raises(self, state):
+        with pytest.raises(ValueError, match="non-canonical state code"):
+            _validate_pending_offices(self._pending(state=state))
+
+    @pytest.mark.parametrize("name", ["", "   ", None], ids=["empty", "whitespace", "null"])
+    def test_a_blank_or_null_name_raises(self, name):
+        with pytest.raises(ValueError, match="blank or null name"):
+            _validate_pending_offices(self._pending(name=name))
+
+    def test_a_valid_worklist_passes(self):
+        """Failure this catches: a guard strict enough to reject real rows,
+        which would fail every run rather than none.
+        """
+        _validate_pending_offices(self._pending())
 
 
 class TestTaskTypeInvariant:
