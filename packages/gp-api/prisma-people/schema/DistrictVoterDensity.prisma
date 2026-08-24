@@ -27,8 +27,12 @@ model DistrictVoterDensity {
 }
 
 // Per-district-per-resolution coverage bookkeeping, keyed the same way as the
-// cells. The app reads `coverage` to decide whether to render the map at all
-// (low coverage -> hide) and `minCellCount` (the K used) for the legend.
+// cells. `coverage` is the only column the app reads, and it reads it to decide
+// whether to render the map at all (low coverage -> hide). The rest are the
+// data team's build provenance, kept here so a suppressed or sparse district can
+// be explained without re-running the pipeline; `minCellCount` in particular
+// records the K a build actually used, which is the only way to tell after the
+// fact whether a district was cut at the agreed policy K.
 model DistrictVoterDensityMeta {
     districtId      String   @map("district_id") @peopleDb.Uuid
     resolution      Int
