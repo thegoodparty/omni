@@ -1,6 +1,8 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RaceTargetMetrics } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { Campaign } from '../../generated/prisma'
 
@@ -147,7 +149,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   })
 
   it.each(['vote-early', 'election-day'])(
-    'includes voting logistics placeholders for %s',
+    'never instructs bracketed voting-logistics placeholders for %s',
     async (purpose) => {
       mockDraft('A script.')
 
@@ -158,9 +160,88 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       const userPrompt = call.messages.find(
         (m: { role: string }) => m.role === 'user',
       )?.content
-      expect(userPrompt).toContain('voting logistics as bracketed')
+      const systemPrompt = call.messages.find(
+        (m: { role: string }) => m.role === 'system',
+      )?.content
+      expect(userPrompt).not.toContain('bracketed')
+      expect(userPrompt).not.toContain('[early voting')
+      expect(userPrompt).not.toContain('[polling')
+      expect(systemPrompt).toContain(
+        'Never emit a bracketed placeholder anywhere in the script other than "[your name]"',
+      )
     },
   )
+
+  it('includes the election date for the election-day purpose', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { ...campaign.details, electionDate: '2026-11-03' } },
+    })
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'election-day', tone: 'urgent' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Election day: November 3, 2026.')
+  })
+
+  it('includes the real early-voting window for the vote-early purpose', async () => {
+    const campaignsService = service.app.get(CampaignsService)
+    vi.spyOn(
+      campaignsService,
+      'fetchLiveRaceTargetMetrics',
+    ).mockResolvedValueOnce({
+      milestones: {
+        voter_registration: null,
+        early_voting: { start: '2026-10-19', end: '2026-11-01' },
+        request_ballot: null,
+      },
+    } as RaceTargetMetrics)
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'vote-early', tone: 'urgent' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Early voting window: October 19, 2026 through November 1, 2026.',
+    )
+  })
+
+  it('does not fabricate an early-voting window when only an estimate would exist', async () => {
+    // gp-api never returns an estimated early-voting date from
+    // fetchLiveRaceTargetMetrics — a null milestone here is exactly what
+    // "only an estimate exists" looks like at this layer, and the prompt
+    // must not present anything as a real window in that case.
+    const campaignsService = service.app.get(CampaignsService)
+    vi.spyOn(
+      campaignsService,
+      'fetchLiveRaceTargetMetrics',
+    ).mockResolvedValueOnce({
+      milestones: {
+        voter_registration: null,
+        early_voting: null,
+        request_ballot: null,
+      },
+    } as RaceTargetMetrics)
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'vote-early', tone: 'urgent' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain('Early voting')
+  })
 
   it('polishes the given text instead of writing fresh when currentDraft is present', async () => {
     mockDraft('A clearer version of my own words.')
@@ -188,6 +269,32 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(userPrompt).toContain('Hi, my name is Alex, a volunteer for Jane.')
     expect(userPrompt).toContain('Polish the script.')
     expect(userPrompt).not.toContain('Write the call script.')
+  })
+
+  it('instructs stripping voting-logistics brackets while preserving [your name]', async () => {
+    mockDraft('A clearer version of my own words.')
+
+    const res = await postDraft({
+      purpose: 'vote-early',
+      tone: 'direct',
+      currentDraft:
+        'Hi, my name is [your name]. Early voting runs ' +
+        '[early voting dates] at [early voting location].',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toContain(
+      'The literal "[your name]" placeholder in the volunteer opener MUST',
+    )
+    expect(systemPrompt).toContain('Strip any other bracketed placeholder')
+    expect(systemPrompt).not.toContain(
+      'and any bracketed placeholder. Dropping one',
+    )
   })
 
   it('allows improve mode for the custom purpose', async () => {
