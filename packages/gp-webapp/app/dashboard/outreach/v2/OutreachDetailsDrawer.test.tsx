@@ -177,6 +177,29 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(cta).toBeDisabled()
   })
 
+  // A detail that failed has no list id, so there is no CTA to enable — and a
+  // button that can never enable is not a state to render. The recovery lives
+  // in the body instead, which is why the two are asserted together: dropping
+  // the message would leave the missing footer unexplained.
+  it('explains a failed detail in the body rather than holding a dead CTA', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 500,
+      data: undefined as never,
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(
+      await screen.findByText(/couldn't load this campaign's call progress/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Continue calling' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Continue calling' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders the completed results breakdown with percents and the Delete + Move to archive footer', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
