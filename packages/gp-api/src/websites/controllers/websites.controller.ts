@@ -57,6 +57,7 @@ import {
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
 import {
+  hasRenderableName,
   isBioPublishable,
   isGenericComplianceContent,
   isGenuineIssue,
@@ -95,7 +96,6 @@ const REQUIRED_PUBLISH_FIELDS: Array<{
   path: string
   check: (content: PrismaJson.WebsiteContent) => boolean
 }> = [
-  { path: 'main.title', check: (c) => isNonEmpty(c.main?.title) },
   { path: 'about.bio', check: (c) => isBioPublishable(c.about?.bio) },
   {
     // Every issue must be genuine (real title+description, not the default),
@@ -127,13 +127,28 @@ const applyContactFallbacks = (content: PrismaJson.WebsiteContent) => {
   }
 }
 
-const assertReadyToPublish = (content: PrismaJson.WebsiteContent) => {
+const assertReadyToPublish = (
+  content: PrismaJson.WebsiteContent,
+  user: User,
+) => {
   const missing = REQUIRED_PUBLISH_FIELDS.filter(
     ({ check }) => !check(content),
   ).map(({ path }) => path)
   if (missing.length > 0) {
     throw new BadRequestException(
       `Website content is missing required fields for publishing: ${missing.join(', ')}`,
+    )
+  }
+  // The site's headline and page title are derived from the candidate's name at
+  // render time, so a nameless user publishes an empty hero — and verify-live's
+  // candidate-identity check then fails against a page carrying no name.
+  // Checked against firstName/lastName specifically, NOT getUserFullName: that
+  // helper falls back to the legacy `user.name`, which the public website
+  // response does not carry and candidate-sites therefore cannot render. A
+  // name-only user would pass this gate and still ship a blank headline.
+  if (!hasRenderableName(user)) {
+    throw new BadRequestException(
+      'Cannot publish: the campaign owner has no first or last name set.',
     )
   }
 }
@@ -260,9 +275,13 @@ export class WebsitesController {
       "Update the calling campaign's website content and optionally " +
       'publish it. The body deep-merges into Website.content; pass only ' +
       'fields you want to change. To publish, send `status: "published"` ' +
-      '— this requires the content sections main.title, about.bio, ' +
-      'about.issues (with title+description), and contact.email to be ' +
-      'present. `contact.address` and `contact.phone` are auto-filled ' +
+      '— this requires the content sections about.bio, about.issues ' +
+      '(with title+description), and contact.email to be present, and the ' +
+      "campaign owner to have a name (the site's headline is derived from " +
+      'it). Those same requirements are re-checked on every update to an ' +
+      'already-published site, so an edit that blanks one returns 400 ' +
+      'rather than leaving a live site with incomplete content. ' +
+      '`contact.address` and `contact.phone` are auto-filled ' +
       'from the organization fallback if missing. If a custom domain ' +
       'is attached to the website, its `Domain.status` must be ' +
       '`submitted`, `registered`, or `active` (publishing while the ' +
@@ -296,16 +315,28 @@ export class WebsitesController {
     const {
       content: currentContent,
       hasEverBeenPublished,
+      status: currentStatus,
       domain,
     } = await this.websites.findUniqueOrThrow({
       where: { campaignId },
       select: {
         content: true,
         hasEverBeenPublished: true,
+        status: true,
         domain: { select: { status: true } },
       },
     })
 
+    // The status the site will HAVE after this write. Content validation below
+    // keys off this; the domain gate deliberately does not — see there.
+    const nextStatus = body.status ?? currentStatus
+
+    // Publish transition only, unlike the content gate. Domain status is
+    // external state this request can't damage or repair, and a Domain row
+    // sits at `pending` for the duration of an async registrar purchase — so
+    // gating edits on it would 400 every content save on an already-published
+    // site until the purchase lands, with no way for the candidate to clear it
+    // from the editor.
     if (
       body.status === WebsiteStatus.published &&
       domain &&
@@ -330,9 +361,15 @@ export class WebsitesController {
       updatedContent.about.issues = body.about.issues
     }
 
-    if (body.status === WebsiteStatus.published) {
+    // Keyed on nextStatus, not the publish transition: an edit that omits
+    // `status` used to skip validation entirely, so a body carrying
+    // `about: { bio: '' }` could empty a required field on an already-live site
+    // and leave it published with content that would fail this very check on
+    // republish. That is how a candidate's bio was silently wiped mid-10DLC
+    // (campaign 296539), which then failed their compliance run at submit_tcr.
+    if (nextStatus === WebsiteStatus.published) {
       applyContactFallbacks(updatedContent)
-      assertReadyToPublish(updatedContent)
+      assertReadyToPublish(updatedContent, user)
     }
 
     const isFirstPublish =

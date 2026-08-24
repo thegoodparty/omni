@@ -16,6 +16,7 @@ import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/v
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
+import { ContactInteractionPhoneBankingService } from '@/contactInteraction/services/contactInteractionPhoneBanking.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 
 describe('ContactEngagementService', () => {
@@ -31,6 +32,9 @@ describe('ContactEngagementService', () => {
       findMany: ReturnType<typeof vi.fn>
     }
     let mockContactInteractionRobocallService: {
+      findMany: ReturnType<typeof vi.fn>
+    }
+    let mockContactInteractionPhoneBankingService: {
       findMany: ReturnType<typeof vi.fn>
     }
     let mockVoterOutreachActivityService: {
@@ -54,6 +58,9 @@ describe('ContactEngagementService', () => {
       mockContactInteractionRobocallService = {
         findMany: vi.fn().mockResolvedValue([]),
       }
+      mockContactInteractionPhoneBankingService = {
+        findMany: vi.fn().mockResolvedValue([]),
+      }
       mockVoterOutreachActivityService = {
         getActivityForVoter: vi.fn().mockResolvedValue([]),
         findMany: vi.fn().mockResolvedValue([]),
@@ -72,6 +79,7 @@ describe('ContactEngagementService', () => {
         mockContactInteractionDoorKnockService as unknown as ContactInteractionDoorKnockService,
         mockContactInteractionTextService as unknown as ContactInteractionTextService,
         mockContactInteractionRobocallService as unknown as ContactInteractionRobocallService,
+        mockContactInteractionPhoneBankingService as unknown as ContactInteractionPhoneBankingService,
         mockContactStatusService as unknown as ContactStatusService,
       )
     })
@@ -581,7 +589,7 @@ describe('ContactEngagementService', () => {
       expect(result.results).toEqual([])
     })
 
-    it('maps door knock, text, and robocall rows into the union', async () => {
+    it('maps door knock, text, robocall, and phone banking rows into the union', async () => {
       mockContactInteractionDoorKnockService.findMany.mockResolvedValue([
         {
           id: 'dk-1',
@@ -614,6 +622,17 @@ describe('ContactEngagementService', () => {
           outreachId: 56,
         },
       ])
+      mockContactInteractionPhoneBankingService.findMany.mockResolvedValue([
+        {
+          id: 'pb-1',
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          willVote: 'yes',
+          note: 'Confirmed will vote',
+          manual: false,
+        },
+      ])
       const campaignInput: IndividualActivityInput = {
         personId: 'person-123',
         organizationSlug: 'campaign-org-1',
@@ -643,8 +662,27 @@ describe('ContactEngagementService', () => {
         orderBy: expectedOrderBy,
         take: 21,
       })
-      // Newest (robocall) first, oldest (door knock) last.
+      expect(
+        mockContactInteractionPhoneBankingService.findMany,
+      ).toHaveBeenCalledWith({
+        where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
+        orderBy: expectedOrderBy,
+        take: 21,
+      })
+      // Newest (phone banking) first, oldest (door knock) last.
       expect(result.results).toEqual([
+        {
+          type: ConstituentActivityType.PHONE_BANKING,
+          date: '2026-01-04T10:00:00.000Z',
+          data: {
+            activityId: 'pb-1',
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+            willVote: 'yes',
+            note: 'Confirmed will vote',
+            manual: false,
+          },
+        },
         {
           type: ConstituentActivityType.ROBOCALL,
           date: '2026-01-03T10:00:00.000Z',

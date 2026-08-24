@@ -68,6 +68,9 @@ export const buildVoterFiltersSql = (
       case 'hasLandline':
         sql = buildBooleanFilter('VoterTelephones_LandlineFormatted', op)
         break
+      case 'hasAnyPhone':
+        sql = buildHasAnyPhoneFilter(op)
+        break
       case 'hasAddress':
         sql = buildHasAddressFilter(op)
         break
@@ -414,6 +417,20 @@ const buildBooleanFilter = (
     return Prisma.sql`v."${Prisma.raw(fieldName)}" IS NOT NULL`
   } else if (op.operator === 'is' && op.value === 'null') {
     return Prisma.sql`v."${Prisma.raw(fieldName)}" IS NULL`
+  }
+  return null
+}
+
+// phoneBanking reachability (ENG-10914): any phone number, not landline-only
+// — cell OR landline non-null, matching the list builder's any-phone freeze.
+const buildHasAnyPhoneFilter = (
+  op: FilterOperator | undefined,
+): Prisma.Sql | null => {
+  if (!op) return null
+  if (op.operator === 'is' && op.value === 'not_null') {
+    return Prisma.sql`(v."VoterTelephones_CellPhoneFormatted" IS NOT NULL OR v."VoterTelephones_LandlineFormatted" IS NOT NULL)`
+  } else if (op.operator === 'is' && op.value === 'null') {
+    return Prisma.sql`(v."VoterTelephones_CellPhoneFormatted" IS NULL AND v."VoterTelephones_LandlineFormatted" IS NULL)`
   }
   return null
 }

@@ -1,6 +1,7 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
+import { recordGeoapifyCall } from '../observability/geoapify.metrics'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -130,6 +131,7 @@ export class GeoapifyRoutePlannerService {
     try {
       result = await raceWithDeadline(planner.plan(), 'Route planner timed out')
     } catch (error) {
+      recordGeoapifyCall('route_planner', 'failed')
       // RoutePlannerError.message is the API's error text; never log the
       // original error object — the request URL carries ?apiKey=<key>.
       this.logger.error(
@@ -141,6 +143,7 @@ export class GeoapifyRoutePlannerService {
       )
       throw new BadGatewayException('Route optimization failed')
     }
+    recordGeoapifyCall('route_planner', 'success')
 
     const issues = result.getRaw().properties?.issues
     const agentPlan = result.getAgentPlans()[0]
@@ -214,7 +217,9 @@ export class GeoapifyRoutePlannerService {
   }
 
   // Best-effort: the ordered plan is the critical artifact; a geometry
-  // failure must not fail the knock.
+  // failure must not fail the knock. It is still a second billed vendor call
+  // per knock, and the waypoint ledger only knows about the Route Planner —
+  // so the counter here is the only place this call is visible.
   private async fetchPathGeometry(
     agentPlan: AgentPlan,
     mode: 'walk' | 'drive',
@@ -226,6 +231,7 @@ export class GeoapifyRoutePlannerService {
         agentPlan.getRoute({ mode }),
         'Routing request timed out',
       )
+      recordGeoapifyCall('routing', 'success')
       if (
         typeof feature !== 'object' ||
         feature === null ||
@@ -236,6 +242,7 @@ export class GeoapifyRoutePlannerService {
       const geometry = feature.geometry
       return isRoutePathGeometry(geometry) ? geometry : null
     } catch (error) {
+      recordGeoapifyCall('routing', 'failed')
       this.logger.warn(
         { message: error instanceof Error ? error.message : String(error) },
         'Geoapify route geometry fetch failed; route ships without a path',

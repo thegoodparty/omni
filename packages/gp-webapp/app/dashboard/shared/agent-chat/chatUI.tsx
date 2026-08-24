@@ -3,7 +3,7 @@
 import type { Ref, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, IconButton, Textarea } from '@styleguide'
+import { cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
 import {
   SearchIcon,
   SendIcon,
@@ -11,8 +11,8 @@ import {
 } from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
 import ChatPill from '../ai-chat/ChatPill'
-import { DictationMicButton } from '../../briefings/shared/DictationMicButton'
-import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
+import { DictationMicButton } from '../dictation/DictationMicButton'
+import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
 
 // Module-level so react-markdown gets a stable plugins identity across the
 // per-tick re-renders of a streaming turn (a fresh [remarkGfm] each render
@@ -51,10 +51,12 @@ export const ASSISTANT_BUBBLE =
   '[&_th]:!border-foreground/30 [&_td]:!table-cell [&_td]:px-2 [&_td]:py-1.5 ' +
   '[&_td]:align-top'
 
+// The agent's face is the GoodParty mark, not a generic AI glyph. Neutral
+// circle (not the primary tint) so the multicolor logo reads cleanly.
 export function AssistantAvatar(): React.JSX.Element {
   return (
-    <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-      <SparklesIcon className="size-3.5" aria-hidden />
+    <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+      <GoodPartyOrgLogo className="h-3 w-3.5" />
     </span>
   )
 }
@@ -277,6 +279,8 @@ export function ChatComposer({
   placeholder = 'Ask me any questions about this...',
   inputRef,
   dictation,
+  leadingSlot,
+  ariaLabel,
 }: {
   value: string
   onChange: (value: string) => void
@@ -285,6 +289,11 @@ export function ChatComposer({
   placeholder?: string
   inputRef?: Ref<HTMLTextAreaElement>
   dictation?: UseDictationAppendResult
+  // Rendered at the pill's leading edge, before the input (e.g. a
+  // conversation-history popover). Omit for the plain composer.
+  leadingSlot?: ReactNode
+  // Accessible name for the input. Omit to fall back to the placeholder.
+  ariaLabel?: string
 }): React.JSX.Element {
   // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
   // sends, Shift+Enter inserts a break, and the Enter that commits an IME
@@ -306,6 +315,7 @@ export function ChatComposer({
   }
   const controls = (
     <>
+      {leadingSlot}
       <Textarea
         ref={inputRef}
         autoGrow
@@ -315,6 +325,7 @@ export function ChatComposer({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onComposerKeyDown}
         placeholder={placeholder}
+        aria-label={ariaLabel}
         disabled={disabled}
         className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm leading-snug shadow-none focus-visible:ring-0"
       />

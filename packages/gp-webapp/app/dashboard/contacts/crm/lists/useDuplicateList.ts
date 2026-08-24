@@ -6,6 +6,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { trimCustomSegmentName } from '../shared/segments.util'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 
 // "List-from-list is filter composition at creation time" (locked design):
 // duplicate reposts the segment's own demographic/activity criteria as a new
@@ -90,6 +91,11 @@ export const useDuplicateList = () => {
       )
       queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
+      })
+      // Same endpoint backs the outreach audience picker's list cache; surface
+      // the duplicate there too.
+      queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
       })
       // Shallow (ENG-10725): opens the copy's detail sheet over the index.
       selectList(response.id)

@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import H2 from '@shared/typography/H2'
@@ -15,7 +14,13 @@ import {
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { getPinChannels } from 'app/dashboard/profile/texting-compliance/shared/pinChannels'
 import { useSubmitCvPin } from 'app/dashboard/profile/texting-compliance/shared/useSubmitCvPin'
+import {
+  CV_PIN_GATE,
+  useCvPinGate,
+} from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
 import PinForm from 'app/dashboard/profile/texting-compliance/shared/PinForm'
+import CvVerificationInProgressNotice from 'app/dashboard/profile/texting-compliance/shared/CvVerificationInProgressNotice'
+import PinStepUnavailableNotice from 'app/dashboard/profile/texting-compliance/shared/PinStepUnavailableNotice'
 
 const PROFILE_ROUTE = '/dashboard/account'
 
@@ -37,8 +42,12 @@ export default function EnterPin(): React.JSX.Element {
   })
 
   const status = tcrCompliance?.status ?? null
-  const isAwaitingPin = status === TCR_COMPLIANCE_STATUS.SUBMITTED
   const shouldRedirect = status !== null && REDIRECT_STATUSES.includes(status)
+
+  // The local `submitted` status only means the registration reached Peerly;
+  // whether a PIN exists is the live CampaignVerify status (ENG-10866).
+  const pinGate = useCvPinGate(tcrCompliance, { isTcrPending: isPending })
+  const pinReady = pinGate.state === CV_PIN_GATE.READY
 
   useEffect(() => {
     if (shouldRedirect) {
@@ -53,10 +62,10 @@ export default function EnterPin(): React.JSX.Element {
   // fired by useSubmitCvPin.
   const pinViewTrackedRef = useRef(false)
   useEffect(() => {
-    if (isPending || !isAwaitingPin || pinViewTrackedRef.current) return
+    if (!pinReady || pinViewTrackedRef.current) return
     pinViewTrackedRef.current = true
     trackEvent(EVENTS.ProUpgrade.Compliance.PinEntryViewed)
-  }, [isPending, isAwaitingPin])
+  }, [pinReady])
 
   return (
     <div className="bg-white pt-2 md:pt-0">
@@ -67,34 +76,20 @@ export default function EnterPin(): React.JSX.Element {
       <div className="mx-auto max-w-2xl px-4 py-6 md:px-8 md:py-8 mt-16 md:mt-0">
         <H2 className="mb-6 hidden md:block">Enter your PIN</H2>
 
-        {isPending || shouldRedirect ? (
+        {shouldRedirect || pinGate.state === CV_PIN_GATE.LOADING ? (
           <div className="text-sm text-gray-500">Loading…</div>
-        ) : !isAwaitingPin ? (
-          <OutOfStateNotice />
-        ) : (
+        ) : pinGate.state === CV_PIN_GATE.NOT_AWAITING_PIN ? (
+          <PinStepUnavailableNotice />
+        ) : pinReady ? (
           <PinForm
             channels={getPinChannels(tcrCompliance)}
             onSubmit={submit}
             loading={submitting}
             error={error}
           />
+        ) : (
+          <CvVerificationInProgressNotice />
         )}
-      </div>
-    </div>
-  )
-}
-
-function OutOfStateNotice(): React.JSX.Element {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-      <p>
-        This step isn’t available yet. Complete the previous steps from your
-        account to continue.
-      </p>
-      <div className="mt-3">
-        <Link href={PROFILE_ROUTE} className="text-blue-600 underline">
-          Back to account
-        </Link>
       </div>
     </div>
   )

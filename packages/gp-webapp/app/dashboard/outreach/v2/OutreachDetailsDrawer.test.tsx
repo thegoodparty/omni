@@ -1,0 +1,389 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import { useSnackbar } from 'helpers/useSnackbar'
+import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
+import type { HistoryRow } from './historyStatus.util'
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: vi.fn(),
+}))
+
+beforeEach(() => {
+  vi.mocked(useSnackbar).mockReturnValue({
+    displaySnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+  })
+})
+
+const baseDetail = {
+  id: 30,
+  createdAt: new Date('2026-08-10T00:00:00Z'),
+  updatedAt: new Date('2026-08-10T00:00:00Z'),
+  campaignId: 1,
+  outreachType: 'nativePhoneBanking' as const,
+  projectId: null,
+  name: 'GOTV calls',
+  error: null,
+  audienceRequest: null,
+  script: null,
+  message: null,
+  date: null,
+  imageUrl: null,
+  voterFileFilterId: null,
+  doorKnockingRouteId: null,
+  phoneListId: null,
+  identityId: null,
+  didState: null,
+  didNpaSubset: [],
+  title: null,
+  textCount: null,
+  billableTextCount: null,
+  campaignPlanDueDate: null,
+  organizationSlug: null,
+  archivedAt: null,
+}
+
+const inProgressRow: HistoryRow = {
+  id: 30,
+  createdAt: '2026-08-10T00:00:00Z',
+  outreachType: 'nativePhoneBanking',
+  name: 'GOTV calls',
+  status: 'in_progress',
+}
+
+const completedRow: HistoryRow = {
+  ...inProgressRow,
+  status: 'completed',
+}
+
+// The list endpoint joins the whole VoterFileFilter row onto each envelope, so
+// a history row carries the saved list's name alongside its criteria flags.
+const rowWithFilter = (voterFileFilter: Record<string, unknown>): HistoryRow =>
+  ({ ...inProgressRow, voterFileFilter }) as HistoryRow
+
+describe('OutreachDetailsDrawer — applied filters', () => {
+  const mockDetail = () =>
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, status: 'in_progress' as const },
+    })
+
+  it('renders the saved list as an Audience pill alongside the Filters pills', async () => {
+    mockDetail()
+
+    render(
+      <OutreachDetailsDrawer
+        row={rowWithFilter({ name: 'Renters in 98103', age50Plus: true })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Applied filters')).toBeInTheDocument()
+    expect(screen.getByText('Audience')).toBeInTheDocument()
+    expect(screen.getByText('Renters in 98103')).toBeInTheDocument()
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+  })
+
+  it('drops the Audience group for a row with no saved list, keeping Filters', async () => {
+    mockDetail()
+
+    render(
+      <OutreachDetailsDrawer
+        row={rowWithFilter({ age50Plus: true })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Applied filters')).toBeInTheDocument()
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+    expect(screen.queryByText('Audience')).not.toBeInTheDocument()
+  })
+
+  it('hides the whole section when the row has neither a list nor filters', async () => {
+    mockDetail()
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText('Applied filters')).not.toBeInTheDocument()
+  })
+})
+
+describe('OutreachDetailsDrawer — phone banking', () => {
+  it('renders the in-progress section order, progress math, and the Continue calling footer', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'in_progress',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 200,
+          entriesCalled: 92,
+          peopleTotal: 480,
+          peopleCalled: 92,
+          byOutcome: {
+            answered: 60,
+            no_answer: 20,
+            voicemail: 8,
+            wrong_number: 3,
+            refused: 1,
+          },
+          supporters: 30,
+          unsure: 10,
+          nonSupporters: 20,
+        },
+      },
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('92 of 480 reached')).toBeInTheDocument()
+    // Design-canvas progress card shows the rounded percentage on the right.
+    expect(screen.getByText('19%')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByText('Remaining')).toBeInTheDocument()
+    // peopleTotal - peopleCalled = 388
+    expect(screen.getByText('388')).toBeInTheDocument()
+    expect(screen.getByText('Free')).toBeInTheDocument()
+
+    const cta = screen.getByRole('link', { name: 'Continue calling' })
+    expect(cta).toHaveAttribute('href', '/dashboard/outreach/phone-banking/5')
+
+    // In-progress drawer never shows the completed results table or Delete.
+    expect(screen.queryByText(/Results/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the completed results breakdown with percents and the Delete + Move to archive footer', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'completed',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 10,
+          peopleTotal: 16,
+          peopleCalled: 16,
+          byOutcome: {
+            answered: 5,
+            no_answer: 5,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+          },
+          supporters: 8,
+          unsure: 4,
+          nonSupporters: 4,
+        },
+      },
+    })
+
+    render(<OutreachDetailsDrawer row={completedRow} onOpenChange={vi.fn()} />)
+
+    expect(
+      await screen.findByText('Based on 10 phone banking contacts'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Answered')).toBeInTheDocument()
+    expect(screen.getByText('Refused to engage')).toBeInTheDocument()
+    // Answered: 5 of 10 entriesCalled = 50%
+    expect(screen.getAllByText('50%').length).toBeGreaterThan(0)
+    expect(screen.getByText('Support: Yes')).toBeInTheDocument()
+    expect(screen.getByText('Support: Unsure')).toBeInTheDocument()
+    expect(screen.getByText('Support: No')).toBeInTheDocument()
+
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Continue calling' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows Restore from archive for an already-archived completed row and fires the archive endpoint with archived: false', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'completed',
+        phoneBankingListId: 5,
+        archivedAt: new Date('2026-08-15T00:00:00Z'),
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 10,
+          peopleTotal: 16,
+          peopleCalled: 16,
+          byOutcome: {
+            answered: 10,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+          },
+          supporters: 16,
+          unsure: 0,
+          nonSupporters: 0,
+        },
+      },
+    })
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ params, body }) => {
+      archiveBody = body
+      expect(params.id).toBe('30')
+      return { status: 200, data: { id: 30, archivedAt: null } }
+    })
+
+    const archivedRow: HistoryRow = {
+      ...completedRow,
+      archivedAt: '2026-08-15T00:00:00Z',
+    }
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer row={archivedRow} onOpenChange={onOpenChange} />,
+    )
+
+    const restoreButton = await screen.findByRole('button', {
+      name: 'Restore from archive',
+    })
+    await userEvent.click(restoreButton)
+
+    expect(archiveBody).toEqual({ archived: false })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('archives a completed row and updates it in context', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'completed',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 10,
+          peopleTotal: 16,
+          peopleCalled: 16,
+          byOutcome: {
+            answered: 10,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+          },
+          supporters: 16,
+          unsure: 0,
+          nonSupporters: 0,
+        },
+      },
+    })
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ params, body }) => {
+      archiveBody = body
+      expect(params.id).toBe('30')
+      return {
+        status: 200,
+        data: { id: 30, archivedAt: new Date('2026-08-20T00:00:00Z') },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer row={completedRow} onOpenChange={onOpenChange} />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    )
+
+    expect(archiveBody).toEqual({ archived: true })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('a completed non-phone-banking row gets Move to archive but no Delete', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        outreachType: 'robocall',
+        status: 'completed',
+      },
+    })
+
+    const robocallRow: HistoryRow = {
+      id: 30,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'robocall',
+      name: 'Budget hearing reminder',
+      status: 'completed',
+    }
+    render(<OutreachDetailsDrawer row={robocallRow} onOpenChange={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('confirms before deleting and calls the delete endpoint', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'completed',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 10,
+          peopleTotal: 16,
+          peopleCalled: 16,
+          byOutcome: {
+            answered: 10,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+          },
+          supporters: 16,
+          unsure: 0,
+          nonSupporters: 0,
+        },
+      },
+    })
+    let deleteCalled = false
+    api.mock('DELETE /v1/phone-banking/lists/:id', ({ params }) => {
+      deleteCalled = true
+      expect(params.id).toBe('5')
+      return { status: 200, data: undefined }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer row={completedRow} onOpenChange={onOpenChange} />,
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    expect(deleteCalled).toBe(true)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})

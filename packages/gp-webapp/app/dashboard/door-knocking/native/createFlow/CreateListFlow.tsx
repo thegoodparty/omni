@@ -18,7 +18,10 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { unpreviewableDisclosureLabels } from './voterFilterPreview'
 import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
+import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
+import type { DoorKnockingAddressPreviewResponse } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
@@ -42,21 +45,16 @@ const PILL_CLASSNAME =
 // is the behavior a candidate wants there anyway.
 const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 
-// The POC's rate, and what the walking estimate is worth: 45 doors an hour is
-// a canvasser's sustained pace with the walk between doors included. The
-// vendor's own duration only exists once the route is built server-side, which
-// is after the point where this decision is made.
-const DOORS_PER_HOUR = 45
 // Informational, not a gate: past this the evening is long enough to be worth
 // saying out loud. The hard cap at 150 is what actually blocks.
 const SOFT_STOP_LIMIT = 100
 const HARD_STOP_LIMIT = 150
-
-const estimateWalkTime = (doors: number): string => {
-  const minutes = Math.round((doors / DOORS_PER_HOUR) * 60)
-  if (minutes < 60) return `${minutes} min`
-  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
-}
+// The canvas closes the shape itself and only emits a ring from three points
+// (VoterMapCanvas's onPolygonChange gate), so there is no Done to press and
+// Continue cannot enable before then. Mirrored here rather than imported: the
+// canvas module carries maplibre and deck.gl, and this flow is deliberately
+// outside that chunk.
+const MIN_POLYGON_POINTS = 3
 
 export type CreateFlowStep = 'filters' | 'draw' | 'confirm'
 
@@ -72,7 +70,34 @@ interface CreateListFlowProps {
   districtHouseholds: number
   ring: PolygonRing | null
   // In-polygon counts for the drawn shape, computed by the page from the pack.
+  // The estimate: instant on every ring change, and a superset, since the pack
+  // carries no addresses and cannot shade by every filter a list applies.
   turfStats: PolygonStats | null
+  // gp-api's answer for the shape the candidate asked about — the addresses
+  // themselves, and the exact counts that come with them. Non-null only while
+  // it describes the ring currently on screen, and when it is non-null it is
+  // what this step reports (ADR 0010): the estimate above becomes the loading
+  // state for it rather than a second figure beside it.
+  addressPreview: DoorKnockingAddressPreviewResponse | null
+  previewPending: boolean
+  previewFailed: boolean
+  // Asked for, answered, and then a vertex moved. The answer describes a
+  // boundary that is no longer on screen, so it is not shown and not counted.
+  previewStale: boolean
+  // Ask / stop asking / ask again. The page owns the request for the same
+  // reason it owns Undo and Clear, and because a shut panel must never pay
+  // for a scan of people-db.
+  onShowAddresses: () => void
+  onHideAddresses: () => void
+  onRetryAddresses: () => void
+  // Boundary points placed so far. `ring` only exists from three points, so
+  // this is the only thing that knows there is a one- or two-point shape to
+  // undo — and it counts adds, not drags, which never change the total.
+  drawPointCount: number
+  // Drop the last placed point / empty the shape. The canvas owns the ring,
+  // so both are requests, not edits made here.
+  onUndoPoint: () => void
+  onClearPoints: () => void
   // Saved-flow completion: clear the drawing (and optionally exit).
   onSaved: (drawAnother: boolean) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
@@ -113,7 +138,7 @@ const StepHeader = ({
   const stepIndex = STEP_ORDER.indexOf(step)
   const meta = STEP_META[step]
   return (
-    <div className="border-b border-border bg-background px-6 py-4">
+    <div className="border-b border-border bg-background px-4 py-4 sm:px-6">
       <div className="mx-auto w-full max-w-2xl">
         <div className="flex items-start gap-3">
           {onBack && (
@@ -156,6 +181,16 @@ export default function CreateListFlow({
   districtHouseholds,
   ring,
   turfStats,
+  addressPreview,
+  previewPending,
+  previewFailed,
+  previewStale,
+  onShowAddresses,
+  onHideAddresses,
+  onRetryAddresses,
+  drawPointCount,
+  onUndoPoint,
+  onClearPoints,
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
@@ -243,6 +278,25 @@ export default function CreateListFlow({
     Array.isArray(value) ? value.length > 0 : Boolean(value),
   ).length
 
+  // Stops are what the router and its 150-stop cap are denominated in; doors
+  // are what the candidate walks and what the time estimate is worth. At a
+  // multi-unit building one stop is many doors, so reporting stops as doors
+  // understated the evening exactly where buildings are densest.
+  //
+  // One quantity, one number: the preview REPLACES the estimate rather than
+  // sitting beside it (ADR 0010). Its counts are the ones the route will be
+  // built from — the same evaluation, the same suppressions, the same
+  // unit-level door — so once they exist the pack's superset is not a second
+  // opinion worth printing, it is the thing that was standing in for them.
+  const exactCounts = addressPreview !== null
+  // Four states of one panel — waiting, failed, describing a boundary that
+  // has moved, and answered — so the toggle reads the same in all of them.
+  const panelOpen =
+    exactCounts || previewPending || previewFailed || previewStale
+  const stops = addressPreview?.stops ?? turfStats?.stops ?? 0
+  const doors = addressPreview?.doors ?? turfStats?.households ?? 0
+  const people = addressPreview?.people ?? turfStats?.people ?? 0
+
   const save = useMutation({
     mutationFn: async (drawAnother: boolean) => {
       if (!ring) throw new Error('no polygon')
@@ -271,8 +325,8 @@ export default function CreateListFlow({
     },
     onSuccess: (drawAnother) => {
       trackEvent(EVENTS.DoorKnocking.ListCreated, {
-        stops: turfStats?.stops ?? 0,
-        people: turfStats?.people ?? 0,
+        stops,
+        people,
         // Without shipping which filters — the demographics themselves stay
         // out of the analytics payload.
         filterCount: activeFilterCount,
@@ -290,24 +344,24 @@ export default function CreateListFlow({
     },
   })
 
-  // Stops are what the router and its 150-stop cap are denominated in; doors
-  // (households) are what the candidate walks and what the time estimate is
-  // worth. At a multi-unit building one stop is many doors, so reporting stops
-  // as doors understated the evening exactly where buildings are densest.
-  const stops = turfStats?.stops ?? 0
-  const doors = turfStats?.households ?? 0
   const overCap = stops > HARD_STOP_LIMIT
   const longWalk = stops > SOFT_STOP_LIMIT && !overCap
+  // Continue is the finish gesture, so while it is disabled it says what it
+  // is waiting for. The three-point minimum was otherwise undiscoverable —
+  // someone who placed two points had a dead button, no Done anywhere, and
+  // nothing on screen naming the rule.
+  const pointsNeeded = MIN_POLYGON_POINTS - drawPointCount
+  let continueLabel = `Continue (${doors.toLocaleString()} doors)`
+  if (pointsNeeded > 0) {
+    continueLabel =
+      drawPointCount === 0
+        ? `Tap ${MIN_POLYGON_POINTS} points to continue`
+        : `${pointsNeeded} more point${pointsNeeded === 1 ? '' : 's'} to continue`
+  } else if (stops === 0) {
+    continueLabel = 'No doors in this area'
+  }
 
-  const unpreviewableLabels = unpreviewableKeys
-    .map(
-      (key) =>
-        filterSections
-          .flatMap((section) => section.fields)
-          .flatMap((field) => field.options)
-          .find((option) => option.key === key)?.label,
-    )
-    .filter((label): label is string => Boolean(label))
+  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
 
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,
@@ -339,66 +393,221 @@ export default function CreateListFlow({
           />
         </div>
         <div className="flex-1" />
-        <div className="pointer-events-auto border-t border-border bg-background px-6 py-4">
-          <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
-            {/* Everything here describes the drawn shape, not the district —
-                these numbers are what the candidate commits to. */}
-            <div className="min-w-0 flex-1">
-              <p className="text-sm">
-                <span className="font-semibold tabular-nums">
-                  {doors.toLocaleString()}
-                </span>{' '}
-                doors ·{' '}
-                <span className="font-semibold tabular-nums">
-                  {stops.toLocaleString()}
-                </span>{' '}
-                stops ·{' '}
-                <span className="font-semibold tabular-nums">
-                  {(turfStats?.people ?? 0).toLocaleString()}
-                </span>{' '}
-                people
-              </p>
-              {doors > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  About {estimateWalkTime(doors)} of knocking, at{' '}
-                  {DOORS_PER_HOUR} doors an hour
-                </p>
+        {/* Bottom-right of the live map band, in flow directly above the
+            stats bar (and in its column, so they line up over Continue) —
+            a taller bar from a cap warning pushes them up instead of
+            covering them. Only the buttons take pointer events; the rest of
+            the row stays a tappable part of the map. */}
+        <div className="px-4 pb-3 sm:px-6">
+          <div className="mx-auto flex w-full max-w-2xl justify-end">
+            <div className="pointer-events-auto flex items-center gap-2">
+              {drawPointCount > 0 && (
+                <Button
+                  size="small"
+                  variant="secondary"
+                  className="shadow-md"
+                  aria-label="Undo last boundary point"
+                  onClick={onUndoPoint}
+                >
+                  Undo
+                </Button>
               )}
-              {unpreviewableLabels.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  The map can&rsquo;t shade by {unpreviewableLabels.join(', ')}{' '}
-                  yet, so these counts include people that filter will exclude.
-                  Your saved list still applies it when you knock.
-                </p>
-              )}
-              {(turfStats?.partyMix.length ?? 0) > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {turfStats?.partyMix
-                    .map(
-                      (slice) =>
-                        `${slice.people.toLocaleString()} ${slice.label}`,
-                    )
-                    .join(' · ')}
-                </p>
-              )}
-              {overCap && (
-                <p className="text-sm text-destructive">
-                  Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
-                </p>
-              )}
-              {longWalk && (
-                <p className="text-sm text-warning">
-                  Over {SOFT_STOP_LIMIT} stops is a long evening. You can still
-                  save it, or draw a smaller area.
-                </p>
-              )}
+              <Button
+                size="small"
+                variant="secondary"
+                className="shadow-md"
+                aria-label="Clear the boundary"
+                disabled={drawPointCount === 0}
+                onClick={onClearPoints}
+              >
+                Clear
+              </Button>
             </div>
-            <Button
-              disabled={!ring || stops === 0 || overCap}
-              onClick={() => onStepChange('confirm')}
-            >
-              Continue ({doors.toLocaleString()} doors)
-            </Button>
+          </div>
+        </div>
+        <div className="pointer-events-auto border-t border-border bg-background px-4 py-4 sm:px-6">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+            {/* Stacked on a phone: side by side, the stats wrap to four lines in
+              a sliver of a column while the button squeezes to nothing. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              {/* Everything here describes the drawn shape, not the district —
+                these numbers are what the candidate commits to. */}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">
+                  <span className="font-semibold tabular-nums">
+                    {doors.toLocaleString()}
+                  </span>{' '}
+                  doors ·{' '}
+                  <span className="font-semibold tabular-nums">
+                    {stops.toLocaleString()}
+                  </span>{' '}
+                  stops ·{' '}
+                  <span className="font-semibold tabular-nums">
+                    {people.toLocaleString()}
+                  </span>{' '}
+                  people
+                </p>
+                {doors > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    About {estimateWalkTime(doors)} of knocking, at{' '}
+                    {DOORS_PER_HOUR} doors an hour
+                  </p>
+                )}
+                {/* Both of these hedge the pack, so both go when the pack is
+                  no longer what is on screen: the disclosure explains a
+                  shortfall the exact counts don't have, and the party mix is
+                  a breakdown of the superset's people that would no longer
+                  add up to the people figure above it. */}
+                {!exactCounts && unpreviewableLabels.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    The map can&rsquo;t shade by{' '}
+                    {unpreviewableLabels.join(', ')} yet, so these counts
+                    include people that filter will exclude. Your saved list
+                    still applies it when you knock.
+                  </p>
+                )}
+                {!exactCounts && (turfStats?.partyMix.length ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {turfStats?.partyMix
+                      .map(
+                        (slice) =>
+                          `${slice.people.toLocaleString()} ${slice.label}`,
+                      )
+                      .join(' · ')}
+                  </p>
+                )}
+                {overCap && (
+                  <p className="text-sm text-destructive">
+                    Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
+                  </p>
+                )}
+                {longWalk && (
+                  <p className="text-sm text-warning">
+                    Over {SOFT_STOP_LIMIT} stops is a long evening. You can
+                    still save it, or draw a smaller area.
+                  </p>
+                )}
+                {doors > 0 && (
+                  <Button
+                    size="small"
+                    variant="ghost"
+                    className="-ml-3 mt-1"
+                    aria-expanded={panelOpen}
+                    aria-controls="draw-step-doors"
+                    onClick={panelOpen ? onHideAddresses : onShowAddresses}
+                  >
+                    {panelOpen ? 'Hide the addresses' : 'See the addresses'}
+                  </Button>
+                )}
+              </div>
+              <Button
+                disabled={!ring || stops === 0 || overCap}
+                onClick={() => onStepChange('confirm')}
+              >
+                {continueLabel}
+              </Button>
+            </div>
+            {/* Capped in height rather than allowed to grow: the step is a map
+              being drawn on, and a list that eats the viewport takes away the
+              thing the candidate is checking it against. */}
+            {panelOpen && (
+              <div
+                id="draw-step-doors"
+                className="max-h-[40dvh] overflow-y-auto rounded-lg border border-border p-3"
+              >
+                <p className="text-sm font-semibold">
+                  The doors inside your boundary
+                </p>
+                {previewPending && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Looking up the addresses…
+                  </p>
+                )}
+                {previewFailed && (
+                  <>
+                    <p className="mt-2 text-sm text-destructive">
+                      Couldn&rsquo;t load the addresses.
+                    </p>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      className="mt-2"
+                      onClick={onRetryAddresses}
+                    >
+                      Try again
+                    </Button>
+                  </>
+                )}
+                {/* The list is of one boundary, and that boundary moved. It is
+                  not narrowed or widened to fit the new one — showing it under
+                  a shape it doesn't describe is the failure this panel exists
+                  to avoid — so it is withdrawn until it is asked for again. */}
+                {previewStale && (
+                  <>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Your boundary changed, so these addresses are for the
+                      shape you drew before.
+                    </p>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      className="mt-2"
+                      onClick={onShowAddresses}
+                    >
+                      Show the addresses here
+                    </Button>
+                  </>
+                )}
+                {addressPreview && (
+                  <>
+                    {/* No hedge on these counts, because there is nothing left
+                      to hedge: this is the evaluation the route is built from,
+                      with do-not-knock and "not a voter" residents already
+                      out. What it does need to say is that it is a snapshot,
+                      since a list saved tomorrow is evaluated again. */}
+                    <p className="text-xs text-muted-foreground">
+                      Everyone your filters target, as of now — people marked
+                      do-not-knock or &ldquo;not a voter&rdquo; are already out.
+                    </p>
+                    {/* No numbering: nothing has decided a visiting order yet,
+                      and the Aug 14 walkthrough asked numerals out of the list
+                      view. */}
+                    <ul className="mt-2 divide-y divide-border">
+                      {addressPreview.locations.map((location, index) => (
+                        <li key={index} className="py-2">
+                          {location.doors.length > 1 && (
+                            <p className="text-xs font-medium">
+                              {location.doors.length} doors at one location
+                            </p>
+                          )}
+                          <ul>
+                            {location.doors.map((door, doorIndex) => (
+                              <li key={doorIndex} className="text-sm">
+                                {door.address}
+                                <span className="text-muted-foreground">
+                                  {' '}
+                                  · {door.people.toLocaleString()}{' '}
+                                  {door.people === 1 ? 'voter' : 'voters'}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                    {/* The cap is on stops, so it is stops the shortfall is
+                      counted in — the same unit the 150 limit above is. */}
+                    {addressPreview.locations.length < addressPreview.stops && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Showing the first{' '}
+                        {addressPreview.locations.length.toLocaleString()} of{' '}
+                        {addressPreview.stops.toLocaleString()} stops.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -435,7 +644,7 @@ export default function CreateListFlow({
         onBack={step === 'confirm' ? () => onStepChange('draw') : null}
         onClose={onClose}
       />
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
           {step === 'filters' &&
             filterSections.map((section) =>
@@ -515,7 +724,7 @@ export default function CreateListFlow({
                 <span className="text-sm font-semibold">This list</span>
                 <span className="text-sm tabular-nums text-muted-foreground">
                   {doors.toLocaleString()} doors · {stops.toLocaleString()}{' '}
-                  stops · {(turfStats?.people ?? 0).toLocaleString()} voters
+                  stops · {people.toLocaleString()} voters
                 </span>
               </div>
               {save.isError && (
@@ -527,8 +736,8 @@ export default function CreateListFlow({
           )}
         </div>
       </div>
-      <div className="border-t border-border bg-background px-6 py-4">
-        <div className="mx-auto flex w-full max-w-2xl justify-center gap-3">
+      <div className="border-t border-border bg-background px-4 py-4 sm:px-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-wrap justify-center gap-3">
           {step === 'filters' && (
             <>
               {/* No polygon exists yet, so district-wide is the only honest

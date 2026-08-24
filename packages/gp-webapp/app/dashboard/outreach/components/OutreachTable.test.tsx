@@ -7,20 +7,11 @@ import {
   OutreachProvider,
   Outreach,
 } from 'app/dashboard/outreach/hooks/OutreachContext'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 
-vi.mock(
-  'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider',
-  () => ({
-    useP2pUxEnabled: vi.fn(),
-  }),
-)
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
 }))
-
-const mockedUseP2pUxEnabled = vi.mocked(useP2pUxEnabled)
 
 type TableRow = Outreach & {
   p2pJob?: { status?: string }
@@ -83,12 +74,6 @@ const renderTable = (
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockedUseP2pUxEnabled.mockReturnValue({
-    p2pUxEnabled: true,
-    proUpdatedAtDate: new Date('2026-01-01T00:00:00.000Z'),
-    tcrCompliant: true,
-    resetP2pUxEnabled: vi.fn(),
-  })
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
 })
 

@@ -14,6 +14,7 @@ import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
+import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContentModule } from '@/content/content.module'
@@ -116,6 +117,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     ContactInteractionModule,
     ContactNoteModule,
     DoorKnockingModule,
+    PhoneBankingModule,
     PollsModule,
     PrioritiesModule,
     PersonProfilesModule,

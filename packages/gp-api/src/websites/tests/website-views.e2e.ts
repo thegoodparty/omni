@@ -54,7 +54,6 @@ test.describe('Websites - Views', () => {
       multipart: {
         vanityPath,
         status: 'published',
-        'main[title]': 'Test Campaign',
         'about[bio]': 'A test biography',
         'about[issues][0][title]': 'Test Issue',
         'about[issues][0][description]': 'Description',
@@ -115,7 +114,6 @@ test.describe('Websites - Views', () => {
       multipart: {
         vanityPath,
         status: 'published',
-        'main[title]': 'Test Campaign',
         'about[bio]': 'A test biography',
         'about[issues][0][title]': 'Test Issue',
         'about[issues][0][description]': 'Description',
@@ -184,7 +182,6 @@ test.describe('Websites - Views', () => {
       multipart: {
         vanityPath,
         status: 'published',
-        'main[title]': 'Test Campaign',
         'about[bio]': 'A test biography',
         'about[issues][0][title]': 'Test Issue',
         'about[issues][0][description]': 'Description',
@@ -257,7 +254,6 @@ test.describe('Websites - Views', () => {
       multipart: {
         vanityPath,
         status: 'published',
-        'main[title]': 'Test Campaign',
         'about[bio]': 'A test biography',
         'about[issues][0][title]': 'Test Issue',
         'about[issues][0][description]': 'Description',

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 import event_state_gsheet as gs
 import event_state_assembler as esa
 
@@ -192,6 +194,89 @@ def test_main_refresh_gaps_skips_on_corrupt_state(monkeypatch, tmp_path, capsys)
     assert "skipping" in capsys.readouterr().err.lower()
 
 
+_WRITEBACK_ENV = {
+    "CLICKUP_API_KEY": "k", "GP_QUESTIONS_LIST_ID": "L",
+    "GP_QUESTIONS_STATE_FIELD_ID": "f-state", "GP_QUESTIONS_CHECKED_FIELD_ID": "f-date",
+    "GP_QUESTIONS_OPT_ANSWERABLE": "opt-a", "GP_QUESTIONS_OPT_PARTIAL": "opt-p",
+    "GP_QUESTIONS_OPT_NOT": "opt-n",
+}
+
+
+def test_main_writeback_questions_exits_2_without_the_token(monkeypatch, capsys):
+    monkeypatch.delenv("CLICKUP_API_KEY", raising=False)
+    rc = gs.main(["writeback-questions"])
+    assert rc == 2
+    assert "CLICKUP_API_KEY" in capsys.readouterr().err
+
+
+def test_main_writeback_questions_falls_back_to_the_code_owned_ids(monkeypatch, capsys):
+    # The ids are pointers, not config: only the token is required, so a run with nothing
+    # but CLICKUP_API_KEY set must still address the real list.
+    import question_writeback as qwb
+    import questions_clickup as qc
+
+    for name in _WRITEBACK_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CLICKUP_API_KEY", "k")
+    monkeypatch.setattr(gs, "question_rows_for_refresh",
+                        lambda: [{"question": "Q1", "state": "answerable",
+                                  "question_ref": "t1"}])
+    seen = {}
+    def fake_fetch(api_key, list_id, **kwargs):
+        seen["list_id"] = list_id
+        return {}
+    monkeypatch.setattr(qwb, "fetch_current_state", fake_fetch)
+    def fake_write(api_key, rows, **kwargs):
+        seen.update(kwargs)
+        return 1
+    monkeypatch.setattr(qwb, "write_answer_state", fake_write)
+    assert gs.main(["writeback-questions"]) == 0
+    assert seen["list_id"] == qc.LIST_ID
+    assert seen["state_field_id"] == qc.STATE_FIELD_ID
+    assert seen["checked_field_id"] == qc.CHECKED_FIELD_ID
+    assert seen["option_ids"] == qc.OPTION_IDS
+
+
+def test_main_writeback_questions_dry_run_reports_changed_count(monkeypatch, capsys):
+    import question_writeback as qwb
+
+    for name, value in _WRITEBACK_ENV.items():
+        monkeypatch.setenv(name, value)
+    rows = [
+        {"question": "Q1", "state": "answerable", "question_ref": "t1"},
+        {"question": "Q2", "state": "not_answerable", "question_ref": "t2"},
+    ]
+    monkeypatch.setattr(gs, "question_rows_for_refresh", lambda: rows)
+    monkeypatch.setattr(qwb, "fetch_current_state", lambda *a, **k: {"t1": "answerable"})
+    monkeypatch.setattr(qwb, "write_answer_state",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("dry run wrote")))
+    rc = gs.main(["writeback-questions", "--dry-run"])
+    assert rc == 0
+    assert "1 of 2 questions changed" in capsys.readouterr().out
+
+
+def test_main_writeback_questions_writes_through_the_module(monkeypatch, capsys):
+    import question_writeback as qwb
+
+    for name, value in _WRITEBACK_ENV.items():
+        monkeypatch.setenv(name, value)
+    rows = [{"question": "Q1", "state": "answerable", "question_ref": "t1"}]
+    monkeypatch.setattr(gs, "question_rows_for_refresh", lambda: rows)
+    monkeypatch.setattr(qwb, "fetch_current_state", lambda *a, **k: {})
+    seen = {}
+    def fake_write(api_key, got_rows, **kwargs):
+        seen.update(kwargs, api_key=api_key, rows=got_rows)
+        return 1
+    monkeypatch.setattr(qwb, "write_answer_state", fake_write)
+    rc = gs.main(["writeback-questions"])
+    assert rc == 0
+    assert seen["rows"] == rows
+    assert seen["state_field_id"] == "f-state"
+    assert seen["option_ids"] == {"answerable": "opt-a", "partially_answerable": "opt-p",
+                                  "not_answerable": "opt-n"}
+    assert "updated answer state on 1" in capsys.readouterr().out
+
+
 def test_build_meta_values_includes_refresh_and_clickup():
     meta = {"refreshed_at": "2026-08-03T12:00:00", "event_count": 472,
             "provenance_path": "/x/prov.csv"}
@@ -237,3 +322,87 @@ def test_write_meta_sheet_default_tab_is_META_TAB():
     svc = _FakeService()
     gs.write_meta_sheet({"refreshed_at": "x"}, service=svc, spreadsheet_id="s")
     assert svc.log[0][1]["range"] == f"{gs.META_TAB}!A1"
+
+
+QUESTION_ROWS = [
+    {"question": "Are people exporting voter files?", "state": "partially_answerable",
+     "asked_by": "nate@goodparty.org", "question_ref": "86ak1111",
+     "behaviors": ["voter_file_exported"], "events": ["Voter Data - List Exported"],
+     "gaps": ["DownloadStep.tsx"], "caveats": []},
+    {"question": "Are people creating lists?", "state": "answerable", "asked_by": "",
+     "question_ref": "", "behaviors": ["voter_file_created"],
+     "events": ["Voter Data - List Created"], "gaps": [],
+     "caveats": ["one list per abandoned attempt (DATA-2308)"]},
+]
+
+
+def test_build_question_values_header_then_rows():
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    assert matrix[0] == gs.QUESTIONS_COLUMNS
+    assert len(matrix) == 3
+    assert all(isinstance(cell, str) for row in matrix for cell in row)
+
+
+def test_build_question_values_joins_list_cells():
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    gaps_idx = gs.QUESTIONS_COLUMNS.index("uninstrumented_surfaces")
+    assert matrix[1][gaps_idx] == "DownloadStep.tsx"
+    caveat_idx = gs.QUESTIONS_COLUMNS.index("caveats")
+    assert matrix[2][caveat_idx] == "one list per abandoned attempt (DATA-2308)"
+
+
+def test_build_question_values_maps_renamed_columns_to_row_keys():
+    # answering_events/clickup_task read row keys events/question_ref; without the
+    # _QUESTION_COL_KEY remap each column silently renders blank.
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    events_idx = gs.QUESTIONS_COLUMNS.index("answering_events")
+    assert matrix[1][events_idx] == "Voter Data - List Exported"
+    task_idx = gs.QUESTIONS_COLUMNS.index("clickup_task")
+    assert matrix[1][task_idx] == "86ak1111"
+
+
+def test_build_question_values_blank_for_missing_keys():
+    matrix = gs.build_question_values([{"question": "Q"}])
+    assert matrix[1][gs.QUESTIONS_COLUMNS.index("state")] == ""
+
+
+def test_write_questions_sheet_updates_then_clears():
+    svc = _FakeService()
+    n = gs.write_questions_sheet(QUESTION_ROWS, service=svc, spreadsheet_id="s1")
+    assert n == 2
+    assert [k for k, _ in svc.log] == ["update", "clear"]
+    assert svc.log[0][1]["range"] == f"{gs.QUESTIONS_TAB}!A1"
+
+
+_DUP_ID_REGISTRY = """events: []
+behaviors:
+  - id: dup
+    question: "Q one?"
+    product: win
+    surfaces:
+      - {path: "a.tsx", label: "a", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+  - id: dup
+    question: "Q two?"
+    product: win
+    surfaces:
+      - {path: "b.tsx", label: "b", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+"""
+
+
+def test_question_rows_for_refresh_raises_on_an_invalid_registry(monkeypatch, tmp_path):
+    # The registry's rules only bind the scheduled loop if a live caller runs them.
+    import analytics_event_health as aeh
+
+    mon = tmp_path / "mon.yaml"
+    mon.write_text(_DUP_ID_REGISTRY)
+    monkeypatch.setattr(aeh, "WATCHLIST", mon)
+    monkeypatch.setattr(gs.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {}})
+    with pytest.raises(ValueError, match="duplicate id"):
+        gs.question_rows_for_refresh()
+
+
+def test_question_rows_for_refresh_accepts_the_committed_registry(monkeypatch):
+    monkeypatch.setattr(gs.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {}})
+    assert gs.question_rows_for_refresh()

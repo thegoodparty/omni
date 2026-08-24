@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { RoutePayloadTarget } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('app/dashboard/briefings/shared/useDictationAppend', () => ({
+vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   useDictationAppend: (input: {
     analyticsLabel: string
     value: string
@@ -54,41 +54,263 @@ const target: RoutePayloadTarget = {
   landline: null,
   knockStatus: 'unknown',
   mayHaveMoved: false,
+  doNotKnock: false,
 }
 
 // What the hook does when a final transcript lands: hand back the whole
 // next value for the field.
 const dictate = (text: string) => act(() => mocks.input.current?.onChange(text))
 
-const renderForm = () =>
+const renderForm = (onRecorded = vi.fn()) => {
   render(
     <RecordKnockForm
       target={target}
       clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
-      onRecorded={vi.fn()}
+      onRecorded={onRecorded}
     />,
   )
+  return onRecorded
+}
 
-describe('RecordKnockForm dictation', () => {
-  beforeEach(() => {
-    testQueryClient.clear()
-    vi.mocked(trackEvent).mockClear()
-    mocks.input.current = null
-    api.mock('POST /v1/door-knocking/interactions', {
-      status: 200,
-      data: { personId: 'person-1', knockStatus: 'not_home' },
-    })
+// The answers to one question, so the two three-way rows that both offer
+// "Yes" can be told apart.
+const question = (label: string) =>
+  within(screen.getByText(label).parentElement as HTMLElement)
+
+const answer = (label: string, option: string) =>
+  fireEvent.click(question(label).getByRole('radio', { name: option }))
+
+// The walkthrough as far as a canvasser who had a conversation goes.
+const walkToEngaged = () => {
+  answer('Did they answer?', 'Answered')
+  answer('Did they engage?', 'Engaged')
+}
+
+beforeEach(() => {
+  testQueryClient.clear()
+  vi.mocked(trackEvent).mockClear()
+  mocks.input.current = null
+  api.mock('POST /v1/door-knocking/interactions', {
+    status: 200,
+    data: { personId: 'person-1', knockStatus: 'not_home' },
   })
+})
 
-  it('offers dictation on the notes field', () => {
+// The walkthrough is the form. Nothing about it is behind a disclosure, and
+// the questions asked depend on where the last answer led.
+describe('RecordKnockForm walkthrough', () => {
+  it('opens on the outcome question, with no disclosure to find', () => {
     renderForm()
 
-    expect(
-      screen.getByRole('button', { name: 'Dictate note' }),
-    ).toBeInTheDocument()
+    const outcome = question('Did they answer?')
+    expect(outcome.getByRole('radio', { name: 'Answered' })).toBeVisible()
+    expect(outcome.getByRole('radio', { name: 'Not home' })).toBeVisible()
+    expect(outcome.getByRole('radio', { name: 'Inaccessible' })).toBeVisible()
+
+    // Nothing further is asked until the first answer says there is more to ask.
+    expect(screen.queryByText('Did they engage?')).toBeNull()
+    expect(screen.queryByText('Do they support you?')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
   })
 
-  it('saves a dictated note', async () => {
+  it('asks whether they engaged once the door answered', () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+
+    const engagement = question('Did they engage?')
+    expect(engagement.getByRole('radio', { name: 'Engaged' })).toBeVisible()
+    expect(engagement.getByRole('radio', { name: 'Refused' })).toBeVisible()
+    expect(engagement.getByRole('radio', { name: 'Not voter' })).toBeVisible()
+  })
+
+  // The panel expands downward: a question already answered stays on screen,
+  // because the answer a canvasser wants to check before saving is the one
+  // they gave two taps ago.
+  it('keeps every answered question on screen as the walk expands', () => {
+    renderForm()
+    walkToEngaged()
+
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    answer('Do they support you?', 'Yes')
+    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+
+    answer('Will they vote this election?', 'Yes')
+
+    expect(screen.getByText('Did they answer?')).toBeVisible()
+    expect(screen.getByText('Did they engage?')).toBeVisible()
+    expect(screen.getByText('Do they support you?')).toBeVisible()
+    expect(screen.getByText('Note')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
+  })
+
+  // An outcome with nothing left to ask is a finished record, so its Save
+  // arrives with the answer rather than three questions later.
+  it('offers Save as soon as a branch has nothing left to ask', () => {
+    renderForm()
+
+    answer('Did they answer?', 'Not home')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
+    expect(screen.queryByText('Did they engage?')).toBeNull()
+  })
+
+  // Every door can be written about, not just the ones that opened. The note
+  // arrives with Save at the end of whichever branch was walked.
+  it('offers the note on a one-question door', () => {
+    renderForm()
+    expect(screen.queryByText('Note')).toBeNull()
+
+    answer('Did they answer?', 'Not home')
+
+    expect(screen.getByText('Note')).toBeVisible()
+    expect(screen.getByPlaceholderText('Notes (optional)')).toBeVisible()
+  })
+
+  it('offers the note on an answered door that would not engage', () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Refused')
+
+    expect(screen.getByPlaceholderText('Notes (optional)')).toBeVisible()
+  })
+
+  // A note is never a reason a door can't be saved — the whole point of a
+  // one-outcome door is that it is fast.
+  it('saves a one-question door without making the note mandatory', async () => {
+    renderForm()
+    answer('Did they answer?', 'Not home')
+
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeVisible()
+    expect(save).not.toBeDisabled()
+  })
+
+  // Mid-walk the note is still on its way, so it must not appear stranded
+  // above questions that have not been asked yet.
+  it('withholds the note while the branch still has a question left', () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+
+    expect(screen.queryByText('Note')).toBeNull()
+
+    answer('Did they engage?', 'Engaged')
+    answer('Do they support you?', 'Yes')
+
+    expect(screen.queryByText('Note')).toBeNull()
+  })
+
+  it('offers Save on an answered door that would not engage', () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Refused')
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
+    expect(screen.queryByText('Do they support you?')).toBeNull()
+  })
+
+  // Tapping the chosen answer again clears it, and everything it opened goes
+  // with it — the correction for a mis-tap three questions back.
+  it('collapses the follow-ups when an answer is tapped off', () => {
+    renderForm()
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+
+    answer('Do they support you?', 'Yes')
+
+    expect(screen.queryByText('Will they vote this election?')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  // A collapsed row must come back empty. Reopening it on the answer given
+  // before the correction would offer a Save the canvasser never walked to.
+  it('forgets the will-vote answer once support is tapped off', () => {
+    renderForm()
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'No')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
+
+    answer('Do they support you?', 'Yes')
+    answer('Do they support you?', 'No')
+
+    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+    expect(
+      question('Will they vote this election?').getByRole('radio', {
+        name: 'No',
+      }),
+    ).toHaveAttribute('data-state', 'off')
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  it('returns to the first question when the walk is cancelled', () => {
+    renderForm()
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByText('Did they answer?')).toBeVisible()
+    expect(screen.queryByText('Did they engage?')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+})
+
+describe('RecordKnockForm saving', () => {
+  it('sends the engaged branch as an answered outcome with both answers', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'supporter' },
+      }
+    })
+    const onRecorded = renderForm()
+
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Unsure')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toEqual({
+      stopTargetId: 21,
+      clientKey: '6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90',
+      outcome: 'answered',
+      supportAnswer: 'supporter',
+      willVote: 'unsure',
+    })
+    expect(onRecorded).toHaveBeenCalledWith('person-1', 'supporter')
+  })
+
+  // The second question is what the door ends as: step one's `answered` was
+  // only the branch into it, and must never reach the contract.
+  it('sends the engagement answer as the outcome', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'refused' },
+      }
+    })
+    renderForm()
+
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Refused')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ outcome: 'refused_to_engage' })
+    expect(posted[0]).not.toHaveProperty('supportAnswer')
+    expect(posted[0]).not.toHaveProperty('willVote')
+  })
+
+  // The contract rejects answers on a non-answered outcome, so backing out of
+  // the engaged branch must take the answers picked inside it with them.
+  it('never sends answers picked before backing out of the engaged branch', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
       posted.push(body)
@@ -97,30 +319,96 @@ describe('RecordKnockForm dictation', () => {
         data: { personId: 'person-1', knockStatus: 'not_home' },
       }
     })
-
     renderForm()
-    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
-    dictate('Dog in the yard, come back Saturday')
+
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ outcome: 'not_home' })
+    expect(posted[0]).not.toHaveProperty('supportAnswer')
+    expect(posted[0]).not.toHaveProperty('willVote')
+  })
+
+  // The archetypal not-home note. The contract has always taken one on any
+  // outcome; only the form used to have nowhere to write it.
+  it('sends a note on a door that never opened', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'not_home' },
+      }
+    })
+    renderForm()
+
+    answer('Did they answer?', 'Not home')
+    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
+      target: { value: 'Dog in the yard, come back Saturday' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      outcome: 'not_home',
+      note: 'Dog in the yard, come back Saturday',
+    })
+    expect(posted[0]).not.toHaveProperty('supportAnswer')
+  })
+
+  // A note is what a canvasser wrote, not an answer to a question this door
+  // was asked, so correcting the outcome underneath it must not delete it.
+  // Support and will-vote do go, because the contract refuses them here.
+  it('keeps a note written before the outcome was corrected', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'not_home' },
+      }
+    })
+    renderForm()
+
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
+    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
+      target: { value: 'Dog in the yard, come back Saturday' },
+    })
+
+    answer('Did they answer?', 'Not home')
 
     expect(screen.getByPlaceholderText('Notes (optional)')).toHaveValue(
       'Dog in the yard, come back Saturday',
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({
+      outcome: 'not_home',
       note: 'Dog in the yard, come back Saturday',
     })
+    expect(posted[0]).not.toHaveProperty('supportAnswer')
+    expect(posted[0]).not.toHaveProperty('willVote')
   })
 
-  // Dictation must not widen what a knock reports. Notes are free text about
-  // a named voter, so only their existence travels — and the dictation
-  // events the shared hook fires are labelled by surface, never by person.
-  it('still reports only that a note exists', async () => {
+  it('reports that a door that never opened still carried a note', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'not_home' },
+    })
     renderForm()
-    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
-    dictate('Marisol said her landlord is the problem')
-    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+
+    answer('Did they answer?', 'Not home')
+    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
+      target: { value: 'Dog in the yard, come back Saturday' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
@@ -129,10 +417,147 @@ describe('RecordKnockForm dictation', () => {
         hasNote: true,
       }),
     )
+  })
+
+  it('reports the door without saying what the note said', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'supporter' },
+    })
+    renderForm()
+
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
+    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
+      target: { value: 'Marisol said her landlord is the problem' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        outcome: 'answered',
+        knockStatus: 'supporter',
+        hasNote: true,
+        supportAnswer: 'supporter',
+        willVote: 'yes',
+      }),
+    )
     expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain(
       'Marisol',
     )
+  })
+
+  // A failed save must not advance or clear, or the door is silently lost.
+  it('keeps the canvasser here when the save fails', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 500,
+      data: { message: 'nope' },
+    })
+    const onRecorded = renderForm()
+
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
+    )
+    expect(onRecorded).not.toHaveBeenCalled()
+    expect(
+      question('Did they answer?').getByRole('radio', { name: 'Not home' }),
+    ).toHaveAttribute('data-state', 'on')
+  })
+
+  // The banner is not gated on the walk, so a Cancel that clears the answers
+  // would otherwise leave it promising that they are still here.
+  it('clears a failed save when the walk is cancelled', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 500,
+      data: { message: 'nope' },
+    })
+    renderForm()
+
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByText(/Saving failed/)).toBeNull()
+    answer('Did they answer?', 'Not home')
+    expect(screen.queryByText(/Saving failed/)).toBeNull()
+  })
+})
+
+// The note lives at the end of whichever branch was walked, so dictation has
+// to be reachable from every one of them — most doors never open, and those
+// are the ones a canvasser most often has something to say about.
+describe('RecordKnockForm dictation', () => {
+  const walkToNote = () => {
+    renderForm()
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
+  }
+
+  it('offers dictation on the notes field', () => {
+    walkToNote()
+
+    expect(
+      screen.getByRole('button', { name: 'Dictate note' }),
+    ).toBeInTheDocument()
     expect(mocks.input.current?.analyticsLabel).toBe('door_knocking_note')
+  })
+
+  // Nobody types this one-handed on a porch in the rain, and it is the case
+  // the field was restored for.
+  it('dictates the note on a door that never opened', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'not_home' },
+      }
+    })
+    renderForm()
+    answer('Did they answer?', 'Not home')
+
+    expect(mocks.input.current?.analyticsLabel).toBe('door_knocking_note')
+    dictate('Dog in the yard, come back Saturday')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      outcome: 'not_home',
+      note: 'Dog in the yard, come back Saturday',
+    })
+  })
+
+  it('saves a dictated note', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'supporter' },
+      }
+    })
+
+    walkToNote()
+    dictate('Open to talking again next week')
+
+    expect(screen.getByPlaceholderText('Notes (optional)')).toHaveValue(
+      'Open to talking again next week',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      note: 'Open to talking again next week',
+    })
   })
 
   // The textarea's maxLength only constrains typing, so a long dictation
@@ -144,14 +569,13 @@ describe('RecordKnockForm dictation', () => {
       posted.push(body)
       return {
         status: 200,
-        data: { personId: 'person-1', knockStatus: 'not_home' },
+        data: { personId: 'person-1', knockStatus: 'supporter' },
       }
     })
 
-    renderForm()
-    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    walkToNote()
     dictate('a'.repeat(2_500))
-    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
     expect((posted[0] as { note: string }).note).toHaveLength(2_000)

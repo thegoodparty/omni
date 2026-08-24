@@ -3,7 +3,7 @@
 import { Card, Input, Label, Textarea } from '@styleguide'
 import { XMarkIcon } from '@styleguide/components/ui/icons'
 import type { WebsiteIssue } from 'helpers/types'
-import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { useStoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
 import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
 import { useReportDictationActive } from './useReportDictationActive'

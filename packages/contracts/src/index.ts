@@ -26,6 +26,9 @@ export {
   type WillVoteAnswer,
   WILL_VOTE_ANSWER_VALUES,
   WillVoteAnswerSchema,
+  type PhoneBankCallOutcome,
+  PHONE_BANK_CALL_OUTCOME_VALUES,
+  PhoneBankCallOutcomeSchema,
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
@@ -71,6 +74,12 @@ export {
   type ActivityConditionAction,
   ACTIVITY_CONDITION_ACTION_VALUES,
   ActivityConditionActionSchema,
+  type SocialAssetPlatform,
+  SOCIAL_ASSET_PLATFORM_VALUES,
+  SocialAssetPlatformSchema,
+  type SocialAssetKind,
+  SOCIAL_ASSET_KIND_VALUES,
+  SocialAssetKindSchema,
 } from './generated/enums'
 
 export {
@@ -97,8 +106,16 @@ export {
   type UpdateContactStatusInput,
   ContactStatusesSchema,
   type ContactStatuses,
+  DoNotKnockStatusSchema,
+  type DoNotKnockStatus,
+  NotAVoterStatusSchema,
+  type NotAVoterStatus,
+  NotAVoterReasonSchema,
+  type NotAVoterReason,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
+  DO_NOT_KNOCK_LABELS,
+  NOT_A_VOTER_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
@@ -128,6 +145,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
+  PhoneBankingConstituentActivitySchema,
+  type PhoneBankingConstituentActivity,
   StatusChangeConstituentActivitySchema,
   type StatusChangeConstituentActivity,
   ConstituentActivitySchema,
@@ -689,6 +708,50 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export {
+  SOCIAL_PURPOSE_VALUES,
+  SocialPurposeSchema,
+  type SocialPurpose,
+  SOCIAL_TONE_VALUES,
+  SocialToneSchema,
+  type SocialTone,
+  SocialDraftRequestSchema,
+  type SocialDraftRequest,
+  SocialDraftResponseSchema,
+  type SocialDraftResponse,
+  SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
+  SOCIAL_POST_COPY_MAX_LENGTH,
+  SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
+  SOCIAL_VIDEO_PLATFORMS,
+  socialAssetKindForPlatform,
+  SocialAssetSchema,
+  type SocialAsset,
+  SocialGenerateRequestSchema,
+  type SocialGenerateRequest,
+  SocialGenerateResponseSchema,
+  type SocialGenerateResponse,
+  SocialSaveRequestSchema,
+  type SocialSaveRequest,
+  OutreachSocialDetailSchema,
+  type OutreachSocialDetail,
+  OutreachDetailSchema,
+  type OutreachDetail,
+} from './outreach/OutreachSocial.schema'
+export {
+  PhoneBankingScriptPurposeSchema,
+  type PhoneBankingScriptPurpose,
+  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PhoneBankingScriptDraftRequestSchema,
+  type PhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponseSchema,
+  type PhoneBankingScriptDraftResponse,
+} from './outreach/PhoneBankingScript.schema'
+export {
+  OutreachArchiveRequestSchema,
+  type OutreachArchiveRequest,
+  OutreachArchiveResponseSchema,
+  type OutreachArchiveResponse,
+} from './outreach/OutreachArchive.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -725,6 +788,7 @@ export {
 export {
   DoorKnockingResidentsRequestSchema,
   type DoorKnockingResidentsRequest,
+  DoorKnockingDemographicsShape,
   DoorKnockingResidentTargetSchema,
   type DoorKnockingResidentTarget,
   DoorKnockingResidentsAddressSchema,
@@ -732,6 +796,15 @@ export {
   DoorKnockingResidentsResponseSchema,
   type DoorKnockingResidentsResponse,
 } from './doorKnocking/DoorKnockingResidents.schema'
+
+export {
+  DoorKnockingPreviewDoorSchema,
+  type DoorKnockingPreviewDoor,
+  DoorKnockingPreviewLocationSchema,
+  type DoorKnockingPreviewLocation,
+  DoorKnockingAddressPreviewResponseSchema,
+  type DoorKnockingAddressPreviewResponse,
+} from './doorKnocking/DoorKnockingAddressPreview.schema'
 
 export {
   DoorKnockingPackRequestSchema,
@@ -755,6 +828,8 @@ export {
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,
   type DoorKnockingTurf,
+  DoorKnockingArchiveRequestSchema,
+  type DoorKnockingArchiveRequest,
   DoorKnockingKnockRequestSchema,
   type DoorKnockingKnockRequest,
   DoorKnockingRouteHeaderSchema,
@@ -769,6 +844,9 @@ export {
   DOOR_KNOCK_STATUSES,
   DoorKnockStatusSchema,
   type DoorKnockStatus,
+  RouteTargetActivitySchema,
+  type RouteTargetActivity,
+  ROUTE_TARGET_ACTIVITY_LIMIT,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,
@@ -787,3 +865,56 @@ export {
   RecordDoorKnockInteractionResponseSchema,
   type RecordDoorKnockInteractionResponse,
 } from './doorKnocking/DoorKnockingInteraction.schema'
+
+export {
+  SetDoNotKnockSchema,
+  type SetDoNotKnock,
+  SetDoNotKnockResponseSchema,
+  type SetDoNotKnockResponse,
+} from './doorKnocking/DoorKnockingDoNotKnock.schema'
+
+export {
+  SetNotAVoterSchema,
+  type SetNotAVoter,
+  SetNotAVoterResponseSchema,
+  type SetNotAVoterResponse,
+} from './doorKnocking/DoorKnockingNotAVoter.schema'
+
+export {
+  PHONE_BANKING_PURPOSE_VALUES,
+  PhoneBankingPurposeSchema,
+  type PhoneBankingPurpose,
+  PHONE_BANKING_NAME_MAX_LENGTH,
+  PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
+  PHONE_BANKING_MAX_SHEET_COUNT,
+  PhoneBankingFiltersSchema,
+  type PhoneBankingFilters,
+  PhoneBankingCreateSchema,
+  type PhoneBankingCreate,
+  PhoneBankingCreateResponseSchema,
+  type PhoneBankingCreateResponse,
+} from './phoneBanking/PhoneBankingCreate.schema'
+
+export {
+  PHONE_BANKING_CALL_NOTE_MAX_LENGTH,
+  RecordPhoneBankingCallSchema,
+  type RecordPhoneBankingCall,
+  PhoneBankingCallResultSchema,
+  type PhoneBankingCallResult,
+  RecordPhoneBankingCallResponseSchema,
+  type RecordPhoneBankingCallResponse,
+} from './phoneBanking/PhoneBankingCall.schema'
+
+export {
+  PhoneBankingInteractionSchema,
+  type PhoneBankingInteraction,
+  PhoneBankingListPersonSchema,
+  type PhoneBankingListPerson,
+  PhoneBankingListEntrySchema,
+  type PhoneBankingListEntry,
+  PhoneBankingListSchema,
+  type PhoneBankingList,
+  PhoneBankingOutreachDetailSchema,
+  type PhoneBankingOutreachDetail,
+} from './phoneBanking/PhoneBankingList.schema'

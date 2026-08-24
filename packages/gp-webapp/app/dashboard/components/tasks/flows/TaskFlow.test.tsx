@@ -91,12 +91,6 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 1, hasFreeTextsOffer: false }],
 }))
 vi.mock(
-  'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider',
-  () => ({
-    useP2pUxEnabled: () => ({ p2pUxEnabled: false }),
-  }),
-)
-vi.mock(
   'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters',
   () => ({
     default: () => null,

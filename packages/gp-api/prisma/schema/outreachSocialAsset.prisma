@@ -1,0 +1,27 @@
+enum SocialAssetPlatform {
+  facebook
+  instagram
+  nextdoor
+  x
+  tiktok
+  youtube_shorts
+}
+
+enum SocialAssetKind {
+  post_copy
+  video_script
+}
+
+model OutreachSocialAsset {
+  id               Int                 @id @default(autoincrement())
+  createdAt        DateTime            @default(now()) @map("created_at")
+  social           OutreachSocial      @relation(fields: [outreachSocialId], references: [id], onDelete: Cascade)
+  outreachSocialId Int                 @map("outreach_social_id")
+  platform         SocialAssetPlatform
+  kind             SocialAssetKind
+  text             String              @db.Text
+  caption          String?             @db.Text
+
+  @@unique([outreachSocialId, platform])
+  @@map("outreach_social_asset")
+}

@@ -106,6 +106,7 @@ const ACTIVITY_CHANNEL_LABELS: Record<ActivityConditionChannel, string> = {
   p2p: 'P2P Text',
   doorKnocking: 'Door Knocking',
   robocall: 'Robocall',
+  phoneBanking: 'Phone Banking',
 }
 
 const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
@@ -120,6 +121,9 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   support_no: 'Support: No',
   voicemail_left: 'Voicemail Left',
   no_answer: 'No Answer',
+  voicemail: 'Voicemail',
+  wrong_number: 'Wrong Number',
+  refused: 'Refused',
 }
 
 // All five values (ENG-10837): `undecided`/`refused` (ENG-10833) exist only
@@ -145,6 +149,7 @@ const ACTIVITY_CHANNELS: readonly ActivityConditionChannel[] = [
   'p2p',
   'doorKnocking',
   'robocall',
+  'phoneBanking',
 ]
 
 const activityChannelValue = (

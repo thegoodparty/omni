@@ -64,7 +64,7 @@ describe('VoterQueryService', () => {
     findDistrictById: ReturnType<typeof vi.fn>
   }
   let mockStatsService: {
-    getTotalCounts: ReturnType<typeof vi.fn>
+    findTotalCounts: ReturnType<typeof vi.fn>
     findTotalConstituents: ReturnType<typeof vi.fn>
   }
   let mockClient: {
@@ -86,7 +86,7 @@ describe('VoterQueryService', () => {
       }),
     }
     mockStatsService = {
-      getTotalCounts: vi.fn().mockResolvedValue({
+      findTotalCounts: vi.fn().mockResolvedValue({
         totalConstituents: 120,
         totalConstituentsWithCellPhone: 80,
       }),
@@ -126,12 +126,28 @@ describe('VoterQueryService', () => {
       expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
         '0e5bafca-93a9-86a5-2522-f373979720df',
       )
-      expect(mockStatsService.getTotalCounts).toHaveBeenCalledWith(
+      expect(mockStatsService.findTotalCounts).toHaveBeenCalledWith(
         '0e5bafca-93a9-86a5-2522-f373979720df',
       )
       expect(result.pagination.totalResults).toBe(120)
       expect(result.pagination.totalPages).toBe(12)
       expect(result.people.length).toBeGreaterThan(0)
+    })
+
+    it('falls through to the real count when the district has no stats row', async () => {
+      mockStatsService.findTotalCounts.mockResolvedValue(null)
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([makeDbPerson()])
+        .mockResolvedValueOnce([{ voter_count: 7n }])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(result.pagination.totalResults).toBe(7)
     })
 
     it('uses voter-only path for state district', async () => {
@@ -152,7 +168,7 @@ describe('VoterQueryService', () => {
         page: 1,
       } as never)
 
-      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(result.pagination.totalResults).toBe(42)
       expect(result.people[0]?.id).toBe('person-2')
     })
@@ -170,7 +186,7 @@ describe('VoterQueryService', () => {
         page: 1,
       } as never)
 
-      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(5)
     })
@@ -190,7 +206,7 @@ describe('VoterQueryService', () => {
         page: 1,
       } as never)
 
-      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(result.pagination.totalResults).toBe(3)
     })
 
@@ -209,7 +225,7 @@ describe('VoterQueryService', () => {
         page: 1,
       } as never)
 
-      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(result.pagination.totalResults).toBe(2)
     })
 
@@ -230,7 +246,7 @@ describe('VoterQueryService', () => {
         page: 1,
       } as never)
 
-      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(7)
       // Both the count and the list data query run under the 25s statement
@@ -271,7 +287,7 @@ describe('VoterQueryService', () => {
 
     it('reports the requested out-of-bounds page (unclamped) so metadata matches the fetched rows', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
-      mockStatsService.getTotalCounts.mockResolvedValue({
+      mockStatsService.findTotalCounts.mockResolvedValue({
         totalConstituents: 15,
         totalConstituentsWithCellPhone: 10,
       })
@@ -302,7 +318,7 @@ describe('VoterQueryService', () => {
       const dataset = Array.from({ length: 25 }, (_, i) =>
         makeDbPerson({ id: `person-${i}` }),
       )
-      mockStatsService.getTotalCounts.mockResolvedValue({
+      mockStatsService.findTotalCounts.mockResolvedValue({
         totalConstituents: dataset.length,
         totalConstituentsWithCellPhone: 0,
       })
@@ -487,7 +503,7 @@ describe('VoterQueryService', () => {
 
       // The pre-computed totalConstituents stat (120) must NOT be used: it
       // counts voters, so it would over-report door-knocking households.
-      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(result.pagination.totalResults).toBe(3)
 
       const countSql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
@@ -551,7 +567,7 @@ describe('VoterQueryService', () => {
       } as never)
 
       // Ungrouped + no filters/search still uses the fast stat path (120).
-      expect(mockStatsService.getTotalCounts).toHaveBeenCalled()
+      expect(mockStatsService.findTotalCounts).toHaveBeenCalled()
       expect(result.pagination.totalResults).toBe(120)
       const dataSql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       expect(dataSql).not.toContain('DISTINCT ON')

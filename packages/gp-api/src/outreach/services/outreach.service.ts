@@ -557,6 +557,28 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     })
   }
 
+  // Scoped by organizationSlug, not campaignId: archiving is an
+  // organization-level action on the history drawer, and the response reads
+  // back the persisted row rather than trusting the request's `archived`
+  // flag.
+  async setArchived(
+    id: number,
+    organizationSlug: string,
+    archived: boolean,
+  ): Promise<{ id: number; archivedAt: Date | null }> {
+    const claimed = await this.model.updateMany({
+      where: { id, organizationSlug },
+      data: { archivedAt: archived ? new Date() : null },
+    })
+    if (claimed.count === 0) {
+      throw new NotFoundException('Outreach not found')
+    }
+    return this.model.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, archivedAt: true },
+    })
+  }
+
   async findByCampaignId(campaignId: number) {
     const outreachCampaigns = await this.findMany({
       where: {

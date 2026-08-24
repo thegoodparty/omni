@@ -177,7 +177,6 @@ test.describe('Websites - Vanity Path', () => {
       multipart: {
         vanityPath,
         status: 'published',
-        'main[title]': 'Public Website',
         'about[bio]': 'A test biography',
         'about[issues][0][title]': 'Test Issue',
         'about[issues][0][description]': 'Description',

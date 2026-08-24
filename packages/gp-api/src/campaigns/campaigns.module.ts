@@ -37,6 +37,7 @@ import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './tcrCompliance/services/campaignTcrCompliance.service'
 import { Nightly10DlcReportService } from './tcrCompliance/services/nightly10DlcReport.service'
+import { CvStatusPollService } from './tcrCompliance/services/cvStatusPoll.service'
 import { ComplianceStateService } from './tcrCompliance/services/complianceState.service'
 import { WeeklyTasksDigestService } from './tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDigestHandler.service'
@@ -97,6 +98,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTcrComplianceService,
     ComplianceStateService,
     Nightly10DlcReportService,
+    CvStatusPollService,
     WeeklyTasksDigestService,
     WeeklyTasksDigestHandlerService,
     PublicCampaignsService,
@@ -112,7 +114,9 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     AiGenerationService,
     WeeklyTasksDigestHandlerService,
     Nightly10DlcReportService,
+    CvStatusPollService,
     EligibilityService,
+    ComplianceStateService,
   ],
 })
 export class CampaignsModule {}

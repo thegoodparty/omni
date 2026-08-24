@@ -105,3 +105,19 @@ def test_unusable_ceiling_values_fall_back_to_the_default(monkeypatch, bad):
     monkeypatch.setenv("AGENT_MAX_BUDGET_USD", bad)
 
     assert AgentConfig.from_env().max_budget_usd == DEFAULT_MAX_BUDGET_USD
+
+
+def test_run_label_comes_from_the_environment(monkeypatch):
+    monkeypatch.setenv("AGENT_LABEL", "analyze")
+
+    assert AgentConfig.from_env().label == "analyze"
+
+
+def test_an_unset_run_label_is_empty_not_analyze(monkeypatch):
+    # Defaulting to "analyze" would let any run started without the ClickUp bot
+    # (a local invocation, an older task definition that predates AGENT_LABEL)
+    # queue implementation work off its own verdict. Unknown provenance has to
+    # leave the escalation path closed.
+    monkeypatch.delenv("AGENT_LABEL", raising=False)
+
+    assert AgentConfig.from_env().label == ""

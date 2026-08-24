@@ -66,32 +66,3 @@ export const overrideToKnockStatus = (
       return null
   }
 }
-
-// Most-actionable-first: one unknown person keeps the whole stop knockable,
-// then not-homes (retry), then settled outcomes. A Record keyed by the full
-// vocabulary so the compiler forces every status to be ranked — an unranked
-// status would otherwise silently roll up as unknown (knockable).
-const ROLLUP_RANK: Record<DoorKnockStatus, number> = {
-  unknown: 0,
-  not_home: 1,
-  supporter: 2,
-  non_supporter: 3,
-  inaccessible: 4,
-  refused: 5,
-  not_a_voter: 6,
-}
-
-export const rollupStopStatus = (
-  statuses: DoorKnockStatus[],
-): DoorKnockStatus => {
-  let best: DoorKnockStatus = STATUS.unknown
-  let bestRank = Number.POSITIVE_INFINITY
-  for (const status of statuses) {
-    const rank = ROLLUP_RANK[status]
-    if (rank < bestRank) {
-      best = status
-      bestRank = rank
-    }
-  }
-  return best
-}
