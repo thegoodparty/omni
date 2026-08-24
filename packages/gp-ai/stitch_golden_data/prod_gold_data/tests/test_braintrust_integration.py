@@ -459,6 +459,55 @@ class TestRunEndToEnd:
         ]
 
 
+class TestUniverseCoverageGuard:
+    def test_a_pending_state_missing_from_the_universe_raises_before_embedding(self, mock_dependencies):
+        """Failure this catches: the guard deleted, or moved back after the
+        embedding loop.
+
+        A state the current L2 delivery does not carry aborts the run and
+        persists nothing, so discovering it late means paying the full
+        embedding bill for a run that cannot finish. The delivery gap is not
+        hypothetical -- prod rebuilds the universe several times an hour, so
+        one can land mid-run.
+
+        The fixture is deliberately a PARTIAL universe, not an empty one: with
+        an empty universe the groupby yields no groups, nothing is embedded
+        either way, and the ordering assertion passes even on a guard placed
+        after the loop. Verified by moving the guard back and watching this
+        test still pass, which is what forced the fixture to change.
+        """
+        # TWO pending states with the universe carrying only ONE of them.
+        # An empty universe cannot distinguish the two orderings, because the
+        # groupby yields no groups and nothing is embedded either way -- so
+        # the ordering assertion below would pass on a guard placed after the
+        # loop. A partial universe is what makes the two cases differ.
+        pending_df = pd.DataFrame(
+            {"br_database_id": [1, 2], "name": ["Test Race", "Other Race"], "state": ["DE", "CA"]}
+        )
+        partial_universe = pd.DataFrame(
+            {
+                "state_postal_code": ["DE", "DE"],
+                "district_type": ["House", "State"],
+                "district_name": ["District 5", "Delaware"],
+            }
+        )
+        mock_dependencies["databricks"].return_value.execute_query.side_effect = [pending_df, partial_universe]
+        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kw: np.array(
+            [[1.0, 0.0]] * len(texts)
+        )
+        mock_dependencies["embedding"].get_cost_stats.return_value = {"total_cost": 0.0}
+        mock_dependencies["llm"].get_usage_stats.return_value = {"total_cost": 0.0}
+
+        matcher = L2BrMatcher()
+        with pytest.raises(ValueError, match=r"No district universe entry for state\(s\): \['CA'\]"):
+            asyncio.run(matcher.run())
+
+        # DE's districts are present and embeddable, so a guard placed after
+        # the loop would have paid for them before raising. This is the
+        # assertion that actually pins the ordering.
+        mock_dependencies["embedding"].create_embeddings.assert_not_called()
+
+
 class TestLoadPendingOfficesStatesFilter:
     """An empty states list means "select nothing", not "select everything".
     The two are one character apart: `if states:` treats [] as absent and
@@ -486,6 +535,26 @@ class TestLoadPendingOfficesStatesFilter:
         assert not result.empty
         mock_dependencies["databricks"].return_value.execute_query.assert_called_once()
         assert "where state in" not in mock_dependencies["databricks"].return_value.execute_query.call_args[0][0]
+
+    @pytest.mark.parametrize(
+        "bad_value",
+        ["DE') or 1=1 --", "DEE", "D", "12", "D E", ""],
+        ids=["injection", "three-letters", "one-letter", "digits", "space", "empty"],
+    )
+    def test_a_malformed_state_raises_before_any_query_is_built(self, mock_dependencies, bad_value):
+        """Failure this catches: a non-canonical value spliced unescaped into
+        the WHERE clause. This is the only guard on that path --
+        `_validate_pending_offices` runs on rows the query has ALREADY
+        returned, so it cannot protect the query that produced them. The
+        injection case is the vector `_validate_states_filter`'s own docstring
+        names, and nothing verified it raised.
+        """
+        matcher = L2BrMatcher()
+
+        with pytest.raises(ValueError, match="canonical two-letter state code"):
+            matcher.load_pending_offices(states=[bad_value])
+
+        mock_dependencies["databricks"].return_value.execute_query.assert_not_called()
 
     def test_a_named_state_reaches_the_where_clause(self, mock_dependencies):
         mock_dependencies["databricks"].return_value.execute_query.return_value = pd.DataFrame(
