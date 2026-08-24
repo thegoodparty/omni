@@ -72,8 +72,9 @@ def mock_databricks():
         mock_cls.return_value = mock_client
         mock_cursor = MagicMock()
         mock_client.connect.return_value.cursor.return_value = mock_cursor
-        # The two reads append_results makes, in order: the anti-join's
-        # already-written ids, then the post-insert row count.
+        # append_results reads on two different mock methods: `fetchall` for
+        # the one scan that yields both the row count and the already-written
+        # ids, then `fetchone` for the post-insert count.
         mock_cursor.fetchall.return_value = []
         yield {"client": mock_client, "cursor": mock_cursor}
 
@@ -88,14 +89,18 @@ class TestAppendResults:
         silently rewrites an f-string-interpolated query instead of failing
         loudly. Real district names carry them.
         """
-        mock_databricks["cursor"].fetchone.side_effect = [(0,), (1,)]
+        mock_databricks["cursor"].fetchone.return_value = (1,)
         writer = MatchResultWriter()
 
         writer.append_results([_match(1, name="O'Brien District")], ATTEMPTED_AT)
 
         query, params = _calls(mock_databricks["cursor"], "insert into")[0].args
         assert "O'Brien" not in query
-        assert "O'Brien District" in params
+        # Whole tuple, in order -- not membership. The params tuple and the
+        # INSERT column list are two hand-maintained parallel lists, and a
+        # membership assertion passes with any two of them transposed. That
+        # silently swaps type and name in every row of the table.
+        assert params == [1, "DE", "House", "O'Brien District", 90, ATTEMPTED_AT]
 
     def test_chunks_at_the_module_constant(self, mock_databricks):
         """Failure this catches: one unchunked INSERT for the whole 20,166
@@ -103,7 +108,7 @@ class TestAppendResults:
         against this connector.
         """
         n = 2 * RESULTS_INSERT_CHUNK_SIZE + 1
-        mock_databricks["cursor"].fetchone.side_effect = [(0,), (n,)]
+        mock_databricks["cursor"].fetchone.return_value = (n,)
         results = [_match(i, name=f"District {i}") for i in range(n)]
         writer = MatchResultWriter()
 
@@ -121,9 +126,9 @@ class TestAppendResults:
         two rows are two different answers at one timestamp with no rule for
         choosing between them.
         """
+        # 2 rows already under this key; the third office is the only one left.
         mock_databricks["cursor"].fetchall.return_value = [(1,), (2,)]
-        # (rows before the insert, rows after): 2 already there, 1 written.
-        mock_databricks["cursor"].fetchone.side_effect = [(2,), (3,)]
+        mock_databricks["cursor"].fetchone.return_value = (3,)
         writer = MatchResultWriter()
 
         written = writer.append_results([_match(1), _match(2), _match(3)], ATTEMPTED_AT)
@@ -140,11 +145,24 @@ class TestAppendResults:
         between an incomplete run and a published one.
         """
         # Empty before, but only 1 of 3 rows landed.
-        mock_databricks["cursor"].fetchone.side_effect = [(0,), (1,)]
+        mock_databricks["cursor"].fetchone.return_value = (1,)
         writer = MatchResultWriter()
 
         with pytest.raises(RuntimeError, match="Short write"):
             writer.append_results([_match(1), _match(2), _match(3)], ATTEMPTED_AT)
+
+    def test_a_surplus_is_not_reported_as_a_short_write(self, mock_databricks):
+        """Failure this catches: a second writer under the same run key being
+        diagnosed as a short write, whose documented repair is `delete_run`.
+        Two shards sharing a key both read the pre-insert count before either
+        inserts, so both reach the check with a surplus -- and deleting would
+        destroy the other shard's good rows.
+        """
+        mock_databricks["cursor"].fetchone.return_value = (9,)
+        writer = MatchResultWriter()
+
+        with pytest.raises(RuntimeError, match="Another writer touched this key"):
+            writer.append_results([_match(1)], ATTEMPTED_AT)
 
     def test_validates_the_whole_batch_before_writing_anything(self, mock_databricks):
         """Failure this catches: validation moved inside the chunk loop, so a
@@ -168,13 +186,28 @@ class TestDeleteRun:
         This is the repair for both a bad run and a short write, so its blast
         radius is the whole run either way.
         """
+        # (before, after) around the delete: this connector hardcodes
+        # rowcount = -1, so counting is the only way delete_run can tell a
+        # no-op apart from a real deletion.
+        mock_databricks["cursor"].fetchone.side_effect = [(7,), (0,)]
         writer = MatchResultWriter()
 
-        writer.delete_run(ATTEMPTED_AT)
+        assert writer.delete_run(ATTEMPTED_AT) == 7
 
         query, params = _calls(mock_databricks["cursor"], "delete from")[0].args
         assert "attempted_at = ?" in query
         assert params == [ATTEMPTED_AT]
+
+    def test_a_delete_that_matched_nothing_returns_zero(self, mock_databricks):
+        """Failure this catches: the only recovery path reporting success
+        having removed nothing -- a mistyped key, or a naive datetime against
+        an aware one. `Cursor.rowcount` is hardcoded to -1 on this connector,
+        so without counting there is no signal at all.
+        """
+        mock_databricks["cursor"].fetchone.side_effect = [(0,), (0,)]
+        writer = MatchResultWriter()
+
+        assert writer.delete_run(ATTEMPTED_AT) == 0
 
 
 class TestResourceLifecycle:
@@ -191,6 +224,9 @@ class TestResourceLifecycle:
         injected.close.assert_not_called()
 
     def test_close_closes_a_connection_it_opened_itself(self, mock_databricks):
+        """The other half of the injection rule: a connection this writer
+        opened is its to release, or the cutover leaks a warehouse session.
+        """
         writer = MatchResultWriter()
 
         writer.close()

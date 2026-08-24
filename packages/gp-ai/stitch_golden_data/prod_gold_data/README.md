@@ -49,15 +49,26 @@ as a match or coerced into an abstention.
 during the supervised cutover: append a batch of results under a run key, or
 delete a run.
 
-`attempted_at` is the run key, and the caller passes it in so a sharded or
-resumed run keeps one key. `append_results` skips offices already written
-under that key, validates what is left, inserts it in chunks, then counts what
-the table holds for the key and raises if it is short. That count is what
-replaces a transaction: the connector has none, so a failure part-way leaves
-an *incomplete* run rather than a corrupt one -- every row stands on its own,
-and an office whose row never arrived is still on the pending list.
-`delete_run(attempted_at)` is both the rollback and the repair for a short
-write.
+`attempted_at` is the run key, it must be **timezone-aware**, and the caller
+passes it in so a sharded or resumed run keeps one key. `append_results` skips
+offices already written under that key, validates what is left, inserts it in
+chunks, then counts what the table holds for the key. Short means the run is
+incomplete and `delete_run` is the repair; a *surplus* means another writer
+touched the same key concurrently, which is a different problem and is
+reported differently, because deleting there would destroy the other writer's
+rows. One run key must have a single writer.
+
+That count is what replaces a transaction: the connector has none, so a
+failure part-way leaves an *incomplete* run rather than a corrupt one -- every
+row stands on its own, and an office whose row never arrived is still on the
+pending list. `delete_run(attempted_at)` returns how many rows it removed,
+counted rather than asserted, since this connector hardcodes
+`Cursor.rowcount = -1` and a delete that matched nothing would otherwise be
+indistinguishable from one that worked.
+
+`MatchResultWriter` has no CLI and no production caller in this repo. It is
+driven by hand, or by the cutover runbook, which lives with the ticket rather
+than here.
 
 The label check that SPEC 3.5 requires -- re-testing every matched label
 against a freshly rebuilt universe just before publication -- is deliberately

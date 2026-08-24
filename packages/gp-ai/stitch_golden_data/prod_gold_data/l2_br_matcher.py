@@ -13,8 +13,8 @@ persists only matches and abstentions -- a technical error fails the run
 instead of being recorded as a match.
 
 This module writes nothing. `run()` returns terminal results for the caller
-to print or inspect; the Databricks write path and run lifecycle live beside
-it in l2_br_match_writer.py.
+to print or inspect; the Databricks write path lives beside it in
+l2_br_match_writer.py.
 """
 
 import argparse
@@ -776,27 +776,25 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
     # -- Resource lifecycle ----------------------------------------------
 
     def close(self) -> None:
-        """Shut down this matcher's thread pool and Databricks connection.
+        """Release the Databricks connection. `main()` is the only caller.
 
-        Under the fail-fast contract an exception can abort run() with up to
-        a batch of Gemini calls still mid-retry in non-daemon threads, and
-        `concurrent.futures.thread` registers an atexit hook that JOINS them.
-        Without this the CLI sits there for as long as their own backoff
-        takes -- up to roughly 1,023s at max_retries=11 -- after the operator
-        has already seen the traceback and believes the run is over.
-        `cancel_futures=True` drops anything still queued; a call already
-        running keeps running, which no shutdown call can stop.
+        There is deliberately no `self._executor.shutdown(...)` here, and
+        that is worth stating because it looks like an omission. A failed run
+        leaves up to a batch of Gemini calls mid-retry in non-daemon threads,
+        and `concurrent.futures.thread`'s atexit hook joins every live worker
+        -- so the CLI does sit there for as long as their own backoff takes,
+        up to roughly 1,023s at max_retries=11, after the traceback has
+        printed. `shutdown(wait=False, cancel_futures=True)` does NOT fix it:
+        it deregisters nothing from `_threads_queues`, so the atexit join
+        happens either way, and `cancel_futures` drains only QUEUED work,
+        which is always empty here (run() awaits each group of `batch_size`
+        offices, ~100 in flight against a 1,500-worker pool, so nothing ever
+        queues). Measured both ways: identical exit time.
 
-        The try/finally is idiomatic rather than load-bearing --
-        `shutdown(wait=False)` is not a call that raises -- so it is not
-        tested. `main()` is the only caller, in a finally of its own, so
-        there is no second call to make idempotent and no closed-then-reused
-        instance to guard against.
+        The real fix is for the clients in shared/ to stop retrying blindly,
+        which is where the quota work goes too.
         """
-        try:
-            self._executor.shutdown(wait=False, cancel_futures=True)
-        finally:
-            self.databricks.close()
+        self.databricks.close()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -832,8 +830,12 @@ async def main() -> None:
         )
         matcher.print_summary(results)
     finally:
-        matcher.close()
+        # flush_logs first: close() ends in Connection.close(), which can
+        # raise on exactly the dead-session conditions that failed the run,
+        # and that would otherwise both mask the original traceback and lose
+        # the Braintrust buffer.
         flush_logs()
+        matcher.close()
 
 
 if __name__ == "__main__":

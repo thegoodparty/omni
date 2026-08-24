@@ -1,8 +1,9 @@
 """Databricks write path for the L2-to-BallotReady match results.
 
-Three operations over the one table the matcher owns: validate a batch,
-append it, and delete a run. The schema of record is `l2_br_match_schema.py`
-beside this module -- the matcher creates that table, and dbt reads it as a
+Two operations over the one table the matcher owns -- append a batch of
+results under a run key, and delete a run -- plus the validation they share.
+The schema of record is `l2_br_match_schema.py` beside this module, whose
+`ensure_results_table()` provisions the table by hand; dbt reads it as a
 source and never creates it, which is already the convention here.
 
 Lives beside the matcher rather than in shared/: shared/ is imported by every
@@ -26,6 +27,13 @@ so a run that is sharded or resumed keeps a single key. A resumed run
 anti-joins what it already wrote under that key: the matcher is not
 deterministic, so two rows for one office at one timestamp are two different
 answers with no rule for choosing between them.
+
+`attempted_at` must be **timezone-aware**. It is the sole key for the
+anti-join, the count and `delete_run`, and a naive value resolved under a
+different session timezone on a later resume silently splits one run into
+two keys, with the count check passing on both. Hand-built timestamps are
+the ones that come out naive, and the baseline run stamps a hand-chosen
+historical date.
 """
 
 from collections.abc import Iterator
@@ -73,7 +81,10 @@ def validate_results(results: list[MatchResult]) -> None:
     unconditionally upstream in `_selection_from_response` (integrality and
     0-100), which is the only producer of the value and the only place with a
     real failure story for it -- a model returning 3.9 and truncating to 3.
-    A second gate here would guard a path that does not run.
+    `br_database_id` type is not checked either: `append_results` puts the id
+    through a set membership test before this runs, so an unhashable one
+    raises there first, and a hashable non-int can only come from a
+    hand-built MatchResult. All three would guard a path that does not run.
     """
     errors: list[str] = []
     seen_ids: set[int] = set()
@@ -81,12 +92,7 @@ def validate_results(results: list[MatchResult]) -> None:
     for i, row in enumerate(results):
         row_errors: list[str] = []
 
-        # int-ness is load-bearing for the duplicate check below, not a type
-        # assertion for its own sake: an unhashable or non-int id cannot be
-        # deduped. `bool` is an `int` subclass, so it is excluded explicitly.
-        if not isinstance(row.br_database_id, int) or isinstance(row.br_database_id, bool):
-            row_errors.append(f"br_database_id must be an int, got {row.br_database_id!r}")
-        elif row.br_database_id in seen_ids:
+        if row.br_database_id in seen_ids:
             row_errors.append(f"br_database_id {row.br_database_id} is duplicated in this batch")
         else:
             seen_ids.add(row.br_database_id)
@@ -136,12 +142,19 @@ class MatchResultWriter:
     def _cursor(self) -> Cursor:
         return self.databricks.connect().cursor()
 
-    def _written_ids(self, cursor: Cursor, attempted_at: datetime) -> set[int]:
+    def _written(self, cursor: Cursor, attempted_at: datetime) -> tuple[int, set[int]]:
+        """(row count, distinct ids) for this run key, from ONE scan.
+
+        Two scans could disagree with each other if anything wrote between
+        them, and the two numbers are not the same thing: the anti-join needs
+        the ids, the count check needs rows.
+        """
         cursor.execute(
             f"select br_database_id from {self.results_table} where attempted_at = ?",
             [attempted_at],
         )
-        return {row[0] for row in cursor.fetchall()}
+        ids = [row[0] for row in cursor.fetchall()]
+        return len(ids), set(ids)
 
     def _row_count(self, cursor: Cursor, attempted_at: datetime) -> int:
         cursor.execute(
@@ -176,13 +189,7 @@ class MatchResultWriter:
 
         cursor = self._cursor()
         try:
-            # Rows, not distinct ids, for the count baseline. If the table
-            # ever already held two rows for one office under this key, a
-            # `len(already_written)` baseline would under-count and fail an
-            # otherwise-good write. The anti-join needs the ids; the count
-            # check needs the row count; they are not the same number.
-            rows_before = self._row_count(cursor, attempted_at)
-            already_written = self._written_ids(cursor, attempted_at)
+            rows_before, already_written = self._written(cursor, attempted_at)
             to_write = [r for r in results if r.br_database_id not in already_written]
             if already_written:
                 self.logger.info(
@@ -221,11 +228,21 @@ class MatchResultWriter:
 
             expected = rows_before + len(to_write)
             actual = self._row_count(cursor, attempted_at)
-            if actual != expected:
+            if actual < expected:
                 raise RuntimeError(
                     f"Short write for run {attempted_at.isoformat()}: the table holds {actual} row(s) "
                     f"for this key, expected {expected}. The run is incomplete, not corrupt -- delete "
                     f"it with MatchResultWriter.delete_run and run it again."
+                )
+            if actual > expected:
+                # NOT a short write, and the repair for one would destroy the
+                # other's rows. Two shards sharing a run key and running
+                # concurrently both read rows_before before either inserts, so
+                # both land here. Do not delete; reconcile first.
+                raise RuntimeError(
+                    f"Run {attempted_at.isoformat()} holds {actual} row(s), more than the {expected} "
+                    f"this call accounts for. Another writer touched this key concurrently. Do NOT "
+                    f"delete_run: reconcile first, since one run key must have a single writer."
                 )
         finally:
             cursor.close()
@@ -233,8 +250,9 @@ class MatchResultWriter:
         self.logger.info(f"Wrote {len(to_write)} result row(s) under run key {attempted_at.isoformat()}")
         return len(to_write)
 
-    def delete_run(self, attempted_at: datetime) -> None:
-        """Delete every row stamped with this run key.
+    def delete_run(self, attempted_at: datetime) -> int:
+        """Delete every row stamped with this run key, and return how many
+        rows went.
 
         The rollback, and also the repair for a short write. The previous
         answer for each of those offices becomes current again, since the
@@ -245,13 +263,24 @@ class MatchResultWriter:
         """
         cursor = self._cursor()
         try:
+            before = self._row_count(cursor, attempted_at)
             cursor.execute(
                 f"delete from {self.results_table} where attempted_at = ?",
                 [attempted_at],
             )
+            # Counted rather than asserted: this connector hardcodes
+            # `Cursor.rowcount = -1`, so a DELETE that matched nothing --
+            # a mistyped key, or a naive datetime against an aware one --
+            # is indistinguishable from a successful one. This is the only
+            # recovery path there is, driven by hand under cutover pressure,
+            # so it returns a number the caller can check rather than
+            # reporting success having done nothing.
+            after = self._row_count(cursor, attempted_at)
         finally:
             cursor.close()
-        self.logger.info(f"Deleted run {attempted_at.isoformat()}")
+        deleted = before - after
+        self.logger.info(f"Deleted {deleted} row(s) for run {attempted_at.isoformat()}")
+        return deleted
 
     def close(self) -> None:
         """Close the Databricks connection this instance opened itself.
@@ -262,12 +291,3 @@ class MatchResultWriter:
         """
         if self._owns_databricks:
             self.databricks.close()
-
-    def __enter__(self) -> "MatchResultWriter":
-        return self
-
-    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object) -> None:
-        try:
-            self.close()
-        except Exception:
-            self.logger.exception("Error while closing MatchResultWriter; any original exception takes priority")
