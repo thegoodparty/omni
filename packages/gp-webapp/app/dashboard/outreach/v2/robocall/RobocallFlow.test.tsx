@@ -10,6 +10,50 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
+// MediaRecorder / getUserMedia don't exist in jsdom, so replace the recorder
+// hook with a light stateful fake that transitions the same idle -> recording
+// -> preview -> saved states the UI keys off, without touching the DOM media
+// APIs. Same tactic as the Calendar stub below.
+vi.mock('./useRobocallRecorder', async () => {
+  const { useState, useCallback } = await import('react')
+  const clip = { blob: new Blob(['x']), url: 'blob:mock', durationSec: 5 }
+  return {
+    useRobocallRecorder: () => {
+      const [status, setStatus] = useState('idle')
+      const [recording, setRecording] = useState<typeof clip | null>(null)
+      // Stable identities: RobocallFlow's open-effect lists `reset` as a
+      // dependency, so a fresh function each render would re-fire it every
+      // render and blow the update-depth limit.
+      const start = useCallback(() => setStatus('recording'), [])
+      const stop = useCallback(() => {
+        setRecording(clip)
+        setStatus('preview')
+      }, [])
+      const discard = useCallback(() => {
+        setRecording(null)
+        setStatus('idle')
+      }, [])
+      const save = useCallback(() => setStatus('saved'), [])
+      const reset = useCallback(() => {
+        setRecording(null)
+        setStatus('idle')
+      }, [])
+      return {
+        status,
+        elapsedSec: 0,
+        recording,
+        error: null,
+        start,
+        stop,
+        discard,
+        save,
+        uploadFile: stop,
+        reset,
+      }
+    },
+  }
+})
+
 // useListWizardCount (reached only in the builder) reads the active org slug.
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
@@ -112,23 +156,48 @@ const mockCreateListError = () =>
     data: { message: 'boom' },
   })
 
-const gotoAudience = async () => {
+const mockDraft = (
+  draft = 'Hi, this is Alex, and I am running for City Council.',
+) =>
+  api.mock('POST /v1/outreach/robocall/draft', {
+    status: 200,
+    data: { draft },
+  })
+
+const gotoAudience = async (purposeLabel = 'Persuade likely voters') => {
   render(<RobocallFlow open onClose={vi.fn()} />)
-  fireEvent.click(screen.getByText('Persuade likely voters'))
+  fireEvent.click(screen.getByText(purposeLabel))
 }
 
 // Purpose -> audience -> pick a saved list -> Continue, landing on the schedule
 // ("When") step.
-const gotoSchedule = async () => {
+const gotoSchedule = async (purposeLabel = 'Persuade likely voters') => {
   mockSavedLists()
   mockListDetail(80)
-  await gotoAudience()
+  await gotoAudience(purposeLabel)
   await userEvent.click(await screen.findByText('Choose a voter list'))
   await userEvent.click(await screen.findByText('Renters in 98103'))
   await userEvent.click(
     await screen.findByRole('button', { name: /Continue \(80\)/ }),
   )
   await screen.findByLabelText('Campaign name')
+}
+
+// Schedule -> set a comfortably-future date + time -> Continue, landing on the
+// compose ("What do you want to say?") step.
+const gotoCompose = async (purposeLabel = 'Persuade likely voters') => {
+  mockDraft()
+  await gotoSchedule(purposeLabel)
+  await userEvent.click(screen.getByText('Pick a date'))
+  await userEvent.click(await screen.findByText('mock-pick-future'))
+  await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+  await userEvent.click(await screen.findByRole('option', { name: '10:00 AM' }))
+  const continueBtn = screen.getByRole('button', { name: 'Continue' })
+  await waitFor(() => expect(continueBtn).toBeEnabled())
+  await userEvent.click(continueBtn)
+  // Compose-step landing: keyed on the Intro body (unique to this step; the
+  // "What do you want to say?" title also renders in the sheet's a11y title).
+  await screen.findByText(/Read the script below into your microphone/)
 }
 
 describe('RobocallFlow', () => {
@@ -454,7 +523,8 @@ describe('RobocallFlow', () => {
     )
   })
 
-  it('advances to the placeholder once a valid date and time are set', async () => {
+  it('advances to the compose step once a valid date and time are set', async () => {
+    mockDraft()
     await gotoSchedule()
 
     // Open the date popover and pick a comfortably-future day (clears the 48h
@@ -469,7 +539,9 @@ describe('RobocallFlow', () => {
     const continueBtn = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(continueBtn).toBeEnabled())
     await userEvent.click(continueBtn)
-    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Read the script below into your microphone/),
+    ).toBeInTheDocument()
   })
 
   it('warns and blocks when the chosen day+time is inside the 48-hour window', async () => {
@@ -488,5 +560,83 @@ describe('RobocallFlow', () => {
       await screen.findByText(/Sends need at least 48 hours/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('drafts a script on entering compose and gates Continue on a saved recording', async () => {
+    await gotoCompose()
+
+    // The AI draft (grounded self-ID opener) renders read-only for a
+    // non-custom purpose.
+    expect(
+      await screen.findByText(/Hi, this is Alex, and I am running/),
+    ).toBeInTheDocument()
+
+    // No recording yet -> Continue disabled.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // Record -> stop lands on preview (not yet committed): still disabled.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    expect(
+      await screen.findByText('Preview your recording'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // Save commits it -> Continue enables and advances to the placeholder.
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Recording saved')).toBeInTheDocument()
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(continueBtn).toBeEnabled())
+    await userEvent.click(continueBtn)
+    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+  })
+
+  it('re-drafts when a different tone is chosen', async () => {
+    await gotoCompose()
+    expect(
+      await screen.findByText(/Hi, this is Alex, and I am running/),
+    ).toBeInTheDocument()
+
+    // A tone-pill click re-requests a draft; the new copy replaces the old.
+    mockDraft('Friends, election day is almost here — make your plan to vote.')
+    await userEvent.click(screen.getByText('Direct'))
+    expect(
+      await screen.findByText(/election day is almost here/),
+    ).toBeInTheDocument()
+  })
+
+  it('re-drafts on Regenerate', async () => {
+    await gotoCompose()
+    expect(
+      await screen.findByText(/Hi, this is Alex, and I am running/),
+    ).toBeInTheDocument()
+
+    mockDraft('A fresh take on why your vote matters this November.')
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    expect(
+      await screen.findByText(/A fresh take on why your vote matters/),
+    ).toBeInTheDocument()
+  })
+
+  it('lets a custom purpose write its own script and never auto-drafts', async () => {
+    // Mock the endpoint with a sentinel that must NOT appear — custom never
+    // fires a draft request.
+    mockDraft('SHOULD-NOT-APPEAR auto draft')
+    await gotoCompose('Write my own script')
+
+    // No tone pills, no "Suggested for" line, and an editable textarea.
+    expect(screen.queryByText('Direct')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Suggested for/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('SHOULD-NOT-APPEAR auto draft'),
+    ).not.toBeInTheDocument()
+
+    const textarea = screen.getByRole('textbox', { name: 'Robocall script' })
+    await userEvent.type(textarea, 'Hi, this is my own script.')
+    expect(textarea).toHaveValue('Hi, this is my own script.')
   })
 })

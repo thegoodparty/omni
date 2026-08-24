@@ -1,6 +1,12 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import {
+  type RobocallScriptDraftRequest,
+  type SocialTone,
+} from '@goodparty_org/contracts'
+import { clientRequest } from 'gpApi/typed-request'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
@@ -14,18 +20,27 @@ import { useOutreachAudience } from '../audience/useOutreachAudience'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
+import { RobocallComposeStep } from './RobocallComposeStep'
+import { useRobocallRecorder } from './useRobocallRecorder'
 import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
 
-// Steps grow as later slices land (record/compliance, review + pay). For now:
-// pick a purpose, pick/build the audience, choose when it goes out, then a
-// placeholder for the not-yet-built remainder.
-type StepId = 'purpose' | 'audience' | 'schedule' | 'placeholder'
-const STEP_ORDER: StepId[] = ['purpose', 'audience', 'schedule', 'placeholder']
+// Steps grow as later slices land (compliance, review + pay). For now: pick a
+// purpose, pick/build the audience, choose when it goes out, record/compose the
+// message, then a placeholder for the not-yet-built remainder.
+type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'placeholder'
+const STEP_ORDER: StepId[] = [
+  'purpose',
+  'audience',
+  'schedule',
+  'compose',
+  'placeholder',
+]
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
   audience: 'Who are you calling?',
   schedule: 'When should it go out?',
+  compose: 'What do you want to say?',
   placeholder: 'Robocall is coming soon',
 }
 
@@ -33,6 +48,9 @@ const STEP_TITLES: Record<StepId, string> = {
 // bound here — the payment-window ceiling is a pay-step concern.
 const MIN_LEAD_HOURS = 48
 const MIN_LEAD_MS = MIN_LEAD_HOURS * 60 * 60 * 1000
+// The recorded message caps at 60 seconds (one connected 60s CallHub billing
+// unit); enforced in the recorder and on upload.
+const MAX_RECORDING_SECONDS = 60
 
 // Robocall dials landlines, so the reachable count and the in-flow builder
 // count both use the landline dimension: reachability.robocall for a saved
@@ -91,6 +109,42 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   })
   const { reset: resetAudience } = audience
 
+  const [tone, setTone] = useState<SocialTone>('warm')
+  const [script, setScript] = useState('')
+  // Stale-response guard: a tone switch / regenerate bumps this, and a draft
+  // response is discarded unless it's still the latest request.
+  const draftRequestRef = useRef(0)
+  const recorder = useRobocallRecorder(MAX_RECORDING_SECONDS)
+  const { reset: resetRecorder } = recorder
+  const isCustomPurpose = purpose === 'custom'
+
+  const draftMutation = useMutation({
+    mutationFn: async (input: RobocallScriptDraftRequest) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/robocall/draft',
+        input,
+      )
+      return data.draft
+    },
+  })
+  const { mutate: runDraft } = draftMutation
+
+  // Fire an AI script draft; a superseded response is discarded. Custom
+  // purpose writes its own script, so it never drafts.
+  const requestDraft = (p: RobocallPurpose, t: SocialTone) => {
+    if (p === 'custom') return
+    const requestId = draftRequestRef.current + 1
+    draftRequestRef.current = requestId
+    runDraft(
+      { purpose: p, tone: t },
+      {
+        onSuccess: (draft) => {
+          if (requestId === draftRequestRef.current) setScript(draft)
+        },
+      },
+    )
+  }
+
   // Fresh flow every open — a cancelled-then-reopened flow must not resume.
   useEffect(() => {
     if (!open) return
@@ -101,8 +155,12 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setScheduledDay(undefined)
     setTime('')
     setNow(new Date())
+    setTone('warm')
+    setScript('')
+    draftRequestRef.current = 0
+    resetRecorder()
     resetAudience()
-  }, [open, resetAudience])
+  }, [open, resetAudience, resetRecorder])
 
   // Validate against the combined UTC instant so it's tz-correct: the send must
   // be at least 48h out. `earliest` (now + lead) drives both the "earliest
@@ -175,6 +233,24 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     }
   }
 
+  const goToCompose = () => {
+    // Kick off the first AI draft on entry (non-custom, and only if we don't
+    // already have one from a prior visit to this step).
+    if (purpose && purpose !== 'custom' && !script.trim()) {
+      requestDraft(purpose, tone)
+    }
+    setStepId('compose')
+  }
+
+  const handleToneChange = (t: SocialTone) => {
+    setTone(t)
+    if (purpose) requestDraft(purpose, t)
+  }
+
+  const handleRegenerate = () => {
+    if (purpose) requestDraft(purpose, tone)
+  }
+
   const hasBuilderSelection = hasAnyVoterFileSelection(
     audience.builderFilters,
     audience.builderSupportStatus,
@@ -224,10 +300,18 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
       : stepId === 'schedule'
         ? {
             label: 'Continue',
-            onClick: () => setStepId('placeholder'),
+            onClick: goToCompose,
             disabled: campaignName.trim().length === 0 || !isScheduleValid,
           }
-        : null
+        : stepId === 'compose'
+          ? {
+              label: 'Continue',
+              onClick: () => setStepId('placeholder'),
+              // Advancing requires a saved recording — the script alone
+              // isn't the deliverable; the audio is.
+              disabled: recorder.status !== 'saved',
+            }
+          : null
 
   return (
     <OutreachFlowShell
@@ -290,14 +374,28 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           earliest={earliest}
           violates={violatesLeadTime}
         />
+      ) : stepId === 'compose' ? (
+        <RobocallComposeStep
+          tone={tone}
+          onToneChange={handleToneChange}
+          isCustomPurpose={isCustomPurpose}
+          draft={script}
+          onDraftChange={setScript}
+          onRegenerate={handleRegenerate}
+          isDrafting={draftMutation.isPending}
+          isDraftError={draftMutation.isError}
+          audienceName={audience.selectedList?.name ?? 'your list'}
+          recorder={recorder}
+          maxSeconds={MAX_RECORDING_SECONDS}
+        />
       ) : (
         <div className="space-y-2 py-8 text-center">
           <h3 className="text-xl font-semibold text-foreground">
             More coming soon
           </h3>
           <p className="text-base text-muted-foreground">
-            The rest of the robocall flow (recording and payment) is still being
-            built.
+            The rest of the robocall flow (compliance review and payment) is
+            still being built.
           </p>
         </div>
       )}

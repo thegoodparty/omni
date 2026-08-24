@@ -240,7 +240,11 @@ import { dirname, join, relative } from 'node:path'
 // RobocallScheduleStep drawer surface owns the name/date/time inputs and their
 // selection handlers, so it's a client component. Its scheduleTimeZone.ts
 // helper is directive-free (pure date/tz functions, no JSX).
-const BASELINE = 600
+// 2026-08-24: 600 -> 602 for the robocall compose step (phase 3):
+// RobocallComposeStep owns the tone pills, AI-draft display, and record-bar
+// interaction, and its useRobocallRecorder hook drives MediaRecorder state and
+// object-URL lifecycle — both hold browser-only state, so both are client.
+const BASELINE = 602
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
