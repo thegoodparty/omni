@@ -165,15 +165,15 @@ describe('TurfDetailsSheet delete', () => {
     vi.mocked(trackEvent).mockClear()
   })
 
-  // gp-api's assertNotLocked 409s on a knocked turf, so the button can't be
-  // pressable — but it used to be absent, and an affordance that removes
-  // itself is indistinguishable from one that was never built. That is the
-  // report this branch exists to answer: disabled, and with the rule in words
-  // beside it.
-  it('disables delete on a locked turf and says why', () => {
+  // gp-api's `delete` no longer runs assertNotLocked — a knocked list is
+  // tombstoned rather than refused — so the control is pressable at every
+  // stage and the confirmation is the guard. The lock's remaining consequence
+  // (the route and area are frozen, so the list can't be edited) is still
+  // stated here beside the Edit control it does hide.
+  it('keeps delete pressable on a locked turf, and still says what the lock costs', () => {
     renderSheet({ prop: { locked: true } })
 
-    expect(screen.getByLabelText('Delete Elm St & 5th')).toBeDisabled()
+    expect(screen.getByLabelText('Delete Elm St & 5th')).toBeEnabled()
     expect(screen.getByText(/already been knocked/)).toBeInTheDocument()
   })
 
@@ -184,14 +184,22 @@ describe('TurfDetailsSheet delete', () => {
     expect(screen.queryByText(/already been knocked/)).toBeNull()
   })
 
-  // The prop is a snapshot taken when the row was clicked, so a turf knocked
-  // since then must stop offering a delete that can now only 409.
-  it('disables the affordance when the live row is locked but the prop is stale', async () => {
+  // The prop is a snapshot taken when the row was clicked. It no longer gates
+  // the trigger, but it still decides what the confirmation says is about to
+  // happen — and the two deletes destroy very different amounts, so a turf
+  // knocked since the row was clicked has to warn about the knocked one.
+  it('warns about the live row rather than the snapshot when the prop is stale', async () => {
     renderSheet({ prop: { locked: false }, live: { locked: true } })
 
     await waitFor(() =>
-      expect(screen.getByLabelText('Delete Elm St & 5th')).toBeDisabled(),
+      expect(screen.getByLabelText('Delete Elm St & 5th')).toBeEnabled(),
     )
+    fireEvent.click(screen.getByLabelText('Delete Elm St & 5th'))
+
+    expect(
+      await screen.findByText(/The route you paid for/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/removed for good/)).toBeNull()
   })
 
   // Same rule as the header and Edit: this sheet can rename the list, so a

@@ -189,6 +189,48 @@ describe('DoorKnockingManageView seam', () => {
     expect(screen.getByText(/filters could not be loaded/)).toBeInTheDocument()
   })
 
+  // The rail used to be `w-96 shrink-0` in the page's flex row above `lg`,
+  // which took a fixed 384px column out of the map on the widest screens —
+  // where the map is most of what the tool is. It floats over a full-bleed map
+  // at every width now: a bottom sheet on a phone, an inset card on a desktop.
+  it('floats over the map at every width rather than taking a column', () => {
+    const { container } = renderView()
+
+    const rail = container.querySelector('aside')
+    expect(rail).toHaveClass('absolute')
+    expect(rail).not.toHaveClass('lg:static')
+    // Inset on all four sides above lg, which is what makes the map full-bleed
+    // underneath it rather than merely beside it.
+    expect(rail).toHaveClass('lg:inset-y-4', 'lg:right-4', 'lg:left-auto')
+  })
+
+  // The scope and its legend describe what the map is shading right now, so a
+  // long rail must not be able to scroll the reading of the dots off screen.
+  it('scrolls the lists and pins the legend under them', () => {
+    const { container } = renderView()
+
+    const legendSection = screen.getByRole('heading', {
+      name: 'District voters',
+    }).parentElement?.parentElement
+    expect(legendSection).toHaveClass('shrink-0', 'border-t')
+    expect(container.querySelector('.overflow-y-auto')).toContainElement(
+      screen.getByTestId('turf-list'),
+    )
+  })
+
+  // One row, scrolling. Wrapped, the seven chips stacked into three rows inside
+  // a 384px rail and pushed the saved lists off the first screen of the
+  // feature.
+  it('keeps the legend on a single scrolling row', () => {
+    const { container } = renderView()
+
+    const group = container.querySelector(
+      '[aria-label="Filter the map by canvass status"]',
+    )
+    expect(group).toHaveClass('flex-nowrap', 'w-max')
+    expect(group?.parentElement).toHaveClass('overflow-x-auto')
+  })
+
   // The one piece of state this surface owns outright. It is safe to own
   // because the orchestrator unmounts the whole surface for a create flow and
   // for a walk, which is exactly what "leaving the landing map resets it" means.
