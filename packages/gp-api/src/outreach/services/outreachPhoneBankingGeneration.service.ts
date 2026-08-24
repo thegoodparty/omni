@@ -247,11 +247,11 @@ export class OutreachPhoneBankingGenerationService {
   ): Promise<string[]> {
     const blocks: string[] = []
     const { electionDate, primaryElectionDate } = campaign.details
-    if (electionDate) {
+    // A date that has already passed is no longer a live date to call
+    // about — only ground either date while it's still upcoming.
+    if (electionDate && isDateTodayOrFuture(electionDate)) {
       blocks.push(`Election day: ${formatElectionDate(electionDate)}.`)
     }
-    // A primary that has already happened is no longer a live date to
-    // call about — only ground it while it's still upcoming.
     if (primaryElectionDate && isDateTodayOrFuture(primaryElectionDate)) {
       blocks.push(
         `Primary election day: ${formatElectionDate(primaryElectionDate)}.`,

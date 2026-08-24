@@ -189,6 +189,23 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(userPrompt).toContain('Election day: November 3, 2026.')
   })
 
+  it('omits a general election date that has already passed', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { ...campaign.details, electionDate: '2020-11-03' } },
+    })
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'election-day', tone: 'urgent' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain('Election day:')
+  })
+
   it('includes the real early-voting window for the vote-early purpose', async () => {
     const campaignsService = service.app.get(CampaignsService)
     vi.spyOn(
