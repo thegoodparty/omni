@@ -366,15 +366,28 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(409)
     })
 
+    const envelopeFor = (routeId: number) =>
+      service.prisma.outreach.findFirstOrThrow({
+        where: { doorKnockingRouteId: routeId },
+      })
+
     // Archived is a shelf the client renders differently, not a hidden state:
     // the row keeps coming back so there is something to restore, and so the
     // print path can still resolve the list's name.
-    it('archives and restores, leaving the row in the list either way', async () => {
-      const { turf } = await knockedTurf()
+    //
+    // Both directions mirror onto the envelope, in the same transaction as the
+    // turf. Restore is the half that is easy to forget: an archive that mirrors
+    // and a restore that does not leaves the two rows disagreeing again, one
+    // press later.
+    it('archives and restores, moving the outreach envelope with the list', async () => {
+      const { turf, routeId } = await knockedTurf()
 
       const archived = await setArchived(turf.id, true)
       expect(archived.status).toBe(201)
       expect(archived.data.archivedAt).not.toBeNull()
+      expect((await envelopeFor(routeId)).archivedAt?.toISOString()).toBe(
+        archived.data.archivedAt,
+      )
 
       const list = await service.client.get(
         '/v1/door-knocking/turfs',
@@ -385,16 +398,90 @@ describe('door-knocking routes', () => {
 
       const restored = await setArchived(turf.id, false)
       expect(restored.data.archivedAt).toBeNull()
+      expect((await envelopeFor(routeId)).archivedAt).toBeNull()
     })
 
     // Same reasoning as completing twice: the card renders "archived since".
-    it('archiving twice keeps the original timestamp', async () => {
-      const { turf } = await knockedTurf()
+    // The envelope is held to it too — the mirror runs on every call, so it
+    // writes the turf's existing stamp rather than a fresh `now`.
+    it('archiving twice keeps the original timestamp on both rows', async () => {
+      const { turf, routeId } = await knockedTurf()
 
       const first = await setArchived(turf.id, true)
+      const mirrored = (await envelopeFor(routeId)).archivedAt
       const second = await setArchived(turf.id, true)
 
       expect(second.data.archivedAt).toBe(first.data.archivedAt)
+      expect((await envelopeFor(routeId)).archivedAt).toEqual(mirrored)
+    })
+
+    // The drift this mirror exists to end, in the state prod is already in:
+    // lists archived before the mirror shipped have an envelope that never
+    // followed. Pressing Archive again is the only repair a candidate has, so
+    // the mirror runs ahead of the idempotence guard rather than behind it.
+    it('mirrors a list archived before the envelope was ever joined to it', async () => {
+      const { turf, routeId } = await knockedTurf()
+      const archivedAt = new Date('2026-08-01T00:00:00.000Z')
+      await service.prisma.doorKnockingTurf.update({
+        where: { id: turf.id },
+        data: { archivedAt },
+      })
+
+      const res = await setArchived(turf.id, true)
+
+      expect(res.status).toBe(201)
+      // The repair must not cost the original date on the way through.
+      expect(res.data.archivedAt).toBe(archivedAt.toISOString())
+      expect((await envelopeFor(routeId)).archivedAt).toEqual(archivedAt)
+    })
+
+    // A Serve org knocks without a campaign, so the knock transaction never
+    // creates an envelope. Nothing to mirror is the normal outcome there, not
+    // an error — hence updateMany rather than update.
+    it('archives a list for an organization that has no outreach envelope', async () => {
+      const suffix = Date.now()
+      const eoSlug = `eo-dk-archive-${suffix}`
+      await service.prisma.organization.create({
+        data: {
+          slug: eoSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      const eoFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: eoSlug, name: 'EO archive audience' },
+      })
+      const eoHeaders = { headers: { 'x-organization-slug': eoSlug } }
+      const created = await service.client.post(
+        '/v1/door-knocking/turfs',
+        {
+          voterFileFilterId: eoFilter.id,
+          name: 'EO archive turf',
+          color: '#3355ff',
+          geoPoly: GEO_POLY,
+        },
+        eoHeaders,
+      )
+      stubVendors()
+      const knocked = await service.client.post(
+        `/v1/door-knocking/turfs/${created.data.id}/knock`,
+        { mode: 'walk', loop: false },
+        eoHeaders,
+      )
+      expect(
+        await service.prisma.outreach.count({
+          where: { doorKnockingRouteId: knocked.data.route.id },
+        }),
+      ).toBe(0)
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${created.data.id}/archive`,
+        { archived: true },
+        { ...eoHeaders, validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(201)
+      expect(res.data.archivedAt).not.toBeNull()
     })
 
     it('hard-deletes an unknocked list, because there is nothing to keep', async () => {

@@ -88,15 +88,20 @@ never send `pending_payment` themselves.
   drawer's archive/restore action. `OutreachService.setArchived` scopes the
   update by `organizationSlug` (not `campaignId`) and reads the response back
   from the persisted row rather than trusting the request body.
-- **Door knocking archives on the turf, not here, and the two are not yet
-  wired together.** `DoorKnockingTurf.archivedAt` is what the list rail acts
-  on, for the same reason `completedAt` lives there: a Serve org archives a
-  list it has no envelope for. So a walk can currently read as archived on the
-  door-knocking surface and unarchived in the history drawer, or the reverse.
-  The status mirror above is the pattern to copy when the unified details
-  drawer lands — the turf is the object the user acts on, the envelope is the
-  campaign-reporting projection of it — but nothing mirrors `archivedAt` yet.
-  Don't assume the two agree.
+- **Door knocking archives on the turf, and this row is mirrored off it.**
+  `DoorKnockingTurf.archivedAt` is what the list rail acts on, for the same
+  reason `completedAt` lives there: a Serve org archives a list it has no
+  envelope for. `DoorKnockingTurfService.setArchived` therefore writes both,
+  in one transaction, the same way it mirrors `status` on complete —
+  `updateMany` on `doorKnockingRouteId`, so a Serve org's missing envelope is a
+  no-op. Restore clears both. **The turf is the source and this is the
+  projection**, so the mirror writes the turf's timestamp rather than its own
+  `now`, and it runs BEFORE that method's idempotence guard so a list archived
+  before the mirror shipped can be repaired by pressing Archive again. Nothing
+  writes `Outreach.archivedAt` for a door-knocking row from the history side —
+  the envelope carries the route id but nothing maps a route id back to its
+  turf, which is why the history drawer offers no archive on a door-knocking
+  row. See `docs/door-knocking.md`.
 
 ## Contracts / models
 
