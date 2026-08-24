@@ -1,15 +1,17 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from stitch_golden_data.prod_gold_data.production_matcher import (
-    ProductionMatcher,
     EmbeddingDistrict,
+    ProductionMatcher,
 )
 
 
 @pytest.fixture(autouse=True)
 def reset_braintrust_singleton():
     from shared.braintrust import BraintrustClient
+
     BraintrustClient.reset_instance()
     yield
     BraintrustClient.reset_instance()
@@ -42,12 +44,12 @@ def mock_dependencies():
 
 class TestBraintrustInit:
     def test_init_braintrust_called_on_construction(self, mock_dependencies):
-        matcher = ProductionMatcher()
+        ProductionMatcher()
 
         mock_dependencies["init_braintrust"].assert_called_once_with(project="stitch-golden-data")
 
     def test_cache_prompt_called_on_construction(self, mock_dependencies):
-        matcher = ProductionMatcher()
+        ProductionMatcher()
 
         mock_dependencies["cache_prompt"].assert_called_once_with(
             "stitch-golden-data-matcher",
@@ -85,7 +87,8 @@ class TestPromptBuilding:
             mock_build.return_value = "rendered prompt"
 
             import asyncio
-            result = asyncio.run(matcher.llm_select_best_match("Wilmington City Council", districts))
+
+            asyncio.run(matcher.llm_select_best_match("Wilmington City Council", districts))
 
             mock_build.assert_called_once()
             call_args = mock_build.call_args
@@ -100,6 +103,7 @@ class TestPromptBuilding:
 
             assert call_args[1]["fallback_prompt"] is not None
             assert len(call_args[1]["fallback_prompt"]) > 0
+
 
 class TestTraceNamePassthrough:
     def test_trace_name_passed_to_generate_structured_content(self, mock_dependencies):
@@ -123,9 +127,8 @@ class TestTraceNamePassthrough:
 
         with patch("stitch_golden_data.prod_gold_data.production_matcher.build_cached_prompt", return_value="prompt"):
             import asyncio
+
             asyncio.run(matcher.llm_select_best_match("School Board", districts))
 
         call_kwargs = mock_dependencies["llm"].generate_structured_content.call_args[1]
         assert call_kwargs["trace_name"] == "stitch-match-selection"
-
-

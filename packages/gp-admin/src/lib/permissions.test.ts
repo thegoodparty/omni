@@ -25,6 +25,7 @@ describe('PERMISSIONS', () => {
       READ_AGENT_RUNS: 'org:admin_portal:read_agent_runs',
       WRITE_AGENT_RUNS: 'org:admin_portal:write_agent_runs',
       REVIEW_BRIEFINGS: 'org:admin_portal:review_briefings',
+      MANAGE_PERSON_REMOVALS: 'org:admin_portal:manage_person_removals',
     })
   })
 })

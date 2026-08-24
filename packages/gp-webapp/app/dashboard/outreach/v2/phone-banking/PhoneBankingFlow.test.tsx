@@ -272,7 +272,9 @@ describe('PhoneBankingFlow', () => {
     await advanceToScript()
 
     const nameInput = screen.getByLabelText('Campaign name')
-    expect(nameInput).toHaveValue('Introduce myself to voters')
+    // The card copy is "Introduce myself to voters"; the name field gets the
+    // purpose's own short suggestion instead.
+    expect(nameInput).toHaveValue('Introduction calls')
 
     await user.clear(nameInput)
     await waitFor(() =>
@@ -284,7 +286,7 @@ describe('PhoneBankingFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  it('does not auto-suggest a name for the custom purpose (its label is card copy, not a name)', async () => {
+  it('does not auto-suggest a name for the custom purpose (the caller is writing their own script)', async () => {
     mockDraft()
     openFlow()
     await user.click(screen.getByText('Write my own script'))

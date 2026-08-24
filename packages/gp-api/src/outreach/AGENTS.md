@@ -14,6 +14,7 @@ phone banking also carries `@UseOrganization()` for the Pro gate)
 | `POST /outreach/social/draft` / `social/generate` / `social` (save), `GET /outreach/:id`, `PATCH /outreach/:id/archive` | `outreachSocial.controller.ts` | Social flow (VO 2.0 phase 1): stateless draft/improve, per-platform asset generation, atomic save, detail read; archive/restore for the history drawer, org-scoped via `@UseOrganization()` |
 | `POST /outreach/phone-banking/draft` | `outreachPhoneBanking.controller.ts` | Phone banking script draft/improve (VO 2.0 phone banking): stateless, Pro-gated (`@UseOrganization()` + `ContactsService.assertProAccess`) — the create flow freezes the chosen text onto the list itself via `POST /phone-banking/lists` (`src/phoneBanking/`) |
 | `POST /outreach/robocall/draft` | `outreachRobocall.controller.ts` | Robocall script draft/improve (VO 2.0 robocall): stateless, Pro-gated the same way. Purpose + tone (`currentDraft` polishes the `custom` purpose in place) → the script the candidate reads into the recording; nothing persists here, the audio + schedule land in a later slice |
+| `POST /outreach/robocall/audio/presign` | `outreachRobocallAudio.controller.ts` | Presigned S3 POST for the recorded robocall audio (VO 2.0 robocall): stateless, Pro-gated the same way. Returns `{ url, fields, key, expiresIn }`; the browser submits a multipart form to `ROBOCALL_AUDIO_BUCKET` and holds the key until the send is created in a later step. It's a POST (not PUT) so the policy's `content-length-range` lets S3 reject an oversize upload at upload time |
 
 `GET /outreach/:id` deliberately lives on the social controller: detail reads
 must stay outside `OutreachNotificationInterceptor` — a 404 there would fire
@@ -29,6 +30,7 @@ a CAS failure Slack meant for send attempts.
 | `outreachSocialGeneration.service.ts` | Stateless LLM compose (temperature 0.8, Zod-validated output): one draft per draft/improve call, all per-platform assets in one structured generate call. Fresh generation is refused for the `custom` purpose (improve allowed); improve is a detail-preserving polish, never new content |
 | `outreachPhoneBankingGeneration.service.ts` | Stateless LLM compose for call scripts, same shape as social generation. Per-purpose structure (volunteer opener, why-statement, issue-ID question for `persuade`, bracketed voting-logistics slots for `vote-early`/`election-day`); hard-bans SMS/robocall compliance lines (`Reply STOP`, `Paid for by`, callback numbers) since a volunteer reads this live |
 | `outreachRobocallGeneration.service.ts` | Stateless LLM compose for the recorded robocall message, same shape again. Differs from phone banking in the opener — a robocall is the CANDIDATE speaking, so the rule is a first-person self-ID (`Hi, this is [name], and I am running for [office]`), not a volunteer intro — and in length (60-130 words for a 60-second recording). Same compliance ban: the `Paid for by` disclaimer / callback number / opt-out are deliberately NOT in the script, since they need a caller-ID number not known until CallHub; they land in the pay/review slice. Refuses fresh generation for `custom` (improve allowed), like social |
+| `outreachRobocallAudio.service.ts` | Builds a campaign-scoped object key (`robocall/<campaignId>/<uuid>.<ext>`) and returns a presigned S3 POST (`S3Service.createPresignedUpload`, a `content-length-range` policy capping bytes at `ROBOCALL_AUDIO_MAX_BYTES`), reading the bucket from `ROBOCALL_AUDIO_BUCKET` (throws at construction if unset). Stateless — no row is written |
 | `outreachComposeContext.service.ts` | Builds prompt blocks from the candidate's own materials — campaign story, stated issue positions, plan opportunities/challenges, trimmed for prompt size (product decision 2026-08-17: compose generation must ground in these; never invent positions). Every block optional; the no-materials fallback is name/place/office. Shared by social and phone-banking generation |
 | `outreachCompletion.service.ts` | Hourly cron: flips Peerly jobs to `completed` once the job's `end_date` day has passed — a time proxy, `leads_remaining` was disproven (ENG-10739). One-way status ratchet |
 | `outreachInboundSweep.service.ts` | Hourly cron (offset :30 from the completion sweep) pulling Peerly CDR/response reports into `ContactInteractionText` inbound events |
@@ -102,7 +104,9 @@ never send `pending_payment` themselves.
 
 - `@goodparty_org/contracts` `src/outreach/`: `OutreachSocial.schema.ts`,
   `OutreachScript.const.ts`, `PhoneBankingScript.schema.ts`,
-  `RobocallScript.schema.ts` (purpose enum + draft request/response).
+  `RobocallScript.schema.ts` (purpose enum + draft request/response),
+  `RobocallAudio.schema.ts` (presign request/response + allowed audio MIME
+  types + `ROBOCALL_AUDIO_MAX_BYTES` cap).
 - Prisma: `outreach.prisma` (spine), `outreachSocial.prisma` +
   `outreachSocialAsset.prisma` (satellite). Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
@@ -119,5 +123,8 @@ endpoint (Pro gate, per-purpose prompt assembly, improve mode);
 `outreachRobocall.test.ts` covers the robocall draft endpoint (grounding,
 first-person self-ID opener + compliance ban, voting-logistics placeholders,
 improve mode, custom-without-draft rejected, Pro gate, LLM failure → 502);
+`outreachRobocallAudio.test.ts` covers the audio presign endpoint (URL +
+campaign-scoped key + extension mapping, invalid content type, Pro gate),
+mocking `S3Service.createPresignedUpload`;
 `outreachFlow.test.ts` covers the submission contract, the draft-first
 purchase path, and the failure-still-Slacks interceptor behavior.

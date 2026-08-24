@@ -7,6 +7,7 @@ import {
   NotAVoterReason,
   RoutePayloadAddress,
   RoutePayloadTarget,
+  RoutePayloadTargetNotes,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -17,6 +18,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { DoorKnockingActivityService } from './doorKnockingActivity.service'
+import { DoorKnockingNotesService } from './doorKnockingNotes.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 import { renderUnitAddress } from '../utils/unitAddress.util'
@@ -77,6 +79,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     // report one list identically.
     private readonly status: DoorKnockingStatusService,
     private readonly activity: DoorKnockingActivityService,
+    private readonly notes: DoorKnockingNotesService,
   ) {
     super()
   }
@@ -125,11 +128,15 @@ export class DoorKnockingServeService extends createPrismaBase(
       doNotKnockPersonIds,
       notAVoterReasons,
       historyByPersonId,
+      notesByPersonId,
     ] = await Promise.all([
       this.status.latestKnockStatuses(organization.slug, targetPersonIds),
       this.status.doNotKnockPersonIds(organization.slug, targetPersonIds),
       this.status.notAVoterReasons(organization.slug, targetPersonIds),
       this.activity.historyByPersonId(organization.slug, targetPersonIds),
+      // Every target's notes in one query, alongside the other live reads
+      // rather than per target inside the map below — see ADR 0011.
+      this.notes.notesByPersonId(organization.slug, targetPersonIds),
     ])
 
     return {
@@ -153,6 +160,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           doNotKnockPersonIds,
           notAVoterReasons,
           historyByPersonId,
+          notesByPersonId,
         )
         return {
           id: stop.id,
@@ -176,6 +184,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     doNotKnockPersonIds: Set<string>,
     notAVoterReasons: Map<string, NotAVoterReason>,
     historyByPersonId: Map<string, RouteTargetActivity[]>,
+    notesByPersonId: Map<string, RoutePayloadTargetNotes>,
   ): RoutePayloadAddress[] {
     const byAddressKey = new Map<string, DoorKnockingStopTarget[]>()
     for (const target of targets) {
@@ -232,6 +241,15 @@ export class DoorKnockingServeService extends createPrismaBase(
             // answered differently, and merging them at the door attributes a
             // neighbor's refusal to whoever opens it.
             history: historyByPersonId.get(target.personId) ?? [],
+            // ADR 0011. Per-resident like the feed above, and always present
+            // even when empty: a resident nobody has written anything about is
+            // a fact the sheet states, and it has to read differently from a
+            // payload snapshotted before this field existed, where the key is
+            // missing and nothing is being claimed at all.
+            notes: notesByPersonId.get(target.personId) ?? {
+              entries: [],
+              total: 0,
+            },
           }
         }),
         otherResidents: (live?.otherResidents ?? []).map((person) => ({

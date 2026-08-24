@@ -5,9 +5,10 @@ describe('buildLatencyCases', () => {
   const cases = buildLatencyCases()
 
   it('applies list and count across every cohort x variant, others once per cohort', () => {
-    // list: 5x11, count: 5x11, list-detail: 5x2, search/sample/overlap/stats:
-    // 5 each, csv: 3 (csv skips mega and statewide — they dominate the pass)
-    expect(cases.length).toBe(55 + 55 + 10 + 4 * 5 + 3)
+    // list: 5x11, count: 5x11, list-detail: 5x2, search/sample/overlap/stats/
+    // voterDensity: 5 each, csv: 3 (csv skips mega and statewide — they
+    // dominate the pass)
+    expect(cases.length).toBe(55 + 55 + 10 + 5 * 5 + 3)
   })
 
   it('latency-tests the whole list-detail request at every district size', () => {
@@ -38,6 +39,12 @@ describe('buildLatencyCases', () => {
     const stats = cases.filter((c) => c.queryType === 'stats')
     expect(stats.length).toBe(5)
     expect(stats.every((c) => c.variant.name === 'none')).toBe(true)
+  })
+
+  it('runs voterDensity once per cohort with the none variant only', () => {
+    const density = cases.filter((c) => c.queryType === 'voterDensity')
+    expect(density.length).toBe(5)
+    expect(density.every((c) => c.variant.name === 'none')).toBe(true)
   })
 
   it('covers the list-detail aggregate fan-out on the join-path mega cohort', () => {

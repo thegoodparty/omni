@@ -757,6 +757,14 @@ export {
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
 export {
+  ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
+  ROBOCALL_AUDIO_MAX_BYTES,
+  RobocallAudioPresignRequestSchema,
+  type RobocallAudioPresignRequest,
+  RobocallAudioPresignResponseSchema,
+  type RobocallAudioPresignResponse,
+} from './outreach/RobocallAudio.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,
@@ -857,6 +865,9 @@ export {
   RouteTargetActivitySchema,
   type RouteTargetActivity,
   ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
+  RoutePayloadTargetNotesSchema,
+  type RoutePayloadTargetNotes,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,

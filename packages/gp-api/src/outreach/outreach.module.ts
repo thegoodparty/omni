@@ -19,6 +19,7 @@ import { OutreachController } from './outreach.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachRobocallController } from './outreachRobocall.controller'
+import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachCompletionService } from './services/outreachCompletion.service'
 import { OutreachInboundSweepService } from './services/outreachInboundSweep.service'
@@ -29,6 +30,7 @@ import { OutreachSocialGenerationService } from './services/outreachSocialGenera
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
 
@@ -59,6 +61,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachSocialController,
     OutreachPhoneBankingController,
     OutreachRobocallController,
+    OutreachRobocallAudioController,
   ],
   providers: [
     OutreachService,
@@ -67,6 +70,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachPhoneBankingGenerationService,
     OutreachRobocallGenerationService,
     OutreachComposeContextService,
+    OutreachRobocallAudioService,
     OutreachCompletionService,
     OutreachInboundSweepService,
     OutreachNotificationService,

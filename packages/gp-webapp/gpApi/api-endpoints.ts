@@ -1,6 +1,7 @@
 import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
+  DoorKnockingArchiveRequest,
   DoorKnockingKnockRequest,
   DoorKnockingKnockResponse,
   DoorKnockingRoutePayload,
@@ -844,6 +845,19 @@ export type APIEndpoints = {
   'DELETE /v1/door-knocking/turfs/:id': {
     Request: {}
     Response: undefined
+  }
+  // The list lifecycle. Both apply only to a knocked list, both answer with the
+  // whole row, and both are idempotent server-side in the direction that stamps
+  // a timestamp — so a retry cannot walk the date a card renders forward.
+  'POST /v1/door-knocking/turfs/:id/complete': {
+    Request: {}
+    Response: DoorKnockingTurf
+  }
+  // A body rather than an archive/unarchive pair, matching the route: restore
+  // is the same call with `archived: false`.
+  'POST /v1/door-knocking/turfs/:id/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf
   }
   'POST /v1/door-knocking/turfs/:id/knock': {
     Request: DoorKnockingKnockRequest

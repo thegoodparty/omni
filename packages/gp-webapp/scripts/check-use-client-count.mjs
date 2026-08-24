@@ -240,11 +240,19 @@ import { dirname, join, relative } from 'node:path'
 // RobocallScheduleStep drawer surface owns the name/date/time inputs and their
 // selection handlers, so it's a client component. Its scheduleTimeZone.ts
 // helper is directive-free (pure date/tz functions, no JSX).
-// 2026-08-24: 600 -> 602 for the robocall compose step (phase 3):
+// 2026-08-24: 600 -> 601 for app/dashboard/shared/ListCard.tsx — the saved-list
+// card the door-knocking rail is rebuilt on, and which voter data and campaign
+// manager reuse. It binds a click handler on its title, so a server-component
+// caller would fail at render; the directive is what makes it safe to import
+// from a surface that hasn't got a boundary yet. Its two door-knocking siblings
+// stay directive-free and inherit the boundary from their importers, the
+// savedListFilters.ts rule: turfLifecycle.ts is a hooks module with no JSX, and
+// TurfLegend.tsx holds no state and binds only handlers it is handed.
+// 2026-08-24: 601 -> 603 for the robocall compose step (phase 3):
 // RobocallComposeStep owns the tone pills, AI-draft display, and record-bar
 // interaction, and its useRobocallRecorder hook drives MediaRecorder state and
 // object-URL lifecycle — both hold browser-only state, so both are client.
-const BASELINE = 602
+const BASELINE = 603
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
