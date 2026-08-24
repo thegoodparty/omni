@@ -3,11 +3,13 @@ import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
   ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
+import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
 import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
 import {
@@ -1677,6 +1679,226 @@ describe('door-knocking routes', () => {
         const { res } = await knockAndServe()
 
         expect(historyFor(res, PERSON_1)).toEqual([])
+      })
+    })
+
+    // ADR 0011. Notes ride the payload for the reason the feed does: the
+    // at-the-door sheet is fetch-free, so anything it cannot show from what
+    // the walk opened with is not there when a canvasser is out of signal.
+    describe('resident notes (ADR 0011)', () => {
+      const notesFor = (res: { data: { stops: unknown } }, personId: string) =>
+        (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{
+                personId: string
+                notes: {
+                  entries: Array<{
+                    id: string
+                    personId: string
+                    body: string
+                    createdAt: string
+                    updatedAt: string
+                  }>
+                  total: number
+                }
+              }>
+            }>
+          }>
+        )
+          .flatMap((stop) => stop.addresses)
+          .flatMap((address) => address.targets)
+          .find((target) => target.personId === personId)?.notes
+
+      const writeNotes = (
+        personId: string,
+        notes: Array<{ body: string; createdAt: string; updatedAt?: string }>,
+      ) =>
+        service.prisma.contactNote.createMany({
+          data: notes.map((note) => ({
+            organizationSlug: orgSlug,
+            personId,
+            body: note.body,
+            createdAt: new Date(note.createdAt),
+            updatedAt: new Date(note.updatedAt ?? note.createdAt),
+          })),
+        })
+
+      // Empty and absent are different claims, and this is the one that pins
+      // it: the server always sends the block, so a missing `notes` key means
+      // "this payload predates the field" rather than "nobody wrote anything".
+      it('serves an empty block for a resident with no notes', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(notesFor(res, PERSON_2)).toEqual({ entries: [], total: 0 })
+      })
+
+      it('orders notes newest first, with both timestamps', async () => {
+        await writeNotes(PERSON_1, [
+          {
+            body: 'Asked about the sidewalk repairs',
+            createdAt: '2026-06-01T10:00:00Z',
+          },
+          {
+            body: 'Dog in the front yard, use the side gate',
+            createdAt: '2026-07-01T10:00:00Z',
+            // An edited note keeps its place in the list — ordering is by when
+            // it was written, so fixing a typo does not resurface an old note.
+            updatedAt: '2026-07-20T09:30:00Z',
+          },
+          { body: 'Wants a yard sign', createdAt: '2026-06-15T10:00:00Z' },
+        ])
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)).toMatchObject({
+          total: 3,
+          entries: [
+            {
+              body: 'Dog in the front yard, use the side gate',
+              createdAt: '2026-07-01T10:00:00.000Z',
+              updatedAt: '2026-07-20T09:30:00.000Z',
+            },
+            {
+              body: 'Wants a yard sign',
+              createdAt: '2026-06-15T10:00:00.000Z',
+              updatedAt: '2026-06-15T10:00:00.000Z',
+            },
+            {
+              body: 'Asked about the sidewalk repairs',
+              createdAt: '2026-06-01T10:00:00.000Z',
+            },
+          ],
+        })
+      })
+
+      // The id is what makes the note editable and deletable from the door,
+      // and it is the CRM's own row id rather than anything derived here — the
+      // webapp posts it straight back to `PATCH/DELETE contacts/notes/:id`.
+      it('carries the CRM note id and personId through unchanged', async () => {
+        await writeNotes(PERSON_1, [
+          { body: 'Back door only', createdAt: '2026-07-01T10:00:00Z' },
+        ])
+        const saved = await service.prisma.contactNote.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: PERSON_1 },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)?.entries[0]).toMatchObject({
+          id: saved.id,
+          personId: PERSON_1,
+        })
+      })
+
+      // The same reason the feed is keyed by personId: two people behind one
+      // door are two records, and free text written about one of them read
+      // against the other is worse material to get wrong than an outcome.
+      it('scopes notes to the resident, not the household', async () => {
+        await writeNotes(PERSON_1, [
+          {
+            body: 'Supportive, wants a sign',
+            createdAt: '2026-07-01T10:00:00Z',
+          },
+        ])
+        await writeNotes(PERSON_2, [
+          {
+            body: 'Asked us not to come back',
+            createdAt: '2026-07-02T10:00:00Z',
+          },
+        ])
+
+        const { res } = await knockAndServe()
+
+        // PERSON_1 and PERSON_2 share PIPED_KEY — one address, one door.
+        expect(notesFor(res, PERSON_1)?.entries.map((n) => n.body)).toEqual([
+          'Supportive, wants a sign',
+        ])
+        expect(notesFor(res, PERSON_2)?.entries.map((n) => n.body)).toEqual([
+          'Asked us not to come back',
+        ])
+      })
+
+      // The cap bounds the payload; `total` is what stops the capped list
+      // reading as the whole record. Without it the sheet would show three
+      // notes out of nine and say nothing about the other six.
+      it(`caps at ${ROUTE_TARGET_NOTE_LIMIT} newest and reports the true total`, async () => {
+        await writeNotes(
+          PERSON_1,
+          Array.from({ length: 9 }, (_, index) => ({
+            body: `Note ${index + 1}`,
+            createdAt: `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00Z`,
+          })),
+        )
+
+        const { res } = await knockAndServe()
+
+        const notes = notesFor(res, PERSON_1)
+        expect(notes?.entries).toHaveLength(ROUTE_TARGET_NOTE_LIMIT)
+        expect(notes?.entries.map((n) => n.body)).toEqual([
+          'Note 9',
+          'Note 8',
+          'Note 7',
+        ])
+        expect(notes?.total).toBe(9)
+      })
+
+      // A resident sitting exactly on the cap is the case a renderer inferring
+      // truncation from `entries.length` gets wrong, so the payload has to be
+      // unambiguous about it.
+      it('reports no truncation for a resident sitting on the cap', async () => {
+        await writeNotes(
+          PERSON_1,
+          Array.from({ length: ROUTE_TARGET_NOTE_LIMIT }, (_, index) => ({
+            body: `Note ${index + 1}`,
+            createdAt: `2026-07-0${index + 1}T10:00:00Z`,
+          })),
+        )
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)?.total).toBe(ROUTE_TARGET_NOTE_LIMIT)
+      })
+
+      it("never leaks another organization's notes", async () => {
+        const otherSlug = `campaign-notes-elsewhere-${Date.now()}`
+        await service.prisma.organization.create({
+          data: {
+            slug: otherSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        await service.prisma.contactNote.create({
+          data: {
+            organizationSlug: otherSlug,
+            personId: PERSON_1,
+            body: 'Another campaign wrote this',
+          },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)).toEqual({ entries: [], total: 0 })
+      })
+
+      // The serve is this feature's heaviest read and runs on every walk open
+      // and every map open, so notes are fetched for the whole route at once.
+      // One call carrying every target's personId is what rules out the
+      // per-target fetch; the service turns that into a single windowed
+      // statement rather than a query per person.
+      it('reads every target in one call rather than one per target', async () => {
+        const notesService = service.app.get(DoorKnockingNotesService)
+        const spy = vi.spyOn(notesService, 'notesByPersonId')
+
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(spy).toHaveBeenCalledTimes(1)
+        expect(spy.mock.calls[0]?.[1]).toEqual(
+          expect.arrayContaining([PERSON_1, PERSON_2, PERSON_3, PERSON_4]),
+        )
       })
     })
 
