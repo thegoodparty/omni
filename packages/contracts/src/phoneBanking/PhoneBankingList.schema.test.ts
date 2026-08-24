@@ -75,6 +75,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
       listId: 1,
       entriesTotal: 10,
       entriesCalled: 4,
+      peopleTotal: 16,
+      peopleCalled: 6,
       byOutcome: {
         answered: 2,
         no_answer: 1,
@@ -83,6 +85,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
         refused: 0,
       },
       supporters: 1,
+      unsure: 0,
+      nonSupporters: 0,
     }
     expect(() => PhoneBankingOutreachDetailSchema.parse(detail)).not.toThrow()
   })
@@ -92,6 +96,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
       listId: 1,
       entriesTotal: 10,
       entriesCalled: 4,
+      peopleTotal: 16,
+      peopleCalled: 6,
       byOutcome: { answered: 2 },
       supporters: 1,
     }

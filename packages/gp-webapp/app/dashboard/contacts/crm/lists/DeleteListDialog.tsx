@@ -20,6 +20,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 
 interface DeleteListDialogProps {
   segment: SegmentResponse
@@ -62,6 +63,11 @@ export default function DeleteListDialog({
       await queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
       })
+      // Same endpoint backs the outreach audience picker's list cache; drop the
+      // deleted list there too so it can't be re-selected.
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
       // ENG-10767: same event the legacy DeleteSegment fired — parity for
       // the "lists deleted" chart. Ready-gated like the surface's other
       // events so an unsettled mode can't emit the wrong context.
@@ -81,6 +87,9 @@ export default function DeleteListDialog({
         errorSnackbar(LOCKED_LIST_MESSAGE, { autoHideDuration: 6000 })
         await queryClient.invalidateQueries({
           queryKey: ['custom-segments', orgSlug],
+        })
+        await queryClient.invalidateQueries({
+          queryKey: outreachAudienceListsKey(orgSlug),
         })
         onOpenChange(false)
         return

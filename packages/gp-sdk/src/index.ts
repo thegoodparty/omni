@@ -113,6 +113,16 @@ export type {
 } from './types/briefing'
 
 export type {
+  PersonProfileRemoval,
+  ListPersonProfileRemovalsOptions,
+  SetPersonProfileRemovalInput,
+  SetPersonProfileRemovalOutput,
+  ClearPersonProfileRemovalInput,
+  ClearPersonProfileRemovalOutput,
+  PersonLookupResult,
+} from './types/personProfile'
+
+export type {
   AdminOrganization,
   OrgDistrict,
   OrgPosition,

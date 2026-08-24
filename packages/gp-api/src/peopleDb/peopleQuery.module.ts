@@ -10,6 +10,7 @@ import { ShadowReadService } from './shadowRead.service'
 import { DatabricksVoterService } from './databricks/databricksVoter.service'
 import { DatabricksVoterDownloadService } from './databricks/databricksVoterDownload.service'
 import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client'
+import { VoterDensityService } from './services/voterDensity.service'
 
 @Module({
   providers: [
@@ -24,6 +25,7 @@ import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client
     VoterDownloadService,
     VoterDoorKnockingService,
     VoterPackService,
+    VoterDensityService,
   ],
   exports: [
     ShadowReadService,
@@ -34,6 +36,7 @@ import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client
     VoterDownloadService,
     VoterDoorKnockingService,
     VoterPackService,
+    VoterDensityService,
   ],
 })
 export class PeopleQueryModule {}

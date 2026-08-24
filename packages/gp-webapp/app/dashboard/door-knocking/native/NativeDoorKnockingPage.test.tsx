@@ -184,6 +184,8 @@ const turf: DoorKnockingTurf = {
   doorCount: null,
   peopleCount: null,
   loggedCount: null,
+  completedAt: null,
+  archivedAt: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),
   updatedAt: new Date('2026-07-21T00:00:00Z'),
 }
@@ -771,8 +773,11 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     const rail = document.getElementById('door-knocking-rail')
     expect(handle).toHaveAttribute('aria-expanded', 'false')
     expect(rail).toHaveClass('hidden')
-    // Over the map on a phone, in the flex row on a desktop.
-    expect(handle.parentElement).toHaveClass('absolute', 'lg:static')
+    // Over the map at every width now: a bottom sheet on a phone, a floating
+    // inset card on a desktop. It used to take a 384px column out of the flex
+    // row above `lg`, which is what the full-bleed rebuild removed.
+    expect(handle.parentElement).toHaveClass('absolute')
+    expect(handle.parentElement).not.toHaveClass('lg:static')
 
     fireEvent.click(handle)
 

@@ -42,6 +42,13 @@ export const PublicPersonProfileResponseSchema = z.object({
   // authored/overlay content below is null in that case. Absent/false on a
   // normal live profile.
   removed: z.boolean().optional(),
+  // The owner has a profile but it is not live — either still a draft or
+  // deliberately unpublished. Distinguishing this from "never claimed" is the
+  // whole point: both used to 404, so the marketing page could not tell them
+  // apart and served "Are you [name]? Claim your profile" to someone who had
+  // already claimed it and chosen to hide it. All authored content below is
+  // null in this case too; the flag is the only thing that leaves the server.
+  unpublished: z.boolean().optional(),
   displayName: z.string().nullable(),
   roleTitleOverride: z.string().nullable(),
   bioOverride: z.string().nullable(),

@@ -746,6 +746,20 @@ export {
   PhoneBankingScriptDraftResponseSchema,
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
+export {
+  ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
+  ROBOCALL_AUDIO_MAX_BYTES,
+  RobocallAudioPresignRequestSchema,
+  type RobocallAudioPresignRequest,
+  RobocallAudioPresignResponseSchema,
+  type RobocallAudioPresignResponse,
+} from './outreach/RobocallAudio.schema'
+export {
+  OutreachArchiveRequestSchema,
+  type OutreachArchiveRequest,
+  OutreachArchiveResponseSchema,
+  type OutreachArchiveResponse,
+} from './outreach/OutreachArchive.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -822,6 +836,8 @@ export {
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,
   type DoorKnockingTurf,
+  DoorKnockingArchiveRequestSchema,
+  type DoorKnockingArchiveRequest,
   DoorKnockingKnockRequestSchema,
   type DoorKnockingKnockRequest,
   DoorKnockingRouteHeaderSchema,
@@ -839,6 +855,9 @@ export {
   RouteTargetActivitySchema,
   type RouteTargetActivity,
   ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
+  RoutePayloadTargetNotesSchema,
+  type RoutePayloadTargetNotes,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,
@@ -892,6 +911,10 @@ export {
   PHONE_BANKING_CALL_NOTE_MAX_LENGTH,
   RecordPhoneBankingCallSchema,
   type RecordPhoneBankingCall,
+  PhoneBankingCallResultSchema,
+  type PhoneBankingCallResult,
+  RecordPhoneBankingCallResponseSchema,
+  type RecordPhoneBankingCallResponse,
 } from './phoneBanking/PhoneBankingCall.schema'
 
 export {

@@ -346,9 +346,11 @@ so channels without an interaction model still lock the filter.
 
 1. Stamp the filter lock (if a filter is attached — p2p can carry a phone
    list without one).
-2. Only `text | p2p | robocall` materialize. `doorKnocking` is permanently
-   excluded (the door-knock tool writes its own rows);
-   `phoneBanking`/`socialMedia` have no model yet.
+2. Only `text | p2p | robocall` materialize. `doorKnocking` and
+   `phoneBanking` are permanently excluded — each writes its own rows from
+   its own logging endpoint (the phone-banking call-outcome endpoint,
+   `src/phoneBanking/`, ENG-10915) rather than at launch; `socialMedia` has
+   no model yet.
 3. p2p/text with a captured Peerly phone list: rows come from
    `PeerlyPhoneListRecipient` — the actual SMS-reachable recipients — one
    `ContactInteractionText` per person (`createMany` +
@@ -477,8 +479,10 @@ over interaction rows with a non-null `support_answer`; a "list" =
   join); never assume it's set.
 - `ContactInteractionText.unsubscribedAt` was dropped before anything
   wrote it (SMS "unsubscribed" folded into `opted_out`, 2026-07-16).
-- Support answers are captured by door knocking only (for now); the
-  filter buckets exist in **both** modes.
+- Support answers are captured by door knocking and phone banking
+  (`SupportStatusService.derivedStatusSql` UNIONs both
+  `contact_interaction_door_knock` and `contact_interaction_phone_banking`,
+  ENG-10915); the filter buckets exist in **both** modes.
 - No paginated member browsing anywhere, by locked design — the list
   detail never shows people; individuals are reached via typeahead only.
   Don't add a member table.

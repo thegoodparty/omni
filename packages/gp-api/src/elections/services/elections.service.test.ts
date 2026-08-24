@@ -12,9 +12,9 @@ import { ElectionsService } from './elections.service'
 
 const AUTH_HEADER = { Authorization: 'Bearer mt_test' }
 
-const makePosition = (
-  turnoutValue: number | null,
-): PositionWithOptionalDistrict => ({
+// election-api's position response carries no turnout: it is resolved from the
+// district-keyed endpoint instead.
+const makePosition = (): PositionWithOptionalDistrict => ({
   id: 'pos-1',
   brPositionId: 'br-pos-1',
   brDatabaseId: 'br-db-1',
@@ -25,20 +25,6 @@ const makePosition = (
     state: 'TX',
     L2DistrictType: 'State_House',
     L2DistrictName: 'STATE HOUSE 005',
-    projectedTurnout:
-      turnoutValue !== null
-        ? {
-            id: 'pt-1',
-            createdAt: new Date('2024-01-01'),
-            updatedAt: new Date('2024-01-01'),
-            electionYear: 2024,
-            electionCode: 'General' as never,
-            projectedTurnout: turnoutValue,
-            inferenceAt: new Date('2024-01-01'),
-            modelVersion: 'v1',
-            districtId: 'district-1',
-          }
-        : null,
   },
 })
 
@@ -112,8 +98,21 @@ describe('ElectionsService', () => {
       officeName: undefined,
     }
 
+    // Two calls now: the position lookup, then the district-keyed turnout.
+    const mockPositionThenTurnout = (turnout: number | null) =>
+      mockHttpGet.mockImplementation((url: string) =>
+        of({
+          data: url.includes('projectedTurnout')
+            ? turnout === null
+              ? null
+              : { projectedTurnout: turnout }
+            : makePosition(),
+          status: 200,
+        }),
+      )
+
     it('returns calculated metrics when district and turnout are present (BR ID)', async () => {
-      mockHttpGet.mockReturnValue(of({ data: makePosition(1000), status: 200 }))
+      mockPositionThenTurnout(1000)
 
       const { district, projectedTurnout, winNumber, voterContactGoal } =
         await service.getPositionMatchedRaceTargetDetails(brIdParams)
@@ -127,10 +126,16 @@ describe('ElectionsService', () => {
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
         expect.objectContaining({ headers: AUTH_HEADER }),
       )
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('projectedTurnout'),
+        expect.objectContaining({
+          params: { districtId: 'district-1', electionDate: '2024-11-05' },
+        }),
+      )
     })
 
     it('returns calculated metrics when district and turnout are present (GP ID)', async () => {
-      mockHttpGet.mockReturnValue(of({ data: makePosition(1000), status: 200 }))
+      mockPositionThenTurnout(1000)
 
       const { district, projectedTurnout, winNumber, voterContactGoal } =
         await service.getPositionMatchedRaceTargetDetails(gpIdParams)
@@ -147,7 +152,7 @@ describe('ElectionsService', () => {
     })
 
     it('returns district with sentinel values when turnout is null', async () => {
-      mockHttpGet.mockReturnValue(of({ data: makePosition(null), status: 200 }))
+      mockPositionThenTurnout(null)
 
       const { district, winNumber, voterContactGoal, projectedTurnout } =
         await service.getPositionMatchedRaceTargetDetails(brIdParams)
@@ -233,7 +238,7 @@ describe('ElectionsService', () => {
 
   describe('getPositionByBallotReadyId', () => {
     it('returns position with district when includeDistrict is true', async () => {
-      const position = makePosition(1000)
+      const position = makePosition()
       mockHttpGet.mockReturnValue(of({ data: position, status: 200 }))
 
       const result = await service.getPositionByBallotReadyId('br-pos-1', {
@@ -244,7 +249,7 @@ describe('ElectionsService', () => {
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
         expect.objectContaining({
-          params: { includeDistrict: true, includeTurnout: false },
+          params: { includeDistrict: true },
         }),
       )
     })
@@ -265,7 +270,7 @@ describe('ElectionsService', () => {
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
         expect.objectContaining({
-          params: { includeDistrict: false, includeTurnout: false },
+          params: { includeDistrict: false },
         }),
       )
     })
@@ -281,7 +286,7 @@ describe('ElectionsService', () => {
 
   describe('resolveInternalPositionId', () => {
     it('returns the internal id when the value is a BallotReady id', async () => {
-      mockHttpGet.mockReturnValue(of({ data: makePosition(1000), status: 200 }))
+      mockHttpGet.mockReturnValue(of({ data: makePosition(), status: 200 }))
 
       const result = await service.resolveInternalPositionId('br-pos-1')
 
@@ -907,11 +912,6 @@ describe('ElectionsService', () => {
             official_office_name: null,
             primary_election_date: null,
             projected_turnout: 200,
-            // election-api still sends this; gp-api no longer declares it. Kept
-            // here on purpose so the fixture is the old producer's payload and
-            // proves the extra key passes through untouched -- the property this
-            // rollout depends on until the producer-side removal ships.
-            projected_voter_turnout: null,
             registered_voters: 900,
             unique_cellphones: 500,
             unique_landlines: 300,

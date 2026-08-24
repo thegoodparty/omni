@@ -12,11 +12,10 @@ import { PeerlyPhoneListCaptureService } from '@/vendors/peerly/services/peerlyP
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Channels that materialize the resolved filter into per-recipient rows at
-// launch. phoneBanking has a ContactInteraction model (ENG-10910) but a
-// separate write path writes its rows directly, not through launch
-// materialization; socialMedia has no model yet. doorKnocking is
-// permanently excluded — its rows are written by the tool that performs the
-// knock, not by outreach launch.
+// launch. socialMedia has no ContactInteraction<channel> model yet;
+// doorKnocking and phoneBanking are permanently excluded — their rows are
+// written by the tool/endpoint that logs the contact (a knock, a call), not
+// by outreach launch.
 const MATERIALIZABLE_OUTREACH_TYPES = new Set<OutreachType>([
   OutreachType.text,
   OutreachType.p2p,

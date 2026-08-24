@@ -8,6 +8,7 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { DistrictService } from '@/peopleDb/services/district.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
+import { VoterDensityService } from '@/peopleDb/services/voterDensity.service'
 import { resolveDistrict } from '@/peopleDb/utils/resolveDistrict.util'
 import { stateEquals } from '@/peopleDb/utils/buildVoterWhereSql.util'
 import {
@@ -56,6 +57,7 @@ export const createHarness = async (): Promise<Harness> => {
   const voterQuery = app.get(VoterQueryService)
   const stats = app.get(StatsService)
   const download = app.get(VoterDownloadService)
+  const voterDensity = app.get(VoterDensityService)
   const districts = app.get(DistrictService)
   const peopleDb = app.get(PeopleDbService)
 
@@ -213,8 +215,13 @@ export const createHarness = async (): Promise<Harness> => {
         await voterQuery.findPerson(id, { districtId } as never)
         return
       }
-      case 'stats':
-        await stats.findStats({ districtId } as unknown as StatsDTO)
+      case 'stats': {
+        const statsDto: StatsDTO = { districtId }
+        await stats.findStats(statsDto)
+        return
+      }
+      case 'voterDensity':
+        await voterDensity.getVoterDensity(districtId)
         return
       case 'csv': {
         const sink = createNullSink()

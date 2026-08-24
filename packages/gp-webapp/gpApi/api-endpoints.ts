@@ -1,6 +1,7 @@
 import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
+  DoorKnockingArchiveRequest,
   DoorKnockingKnockRequest,
   DoorKnockingKnockResponse,
   DoorKnockingRoutePayload,
@@ -12,6 +13,7 @@ import type {
   SetDoNotKnockResponse,
   SetNotAVoter,
   SetNotAVoterResponse,
+  PhoneBankingList,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -28,12 +30,20 @@ import type {
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
   SummarySource,
+  OutreachArchiveRequest,
+  OutreachArchiveResponse,
   OutreachDetail,
   SocialDraftRequest,
   SocialDraftResponse,
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  RecordPhoneBankingCall,
+  RecordPhoneBankingCallResponse,
+  PhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponse,
+  PhoneBankingCreate,
+  PhoneBankingCreateResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -258,6 +268,14 @@ export type APIEndpoints = {
     Response: OutreachDetail
   }
 
+  // Archive/restore for the v2 history drawer footer. Org-scoped (not
+  // campaign-scoped) — 404 when the row doesn't belong to the requester's
+  // organization. Response reads from the persisted row.
+  'PATCH /v1/outreach/:id/archive': {
+    Request: OutreachArchiveRequest
+    Response: OutreachArchiveResponse
+  }
+
   // Synchronous, stateless: one structured LLM call writes the compose-step
   // draft from purpose + tone (candidate name/office come from the session).
   // With currentDraft it polishes that text in place instead (Improve with
@@ -282,6 +300,22 @@ export type APIEndpoints = {
   'POST /v1/outreach/social': {
     Request: SocialSaveRequest
     Response: OutreachDetail
+  }
+
+  // Stateless script draft/improve for the phone-banking create flow —
+  // mirrors the social draft endpoint (purpose + tone; currentDraft polishes
+  // in place instead of writing fresh). 502 on model failure.
+  'POST /v1/outreach/phone-banking/draft': {
+    Request: PhoneBankingScriptDraftRequest
+    Response: PhoneBankingScriptDraftResponse
+  }
+
+  // Freezes the chosen script, sheet count, and audience (exactly one of
+  // voterFileFilterId or filters+filterName) into a phone-banking list.
+  // Pro-gated; 400 when the resolved audience is empty.
+  'POST /v1/phone-banking/lists': {
+    Request: PhoneBankingCreate
+    Response: PhoneBankingCreateResponse
   }
 
   // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
@@ -803,6 +837,19 @@ export type APIEndpoints = {
     Request: {}
     Response: undefined
   }
+  // The list lifecycle. Both apply only to a knocked list, both answer with the
+  // whole row, and both are idempotent server-side in the direction that stamps
+  // a timestamp — so a retry cannot walk the date a card renders forward.
+  'POST /v1/door-knocking/turfs/:id/complete': {
+    Request: {}
+    Response: DoorKnockingTurf
+  }
+  // A body rather than an archive/unarchive pair, matching the route: restore
+  // is the same call with `archived: false`.
+  'POST /v1/door-knocking/turfs/:id/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf
+  }
   'POST /v1/door-knocking/turfs/:id/knock': {
     Request: DoorKnockingKnockRequest
     Response: DoorKnockingKnockResponse
@@ -1254,6 +1301,31 @@ export type APIEndpoints = {
   'GET /v1/campaigns/mine/race-opponent/opponents/activity': {
     Request: {}
     Response: RaceOpponentActivityResponse
+  }
+
+  // The frozen phone-banking list plus its live per-person enrichment and
+  // logged interactions (PhoneBankingController.get). 404 when the list
+  // doesn't belong to the requester's organization.
+  'GET /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: PhoneBankingList
+  }
+
+  // Logs one call outcome. An answered call carries the active tab's
+  // personId (optionally markHouseholdDone); a number-level outcome
+  // (no_answer/voicemail/wrong_number/refused) carries no personId and
+  // fans out to every person on the entry server-side. The response reads
+  // from the persisted rows, so the caller can patch every affected
+  // person's cache entry from `results` without a refetch.
+  'POST /v1/phone-banking/lists/:id/calls': {
+    Request: RecordPhoneBankingCall
+    Response: RecordPhoneBankingCallResponse
+  }
+
+  // Deletes the list (and its entries/persons/interactions via cascade).
+  'DELETE /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: void
   }
 }
 

@@ -12,7 +12,9 @@ type OutreachType =
   | 'p2p'
   | 'robocall'
   | 'doorKnocking'
+  | 'nativeDoorKnocking'
   | 'phoneBanking'
+  | 'nativePhoneBanking'
   | 'socialMedia'
 
 interface OutreachCreateCardProps {

@@ -3,22 +3,23 @@ import { of, throwError } from 'rxjs'
 import { AxiosError } from 'axios'
 import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { VoterDensityService } from '@/peopleDb/services/voterDensity.service'
 import { VoterDensityProxyService } from '../services/voter-density-proxy.service'
 
 // e2e for GET /v1/public-person-profiles/voter-density. Boots the real app
-// (testcontainers Postgres) and mocks ONLY the outbound election-api call (via
-// the proxy's HttpService), exercising the controller + proxy path: district
-// resolution, and 404 for unresolved districts. The density cells themselves
-// have no backend (the people-api endpoint was removed and never implemented),
-// so a resolvable district renders no map until a people-db query exists.
+// (testcontainers Postgres) and mocks ONLY the two dependencies the proxy
+// fans out to: the outbound election-api call (via HttpService) for district
+// resolution, and the people-db density read (VoterDensityService) — people-db
+// has no test container, so it is mocked here like everywhere else in peopleDb.
+// This exercises the controller + proxy path: district resolution, the
+// people-db read, and 404 for unresolved districts.
 const service = useTestService()
 
 const PERSON_ID = '33333333-3333-4333-8333-333333333333'
 const DISTRICT_ID = '44444444-4444-4444-8444-444444444444'
 
 // Swap the proxy's private HttpService.get with a URL-routed stub. Only
-// /voter-district is expected now — any /voter-density call is a regression
-// (the people-api proxy was removed) and fails the test loudly.
+// /voter-district is expected — the density cells no longer come over HTTP.
 const mockHttp = (handlers: { voterDistrict: () => unknown }) => {
   const proxy = service.app.get(VoterDensityProxyService)
   const http = (proxy as unknown as { httpService: HttpService }).httpService
@@ -31,26 +32,60 @@ const mockHttp = (handlers: { voterDistrict: () => unknown }) => {
   })
 }
 
+const mockDensity = (result: {
+  coverage: number | null
+  cells: { lat: number; lng: number; count: number }[]
+}) =>
+  vi
+    .spyOn(service.app.get(VoterDensityService), 'getVoterDensity')
+    .mockResolvedValue(result)
+
+const resolvableDistrict = () =>
+  mockHttp({
+    voterDistrict: () =>
+      of({
+        data: { personId: PERSON_ID, districtId: DISTRICT_ID, state: 'WY' },
+      }),
+  })
+
 const get = (personId: string = PERSON_ID) =>
   service.client.get('/v1/public-person-profiles/voter-density', {
     params: { personId },
   })
 
 describe('GET /v1/public-person-profiles/voter-density', () => {
-  it('renders no map (null coverage, empty cells) for a resolvable district', async () => {
-    const spy = mockHttp({
-      voterDistrict: () =>
-        of({
-          data: { personId: PERSON_ID, districtId: DISTRICT_ID, state: 'WY' },
-        }),
+  it('returns coverage + cells for a district with density data', async () => {
+    const httpSpy = resolvableDistrict()
+    const densitySpy = mockDensity({
+      coverage: 0.82,
+      cells: [
+        { lat: 43.1, lng: -108.2, count: 25 },
+        { lat: 43.2, lng: -108.3, count: 11 },
+      ],
     })
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.coverage).toBe(0.82)
+    expect(res.data.cells).toHaveLength(2)
+    expect(res.data.cells[0]).toEqual({ lat: 43.1, lng: -108.2, count: 25 })
+    expect(densitySpy).toHaveBeenCalledWith(DISTRICT_ID)
+    httpSpy.mockRestore()
+    densitySpy.mockRestore()
+  })
+
+  it('renders no map (empty cells) when the district has no density rows', async () => {
+    const httpSpy = resolvableDistrict()
+    const densitySpy = mockDensity({ coverage: null, cells: [] })
 
     const res = await get()
 
     expect(res.status).toBe(200)
     expect(res.data.coverage).toBeNull()
     expect(res.data.cells).toEqual([])
-    spy.mockRestore()
+    httpSpy.mockRestore()
+    densitySpy.mockRestore()
   })
 
   it('forwards the M2M Authorization header to election-api', async () => {
@@ -58,6 +93,9 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     // would 401 (→ 502) once ELECTION_API_AUTH_ENFORCED is on. The test harness
     // stubs ElectionApiTokenService.authHeader to 'Bearer test-election-api-token'.
     let capturedHeaders: Record<string, string> | undefined
+    // District resolution succeeds here, so the proxy goes on to read people-db;
+    // stub that too or the unmocked client throws and the assertion sees a 500.
+    const densitySpy = mockDensity({ coverage: 0.5, cells: [] })
     const proxy = service.app.get(VoterDensityProxyService)
     const http = (proxy as unknown as { httpService: HttpService }).httpService
     const spy = vi
@@ -83,6 +121,7 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
       'Bearer test-election-api-token',
     )
     spy.mockRestore()
+    densitySpy.mockRestore()
   })
 
   it('404s when the person maps to no district (null districtId)', async () => {
@@ -109,6 +148,22 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
 
     const res = await get()
     expect(res.status).toBe(404)
+    spy.mockRestore()
+  })
+
+  it('502s (not swallowed) when election-api hard-fails with a non-404', async () => {
+    const spy = mockHttp({
+      voterDistrict: () =>
+        throwError(
+          () =>
+            new AxiosError('boom', 'ERR', undefined, undefined, {
+              status: 500,
+            } as never),
+        ),
+    })
+
+    const res = await get()
+    expect(res.status).toBe(502)
     spy.mockRestore()
   })
 

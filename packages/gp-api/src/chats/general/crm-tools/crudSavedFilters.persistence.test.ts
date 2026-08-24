@@ -76,7 +76,6 @@ const stubCountEligibility = () => {
     state: 'CA',
     L2DistrictType: 'County',
     L2DistrictName: 'Test County',
-    projectedTurnout: null,
   })
 }
 

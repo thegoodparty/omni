@@ -47,6 +47,7 @@ type OutreachTypeKey =
   | 'p2pTexting'
   | 'doorKnocking'
   | 'phoneBanking'
+  | 'nativePhoneBanking'
   | 'socialMedia'
   | 'robocall'
 
@@ -94,7 +95,9 @@ interface OutreachTypes {
   text: 'text'
   p2p: 'p2p'
   doorKnocking: 'doorKnocking'
+  nativeDoorKnocking: 'nativeDoorKnocking'
   phoneBanking: 'phoneBanking'
+  nativePhoneBanking: 'nativePhoneBanking'
   socialMedia: 'socialMedia'
   robocall: 'robocall'
 }
@@ -104,7 +107,9 @@ export const OUTREACH_TYPES: OutreachTypes = {
   text: 'text',
   p2p: 'p2p',
   doorKnocking: 'doorKnocking',
+  nativeDoorKnocking: 'nativeDoorKnocking',
   phoneBanking: 'phoneBanking',
+  nativePhoneBanking: 'nativePhoneBanking',
   socialMedia: 'socialMedia',
   robocall: 'robocall',
 }

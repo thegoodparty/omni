@@ -63,8 +63,16 @@ export const PhoneBankingOutreachDetailSchema = z.object({
   listId: z.number().int(),
   entriesTotal: z.number().int(),
   entriesCalled: z.number().int(),
+  peopleTotal: z.number().int(),
+  peopleCalled: z.number().int(),
   byOutcome: z.record(PhoneBankCallOutcomeSchema, z.number().int()),
+  // Person-level support-question tallies (contactInteractionPhoneBanking
+  // rows, same base as peopleCalled) — sibling counts to `supporters`, split
+  // out so the history drawer's completed results can render the full
+  // yes/unsure/no breakdown instead of only the "yes" count.
   supporters: z.number().int(),
+  unsure: z.number().int(),
+  nonSupporters: z.number().int(),
 })
 export type PhoneBankingOutreachDetail = z.infer<
   typeof PhoneBankingOutreachDetailSchema

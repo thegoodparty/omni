@@ -82,6 +82,7 @@ export default function DownloadStep({
         voterFileFilter: audience,
         outreachType: type,
         savedListId,
+        surface: 'outreachWizard',
       },
       setDownloading,
       errorSnackbar,

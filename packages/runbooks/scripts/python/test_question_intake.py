@@ -38,21 +38,23 @@ def _paged_requester(pages):
 
 TASKS = {"tasks": [
     {"id": "86ak1111", "name": "Are people exporting voter files?",
-     "status": {"status": "accepted"},
+     "status": {"status": "in progress"},
      "custom_fields": [
+         {"name": "stage", "value": "accepted"},
          {"name": "Product", "value": "win"},
          {"name": "Asked by", "value": [{"email": "nate@goodparty.org"}]},
      ]},
     {"id": "86ak2222", "name": "Do candidates read the plan?",
-     "status": {"status": "proposed"}, "custom_fields": []},
+     "status": {"status": "in progress"},
+     "custom_fields": [{"name": "stage", "value": "proposed"}]},
 ]}
 
 
 def test_fetch_questions_follows_pagination_until_last_page():
     pages = [
-        {"tasks": [{"id": "1", "name": "Q1?", "status": {"status": "accepted"},
+        {"tasks": [{"id": "1", "name": "Q1?", "status": {"status": "in progress"},
                     "custom_fields": []}], "last_page": False},
-        {"tasks": [{"id": "2", "name": "Q2?", "status": {"status": "accepted"},
+        {"tasks": [{"id": "2", "name": "Q2?", "status": {"status": "in progress"},
                     "custom_fields": []}], "last_page": True},
     ]
     rows = qi.fetch_questions("k", "list1", requester=_paged_requester(pages))
@@ -61,7 +63,7 @@ def test_fetch_questions_follows_pagination_until_last_page():
 
 def test_fetch_questions_stops_on_an_empty_page_without_last_page():
     pages = [
-        {"tasks": [{"id": "1", "name": "Q1?", "status": {"status": "accepted"},
+        {"tasks": [{"id": "1", "name": "Q1?", "status": {"status": "in progress"},
                     "custom_fields": []}]},
         {"tasks": []},
     ]
@@ -72,9 +74,30 @@ def test_fetch_questions_stops_on_an_empty_page_without_last_page():
 def test_fetch_questions_flattens_tasks_and_custom_fields():
     rows = qi.fetch_questions("k", "list1", requester=_requester(TASKS))
     assert rows[0] == {"id": "86ak1111", "name": "Are people exporting voter files?",
-                       "status": "accepted", "product": "win",
+                       "stage": "accepted", "product": "win",
                        "asked_by": "nate@goodparty.org"}
-    assert rows[1]["status"] == "proposed"
+    assert rows[1]["stage"] == "proposed"
+
+
+def test_custom_field_names_match_case_insensitively():
+    # The live list's fields are lowercase; an exact match on "Product" read as blank and
+    # normalized every question to "both".
+    payload = {"tasks": [{"id": "86ak7777", "name": "Q?", "custom_fields": [
+        {"name": "stage", "value": "accepted"},
+        {"name": "product", "value": "serve"},
+        {"name": "asked by", "value": [{"email": "nate@goodparty.org"}]},
+    ]}]}
+    rows = qi.fetch_questions("k", "L", requester=_requester(payload))
+    assert rows[0]["product"] == "serve"
+    assert rows[0]["asked_by"] == "nate@goodparty.org"
+
+
+def test_native_task_status_does_not_gate_intake():
+    # The Data Team space enforces a shared status group, so the list cannot carry its own
+    # Accepted status. Both fixture tasks sit in "in progress"; only stage decides.
+    rows = qi.fetch_questions("k", "list1", requester=_requester(TASKS))
+    out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
+    assert [b["question_ref"] for b in out] == ["86ak1111"]
 
 
 def test_only_accepted_tasks_become_behaviors():
@@ -99,14 +122,14 @@ def test_already_ingested_ref_is_skipped_so_reruns_are_noops():
 
 
 def test_missing_product_defaults_to_both():
-    rows = [{"id": "1", "name": "Q?", "status": "accepted", "product": "", "asked_by": ""}]
+    rows = [{"id": "1", "name": "Q?", "stage": "accepted", "product": "", "asked_by": ""}]
     assert qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())[0]["product"] == "both"
 
 
 def test_product_is_lowercased_and_unknown_values_fall_back_to_both():
     rows = [
-        {"id": "1", "name": "Q one?", "status": "accepted", "product": "Win", "asked_by": ""},
-        {"id": "2", "name": "Q two?", "status": "accepted", "product": "campaign",
+        {"id": "1", "name": "Q one?", "stage": "accepted", "product": "Win", "asked_by": ""},
+        {"id": "2", "name": "Q two?", "stage": "accepted", "product": "campaign",
          "asked_by": ""},
     ]
     out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
@@ -121,8 +144,9 @@ _PRODUCT_TYPE_CONFIG = {"options": [
 
 def _dropdown_task(value):
     return {"tasks": [{
-        "id": "86ak5555", "name": "Q?", "status": {"status": "accepted"},
+        "id": "86ak5555", "name": "Q?", "status": {"status": "in progress"},
         "custom_fields": [
+            {"name": "stage", "value": "accepted"},
             {"name": "Product", "type_config": _PRODUCT_TYPE_CONFIG, "value": value},
         ],
     }]}
@@ -187,9 +211,9 @@ def test_an_unresolvable_dropdown_value_still_falls_back_to_both():
 
 def test_same_slug_in_one_batch_lands_twice_with_distinct_ids():
     rows = [
-        {"id": "1", "name": "Are people exporting voter files?", "status": "accepted",
+        {"id": "1", "name": "Are people exporting voter files?", "stage": "accepted",
          "product": "", "asked_by": ""},
-        {"id": "2", "name": "Are people exporting voter files???", "status": "accepted",
+        {"id": "2", "name": "Are people exporting voter files???", "stage": "accepted",
          "product": "", "asked_by": ""},
     ]
     out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
@@ -198,7 +222,7 @@ def test_same_slug_in_one_batch_lands_twice_with_distinct_ids():
 
 
 def test_slug_colliding_with_an_existing_id_is_suffixed_not_dropped():
-    rows = [{"id": "9", "name": "Are people exporting voter files?", "status": "accepted",
+    rows = [{"id": "9", "name": "Are people exporting voter files?", "stage": "accepted",
              "product": "", "asked_by": ""}]
     out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set(),
                                  existing_ids={"are_people_exporting_voter_files"})
@@ -206,7 +230,7 @@ def test_slug_colliding_with_an_existing_id_is_suffixed_not_dropped():
 
 
 def test_blank_question_name_is_skipped():
-    rows = [{"id": "1", "name": "   ", "status": "accepted", "product": "", "asked_by": ""}]
+    rows = [{"id": "1", "name": "   ", "stage": "accepted", "product": "", "asked_by": ""}]
     assert qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set()) == []
 
 
