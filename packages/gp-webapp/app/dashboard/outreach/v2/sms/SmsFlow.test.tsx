@@ -175,11 +175,12 @@ describe('SmsFlow', () => {
       await screen.findByText('When do you want to send it?'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/sends must be at least 14 days out/),
+      screen.getByText(/Earliest send while compliance is pending/),
     ).toBeInTheDocument()
 
-    // A date 4 days out satisfies the 48h floor but not the 14-day one; the
-    // calendar disables it outright.
+    // Design parity: a date 4 days out clears the hard 48h calendar floor,
+    // so it stays SELECTABLE — picking it surfaces the compliance alert and
+    // blocks Continue instead of disabling the day outright.
     const target = new Date()
     target.setDate(target.getDate() + 4)
     await userEvent.click(screen.getByText('Pick a date'))
@@ -188,7 +189,14 @@ describe('SmsFlow', () => {
         `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
       ),
     })
-    expect(dayButton).toBeDisabled()
+    expect(dayButton).toBeEnabled()
+    await userEvent.click(dayButton)
+    expect(
+      await screen.findByText(
+        /Texting needs Pro plus carrier compliance approval/,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
   it('runs purpose → audience → schedule → compose → review and schedules free', async () => {

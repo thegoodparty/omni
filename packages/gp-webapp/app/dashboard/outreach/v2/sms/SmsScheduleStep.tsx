@@ -69,6 +69,9 @@ interface SmsScheduleStepProps {
   customTime: string
   onCustomTimeChange: (value: string) => void
   earliestSend: number
+  // The calendar's hard floor (48h) — looser than earliestSend while
+  // verification pends, so compliance-window dates stay selectable.
+  calendarFloor: number
   violates48h: boolean
   outsideWindow: boolean
 }
@@ -84,6 +87,7 @@ export const SmsScheduleStep = ({
   customTime,
   onCustomTimeChange,
   earliestSend,
+  calendarFloor,
   violates48h,
   outsideWindow,
 }: SmsScheduleStepProps) => {
@@ -96,10 +100,10 @@ export const SmsScheduleStep = ({
     }
   }, [])
   const earliestDay = useMemo(() => {
-    const d = new Date(earliestSend)
+    const d = new Date(calendarFloor)
     d.setHours(0, 0, 0, 0)
     return d
-  }, [earliestSend])
+  }, [calendarFloor])
 
   return (
     <div className="space-y-6">
@@ -108,7 +112,7 @@ export const SmsScheduleStep = ({
         title="When do you want to send it?"
         body={
           notCleared
-            ? 'We recommend mid-morning or early evening for higher engagement. While your identity verification is pending, sends must be at least 14 days out so it has time to clear.'
+            ? 'We recommend mid-morning or early evening for higher engagement.'
             : "We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
         }
       />
@@ -158,14 +162,15 @@ export const SmsScheduleStep = ({
               {/* w-0 + min-w-full: contribute nothing to the popover's
                   intrinsic width (the calendar sets it) and wrap inside it. */}
               <div className="w-0 min-w-full border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                {notCleared
-                  ? 'Dates inside the 14-day verification window can\u2019t be scheduled.'
-                  : 'Dates inside the 48-hour window can\u2019t be scheduled.'}
+                Dates inside the 48-hour window can&rsquo;t be scheduled.
               </div>
             </PopoverContent>
           </Popover>
           <p className="text-sm text-muted-foreground">
-            Earliest send: {fmtDateTime(new Date(earliestSend))}.
+            {notCleared
+              ? 'Earliest send while compliance is pending: '
+              : 'Earliest send: '}
+            {fmtDateTime(new Date(earliestSend))}.
           </p>
         </div>
 
@@ -199,7 +204,7 @@ export const SmsScheduleStep = ({
         <Alert variant="destructive" icon={<CircleAlertIcon />}>
           <AlertDescription>
             {notCleared
-              ? 'Sends need at least 14 days while verification is pending. '
+              ? 'Texting needs Pro plus carrier compliance approval, which can take up to two weeks. '
               : "Sends need at least 48 hours' notice. "}
             Pick a date and time on or after{' '}
             {fmtDateTime(new Date(earliestSend))}.

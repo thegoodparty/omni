@@ -253,6 +253,10 @@ export const SmsFlow = ({
   // review step's not-cleared banner covers the case where it still hasn't.
   const notCleared =
     tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
+  // Validation floor: 14 days while verification pends, else 48h. The
+  // CALENDAR only ever blocks the hard 48h window — dates inside the
+  // compliance window stay selectable and surface the explanatory alert
+  // instead (design parity).
   const earliestSend = useMemo(
     () =>
       Date.now() +
@@ -696,6 +700,9 @@ export const SmsFlow = ({
           customTime={customTime}
           onCustomTimeChange={setCustomTime}
           earliestSend={earliestSend}
+          calendarFloor={
+            earliestSend - (notCleared ? 12 * 24 * 60 * 60 * 1000 : 0)
+          }
           violates48h={violates48h}
           outsideWindow={outsideWindow}
         />
