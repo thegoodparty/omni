@@ -21,8 +21,9 @@ needs day to day; it only needs `INSERT` once the table exists.
 `create table if not exists` is a no-op once the table exists, so on its own it
 would deliver a definition living beside the writer without keeping the two in
 step -- add a column here later and the CREATE silently does nothing while the
-INSERT fails on an unknown one. So provisioning also compares the live columns
-against this definition and refuses on a mismatch. Changing the schema after
+INSERT fails on an unknown one. So provisioning also compares the live
+columns, their types and their nullability against this definition and refuses
+on a mismatch. Changing the schema after
 the table exists is a migration, not a rerun.
 """
 
@@ -33,14 +34,21 @@ CATALOG = "goodparty_data_catalog"
 SCHEMA = "model_predictions"
 RESULTS_TABLE = "llm_l2_br_match_results"
 
-RESULTS_COLUMNS = (
-    "br_database_id",
-    "l2_state",
-    "l2_district_type",
-    "l2_district_name",
-    "confidence",
-    "attempted_at",
+# (name, type, nullable), in order. Compared against the live table when
+# provisioning, so all three dimensions are checked rather than just the names:
+# a column can agree on its name and disagree on either of the others, and a
+# create-or-replace was measured to preserve comments while silently dropping
+# `not null`.
+RESULTS_SCHEMA: tuple[tuple[str, str, bool], ...] = (
+    ("br_database_id", "int", False),
+    ("l2_state", "string", True),
+    ("l2_district_type", "string", True),
+    ("l2_district_name", "string", True),
+    ("confidence", "bigint", True),
+    ("attempted_at", "timestamp", False),
 )
+
+RESULTS_COLUMNS = tuple(name for name, _, _ in RESULTS_SCHEMA)
 
 RESULTS_DDL = f"""
 create table if not exists {CATALOG}.{SCHEMA}.{RESULTS_TABLE} (
@@ -58,16 +66,27 @@ def results_table_path() -> str:
     return f"{CATALOG}.{SCHEMA}.{RESULTS_TABLE}"
 
 
-def live_results_columns(client: DatabricksClient) -> tuple[str, ...]:
-    """The live table's column names, in order.
+def live_results_schema(client: DatabricksClient) -> tuple[tuple[str, str, bool], ...]:
+    """The live table's (name, type, nullable) triples, in order.
 
-    DESCRIBE TABLE appends metadata blocks (partition info, and similar) after
-    the columns, each introduced by a blank or `#`-prefixed name, so those are
-    dropped.
+    Reads `information_schema.columns` rather than `DESCRIBE TABLE`, which
+    does not report nullability at all. Only `column_name`, `full_data_type`
+    and `is_nullable` are read: `is_identity` in this same view is a known
+    false negative in Databricks, so the view is trusted per-column rather
+    than wholesale.
     """
-    described = client.get_table_schema(CATALOG, SCHEMA, RESULTS_TABLE)
-    names = [str(name) for name in described["col_name"]]
-    return tuple(name for name in names if name and not name.startswith("#"))
+    rows = client.execute_query(
+        f"""
+        select column_name, full_data_type, is_nullable
+        from {CATALOG}.information_schema.columns
+        where table_schema = '{SCHEMA}' and table_name = '{RESULTS_TABLE}'
+        order by ordinal_position
+        """
+    )
+    return tuple(
+        (str(row.column_name), str(row.full_data_type), str(row.is_nullable).upper() == "YES")
+        for row in rows.itertuples(index=False)
+    )
 
 
 def ensure_results_table(databricks: DatabricksClient | None = None) -> None:
@@ -86,11 +105,11 @@ def ensure_results_table(databricks: DatabricksClient | None = None) -> None:
     client = databricks or DatabricksClient()
     client.execute_query(RESULTS_DDL)
 
-    live = live_results_columns(client)
-    if live != RESULTS_COLUMNS:
+    live = live_results_schema(client)
+    if live != RESULTS_SCHEMA:
         raise RuntimeError(
             f"{results_table_path()} does not match this definition. "
-            f"Live: {live}. Expected: {RESULTS_COLUMNS}. "
+            f"Live: {live}. Expected: {RESULTS_SCHEMA}. "
             "Changing the schema of an existing table is a migration, not a rerun."
         )
     logger.info(f"{results_table_path()} exists and matches this definition")
