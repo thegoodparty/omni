@@ -61,7 +61,10 @@ export function ListCard({
       className={cn(
         'relative gap-0 overflow-hidden p-3',
         accentColor && 'pl-4',
-        selected ? 'border-2 border-tertiary-dark' : 'border-border',
+        // Both states carry the same border WIDTH — only the colour changes.
+        // `Card`'s base is 1px, so selecting a card that thickened to 2px grew
+        // it and nudged every card under it down the rail on each toggle.
+        selected ? 'border-2 border-tertiary-dark' : 'border-2 border-border',
         dimmed && 'opacity-70',
       )}
     >

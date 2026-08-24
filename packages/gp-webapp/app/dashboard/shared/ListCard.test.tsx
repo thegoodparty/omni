@@ -93,4 +93,17 @@ describe('ListCard', () => {
       screen.getByRole('button', { name: 'Mark this list done' }),
     ).toBeVisible()
   })
+
+  // Selection changes the border's colour and never its width. These cards
+  // stack in a scrolling rail, so a card that thickened on selection would push
+  // every card below it down — on every toggle, under the thumb that toggled it.
+  it('keeps the border width constant across selection', () => {
+    const { rerender } = render(
+      <ListCard title="Elm St & 5th" data-testid="card" />,
+    )
+    expect(screen.getByTestId('card')).toHaveClass('border-2')
+
+    rerender(<ListCard title="Elm St & 5th" selected data-testid="card" />)
+    expect(screen.getByTestId('card')).toHaveClass('border-2')
+  })
 })
