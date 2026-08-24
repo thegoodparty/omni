@@ -303,7 +303,7 @@ export class ActivityConditionResolutionService extends createPrismaBase(
       case 'doorKnocking':
         return this.resolveDoorKnock(organizationSlug, actions)
       case 'phoneBanking':
-        return this.resolvePhoneBanking(organizationSlug, actions)
+        return this.resolvePhoneBanking(organizationSlug, outreachId, actions)
       default:
         throw new BadRequestException(
           `Activity conditions aren't supported for the "${outreachType}" channel`,
@@ -377,12 +377,13 @@ export class ActivityConditionResolutionService extends createPrismaBase(
     return new Set(rows.map((row) => row.personId))
   }
 
-  // Phone banking interactions carry no outreach linkage on this table
-  // (they hang off phoneBankingListId, not the Outreach.id ActivityCondition
-  // conditions target), so — like door knock — there is no outreach scoping
-  // here.
+  // Phone banking interactions link via phoneBankingListId, not
+  // Outreach.id (the @unique 1:1 on Outreach.phoneBankingListId), so a
+  // pinned outreachId scopes through a subquery rather than a direct
+  // column match.
   private async resolvePhoneBanking(
     organizationSlug: string,
+    outreachId: number | null | undefined,
     actions: ActivityConditionAction[],
   ): Promise<Set<string>> {
     const predicate = buildActionsPredicate(
@@ -393,6 +394,14 @@ export class ActivityConditionResolutionService extends createPrismaBase(
       SELECT DISTINCT person_id AS "personId"
       FROM contact_interaction_phone_banking
       WHERE organization_slug = ${organizationSlug}
+      ${
+        outreachId != null
+          ? Prisma.sql`AND phone_banking_list_id = (
+              SELECT phone_banking_list_id FROM outreach
+              WHERE id = ${outreachId}
+            )`
+          : Prisma.empty
+      }
       ${predicate ? Prisma.sql`AND ${predicate}` : Prisma.empty}
     `)
     return new Set(rows.map((row) => row.personId))

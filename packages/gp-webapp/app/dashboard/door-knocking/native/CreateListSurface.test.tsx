@@ -17,6 +17,8 @@ const flowProps: {
     previewPending: boolean
     previewFailed: boolean
     previewStale: boolean
+    savedLists: { id: number; name: string; households: number | null }[]
+    allContactsHouseholds: number | null
   } | null
 } = { current: null }
 vi.mock('./createFlow/CreateListFlow', () => ({
@@ -26,6 +28,8 @@ vi.mock('./createFlow/CreateListFlow', () => ({
     previewPending: boolean
     previewFailed: boolean
     previewStale: boolean
+    savedLists: { id: number; name: string; households: number | null }[]
+    allContactsHouseholds: number | null
     onShowAddresses: () => void
     onHideAddresses: () => void
     onStepChange: (step: CreateFlowStep) => void
@@ -61,6 +65,22 @@ const mockPreview = () => {
       data: { stops: 1, doors: 2, people: 2, locations: [] },
     }
   })
+}
+
+// Three households on two dots, two of them Democratic — the same shape the
+// page's own pack fixture has, so the counts below are readable.
+const pack = {
+  manifest: {
+    version: 1,
+    generatedAt: '2026-08-20T12:00:00Z',
+    counts: { people: 4, households: 3, dots: 2 },
+    dims: [{ key: 'party', values: ['Unknown', 'Democratic', 'Republican'] }],
+    arrays: [],
+  },
+  positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
+  personToHousehold: new Uint32Array([0, 0, 1, 2]),
+  householdToDot: new Uint32Array([0, 0, 1]),
+  dimPlanes: new Map([['party', new Uint8Array([1, 1, 1, 2])]]),
 }
 
 const ringA: PolygonRing = [
@@ -169,6 +189,52 @@ describe('CreateListSurface seam', () => {
 
     await waitFor(() => expect(flowProps.current?.addressPreview).toBeNull())
     expect(onSaved).toHaveBeenCalledWith(true)
+  })
+
+  // The who step's picker, counted against the same pack the map is drawn
+  // from. Both reads are the page's own query keys, which is the point: the
+  // saved lists are already warm and the pack is emphatically not this
+  // surface's to fetch.
+  it('counts the saved lists off the pack the page already holds', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 4, name: 'Democrats', partyDemocrat: true }],
+    })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    render(surface())
+
+    await waitFor(() =>
+      expect(flowProps.current?.savedLists).toEqual([
+        {
+          id: 4,
+          name: 'Democrats',
+          households: 2,
+          filters: { partyDemocrat: true },
+        },
+      ]),
+    )
+    expect(flowProps.current?.allContactsHouseholds).toBe(3)
+  })
+
+  // A pack fetch here would be a second tens-of-MB download of what the page
+  // already gates the whole feature on, so the observer is read-only.
+  it('fetches no pack of its own, and offers the lists uncounted until one lands', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 4, name: 'Democrats', partyDemocrat: true }],
+    })
+
+    render(surface())
+
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+    expect(flowProps.current?.savedLists[0]?.households).toBeNull()
+    expect(flowProps.current?.allContactsHouseholds).toBeNull()
+    expect(
+      fetchSpy.mock.calls.filter(([input]) => String(input).includes('/pack')),
+    ).toHaveLength(0)
+    fetchSpy.mockRestore()
   })
 })
 
