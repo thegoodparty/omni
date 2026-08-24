@@ -35,6 +35,7 @@ import DoorKnockingManageView from './DoorKnockingManageView'
 import TurfDetailsDrawer from './TurfDetailsDrawer'
 import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
+import { useWalkCompletion } from './walkCompletion'
 import type { PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
@@ -139,6 +140,18 @@ export default function NativeDoorKnockingPage({
     ? (turfsQuery.data?.find((candidate) => candidate.id === selectedTurf.id)
         ?.name ?? selectedTurf.name)
     : null
+  // The walk session carries an id and a name, which is all the walk needs; the
+  // lifecycle write needs the row itself, because `canCompleteTurf` gates on
+  // `locked` and on the two timestamps. Resolved off the rail's own query so
+  // the page and the card cannot disagree about which stage the list is in —
+  // the same rule `selectedTurfName` above follows for the same reason.
+  const walkTurfRow = walkTurf
+    ? (turfsQuery.data?.find((candidate) => candidate.id === walkTurf.id) ??
+      null)
+    : null
+  // Ending a FINISHED walk stamps the list Done. What "finished" means, and why
+  // it isn't every exit, is in `walkCompletion.ts`.
+  const completeFinishedWalk = useWalkCompletion(walkTurfRow)
   const savedListsQuery = useQuery(savedListsQueryOptions)
   // The knock dialog is the manage surface's handoff into the walk, so the
   // orchestrator owns it: it starts a walk session, and it is the one place
@@ -348,6 +361,10 @@ export default function NativeDoorKnockingPage({
   // Leaving the walk is the only way out of it. Doors logged along the way
   // mean the landing map's dots are stale.
   const endWalk = () => {
+    // Before `walk.end()` clears the session: the mutation reads the turf out
+    // of this render's closure, and the row it needs is resolved from the walk
+    // that is still open. A no-op unless the list has nothing left to knock.
+    completeFinishedWalk()
     const doorsLogged = walk.end({ stopCount: walkMap.stopCount })
     if (doorsLogged > 0) {
       void queryClient.invalidateQueries({
@@ -406,6 +423,8 @@ export default function NativeDoorKnockingPage({
           turfId={walkTurf.id}
           onKnockRecorded={walk.recordDoor}
           openStopRequest={walkMap.openStopRequest}
+          selectedStopId={walkMap.selectedStopId}
+          onSelectStop={walkMap.selectStop}
         />
       )
     }
@@ -555,6 +574,9 @@ export default function NativeDoorKnockingPage({
                 filterResult={filterResult}
                 turfs={visibleTurfs}
                 routePins={walkMap.routePins}
+                // The other half of the walk's one selection: the list marks
+                // the row, the canvas rings the pin, and both read this.
+                selectedStopId={walkMap.selectedStopId}
                 routeLoop={walkMap.routeLoop}
                 routeGeometry={walkMap.routeGeometry}
                 focusTurf={focusTurf}
