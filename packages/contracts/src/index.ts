@@ -747,6 +747,16 @@ export {
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
 export {
+  ROBOCALL_PURPOSE_VALUES,
+  RobocallPurposeSchema,
+  type RobocallPurpose,
+  ROBOCALL_SCRIPT_MAX_LENGTH,
+  RobocallScriptDraftRequestSchema,
+  type RobocallScriptDraftRequest,
+  RobocallScriptDraftResponseSchema,
+  type RobocallScriptDraftResponse,
+} from './outreach/RobocallScript.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,

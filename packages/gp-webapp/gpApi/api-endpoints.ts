@@ -41,6 +41,8 @@ import type {
   RecordPhoneBankingCallResponse,
   PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponse,
+  RobocallScriptDraftRequest,
+  RobocallScriptDraftResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
 } from '@goodparty_org/contracts'
@@ -307,6 +309,13 @@ export type APIEndpoints = {
   'POST /v1/outreach/phone-banking/draft': {
     Request: PhoneBankingScriptDraftRequest
     Response: PhoneBankingScriptDraftResponse
+  }
+  // Robocall AI script draft — stateless, same shape as social/phone-banking
+  // (purpose + tone; currentDraft polishes in place). Pro-gated. 502 on model
+  // failure.
+  'POST /v1/outreach/robocall/draft': {
+    Request: RobocallScriptDraftRequest
+    Response: RobocallScriptDraftResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of
