@@ -168,6 +168,24 @@ const mockDraft = (
     data: { draft },
   })
 
+const mockDraftError = () =>
+  api.mock('POST /v1/outreach/robocall/draft', {
+    status: 500,
+    data: { message: 'boom' },
+  })
+
+// Purpose -> audience -> schedule, then set a valid date+time and Continue into
+// compose WITHOUT pre-mocking a successful draft, so the caller controls
+// whether the on-entry draft succeeds or fails.
+const gotoComposeRaw = async (purposeLabel = 'Persuade likely voters') => {
+  await gotoSchedule(purposeLabel)
+  await userEvent.click(screen.getByText('Pick a date'))
+  await userEvent.click(await screen.findByText('mock-pick-future'))
+  await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+  await userEvent.click(await screen.findByRole('option', { name: '10:00 AM' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+}
+
 // Mocks the presign endpoint and stubs the direct S3 POST. `s3Ok` controls
 // whether the upload succeeds; non-S3 requests fall through to MSW.
 // Restore any global.fetch spy (mockAudioUpload) so it doesn't leak a
@@ -725,6 +743,60 @@ describe('RobocallFlow', () => {
     expect(
       await screen.findByText(/A fresh take on why your vote matters/),
     ).toBeInTheDocument()
+  })
+
+  it('shows the draft error card, and Try again re-drafts', async () => {
+    mockDraftError()
+    await gotoComposeRaw()
+
+    // The on-entry draft failed -> error card.
+    expect(
+      await screen.findByText(/We couldn't draft your script just now/),
+    ).toBeInTheDocument()
+
+    // Try again with a working draft: the script renders and the card clears.
+    mockDraft('A recovered draft for you.')
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(
+      await screen.findByText(/A recovered draft for you/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We couldn't draft your script just now/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('clears the draft error when switching to a custom purpose', async () => {
+    mockDraftError()
+    await gotoComposeRaw()
+    expect(
+      await screen.findByText(/We couldn't draft your script just now/),
+    ).toBeInTheDocument()
+
+    // Back to the purpose step: compose -> schedule -> audience -> purpose.
+    await userEvent.click(screen.getByLabelText('Back'))
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByLabelText('Back'))
+    await userEvent.click(screen.getByLabelText('Back'))
+    await screen.findByText('Write my own script')
+
+    // Custom never drafts, so only the purpose-change reset can clear the
+    // error. Switch to custom and return to compose (schedule kept its date).
+    await userEvent.click(screen.getByText('Write my own script'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+    )
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Custom textarea shows and the stale error card is gone.
+    expect(
+      await screen.findByRole('textbox', { name: 'Robocall script' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We couldn't draft your script just now/),
+    ).not.toBeInTheDocument()
   })
 
   it('lets a custom purpose write its own script and never auto-drafts', async () => {

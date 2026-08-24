@@ -119,8 +119,12 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
+// No max() here: on the improve path a near-limit currentDraft can grow by a
+// few chars, and a hard max would fail Zod validation -> caught -> 502 (an
+// unrecoverable error from a recoverable output). We truncate to the cap
+// below instead; the contract response schema still enforces it at the wire.
 const DraftSchema = z.object({
-  draft: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH),
+  draft: z.string().min(1),
 })
 
 @Injectable()
@@ -186,7 +190,8 @@ export class OutreachRobocallGenerationService {
         maxTokens: 1024,
         userId,
       })
-      return object.draft
+      // Safety net for a slightly-over-limit improve result (see DraftSchema).
+      return object.draft.slice(0, ROBOCALL_SCRIPT_MAX_LENGTH)
     } catch (err) {
       this.logger.error({ err }, 'Robocall script generation failed')
       throw new BadGatewayException('Robocall script generation failed')
