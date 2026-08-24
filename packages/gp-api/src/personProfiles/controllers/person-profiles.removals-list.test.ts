@@ -1,6 +1,7 @@
 import { useTestService } from '@/test-service'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { UserRole } from '../../generated/prisma'
+import { PersonLookupService } from '../services/person-lookup.service'
 
 const service = useTestService()
 
@@ -141,5 +142,69 @@ describe('GET /v1/person-profiles/removals', () => {
 
     const res = await list({ includeCleared: true })
     expect(res.data).toHaveLength(1)
+  })
+})
+
+describe('GET /v1/person-profiles/removals/lookup', () => {
+  const LOOKUP = `${REMOVALS}/lookup`
+  const SLUG = 'jordan-reyes-a1b2c3d4'
+
+  const subject = {
+    personId: ACTIVE_PERSON_ID,
+    fullName: 'Jordan Reyes',
+    state: 'CA',
+    office: 'City Council Member',
+  }
+
+  // election-api is a separate service, so the outbound call is stubbed at the
+  // seam and everything this side of it — guard, query parsing, 404 mapping,
+  // response schema — runs for real.
+  const stubLookup = () =>
+    vi.spyOn(service.app.get(PersonLookupService), 'lookup')
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('refuses a non-admin caller', async () => {
+    const lookup = stubLookup().mockResolvedValue(subject)
+
+    const res = await service.client.get(LOOKUP, { params: { q: SLUG } })
+
+    expect(res.status).toBe(403)
+    // A guard that ran too late would still have resolved the identity.
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('resolves the pasted slug to the identity the operator confirms', async () => {
+    await promoteToAdmin()
+    const lookup = stubLookup().mockResolvedValue(subject)
+
+    const res = await service.client.get(LOOKUP, { params: { q: SLUG } })
+
+    expect(res.status).toBe(200)
+    expect(lookup).toHaveBeenCalledWith(SLUG)
+    expect(res.data).toEqual(subject)
+  })
+
+  it('404s when the slug matches nobody', async () => {
+    await promoteToAdmin()
+    // A typo must not read as an outage, and it must never fall through to a
+    // takedown against an empty confirmation.
+    stubLookup().mockResolvedValue(null)
+
+    const res = await service.client.get(LOOKUP, { params: { q: SLUG } })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('rejects a lookup with no query', async () => {
+    await promoteToAdmin()
+    const lookup = stubLookup().mockResolvedValue(subject)
+
+    const res = await service.client.get(LOOKUP)
+
+    expect(res.status).toBe(400)
+    expect(lookup).not.toHaveBeenCalled()
   })
 })
