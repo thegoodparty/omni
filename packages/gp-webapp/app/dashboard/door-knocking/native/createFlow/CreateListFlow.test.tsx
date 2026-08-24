@@ -1172,6 +1172,54 @@ describe('CreateListFlow steps', () => {
     expect(screen.queryByText('Discard this list?')).toBeNull()
   })
 
+  // A list picked on the who step already IS a `voter-file/filter`, and its id
+  // is the one a turf attaches by. Filing a copy per shape would leave the CRM
+  // holding a near-identical list for every turf cut from the same audience,
+  // and the details drawer resolving turfs to lists nobody made.
+  it('attaches the turf to the list that was picked, without copying it', async () => {
+    let filterPosts = 0
+    let turfBody: unknown = null
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      filterPosts += 1
+      return { status: 200, data: { id: 999 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    // Nothing is deleted either: the cleanup ref means "a list this flow
+    // minted", and the candidate's own list is not that.
+    const deletes = vi.fn()
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', () => {
+      deletes()
+      return { status: 200, data: {} }
+    })
+    const onSaved = vi.fn()
+    const props = { ...baseProps, savedLists, onSaved }
+
+    const { rerender } = renderAtWho(props)
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
+    )
+
+    rerender(<CreateListFlow {...props} step="confirm" />)
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    expect(filterPosts).toBe(0)
+    expect(turfBody).toMatchObject({
+      voterFileFilterId: 9,
+      name: 'Tuesday evening',
+    })
+    expect(deletes).not.toHaveBeenCalled()
+  })
+
   // The audience survives a draw-another; the voter list does not — this flow
   // mints a fresh `voter-file/filter` per turf. Carrying the last one's name
   // into the name step files the second list under a name already taken, from

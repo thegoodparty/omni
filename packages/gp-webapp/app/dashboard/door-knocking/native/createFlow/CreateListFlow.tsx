@@ -405,7 +405,15 @@ export default function CreateListFlow({
   const save = useMutation({
     mutationFn: async (drawAnother: boolean) => {
       if (!ring) throw new Error('no polygon')
+      // A list picked on the who step ALREADY is a `voter-file/filter`, and
+      // its id is the same one the turf attaches by — `TurfDetailsDrawer`
+      // resolves a turf's list by matching them. So the turf reuses it rather
+      // than filing a near-identical copy per shape cut from the same list.
+      // It must never reach `createdFilterIdRef`, whose cleanup DELETES what
+      // it holds: that ref means "a list this flow minted and may still have
+      // to clean up", and the candidate's own saved list is neither.
       const filterId =
+        savedListId ??
         createdFilterIdRef.current ??
         (
           await clientRequest('POST /v1/voters/voter-file/filter', {
@@ -418,7 +426,7 @@ export default function CreateListFlow({
             ...transformVoterFileFiltersForBackend(filters),
           })
         ).data.id
-      createdFilterIdRef.current = filterId
+      if (savedListId === null) createdFilterIdRef.current = filterId
       const closedRing: PolygonRing =
         ring[0]?.[0] !== ring[ring.length - 1]?.[0] ||
         ring[0]?.[1] !== ring[ring.length - 1]?.[1]

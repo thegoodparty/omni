@@ -5,13 +5,9 @@ import {
   ToggleGroupItem,
 } from '@styleguide'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import { PILL_TOGGLE_ITEM_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SavedListOption } from './savedListOptions'
-
-// The demo's pill look (same selected-state convention as the CRM wizard's
-// PILL_TOGGLE_ITEM_CLASSNAME).
-const PILL_CLASSNAME =
-  'rounded-full border border-components-input-border bg-transparent px-3.5 py-1.5 text-sm font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
 // Contacts made is how a candidate says "only doors I haven't been to yet",
 // which is the whole point of a second walk. Win-only, exactly as the CRM
@@ -136,7 +132,7 @@ export const WhoStep = ({
                   <ToggleGroupItem
                     key={option.key}
                     value={option.key}
-                    className={PILL_CLASSNAME}
+                    className={PILL_TOGGLE_ITEM_CLASSNAME}
                   >
                     {option.label}
                   </ToggleGroupItem>
