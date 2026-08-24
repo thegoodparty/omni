@@ -248,7 +248,15 @@ import { dirname, join, relative } from 'node:path'
 // stay directive-free and inherit the boundary from their importers, the
 // savedListFilters.ts rule: turfLifecycle.ts is a hooks module with no JSX, and
 // TurfLegend.tsx holds no state and binds only handlers it is handed.
-const BASELINE = 601
+// 2026-08-24: 601 -> 602 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
+// The door's Notes section owns a compose draft, an in-place editor, three
+// mutations and a dictation session, so it cannot render on the server — the
+// same shape and the same reason as DoNotKnockControl and NotAVoterControl
+// above it, inside the client-only PersonSheet. Its state module,
+// native/doorNotes.ts, stays directive-free and inherits the boundary from its
+// importers: it is a hooks-and-pure-functions module with no JSX, the
+// turfLifecycle.ts rule.
+const BASELINE = 602
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

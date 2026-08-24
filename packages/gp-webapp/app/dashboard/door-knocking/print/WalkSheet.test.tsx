@@ -44,6 +44,21 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           estimatedIncomeAmount: 82000,
           language: 'Spanish',
           ethnicityGroup: 'Hispanic',
+          // ADR 0011, carried for the same reason and with more force again:
+          // saved contact notes are free text a named person typed about a
+          // named voter, which is the largest disclosure on this payload.
+          notes: {
+            entries: [
+              {
+                id: '019826f4-0000-7000-8000-000000000001',
+                personId: 'person-1',
+                body: 'Do not ring the bell, the dog bites',
+                createdAt: '2026-07-01T15:00:00.000Z',
+                updatedAt: '2026-07-01T15:00:00.000Z',
+              },
+            ],
+            total: 9,
+          },
           knockStatus: 'unknown',
           mayHaveMoved: false,
           doNotKnock: false,
@@ -236,6 +251,23 @@ describe('WalkSheet', () => {
     ]) {
       expect(page).not.toMatch(leak)
     }
+  })
+
+  // ADR 0011, and the same argument once more. The fixture carries a saved note
+  // and a count of nine, so both halves of the block can fail — the count is a
+  // disclosure of its own, since "9 notes on file" says how much has been
+  // written about this voter even with none of it printed.
+  //
+  // Named by its body rather than by the word "Notes", because the sheet prints
+  // a Notes field for every person to write in: that blank is the point of the
+  // page, and asserting /notes/i would fail on the feature working.
+  it('never prints a saved contact note', () => {
+    renderSheet([stop()])
+
+    const page = document.body.textContent ?? ''
+    expect(page).not.toMatch(/Do not ring the bell/)
+    expect(page).not.toMatch(/9 notes/i)
+    expect(page).not.toMatch(/of 9/)
   })
 
   // A door already logged in the app must not come back as a blank form —
