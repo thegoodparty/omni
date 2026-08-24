@@ -227,6 +227,13 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     // just backed out of (which would leave Continue enabled on a stale list).
     // Backing INTO audience from a later step keeps the selection.
     if (stepId === 'audience') resetAudience()
+    // Backing OFF compose drops the recording+upload for the same reason: a
+    // saved clip must not silently keep Continue enabled after the user backs
+    // out and re-advances (they re-record deliberately on return).
+    if (stepId === 'compose') {
+      resetRecorder()
+      resetAudioUpload()
+    }
     setStepId(previous)
   }
 

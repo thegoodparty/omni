@@ -650,6 +650,32 @@ describe('RobocallFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
+  it('drops the saved recording when backing out of compose', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Recording saved')
+
+    // Back to schedule, then re-advance: the saved clip is gone, so Continue
+    // is locked again until the user re-records (no stale-clip pass-through).
+    await userEvent.click(screen.getByLabelText('Back'))
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/Read the script below into your microphone/)
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Start recording' }),
+    ).toBeInTheDocument()
+  })
+
   it('re-drafts when a different tone is chosen', async () => {
     await gotoCompose()
     expect(
