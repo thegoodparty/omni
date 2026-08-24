@@ -298,11 +298,18 @@ Resolve the health-report JSON the same three-way way Queue B does: local
 this run (it's gitignored, so a local copy may be stale — check, and if it predates
 the run, delete it and re-download); else find the `analytics-governance` CI run whose
 date matches `run_date` (`gh run list --workflow analytics-governance.yml --limit 20
---json databaseId,createdAt` — pick the run whose `createdAt` date equals
-`run_date`), then `gh run download <run_id> --name analytics-event-health-report
---dir instrumentation_data` and verify the downloaded report's `run_date` field
-matches before proceeding (if not, fall through); else recompute live with
-`analytics_event_health.py --today "$run_date" --json …` (needs Databricks OAuth).
+--json databaseId,createdAt` — `createdAt` is a full ISO 8601 datetime, so match on
+its first 10 characters, not the whole string), then `gh run download <run_id> --name
+analytics-event-health-report --dir instrumentation_data` and verify the downloaded
+report's `run_date` field matches before proceeding (if not, fall through); else
+recompute live with `analytics_event_health.py --today "$run_date" --json …` (needs
+Databricks OAuth).
+
+**If all three paths fail** — stale local file, no CI run matching `run_date`, and no
+Databricks OAuth for the live recompute — stop and say so: name the `run_date` you
+couldn't load a report for, and point at `docs/databricks.md` for credentials or a
+manual artifact download. Do NOT enter the steps below without a resolved report; the
+whole diagnosis is read off `records`, so guessing fabricates it.
 
 The report's `flagged` + `records` arrays are the input (each record carries
 `anomaly` current/baseline, `last_seen_date`, `event_count_30d`, `call_site_count`,
