@@ -10,8 +10,30 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
     'contact-engagement',
     'organizations',
   ],
-  'win-bugs': [],
+  'win-bugs': ['door-knocking'],
 }
+
+/**
+ * Controllers whose generated route alerts fire on 5xx only.
+ *
+ * The default filter calls every status >= 400 outside the excluded list a
+ * fault. That is right for a controller whose 4xx responses are all bugs and
+ * wrong for one whose 4xx responses are the feature working: door knocking
+ * answers an over-budget knock with 429, an empty or oversized turf with 400,
+ * and an ineligible district with a 400 the webapp renders as a state rather
+ * than an error. Under the default rule normal pilot use would page, and an
+ * alert that fires on designed behavior gets muted.
+ *
+ * What is worth waking someone for is the 5xx range: a missing
+ * GEOAPIFY_API_KEY (502), a Route Planner outage or a plan that doesn't cover
+ * every stop (502), and unhandled 500s.
+ *
+ * The cost is real — a genuine bug that surfaces as a 4xx on these
+ * controllers no longer pages, and nothing here can tell a designed 400 from
+ * an accidental one. So add a controller only when its 4xx vocabulary is
+ * deliberate and documented; every other controller keeps the >= 400 rule.
+ */
+export const SERVER_ERRORS_ONLY: ControllerName[] = ['door-knocking']
 
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //
@@ -90,9 +112,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the [15m] vector to an effective 10-minute window; that has always been
     // this alert's firing behavior and is kept as-is — widening it would
     // lengthen re-firing after a transient error burst. Retune deliberately.
+    // The message quotes the effective window, not the vector, so nobody
+    // triaging this searches a span the query never covered.
     timeRangeSeconds: 600,
     message: [
-      'Peerly-related endpoint errors detected in the last 15 minutes.',
+      'Peerly-related endpoint errors detected in the last 10 minutes.',
       'Dashboard: https://goodparty.grafana.net/d/peerly-prod/peerly-e28094-prod',
     ].join('\n\n'),
     notify: 'win-bugs',
@@ -128,6 +152,52 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
     notify: 'win-bugs',
   },
+  {
+    slug: 'door-knocking-route-planner-spend-ceiling',
+    name: '[Win] Door-knocking route planner spend ceiling',
+    type: 'log',
+    // The waypoint quota caps 500 waypoints (5,000 credits) per organization
+    // per rolling 24h and nothing sums across organizations, so the total bill
+    // scales with how many orgs hold the flag. This is that missing global
+    // view: a ceiling that pages rather than a hard cap, because one org's
+    // spend must not be able to fail another org's knock.
+    //
+    // Reads the DoorKnockingSpend log line rather than
+    // geoapify_route_planner_credits_total: the log is exact and immune to the
+    // counter resets a deploy causes, and it's the same source as the per-org
+    // spend queries in docs/door-knocking.md.
+    //
+    // 6h, not the quota's 24h, and matching the widest window any existing log
+    // alert here evaluates. The runaway this is built to catch — a loop, a
+    // wider flag rollout than intended — burns fast, and a [24h] vector
+    // re-scanned every minute is four times the read for a slower signal, on
+    // an alert whose execErrState is Alerting (a query timeout pages).
+    expr: [
+      'sum(sum_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Cheap line filter before | json, as the sibling log alerts do.
+      '|= "DoorKnockingSpend"',
+      '| json',
+      '| event = "DoorKnockingSpend"',
+      '| unwrap credits',
+      '[6h]))',
+    ].join(' '),
+    // Two organizations' entire daily allowance (2 x 500 waypoints) inside six
+    // hours — 1,000 stops routed, roughly ten maximum-size turfs. No
+    // legitimate pilot morning reaches that; a loop or an unintended rollout
+    // does, and it still leaves most of Geoapify's ~50k daily pool to react in.
+    threshold: 10000,
+    for: '5m',
+    // The [6h] range vector needs a matching fetch window; the default 600s
+    // would let the engine see only 10 minutes and never accumulate the sum.
+    timeRangeSeconds: 21600,
+    message: [
+      'Door-knocking has burned more than 10,000 Geoapify Route Planner credits in the last 6 hours — two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
+      'Click *View in Grafana* to see the DoorKnockingSpend lines, then group by organizationSlug (`sum by (organizationSlug) (sum_over_time(... | unwrap credits [24h]))`) to find which organizations are driving it. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
+      'If the spend is legitimate growth, raise the threshold deliberately. If one org is looping, pull its flag — there is no global cap in the code, so this alert is the only thing standing between a runaway and the Geoapify bill.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
   // ------ People (public profiles) ------ //
   {
     slug: 'people-profile-revalidation-failing',
@@ -146,6 +216,61 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'public-campaigns-lookup-error-ratio',
+    name: '[People] Public campaign lookup failing',
+    type: 'log',
+    // `public-campaigns` is not in ALERT_OWNERSHIP, so its generated per-route
+    // alert is provisioned `disabled`. That is why 5k+ daily 500s on a public
+    // endpoint paged nobody. It is deliberately still not opted in: the
+    // generated rule fires on a single error in the window, and this route
+    // serves ~2 req/s, so it would have been firing continuously and been
+    // muted. This is the rate-aware replacement.
+    //
+    // Denominator is lookups that resolved to a campaign (non-404), not all
+    // traffic. ~95% of requests are 404s — gp-marketing asks "has this
+    // candidate claimed their profile?" once per candidate page render, across
+    // a candidate universe far larger than the claimed one, so a miss is the
+    // feature working. Including them diluted the signal to 0.8-4% over 24h,
+    // too close to a plausible threshold to place one safely; against non-404s
+    // the same period reads 21-100%, nowhere near the 10% below.
+    //
+    // The `and` clause is a volume floor: below 20 resolvable lookups in the
+    // window a ratio is noise, and one stray 500 would page. Under the floor
+    // the query returns no data, which grafana.ts maps to OK (noDataState),
+    // not Alerting. The cost is that a large drop in traffic (e.g. if
+    // gp-marketing starts caching this call) silences the alert.
+    expr: [
+      '( sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Cheap line filter before | json, as the sibling log alerts do.
+      '|= "Request completed" | json',
+      '| request_endpoint = "GET /v1/public-campaigns"',
+      '| response_statusCode >= 500',
+      '[10m]))',
+      '/',
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint = "GET /v1/public-campaigns"',
+      '| response_statusCode != 404',
+      '[10m])) )',
+      'and',
+      '( sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint = "GET /v1/public-campaigns"',
+      '| response_statusCode != 404',
+      '[10m])) > 20 )',
+    ].join(' '),
+    threshold: 0.1,
+    for: '10m',
+    message: [
+      'More than 10% of the campaign lookups that resolved to a claimed candidate returned a server error in the last 10 minutes.',
+      'This endpoint backs the public candidate profiles on the marketing site: while it fails, claimed candidates render as unclaimed. 404s are excluded — most requests legitimately miss, because the caller asks about every candidate, not only claimed ones.',
+      'Click *View in Grafana* to find the failing requests. Response validation failures are the known shape of this: search context="ZodResponseInterceptor", whose log names the schema path that rejected the response.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'admin-impersonation-email-fallback-spike',
     name: '[Admin] Impersonation falling back to email actor',
     type: 'log',
@@ -155,9 +280,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     // Explicitly pins the pre-timeRangeSeconds default: effectively >5 events
     // per 10 minutes, this alert's firing behavior since it shipped. Kept
     // as-is; raising to 900 would make it more sensitive. Retune deliberately.
+    // The message quotes the effective window, not the vector, so nobody
+    // triaging this searches a span the query never covered.
     timeRangeSeconds: 600,
     message: [
-      'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 15 minutes.',
+      'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 10 minutes.',
       "This means actorEmail lookups against gp-api's Clerk instance returned no match for those impersonation requests. Possible causes:",
       '  • Admins without a gp-api Clerk account are impersonating (a routine baseline may exist; we have not yet measured it)',
       '  • Email casing/format regression in gp-admin → SDK → controller',

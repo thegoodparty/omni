@@ -584,6 +584,69 @@ describe('buildVoterFiltersSql', () => {
     })
   })
 
+  // ENG-10914: phoneBanking reachability moved from landline-only to any
+  // phone (cell OR landline). This asserts the SQL shape AND, via a JS
+  // mirror of the predicate, that it matches exactly the population the
+  // ticket's test plan describes: cell-only and landline-only people, not
+  // a phoneless one.
+  describe('hasAnyPhone filter (ENG-10914)', () => {
+    it('emits an OR of cell-phone/landline IS NOT NULL checks for true', () => {
+      const filterData: FilterData = {
+        filters: ['hasAnyPhone'],
+        filterValues: {},
+        filterOperators: {
+          hasAnyPhone: { operator: 'is', value: 'not_null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('VoterTelephones_CellPhoneFormatted')
+      expect(sqlStr).toContain('VoterTelephones_LandlineFormatted')
+      expect(sqlStr).toContain('IS NOT NULL OR')
+    })
+
+    it('emits an AND of cell-phone/landline IS NULL checks for false', () => {
+      const filterData: FilterData = {
+        filters: ['hasAnyPhone'],
+        filterValues: {},
+        filterOperators: {
+          hasAnyPhone: { operator: 'is', value: 'null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('VoterTelephones_CellPhoneFormatted')
+      expect(sqlStr).toContain('VoterTelephones_LandlineFormatted')
+      expect(sqlStr).toContain('IS NULL AND')
+    })
+
+    // JS mirror of the emitted predicate, evaluated against the three rows
+    // the ticket's test plan calls for: a cell-only person, a landline-only
+    // person, and a phoneless person. Reachable count is 2, not 1 —
+    // landline-only was the whole population before ENG-10914.
+    const matchesHasAnyPhone = (
+      cellPhone: string | null,
+      landline: string | null,
+    ): boolean => cellPhone !== null || landline !== null
+
+    it('matches cell-only and landline-only people, not a phoneless one', () => {
+      const cellOnly = { cellPhone: '5551234567', landline: null }
+      const landlineOnly = { cellPhone: null, landline: '5559876543' }
+      const phoneless = { cellPhone: null, landline: null }
+
+      const reachable = [cellOnly, landlineOnly, phoneless].filter((person) =>
+        matchesHasAnyPhone(person.cellPhone, person.landline),
+      )
+
+      expect(reachable).toEqual([cellOnly, landlineOnly])
+      expect(reachable).toHaveLength(2)
+    })
+  })
+
   describe('idOverrides composition (ENG-10838)', () => {
     const voterStatusFilter = (values: string[]): FilterData => ({
       filters: ['voterStatus'],

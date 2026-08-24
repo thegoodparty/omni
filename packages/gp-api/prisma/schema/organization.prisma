@@ -1,27 +1,30 @@
 model Organization {
-  createdAt                    DateTime                      @default(now()) @map("created_at")
-  updatedAt                    DateTime                      @default(now()) @updatedAt @map("updated_at")
-  slug                         String                        @id
-  owner                        User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId                      Int                           @map("owner_id")
-  positionId                   String?                       @map("position_id")
-  overrideDistrictId           String?                       @map("override_district_id")
-  customPositionName           String?                       @map("custom_position_name")
-  campaign                     Campaign?
-  electedOffice                ElectedOffice?
-  voterFileFilters             VoterFileFilter[]
-  experimentRuns               ExperimentRun[]
-  artifactFeedbacks            ArtifactFeedback[]
-  communityIssues              CommunityIssue[]
-  ordinanceCodeRecord          OrdinanceCodeRecord?
-  outreaches                   Outreach[]
-  contactNotes                 ContactNote[]
-  contactInteractionDoorKnocks ContactInteractionDoorKnock[]
-  contactInteractionTexts      ContactInteractionText[]
-  contactInteractionRobocalls  ContactInteractionRobocall[]
-  peerlyPhoneLists             PeerlyPhoneList[]
-  contactStatusEvents          ContactStatusEvent[]
-  contactCurrentStatuses       ContactCurrentStatus[]
+  createdAt                       DateTime                         @default(now()) @map("created_at")
+  updatedAt                       DateTime                         @default(now()) @updatedAt @map("updated_at")
+  slug                            String                           @id
+  owner                           User                             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId                         Int                              @map("owner_id")
+  positionId                      String?                          @map("position_id")
+  overrideDistrictId              String?                          @map("override_district_id")
+  customPositionName              String?                          @map("custom_position_name")
+  campaign                        Campaign?
+  electedOffice                   ElectedOffice?
+  voterFileFilters                VoterFileFilter[]
+  experimentRuns                  ExperimentRun[]
+  artifactFeedbacks               ArtifactFeedback[]
+  communityIssues                 CommunityIssue[]
+  ordinanceCodeRecord             OrdinanceCodeRecord?
+  outreaches                      Outreach[]
+  contactNotes                    ContactNote[]
+  contactInteractionDoorKnocks    ContactInteractionDoorKnock[]
+  contactInteractionTexts         ContactInteractionText[]
+  contactInteractionRobocalls     ContactInteractionRobocall[]
+  contactInteractionPhoneBankings ContactInteractionPhoneBanking[]
+  phoneBankingLists               PhoneBankingList[]
+  phoneBankingSuppressedPhones    PhoneBankingSuppressedPhone[]
+  peerlyPhoneLists                PeerlyPhoneList[]
+  contactStatusEvents             ContactStatusEvent[]
+  contactCurrentStatuses          ContactCurrentStatus[]
 
   @@index([ownerId])
   @@map("organization")

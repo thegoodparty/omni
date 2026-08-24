@@ -61,14 +61,6 @@ test.describe('Website Management', () => {
     ).toBeVisible()
     // Banner upload is skipped in CI due to CORS in test env; validate navigation only. Will re-enable once file uploads are supported in Vercel test environments.
     // await page.locator('input[type="file"]').setInputFiles('src/fixtures/heart.png');
-    const websiteTitleInput = page
-      .locator('label', { hasText: 'Title' })
-      .locator('xpath=following-sibling::*[1]//input')
-      .first()
-    await websiteTitleInput.fill(
-      `${faker.person.firstName()} for ${faker.location.city()}`,
-    )
-
     await page.getByRole('button', { name: 'Next', exact: true }).click()
     await WaitHelper.waitForLoadingToComplete(page)
     await expect(

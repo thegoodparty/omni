@@ -36,7 +36,10 @@ Where Pro state lives (all of it — there is no subscription table):
 - `campaign.details.subscriptionId` / `subscriptionCanceledAt` — set by the
   `checkout.session.completed` / `customer.subscription.*` webhooks in
   `paymentEventsService.ts`. `isPro` flips here too.
-- `user.metaData.customerId` — Stripe customer id (backfilled on boot).
+- `user.metaData.customerId` — Stripe customer id (backfilled on boot, or
+  on first Manage Subscription click via
+  `PurchaseController.recoverCustomerIdFromSubscription` when the boot-time
+  backfill missed the user because they had no stored `checkoutSessionId`).
 - `user.metaData.checkoutSessionId` — the ONE open Pro checkout session per
   user. Written only by `createProCheckoutSession`, cleared by the completion
   and expiry webhooks.

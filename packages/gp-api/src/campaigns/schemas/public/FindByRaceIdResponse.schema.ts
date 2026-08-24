@@ -50,7 +50,22 @@ const PublicCampaignDetailsSchema = z.object({
   otherParty: z.string().optional(),
   partisanType: z.string().nullable().optional(),
   normalizedOffice: z.string().nullable().optional(),
-  officeTermLength: z.string().optional(),
+  // Historically stored as a bare number (4); the campaign-details editor has
+  // written the "4 years" string form for a while, but ~18k active campaigns
+  // still hold the number and every one of them 500s this endpoint. Normalize
+  // to the declared string rather than widening to string | number, which
+  // would push the legacy shape onto the generated DTO and every consumer.
+  //
+  // `.nullable()` is defence, not a fix for observed data: no row in the table
+  // stores a null here. But `details` is unconstrained JSON that does hold
+  // nulls in other keys (raceId, partisanType, level — all already nullable
+  // below), and a null reaching this field would be another 500 on a public
+  // route. It passes through as null rather than the string "null".
+  officeTermLength: z
+    .union([z.string(), z.number()])
+    .transform(String)
+    .nullable()
+    .optional(),
   district: z.string().optional(),
   city: z.string().nullable().optional(),
   county: z.string().nullable().optional(),
@@ -60,7 +75,12 @@ const PublicCampaignDetailsSchema = z.object({
   pastExperience: z
     .union([z.string(), z.record(z.string(), z.string())])
     .optional(),
-  customIssues: z.array(z.record(z.string(), z.string())).optional(),
+  // Entries carry title/position strings plus a legacy numeric `order`. Unlike
+  // officeTermLength the number is the correct type here, so widen instead of
+  // coercing — stringifying `order` would invite lexical sorting ("10" < "9").
+  customIssues: z
+    .array(z.record(z.string(), z.union([z.string(), z.number()])))
+    .optional(),
   runningAgainst: z.array(z.record(z.string(), z.string())).optional(),
 })
 

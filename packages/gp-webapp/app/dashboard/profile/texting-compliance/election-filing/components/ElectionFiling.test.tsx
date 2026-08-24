@@ -182,6 +182,17 @@ describe('ElectionFiling — inline candidate profile collection (ENG-10857)', (
     expect(await screen.findByTestId('rich-editor')).toBeInTheDocument()
   })
 
+  it('still renders the form when the website read fails', async () => {
+    // getUserWebsite throws on a failed read rather than degrading to null, so
+    // `needsProfile` must settle on error too. Gating on isSuccess alone left
+    // it null forever and stranded the page on its Loading… spinner.
+    getUserWebsite.mockRejectedValue(new Error('Failed to load website: 500'))
+    render(<ElectionFiling />)
+
+    expect(await screen.findByTestId('filing-submit')).toBeInTheDocument()
+    expect(await screen.findByText(PROFILE_HEADING)).toBeInTheDocument()
+  })
+
   it('renders no profile section when the profile is already complete', async () => {
     getUserWebsite.mockResolvedValue(websiteWith('a'.repeat(MIN_BIO_LENGTH), 1))
     render(<ElectionFiling />)

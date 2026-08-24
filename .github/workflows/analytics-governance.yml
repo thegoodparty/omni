@@ -56,6 +56,10 @@ jobs:
       # Deep-links the Slack "browse gaps" link to the gaps tab; unset -> the
       # browse link falls back to the sheet's default tab (DATA-2151 Phase 3).
       GP_GAPS_TAB_GID: ${{ vars.GP_GAPS_TAB_GID }}
+      # The Analytics Questions list ids are not configured here: they are pointers, not
+      # secrets, so they default from questions_clickup.py. The token is the one real
+      # credential — the existing secrets.CLICKUP_API_TOKEN, mapped onto the
+      # CLICKUP_API_KEY name clickup_api.py reads.
     steps:
       - name: Preflight required config
         env:
@@ -137,6 +141,21 @@ jobs:
             --gap-slack "$RUNNER_TEMP/gap_slack.json" \
             --json instrumentation_data/analytics_event_health_report.json
 
+      # Runs before the state write-back so a question accepted in ClickUp lands in the same
+      # governance PR. Skips only when there is no ClickUp identity; any other failure fails
+      # the run, because a swallowed intake read looks identical to nobody having asked.
+      - name: Question intake
+        working-directory: packages/runbooks/scripts/python
+        env:
+          CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLICKUP_API_KEY:-}" ]; then
+            echo "::warning::Question intake skipped: secrets.CLICKUP_API_TOKEN is unset"
+            exit 0
+          fi
+          uv run question_intake.py
+
       - name: Commit state and keep the auto-merge PR fresh
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -144,7 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           state_dir=packages/runbooks/scripts/python/instrumentation_data
-          if [ -z "$(git status --porcelain -- "$state_dir")" ]; then
+          if [ -z "$(git status --porcelain -- "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml)" ]; then
             echo "No state changes this run."
             exit 0
           fi
@@ -152,7 +171,7 @@ jobs:
           git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
           branch=bot/analytics-governance-state
           git checkout -B "$branch"
-          git add "$state_dir"
+          git add "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml
           git commit -m "chore(analytics): scheduled governance state refresh"
           git push -f origin "$branch"
           pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')
@@ -191,6 +210,22 @@ jobs:
           printf '%s' "$GP_SHEETS_TOKEN_B64" | base64 -d > "$GP_SHEETS_TOKEN_PATH"
           uv run event_state_gsheet.py refresh
           uv run event_state_gsheet.py refresh-gaps
+          uv run event_state_gsheet.py refresh-questions
+
+      - name: Question answer-state write-back
+        working-directory: packages/runbooks/scripts/python
+        env:
+          CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The list ids default from questions_clickup.py, so the token is the only thing
+          # that can be missing. Name it rather than skipping mutely: a write-back that
+          # skips forever is invisible except as a stale Last-checked date on the list.
+          if [ -z "${CLICKUP_API_KEY:-}" ]; then
+            echo "::warning::Question write-back skipped: secrets.CLICKUP_API_TOKEN is unset"
+            exit 0
+          fi
+          uv run event_state_gsheet.py writeback-questions
 
       - name: Upload run report
         if: always()

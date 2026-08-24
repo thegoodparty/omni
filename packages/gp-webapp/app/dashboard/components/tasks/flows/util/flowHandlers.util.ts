@@ -70,7 +70,6 @@ interface CreateOutreachParams {
   setOutreaches?: (outreaches: Outreach[]) => void
   errorSnackbar?: (message: string) => void
   refreshCampaign?: () => Promise<void>
-  p2pUxEnabled?: boolean
 }
 
 interface CreateVoterFileFilterParams {
@@ -122,14 +121,13 @@ export const handleCreateOutreach =
     setOutreaches = noop,
     errorSnackbar = noop,
     refreshCampaign = noopAsync,
-    p2pUxEnabled = true,
   }: CreateOutreachParams) =>
   async (options?: { draft?: boolean }): Promise<Outreach | undefined> => {
     const { audience_request: audienceRequest } = audience || {}
     const { message } = schedule || {}
     const date = schedule?.date
     const voterFileFilterId = voterFileFilter?.id
-    const outreachType = getEffectiveOutreachType(type, p2pUxEnabled)
+    const outreachType = getEffectiveOutreachType(type)
     const draft = options?.draft
 
     const discount = hasFreeTextsOffer
@@ -156,9 +154,7 @@ export const handleCreateOutreach =
         ...(typeof audienceRequest === 'string' && audienceRequest
           ? { audienceRequest }
           : {}),
-        ...(p2pUxEnabled && phoneListId && phoneListId > 0
-          ? { phoneListId }
-          : {}),
+        ...(phoneListId && phoneListId > 0 ? { phoneListId } : {}),
         ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
         ...textCounts,
         ...(draft ? { draft: true } : {}),

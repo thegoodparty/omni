@@ -311,12 +311,35 @@ describe('activity conditions and supportStatus on a segment', () => {
       '/v1/voters/voter-file/filter',
       {
         name: 'Bad channel',
-        activityConditions: [{ outreachType: 'phoneBanking', actions: [] }],
+        activityConditions: [{ outreachType: 'socialMedia', actions: [] }],
       },
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
     expect(result.status).toBe(400)
+  })
+
+  it('accepts a phone-banking activity condition', async () => {
+    await seedWinCampaign()
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Phone banked',
+        activityConditions: [
+          { outreachType: 'phoneBanking', actions: ['answered', 'no_answer'] },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data.activityConditions).toEqual([
+      expect.objectContaining({
+        outreachType: 'phoneBanking',
+        actions: ['answered', 'no_answer'],
+      }),
+    ])
   })
 
   it('rejects a specific outreachId that has not completed', async () => {
@@ -427,6 +450,32 @@ describe('activity conditions and supportStatus on a segment', () => {
         activityConditions: [
           {
             outreachType: 'doorKnocking',
+            outreachId: outreach.id,
+            actions: ['answered'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+  })
+
+  it('rejects a phoneBanking condition with any outreachId', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedOutreach(
+      campaign.id,
+      WIN_SLUG,
+      OutreachType.text,
+    )
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Phone banked specific',
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
             outreachId: outreach.id,
             actions: ['answered'],
           },
@@ -559,7 +608,6 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
         state: 'CA',
         L2DistrictType: 'County',
         L2DistrictName: 'Test County',
-        projectedTurnout: null,
       })
 
   // People data resolves through the in-process people-db services now
@@ -940,7 +988,6 @@ describe('count + download for a saved segment', () => {
         state: 'CA',
         L2DistrictType: 'County',
         L2DistrictName: 'Test County',
-        projectedTurnout: null,
       })
 
   it('counts a saved segment scoped to the campaign district incl. party', async () => {

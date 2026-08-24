@@ -30,6 +30,7 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -162,6 +163,13 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -650,7 +658,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         peerlyIdentityId: null,
         kickoffSentAt: null,
         campaign: {
-          user: { clerkId: 'clerk_stranded' },
+          user: {
+            clerkId: 'clerk_stranded',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
           campaignPositions: [],
         },
       }
@@ -716,7 +728,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_a' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_a',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       const b = {
         id: 'tcr-b',
@@ -724,7 +743,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_b' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_b',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       mockModel.findMany.mockResolvedValueOnce([a, b])
       mockQueue.sendMessage
@@ -762,7 +788,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_d' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_d',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       const completed = {
         id: 'tcr-completed',
@@ -770,7 +803,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_c' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_c',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       mockModel.findMany.mockResolvedValueOnce([deferred, completed])
       mockWebsites.getContentForCampaign.mockImplementation(
@@ -797,7 +837,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_x' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_x',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       const healthy = {
         id: 'tcr-healthy',
@@ -805,7 +852,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_y' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_y',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       mockModel.findMany.mockResolvedValueOnce([broken, healthy])
       mockWebsites.getContentForCampaign.mockImplementation(
@@ -920,6 +974,13 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -1518,6 +1579,13 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -2214,6 +2282,13 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2243,9 +2318,12 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
     submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
-    retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
+    retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn>
   }
-  let mockModel: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+  let mockModel: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
+  }
   let mockPrisma: { tcrCompliance: typeof mockModel }
 
   const tcrCompliance = {
@@ -2260,9 +2338,12 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       verifyCampaignVerifyPin: vi.fn(),
       createCampaignVerifyToken: vi.fn(),
       submitCampaignVerifyTokenToBrand: vi.fn(),
-      retrieveCampaignVerifyStatus: vi.fn(),
+      retrieveCampaignVerifyDetails: vi.fn(),
     }
-    mockModel = { findFirstOrThrow: vi.fn() }
+    mockModel = {
+      findFirstOrThrow: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
     mockPrisma = { tcrCompliance: mockModel }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -2301,6 +2382,13 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -2385,8 +2473,15 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   >[1]
 
   it('retrieveCampaignVerifyToken verifies the PIN when the CV is not yet VERIFIED', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: null,
+    })
     mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
     mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
 
@@ -2400,14 +2495,35 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.verifyCampaignVerifyPin).toHaveBeenCalledWith(
         'peerly-1',
         '123456',
-        { id: 1 },
+        { id: 1, user: null },
       )
+      // A verified PIN means the CV is VERIFIED — the persisted mirror must
+      // stamp so sweepUnsubmittedUsecases picks the record up without
+      // waiting for the next CV status scan.
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          peerlyIdentityId: 'peerly-1',
+          NOT: { peerlyCvStatus: 'VERIFIED' },
+        },
+        data: {
+          peerlyCvStatus: 'VERIFIED',
+          peerlyCvStatusChangedAt: expect.any(Date),
+          cvInReviewEscalatedAt: null,
+        },
+      })
     })
   })
 
   it('retrieveCampaignVerifyToken throws Invalid PIN for a wrong PIN on a non-VERIFIED CV', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: null,
+    })
     mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
 
     await withEnv('prod', async () => {
@@ -2415,12 +2531,20 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
       ).rejects.toThrow(UnprocessableEntityException)
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
   })
 
   it('retrieveCampaignVerifyToken skips PIN re-verification and mints a token when the CV is already VERIFIED', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'VERIFIED',
+      pinDelivery: null,
+    })
     mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
 
     await withEnv('prod', async () => {
@@ -2433,9 +2557,64 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
         'peerly-1',
-        { id: 1 },
+        { id: 1, user: null },
       )
     })
+  })
+
+  // A candidate who enters their PIN between scans leaves the CV scan's poll
+  // set the moment VERIFIED is stamped, so PIN entry is the last observation
+  // that can record the delivery channel + fire CompliancePinSent.
+  it('retrieveCampaignVerifyToken runs PIN-delivery detection off its own read after a successful verify', async () => {
+    const user = { id: 55 }
+    const record = {
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user },
+    }
+    mockModel.findFirstOrThrow.mockResolvedValueOnce(record)
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+    const detectSpy = vi
+      .spyOn(service, 'applyCvDetection')
+      .mockResolvedValue(undefined)
+
+    await withEnv('prod', async () => {
+      await service.retrieveCampaignVerifyToken('123456', tcrWithIdentity)
+    })
+    // The detection is detached — flush it before asserting.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(detectSpy).toHaveBeenCalledExactlyOnceWith(record, record.campaign, {
+      status: 'VERIFIED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+  })
+
+  it('retrieveCampaignVerifyToken does not run detection when the PIN is rejected', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
+    const detectSpy = vi.spyOn(service, 'applyCvDetection')
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
+      ).rejects.toThrow(UnprocessableEntityException)
+    })
+
+    expect(detectSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -2488,6 +2667,13 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -2678,6 +2864,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     update: ReturnType<typeof vi.fn>
   }
   let mockPrisma: { tcrCompliance: typeof mockModel }
+  let mockCronLock: {
+    tryClaimHourlyRun: ReturnType<typeof vi.fn>
+    markHourlyCompleted: ReturnType<typeof vi.fn>
+  }
 
   const campaign = createMockCampaign({ id: 555 })
   const stuckRecord = {
@@ -2731,6 +2921,19 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       update: vi.fn().mockResolvedValue(undefined),
     }
     mockPrisma = { tcrCompliance: mockModel }
+    // Stands in for the DB-backed lock: one winner per (jobName, hour slot),
+    // so two invocations inside the same hour behave the way two prod replicas
+    // do. The real Postgres-level race is covered in cronLock.service.test.ts.
+    const claimedSlots = new Set<string>()
+    mockCronLock = {
+      tryClaimHourlyRun: vi.fn(async (jobName: string, now: Date) => {
+        const slot = `${jobName}-${now.toISOString().slice(0, 13)}`
+        if (claimedSlots.has(slot)) return false
+        claimedSlots.add(slot)
+        return true
+      }),
+      markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -2754,6 +2957,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: mockCronLock },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2761,9 +2965,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     service = module.get(CampaignTcrComplianceService)
   })
 
-  it('mints a token and submits the usecase when CV is VERIFIED', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
-
+  it('mints a token and submits the usecase for a swept (VERIFIED) record', async () => {
     await withEnv('prod', async () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
@@ -2782,22 +2984,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not submit or advance when CV is APPROVED (candidate still owes a PIN)', async () => {
-    // APPROVED can be reached by the CV authority before the candidate enters
-    // their PIN, so the sweep must leave the record in `submitted`. Advancing
-    // it to `pending` would flip the candidate to the "in review" screen and
-    // strand them with a PIN they can no longer enter.
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
-
-    await withEnv('prod', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
-    })
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it.each(['waiting_to_finalize', 'finalized'])(
     'skips when the profile is already past pending (status %s)',
     async (status) => {
@@ -2807,21 +2993,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
 
       await submitUsecaseIfVerified(service, stuckRecord)
 
-      expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
-    },
-  )
-
-  it.each(['REQUESTED', 'IN_REVIEW', 'REJECTED', 'WITHDRAWN'])(
-    'skips (no token, no Slack-spamming approve) when CV is %s',
-    async (status) => {
-      mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(status)
-
-      await submitUsecaseIfVerified(service, stuckRecord)
-
-      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
       expect(mockModel.update).not.toHaveBeenCalled()
     },
   )
@@ -2859,16 +3031,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('skips when CV status is null (no CV request exists for the identity)', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(null)
-
-    await submitUsecaseIfVerified(service, stuckRecord)
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it('skips (no rethrow) when the Peerly identity 404s (orphaned/deleted)', async () => {
     mockPeerly.getIdentityProfile.mockRejectedValueOnce(
       new NotFoundException('identity not found'),
@@ -2878,7 +3040,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       submitUsecaseIfVerified(service, stuckRecord),
     ).resolves.toBeUndefined()
 
-    expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -2903,7 +3064,11 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('sweeps submitted records that have a Peerly identity', async () => {
+  // The persisted-VERIFIED filter is what keeps APPROVED records (candidate
+  // still owes a PIN) out of the sweep — auto-submitting on APPROVED would
+  // race the candidate past the PIN screen. It also removed the per-record
+  // retrieve_cv read Peerly's rate-limit complaint was about (2026-08-17).
+  it('sweeps only submitted records whose persisted CV status is VERIFIED', async () => {
     mockModel.findMany.mockResolvedValueOnce([])
 
     await sweep(service)
@@ -2912,6 +3077,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: { not: null },
+        peerlyCvStatus: 'VERIFIED',
       },
     })
   })
@@ -2934,6 +3100,51 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: { id: 'tcr-b' },
       data: { status: TcrComplianceStatus.pending },
     })
+  })
+
+  // The whole point of the cron lock: without it both prod replicas' timers
+  // fire a pass, and since submitUsecaseIfVerified has no per-record claim
+  // both would mint a CV token and approve the same brand — double-finalizing
+  // the 10DLC identity into Peerly's MNO queue.
+  it('runs exactly one pass when two replicas fire in the same hour', async () => {
+    mockModel.findMany.mockResolvedValue([stuckRecord])
+
+    await withEnv('prod', async () => {
+      await Promise.all([sweep(service), sweep(service)])
+    })
+
+    expect(mockCronLock.tryClaimHourlyRun).toHaveBeenCalledTimes(2)
+    expect(mockModel.findMany).toHaveBeenCalledTimes(1)
+    expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledTimes(1)
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledTimes(1)
+  })
+
+  it('does no work at all when the claim is lost', async () => {
+    mockCronLock.tryClaimHourlyRun.mockResolvedValueOnce(false)
+
+    await sweep(service)
+
+    expect(mockModel.findMany).not.toHaveBeenCalled()
+    expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
+  })
+
+  it('seals the claim even when the pass throws', async () => {
+    // A dangling claim would block the rest of the hour for nothing.
+    mockModel.findMany.mockRejectedValueOnce(new Error('db down'))
+
+    await expect(sweep(service)).rejects.toThrow('db down')
+
+    expect(mockCronLock.markHourlyCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('claims and completes against the same pinned timestamp', async () => {
+    await sweep(service)
+
+    const claimAt = firstOrThrow(mockCronLock.tryClaimHourlyRun.mock.calls)[1]
+    const completeAt = firstOrThrow(
+      mockCronLock.markHourlyCompleted.mock.calls,
+    )[1]
+    expect(completeAt).toBe(claimAt)
   })
 })
 
@@ -2977,6 +3188,13 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],

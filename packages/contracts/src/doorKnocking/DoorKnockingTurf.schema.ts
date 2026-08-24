@@ -61,6 +61,14 @@ export type UpdateDoorKnockingTurf = z.infer<
 >
 
 // `locked` is derived, not stored: a turf is locked iff its route exists.
+//
+// The three counts are derived too, and from the frozen route — so they are
+// null, not 0, on an unlocked turf: there is no route to count, and a zero
+// would claim a walked list that turned out to be empty. Doors are addresses
+// and people are knockable targets (do-not-knock and not-a-voter residents
+// dropped), the same two populations the walk surfaces report; `loggedCount`
+// is the subset of `peopleCount` whose derived knock status is not `unknown`,
+// so the pair reads as "N of M logged" and never mixes populations.
 export const DoorKnockingTurfSchema = z.object({
   id: z.number().int(),
   voterFileFilterId: z.number().int(),
@@ -68,11 +76,33 @@ export const DoorKnockingTurfSchema = z.object({
   color: z.string(),
   geoPoly: GeoJsonPolygonSchema,
   locked: z.boolean(),
+  doorCount: z.number().int().nullable(),
+  peopleCount: z.number().int().nullable(),
+  loggedCount: z.number().int().nullable(),
+  // Both are timestamps rather than booleans so a card can say *when*, and
+  // both are only ever set on a knocked list. `deletedAt` is deliberately
+  // absent: a soft-deleted turf never leaves the API at all, so exposing the
+  // column would only invite a client to render a list the server considers
+  // gone.
+  completedAt: zDate().nullable(),
+  archivedAt: zDate().nullable(),
   createdAt: zDate(),
   updatedAt: zDate(),
 })
 
 export type DoorKnockingTurf = z.infer<typeof DoorKnockingTurfSchema>
+
+// A boolean rather than two endpoints, so restore-from-archive can't drift
+// away from archive in gating or shape.
+export const DoorKnockingArchiveRequestSchema = z
+  .object({
+    archived: z.boolean(),
+  })
+  .strict()
+
+export type DoorKnockingArchiveRequest = z.infer<
+  typeof DoorKnockingArchiveRequestSchema
+>
 
 // Walk settings are request params picked in the knock dialog, not turf
 // columns — they freeze onto the route.

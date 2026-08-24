@@ -59,6 +59,15 @@ export class VoterFileFilterService extends createPrismaBase(
         )
       }
 
+      if (condition.outreachType === OutreachType.phoneBanking) {
+        throw new BadRequestException(
+          'Phone-banking activity conditions cannot target a specific ' +
+            'outreachId — contact_interaction_phone_banking rows link via ' +
+            'phoneBankingListId, not Outreach.id, so phone-banking ' +
+            'conditions only support "any campaign" (omit outreachId).',
+        )
+      }
+
       const outreach = await this._prisma.outreach.findFirst({
         where: {
           id: condition.outreachId,

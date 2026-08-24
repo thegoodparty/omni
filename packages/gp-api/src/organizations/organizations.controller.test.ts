@@ -857,7 +857,6 @@ describe('PATCH /v1/organizations/:slug', () => {
       state: 'CA',
       L2DistrictType: 'County',
       L2DistrictName: 'Test County',
-      projectedTurnout: null,
     })
 
     await service.prisma.organization.create({
@@ -899,7 +898,6 @@ describe('PATCH /v1/organizations/:slug', () => {
       state: 'CA',
       L2DistrictType: 'County',
       L2DistrictName: 'Test County',
-      projectedTurnout: null,
     })
 
     await service.prisma.organization.create({
@@ -949,7 +947,6 @@ describe('PATCH /v1/organizations/:slug', () => {
           state: 'CA',
           L2DistrictType: 'City',
           L2DistrictName: 'Oakland',
-          projectedTurnout: null,
         },
       })
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({
@@ -1536,7 +1533,6 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
       state: 'CA',
       L2DistrictType: 'City',
       L2DistrictName: 'Oakland',
-      projectedTurnout: null,
     })
 
     const otherUser = await service.prisma.user.create({

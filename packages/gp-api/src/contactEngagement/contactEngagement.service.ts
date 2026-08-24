@@ -1,4 +1,5 @@
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
+import { ContactInteractionPhoneBankingService } from '@/contactInteraction/services/contactInteractionPhoneBanking.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
@@ -23,6 +24,7 @@ import {
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
   OutreachConstituentActivity,
+  PhoneBankingConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
   StatusChangeConstituentActivity,
@@ -45,6 +47,7 @@ const activityId = (activity: ConstituentActivity): string => {
     case ConstituentActivityType.DOOR_KNOCK:
     case ConstituentActivityType.TEXT:
     case ConstituentActivityType.ROBOCALL:
+    case ConstituentActivityType.PHONE_BANKING:
     case ConstituentActivityType.STATUS_CHANGE:
       return activity.data.activityId
   }
@@ -64,6 +67,7 @@ export class ContactEngagementService {
     private readonly contactInteractionDoorKnock: ContactInteractionDoorKnockService,
     private readonly contactInteractionText: ContactInteractionTextService,
     private readonly contactInteractionRobocall: ContactInteractionRobocallService,
+    private readonly contactInteractionPhoneBanking: ContactInteractionPhoneBankingService,
     private readonly contactStatus: ContactStatusService,
   ) {}
 
@@ -127,7 +131,7 @@ export class ContactEngagementService {
       return [...before, ...atCursor]
     }
 
-    const [doorKnocks, texts, robocalls] = await Promise.all([
+    const [doorKnocks, texts, robocalls, phoneBankings] = await Promise.all([
       fetchWindow(
         (windowTake) =>
           this.contactInteractionDoorKnock.findMany({
@@ -180,6 +184,25 @@ export class ContactEngagementService {
         cursorDate
           ? () =>
               this.contactInteractionRobocall.findMany({
+                where: { organizationSlug, personId, occurredAt: cursorDate },
+                orderBy,
+              })
+          : null,
+      ),
+      fetchWindow(
+        (windowTake) =>
+          this.contactInteractionPhoneBanking.findMany({
+            where: {
+              organizationSlug,
+              personId,
+              ...(cursorDate ? { occurredAt: { lt: cursorDate } } : {}),
+            },
+            orderBy,
+            take: windowTake,
+          }),
+        cursorDate
+          ? () =>
+              this.contactInteractionPhoneBanking.findMany({
                 where: { organizationSlug, personId, occurredAt: cursorDate },
                 orderBy,
               })
@@ -289,6 +312,20 @@ export class ContactEngagementService {
       }),
     )
 
+    const phoneBankingActivities: PhoneBankingConstituentActivity[] =
+      phoneBankings.map((activity) => ({
+        type: ConstituentActivityType.PHONE_BANKING,
+        date: activity.occurredAt.toISOString(),
+        data: {
+          activityId: activity.id,
+          outcome: activity.outcome,
+          supportAnswer: activity.supportAnswer,
+          willVote: activity.willVote,
+          note: activity.note,
+          manual: activity.manual,
+        },
+      }))
+
     const outreachConstituentActivities: OutreachConstituentActivity[] =
       outreachActivities.map((activity) => ({
         type: ConstituentActivityType.OUTREACH,
@@ -328,6 +365,7 @@ export class ContactEngagementService {
       ...doorKnockActivities,
       ...textActivities,
       ...robocallActivities,
+      ...phoneBankingActivities,
       ...statusChangeActivities,
     ]
     // date desc, then type/id as an explicit tiebreak — same-day Win outreach

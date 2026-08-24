@@ -8,7 +8,7 @@ import {
   SquareIcon,
 } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
-import type { UseDictationAppendResult } from 'app/dashboard/briefings/shared/useDictationAppend'
+import type { UseDictationAppendResult } from 'app/dashboard/shared/dictation/useDictationAppend'
 import type { StoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
 
 // Optional per-field Save. Passed on the standalone "Your story" dashboard page

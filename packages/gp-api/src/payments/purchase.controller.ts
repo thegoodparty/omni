@@ -8,7 +8,7 @@ import {
   Controller,
   Post,
 } from '@nestjs/common'
-import { Campaign, Organization, User } from '../generated/prisma'
+import { Campaign, Organization, Prisma, User } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { serializeError } from 'serialize-error'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
@@ -150,8 +150,9 @@ export class PurchaseController {
 
   @Post('portal-session')
   async createPortalSession(@ReqUser() user: User) {
-    const { metaData } = user
-    const { customerId } = metaData || {}
+    const customerId =
+      user.metaData?.customerId ??
+      (await this.recoverCustomerIdFromSubscription(user))
     if (!customerId) {
       throw new BadRequestException({
         message: 'User does not have a customerId',
@@ -161,6 +162,74 @@ export class PurchaseController {
     const { url: redirectUrl } =
       await this.stripeService.createPortalSession(customerId)
     return { redirectUrl }
+  }
+
+  // A write-side bug (since fixed) left a handful of Pro users with an active
+  // subscription but no customerId in meta_data, so Manage Subscription 400s
+  // with BILLING_CUSTOMER_ID_MISSING. Backfill from the campaign's stored
+  // subscriptionId on first click instead of failing them.
+  private async recoverCustomerIdFromSubscription(
+    user: User,
+  ): Promise<string | null> {
+    // The stranded users' elections have passed, so an active-campaign lookup
+    // returns null for exactly them (Manage Subscription stays reachable
+    // post-election via ActiveProSubscriptionAlert). Any campaign's
+    // subscriptionId resolves the same Stripe customer, so search them all,
+    // newest first.
+    let campaigns: Campaign[]
+    try {
+      campaigns = await this.campaignsService.findMany({
+        where: { userId: user.id },
+        orderBy: { updatedAt: Prisma.SortOrder.desc },
+      })
+    } catch (error) {
+      // Recovery is best-effort end to end: a transient DB error here should
+      // surface as the graceful 400, not an unhandled 500.
+      this.logger.error(
+        { error: serializeError(error), userId: user.id },
+        'Failed to load campaigns for customerId recovery',
+      )
+      return null
+    }
+    const subscriptionId = campaigns.find(
+      (campaign) => campaign.details?.subscriptionId,
+    )?.details?.subscriptionId
+    if (!subscriptionId) return null
+
+    const customerId = await this.fetchSubscriptionCustomerId(
+      user.id,
+      subscriptionId,
+    )
+    if (!customerId) return null
+
+    // Best-effort backfill: the customerId is already in hand, so a failed
+    // write must not turn a working portal redirect into a 500.
+    try {
+      await this.usersService.patchUserMetaData(user.id, { customerId })
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), userId: user.id },
+        'Failed to backfill customerId — portal session proceeds without it',
+      )
+    }
+    return customerId
+  }
+
+  private async fetchSubscriptionCustomerId(
+    userId: number,
+    subscriptionId: string,
+  ): Promise<string | null> {
+    try {
+      const { customer } =
+        await this.stripeService.retrieveSubscription(subscriptionId)
+      return typeof customer === 'string' ? customer : (customer?.id ?? null)
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), userId, subscriptionId },
+        'Failed to recover customerId from active subscription',
+      )
+      return null
+    }
   }
 
   /**

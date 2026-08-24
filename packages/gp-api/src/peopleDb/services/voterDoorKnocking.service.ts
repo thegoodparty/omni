@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
+  DoorKnockingDemographicsShape,
   DoorKnockingEvaluateResponse,
   DoorKnockingEvaluateResponseSchema,
   DoorKnockingResidentsResponse,
   DoorKnockingResidentsResponseSchema,
+  DoorKnockingResidentTarget,
 } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/people-prisma'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
@@ -14,7 +16,16 @@ import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.util'
 import { resolveDistrict } from '../utils/resolveDistrict.util'
 import {
   mapAge,
+  mapBusinessOwner,
+  mapEducation,
+  mapEthnicity,
+  mapHomeowner,
+  mapLanguage,
+  mapMaritalStatus,
   mapPoliticalParty,
+  mapPresenceOfChildren,
+  mapVeteranStatus,
+  mapVoterStatus,
 } from '../utils/transformToPersonOutput.util'
 import { FilterData } from '../schemas/filters.schema'
 import {
@@ -22,6 +33,7 @@ import {
   DoorKnockingResidentsDTO,
 } from '../schemas/doorKnocking.schema'
 import { buildBboxSql } from '../utils/bboxSql.util'
+import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
 
 const VOTER_TABLE = Prisma.raw(`"${DATABASE_SCHEMA}"."Voter"`)
 const DV_TABLE = Prisma.raw(`"${DATABASE_SCHEMA}"."DistrictVoter"`)
@@ -32,6 +44,15 @@ const DV_JOIN = Prisma.sql`JOIN ${DV_TABLE} dv
 // v1 quality gate: rooftop-geocoded rows only (>90% of the file). Widening
 // to more accuracy tiers is a WHERE change here, not a contract change.
 const ROOFTOP_ONLY = Prisma.sql`v."Residence_Addresses_LatLongAccuracy" = 'GeoMatchRooftop'`
+
+// ADR 0007 and ADR 0008. An unconditional conjunct alongside ROOFTOP_ONLY
+// rather than an id-override on a filter clause: the override slots hang off a
+// specific filter (voterStatus, contacts-made) and vanish when that filter is
+// absent, which is the one failure mode a suppression must not have. Both
+// do-not-knock and not-a-voter arrive through this one clause — they differ in
+// what someone said at the door, not in what the query has to do about it.
+const excludeIdsSql = (personIds: string[]) =>
+  Prisma.sql`v."id" != ALL(${personIds}::uuid[])`
 
 const EMPTY_FILTERS: FilterData = {
   filters: [],
@@ -59,7 +80,63 @@ type ResidentRow = {
   cellPhone: string | null
   landline: string | null
   addressKey: string
+  // The demographic profile, mapped for display by the same functions
+  // /v1/contacts person detail uses. Raw column names deliberately, matching
+  // the Age/Parties_Description rows above — the mapper signatures take the
+  // file's own vocabulary, and aliasing here would put the translation in two
+  // places.
+  registered: boolean
+  Voter_Status: string | null
+  Marital_Status: string | null
+  Presence_Of_Children: string | null
+  Veteran_Status: string | null
+  Homeowner_Probability_Model: string | null
+  Business_Owner: string | null
+  Education_Of_Person: string | null
+  Estimated_Income_Amount_Int: number | null
+  Language_Code: string | null
+  EthnicGroups_EthnicGroup1Desc: string | null
 }
+
+// The eleven attributes the door shows for a target, through the same display
+// mappers `/v1/contacts` person detail already uses — the mapping is decided
+// there, and a second interpretation of `Home Owner` or `Inferred Married`
+// living here is how the door and the CRM start describing one voter two ways.
+//
+// Every field has a real null case and sparseness is the normal condition of
+// this file, not an edge: the caller renders a null identically for all eleven
+// rather than letting some vanish and others read "Unknown".
+const mapDemographics = (
+  row: ResidentRow,
+): Pick<
+  DoorKnockingResidentTarget,
+  keyof typeof DoorKnockingDemographicsShape
+> => ({
+  registeredVoter: row.registered,
+  // `Voter_Status` is turnout propensity, not registration activity — see the
+  // contract, which renames it on the way out for exactly that reason. The
+  // file's `Unknown` sentinel maps to null rather than being carried through.
+  turnoutLikelihood: mapVoterStatus(row.Voter_Status),
+  maritalStatus: mapMaritalStatus(row.Marital_Status),
+  hasChildrenUnder18: mapPresenceOfChildren(row.Presence_Of_Children),
+  // Presence-only, both of these: the mappers return 'Yes' or null, because
+  // the columns hold a value meaning yes or nothing at all. There is no "No"
+  // to emit and the contract's `z.enum(['Yes'])` is what enforces it.
+  veteranStatus: mapVeteranStatus(row.Veteran_Status),
+  businessOwner: mapBusinessOwner(row.Business_Owner),
+  homeowner: mapHomeowner(row.Homeowner_Probability_Model),
+  levelOfEducation: mapEducation(row.Education_Of_Person),
+  // The raw amount; the door buckets it through INCOME_RANGE_MAPPING at
+  // render, so a modelled figure is never printed to the dollar.
+  estimatedIncomeAmount: row.Estimated_Income_Amount_Int,
+  // No data stays null, exactly as `politicalParty` above does and unlike
+  // `mapLanguage`'s own no-value branch, which returns 'Other'. At the door
+  // that would tell a canvasser this person speaks something other than
+  // English or Spanish on the strength of an empty column. A present but
+  // unrecognized value IS a real fact and still maps to 'Other'.
+  language: row.Language_Code ? mapLanguage(row.Language_Code) : null,
+  ethnicityGroup: mapEthnicity(row.EthnicGroups_EthnicGroup1Desc),
+})
 
 @Injectable()
 export class VoterDoorKnockingService extends createPeopleDbBase(
@@ -94,7 +171,21 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       state,
       districtId: effectiveDistrictId,
       filters: dto.filters,
-      extraConditions: [ROOFTOP_ONLY, buildBboxSql(dto.bbox)],
+      extraConditions: [
+        ROOFTOP_ONLY,
+        buildBboxSql(dto.bbox),
+        // Its own conjunct rather than folded into idOverrides below: those
+        // ride buildVoterFiltersSql, which contributes nothing when the turf's
+        // filter is empty, and a suppression has to hold regardless of what
+        // the candidate filtered on.
+        //
+        // Omitted when empty: an `!= ALL('{}')` is always true, but adding the
+        // clause anyway would change the SQL of every request that has nobody
+        // to suppress.
+        ...(dto.excludePersonIds?.length
+          ? [excludeIdsSql(dto.excludePersonIds)]
+          : []),
+      ],
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
@@ -103,7 +194,9 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
     // fails, so an oversized polygon can't silently truncate to a wrong
     // roster or stream a whole voter file. LIMIT +1 detects the overflow
     // without counting.
-    const rows = await this.client.$queryRaw<EvaluateRow[]>(Prisma.sql`
+    const rows = await runUnderStatementTimeout<EvaluateRow>(
+      this.client,
+      Prisma.sql`
       SELECT v."id",
         v."FirstName" AS "firstName",
         v."LastName" AS "lastName",
@@ -114,7 +207,11 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       FROM ${VOTER_TABLE} v
       ${joinClause}
       ${whereClause}
-      LIMIT ${dto.maxPeople + 1}`)
+      LIMIT ${dto.maxPeople + 1}`,
+      this.logger,
+      'Evaluating this turf took too long. Shrink the polygon or narrow the ' +
+        'filters and try again.',
+    )
 
     if (rows.length > dto.maxPeople) {
       throw new BadRequestException(
@@ -146,7 +243,21 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
     })
 
     const residentsCap = dto.targetPersonIds.length * 10
-    const rows = await this.client.$queryRaw<ResidentRow[]>(Prisma.sql`
+    // The demographic columns below are a wider PROJECTION and nothing else.
+    // The address-key predicate, the LIMIT and the reject-rather-than-truncate
+    // guard are deliberately untouched: this is the module's fragile query —
+    // its predicate is non-sargable with no matching index, which is why it is
+    // the one that tips over first when people-db is degraded (see
+    // peopleDb/AGENTS.md). That cost lives in the scan, and which columns come
+    // back does not move it; every column here is read off rows the scan
+    // already had to visit.
+    //
+    // `registered` is computed rather than selected raw — the same definition
+    // of the word the exploration-map pack uses (voterPack.service.ts), and it
+    // keeps a state voter id out of a payload with no use for one.
+    const rows = await runUnderStatementTimeout<ResidentRow>(
+      this.client,
+      Prisma.sql`
       SELECT v."id",
         v."FirstName" AS "firstName",
         v."LastName" AS "lastName",
@@ -155,11 +266,25 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
         v."Parties_Description",
         v."VoterTelephones_CellPhoneFormatted" AS "cellPhone",
         v."VoterTelephones_LandlineFormatted" AS "landline",
+        (v."StateVoterID" IS NOT NULL) AS "registered",
+        v."Voter_Status",
+        v."Marital_Status",
+        v."Presence_Of_Children",
+        v."Veteran_Status",
+        v."Homeowner_Probability_Model",
+        v."Business_Owner",
+        v."Education_Of_Person",
+        v."Estimated_Income_Amount_Int",
+        v."Language_Code",
+        v."EthnicGroups_EthnicGroup1Desc",
         ${buildDoorKnockingAddressKeySql('v')} AS "addressKey"
       FROM ${VOTER_TABLE} v
       ${joinClause}
       ${whereClause}
-      LIMIT ${residentsCap + 1}`)
+      LIMIT ${residentsCap + 1}`,
+      this.logger,
+      'Loading residents for this route took too long. Try again in a moment.',
+    )
 
     // Mirrors evaluate's guard: reject rather than silently truncate — a
     // truncated response would serve wrong rosters. The cap is generous
@@ -203,6 +328,7 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
           // would render as an empty phone row at the door.
           cellPhone: row.cellPhone?.trim() || null,
           landline: row.landline?.trim() || null,
+          ...mapDemographics(row),
         })
       } else {
         address.otherResidents.push({

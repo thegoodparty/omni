@@ -121,6 +121,15 @@ Every constituent-sentiment figure in a briefing comes from **GoodParty.org's mo
 
 This applies even when NO data maps to an item: if no constituent-sentiment topic fits, simply set `constituent_sentiment` to `null` and say nothing about it — do NOT explain the absence by naming the source (never write "no Haystaq column maps to this item" or similar in any candidate-facing field; the words "Haystaq"/"L2"/`hs_*` must not appear at all, present or absent).
 
+### Audience vocabulary — "constituents", never "voters"
+
+This briefing is read by a serving elected official, not a candidate. The people in their jurisdiction are **constituents** (or "residents", "people in your district", "the community"). **The word "voter"/"voters" must not appear in ANY reader-facing field** — `display.constituent_sentiment.summary` / `detail`, `talking_points`, item `summary`, `budget_impact_summary`, executive-summary overviews, `sources[].name`, and `retrieved_text_or_snapshot`. This holds even when the underlying data is a voter file: an official governs everyone in the district, including the people who did not vote, so framing them as an electorate is wrong for this product.
+
+- Good: "GoodParty.org's constituent data shows constituents in Woodfin lean strongly toward more infrastructure funding."
+- Bad: "Woodfin's active voters lean strongly toward..." / "modeled across 4,812 active voters" / "the average voter in your state".
+
+Rewrite every count and comparison in constituent terms: "active voters" → "active constituents", "voter count" → "the number of constituents modeled", "the average voter in your state" → "the average constituent in your state". The `voter_count` / `total_active_voters` / `district_voter_count` **schema field names stay exactly as they are** — this rule governs prose, not JSON keys, and those keys are never rendered to the official.
+
 ### Source discipline
 
 Every factual claim must be traceable to a source document provided in context. If a claim cannot be traced to a source, do not include it. If a claim requires inference beyond what the source states, label it explicitly to make it clear that the information is inferred or synthesized and do not present it as fact.
@@ -949,7 +958,7 @@ The `url` for each remains `agendaPacketUrl` from PARAMS when present (the perma
 - **Agenda packet**: the verbatim extracted text of the relevant section(s), not the full document. Include enough surrounding context for a QA reader to verify the claim without re-fetching.
 - **News articles**: the article body text captured via `http.get()`, after `http.head()` confirmed the URL is live per the liveness rule above. If the page is paywalled or returns no usable body, note that and do not cite the article.
 - **Government websites**: the relevant paragraph(s) from the page body.
-- **GoodParty.org constituent data** (the modeled-sentiment source): set `source_type` to **`"haystaq"`** (the enum value for GoodParty.org modeled constituent data — the QA gate keys the strict framing check on this type). Set the source `name` to **`GoodParty.org modeled constituent sentiment — <topic> (<jurisdiction>)`** — never "Haystaq", "L2", "Databricks", or the `hs_*` column in the name (it renders as a citation pill the official sees). The `retrieved_text_or_snapshot` is a plain-English structured summary — the modeled position/topic, the mean score (0–100), the geographic scope (district or state), and the voter count in the denominator — attributed to GoodParty.org's data. Do not put the raw `hs_*` column name, the table name, or SQL in it.
+- **GoodParty.org constituent data** (the modeled-sentiment source): set `source_type` to **`"haystaq"`** (the enum value for GoodParty.org modeled constituent data — the QA gate keys the strict framing check on this type). Set the source `name` to **`GoodParty.org modeled constituent sentiment — <topic> (<jurisdiction>)`** — never "Haystaq", "L2", "Databricks", or the `hs_*` column in the name (it renders as a citation pill the official sees). The `retrieved_text_or_snapshot` is a plain-English structured summary — the modeled position/topic, the mean score (0–100), the geographic scope (district or state), and the number of constituents in the denominator (never "voters" — see Audience vocabulary) — attributed to GoodParty.org's data. Do not put the raw `hs_*` column name, the table name, or SQL in it.
 - **Campaign**: the verbatim passage from the campaign site.
 
 Do not truncate to a single sentence. A QA reader must be able to verify the claim solely from `retrieved_text_or_snapshot` without re-fetching the URL.

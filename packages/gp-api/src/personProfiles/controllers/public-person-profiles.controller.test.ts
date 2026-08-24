@@ -4,6 +4,7 @@ import {
   PrioritySource,
   ProfileClaimRequestSource,
 } from '../../generated/prisma'
+import { subMinutes } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
@@ -267,6 +268,10 @@ describe('public profile render-gate scenarios (local DB)', () => {
         personId: SECOND_PERSON_ID,
         userId: older.id,
         publishedAt: new Date(),
+        // listPublished orders on updatedAt alone, and @updatedAt is stamped
+        // client-side at millisecond precision, so two adjacent creates can
+        // land on the same value and leave the order arbitrary.
+        updatedAt: subMinutes(new Date(), 1),
       },
     })
     await seedProfile() // service.user, created after `older`

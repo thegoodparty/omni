@@ -396,7 +396,14 @@ export interface RaceTargetMetrics {
   registeredVoters?: number | null
   uniqueCellphones?: number | null
   uniqueLandlines?: number | null
-  projectedVoterTurnout?: number | null
+  // 70% prediction interval around the turnout projection, and the same
+  // interval carried through the win-number math. Null where the model has no
+  // projection for the race; the product shows no range rather than inventing
+  // one.
+  projectedTurnoutLower?: number | null
+  projectedTurnoutUpper?: number | null
+  winNumberLower?: number | null
+  winNumberUpper?: number | null
   candidates?: RaceCandidate[]
   generalElectionDate?: string | null
   primaryElectionDate?: string | null

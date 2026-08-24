@@ -5,7 +5,6 @@ import SimpleTable from '@shared/utils/SimpleTable'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import H4 from '@shared/typography/H4'
-import { GradientOverlay } from '@shared/GradientOverlay'
 import { StackedChips } from '@shared/utils/StackedChips'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { ActualViewAudienceFiltersModal } from 'app/dashboard/outreach/components/ViewAudienceFiltersModal'
@@ -16,7 +15,6 @@ import {
   Outreach,
 } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { VoterFileFilters } from 'helpers/types'
 
 interface OutreachRow extends Outreach {
@@ -25,7 +23,6 @@ interface OutreachRow extends Outreach {
 }
 
 interface OutreachTableProps {
-  mockOutreaches?: OutreachRow[]
   // ENG-10769: the activity feed's "View outreach" link carries
   // ?outreachId=<id>; the server page parses it and threads it here so the
   // table can scroll to and highlight that campaign's row.
@@ -122,14 +119,9 @@ const STATUS_COLUMN = {
   },
 }
 
-export const OutreachTable = ({
-  mockOutreaches = [],
-  highlightOutreachId,
-}: OutreachTableProps) => {
-  const { p2pUxEnabled } = useP2pUxEnabled()
+export const OutreachTable = ({ highlightOutreachId }: OutreachTableProps) => {
   const [outreaches] = useOutreach()
-  const useMockData = !outreaches?.length
-  const tableData: OutreachRow[] = useMockData ? mockOutreaches : outreaches
+  const tableData: OutreachRow[] = outreaches
   const [viewFilters, setViewFilters] = useState<VoterFileFilters | null>(null)
   const [actOnOutreach, setActOnOutreach] = useState<OutreachRow | null>(null)
   const [popoverPosition, setPopoverPosition] = useState<PopoverPosition>({
@@ -137,7 +129,6 @@ export const OutreachTable = ({
     left: 0,
   })
   const popoverRef = useRef<HTMLDivElement>(null)
-  const title = useMockData ? 'How your outreach could look' : 'Your campaigns'
   const router = useRouter()
 
   // Consume-once (ENG-10762 conventions): the id is captured into state
@@ -241,9 +232,9 @@ export const OutreachTable = ({
           )
         },
       },
-      ...(p2pUxEnabled ? [STATUS_COLUMN] : []),
+      STATUS_COLUMN,
     ],
-    [p2pUxEnabled, setViewFilters],
+    [setViewFilters],
   )
 
   const convertedFilters = useMemo(
@@ -336,27 +327,21 @@ export const OutreachTable = ({
 
   return (
     <section className="mt-4 mb-32">
-      <H4 className="mb-4">{title}</H4>
-      {useMockData ? (
-        <GradientOverlay>{table}</GradientOverlay>
-      ) : (
-        <>
-          {table}
-          {actOnOutreach && (
-            <div
-              ref={popoverRef}
-              className="fixed z-50 bg-white rounded-md border border-gray-200 shadow-md p-2"
-              style={{ top: popoverPosition.top, left: popoverPosition.left }}
-            >
-              <OutreachActions
-                {...{
-                  outreach: actOnOutreach,
-                  onClick: handleActionClick,
-                }}
-              />
-            </div>
-          )}
-        </>
+      <H4 className="mb-4">Your campaigns</H4>
+      {table}
+      {actOnOutreach && (
+        <div
+          ref={popoverRef}
+          className="fixed z-50 bg-white rounded-md border border-gray-200 shadow-md p-2"
+          style={{ top: popoverPosition.top, left: popoverPosition.left }}
+        >
+          <OutreachActions
+            {...{
+              outreach: actOnOutreach,
+              onClick: handleActionClick,
+            }}
+          />
+        </div>
       )}
       <ActualViewAudienceFiltersModal
         open={Boolean(viewFilters)}

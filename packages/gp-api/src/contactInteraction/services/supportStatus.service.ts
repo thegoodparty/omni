@@ -137,7 +137,8 @@ export class SupportStatusService extends createPrismaBase(
   // null-answer rows so a newer null can never override an older answer,
   // and id DESC makes identical occurred_at values deterministic. The CTE
   // is the extension point: UNION ALL other contact_interaction_* tables
-  // there once they carry support answers.
+  // there once they carry support answers — phone banking (ENG-10915) is
+  // the second.
   private derivedStatusSql(
     organizationSlug: string,
     personFilter: Prisma.Sql,
@@ -151,6 +152,15 @@ export class SupportStatusService extends createPrismaBase(
           id,
           support_answer::text AS support_answer
         FROM contact_interaction_door_knock
+        WHERE organization_slug = ${organizationSlug} ${personFilter}
+        UNION ALL
+        SELECT
+          organization_slug,
+          person_id,
+          occurred_at,
+          id,
+          support_answer::text AS support_answer
+        FROM contact_interaction_phone_banking
         WHERE organization_slug = ${organizationSlug} ${personFilter}
       )
       SELECT DISTINCT ON (organization_slug, person_id)

@@ -1048,7 +1048,7 @@ const PlanSections = ({
             This plan was produced by GoodParty.org using public voter data,
             historical election results, and our proprietary models. Every
             metric in this document is an estimate derived from the sources
-            below. Where applicable, we include our best-estimate confidence
+            below. Where the model provides one, we include its 70% prediction
             interval so that the candidate and campaign manager can understand
             how firm each number is.
           </p>
@@ -1078,12 +1078,12 @@ const PlanSections = ({
               ))}
             </ul>
           </Subsection>
-          <Subsection title="Confidence & Standard Error">
+          <Subsection title="Prediction Intervals">
             <PlanTable
               columns={[
                 'Estimate',
                 'Point Value',
-                'Est. Range (95% CI)',
+                '70% prediction interval',
                 'Notes',
               ]}
               rows={plan.confidenceEstimates.map((c) => [
@@ -1105,11 +1105,11 @@ const PlanSections = ({
               ])}
             />
             <p className="text-sm text-muted-foreground">
-              Standard-error ranges above reflect modeling uncertainty only.
-              They do not account for late-breaking external events (weather,
-              news cycles, last-minute challengers). The campaign should treat
-              the point values as planning numbers and revisit them weekly as
-              turnout signals harden.
+              The intervals above reflect modeling uncertainty only. They do not
+              account for late-breaking external events (weather, news cycles,
+              last-minute challengers). The campaign should treat the point
+              values as planning numbers and revisit them weekly as turnout
+              signals harden.
             </p>
           </Subsection>
           <Subsection title="What This Plan Does Not Do">
