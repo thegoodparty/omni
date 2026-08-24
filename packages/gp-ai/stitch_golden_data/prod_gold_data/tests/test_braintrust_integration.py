@@ -408,3 +408,42 @@ class TestRunEndToEnd:
         assert len(results) == 1
         assert results[0].match_status == MATCHED
         assert results[0].br_database_id == 1
+
+
+class TestLoadPendingOfficesStatesFilter:
+    """An empty states list means "select nothing", not "select everything".
+    The two are one character apart: `if states:` treats [] as absent and
+    drops the WHERE clause, so a programmatic run(states=[]) -- what a
+    sharding loop or the write path can compute -- reads and bills the whole
+    backlog instead of returning immediately. argparse's nargs="+" forbids an
+    empty list, so no CLI test can reach this.
+    """
+
+    def test_empty_states_list_returns_no_rows_and_never_queries(self, mock_dependencies):
+        matcher = L2BrMatcher()
+        result = matcher.load_pending_offices(states=[])
+
+        assert result.empty
+        assert list(result.columns) == ["br_database_id", "name", "state"]
+        mock_dependencies["databricks"].return_value.execute_query.assert_not_called()
+
+    def test_states_none_means_no_filter_and_does_query(self, mock_dependencies):
+        mock_dependencies["databricks"].return_value.execute_query.return_value = pd.DataFrame(
+            {"br_database_id": [1], "name": ["Race"], "state": ["DE"]}
+        )
+        matcher = L2BrMatcher()
+        result = matcher.load_pending_offices(states=None)
+
+        assert not result.empty
+        mock_dependencies["databricks"].return_value.execute_query.assert_called_once()
+        assert "where state in" not in mock_dependencies["databricks"].return_value.execute_query.call_args[0][0]
+
+    def test_a_named_state_reaches_the_where_clause(self, mock_dependencies):
+        mock_dependencies["databricks"].return_value.execute_query.return_value = pd.DataFrame(
+            {"br_database_id": [1], "name": ["Race"], "state": ["DE"]}
+        )
+        matcher = L2BrMatcher()
+        matcher.load_pending_offices(states=["de"])
+
+        query = mock_dependencies["databricks"].return_value.execute_query.call_args[0][0]
+        assert "where state in ('DE')" in query
