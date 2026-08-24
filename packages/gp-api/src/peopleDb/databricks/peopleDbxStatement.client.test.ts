@@ -6,12 +6,12 @@ import {
   PeopleDbxUnavailableError,
 } from './peopleDbxStatement.client'
 import type { DbxStatement } from './databricksVoterSql.util'
+import { PEOPLE_DBX_HOSTNAME } from './peopleDbx.config'
 
 const stmt = (sql: string): DbxStatement => ({ sql, params: [] })
 
 const ENV_KEYS = [
-  'PEOPLE_DATABRICKS_SERVER_HOSTNAME',
-  'PEOPLE_DATABRICKS_HTTP_PATH',
+  'PEOPLE_DATABRICKS_WAREHOUSE_ID',
   'PEOPLE_DATABRICKS_CLIENT_ID',
   'PEOPLE_DATABRICKS_CLIENT_SECRET',
   'PEOPLE_DATABRICKS_API_KEY',
@@ -49,8 +49,7 @@ describe('PeopleDbxStatementClient', () => {
       original.set(key, process.env[key])
       delete process.env[key]
     }
-    process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME = 'dbc-1.cloud.databricks.com'
-    process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh1'
+    process.env.PEOPLE_DATABRICKS_WAREHOUSE_ID = 'wh1'
     process.env.PEOPLE_DATABRICKS_API_KEY = 'pat-token'
 
     fetchMock = vi.fn(() => Promise.resolve(jsonResponse(succeeded([['1']]))))
@@ -80,7 +79,7 @@ describe('PeopleDbxStatementClient', () => {
         String(callAt(0).init?.body),
       )
       expect(callAt(0).url).toBe(
-        'https://dbc-1.cloud.databricks.com/api/2.0/sql/statements',
+        `https://${PEOPLE_DBX_HOSTNAME}/api/2.0/sql/statements`,
       )
       expect(body).toMatchObject({
         statement: 'SELECT 1',

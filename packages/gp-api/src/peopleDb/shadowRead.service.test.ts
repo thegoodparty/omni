@@ -3,15 +3,13 @@ import { ShadowReadService } from './shadowRead.service'
 
 const ENV_KEYS = [
   'PEOPLE_DB_DUAL_READ',
-  'PEOPLE_DATABRICKS_SERVER_HOSTNAME',
-  'PEOPLE_DATABRICKS_HTTP_PATH',
+  'PEOPLE_DATABRICKS_WAREHOUSE_ID',
   'PEOPLE_DATABRICKS_API_KEY',
 ] as const
 
 const configure = (): void => {
   process.env.PEOPLE_DB_DUAL_READ = 'true'
-  process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME = 'example.databricks.com'
-  process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/abc123'
+  process.env.PEOPLE_DATABRICKS_WAREHOUSE_ID = 'abc123'
   process.env.PEOPLE_DATABRICKS_API_KEY = 'token'
 }
 

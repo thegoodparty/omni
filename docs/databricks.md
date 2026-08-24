@@ -104,6 +104,15 @@ Both read the same connection coordinates from the environment:
 | `WIN_DATABRICKS_SERVER_HOSTNAME`                    | `dbc-3d8ca484-79f3.cloud.databricks.com` (same workspace) |
 | `WIN_DATABRICKS_HTTP_PATH`                          | `/sql/1.0/warehouses/a6f5281417d1c869` (wh-win-agents)      |
 | `WIN_DATABRICKS_CLIENT_ID` / `WIN_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_win_agent` (Campaign Manager) |
+| `PEOPLE_DATABRICKS_WAREHOUSE_ID`                    | Bare warehouse id (no path) for the CRM's voter queries    |
+| `PEOPLE_DATABRICKS_CLIENT_ID` / `PEOPLE_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_people_db` (voter data) |
+
+The voter-data identity takes no hostname: there is one workspace, so
+`peopleDbx.config.ts` holds it as a constant. It keeps the warehouse in env so
+dev and prod can run on separate compute, and so moving off a saturated
+warehouse is a secret update and a task cycle rather than a deploy. Its grant
+covers `dbt.m_people_api__voter` and `dbt.m_people_api__district` only, and it
+is deliberately not interchangeable with the two agent identities above.
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

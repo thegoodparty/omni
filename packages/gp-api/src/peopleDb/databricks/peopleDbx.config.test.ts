@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolvePeopleDbxConfig } from './peopleDbx.config'
+import { PEOPLE_DBX_HOSTNAME, resolvePeopleDbxConfig } from './peopleDbx.config'
 
 const DATABRICKS_ENV_KEYS = [
-  'PEOPLE_DATABRICKS_SERVER_HOSTNAME',
-  'PEOPLE_DATABRICKS_HTTP_PATH',
+  'PEOPLE_DATABRICKS_WAREHOUSE_ID',
   'PEOPLE_DATABRICKS_CLIENT_ID',
   'PEOPLE_DATABRICKS_CLIENT_SECRET',
   'PEOPLE_DATABRICKS_API_KEY',
@@ -15,8 +14,7 @@ const DATABRICKS_ENV_KEYS = [
 ] as const
 
 const configureCredential = (): void => {
-  process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME = 'dbc-1.cloud.databricks.com'
-  process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh-people'
+  process.env.PEOPLE_DATABRICKS_WAREHOUSE_ID = 'wh-people'
   process.env.PEOPLE_DATABRICKS_CLIENT_ID = 'client'
   process.env.PEOPLE_DATABRICKS_CLIENT_SECRET = 'secret'
 }
@@ -39,13 +37,11 @@ describe('peopleDbx config', () => {
   })
 
   describe('resolvePeopleDbxConfig', () => {
-    // The warehouse is dedicated, so it can only come from this prefix's own
-    // http path — there is no default to fall back to.
-    it('takes the warehouse from its own http path', () => {
+    it('takes the warehouse from env and the hostname from the constant', () => {
       configureCredential()
 
       expect(resolvePeopleDbxConfig()).toEqual({
-        hostname: 'dbc-1.cloud.databricks.com',
+        hostname: PEOPLE_DBX_HOSTNAME,
         warehouseId: 'wh-people',
         accessToken: undefined,
         oauthClientId: 'client',
@@ -54,26 +50,40 @@ describe('peopleDbx config', () => {
     })
 
     it('accepts a PAT for local development', () => {
-      process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME =
-        'dbc-1.cloud.databricks.com'
-      process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh-people'
+      process.env.PEOPLE_DATABRICKS_WAREHOUSE_ID = 'wh-people'
       process.env.PEOPLE_DATABRICKS_API_KEY = 'pat'
 
       expect(resolvePeopleDbxConfig()?.accessToken).toBe('pat')
     })
 
+    // A leftover personal token must not outrank the service principal.
+    it('prefers the service principal over a lingering PAT', () => {
+      configureCredential()
+      process.env.PEOPLE_DATABRICKS_API_KEY = 'stale-pat'
+
+      const config = resolvePeopleDbxConfig()
+      expect(config?.oauthClientId).toBe('client')
+      expect(config?.oauthClientSecret).toBe('secret')
+    })
+
     it('is null when no credential is configured', () => {
-      process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME =
-        'dbc-1.cloud.databricks.com'
-      process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh-people'
+      process.env.PEOPLE_DATABRICKS_WAREHOUSE_ID = 'wh-people'
 
       expect(resolvePeopleDbxConfig()).toBeNull()
     })
 
-    it('is null when the http path names no warehouse', () => {
-      process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME =
-        'dbc-1.cloud.databricks.com'
-      process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/protocolv1/o/0/1234-abcd'
+    it('is null when no warehouse is configured', () => {
+      process.env.PEOPLE_DATABRICKS_CLIENT_ID = 'client'
+      process.env.PEOPLE_DATABRICKS_CLIENT_SECRET = 'secret'
+
+      expect(resolvePeopleDbxConfig()).toBeNull()
+    })
+
+    // An http path pasted in where the bare id belongs would otherwise be sent
+    // to the API as a warehouse id and fail as an opaque 400.
+    it('rejects a warehouse id that is actually a path', () => {
+      process.env.PEOPLE_DATABRICKS_WAREHOUSE_ID =
+        '/sql/1.0/warehouses/wh-people'
       process.env.PEOPLE_DATABRICKS_API_KEY = 'pat'
 
       expect(resolvePeopleDbxConfig()).toBeNull()

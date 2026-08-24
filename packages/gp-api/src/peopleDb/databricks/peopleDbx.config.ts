@@ -1,15 +1,25 @@
-import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
-
 export const PEOPLE_DBX_CATALOG = 'goodparty_data_catalog'
 export const PEOPLE_DBX_SCHEMA = 'dbt'
 
-// Its own service principal (sp_people_db), never the Serve or Campaign
-// Manager identities: those are scoped to their own marts, and this one holds
-// a least-privilege grant on the two voter tables. Grants are per principal,
-// so the prefixes are deliberately not interchangeable.
-const PEOPLE_DBX_ENV_PREFIX = 'PEOPLE_DATABRICKS_'
+// One workspace, and a workspace identifier is not a secret (docs/databricks.md
+// says so explicitly). Making it configurable bought nothing: there is no
+// second value it could correctly take, and a wrong one fails on the first
+// request rather than silently.
+export const PEOPLE_DBX_HOSTNAME = 'dbc-3d8ca484-79f3.cloud.databricks.com'
 
-const WAREHOUSE_PATH_RE = /\/sql\/1\.0\/warehouses\/([A-Za-z0-9-]+)\/?$/
+// The warehouse stays configurable, unlike the hostname. Two reasons: dev and
+// prod should be able to run on separate compute so preview traffic cannot
+// queue against prod page loads, and moving off a saturated warehouse mid
+// incident should be a secret update and a task cycle rather than a deploy.
+//
+// It is the bare id, not an HTTP path. The path form only ever existed so the
+// id could be parsed back out of it.
+const WAREHOUSE_ID_ENV = 'PEOPLE_DATABRICKS_WAREHOUSE_ID'
+const CLIENT_ID_ENV = 'PEOPLE_DATABRICKS_CLIENT_ID'
+const CLIENT_SECRET_ENV = 'PEOPLE_DATABRICKS_CLIENT_SECRET'
+const API_KEY_ENV = 'PEOPLE_DATABRICKS_API_KEY'
+
+const WAREHOUSE_ID_RE = /^[A-Za-z0-9-]+$/
 
 export type PeopleDbxConfig = {
   hostname: string
@@ -19,18 +29,29 @@ export type PeopleDbxConfig = {
   oauthClientSecret?: string
 }
 
-// The warehouse is whichever one PEOPLE_DATABRICKS_HTTP_PATH names — voter
-// scans run on their own, so there is no default to fall back to.
+// Resolved fresh rather than cached so a rotated credential is picked up
+// without a restart. Returns null when unconfigured, which is what keeps an
+// environment without Databricks serving from Postgres instead of failing.
+//
+// Reads the credential vars directly instead of through
+// resolveDatabricksConnection: that helper requires a host and an HTTP path in
+// env, and this identity now takes neither.
 export const resolvePeopleDbxConfig = (): PeopleDbxConfig | null => {
-  const connection = resolveDatabricksConnection(PEOPLE_DBX_ENV_PREFIX)
-  if (!connection) return null
-  const warehouseId = WAREHOUSE_PATH_RE.exec(connection.httpPath)?.[1]
-  if (!warehouseId) return null
+  const warehouseId = process.env[WAREHOUSE_ID_ENV]
+  if (!warehouseId || !WAREHOUSE_ID_RE.test(warehouseId)) return null
+
+  const oauthClientId = process.env[CLIENT_ID_ENV]
+  const oauthClientSecret = process.env[CLIENT_SECRET_ENV]
+  const accessToken = process.env[API_KEY_ENV]
+  // OAuth wins when both are present: the service principal is the intended
+  // identity and a leftover personal token must not quietly outrank it.
+  if (!(oauthClientId && oauthClientSecret) && !accessToken) return null
+
   return {
-    hostname: connection.hostname,
+    hostname: PEOPLE_DBX_HOSTNAME,
     warehouseId,
-    accessToken: connection.accessToken,
-    oauthClientId: connection.oauthClientId,
-    oauthClientSecret: connection.oauthClientSecret,
+    accessToken,
+    oauthClientId,
+    oauthClientSecret,
   }
 }
