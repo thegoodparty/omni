@@ -63,7 +63,7 @@ describe('serve suggested dimensions — catalog integrity', () => {
 describe('serve suggested dimensions — mark coupling with HS_SCORE_SEMANTICS', () => {
   // HS_SCORE_SEMANTICS tells the model exceptions "are marked on catalog
   // entries". These counts pin the marks to the verified warehouse story
-  // (re-verified 2026-08-14 after the December-2025-load bug fix):
+  // (re-verified 2026-08-14 after the December 2025 load-bug fix);
   // re-verify against the mart before changing them.
 
   it('marks exactly the two off-center columns', () => {
@@ -81,6 +81,11 @@ describe('serve suggested dimensions — mark coupling with HS_SCORE_SEMANTICS',
     expect(twelveStateOnly.map((d) => d.name)).toContain(
       'hs_conspiracy_believer',
     )
+    // The surviving phrasing must be the only mark — catches a
+    // reintroduced retired-phrasing label on the cleaned columns.
+    expect(
+      hsEntries.filter((d) => d.label.includes('limited coverage')),
+    ).toHaveLength(51)
     // Full-coverage columns must stay unmarked. hs_doge_support is the trap:
     // it is schema-absent from the 12-state staging set but has real data in
     // all 51 states, so coverage (not schema presence) decides the mark.
