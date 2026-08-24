@@ -574,10 +574,13 @@ describe('RobocallFlow', () => {
     // No recording yet -> Continue disabled.
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
-    // Record -> stop lands on preview (not yet committed): still disabled.
+    // Record -> the live timer shows elapsed over the 60s cap ("0:00 / 1:00").
     await userEvent.click(
       screen.getByRole('button', { name: 'Start recording' }),
     )
+    expect(screen.getByText('0:00 / 1:00')).toBeInTheDocument()
+
+    // -> stop lands on preview (not yet committed): still disabled.
     await userEvent.click(
       screen.getByRole('button', { name: 'Stop recording' }),
     )

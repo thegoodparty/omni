@@ -83,7 +83,9 @@ export const RobocallComposeStep = ({
   const togglePlay = () => {
     const el = audioRef.current
     if (!el) return
-    if (el.paused) void el.play()
+    // Catch the play() rejection (e.g. an unsupported source) so it doesn't
+    // surface as an uncaught promise error, and reset the play/pause icon.
+    if (el.paused) el.play().catch(() => setPlaying(false))
     else el.pause()
   }
 
@@ -177,6 +179,7 @@ export const RobocallComposeStep = ({
 
       <RecordBar
         recorder={recorder}
+        maxSeconds={maxSeconds}
         playing={playing}
         onTogglePlay={togglePlay}
         audioRef={audioRef}
@@ -194,6 +197,7 @@ export const RobocallComposeStep = ({
 
 interface RecordBarProps {
   recorder: RobocallRecorder
+  maxSeconds: number
   playing: boolean
   onTogglePlay: () => void
   audioRef: React.RefObject<HTMLAudioElement | null>
@@ -204,6 +208,7 @@ interface RecordBarProps {
 
 const RecordBar = ({
   recorder,
+  maxSeconds,
   playing,
   onTogglePlay,
   audioRef,
@@ -233,7 +238,7 @@ const RecordBar = ({
           ))}
         </div>
         <span className="ml-auto text-sm font-medium tabular-nums">
-          {fmtDur(recorder.elapsedSec)}
+          {fmtDur(recorder.elapsedSec)} / {fmtDur(maxSeconds)}
         </span>
       </Card>
     )

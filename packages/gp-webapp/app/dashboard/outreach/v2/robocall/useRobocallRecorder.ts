@@ -122,9 +122,17 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
         }
         recorder.onstop = () => {
           stopStream()
-          const blob = new Blob(chunksRef.current, {
-            type: mimeType ?? 'audio/webm',
-          })
+          if (chunksRef.current.length === 0) {
+            setError('That recording came through empty. Try again.')
+            setStatus('idle')
+            return
+          }
+          // Type the blob from the container the recorder actually negotiated
+          // (recorder.mimeType), not the requested one — Safari ignores the
+          // request and produces audio/mp4, so a hardcoded audio/webm makes
+          // <audio> reject it with "no supported sources".
+          const type = recorder.mimeType || mimeType || 'audio/webm'
+          const blob = new Blob(chunksRef.current, { type })
           const url = URL.createObjectURL(blob)
           // elapsedSec is the wall-clock recording length; the blob has no
           // reliable duration metadata, so the timer is the source of truth.
@@ -135,7 +143,9 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
         }
         setElapsedSec(0)
         setStatus('recording')
-        recorder.start()
+        // Timeslice so ondataavailable fires each second instead of only once
+        // at stop — some browsers otherwise deliver nothing on a short clip.
+        recorder.start(1000)
         tickRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000)
         // Hard cap: a recorded clip can never exceed the delivery limit.
         capRef.current = setTimeout(() => stop(), maxSeconds * 1000)
