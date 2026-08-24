@@ -830,12 +830,18 @@ async def main() -> None:
         )
         matcher.print_summary(results)
     finally:
-        # flush_logs first: close() ends in Connection.close(), which can
-        # raise on exactly the dead-session conditions that failed the run,
-        # and that would otherwise both mask the original traceback and lose
-        # the Braintrust buffer.
+        # Ordered and guarded, because close() ends in Connection.close(),
+        # which raises on exactly the dead-session conditions that failed the
+        # run. flush_logs() runs first so a teardown failure cannot lose the
+        # Braintrust buffer, and the close is swallowed so it cannot replace
+        # the operator's real traceback with an unrelated cleanup error --
+        # which reordering alone does NOT prevent, since a raise here still
+        # supersedes the exception in flight.
         flush_logs()
-        matcher.close()
+        try:
+            matcher.close()
+        except Exception:
+            matcher.logger.warning("matcher.close() raised during teardown", exc_info=True)
 
 
 if __name__ == "__main__":
