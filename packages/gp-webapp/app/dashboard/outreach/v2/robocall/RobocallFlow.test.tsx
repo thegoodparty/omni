@@ -678,10 +678,10 @@ describe('RobocallFlow', () => {
   })
 
   it('lets a custom purpose write its own script and never auto-drafts', async () => {
-    // Mock the endpoint with a sentinel that must NOT appear — custom never
-    // fires a draft request.
-    mockDraft('SHOULD-NOT-APPEAR auto draft')
     await gotoCompose('Write my own script')
+    // Arm a sentinel AFTER navigating (gotoCompose registers its own draft
+    // mock); custom must never fire a draft, so this must never render.
+    mockDraft('SHOULD-NOT-APPEAR auto draft')
 
     // No tone pills, no "Suggested for" line, and an editable textarea.
     expect(screen.queryByText('Direct')).not.toBeInTheDocument()

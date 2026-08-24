@@ -1,7 +1,11 @@
 'use client'
 
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
+import {
+  ROBOCALL_SCRIPT_MAX_LENGTH,
+  SOCIAL_TONE_VALUES,
+  type SocialTone,
+} from '@goodparty_org/contracts'
 import {
   Button,
   Card,
@@ -165,7 +169,7 @@ export const RobocallComposeStep = ({
             onChange={(e) => onDraftChange(e.target.value)}
             placeholder="Write your script…"
             aria-label="Robocall script"
-            maxLength={2000}
+            maxLength={ROBOCALL_SCRIPT_MAX_LENGTH}
             className="min-h-[120px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
           />
         ) : isDrafting && !draft.trim() ? (

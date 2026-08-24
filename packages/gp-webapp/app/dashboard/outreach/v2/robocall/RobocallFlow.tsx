@@ -193,6 +193,15 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
   const handleSelectPurpose = (selected: RobocallPurpose) => {
+    // Switching purpose invalidates the drafted script and any recording tied
+    // to the old one — otherwise a custom script could show read-only under a
+    // guided purpose (or vice-versa), and a stale saved clip would satisfy the
+    // Continue gate.
+    if (selected !== purpose) {
+      setScript('')
+      resetRecorder()
+      resetAudioUpload()
+    }
     setPurpose(selected)
     setStepId('audience')
   }

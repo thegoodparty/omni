@@ -64,6 +64,9 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
   // The URL currently held in `recording`; revoked before replacing so
   // discarded/re-recorded clips don't leak object URLs.
   const urlRef = useRef<string | null>(null)
+  // False once unmounted, so a getUserMedia promise that resolves after the
+  // flow closes doesn't arm a recorder on a dead component.
+  const mountedRef = useRef(true)
 
   const clearTimers = useCallback(() => {
     if (tickRef.current) {
@@ -113,6 +116,12 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
     navigator.mediaDevices
       .getUserMedia({ audio: true })
       .then((stream) => {
+        // The flow can unmount while the mic-permission prompt is still open;
+        // if so, release the just-granted stream and don't arm anything.
+        if (!mountedRef.current) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
         streamRef.current = stream
         chunksRef.current = []
         const mimeType = pickMimeType()
@@ -211,6 +220,13 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
   // Release the mic, timers, and object URL if the component unmounts
   // mid-recording or holding a preview.
   useEffect(() => reset, [reset])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   return {
     status,
