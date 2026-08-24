@@ -449,6 +449,12 @@ export default function CreateListFlow({
         queryKey: ['door-knocking-saved-lists'],
       })
       setName('')
+      // Both names are spent. The audience is deliberately kept across a
+      // "draw another", but the voter list is NOT — this flow mints a fresh
+      // `voter-file/filter` per turf — so carrying the last one's name into
+      // the name step would file a second list under a name already taken,
+      // from a step the candidate can walk straight past.
+      setSavedName('')
       // The next turf starts from an untyped box again, so a goal or list
       // renamed after this save can still offer its name.
       nameTouched.current = false

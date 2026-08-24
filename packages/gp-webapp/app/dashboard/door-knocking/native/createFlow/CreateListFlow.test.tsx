@@ -1172,6 +1172,46 @@ describe('CreateListFlow steps', () => {
     expect(screen.queryByText('Discard this list?')).toBeNull()
   })
 
+  // The audience survives a draw-another; the voter list does not — this flow
+  // mints a fresh `voter-file/filter` per turf. Carrying the last one's name
+  // into the name step files the second list under a name already taken, from
+  // a step the candidate can walk straight past.
+  it('does not carry the saved list’s name into the next turf', async () => {
+    const filterNames: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterNames.push((body as { name: string }).name)
+      return { status: 200, data: { id: 3 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', { status: 200, data: savedTurf })
+    const onSaved = vi.fn()
+    const props = {
+      ...baseProps,
+      filters: { partyDemocrat: true },
+      onSaved,
+    }
+
+    const { rerender } = renderAtWho(props)
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
+    )
+    fireEvent.change(screen.getByLabelText('List name'), {
+      target: { value: 'Homeowners' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    rerender(<CreateListFlow {...props} step="confirm" />)
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save and draw another' }),
+    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true))
+    expect(filterNames).toEqual(['Homeowners'])
+
+    // Back to the name step for the second turf.
+    rerender(<CreateListFlow {...props} step="filters" />)
+    expect(screen.getByLabelText('List name')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
   // The name box follows the list's name until it is typed in, so renaming
   // the list and coming back brings the new name rather than the first seed.
   it('re-seeds the route name when the list is renamed, and never over a typed one', () => {
