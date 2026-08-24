@@ -211,6 +211,17 @@ const renderPage = (savedLists: SegmentResponse[] = [{ id: 7 }]) => {
   )
 }
 
+// Opening the flow and walking it to the draw step. The create flow gained
+// two pre-draw steps — a goal card, then the audience — and both live inside
+// the page's single `filters` step, so the transition these tests are actually
+// about (filters → draw, the one that starts a drawing session) is unchanged.
+// Reaching it just takes two presses now.
+const openFlowAndDraw = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+  fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Continue \(/ }))
+}
+
 const selectTurf = async () => {
   await waitFor(() =>
     expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
@@ -865,8 +876,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
 
     await screen.findByText(/voters in your district with a mapped address/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    openFlowAndDraw()
 
     expect(document.getElementById('door-knocking-rail')).toBeNull()
     expect(screen.getByTestId('voter-map')).toBeInTheDocument()
@@ -880,8 +890,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     renderPage()
     await screen.findByText(/voters in your district with a mapped address/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    openFlowAndDraw()
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
     expect(
@@ -919,8 +928,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     renderPage()
     await screen.findByText(/voters in your district with a mapped address/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    openFlowAndDraw()
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
     fireEvent.click(tapMap)
@@ -969,8 +977,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     renderPage()
     await screen.findByText(/voters in your district with a mapped address/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    openFlowAndDraw()
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
     fireEvent.click(tapMap)
@@ -1000,8 +1007,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     renderPage()
     await screen.findByText(/voters in your district with a mapped address/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    openFlowAndDraw()
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
     fireEvent.click(tapMap)
@@ -1013,9 +1019,10 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
     await screen.findByText('1200 W Elm St Apt 1')
 
+    // Back lands on the audience step, whose CTA carries the district count.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     const callsOnLeaving = previewCalls.count
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue \(/ }))
 
     expect(document.getElementById('draw-step-doors')).toBeNull()
     expect(
