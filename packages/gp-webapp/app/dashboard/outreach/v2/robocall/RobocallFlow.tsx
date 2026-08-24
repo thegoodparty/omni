@@ -159,6 +159,13 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
         onSuccess: (draft) => {
           if (requestId === draftRequestRef.current) setScript(draft)
         },
+        onError: () => {
+          // Defensive: TanStack detaches the superseded observer on re-mutate,
+          // so a stale request's error shouldn't reach isError today — but if
+          // that ever changes, drop a superseded error so it can't show the
+          // error card over a newer good draft.
+          if (requestId !== draftRequestRef.current) draftMutation.reset()
+        },
       },
     )
   }
@@ -216,6 +223,10 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     if (selected !== purpose) {
       setScript('')
       invalidateRecording()
+      // Clear any prior draft error/success so it can't linger across the
+      // switch — e.g. a failed guided draft leaving a stuck error card above
+      // the custom textarea (custom never re-drafts to clear it).
+      draftMutation.reset()
     }
     setPurpose(selected)
     setStepId('audience')
