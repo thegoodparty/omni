@@ -34,6 +34,11 @@ export interface Outreach {
   date?: Date | string | null
   imageUrl?: string | null
   voterFileFilterId?: number | null
+  // The frozen route a nativeDoorKnocking envelope belongs to (unique on the
+  // Prisma model). It has always ridden the list payload — `findByCampaignId`
+  // selects the whole row — and is declared here because it is the only join
+  // key between a walk's two archive flags; see `native/useListArchive.ts`.
+  doorKnockingRouteId?: number | null
   phoneListId?: number | null
   identityId?: string | null
   didState?: string | null

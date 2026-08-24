@@ -387,3 +387,152 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
+
+// Door knocking arrived in this table as its own channel in #1374, and until
+// now its rows opened a drawer built for envelopes that carry their own
+// figures. These are the three things that had to be true for a walk to read
+// correctly in a campaign-reporting surface.
+describe('OutreachDetailsDrawer — door knocking', () => {
+  const doorKnockingDetail = (status: 'in_progress' | 'completed') => ({
+    ...baseDetail,
+    outreachType: 'nativeDoorKnocking' as const,
+    name: 'Elm St & 5th',
+    status,
+    doorKnockingRouteId: 7,
+  })
+
+  const doorKnockingRow = (
+    status: 'in_progress' | 'completed',
+  ): HistoryRow => ({
+    id: 30,
+    createdAt: '2026-08-10T00:00:00Z',
+    outreachType: 'nativeDoorKnocking',
+    name: 'Elm St & 5th',
+    status,
+  })
+
+  // The phone-banking precedent, in door knocking's verb. The link is the
+  // surface rather than the list, because this row knows its route id and
+  // nothing maps that back to the turf a deeper link would need.
+  it('offers Continue knocking on an in-progress walk', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('in_progress')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const cta = await screen.findByRole('link', { name: 'Continue knocking' })
+    expect(cta).toHaveAttribute('href', '/dashboard/door-knocking')
+    expect(
+      screen.queryByRole('link', { name: 'Continue calling' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The archive seam. Two rows carry an archivedAt for one walk, and only the
+  // door-knocking surface can write both — a button here could reach the
+  // envelope alone, which is precisely how they come apart. So the drawer says
+  // where the action lives instead of offering half of it.
+  it('sends archive back to the door-knocking surface on a finished walk', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('completed'),
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('completed')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByText(/Archive this from Door knocking/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Move to archive' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The envelope holds the route's id and nothing else about the walk, so a
+  // People cell here could only ever say "—". Naming where the figures live
+  // beats printing an empty one.
+  it('points at the list for the figures it does not hold', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('in_progress')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText('People')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /knocking progress for this walk are on the list itself/,
+      ),
+    ).toBeInTheDocument()
+  })
+})
+
+// The canvas's fourth footer mode, which no channel had ported. A paid
+// campaign is sent by Peerly on a schedule we bought; there is no edit
+// endpoint, no delete endpoint and nothing to drive, so the footer says the
+// campaign needs nothing rather than rendering buttons that cannot work.
+describe('OutreachDetailsDrawer — automatic campaigns', () => {
+  it('tells a scheduled paid campaign it is sending automatically', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, outreachType: 'text' as const, status: 'paid' },
+    })
+
+    const scheduledText: HistoryRow = {
+      id: 30,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'text',
+      name: 'Election day reminder',
+      status: 'paid',
+    }
+    render(<OutreachDetailsDrawer row={scheduledText} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText(/sending automatically/)).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Move to archive' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // Draft and In review have no canvas position at all: nothing to continue,
+  // nothing to archive, and nothing automatic to promise.
+  it('leaves a draft with no footer', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, outreachType: 'text' as const, status: 'pending' },
+    })
+
+    const draft: HistoryRow = {
+      id: 30,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'text',
+      name: 'Untitled',
+      status: 'pending',
+      phoneListId: 9,
+    }
+    render(<OutreachDetailsDrawer row={draft} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText(/sending automatically/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Move to archive' }),
+    ).not.toBeInTheDocument()
+  })
+})

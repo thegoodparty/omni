@@ -1,6 +1,7 @@
 import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
+  DoorKnockingArchiveRequest,
   DoorKnockingKnockRequest,
   DoorKnockingKnockResponse,
   DoorKnockingRoutePayload,
@@ -843,6 +844,14 @@ export type APIEndpoints = {
   'GET /v1/door-knocking/turfs/:id/route': {
     Request: {}
     Response: DoorKnockingRoutePayload
+  }
+  // Shelving a knocked list. A POST with a boolean rather than an
+  // archive/unarchive pair, so restore cannot drift away from archive in
+  // gating or shape. Only reachable for a knocked list — gp-api's setArchived
+  // asserts it.
+  'POST /v1/door-knocking/turfs/:id/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf
   }
   // ADR 0010. The exact in-ring audience for a shape being drawn, addresses
   // included — the knock's own evaluation without the billed vendor call. The

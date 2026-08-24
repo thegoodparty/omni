@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type {
   PhoneBankCallOutcome,
@@ -18,24 +17,13 @@ import {
   AlertDialogTitle,
   Button,
   Card,
-  Drawer,
-  DrawerBody,
-  DrawerClose,
-  DrawerContent,
-  DrawerFooter,
-  DrawerHandle,
-  DrawerHeader,
-  DrawerTitle,
   Eyebrow,
-  FilterPill,
-  FilterPillGroup,
   Progress,
   StatusText,
   Table,
   TableBody,
   TableCell,
   TableRow,
-  XMarkIcon,
 } from '@styleguide'
 import {
   ArchiveIcon,
@@ -43,6 +31,7 @@ import {
   CheckCircleIcon,
   ClockIcon,
   DollarSignIcon,
+  DoorOpenIcon,
   FileTextIcon,
   Loader2Icon,
   PhoneIcon,
@@ -62,6 +51,19 @@ import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
+import {
+  CONTINUE_LABELS,
+  listDetailsFooterMode,
+  type ListDetailsLifecycle,
+} from './listDetails/footerMode'
+import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
+import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
+import {
+  DetailsSection,
+  FilterGroup,
+  Metric,
+  MetricGrid,
+} from './listDetails/ListDetailsMetric'
 
 // Copy verified against the phone-banking design screenshots — deliberately
 // its own vocabulary rather than a reuse of the caller page's
@@ -91,57 +93,29 @@ const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {
 const percentLabel = (count: number, total: number): string =>
   total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
 
+// The status the candidate is reading, mapped onto the canvas's three
+// lifecycle positions. Derived from the displayed label rather than from
+// `status` so the footer can never contradict the badge two inches above it —
+// a p2p row with a live Peerly job reads "Done" while its spine status is
+// still `paid`, and offering it a scheduled campaign's actions would be
+// answering a question about a different row. The statuses with no canvas
+// position (Draft, In review, Denied, Pending payment) map to null, which is
+// the footer's `none`: those are states this drawer has nothing to offer in.
+const lifecycleOf = (
+  statusLabel: string | null,
+): ListDetailsLifecycle | null =>
+  statusLabel === 'Done'
+    ? 'done'
+    : statusLabel === 'In progress'
+      ? 'in_progress'
+      : statusLabel === 'Scheduled'
+        ? 'scheduled'
+        : null
+
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
 }
-
-// min-w-0 belongs on the card as well as the inner text span: `grid-cols-2`
-// lays down minmax(0,1fr) tracks, but a grid item's own min-width stays `auto`,
-// so anything the card can't shrink below still pushes past its track.
-const Metric = ({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string
-}) => (
-  <Card className="flex min-w-0 flex-row items-start gap-2 rounded-lg p-3">
-    <span className="mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-4">
-      {icon}
-    </span>
-    <span className="min-w-0">
-      <span className="block text-xs text-muted-foreground">{label}</span>
-      <span className="block truncate text-sm font-medium text-foreground">
-        {value}
-      </span>
-    </span>
-  </Card>
-)
-
-// The canvas's Applied filters anatomy: a labelled pill group per dimension —
-// "Audience" (the saved list this campaign was sent to) above "Filters" (the
-// criteria that built it).
-const FilterGroup = ({
-  title,
-  values,
-}: {
-  title: string
-  values: string[]
-}) => (
-  <div className="space-y-1.5">
-    <p className="text-xs font-medium text-muted-foreground">{title}</p>
-    <FilterPillGroup type="multiple" value={values}>
-      {values.map((label) => (
-        <FilterPill key={label} value={label}>
-          {label}
-        </FilterPill>
-      ))}
-    </FilterPillGroup>
-  </div>
-)
 
 interface DetailRow extends HistoryRow {
   // The list endpoint joins the whole VoterFileFilter row, so the saved list's
@@ -155,6 +129,7 @@ export const OutreachDetailsDrawer = ({
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
+  const isDoorKnocking = row?.outreachType === OUTREACH_TYPES.nativeDoorKnocking
   const detailQuery = useOutreachDetail(row?.id ?? null, row !== null)
   const social = detailQuery.data?.social
   const phoneBanking = detailQuery.data?.phoneBanking
@@ -228,333 +203,359 @@ export const OutreachDetailsDrawer = ({
         ? 'Sent'
         : null
 
+  // "Is there something this candidate can do about this campaign from here",
+  // which is the second half of the canvas's footer decision. True for the two
+  // channels we run ourselves and false for the paid ones: a scheduled text or
+  // robocall has been bought and is sent by Peerly, with no edit, no delete and
+  // nothing to drive, so `automatic` — the canvas's own words for a campaign
+  // that needs nothing from you — is the honest footer rather than two dead
+  // buttons.
+  const selfServe = isPhoneBanking || isDoorKnocking
+  const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
+  const continueHref = isPhoneBanking
+    ? phoneBanking
+      ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
+      : null
+    : // The walk is resumed from the door-knocking surface, which opens on the
+      // rail of saved lists. No deeper link exists to offer: this row carries
+      // `doorKnockingRouteId`, and nothing maps a route back to the turf whose
+      // id the map would need to focus on.
+      '/dashboard/door-knocking'
+
   return (
-    <Drawer open={row !== null} onOpenChange={onOpenChange} direction="bottom">
-      <DrawerContent
-        className="flex h-[calc(100dvh-4rem)] flex-col p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px] lg:h-[calc(100dvh-8rem)] lg:data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-8rem)]"
-        // The close lives inside the 608px content column (top right), not
-        // on the sheet corner — same anatomy as the flow sheets.
-        closeClassName="hidden"
-      >
-        <DrawerHandle />
-        <DrawerHeader className="sr-only">
-          <DrawerTitle>
-            {row?.name || row?.title || 'Outreach details'}
-          </DrawerTitle>
-        </DrawerHeader>
-        {row && (
-          <>
-            {/* Desktop top padding clears the close button, which sits inside
-                the content column rather than on the sheet corner. */}
-            <div className="px-4 pt-6 pb-4 lg:px-6 lg:pt-14">
-              <div className="mx-auto flex w-full max-w-[608px] items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-[22px] font-semibold text-foreground">
-                      {row.name || row.title || 'Untitled campaign'}
-                    </h2>
-                    <HistoryStatusText label={statusLabel} />
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <ChannelBadge type={row.outreachType} />
-                    {displayDate && (
-                      <span className="text-sm text-muted-foreground">
-                        ·{' '}
-                        {bylineVerb
-                          ? `${bylineVerb} ${dateUsHelper(displayDate, 'long')}`
-                          : dateUsHelper(displayDate, 'long')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <DrawerClose className="inline-flex size-10 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none">
-                  <XMarkIcon className="size-4" />
-                  <span className="sr-only">Close</span>
-                </DrawerClose>
+    <>
+      <ListDetailsSheetShell
+        open={row !== null}
+        onOpenChange={onOpenChange}
+        title={row?.name || row?.title || 'Outreach details'}
+        header={
+          row && (
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-[22px] font-semibold text-foreground">
+                  {row.name || row.title || 'Untitled campaign'}
+                </h2>
+                <HistoryStatusText label={statusLabel} />
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <ChannelBadge type={row.outreachType} />
+                {displayDate && (
+                  <span className="text-sm text-muted-foreground">
+                    ·{' '}
+                    {bylineVerb
+                      ? `${bylineVerb} ${dateUsHelper(displayDate, 'long')}`
+                      : dateUsHelper(displayDate, 'long')}
+                  </span>
+                )}
               </div>
             </div>
-
-            <DrawerBody className="flex-1 overflow-y-auto px-4 pb-6 lg:px-6">
-              <div className="mx-auto w-full max-w-[608px] space-y-6">
-                {(audienceName || audienceLabels.length > 0) && (
-                  <section className="space-y-3">
-                    <Eyebrow>Applied filters</Eyebrow>
-                    {audienceName && (
-                      <FilterGroup title="Audience" values={[audienceName]} />
-                    )}
-                    {audienceLabels.length > 0 && (
-                      <FilterGroup title="Filters" values={audienceLabels} />
-                    )}
-                  </section>
-                )}
-
-                <section className="space-y-3">
-                  <Eyebrow>Overview</Eyebrow>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Metric
-                      icon={<CalendarIcon />}
-                      label="Date"
-                      value={
-                        displayDate ? dateUsHelper(displayDate, 'long') : '—'
-                      }
-                    />
-                    <Metric
-                      icon={<FileTextIcon />}
-                      label="Name"
-                      value={row.name || row.title || 'Untitled campaign'}
-                    />
-                    <Metric
-                      icon={<Share2Icon />}
-                      label="Channel"
-                      value={getChannelLabel(row.outreachType)}
-                    />
-                    {isSocial ? (
-                      <Metric
-                        icon={<FileTextIcon />}
-                        label="Platforms"
-                        value={
-                          social
-                            ? `${social.assets.length} platform${social.assets.length === 1 ? '' : 's'}`
-                            : '—'
-                        }
-                      />
-                    ) : isPhoneBanking ? (
-                      <Metric
-                        icon={<UsersRoundIcon />}
-                        label="People"
-                        value={
-                          phoneBanking
-                            ? phoneBanking.peopleTotal.toLocaleString()
-                            : '—'
-                        }
-                      />
-                    ) : (
-                      <Metric
-                        icon={<UsersRoundIcon />}
-                        label="People"
-                        value={
-                          typeof sent === 'number' ? sent.toLocaleString() : '—'
-                        }
-                      />
-                    )}
-                    {isSocial && social && (
-                      <Metric
-                        icon={<FileTextIcon />}
-                        label="Purpose"
-                        value={socialPurposeLabel(social.purpose)}
-                      />
-                    )}
-                  </div>
-                </section>
-
-                {isSocial && detailQuery.isLoading && (
-                  <StatusText
-                    tone="muted"
-                    icon={<Loader2Icon />}
-                    spinning
-                    className="text-sm"
+          )
+        }
+        footer={
+          row && (
+            <ListDetailsFooter
+              mode={footerMode}
+              destructive={
+                // Delete stays phone-banking-only: it calls the phone list's
+                // own delete endpoint, and no other channel has one.
+                footerMode === 'done' &&
+                isPhoneBanking &&
+                phoneBanking && (
+                  <Button
+                    variant="ghost"
+                    className="shrink-0 text-destructive hover:bg-destructive/10"
+                    onClick={() => setDeleteConfirmOpen(true)}
                   >
-                    Loading your posts…
-                  </StatusText>
-                )}
-                {isSocial && detailQuery.isError && (
-                  <p className="text-sm text-muted-foreground">
-                    We couldn&apos;t load this campaign&apos;s posts. Close and
-                    try again.
-                  </p>
-                )}
-                {social && (
-                  <section className="space-y-3">
-                    <Eyebrow>Posts · {social.assets.length}</Eyebrow>
-                    <p className="text-sm text-muted-foreground">
-                      The text created for each platform. Copy any post again
-                      below.
-                    </p>
-                    <div className="space-y-4">
-                      {social.assets.map((asset) => (
-                        <SocialAssetCard key={asset.platform} asset={asset} />
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {isPhoneBanking && detailQuery.isLoading && (
-                  <StatusText
-                    tone="muted"
-                    icon={<Loader2Icon />}
-                    spinning
-                    className="text-sm"
-                  >
-                    Loading call progress…
-                  </StatusText>
-                )}
-                {isPhoneBanking && detailQuery.isError && (
-                  <p className="text-sm text-muted-foreground">
-                    We couldn&apos;t load this campaign&apos;s call progress.
-                    Close and try again.
-                  </p>
-                )}
-
-                {isPhoneBanking && phoneBanking && !isCompleted && (
-                  <section className="space-y-3">
-                    <Eyebrow>Progress</Eyebrow>
-                    <Card className="gap-3 rounded-lg p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">
-                          {phoneBanking.peopleCalled.toLocaleString()} of{' '}
-                          {phoneBanking.peopleTotal.toLocaleString()} reached
-                        </span>
-                        <span className="text-sm font-medium text-foreground">
-                          {percentLabel(
-                            phoneBanking.peopleCalled,
-                            phoneBanking.peopleTotal,
-                          )}
-                        </span>
-                      </div>
-                      <Progress
-                        value={
-                          phoneBanking.peopleTotal > 0
-                            ? (phoneBanking.peopleCalled /
-                                phoneBanking.peopleTotal) *
-                              100
-                            : 0
-                        }
-                      />
-                      <div className="grid grid-cols-2 gap-3">
-                        <Metric
-                          icon={<CheckCircleIcon />}
-                          label="Completed"
-                          value={phoneBanking.peopleCalled.toLocaleString()}
-                        />
-                        <Metric
-                          icon={<ClockIcon />}
-                          label="Remaining"
-                          value={(
-                            phoneBanking.peopleTotal - phoneBanking.peopleCalled
-                          ).toLocaleString()}
-                        />
-                      </div>
-                    </Card>
-                  </section>
-                )}
-
-                {isPhoneBanking && phoneBanking && !isCompleted && (
-                  <section className="space-y-3">
-                    <Eyebrow>Payment details</Eyebrow>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Metric
-                        icon={<DollarSignIcon />}
-                        label="Total cost"
-                        value="Free"
-                      />
-                      <Metric
-                        icon={<DollarSignIcon />}
-                        label="Cost per outreach"
-                        value="—"
-                      />
-                    </div>
-                  </section>
-                )}
-
-                {isPhoneBanking && phoneBanking && isCompleted && (
-                  <section className="space-y-3">
-                    <Eyebrow>Results</Eyebrow>
-                    <p className="text-sm text-muted-foreground">
-                      Based on {phoneBanking.entriesCalled.toLocaleString()}{' '}
-                      phone banking contacts
-                    </p>
-                    <Card className="overflow-hidden p-0">
-                      <Table>
-                        <TableBody>
-                          {PHONE_BANKING_OUTCOME_ORDER.map((outcome) => (
-                            <TableRow key={outcome}>
-                              <TableCell>
-                                {PHONE_BANKING_OUTCOME_LABEL[outcome]}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">
-                                {phoneBanking.byOutcome[outcome]}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">
-                                {percentLabel(
-                                  phoneBanking.byOutcome[outcome],
-                                  phoneBanking.entriesCalled,
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                          {(
-                            [
-                              ['supporter', phoneBanking.supporters],
-                              ['unsure', phoneBanking.unsure],
-                              ['non_supporter', phoneBanking.nonSupporters],
-                            ] as [SupportAnswer, number][]
-                          ).map(([answer, count]) => (
-                            <TableRow key={answer}>
-                              <TableCell>
-                                Support: {SUPPORT_ANSWER_LABEL[answer]}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">
-                                {count}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">
-                                {percentLabel(count, phoneBanking.peopleCalled)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </Card>
-                  </section>
-                )}
-              </div>
-            </DrawerBody>
-
-            {isPhoneBanking && phoneBanking && !isCompleted && (
-              <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
-                <div className="mx-auto flex w-full max-w-[608px] gap-3">
-                  <Button asChild className="flex-1">
-                    <Link
-                      href={`/dashboard/outreach/phone-banking/${phoneBanking.listId}`}
-                    >
-                      <PhoneIcon className="size-4" />
-                      Continue calling
-                    </Link>
+                    <Trash2Icon className="size-4" />
+                    Delete
                   </Button>
-                </div>
-              </DrawerFooter>
-            )}
-
-            {/* Archive applies to every completed row (the history's
-                Archive toggle filters all types); Delete stays
-                phone-banking-only — it calls the list-delete endpoint. */}
-            {isCompleted && (
-              <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
-                <div className="mx-auto flex w-full max-w-[608px] gap-3">
-                  {isPhoneBanking && phoneBanking && (
-                    <Button
-                      variant="ghost"
-                      className="shrink-0 text-destructive hover:bg-destructive/10"
-                      onClick={() => setDeleteConfirmOpen(true)}
-                    >
-                      <Trash2Icon className="size-4" />
-                      Delete
-                    </Button>
-                  )}
+                )
+              }
+              primary={
+                footerMode === 'continue' && continueHref
+                  ? {
+                      kind: 'link',
+                      label: isDoorKnocking
+                        ? CONTINUE_LABELS.doorKnocking
+                        : CONTINUE_LABELS.phoneBanking,
+                      href: continueHref,
+                      icon: isDoorKnocking ? (
+                        <DoorOpenIcon className="size-4" />
+                      ) : (
+                        <PhoneIcon className="size-4" />
+                      ),
+                    }
+                  : null
+              }
+              secondary={
+                // Archive applies to every finished row the history's Archive
+                // toggle can hide — except a door-knocking one, whose archive
+                // is the LIST's and belongs to the door-knocking surface. This
+                // row is the campaign-reporting projection of that list, and a
+                // second writer that could only reach the projection is exactly
+                // how the two `archivedAt` columns drift apart. See the note
+                // below and `door-knocking/native/useListArchive.ts`.
+                footerMode === 'done' &&
+                !isDoorKnocking && (
                   <Button
                     variant="outline"
-                    className="flex-1"
+                    className="w-full"
                     disabled={archiveMutation.isPending}
                     onClick={() => archiveMutation.mutate()}
                   >
                     <ArchiveIcon className="size-4" />
                     {isArchived ? 'Restore from archive' : 'Move to archive'}
                   </Button>
+                )
+              }
+              note={
+                footerMode === 'done' &&
+                isDoorKnocking &&
+                'Archive this from Door knocking, so the list and this record stay in step.'
+              }
+            />
+          )
+        }
+      >
+        {row && (
+          <>
+            {(audienceName || audienceLabels.length > 0) && (
+              <DetailsSection title="Applied filters">
+                {audienceName && (
+                  <FilterGroup title="Audience" values={[audienceName]} />
+                )}
+                {audienceLabels.length > 0 && (
+                  <FilterGroup title="Filters" values={audienceLabels} />
+                )}
+              </DetailsSection>
+            )}
+
+            <DetailsSection title="Overview">
+              <MetricGrid>
+                <Metric
+                  icon={<CalendarIcon />}
+                  label="Date"
+                  value={displayDate ? dateUsHelper(displayDate, 'long') : '—'}
+                />
+                <Metric
+                  icon={<FileTextIcon />}
+                  label="Name"
+                  value={row.name || row.title || 'Untitled campaign'}
+                />
+                <Metric
+                  icon={<Share2Icon />}
+                  label="Channel"
+                  value={getChannelLabel(row.outreachType)}
+                />
+                {isSocial ? (
+                  <Metric
+                    icon={<FileTextIcon />}
+                    label="Platforms"
+                    value={
+                      social
+                        ? `${social.assets.length} platform${social.assets.length === 1 ? '' : 's'}`
+                        : '—'
+                    }
+                  />
+                ) : isPhoneBanking ? (
+                  <Metric
+                    icon={<UsersRoundIcon />}
+                    label="People"
+                    value={
+                      phoneBanking
+                        ? phoneBanking.peopleTotal.toLocaleString()
+                        : '—'
+                    }
+                  />
+                ) : isDoorKnocking ? null : (
+                  <Metric
+                    icon={<UsersRoundIcon />}
+                    label="People"
+                    value={
+                      typeof sent === 'number' ? sent.toLocaleString() : '—'
+                    }
+                  />
+                )}
+                {isSocial && social && (
+                  <Metric
+                    icon={<FileTextIcon />}
+                    label="Purpose"
+                    value={socialPurposeLabel(social.purpose)}
+                  />
+                )}
+              </MetricGrid>
+              {/* Door knocking's figures are the frozen route's — doors,
+                  knockable people, how many have been logged — and this
+                  envelope holds none of them, only the route's id. Rather than
+                  print a People cell that can only ever say "—", the drawer
+                  says where the numbers live; the footer's "Continue knocking"
+                  is the way there. */}
+              {isDoorKnocking && (
+                <p className="text-sm text-muted-foreground">
+                  Doors, people and knocking progress for this walk are on the
+                  list itself, in Door knocking.
+                </p>
+              )}
+            </DetailsSection>
+
+            {isSocial && detailQuery.isLoading && (
+              <StatusText
+                tone="muted"
+                icon={<Loader2Icon />}
+                spinning
+                className="text-sm"
+              >
+                Loading your posts…
+              </StatusText>
+            )}
+            {isSocial && detailQuery.isError && (
+              <p className="text-sm text-muted-foreground">
+                We couldn&apos;t load this campaign&apos;s posts. Close and try
+                again.
+              </p>
+            )}
+            {social && (
+              <section className="space-y-3">
+                <Eyebrow>Posts · {social.assets.length}</Eyebrow>
+                <p className="text-sm text-muted-foreground">
+                  The text created for each platform. Copy any post again below.
+                </p>
+                <div className="space-y-4">
+                  {social.assets.map((asset) => (
+                    <SocialAssetCard key={asset.platform} asset={asset} />
+                  ))}
                 </div>
-              </DrawerFooter>
+              </section>
+            )}
+
+            {isPhoneBanking && detailQuery.isLoading && (
+              <StatusText
+                tone="muted"
+                icon={<Loader2Icon />}
+                spinning
+                className="text-sm"
+              >
+                Loading call progress…
+              </StatusText>
+            )}
+            {isPhoneBanking && detailQuery.isError && (
+              <p className="text-sm text-muted-foreground">
+                We couldn&apos;t load this campaign&apos;s call progress. Close
+                and try again.
+              </p>
+            )}
+
+            {isPhoneBanking && phoneBanking && !isCompleted && (
+              <DetailsSection title="Progress">
+                <Card className="gap-3 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      {phoneBanking.peopleCalled.toLocaleString()} of{' '}
+                      {phoneBanking.peopleTotal.toLocaleString()} reached
+                    </span>
+                    <span className="text-sm font-medium text-foreground">
+                      {percentLabel(
+                        phoneBanking.peopleCalled,
+                        phoneBanking.peopleTotal,
+                      )}
+                    </span>
+                  </div>
+                  <Progress
+                    value={
+                      phoneBanking.peopleTotal > 0
+                        ? (phoneBanking.peopleCalled /
+                            phoneBanking.peopleTotal) *
+                          100
+                        : 0
+                    }
+                  />
+                  <MetricGrid>
+                    <Metric
+                      icon={<CheckCircleIcon />}
+                      label="Completed"
+                      value={phoneBanking.peopleCalled.toLocaleString()}
+                    />
+                    <Metric
+                      icon={<ClockIcon />}
+                      label="Remaining"
+                      value={(
+                        phoneBanking.peopleTotal - phoneBanking.peopleCalled
+                      ).toLocaleString()}
+                    />
+                  </MetricGrid>
+                </Card>
+              </DetailsSection>
+            )}
+
+            {isPhoneBanking && phoneBanking && !isCompleted && (
+              <DetailsSection title="Payment details">
+                <MetricGrid>
+                  <Metric
+                    icon={<DollarSignIcon />}
+                    label="Total cost"
+                    value="Free"
+                  />
+                  <Metric
+                    icon={<DollarSignIcon />}
+                    label="Cost per outreach"
+                    value="—"
+                  />
+                </MetricGrid>
+              </DetailsSection>
+            )}
+
+            {isPhoneBanking && phoneBanking && isCompleted && (
+              <DetailsSection title="Results">
+                <p className="text-sm text-muted-foreground">
+                  Based on {phoneBanking.entriesCalled.toLocaleString()} phone
+                  banking contacts
+                </p>
+                <Card className="overflow-hidden p-0">
+                  <Table>
+                    <TableBody>
+                      {PHONE_BANKING_OUTCOME_ORDER.map((outcome) => (
+                        <TableRow key={outcome}>
+                          <TableCell>
+                            {PHONE_BANKING_OUTCOME_LABEL[outcome]}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {phoneBanking.byOutcome[outcome]}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {percentLabel(
+                              phoneBanking.byOutcome[outcome],
+                              phoneBanking.entriesCalled,
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {(
+                        [
+                          ['supporter', phoneBanking.supporters],
+                          ['unsure', phoneBanking.unsure],
+                          ['non_supporter', phoneBanking.nonSupporters],
+                        ] as [SupportAnswer, number][]
+                      ).map(([answer, count]) => (
+                        <TableRow key={answer}>
+                          <TableCell>
+                            Support: {SUPPORT_ANSWER_LABEL[answer]}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {count}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {percentLabel(count, phoneBanking.peopleCalled)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Card>
+              </DetailsSection>
             )}
           </>
         )}
-      </DrawerContent>
+      </ListDetailsSheetShell>
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
@@ -577,6 +578,6 @@ export const OutreachDetailsDrawer = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Drawer>
+    </>
   )
 }
