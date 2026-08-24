@@ -221,17 +221,17 @@
         rotate(var(--tw-exit-rotate, 0));
     }
   }
-}
 
-/* Robocall record bar: the live waveform bars scale vertically while
-   recording (voter-outreach-v2 robocall compose step). */
-@keyframes gp-bar {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(1);
+  /* Robocall record bar: the live waveform bars scale vertically while
+     recording (voter-outreach-v2 robocall compose step). */
+  @keyframes gp-bar {
+    0%,
+    100% {
+      transform: scaleY(0.35);
+    }
+    50% {
+      transform: scaleY(1);
+    }
   }
 }
 
