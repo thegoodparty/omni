@@ -6,8 +6,6 @@ import pandas as pd
 import pytest
 
 from stitch_golden_data.prod_gold_data.l2_br_matcher import (
-    ABSTAINED,
-    MATCHED,
     DistrictCandidate,
     L2BrMatcher,
     _district_embedding_text,
@@ -262,9 +260,12 @@ class TestTaskTypeInvariant:
             )
 
 
-class TestTerminalStatusContract:
-    """A run persists only MATCHED and ABSTAINED. A technical error fails
-    the run instead of being delivered as a match.
+class TestTerminalOutcomeContract:
+    """A run persists two outcomes and no third: the three district fields
+    populated (a match) or all three None (an attempt that found nothing).
+    There is no status column, so a populated district name is the whole
+    signal. A technical error fails the run instead of being delivered as
+    a match.
     """
 
     @staticmethod
@@ -314,7 +315,6 @@ class TestTerminalStatusContract:
         with patch("stitch_golden_data.prod_gold_data.l2_br_matcher.build_cached_prompt", return_value="prompt"):
             result = asyncio.run(matcher.match_office(br_database_id=1, br_name="Test Race", state="DE"))
 
-        assert result.match_status == ABSTAINED
         assert result.l2_state is None
         assert result.l2_district_type is None
         assert result.l2_district_name is None
@@ -340,7 +340,6 @@ class TestTerminalStatusContract:
         with patch("stitch_golden_data.prod_gold_data.l2_br_matcher.build_cached_prompt", return_value="prompt"):
             result = asyncio.run(matcher.match_office(br_database_id=1, br_name="Test Race", state="DE"))
 
-        assert result.match_status == MATCHED
         assert result.l2_state == "ZZ"
         assert result.l2_district_type == "House"
         assert result.l2_district_name == "District 5"
@@ -406,8 +405,13 @@ class TestRunEndToEnd:
             results = asyncio.run(matcher.run())
 
         assert len(results) == 1
-        assert results[0].match_status == MATCHED
         assert results[0].br_database_id == 1
+        # A populated district is what says "matched" now that no status
+        # column exists. Not the district's NAME: every fixture embedding
+        # here is identical, so which of the two tied candidates lands at
+        # slot 1 is the frozen tie-break's business, pinned elsewhere, and
+        # asserting it would red this test on an unrelated menu change.
+        assert results[0].l2_district_name is not None
 
 
 class TestLoadPendingOfficesStatesFilter:

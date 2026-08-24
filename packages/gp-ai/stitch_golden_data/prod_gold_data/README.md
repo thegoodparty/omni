@@ -29,11 +29,15 @@ many district texts go into one `create_embeddings` call when building the
 universe (default 100) -- the two are unrelated knobs for unrelated
 workloads, not one shared setting.
 
-## Terminal-status contract
+## Terminal-outcome contract
 
-A run persists only `MATCHED` or `ABSTAINED`. A technical error (an LLM or
-embedding call raising, or a malformed LLM response) fails the run instead of
-being recorded as a match or coerced into an abstention.
+A run persists two outcomes and no third. A `MatchResult` whose
+`l2_state` / `l2_district_type` / `l2_district_name` are populated is a match;
+one where all three are `None` is an attempt that found nothing. There is no
+status column on the result or in `llm_l2_br_match_results`, so a populated
+district name is the whole signal. A technical error (an LLM or embedding call
+raising, or a malformed LLM response) fails the run instead of being recorded
+as a match or coerced into an abstention.
 
 ## What is frozen
 

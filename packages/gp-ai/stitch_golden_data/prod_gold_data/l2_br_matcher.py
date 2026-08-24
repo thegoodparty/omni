@@ -9,7 +9,7 @@ construction, the LLM prompt, response schema and Braintrust identifiers --
 is an owner-decided constraint, not reviewable, and is reproduced here, not
 redesigned. What changed: inputs come from Databricks instead of laptop
 pickles, embeddings live in memory for the run and are discarded, and a run
-persists only MATCHED and ABSTAINED -- a technical error fails the run
+persists only matches and abstentions -- a technical error fails the run
 instead of being recorded as a match.
 
 This module writes nothing. `run()` returns terminal results for the caller
@@ -36,9 +36,6 @@ from shared.logger import get_logger
 
 PENDING_OFFICES_TABLE = "int__l2_br_match_pending_offices"
 DISTRICT_UNIVERSE_TABLE = "int__l2_district_universe"
-
-MATCHED = "MATCHED"
-ABSTAINED = "ABSTAINED"
 
 MENU_SIZE = 13
 STATE_QUERY_INSERT_INDEX = 10  # 11th slot
@@ -68,25 +65,26 @@ class DistrictCandidate:
 
 @dataclass
 class MatchResult:
-    """One office's terminal outcome: MATCHED or ABSTAINED, never anything
-    else -- a technical error raises instead of producing a MatchResult.
+    """One office's terminal outcome, and there are only two of them: the
+    three district fields are populated (a match) or all three are None (an
+    attempt that found nothing). No third state and no status column -- a
+    technical error raises instead of producing a MatchResult.
 
-    Carries the six columns this PR is responsible for.
-    llm_l2_br_match_results has two more, `run_id` and `attempted_at`, both
-    NOT NULL with no default -- those belong to the write path, not here.
-    `attempted_at` in particular must NOT default to load time: the
-    baseline run stamps it with the date an office was actually matched,
-    not today's date, and getting that wrong shifts every 30-day clock. No
-    `llm_reason`, no `embeddings`, no `alternative_matches`, no
-    `is_exact_district_match`: the results table has no column for any of
-    them. l2_state/type/name are None on an ABSTAINED row.
+    Carries five of llm_l2_br_match_results' six columns. The sixth,
+    `attempted_at`, is deliberately absent: one run stamps one value across
+    every row it writes and the orchestrator passes it in, so minting it
+    per result is exactly what that contract prevents. It must also never
+    default to load time -- the baseline run stamps it with the date an
+    office was actually matched, not today's date, and getting that wrong
+    shifts every 30-day clock. No `llm_reason`, no `embeddings`, no
+    `alternative_matches`, no `is_exact_district_match`: the results table
+    has no column for any of them.
     """
 
     br_database_id: int
     l2_state: str | None
     l2_district_type: str | None
     l2_district_name: str | None
-    match_status: str
     confidence: int | None
 
 
@@ -150,8 +148,8 @@ def _validate_pending_offices(pending_df: pd.DataFrame) -> None:
     IN-clause unescaped -- that value is warehouse data, not operator
     input, so one apostrophe in it breaks or extends the query. A blank
     name still embeds cleanly (`"race name: "`) and gets back a real,
-    arbitrary MATCHED row -- worse than a bad state, because a match is a
-    link the pending list's own 30-day rule never reopens.
+    arbitrary match -- worse than a bad state, because a match is a link
+    the pending list's own 30-day rule never reopens.
     """
     bad_state_mask = ~pending_df["state"].str.match(_STATE_CODE_RE)
     if bad_state_mask.any():
@@ -172,9 +170,10 @@ def _validate_district_universe(universe_df: pd.DataFrame) -> None:
     `district_name` is not caught by the groupby at all: it survives into
     the embedding text as the literal string "nan" and, if the LLM ever
     selects it, into `MatchResult.l2_district_name` as a float -- on a row
-    whose docstring says that field is None only when ABSTAINED. Rule 3
-    then re-offers that office on every dbt build, re-paying the LLM cost
-    forever.
+    whose docstring says that field is None only when the attempt found
+    nothing, and where a populated value is the whole signal that the
+    office matched. Rule 3 then re-offers that office on every dbt build,
+    re-paying the LLM cost forever.
     """
     for column in ("state_postal_code", "district_type", "district_name"):
         blank_mask = universe_df[column].isna() | (universe_df[column].astype(str).str.strip() == "")
@@ -628,12 +627,12 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
             trace_name="stitch-match-selection",
         )
 
-    # -- Terminal-status contract: MATCHED or ABSTAINED, or raise --------
+    # -- Terminal-outcome contract: a match, an abstention, or a raise ---
 
     async def match_office(self, br_database_id: int, br_name: str, state: str) -> MatchResult:
         """Match one BR office to an L2 district, or abstain.
 
-        Persists only MATCHED and ABSTAINED. Never converts an LLM or
+        Persists only matches and abstentions. Never converts an LLM or
         embedding failure into a result -- it propagates so the run fails
         instead of being recorded as a match (the old
         `selected_district_name == "LLM_ERROR"` bug this replaces).
@@ -646,13 +645,13 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         # _build_menu never returns an empty list today; it raises instead,
         # because nothing yet empties a menu this way.
         if not candidates:
-            return MatchResult(br_database_id, None, None, None, ABSTAINED, None)
+            return MatchResult(br_database_id, None, None, None, confidence=None)
 
         response = await self._select_candidate(br_name, candidates)
         selected_index, confidence = _selection_from_response(response, len(candidates))
 
         if selected_index == 0:
-            return MatchResult(br_database_id, None, None, None, ABSTAINED, confidence)
+            return MatchResult(br_database_id, None, None, None, confidence=confidence)
 
         selected = candidates[selected_index - 1]
         return MatchResult(
@@ -660,7 +659,6 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
             l2_state=selected.l2_state,
             l2_district_type=selected.l2_district_type,
             l2_district_name=selected.l2_district_name,
-            match_status=MATCHED,
             confidence=confidence,
         )
 
@@ -725,14 +723,17 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         return embedding_cost, llm_cost
 
     def print_summary(self, results: list[MatchResult]) -> None:
-        """Print counts by match_status and this run's cost."""
-        matched = sum(1 for r in results if r.match_status == MATCHED)
-        abstained = sum(1 for r in results if r.match_status == ABSTAINED)
+        """Print the match/abstain split and this run's cost.
+
+        A populated district name is what says the office matched -- there
+        is no status column to count, here or in the results table.
+        """
+        matched = sum(1 for r in results if r.l2_district_name is not None)
         embedding_cost, llm_cost = self._cost_deltas()
 
         self.logger.info(f"Processed {len(results)} offices")
-        self.logger.info(f"  {MATCHED}: {matched}")
-        self.logger.info(f"  {ABSTAINED}: {abstained}")
+        self.logger.info(f"  matched: {matched}")
+        self.logger.info(f"  abstained: {len(results) - matched}")
         self.logger.info(f"Embedding cost: ${embedding_cost:.6f}")
         self.logger.info(f"LLM cost: ${llm_cost:.6f}")
         self.logger.info(f"Total cost: ${embedding_cost + llm_cost:.6f}")
