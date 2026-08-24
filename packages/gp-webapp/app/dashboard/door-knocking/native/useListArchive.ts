@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { turfsQueryOptions } from './turfQueries'
@@ -38,9 +39,15 @@ const mirrorEnvelope = async (
   if (routeId === null) return
   // `GET /v1/outreach` is campaign-scoped and 404s for a campaign with no
   // outreach at all, which is the same shape as "this org has no envelope" —
-  // a Serve org knocks without a campaign. Neither is a failed archive, so
-  // both resolve to "nothing to mirror" rather than to an error.
-  const rows = await clientRequest('GET /v1/outreach', {}).catch(() => null)
+  // a Serve org knocks without a campaign. That is not a failed archive, so it
+  // resolves to "nothing to mirror". Only that status: a 401 or a 500 means we
+  // never learned whether there was an envelope, and swallowing those would
+  // report a clean archive over a mirror that silently didn't happen — the
+  // exact drift this hook exists to close. Same narrowing as `walkListData.ts`.
+  const rows = await clientRequest('GET /v1/outreach', {}).catch((error) => {
+    if (error instanceof FetchError && error.status === 404) return null
+    throw error
+  })
   const envelope = rows?.data.find((row) => row.doorKnockingRouteId === routeId)
   if (!envelope) return
   await clientRequest('PATCH /v1/outreach/:id/archive', {

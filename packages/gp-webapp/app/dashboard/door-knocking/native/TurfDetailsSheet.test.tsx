@@ -291,6 +291,66 @@ describe('TurfDetailsSheet archive', () => {
     expect(errorSnackbar).not.toHaveBeenCalled()
   })
 
+  // The route id is the join key, so a route fetch that settles with nothing
+  // leaves the mirror unaddressable. Archive stays available — the list is
+  // still the candidate's to shelve — but it cannot claim the history row
+  // followed, which is why `routeUnavailable` is its own input rather than
+  // being folded into a null route id, where it would be indistinguishable
+  // from the Serve-org case that really has nothing to mirror.
+  it('reports the lag when the route the mirror needs is unavailable', async () => {
+    let envelopeLooked = false
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: undefined as never,
+    })
+    api.mock('POST /v1/door-knocking/turfs/:id/archive', {
+      status: 200,
+      data: turf({ locked: true, archivedAt: new Date() }),
+    })
+    api.mock('GET /v1/outreach', () => {
+      envelopeLooked = true
+      return { status: 200, data: [envelope()] }
+    })
+
+    renderSheet({ prop: { locked: true } })
+
+    // The failed fetch is what enables the control: it is held only while the
+    // route may still arrive.
+    expect(await screen.findAllByText('Unavailable')).not.toHaveLength(0)
+    await clickArchive('Move to archive')
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'List archived, but your outreach history has not caught up yet.',
+      ),
+    )
+    // No route id to match on, so the lookup is never even attempted — the
+    // lag is reported instead of guessed at.
+    expect(envelopeLooked).toBe(false)
+    expect(successSnackbar).not.toHaveBeenCalled()
+  })
+
+  // A 404 from the outreach list is "no campaign", and only that. Anything
+  // else means we never learned whether an envelope exists, so it lands as a
+  // lagging mirror rather than as a clean archive.
+  it('does not call a failed envelope lookup a clean archive', async () => {
+    api.mock('POST /v1/door-knocking/turfs/:id/archive', {
+      status: 200,
+      data: turf({ locked: true, archivedAt: new Date() }),
+    })
+    api.mock('GET /v1/outreach', { status: 500, data: undefined as never })
+
+    knockedSheet()
+    await clickArchive('Move to archive')
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'List archived, but your outreach history has not caught up yet.',
+      ),
+    )
+    expect(successSnackbar).not.toHaveBeenCalled()
+  })
+
   // Two writes, no transaction: the list IS shelved, and reporting a failed
   // archive would send someone to press it again against a list that already
   // moved. So the message is about the projection lagging, not about the act.
