@@ -11,6 +11,7 @@ from stitch_golden_data.prod_gold_data.l2_br_matcher import (
     _district_embedding_text,
     _selection_from_response,
     _StateUniverse,
+    _validate_district_universe,
 )
 from stitch_golden_data.prod_gold_data.vector_store_generator import VectorStoreGenerator
 
@@ -189,6 +190,7 @@ class TestSelectionValidation:
             {"selected_candidate_number": 1, "selection_confidence": "95"},
             {"selected_candidate_number": 1, "selection_confidence": 950},
             {"selected_candidate_number": 1, "selection_confidence": 87.5},
+            {"selected_candidate_number": 6, "selection_confidence": 90},
         ],
         ids=[
             "fractional-index",
@@ -196,6 +198,7 @@ class TestSelectionValidation:
             "string-confidence",
             "out-of-range-confidence",
             "fractional-confidence",
+            "out-of-bounds-index",
         ],
     )
     def test_malformed_selection_or_confidence_raises(self, response):
@@ -203,10 +206,42 @@ class TestSelectionValidation:
         model's 4th choice as its 3rd, `int(float(True)) == 1` lets a
         boolean select candidate 1, and a string/out-of-range/fractional
         confidence writes cleanly into a `confidence bigint` column that
-        expects an integer 0-100.
+        expects an integer 0-100. The last case is the only one that reaches
+        the index BOUNDS branch -- every other index case fails inside
+        `_require_integral` first -- and it is reachable because the response
+        schema's `maximum` is declared but not enforced client-side.
         """
         with pytest.raises(ValueError):
             _selection_from_response(response, num_candidates=5)
+
+
+class TestValidateDistrictUniverse:
+    """The fail-closed guard on the menu source. Its failure is expensive and
+    silent rather than loud: `groupby` drops a null state without an error, and
+    a null district type or name survives into the embedding text as the
+    literal string "nan" and into `MatchResult.l2_district_name` as a float --
+    so the office misses the universe join, rule 3 re-offers it on every dbt
+    build, and the LLM cost is re-paid indefinitely.
+    """
+
+    @staticmethod
+    def _universe() -> pd.DataFrame:
+        return pd.DataFrame({"state_postal_code": ["DE"], "district_type": ["House"], "district_name": ["District 5"]})
+
+    @pytest.mark.parametrize("column", ["state_postal_code", "district_type", "district_name"])
+    @pytest.mark.parametrize("bad_value", [None, "   "], ids=["null", "blank"])
+    def test_a_null_or_blank_column_raises_naming_that_column(self, column, bad_value):
+        universe = self._universe()
+        universe.loc[0, column] = bad_value
+
+        with pytest.raises(ValueError, match=column):
+            _validate_district_universe(universe)
+
+    def test_a_fully_populated_universe_passes(self):
+        """Failure this catches: a guard strict enough to reject real data,
+        which would fail every run rather than none.
+        """
+        _validate_district_universe(self._universe())
 
 
 class TestTaskTypeInvariant:
