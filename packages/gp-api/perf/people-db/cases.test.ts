@@ -5,9 +5,10 @@ describe('buildLatencyCases', () => {
   const cases = buildLatencyCases()
 
   it('applies list and count across every cohort x variant, others once per cohort', () => {
-    // list: 5x11, count: 5x11, list-detail: 5x2, search/sample/overlap/stats:
-    // 5 each, csv: 3 (csv skips mega and statewide — they dominate the pass)
-    expect(cases.length).toBe(55 + 55 + 10 + 4 * 5 + 3)
+    // list: 5x11, count: 5x11, list-detail: 5x2, csv: 3 (csv skips mega and
+    // statewide — they dominate the pass), and six once-per-cohort types:
+    // search, sample, overlap, stats, district-by-id, voter-by-id.
+    expect(cases.length).toBe(55 + 55 + 10 + 6 * 5 + 3)
   })
 
   it('latency-tests the whole list-detail request at every district size', () => {
@@ -32,6 +33,18 @@ describe('buildLatencyCases', () => {
     expect(csv.some((c) => c.cohort.band === 'statewide')).toBe(false)
     expect(csv.some((c) => c.cohort.band === 'mega')).toBe(false)
     expect(csv.every((c) => c.variant.name === 'none')).toBe(true)
+  })
+
+  it('emits one by-id cell per cohort, unfiltered', () => {
+    for (const queryType of ['district-by-id', 'voter-by-id'] as const) {
+      const byId = cases.filter((c) => c.queryType === queryType)
+      // A primary-key read cannot be changed by a filter, so a variant axis
+      // here would multiply cells without measuring anything new.
+      expect(byId.map((c) => c.cohort.band).sort()).toEqual(
+        ['large', 'mega', 'medium', 'small', 'statewide'].sort(),
+      )
+      expect(byId.every((c) => c.variant.name === 'none')).toBe(true)
+    }
   })
 
   it('runs stats once per cohort with the none variant only', () => {

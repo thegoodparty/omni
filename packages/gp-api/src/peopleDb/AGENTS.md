@@ -2,7 +2,7 @@
 
 A second, **read-only** Prisma client + raw-SQL voter engine inside gp-api,
 talking directly to the people-db Postgres cluster (the same `green`-schema
-Voter table, hundreds of millions of L2 records, partitioned by state, that the now-retired
+Voter table, 200M+ L2 records, partitioned by state, that the now-retired
 `people-api` package used to serve over HTTP). This module is the in-process
 replacement for that service — and the SOLE path: filter pipeline, id
 `in`/`notIn`, trigram search, stats/aggregates, CSV download, and
@@ -82,23 +82,26 @@ modules directly.
 connection URL. This is load-bearing, not tuning.
 
 Every filter value in `filters.sql.util.ts` is a **bound parameter**. Postgres
-plans a prepared statement custom for its first five executions, then may switch
-to a generic plan built without knowing the values. For a range filter it then
+plans a prepared statement custom for its first 5 executions, then may switch to
+a generic plan built without knowing the values. For a range filter it then
 assumes default selectivity and **inverts the join**: instead of driving from
 `DistrictVoter` for the one district, it bitmap-scans every voter in the state's
-age/income band and checks district membership after.
+age/income band (~116k estimated rows) and checks district membership after.
 
-Without the option, the sixth and later executions of that statement shape run
-**orders of magnitude slower than the first five** — enough to blow the 25s
-statement timeout on a district small enough to be fast otherwise, which was the
-mechanism behind the `GET /v1/contacts/list-detail` 504s. With it, every
-execution stays at the fast plan.
+Measured on prod 2026-08-16, a 7,828-voter district with an age + income range,
+through the real Prisma client:
 
-It reads as intermittent because it depends on how many times a **pooled**
-connection has run that statement shape, so a fresh connection looks fine and a
-well-used one times out. It also inverts the usual cache intuition — the first
-hit is fast and later ones are slow — which is why it hid inside the benchmark's
-warm p95.
+| execution | without the option | with it |
+| --------- | ------------------ | ------- |
+| 1–5       | ~140ms             | ~140ms  |
+| 6+        | **~17,700ms**      | ~150ms  |
+
+That ~130x cliff blew the 25s statement timeout and was the mechanism behind the
+`GET /v1/contacts/list-detail` 504s. It reads as intermittent because it depends
+on how many times a **pooled** connection has run that statement shape, so a
+fresh connection looks fine and a well-used one times out. It also inverts the
+usual cache intuition — the first hit is fast and later ones are slow — which is
+why it hid inside the benchmark's warm p95.
 
 Two traps when touching this:
 
@@ -129,17 +132,22 @@ materially different things, and the difference is the whole point:
 | Error surfaced | `P2010 Code: 57014` | `P2010 Code: N/A`, `Timed out during query execution` |
 | Maps to | classified 504 | unhandled 500 |
 
-So an unguarded query that goes pathological keeps burning people-db CPU after
-the client has abandoned it — for the difference between the two timeouts,
-precisely the wrong behaviour when the datastore is already the thing under
-stress, and self-amplifying under retries.
+So an unguarded query that goes pathological burns people-db CPU for a further
+**35 seconds** after the client has abandoned it — precisely the wrong
+behaviour when the datastore is already the thing under stress, and
+self-amplifying under retries.
 
 Prod 2026-08-20 is the natural experiment, and is why this rule is written down
-rather than left to taste. In one degradation window, on one cluster, every
-guarded path (`POST /v1/chats/:id/messages`, `GET /v1/contacts/list-detail`)
-died within milliseconds of the 25s ceiling as a clean 504, while the single
-unguarded path — `VoterDoorKnockingService.residents()` — rode the socket
-timeout all the way out and surfaced as an unhandled 500.
+rather than left to taste. In one degradation window, on one cluster:
+
+| endpoint | guarded? | duration | outcome |
+| --- | --- | --- | --- |
+| `POST /v1/chats/:id/messages` | yes | 25,011 / 25,016ms | clean 504 |
+| `GET /v1/contacts/list-detail` | yes | 25,013ms | clean 504 |
+| `GET /v1/door-knocking/turfs/:id/route` | **no** | **60,209ms** | **unhandled 500** |
+
+Every guarded path died within 16ms of the 25s ceiling. The single unguarded
+path — `VoterDoorKnockingService.residents()` — rode the socket timeout to 60s.
 `voterDoorKnocking.service.ts` predated the timeout convention (added
 2026-07-27; the guard landed 2026-07-31 in `voterQuery.service.ts` only) and was
 simply never retrofitted. Note what the fix does and does not do: it makes that
@@ -160,16 +168,16 @@ scan is bounded by a bbox (`buildBboxSql`) on indexed lat/long columns. It uses
 the computed key for output, not to constrain the scan. `residents()` uses it to
 constrain the scan, and that is the difference.
 
-This is a **latent fragility, not a live defect**. As of 2026-08-20 the endpoint
-was healthy in normal operation — a low single-digit-second median, and 5xxs
-rare enough over a week to be coincidental rather than routine. It is best read
-as the reason `residents()` is the query that tips over *first* when people-db is
-degraded, not as a cause of routine failure.
+This is a **latent fragility, not a live defect**. Measured reality as of
+2026-08-20: a two-second median on this endpoint, ten consecutive 200s for the
+same user and turf ~19h before the incident, and exactly one 5xx in seven days.
+It is best read as the reason `residents()` is the query that tips over *first*
+when people-db is degraded — not a cause of routine failure.
 
 **Do not propose an expression index on the strength of this alone.** The Voter
-table is a large partitioned production mirror; an index there is a human
-decision about lock behaviour and rollout, and one data point against a healthy
-median does not justify it. If this endpoint's failures ever become
+table is a 200M-row partitioned production mirror; an index there is a human
+decision about lock behaviour and rollout, and one data point against a
+two-second median does not justify it. If this endpoint's failures ever become
 routine rather than a once-in-seven-days coincidence with a datastore-wide
 slowdown, this is where to start, and the shape to evaluate is an expression
 index matching `buildDoorKnockingAddressKeySql` exactly.
@@ -233,199 +241,14 @@ as a **SQL literal**, never a bound parameter, in any join/filter comparing
 `v."State"` against the Voter table. A parameterized (or cast-of-a-bind)
 state breaks equivalence-class constant propagation across
 `v."State" = dv."State"` joins, so the planner falls back to a seq-scan of
-the entire state partition + hash join instead of a nested-loop index probe,
-which is several times slower on a large district. This is safe because state is
-checked
+the entire state partition + hash join instead of a nested-loop index probe
+(~7.5s vs ~1.3s on a large district). This is safe because state is checked
 against the fixed `USState` enum allowlist before being spliced in via
 `Prisma.raw`, never sourced from raw user input. **Do not "clean up" this
 inlining into a parameterized query** — it's a deliberate, measured
 perf-critical invariant, not an oversight. `PEOPLE_STATE_ENUM=false` switches
 the comparison to plain text for loader-built (non-Prisma-managed) clusters;
 the default keeps the `"public"."USState"` cast.
-
-## Databricks is where voter data comes from
-
-`databricks/` serves the voter queries: aggregates, list/search, saved-list
-overlap, district stats and the CSV export. There is no runtime store
-selection — no flag, no fallback. `VoterQueryService`, `StatsService` and
-`VoterDownloadService` keep their interfaces, so callers, contracts and the
-`perf/people-db/` benchmark suite are unchanged.
-
-It queries `goodparty_data_catalog.dbt` (the dbt-modelled mirror of the same L2
-data) through the Statement Execution API, using the `PEOPLE_DATABRICKS_*`
-credential — its own service principal (`sp_people_db`) on its own dedicated
-warehouse, so voter scans never queue behind interactive chat. **Never the
-`DATABRICKS_*` (Serve) or `WIN_DATABRICKS_*` (Campaign Manager) credentials**:
-grants are per principal and those are scoped to their own marts.
-
-That principal's grant is least-privilege and covers exactly two tables,
-`m_people_api__voter` and `m_people_api__district`. Naming any other table in a
-query is a permission error in production, which is what
-`databricksVoterSql.util.test.ts`'s grant test pins.
-
-If `PEOPLE_DATABRICKS_*` is unset or the credential is rejected, voter queries
-fail (see below) — there is nothing to fall back to.
-
-**What people-db still serves.** Five surfaces have no Databricks
-implementation yet and still read the Postgres mirror, which is why
-`PeopleDbService`, `peopleDbUrl.provider.ts`, `createPeopleDbBase` and the
-people-Prisma client are all still here:
-
-| Surface | Why it has not moved |
-| --- | --- |
-| `findPeople` with `groupByHousehold` | `DISTINCT ON` household de-dup has no direct equivalent |
-| CSV export with `groupByHousehold` | same de-dup, in the COPY projection |
-| `findPerson` | single-row lookup, not yet ported |
-| `VoterSampleService` | hash-bucket sampling over the id space |
-| `VoterDoorKnockingService`, `VoterPackService` | bbox scans and the address-key predicate |
-
-Porting those is the next piece of work, and until it lands the Postgres
-connection cannot be removed. One cross-store read is deliberate:
-`VoterSampleService` samples from Postgres but sizes its buckets from
-`StatsService.findTotalCounts`, which now computes from Databricks. The two
-agree on those totals, and it is what preserves the `VOTER_DATA_UNAVAILABLE`
-throw for a district with no voters.
-
-### Failing without a fallback
-
-Because there is no second store, an unreachable warehouse is a hard failure —
-and it must not be confusable with an empty district, because a district with no
-voters is a MEANINGFUL null that the product renders as "no constituent data for
-this office yet". So every way of failing to reach Databricks (missing
-credential, expired or under-granted token, 401/403/429/5xx from the API, a
-failed token exchange) raises `PeopleDbxUnavailableError`, which the callers
-translate to **502** with the reason logged. A statement over the byte ceiling
-is a **400** (the caller's selection is too large), and a statement past the
-time ceiling is a **504**. None of those can present as zero voters.
-
-### Wide-column district scoping — never the junction table
-
-Postgres scopes a district by joining `green."DistrictVoter"`. **Do not port
-that join.** The membership table's Databricks equivalent is clustered by voter
-id rather than district, so a district predicate prunes nothing in it and its
-cost is insensitive to district size — and it is outside this principal's grant
-anyway. `buildScopeSql` instead filters the voter row's own L2 district column:
-`m_people_api__district` gives `(id, state, type, name)` where **`type` IS the
-voter column name and `name` is its value**, so a district becomes
-``WHERE `State` = 'CA' AND `US_Congressional_District` = '29'``.
-
-Two things were verified before relying on this, both re-runnable: wide-column
-scoping selects the same population as membership-table scoping, checked on the
-benchmark cohorts across three orders of magnitude of district size; and every
-`type` value in the district catalog is a real column on the voter table, so
-every district is addressable this way with none falling back.
-
-The `State` predicate stays on every query: the voter table is liquid-clustered
-by `State`, and that is what prunes. The `useVoterOnlyPath` special case carries
-over unchanged — a `State` district whose name is the state has no membership
-rows at all, so it scopes on `State` alone.
-
-### `DistrictStats` is computed, not read
-
-The mirrored stats table lags the voter data by days at a time, so
-`databricksDistrictStatsSql.util.ts` recomputes the whole row on demand — one
-scan, a `count_if` per bucket label. That costs little over a single-row lookup
-and stays roughly flat across district sizes, which is what makes reading a
-stale table not worth it. It is also outside this principal's grant.
-
-Verified exact against the mirrored stats table on all four benchmark cohorts:
-same totals, same cell-phone count, same labels, counts, percents and ordering.
-Note that mirror lowercases its JSON keys (`estimatedincomerange`), while the
-shape gp-api and the webapp consume is camelCase (`estimatedIncomeRange`) — one
-more reason not to read it.
-
-Two things there are load-bearing:
-
-- **A zero-voter district must map back to `null`.** "No stats row" is product
-  behavior, not an absence of data: `polls.controller.ts` gates poll creation on
-  `totalConstituentsWithCellPhone`, `computeHashDivisorAndPrelimit` and
-  `fetchStatsByDistrictId` throw `VOTER_DATA_UNAVAILABLE` on null, and the
-  webapp renders a dedicated "no constituent data for this office yet" screen
-  keyed on that code. An on-demand query returns 0, never null, so
-  `mapDistrictStatsRow` does the mapping.
-- **`'Probable Home Owner'` folds into `Yes`**, and there is no `Likely`
-  bucket. That deliberately disagrees with `VALUE_MAPPERS.homeowner` in
-  `filters.sql.util.ts`, which maps the same value to `Likely`. The
-  inconsistency between the stats table and the filter pipeline predates this
-  code; reproducing the stats-table behavior is what keeps these numbers
-  identical to the ones the product shows today.
-
-### Name search uses `lower(col) LIKE`, not `isearch()`
-
-`isearch()` works and is equally fast, but its only documentation sits inside a
-Beta feature page, so we take no dependency on it. The tokenizer is a
-character-for-character port of `buildVoterWhereSql`'s search branch — phone
-normalization, 3+ char infix vs 1-2 char prefix, LIKE-metacharacter escaping —
-so a search resolves to the same match set in both stores.
-
-### CSV export mechanics
-
-`databricksVoterDownload.service.ts` uses `disposition: EXTERNAL_LINKS` with
-`format: CSV`, never the `@databricks/sql` driver's `fetchChunk` (which
-materializes every row through Thrift and is far slower). Four things verified
-against the real 76-column projection:
-
-- `SUCCEEDED` means the chunk **plan** is ready, not that bytes are written —
-  chunks materialize lazily on fetch, which is what lets a large download start
-  streaming within seconds instead of after the whole export.
-- The first response carries **only chunk 0's link**; the rest arrive one at a
-  time via `next_chunk_internal_link`. Presigned links carry a short TTL
-  (~15 minutes at the time of writing), so a long export re-requests them
-  mid-stream rather than resolving the chain up front.
-- **Chunk 0 carries the CSV header row and later chunks do not**, so aliasing
-  each column to its `DOWNLOAD_COLUMNS` header gives the curated header for
-  free.
-- **Every column is `nvl(CAST(col AS STRING), '')`.** The API renders a SQL
-  NULL as the literal text `null` in CSV where Postgres `COPY` writes an empty
-  field — without the coalesce the download is full of the word "null".
-
-### Id sets are inlined, and 16 MiB is a hard ceiling
-
-The Statement Execution API has no array parameter type, so an id set is
-inlined as literals where the Postgres path binds one array parameter. Measured
-against the API: one set at the contract's 100k maximum is accepted inline, but
-the statement field is capped at **16,777,216 bytes** (an API limit, not a
-measurement), and a request carrying `filters.id` plus both id-override pairs at
-that maximum exceeds it. `PeopleDbxStatementClient` therefore checks the byte
-length before sending and throws `PeopleDbxStatementTooLargeError`, which the
-callers translate to a 400 — it is caused by the size of the caller's selection,
-not by a broken service. This is a real capability regression against the
-Postgres path, which has no such ceiling.
-
-Ids are also **lowercased** on the way in. Postgres compares them as `uuid`
-(case-normalizing); here the column is `STRING` and the comparison is
-byte-exact, so an uppercase id would match nothing — and an exclude set that
-matches nothing silently *widens* an audience.
-
-### Blank versus NULL: verified, not assumed
-
-Several filters define their buckets purely as `IS NULL` / `IS NOT NULL`
-(`businessOwner` most sharply: `Yes` is `IS NOT NULL`). If the dbt mirror stored
-L2's blanks as `''` where the Postgres loader wrote NULL, those buckets would be
-wrong with no error. Checked directly across a whole statewide cohort:
-`Business_Owner`, `Language_Code`, `Marital_Status`, `Veteran_Status`,
-`EthnicGroups_EthnicGroup1Desc`, `Gender`, `Voter_Status`, both phone columns and
-`Residence_Addresses_AddressLine` contain **zero** empty strings. The `IS NULL`
-semantics carry over unchanged.
-
-### Timeout ceiling is 60s here, not 25s
-
-The Postgres 25s ceiling guards against a pathological plan on a warm cluster.
-On a serverless warehouse the long tail is compute startup instead, so killing
-at 25s would turn every post-idle request into a 504. `PeopleDbxTimeoutError`
-still maps to the same `GatewayTimeoutException`, so the 504 stays classified
-and alertable.
-
-### Blocked: the Unity Catalog grant
-
-Neither gp-api service principal can read `goodparty_data_catalog.dbt` today —
-both `DATABRICKS_*` and `WIN_DATABRICKS_*` fail with `INSUFFICIENT_PERMISSIONS:
-User does not have USE SCHEMA`. The schema is owned by another service
-principal, with a `data users` group holding SELECT/USE_SCHEMA. So this path can
-be developed and benchmarked with a personal-identity token, but **cannot
-function in dev, preview or prod until that grant is issued**. Issuing it is a
-production access-control decision about restricted voter data, not a code
-change.
 
 ## Testing
 
@@ -435,9 +258,7 @@ construction is mocked (see `peopleDb.service.test.ts`'s `vi.mock('../generated/
 pattern); SQL-builder utils assert the generated SQL string + params
 (`filters.sql.util.test.ts` pattern) rather than executing against Postgres.
 Keep new tests in this module to that pattern — don't reach for
-`useTestService()` here, it boots gp-api's own Postgres, not people-db. The
-`databricks/` tests follow it too: the SQL builders assert generated SQL
-strings, and the services are driven through a stubbed statement client.
+`useTestService()` here, it boots gp-api's own Postgres, not people-db.
 
 ## Key files
 
@@ -461,12 +282,6 @@ strings, and the services are driven through a stubbed statement client.
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |
 | `utils/resolveDistrict.util.ts`         | District join/resolution helper                                       |
 | `util/hash.util.ts`                     | `personId` hash derivation (stable hash of `LALVOTERID`)              |
-| `databricks/peopleDbx.config.ts`        | `PEOPLE_DATABRICKS_*` connection + warehouse resolution               |
-| `databricks/peopleDbxStatement.client.ts` | Statement Execution API client (queries + CSV external links)       |
-| `databricks/databricksVoterSql.util.ts` | Filter/search/scope → Databricks SQL, incl. wide-column scoping       |
-| `databricks/databricksDistrictStatsSql.util.ts` | On-demand DistrictStats query + bucket mapping                |
-| `databricks/databricksVoter.service.ts` | Aggregates, list/search, overlap, stats against Databricks            |
-| `databricks/databricksVoterDownload.service.ts` | Streaming CSV export via EXTERNAL_LINKS chunks                |
 
 ## Benchmarks
 
@@ -477,8 +292,3 @@ add or adjust a case so it stays covered: a new query type needs a branch in
 `perf/people-db/harness.ts`'s `invoke` and cases in `perf/people-db/cases.ts`;
 a new filter shape worth measuring is a `FilterVariant` in
 `perf/people-db/filterVariants.ts`. See `perf/people-db/CLAUDE.md`.
-
-The suite runs unmodified and measures whatever the services read, so on this
-code it measures Databricks (except the `sample` cells, which exercise the one
-remaining Postgres surface). Compare against a run of the same suite on `main`
-for the before/after.

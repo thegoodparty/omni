@@ -3,6 +3,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { Prisma } from '../../generated/people-prisma'
 import { VoterQueryService } from './voterQuery.service'
 import type { PeopleDbService } from '../peopleDb.service'
+import { FilterData } from '../schemas/filters.schema'
 
 const makeDbPerson = (overrides: Record<string, unknown> = {}) =>
   ({
@@ -58,6 +59,7 @@ const statementTimeoutError = () =>
 
 describe('VoterQueryService', () => {
   let service: VoterQueryService
+  let mockSampleService: { samplePeople: ReturnType<typeof vi.fn> }
   let mockDistrictService: {
     findDistrictById: ReturnType<typeof vi.fn>
   }
@@ -72,6 +74,9 @@ describe('VoterQueryService', () => {
   }
 
   beforeEach(() => {
+    mockSampleService = {
+      samplePeople: vi.fn().mockResolvedValue([]),
+    }
     mockDistrictService = {
       findDistrictById: vi.fn().mockResolvedValue({
         id: '0e5bafca-93a9-86a5-2522-f373979720df',
@@ -96,6 +101,11 @@ describe('VoterQueryService', () => {
     }
 
     service = new VoterQueryService(
+      {
+        enabled: false,
+        compare: (args: { primary: () => unknown }) => args.primary(),
+      } as never,
+      mockSampleService as never,
       mockDistrictService as never,
       mockStatsService as never,
     )
@@ -107,6 +117,43 @@ describe('VoterQueryService', () => {
   })
 
   describe('findPeople query modes and pagination', () => {
+    it('resolves district by id and uses fast count path', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
+        '0e5bafca-93a9-86a5-2522-f373979720df',
+      )
+      expect(mockStatsService.findTotalCounts).toHaveBeenCalledWith(
+        '0e5bafca-93a9-86a5-2522-f373979720df',
+      )
+      expect(result.pagination.totalResults).toBe(120)
+      expect(result.pagination.totalPages).toBe(12)
+      expect(result.people.length).toBeGreaterThan(0)
+    })
+
+    it('falls through to the real count when the district has no stats row', async () => {
+      mockStatsService.findTotalCounts.mockResolvedValue(null)
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([makeDbPerson()])
+        .mockResolvedValueOnce([{ voter_count: 7n }])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(result.pagination.totalResults).toBe(7)
+    })
+
     it('uses voter-only path for state district', async () => {
       mockDistrictService.findDistrictById.mockResolvedValue({
         id: 'district-wy',
@@ -121,28 +168,72 @@ describe('VoterQueryService', () => {
       const result = await service.findPeople({
         districtId: 'district-wy',
         filters: { filters: [], filterOperators: {} },
-        groupByHousehold: true,
         resultsPerPage: 10,
         page: 1,
       } as never)
 
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(result.pagination.totalResults).toBe(42)
       expect(result.people[0]?.id).toBe('person-2')
-      // Voter-only: the whole state is in scope, so neither the household
-      // count nor the data query joins DistrictVoter.
-      const countSql = (
-        mockClient.$queryRaw.mock.calls[0]?.[0] as { sql?: string }
-      )?.sql
-      const dataSql = (
-        mockClient.$queryRaw.mock.calls[1]?.[0] as { sql?: string }
-      )?.sql
-      expect(countSql).toContain('COUNT(DISTINCT')
-      expect(countSql).not.toContain('DistrictVoter')
-      expect(dataSql).toContain('DISTINCT ON')
-      expect(dataSql).not.toContain('DistrictVoter')
     })
 
-    it('guards both the household count and the data query under the statement timeout', async () => {
+    it('uses raw count path (not stats shortcut) when search is provided', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 5n }])
+        .mockResolvedValueOnce([makeDbPerson({ id: 'person-search' })])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        search: 'jane',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
+      expect(result.pagination.totalResults).toBe(5)
+    })
+
+    it('uses raw count path (not stats shortcut) when contactsMadeIdOverrides is set with empty filters', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 3n }])
+        .mockResolvedValueOnce([makeDbPerson({ id: 'person-overrides' })])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        contactsMadeIdOverrides: {
+          include: ['3f9a1b2c-0000-0000-0000-000000000001'],
+        },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
+      expect(result.pagination.totalResults).toBe(3)
+    })
+
+    it('uses raw count path (not stats shortcut) when idOverrides is set with empty filters', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 2n }])
+        .mockResolvedValueOnce([makeDbPerson({ id: 'person-id-overrides' })])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        idOverrides: {
+          exclude: ['3f9a1b2c-0000-0000-0000-000000000002'],
+        },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
+      expect(result.pagination.totalResults).toBe(2)
+    })
+
+    it('uses raw count path (not stats shortcut) when filters are provided, guarded by the statement timeout', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 7n }])
         .mockResolvedValueOnce([makeDbPerson({ id: 'person-filtered' })])
@@ -155,11 +246,11 @@ describe('VoterQueryService', () => {
             hasCellPhone: { operator: 'is', value: 'not_null' },
           },
         },
-        groupByHousehold: true,
         resultsPerPage: 10,
         page: 1,
       } as never)
 
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(7)
       // Both the count and the list data query run under the 25s statement
@@ -197,20 +288,83 @@ describe('VoterQueryService', () => {
         } as never),
       ).rejects.toBeInstanceOf(GatewayTimeoutException)
     })
+
+    it('reports the requested out-of-bounds page (unclamped) so metadata matches the fetched rows', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
+      mockStatsService.findTotalCounts.mockResolvedValue({
+        totalConstituents: 15,
+        totalConstituentsWithCellPhone: 10,
+      })
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 99,
+      } as never)
+
+      // The ungrouped path fetches at the requested offset (parallel with the
+      // count), so currentPage reflects the page actually queried rather than a
+      // clamped page whose rows were never fetched. totalPages still bounds the
+      // valid range; hasNextPage is false because there is nothing beyond.
+      expect(result.pagination.totalPages).toBe(2)
+      expect(result.pagination.currentPage).toBe(99)
+      expect(result.pagination.hasPreviousPage).toBe(true)
+      expect(result.pagination.hasNextPage).toBe(false)
+    })
+
+    it('keeps the ungrouped count and data queries parallel and fetches at the requested offset (no serialization / no clamp)', async () => {
+      // 25 constituents, 10 per page → 3 pages. An out-of-bounds page (99) is
+      // fetched at the RAW offset (980) in parallel with the count, so it comes
+      // back empty. currentPage reports the requested page — no divergence with
+      // a clamped page, and no extra round trip / serialization behind the
+      // count (that would regress the hot voter-list path).
+      const dataset = Array.from({ length: 25 }, (_, i) =>
+        makeDbPerson({ id: `person-${i}` }),
+      )
+      mockStatsService.findTotalCounts.mockResolvedValue({
+        totalConstituents: dataset.length,
+        totalConstituentsWithCellPhone: 0,
+      })
+      mockClient.$queryRaw.mockImplementation((query: unknown) => {
+        const values = (query as { values?: unknown[] })?.values ?? []
+        const skip = Number(values[values.length - 1] ?? 0)
+        const take = Number(values[values.length - 2] ?? dataset.length)
+        return Promise.resolve(dataset.slice(skip, skip + take))
+      })
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 99,
+      } as never)
+
+      expect(result.pagination.totalResults).toBe(25)
+      expect(result.pagination.totalPages).toBe(3)
+      expect(result.pagination.currentPage).toBe(99)
+      expect(result.pagination.hasNextPage).toBe(false)
+      expect(result.pagination.hasPreviousPage).toBe(true)
+      expect(result.people).toHaveLength(0)
+
+      // The data query used the raw requested offset (99 - 1) * 10 = 980, proving
+      // it was not clamped or made dependent on the count result.
+      const dataSql = mockClient.$queryRaw.mock.calls[0]?.[0] as {
+        values?: unknown[]
+      }
+      expect(dataSql.values?.[dataSql.values.length - 1]).toBe(980)
+    })
   })
 
   describe('findPeople name-search trigram plan + statement-timeout guard', () => {
     const sqlOf = (call: unknown): string =>
       (call as { sql?: string })?.sql ?? ''
 
-    // Household grouping is the only list shape people-db still serves, so
-    // every name-search query that reaches Postgres is a grouped one.
     const searchDto = (overrides: Record<string, unknown> = {}) =>
       ({
         districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
         search: 'zzq',
         filters: { filters: [], filterOperators: {} },
-        groupByHousehold: true,
         resultsPerPage: 10,
         page: 2,
         ...overrides,
@@ -234,7 +388,7 @@ describe('VoterQueryService', () => {
       )
       // Call 0 is the count; call 1 is the data query.
       const countSql = sqlOf(mockClient.$queryRaw.mock.calls[0]?.[0])
-      expect(countSql).toContain('COUNT(DISTINCT')
+      expect(countSql).toContain('COUNT(*)')
       expect(countSql).not.toContain('WITH matched AS MATERIALIZED')
       const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[1]?.[0])
       // Trigram plan: the match set is resolved up front in a MATERIALIZED CTE
@@ -243,7 +397,7 @@ describe('VoterQueryService', () => {
       expect(dataSql).toContain('WITH matched AS MATERIALIZED')
       expect(dataSql).toContain('SELECT v.* FROM "green"."Voter" v')
       expect(dataSql).toMatch(
-        /FROM matched v\s+ORDER BY CONCAT_WS\(.+\), v\."id"\s+LIMIT \? OFFSET \?/,
+        /FROM matched v\s+ORDER BY v\."id"\s+LIMIT \? OFFSET \?/,
       )
     })
 
@@ -312,17 +466,15 @@ describe('VoterQueryService', () => {
     })
 
     it('guards the searchless-list data query but does not force the trigram plan', async () => {
-      mockClient.$queryRaw
-        .mockResolvedValueOnce([{ voter_count: 1n }])
-        .mockResolvedValueOnce([makeDbPerson()])
+      mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
 
       await service.findPeople(searchDto({ search: undefined }))
 
-      // The count and the data query each run under the 25s statement
-      // timeout — one transaction apiece.
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
-      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(2)
-      const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[1]?.[0])
+      // The count takes the O(1) stats shortcut (no transaction), but the data
+      // query still runs under the 25s statement timeout — one transaction.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       expect(dataSql).not.toContain('WITH matched AS MATERIALIZED')
       expect(dataSql).toMatch(/FROM "green"\."Voter" v\s+JOIN/)
     })
@@ -334,7 +486,7 @@ describe('VoterQueryService', () => {
       return arg.strings ? arg.strings.join('?') : ''
     }
 
-    it('counts households (COUNT DISTINCT) and de-dupes rows (DISTINCT ON)', async () => {
+    it('counts households (COUNT DISTINCT) and de-dupes rows (DISTINCT ON) and skips the voter-count fast path', async () => {
       // Count query returns 3 households; data query returns 2 representatives.
       // The point: grouped totalResults (households) is independent of and
       // smaller than the raw voter population the same district would list.
@@ -353,6 +505,9 @@ describe('VoterQueryService', () => {
         groupByHousehold: true,
       } as never)
 
+      // The pre-computed totalConstituents stat (120) must NOT be used: it
+      // counts voters, so it would over-report door-knocking households.
+      expect(mockStatsService.findTotalCounts).not.toHaveBeenCalled()
       expect(result.pagination.totalResults).toBe(3)
 
       const countSql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
@@ -364,8 +519,10 @@ describe('VoterQueryService', () => {
       expect(dataSql).toContain('"householdSize"')
       expect(dataSql).toContain('Residence_Addresses_AddressLine')
 
-      // The key + the count of matching voters at the address surface through
-      // to the output.
+      // Household count is strictly fewer than the constituents the same
+      // district reports for the ungrouped list (120), and the key + count of
+      // matching voters at the address surface through to the output.
+      expect(result.pagination.totalResults).toBeLessThan(120)
       expect(result.people[0]?.householdSize).toBe(4)
       expect(result.people[0]?.householdId).toBe('A')
     })
@@ -401,6 +558,26 @@ describe('VoterQueryService', () => {
       // buildRawPeopleQuery binds [..., take, skip]; the clamped skip is 0.
       expect(dataSql.values?.[dataSql.values.length - 1]).toBe(0)
     })
+
+    it('does not group (one row per voter) when groupByHousehold is false', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 1,
+        groupByHousehold: false,
+      } as never)
+
+      // Ungrouped + no filters/search still uses the fast stat path (120).
+      expect(mockStatsService.findTotalCounts).toHaveBeenCalled()
+      expect(result.pagination.totalResults).toBe(120)
+      const dataSql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(dataSql).not.toContain('DISTINCT ON')
+      expect(result.people[0]?.householdId).toBeNull()
+      expect(result.people[0]?.householdSize).toBeNull()
+    })
   })
 
   describe('zero-count stats-but-no-rows guardrail (ENG-10745)', () => {
@@ -416,7 +593,6 @@ describe('VoterQueryService', () => {
           hasCellPhone: { operator: 'is', value: 'not_null' },
         },
       },
-      groupByHousehold: true,
       resultsPerPage: 10,
       page: 1,
     } as never
@@ -424,15 +600,15 @@ describe('VoterQueryService', () => {
     it('warns once when a filtered count is 0 for a district with stats but no DistrictVoter rows', async () => {
       const warnSpy = vi.spyOn(service.logger, 'warn')
       mockClient.$queryRaw
-        .mockResolvedValueOnce([{ voter_count: 0n }]) // household count
-        .mockResolvedValueOnce([{ has_rows: false }]) // EXISTS probe
+        .mockResolvedValueOnce([{ voter_count: 0n }]) // filtered count
         .mockResolvedValueOnce([]) // data query
+        .mockResolvedValueOnce([{ has_rows: false }]) // EXISTS probe
       mockStatsService.findTotalConstituents.mockResolvedValue(39932)
 
       const result = await service.findPeople(filteredDto)
 
       expect(result.pagination.totalResults).toBe(0)
-      const probeSql = sqlOf(mockClient.$queryRaw.mock.calls[1]?.[0])
+      const probeSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
       expect(probeSql).toContain('SELECT EXISTS')
       expect(probeSql).toContain('"green"."DistrictVoter"')
       expect(mockStatsService.findTotalConstituents).toHaveBeenCalledWith(
@@ -449,8 +625,8 @@ describe('VoterQueryService', () => {
       const warnSpy = vi.spyOn(service.logger, 'warn')
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 0n }])
-        .mockResolvedValueOnce([{ has_rows: true }])
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ has_rows: true }])
 
       const result = await service.findPeople(filteredDto)
 
@@ -463,8 +639,8 @@ describe('VoterQueryService', () => {
       const warnSpy = vi.spyOn(service.logger, 'warn')
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 0n }])
-        .mockResolvedValueOnce([{ has_rows: false }])
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ has_rows: false }])
       mockStatsService.findTotalConstituents.mockResolvedValue(null)
 
       await service.findPeople(filteredDto)
@@ -503,6 +679,31 @@ describe('VoterQueryService', () => {
 
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it('warns when a filtered aggregates count is 0 for a stats-but-no-rows district', async () => {
+      const warnSpy = vi.spyOn(service.logger, 'warn')
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ count: 0n, avgAge: null, avgIncome: null }])
+        .mockResolvedValueOnce([{ has_rows: false }])
+      mockStatsService.findTotalConstituents.mockResolvedValue(120)
+
+      const result = await service.getAggregates({
+        districtId,
+        filters: {
+          filters: ['hasCellPhone'],
+          filterOperators: {
+            hasCellPhone: { operator: 'is', value: 'not_null' },
+          },
+        },
+      } as never)
+
+      expect(result.count).toBe(0)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        { districtId, state: 'WY', statsTotalConstituents: 120 },
+        expect.stringContaining('no DistrictVoter rows'),
+      )
     })
   })
 
@@ -550,75 +751,196 @@ describe('VoterQueryService', () => {
     })
   })
 
-  // These entry points read from Databricks unconditionally; the only list
-  // shape still served by people-db is household de-dup.
-  describe('store routing', () => {
-    const databricks = {
-      findPeople: vi.fn(),
-      getAggregates: vi.fn(),
-      getOverlapCount: vi.fn(),
+  describe('getAggregates', () => {
+    const sqlTextOf = (call: unknown): string => {
+      const arg = (call as { strings?: readonly string[] }) ?? {}
+      return arg.strings ? arg.strings.join('?') : ''
     }
+    const sqlOf = (call: unknown): string =>
+      (call as { sql?: string })?.sql ?? ''
 
-    beforeEach(() => {
-      databricks.findPeople.mockResolvedValue({ pagination: {}, people: [] })
-      databricks.getAggregates.mockResolvedValue({
-        count: 1,
-        avgAge: null,
-        avgIncome: null,
-      })
-      databricks.getOverlapCount.mockResolvedValue({ count: 1 })
-      ;(service as unknown as { databricks: unknown }).databricks = databricks
-    })
+    it('runs the aggregates query through the same statement-timeout guard as the count', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 1n, avgAge: 45, avgIncome: 50000 },
+      ])
 
-    it('routes getAggregates to Databricks and issues no Postgres query', async () => {
       await service.getAggregates({
         districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
         filters: { filters: [], filterOperators: {} },
       } as never)
 
-      expect(databricks.getAggregates).toHaveBeenCalledTimes(1)
-      expect(mockClient.$queryRaw).not.toHaveBeenCalled()
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '25000ms'",
+      )
     })
 
-    it('routes getOverlapCount to Databricks', async () => {
+    it('throws a GatewayTimeoutException (504) on statement cancellation (57014), no fenced fallback', async () => {
+      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+
+      await expect(
+        service.getAggregates({
+          districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+          filters: { filters: [], filterOperators: {} },
+        } as never),
+      ).rejects.toBeInstanceOf(GatewayTimeoutException)
+
+      // No retry — a single cancelled attempt propagates as a 504.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+    })
+
+    it('resolves the district and returns count/avgAge/avgIncome', async () => {
+      // A seeded set of 3 matching voters: ages [20, 30, 40] avg to 30;
+      // incomes [10000, 20000, null] average over the 2 non-null rows to
+      // 15000 — Postgres AVG() ignores NULLs, so the hand-computed value
+      // already reflects that.
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 3n, avgAge: 30, avgIncome: 15000 },
+      ])
+
+      const result = await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
+        '0e5bafca-93a9-86a5-2522-f373979720df',
+      )
+      expect(result).toEqual({
+        count: 3,
+        avgAge: 30,
+        avgIncome: 15000,
+      })
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(sql).toContain('COUNT(*)::bigint AS count')
+      expect(sql).toContain('AVG(v."Age_Int")::float8 AS "avgAge"')
+    })
+
+    it('reports null averages over an empty match set without dividing by zero', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ count: 0n, avgAge: null, avgIncome: null }])
+        // ENG-10745 guardrail probe: this district has voter rows, so the
+        // zero is genuine and no warning is emitted.
+        .mockResolvedValueOnce([{ has_rows: true }])
+
+      const result = await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(result).toEqual({
+        count: 0,
+        avgAge: null,
+        avgIncome: null,
+      })
+    })
+
+    it('scopes to the whole state (no DistrictVoter join) for the voter-only path', async () => {
+      mockDistrictService.findDistrictById.mockResolvedValue({
+        id: 'district-wy',
+        type: 'State',
+        name: 'WY',
+        state: 'WY',
+      })
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 1n, avgAge: 45, avgIncome: 50000 },
+      ])
+
+      await service.getAggregates({
+        districtId: 'district-wy',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(sql).toContain('FROM "green"."Voter" v')
+      expect(sql).not.toContain('DistrictVoter')
+    })
+  })
+
+  describe('getOverlapCount', () => {
+    const sqlTextOf = (call: unknown): string => {
+      const arg = (call as { strings?: readonly string[] }) ?? {}
+      return arg.strings ? arg.strings.join('?') : ''
+    }
+    const sqlOf = (call: unknown): string =>
+      (call as { sql?: string })?.sql ?? ''
+
+    const savedFilter = (fieldName: string): FilterData => ({
+      filters: [fieldName as never],
+      filterValues: {},
+      filterOperators: {
+        [fieldName]: { operator: 'is', value: 'not_null' },
+      },
+    })
+
+    it('runs the overlap query through the same statement-timeout guard as the count', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([{ overlap_count: 2n }])
+
       await service.getOverlapCount({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [savedFilter('hasCellPhone')],
+      } as never)
+
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '25000ms'",
+      )
+    })
+
+    it('resolves the district and returns the exact count, unioning the saved sets with OR', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([{ overlap_count: 3n }])
+
+      const result = await service.getOverlapCount({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [
+          savedFilter('hasCellPhone'),
+          savedFilter('hasLandline'),
+        ],
+      } as never)
+
+      expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
+        '0e5bafca-93a9-86a5-2522-f373979720df',
+      )
+      expect(result).toEqual({ count: 3 })
+
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(sql).toContain('SELECT COUNT(*)::bigint AS overlap_count')
+      // Both saved sets OR-joined in ONE query — a voter matching both
+      // contributes exactly one row, never a summed double-count.
+      expect(sql).toMatch(
+        /v\."VoterTelephones_CellPhoneFormatted" IS NOT NULL OR v\."VoterTelephones_LandlineFormatted" IS NOT NULL/,
+      )
+    })
+
+    it('throws a GatewayTimeoutException (504) on statement cancellation (57014)', async () => {
+      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+
+      await expect(
+        service.getOverlapCount({
+          districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+          filters: { filters: [], filterOperators: {} },
+          savedFilterSets: [savedFilter('hasCellPhone')],
+        } as never),
+      ).rejects.toBeInstanceOf(GatewayTimeoutException)
+    })
+
+    it('returns zero without special-casing when no saved lists are given', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([{ overlap_count: 0n }])
+
+      const result = await service.getOverlapCount({
         districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
         filters: { filters: [], filterOperators: {} },
         savedFilterSets: [],
       } as never)
 
-      expect(databricks.getOverlapCount).toHaveBeenCalledTimes(1)
-      expect(mockClient.$queryRaw).not.toHaveBeenCalled()
-    })
-
-    it('routes an ungrouped findPeople to Databricks', async () => {
-      await service.findPeople({
-        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
-        filters: { filters: [], filterOperators: {} },
-        page: 1,
-        resultsPerPage: 50,
-        groupByHousehold: false,
-      } as never)
-
-      expect(databricks.findPeople).toHaveBeenCalledTimes(1)
-      expect(mockClient.$queryRaw).not.toHaveBeenCalled()
-    })
-
-    // Door-knocking de-dup has no Databricks equivalent, so it is the one
-    // list shape that still reads Postgres.
-    it('keeps a household-grouped findPeople on Postgres', async () => {
-      mockClient.$queryRaw.mockResolvedValue([])
-
-      await service.findPeople({
-        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
-        filters: { filters: [], filterOperators: {} },
-        page: 1,
-        resultsPerPage: 50,
-        groupByHousehold: true,
-      } as never)
-
-      expect(databricks.findPeople).not.toHaveBeenCalled()
-      expect(mockClient.$queryRaw).toHaveBeenCalled()
+      expect(result).toEqual({ count: 0 })
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      // Union of zero saved sets is the empty set (FALSE), not "unfiltered".
+      expect(sql).toContain('AND FALSE')
     })
   })
 })

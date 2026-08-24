@@ -1,5 +1,4 @@
 import {
-  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -19,7 +18,6 @@ import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.util'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
 import { inlinePrismaSql } from '../utils/inlinePrismaSql.util'
 import { resolveDistrict } from '../utils/resolveDistrict.util'
-import { DatabricksVoterDownloadService } from '../databricks/databricksVoterDownload.service'
 
 const DATABASE_SCHEMA = 'green'
 const VOTER_TABLENAME = 'Voter'
@@ -32,11 +30,6 @@ export class VoterDownloadService
   implements OnApplicationBootstrap, OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(VoterDownloadService.name)
-  // Property-injected, not constructor-injected: the Postgres COPY path is
-  // still the default, and this keeps its constructor (and every test that
-  // builds it) untouched while the store is behind a flag.
-  @Inject(DatabricksVoterDownloadService)
-  private readonly databricks!: DatabricksVoterDownloadService
   private pool?: Pool
   private unsubscribe: (() => void) | null = null
 
@@ -122,12 +115,6 @@ export class VoterDownloadService
       extraHeaders?: Record<string, string>
     },
   ): Promise<void> {
-    // Household de-dup is the one export shape still served from people-db by
-    // COPY: its DISTINCT ON has no direct equivalent here, and door-knocking is
-    // its only caller. Every other export streams from Databricks.
-    if (!dto.groupByHousehold) {
-      return this.databricks.streamPeopleCsv(dto, res, responseOptions)
-    }
     const { state, useVoterOnlyPath, districtId } = await resolveDistrict(
       this.districtService,
       dto,

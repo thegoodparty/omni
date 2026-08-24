@@ -1,62 +1,115 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatsService } from './stats.service'
-import type { DatabricksVoterService } from '../databricks/databricksVoter.service'
+import type { PeopleDbService } from '../peopleDb.service'
+import type { ShadowReadService } from '../shadowRead.service'
 
 describe('StatsService', () => {
-  let findStats: ReturnType<typeof vi.fn>
   let service: StatsService
-
-  beforeEach(() => {
-    findStats = vi.fn()
-    service = new StatsService({
-      findStats,
-    } as unknown as DatabricksVoterService)
-  })
-
-  const stats = {
-    districtId: 'district-1',
-    computedAt: '2026-08-21T00:00:00Z',
-    totalConstituents: 100,
-    totalConstituentsWithCellPhone: 40,
-    buckets: {
-      age: [],
-      education: [],
-      homeowner: [],
-      presenceOfChildren: [],
-      estimatedIncomeRange: [],
-    },
+  let mockPrisma: {
+    districtStats: {
+      findUnique: ReturnType<typeof vi.fn>
+    }
   }
 
-  it('computes the row on demand for the requested district', async () => {
-    findStats.mockResolvedValue(stats)
+  beforeEach(() => {
+    mockPrisma = {
+      districtStats: {
+        findUnique: vi.fn(),
+      },
+    }
 
-    await expect(
-      service.findStats({ districtId: 'district-1' } as never),
-    ).resolves.toBe(stats)
-    expect(findStats).toHaveBeenCalledWith('district-1')
+    service = new StatsService()
+    // Disabled shadow reader: compare() must hand straight through to the
+    // primary, so these assertions describe the Postgres read and nothing else.
+    ;(service as unknown as { shadow: ShadowReadService }).shadow = {
+      enabled: false,
+      compare: (args: { primary: () => unknown }) => args.primary(),
+    } as unknown as ShadowReadService
+    ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
+      get instance() {
+        return mockPrisma
+      },
+    } as unknown as PeopleDbService
   })
 
-  // A zero-voter district has to keep presenting as "no stats row" — poll
-  // creation and the webapp's empty state both branch on the null.
-  it('passes a null computed result straight through', async () => {
-    findStats.mockResolvedValue(null)
-
-    await expect(
-      service.findStats({ districtId: 'district-1' } as never),
-    ).resolves.toBeNull()
-    await expect(
-      service.findTotalConstituents('district-1'),
-    ).resolves.toBeNull()
-    await expect(service.findTotalCounts('district-1')).resolves.toBeNull()
-  })
-
-  it('derives both totals from the computed row', async () => {
-    findStats.mockResolvedValue(stats)
-
-    await expect(service.findTotalCounts('district-1')).resolves.toEqual({
+  it('uses districtId directly', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue({
+      districtId: 'district-1',
       totalConstituents: 100,
-      totalConstituentsWithCellPhone: 40,
     })
-    await expect(service.findTotalConstituents('district-1')).resolves.toBe(100)
+
+    const result = await service.findStats({
+      districtId: 'district-1',
+    } as never)
+
+    expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
+      where: { districtId: 'district-1' },
+    })
+    expect(result?.districtId).toBe('district-1')
+  })
+
+  it('returns null when stats are missing', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findStats({ districtId: 'missing-district-id' } as never),
+    ).resolves.toBeNull()
+  })
+
+  it('returns null total counts when stats are missing', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findTotalCounts('missing-district-id'),
+    ).resolves.toBeNull()
+  })
+
+  it('returns total counts for a district', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue({
+      totalConstituents: 111,
+      totalConstituentsWithCellPhone: 55,
+    })
+
+    const counts = await service.findTotalCounts('district-1')
+
+    expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
+      select: {
+        totalConstituents: true,
+        totalConstituentsWithCellPhone: true,
+      },
+      where: { districtId: 'district-1' },
+    })
+    expect(counts?.totalConstituents).toBe(111)
+    expect(counts?.totalConstituentsWithCellPhone).toBe(55)
+  })
+
+  it('returns totalConstituents without throwing when the stats row exists', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue({
+      totalConstituents: 39932,
+    })
+
+    await expect(service.findTotalConstituents('district-1')).resolves.toBe(
+      39932,
+    )
+    expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
+      select: { totalConstituents: true },
+      where: { districtId: 'district-1' },
+    })
+  })
+
+  it('returns null (not an exception) when findTotalConstituents finds no stats row', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findTotalConstituents('missing-district-id'),
+    ).resolves.toBeNull()
+  })
+
+  it('returns null when total counts are missing', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findTotalCounts('missing-district-id'),
+    ).resolves.toBeNull()
   })
 })

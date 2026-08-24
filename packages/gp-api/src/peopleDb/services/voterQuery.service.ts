@@ -2,7 +2,9 @@ import { Prisma } from '../../generated/people-prisma'
 import {
   type IdOverrides,
   PeopleAggregatesResponse,
+  PeopleAggregatesResponseSchema,
   PeopleOverlapCountResponse,
+  PeopleOverlapCountResponseSchema,
 } from '@goodparty_org/contracts'
 import {
   AggregatesDTO,
@@ -12,8 +14,10 @@ import {
   SamplePeopleDTO,
 } from '../schemas/people.schema'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
+import { VoterSampleService } from './voterSample.service'
+import { ShadowReadService } from '../shadowRead.service'
 
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { DistrictService } from './district.service'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import { FilterData } from '../schemas/filters.schema'
@@ -29,9 +33,10 @@ import {
   isNameSearch,
   stateEquals,
 } from '../utils/buildVoterWhereSql.util'
+import { buildAggregatesSql } from '../utils/buildAggregatesSql.util'
+import { buildOverlapCountSql } from '../utils/buildOverlapCountSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
 import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
-import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 
 export const DATABASE_SCHEMA = 'green'
 
@@ -54,13 +59,9 @@ type RawPeopleQueryArgs = {
 
 @Injectable()
 export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
-  // Property-injected, not constructor-injected: the Postgres path is still
-  // the default, and this keeps its constructor (and every test that builds
-  // it) untouched while the store is behind a flag.
-  @Inject(DatabricksVoterService)
-  private readonly databricks!: DatabricksVoterService
-
   constructor(
+    private readonly shadow: ShadowReadService,
+    private readonly sampleService: VoterSampleService,
     private readonly districtService: DistrictService,
     private readonly statsService: StatsService,
   ) {
@@ -95,17 +96,27 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async findPeople(dto: ListPeopleDTO) {
-    // Household de-dup is the one list shape still served from people-db: its
-    // DISTINCT ON has no direct equivalent here, and door-knocking is its only
-    // caller. Every other list read comes from Databricks.
-    if (!dto.groupByHousehold) {
-      return this.databricks.findPeople(dto)
-    }
-    const { state, useVoterOnlyPath, districtId } = await resolveDistrict(
-      this.districtService,
-      dto,
-    )
-    const { filters, search, resultsPerPage, page } = dto
+    return this.shadow.compare({
+      op: 'list',
+      districtId: dto.districtId,
+      primary: () => this.findPeopleFromPostgres(dto),
+      shadow: () => this.shadow.databricks.findPeople(dto),
+      fingerprintPrimary: (result) => result.pagination.totalResults,
+      fingerprintShadow: (result) => result.pagination.totalResults,
+    })
+  }
+
+  private async findPeopleFromPostgres(dto: ListPeopleDTO) {
+    const resolved = await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = resolved
+    const {
+      filters,
+      search,
+      resultsPerPage,
+      page,
+      groupByHousehold,
+      skipCount,
+    } = dto
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
 
     const whereClause = buildVoterWhereSql({
@@ -116,33 +127,75 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
+    const buildData = (skip: number) =>
+      this.runUnderStatementTimeout<BaseDbPerson>(
+        this.buildRawPeopleQuery({
+          districtId: effectiveDistrictId,
+          whereClause,
+          take: resultsPerPage,
+          skip,
+          groupByHousehold,
+          forceTrigramPlan: isNameSearch(search),
+        }),
+      )
 
-    // Household counts are small, so the extra round trip is cheap. Resolve the
-    // count first, clamp the requested page to the last household page, then
-    // fetch at the clamped offset. This is the deliberate door-knocking
-    // behavior: a client paging in from the (much longer) voter list lands on
-    // the last household page instead of an empty one (no caller clamps
-    // `page`), and currentPage matches the rows returned.
-    const totalResults = await this.rawCountForDistrict({
+    const countArgs = {
       state,
       districtId: effectiveDistrictId,
       filters,
       search,
+      groupByHousehold,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
-    })
+    }
+
+    let totalResults: number
+    let people: Array<BaseDbPerson>
+    let currentPage: number
+
+    if (groupByHousehold) {
+      // Household counts are small, so the extra round trip is cheap. Resolve
+      // the count first, clamp the requested page to the last household page,
+      // then fetch at the clamped offset. This is the deliberate door-knocking
+      // behavior: a client paging in from the (much longer) voter list lands on
+      // the last household page instead of an empty one (no caller clamps
+      // `page`), and currentPage matches the rows returned.
+      totalResults = await this.rawCountForDistrict(countArgs)
+      const householdPages = Math.max(
+        1,
+        Math.ceil(totalResults / resultsPerPage),
+      )
+      currentPage = Math.min(Math.max(1, page), householdPages)
+      people = await buildData((currentPage - 1) * resultsPerPage)
+    } else {
+      // The ungrouped voter list is the hot, large-population path. Keep the
+      // count and data queries PARALLEL so we neither add a round trip nor
+      // serialize behind the count — critically, the count here is usually an
+      // O(1) precomputed-stats lookup (see rawCountForDistrict), so folding it
+      // into the data query (e.g. COUNT(*) OVER()) would be a regression, not a
+      // win. Because we can't clamp the offset without the count, we fetch at
+      // the requested offset and report the page we ACTUALLY fetched: an
+      // out-of-bounds page returns empty rows with currentPage = the requested
+      // page. Metadata never claims a page whose rows we didn't return (the old
+      // divergence: clamped currentPage but empty rows). totalPages still tells
+      // the client the valid range, and the webapp clamps navigation to it.
+      if (skipCount) {
+        // Phone-list build: page the audience to completion off the rows
+        // returned, never the count. totalResults is unused by that caller.
+        people = await buildData((page - 1) * resultsPerPage)
+        totalResults = 0
+      } else {
+        const [countResult, peopleResult] = await Promise.all([
+          this.rawCountForDistrict(countArgs),
+          buildData((page - 1) * resultsPerPage),
+        ])
+        totalResults = countResult
+        people = peopleResult
+      }
+      currentPage = Math.max(1, page)
+    }
+
     const totalPages = Math.max(1, Math.ceil(totalResults / resultsPerPage))
-    const currentPage = Math.min(Math.max(1, page), totalPages)
-    const people = await this.runUnderStatementTimeout<BaseDbPerson>(
-      this.buildRawPeopleQuery({
-        districtId: effectiveDistrictId,
-        whereClause,
-        take: resultsPerPage,
-        skip: (currentPage - 1) * resultsPerPage,
-        groupByHousehold: true,
-        forceTrigramPlan: isNameSearch(search),
-      }),
-    )
 
     return {
       pagination: {
@@ -161,7 +214,48 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // membership (ENG-10706) — distinct from StatsService.getStats, which only
   // serves the precomputed, unfiltered DistrictStats row.
   async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
-    return this.databricks.getAggregates(dto)
+    return this.shadow.compare({
+      op: 'aggregates',
+      districtId: dto.districtId,
+      primary: () => this.getAggregatesFromPostgres(dto),
+      shadow: () => this.shadow.databricks.getAggregates(dto),
+      fingerprintPrimary: (result) => result.count,
+      fingerprintShadow: (result) => result.count,
+    })
+  }
+
+  private async getAggregatesFromPostgres(
+    dto: AggregatesDTO,
+  ): Promise<PeopleAggregatesResponse> {
+    const resolved = await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = resolved
+    const effectiveDistrictId = useVoterOnlyPath ? null : districtId
+
+    const sql = buildAggregatesSql({
+      state,
+      districtId: effectiveDistrictId,
+      filters: dto.filters,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+    })
+    const rows = await this.runUnderStatementTimeout<{
+      count: bigint
+      avgAge: number | null
+      avgIncome: number | null
+    }>(sql)
+    const row = rows[0]
+    const count = Number(row?.count ?? 0n)
+    if (count === 0 && effectiveDistrictId) {
+      await this.warnIfStatsButNoVoterRows(effectiveDistrictId, state)
+    }
+
+    // ENG-10775: gp-api/gp-webapp both validate this shape against the same
+    // contracts schema — parsing it here keeps the producer honest.
+    return PeopleAggregatesResponseSchema.parse({
+      count,
+      avgAge: row?.avgAge ?? null,
+      avgIncome: row?.avgIncome ?? null,
+    })
   }
 
   // Saved-list overlap count (ENG-10840): how many of the current selection
@@ -170,24 +264,79 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   async getOverlapCount(
     dto: OverlapCountDTO,
   ): Promise<PeopleOverlapCountResponse> {
-    return this.databricks.getOverlapCount(dto)
+    return this.shadow.compare({
+      op: 'overlap',
+      districtId: dto.districtId,
+      primary: () => this.getOverlapCountFromPostgres(dto),
+      shadow: () => this.shadow.databricks.getOverlapCount(dto),
+      fingerprintPrimary: (result) => result.count,
+      fingerprintShadow: (result) => result.count,
+    })
+  }
+
+  private async getOverlapCountFromPostgres(
+    dto: OverlapCountDTO,
+  ): Promise<PeopleOverlapCountResponse> {
+    const resolved = await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = resolved
+    const effectiveDistrictId = useVoterOnlyPath ? null : districtId
+
+    const baseArgs = {
+      state,
+      districtId: effectiveDistrictId,
+      filters: dto.filters,
+      search: dto.search,
+      savedFilterSets: dto.savedFilterSets,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+    }
+    const rows = await this.runUnderStatementTimeout<{
+      overlap_count: bigint
+    }>(buildOverlapCountSql(baseArgs))
+    const count = Number(rows[0]?.overlap_count ?? 0n)
+
+    // ENG-10775 pattern: the producer validates its own response against the
+    // shared contract so gp-api and people-api can't drift on this shape.
+    return PeopleOverlapCountResponseSchema.parse({ count })
   }
 
   async samplePeople(dto: SamplePeopleDTO) {
-    return this.databricks.samplePeople(dto)
+    return this.sampleService
+      .samplePeople(dto)
+      .then((people) => people.map(transformToPersonOutput))
   }
 
-  // Households, not voters: COUNT(DISTINCT <household key>) matches the
-  // DISTINCT ON data query so totalResults and totalPages agree with the rows.
   private async rawCountForDistrict(args: {
     state: string
     districtId: string | null
     filters: FilterData
     search?: string
+    groupByHousehold?: boolean
     idOverrides?: IdOverrides
     contactsMadeIdOverrides?: IdOverrides
   }): Promise<number> {
-    const { state, districtId, search } = args
+    const { state, districtId, search, groupByHousehold } = args
+
+    // The pre-computed stats shortcut counts voters; it does not know household
+    // counts, so it is only valid for the ungrouped path.
+    if (
+      districtId &&
+      !groupByHousehold &&
+      !args.search &&
+      args.filters.filters.length === 0 &&
+      (args.idOverrides?.include?.length ?? 0) === 0 &&
+      (args.idOverrides?.exclude?.length ?? 0) === 0 &&
+      (args.contactsMadeIdOverrides?.include?.length ?? 0) === 0 &&
+      (args.contactsMadeIdOverrides?.exclude?.length ?? 0) === 0
+    ) {
+      // A district with no pre-computed stats row has no shortcut, not no
+      // voters — fall through to the real count instead of failing the
+      // request.
+      const totalCounts = await this.statsService.findTotalCounts(districtId)
+      if (totalCounts) {
+        return totalCounts.totalConstituents
+      }
+    }
 
     const whereClause = buildVoterWhereSql({
       state,
@@ -198,7 +347,11 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       contactsMadeIdOverrides: args.contactsMadeIdOverrides,
     })
 
-    const countExpr = Prisma.sql`COUNT(DISTINCT ${buildHouseholdKeySql('v')})::bigint`
+    // COUNT(DISTINCT <household key>) so totalResults/totalPages reflect
+    // households, not voters — matching the DISTINCT ON data query.
+    const countExpr = groupByHousehold
+      ? Prisma.sql`COUNT(DISTINCT ${buildHouseholdKeySql('v')})::bigint`
+      : Prisma.sql`COUNT(*)::bigint`
 
     const fromSql = districtId
       ? Prisma.sql`FROM "green"."DistrictVoter" dv
