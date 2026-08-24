@@ -121,13 +121,14 @@ export default function NativeDoorKnockingPage({
   // manage surface's own sheet-open state follows the same rule for free — it
   // lives inside a surface these modes unmount.)
   //
-  // `statusFilter` is the one piece that does NOT follow it: `closeFlow` clears
-  // the chips and `endWalk` deliberately does not, which is pre-existing and
-  // not this refactor's to change. Read it before assuming it's an oversight —
-  // the chips are display state, but they also feed `selections`, so a chip
-  // left pressed narrows the landing dots on the way back from a walk exactly
-  // as it did before the seams landed. Closing that gap is a behavior change
-  // and belongs to whoever rebuilds the manage surface.
+  // `statusFilter` is the one piece that does NOT follow it, and the asymmetry
+  // is deliberate: `closeFlow` clears the chips, `endWalk` keeps them. The
+  // stranding rule is for state whose reason you won't remember on return, and
+  // a walk is the one exit that CHANGES the statuses the chips filter on — a
+  // pressed "unknown" chip showing a smaller set is the point of coming back,
+  // not a leftover. Leaving the create flow changes no status, so a chip left
+  // pressed there would re-narrow the district for no reason. Don't make the
+  // two exits match; they differ because only one of them moves the data.
   const [hiddenTurfIds, setHiddenTurfIds] = useState<Set<number>>(new Set())
   // Renaming from the details drawer only invalidates the turfs query, and
   // `selectedTurf` is the snapshot captured when the row was clicked — read the

@@ -88,11 +88,24 @@ server-side).
 
 ## Gotchas
 
+### Shared
+
 - The `FreeTextsBanner` nag is part of free-tier gating — check `app/dashboard/shared/ProUpgradeModal.tsx` rules before changing it. It renders on the legacy page only.
 - Status labels in `constants.tsx` are mirrored on gp-api — keep them in sync if either side changes.
 - **`OutreachType` is hand-rolled in five places** (`gpApi/types/outreach.types.ts`, `hooks/OutreachContext.tsx`, `constants.tsx`'s `OutreachTypeKey`/`OUTREACH_TYPES`, `util/getEffectiveOutreachType.ts`'s `VALID_OUTREACH_TYPES`, and `components/OutreachCreateCard.tsx`) instead of importing the contracts `OutreachType` enum. Consolidating onto the contracts enum is a real cleanup, deliberately deferred rather than folded into a feature ticket — file it separately if you're touching this area again.
 - **`nativeDoorKnocking` is in four of those five, and its absence from the fifth is deliberate.** `VALID_OUTREACH_TYPES` is named like a type registry but is really the allowlist of types a **task** may open a create-flow for, and the knock transaction is the only writer of a `nativeDoorKnocking` envelope — `createOutreachSchema` rejects the type from clients outright. Adding it there would let `TasksList` open a flow modal for a channel that has no create flow. Don't "fix" the inconsistency without renaming the constant to match what it actually gates.
 - **A missing `CHANNEL_META` key degrades silently, and `getChannelLabel` is why.** It falls back to capitalizing the raw type, so an unmapped channel renders as a plausible-looking `NativeDoorKnocking` in a grey badge rather than throwing. `CHANNEL_META` is typed `Record<OutreachType, ChannelMeta>`, so widening the union is what forces the entry to exist — keep that typing.
+
+### Door knocking in the outreach surfaces
+
+Reserved, and currently empty on purpose. Door knocking is being rebuilt against
+the Voter Outreach 2.0 canvas, and one slice of it lands here rather than in
+`door-knocking/`: the details drawer is becoming **one** drawer opened from both
+the door-knocking list card and this hub's history table. Decisions from that
+work — what the shared drawer owes each caller, and anything door-knocking
+specific about how its rows read in the history table — belong under this
+heading rather than at the end of the section above, so two agents editing this
+file at once don't collide on the same tail.
 
 ## Related
 
