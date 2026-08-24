@@ -167,12 +167,18 @@ class TestCreateRun:
 
 
 class TestAppendResults:
+    """append_results is single-shot per run (fix-round 1.3): the connector
+    has no transactions, so a retry after a partial failure would otherwise
+    pass every other guard and double-write. `fetchone.side_effect` below is
+    always [status-check, existing-row-count] in that order.
+    """
+
     def test_never_uses_executemany(self, mock_databricks):
         """Failure this catches: Cursor.executemany issues one sequential
         request per row with no batching (its own docstring) -- 20,166
         round trips for the backlog instead of dozens.
         """
-        mock_databricks["cursor"].fetchone.return_value = (RUNNING,)
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (0,)]
         writer = MatchRunWriter()
 
         writer.append_results("run-1", [MatchResult(1, "DE", "House", "District 5", MATCHED, 90)], ATTEMPTED_AT)
@@ -184,7 +190,7 @@ class TestAppendResults:
         silently rewrites an f-string-interpolated query instead of failing
         loudly -- PR 1 spent two review rounds on exactly this bug class.
         """
-        mock_databricks["cursor"].fetchone.return_value = (RUNNING,)
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (0,)]
         writer = MatchRunWriter()
 
         writer.append_results("run-1", [MatchResult(1, "DE", "House", "O'Brien District", MATCHED, 90)], ATTEMPTED_AT)
@@ -199,7 +205,7 @@ class TestAppendResults:
         INSERT, which does not carry the identity column but could still be
         hand-typed into the column list by mistake.
         """
-        mock_databricks["cursor"].fetchone.return_value = (RUNNING,)
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (0,)]
         writer = MatchRunWriter()
 
         writer.append_results("run-1", [MatchResult(1, "DE", "House", "District 5", MATCHED, 90)], ATTEMPTED_AT)
@@ -211,7 +217,7 @@ class TestAppendResults:
         """Failure this catches: one giant unchunked INSERT for the full
         20,166-office backlog instead of the bounded, documented chunk size.
         """
-        mock_databricks["cursor"].fetchone.return_value = (RUNNING,)
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (0,)]
         n = 2 * RESULTS_INSERT_CHUNK_SIZE + 1
         results = [MatchResult(i, "DE", "House", f"District {i}", MATCHED, 90) for i in range(n)]
         writer = MatchRunWriter()
@@ -238,11 +244,27 @@ class TestAppendResults:
 
         assert _insert_calls(mock_databricks["cursor"]) == []
 
+    def test_refuses_when_the_run_already_has_rows(self, mock_databricks):
+        """Failure this catches (fix-round 1.3): the connector auto-commits
+        each chunk with no transaction, so re-calling append_results after a
+        partial failure (chunk 12 of 41 fails on a warehouse restart, say)
+        would otherwise pass every other guard -- the run is still RUNNING,
+        and validate_result_rows' duplicate check only ever sees THIS call's
+        rows -- and double-write 5,500 rows already durable in the table.
+        """
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (5,)]
+        writer = MatchRunWriter()
+
+        with pytest.raises(ValueError, match="already has 5"):
+            writer.append_results("run-1", [MatchResult(1, "DE", "House", "D5", MATCHED, 90)], ATTEMPTED_AT)
+
+        assert _insert_calls(mock_databricks["cursor"]) == []
+
     def test_validates_before_writing_anything(self, mock_databricks):
         """Failure this catches: a batch with one bad row gets partially
         written before validation notices, leaving a half-appended run.
         """
-        mock_databricks["cursor"].fetchone.return_value = (RUNNING,)
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (0,)]
         writer = MatchRunWriter()
 
         with pytest.raises(ValueError):
@@ -264,34 +286,40 @@ class TestAppendResults:
 
 
 class TestCompleteRun:
+    """complete_run(run_id, expected_row_count, force=False) now runs
+    check_set_level_invariants itself (fix-round 1.1) and its transition is
+    a conditional UPDATE re-read to confirm (fix-round 1.2).
+    """
+
     def test_transitions_running_to_complete_and_stamps_completed_at(self, mock_databricks):
         """Failure this catches: completing a run never actually flips its
-        status, so the staging model (which reads only COMPLETE runs) never
-        sees it.
+        status, so int__l2_br_match_pending_offices (which inner-joins on
+        status = 'COMPLETE') never sees it. force=True isolates the
+        transition mechanics from the separately-tested invariant wiring.
         """
-        mock_databricks["cursor"].fetchone.return_value = (RUNNING,)
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (COMPLETE,)]
         writer = MatchRunWriter()
 
-        writer.complete_run("run-1")
+        writer.complete_run("run-1", expected_row_count=3, force=True)
 
         update_calls = _update_calls(mock_databricks["cursor"])
         assert len(update_calls) == 1
-        _, params = update_calls[0].args
+        query, params = update_calls[0].args
+        assert "status = ?" in query.lower().replace("  ", " ")
         assert COMPLETE in params
+        assert RUNNING in params  # the CAS condition, not just the new value
         assert "run-1" in params
 
     @pytest.mark.parametrize("current_status", [COMPLETE, REVOKED])
     def test_refuses_a_run_that_is_not_running(self, mock_databricks, current_status):
         """Failure this catches: completing twice, or completing a run that
-        was revoked in between, silently succeeds -- Cursor.rowcount on this
-        connector is hard-coded to -1, so the guard cannot trust the
-        UPDATE's own report of what it touched and must check status first.
+        was revoked in between, silently succeeds.
         """
         mock_databricks["cursor"].fetchone.return_value = (current_status,)
         writer = MatchRunWriter()
 
         with pytest.raises(ValueError, match=current_status):
-            writer.complete_run("run-1")
+            writer.complete_run("run-1", expected_row_count=3)
 
         assert _update_calls(mock_databricks["cursor"]) == []
 
@@ -303,10 +331,66 @@ class TestCompleteRun:
         writer = MatchRunWriter()
 
         with pytest.raises(ValueError, match="No run with run_id"):
-            writer.complete_run("does-not-exist")
+            writer.complete_run("does-not-exist", expected_row_count=0)
+
+    def test_calls_check_set_level_invariants_before_completing(self, mock_databricks):
+        """Failure this catches (fix-round 1.1): "small and separately
+        callable" let an operator complete a run whose invariants were
+        never checked -- a run with duplicates, a wrong row count, or an
+        out-of-universe district becomes the live match set for its
+        offices, and nothing reds.
+        """
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (COMPLETE,)]
+        writer = MatchRunWriter()
+        with patch.object(writer, "check_set_level_invariants") as mock_check:
+            writer.complete_run("run-1", expected_row_count=7)
+
+        mock_check.assert_called_once_with("run-1", 7)
+
+    def test_force_true_skips_the_invariant_check(self, mock_databricks):
+        """Failure this catches: force is documented as an escape hatch for
+        a human knowingly overriding a benign failure, but if it also skips
+        the RUNNING guard or silently double-runs the check, it stops being
+        a deliberate, narrow override.
+        """
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (COMPLETE,)]
+        writer = MatchRunWriter()
+        with patch.object(writer, "check_set_level_invariants") as mock_check:
+            writer.complete_run("run-1", expected_row_count=7, force=True)
+
+        mock_check.assert_not_called()
+
+    def test_a_failing_invariant_check_prevents_completion(self, mock_databricks):
+        """Failure this catches: an invariant failure is logged but
+        complete_run finishes the UPDATE anyway.
+        """
+        mock_databricks["cursor"].fetchone.return_value = (RUNNING,)
+        writer = MatchRunWriter()
+        with patch.object(writer, "check_set_level_invariants", side_effect=RuntimeError("bad run")):
+            with pytest.raises(RuntimeError, match="bad run"):
+                writer.complete_run("run-1", expected_row_count=7)
+
+        assert _update_calls(mock_databricks["cursor"]) == []
+
+    def test_concurrent_revoke_between_guard_and_write_is_caught(self, mock_databricks):
+        """Failure this catches (fix-round 1.2): the pre-check reads
+        RUNNING, a cascade revoke_run commits in the gap, and an
+        unconditional UPDATE matching on run_id alone overwrites the
+        rollback back to COMPLETE with revoked_reason still populated --
+        the run the operator deliberately rolled back would go live again.
+        force=True isolates this from the (separately tested) invariant call.
+        """
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (REVOKED,)]
+        writer = MatchRunWriter()
+
+        with pytest.raises(ValueError, match="concurrent revoke"):
+            writer.complete_run("run-1", expected_row_count=3, force=True)
 
 
 class TestRevokeRun:
+    def _seed(self, mock_databricks, sequence: int, final_status: str = REVOKED):
+        mock_databricks["cursor"].fetchone.side_effect = [(sequence,), (final_status,)]
+
     @pytest.mark.parametrize("reason", ["", "   "])
     def test_requires_a_non_blank_reason(self, mock_databricks, reason):
         """Failure this catches: a REVOKED run with no recorded reason is an
@@ -325,7 +409,7 @@ class TestRevokeRun:
         not actually restore what was true before that later run landed
         (SPEC 3.4).
         """
-        mock_databricks["cursor"].fetchone.return_value = (5,)
+        self._seed(mock_databricks, sequence=5)
         writer = MatchRunWriter()
 
         writer.revoke_run("run-1", "bad geography filter")
@@ -337,6 +421,22 @@ class TestRevokeRun:
         assert 5 in params
         assert REVOKED in params
         assert "bad geography filter" in params
+
+    def test_preserves_an_already_recorded_reason(self, mock_databricks):
+        """Failure this catches (fix-round 2.1): the cascade is by design
+        (SPEC 3.4), but rewriting an existing revoked_reason on every later
+        revoke destroys the audit note the column's own DDL comment says it
+        exists for -- in the same method that requires a reason at all.
+        Asserted at the query-text level: a mocked cursor cannot execute
+        SQL's own COALESCE, so the guarantee lives in the statement shape.
+        """
+        self._seed(mock_databricks, sequence=5)
+        writer = MatchRunWriter()
+
+        writer.revoke_run("run-1", "second rollback")
+
+        query, _ = _update_calls(mock_databricks["cursor"])[0].args
+        assert "coalesce(revoked_reason" in query.lower()
 
     def test_raises_for_an_unknown_run_id(self, mock_databricks):
         """Failure this catches: revoking a typo'd run_id silently updates
@@ -350,25 +450,52 @@ class TestRevokeRun:
 
         assert _update_calls(mock_databricks["cursor"]) == []
 
+    def test_raises_if_the_run_does_not_read_back_as_revoked(self, mock_databricks):
+        """Failure this catches: the UPDATE silently fails to land (e.g. a
+        stale sequence, a warehouse hiccup) and revoke_run reports success
+        anyway, leaving the operator to believe a rollback happened when it
+        did not.
+        """
+        self._seed(mock_databricks, sequence=5, final_status=RUNNING)
+        writer = MatchRunWriter()
+
+        with pytest.raises(RuntimeError, match="read back as"):
+            writer.revoke_run("run-1", "bad geography filter")
+
 
 class TestSetLevelInvariants:
     """SPEC 3.5: these run after the rows land and before COMPLETE, because
-    they cannot be evaluated until the rows exist.
+    they cannot be evaluated until the rows exist. `fetchone.side_effect`
+    below is always [existence-check, row-count, duplicate, match_status,
+    universe] in that order (fix-round 1.4 added the existence check).
     """
 
     def test_a_passing_run_raises_nothing(self, mock_databricks):
-        mock_databricks["cursor"].fetchone.side_effect = [(3,), (0,), (0,), (0,)]
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (3,), (0,), (0,), (0,)]
         writer = MatchRunWriter()
 
         writer.check_set_level_invariants("run-1", expected_row_count=3)  # must not raise
 
+    def test_raises_for_an_unknown_run_id(self, mock_databricks):
+        """Failure this catches (fix-round 1.4): all four queries filter
+        the RESULTS table by run_id and none joins the runs table, so a
+        mistyped or stale id reads as 0 duplicates, 0 bad statuses, 0
+        orphans and a count of 0 -- the verification step of a supervised
+        cutover reporting a clean pass for a run that does not exist.
+        """
+        mock_databricks["cursor"].fetchone.return_value = None
+        writer = MatchRunWriter()
+
+        with pytest.raises(ValueError, match="No run with run_id"):
+            writer.check_set_level_invariants("does-not-exist", expected_row_count=0)
+
     @pytest.mark.parametrize(
         "fetch_results,expected_substring",
         [
-            ([(2,), (0,), (0,), (0,)], "row count"),
-            ([(3,), (1,), (0,), (0,)], "appear more than once"),
-            ([(3,), (0,), (2,), (0,)], "match_status outside"),
-            ([(3,), (0,), (0,), (4,)], "outside the current universe"),
+            ([(RUNNING,), (2,), (0,), (0,), (0,)], "row count"),
+            ([(RUNNING,), (3,), (1,), (0,), (0,)], "appear more than once"),
+            ([(RUNNING,), (3,), (0,), (2,), (0,)], "match_status outside"),
+            ([(RUNNING,), (3,), (0,), (0,), (4,)], "outside the current universe"),
         ],
         ids=["row-count-mismatch", "duplicate-br-database-id", "bad-match-status", "matched-row-outside-universe"],
     )
@@ -388,7 +515,7 @@ class TestSetLevelInvariants:
         so a human revoking the run records an incomplete reason and
         discovers the second real problem only after a second failed pass.
         """
-        mock_databricks["cursor"].fetchone.side_effect = [(2,), (1,), (0,), (0,)]
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (2,), (1,), (0,), (0,)]
         writer = MatchRunWriter()
 
         with pytest.raises(RuntimeError) as exc_info:
@@ -397,3 +524,90 @@ class TestSetLevelInvariants:
         message = str(exc_info.value)
         assert "row count" in message
         assert "appear more than once" in message
+
+    def test_matched_rows_in_universe_check_normalizes_the_universe_side(self, mock_databricks):
+        """Failure this catches (fix-round 1.5): build_universe normalizes
+        l2_state in memory before anything is written, but this query reads
+        state_postal_code fresh from the LIVE universe table, bypassing
+        that step -- one lower-cased L2 delivery would make every MATCHED
+        row in that state compare unequal and read as an orphan, failing an
+        otherwise-good run. Asserted at the query-text level since a mocked
+        cursor cannot execute SQL's own upper()/trim().
+        """
+        mock_databricks["cursor"].fetchone.side_effect = [(RUNNING,), (3,), (0,), (0,), (0,)]
+        writer = MatchRunWriter()
+
+        writer.check_set_level_invariants("run-1", expected_row_count=3)
+
+        universe_call = [
+            c for c in mock_databricks["cursor"].execute.call_args_list if "district_universe" in c.args[0]
+        ]
+        assert len(universe_call) == 1
+        query = universe_call[0].args[0]
+        assert "upper(trim(u.state_postal_code))" in query.lower()
+
+
+class TestClosedWriterRefusesNewWork:
+    """Mirrors L2BrMatcher's own _closed guard (fix-round 2.2's reasoning,
+    applied here for the same DatabricksClient.connect()-silently-reopens
+    trap): a writer method after close() should fail clearly, not read a
+    freshly-reopened connection behind the caller's back.
+    """
+
+    def test_create_run_refuses_after_close(self, mock_databricks):
+        writer = MatchRunWriter()
+        writer.close()
+
+        with pytest.raises(RuntimeError, match="closed"):
+            writer.create_run()
+
+
+class TestResourceLifecycle:
+    """fix-round 2.3: MatchRunWriter had no close() / context manager at
+    all, in the same diff that added exactly those to L2BrMatcher for
+    exactly this reason.
+    """
+
+    def test_close_closes_a_self_opened_connection(self, mock_databricks):
+        """Failure this catches: DatabricksClient.close() exists but
+        nothing calls it, leaking the connection for the life of the
+        process.
+        """
+        writer = MatchRunWriter()
+
+        writer.close()
+
+        mock_databricks["client"].close.assert_called_once()
+
+    def test_close_does_not_close_an_injected_connection(self):
+        """Failure this catches (fix-round 2.3): DatabricksClient is
+        injectable so the cutover can share the matcher's own session --
+        closing it out from under that other owner on this instance's
+        close() would defeat the entire point of sharing it.
+        """
+        injected = MagicMock()
+        writer = MatchRunWriter(databricks=injected)
+
+        writer.close()
+
+        injected.close.assert_not_called()
+
+    def test_context_manager_exit_calls_close(self, mock_databricks):
+        with MatchRunWriter() as writer:
+            pass
+
+        mock_databricks["client"].close.assert_called_once()
+        with pytest.raises(RuntimeError, match="closed"):
+            writer.create_run()
+
+    def test_close_is_idempotent(self, mock_databricks):
+        """Failure this catches: a second close() (e.g. from __exit__ after
+        an explicit close()) re-invokes DatabricksClient.close() or raises,
+        instead of being a clean no-op.
+        """
+        writer = MatchRunWriter()
+        writer.close()
+
+        writer.close()
+
+        mock_databricks["client"].close.assert_called_once()

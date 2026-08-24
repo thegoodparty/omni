@@ -214,6 +214,24 @@ def _is_quota_exhausted(exc: BaseException) -> bool:
     return bool(_QUOTA_EXHAUSTED_RE.search(text))
 
 
+class _GeminiRateLimitOrQuotaSignal(Exception):
+    """Wraps a Gemini call's own exception when -- and only when -- that
+    exact call raised something quota/429-shaped. Raised only inside
+    _run_in_pool, the single dispatch point every embedding and LLM call
+    goes through, so it can never be produced by a Databricks read (which
+    never goes through this method) or by a ValueError this call's own
+    caller raises AFTER a successful return (e.g. _selection_from_response
+    interpolating the model's own {response!r} into its message, which can
+    happen to contain the word "quota" without this ever being a quota
+    problem). Scoping the tag to the call site, not to run()'s outer except,
+    is what keeps the label from firing on either of those.
+    """
+
+    def __init__(self, original: BaseException) -> None:
+        super().__init__(str(original))
+        self.original = original
+
+
 def _district_embedding_text(state: str, district_type: str, district_name: str) -> str:
     """FROZEN (vector_store_generator.py's create_embedding_texts). Reproduce
     character-for-character, including the spacing and punctuation: this text
@@ -302,6 +320,7 @@ class L2BrMatcher:
     def __init__(self, catalog: str = "goodparty_data_catalog", schema: str = "dbt"):
         self.logger = get_logger(__name__)
         self.databricks = DatabricksClient()
+        self._closed = False
 
         target_concurrency = 1200
         self.llm = Gemini3Client(
@@ -343,9 +362,20 @@ class L2BrMatcher:
         """Dispatch a blocking call through this instance's own thread pool,
         never the event loop's default executor -- see the pool-sizing
         comment in __init__.
+
+        The only callers of this method are Gemini calls (embedding or LLM),
+        so tagging a 429/quota-shaped failure HERE, rather than generically in
+        run()'s except block, scopes the detection to exactly the calls that
+        can actually be a Gemini quota wall -- see
+        _GeminiRateLimitOrQuotaSignal's own docstring for why that matters.
         """
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, functools.partial(func, *args, **kwargs))
+        try:
+            return await loop.run_in_executor(self._executor, functools.partial(func, *args, **kwargs))
+        except Exception as exc:
+            if _is_quota_exhausted(exc):
+                raise _GeminiRateLimitOrQuotaSignal(exc) from exc
+            raise
 
     # -- Read path -----------------------------------------------------
 
@@ -748,6 +778,9 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         baseline would make a second run() on the same instance report the
         first run's spend too.
         """
+        if self._closed:
+            raise RuntimeError("This L2BrMatcher has been closed; construct a new one")
+
         self._embedding_cost_baseline = self.embedding_client.get_cost_stats()["total_cost"]
         self._llm_cost_baseline = self.llm.get_usage_stats()["total_cost"]
 
@@ -772,13 +805,25 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
                 self.logger.info(f"Matched {len(results)}/{len(offices)} offices")
 
             return results
-        except Exception as exc:
+        except _GeminiRateLimitOrQuotaSignal as signal:
+            # At target_concurrency=1200 behind a 1500-thread pool, a 429 is
+            # far more likely to be per-minute throttling than an exhausted
+            # daily quota (shared/llm_gemini.py backs off and resets on
+            # success, which is evidence backing off works) -- so this names
+            # rate limiting and the actual remedy, not an assumed exhaustion.
             embedding_cost, llm_cost = self._cost_deltas()
-            if _is_quota_exhausted(exc):
-                # By the time this is reached, shared/'s retry loop has
-                # already spent its own full backoff finding out -- naming
-                # the cause is the only thing this layer can still add.
-                self.logger.error(f"QUOTA EXHAUSTED -- aborting run; retrying immediately hits the same wall: {exc}")
+            self.logger.error(
+                f"RATE LIMITED -- a Gemini call returned 429 (batch_size={batch_size}). At this "
+                f"concurrency that is usually per-minute throttling, not an exhausted daily quota. "
+                f"Lower --batch-size and rerun. {signal.original}"
+            )
+            self.logger.error(
+                f"Run failed. Partial cost before failure -- embedding: ${embedding_cost:.6f}, "
+                f"LLM: ${llm_cost:.6f}, total: ${embedding_cost + llm_cost:.6f}"
+            )
+            raise signal.original from None
+        except Exception:
+            embedding_cost, llm_cost = self._cost_deltas()
             self.logger.error(
                 f"Run failed. Partial cost before failure -- embedding: ${embedding_cost:.6f}, "
                 f"LLM: ${llm_cost:.6f}, total: ${embedding_cost + llm_cost:.6f}"
@@ -823,15 +868,38 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         traceback. cancel_futures=True drops anything still queued -- a call
         already running keeps running to completion in the background,
         which no shutdown call can stop.
+
+        try/finally so a raise from the executor shutdown cannot skip closing
+        the Databricks connection, which is exactly the leak this method
+        exists to prevent. Idempotent (the `_closed` flag) so a second call --
+        including one __exit__ makes after an explicit close() -- is a no-op
+        instead of raising on an already-shut-down executor, and so run() can
+        tell a closed matcher apart from a fresh one and fail clearly rather
+        than confusingly (DatabricksClient.connect() would otherwise silently
+        reopen a session behind an executor that can never un-shut-down).
         """
-        self._executor.shutdown(wait=False, cancel_futures=True)
-        self.databricks.close()
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+        finally:
+            self.databricks.close()
 
     def __enter__(self) -> "L2BrMatcher":
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
-        self.close()
+        """Swallow-and-log rather than let a close() failure propagate: it can
+        raise on exactly the dead-session conditions under which a run just
+        failed (DatabricksClient.close() included), which would otherwise
+        replace the operator's real exception -- including the new rate-limit
+        signal above -- with an unrelated cleanup error.
+        """
+        try:
+            self.close()
+        except Exception:
+            self.logger.exception("Error while closing L2BrMatcher; any original exception takes priority")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

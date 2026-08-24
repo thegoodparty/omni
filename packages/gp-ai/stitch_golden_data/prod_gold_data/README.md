@@ -49,10 +49,13 @@ as a match or coerced into an abstention.
 small operations, driven by hand during the supervised cutover: create a
 run, append its (validated) results, complete it, or revoke it plus every
 run sequenced after it. Per-row validation runs over the whole batch before
-the first insert; four set-level invariants run after the rows land and
-before a run is completed, since neither `status` nor `match_status` carries
-a database CHECK constraint -- this validation is the only enforcement they
-get.
+the first insert; `append_results` is single-shot per run (refuses a run
+that already has rows, since the connector has no transactions to make a
+retry after a partial failure safe). Four set-level invariants run after
+the rows land -- `complete_run` runs them itself before publishing (`force`
+skips this for a human overriding a known-benign failure), since neither
+`status` nor `match_status` carries a database CHECK constraint and an
+operator forgetting a separate verification step is not enforcement.
 
 ## What is frozen
 
