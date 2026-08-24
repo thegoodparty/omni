@@ -272,20 +272,39 @@ export const OutreachDetailsDrawer = ({
                 )
               }
               primary={
-                footerMode === 'continue' && continueHref
-                  ? {
-                      kind: 'link',
-                      label: isDoorKnocking
-                        ? CONTINUE_LABELS.doorKnocking
-                        : CONTINUE_LABELS.phoneBanking,
-                      href: continueHref,
-                      icon: isDoorKnocking ? (
-                        <DoorOpenIcon className="size-4" />
-                      ) : (
-                        <PhoneIcon className="size-4" />
-                      ),
-                    }
-                  : null
+                footerMode !== 'continue'
+                  ? null
+                  : continueHref
+                    ? {
+                        kind: 'link',
+                        label: isDoorKnocking
+                          ? CONTINUE_LABELS.doorKnocking
+                          : CONTINUE_LABELS.phoneBanking,
+                        href: continueHref,
+                        icon: isDoorKnocking ? (
+                          <DoorOpenIcon className="size-4" />
+                        ) : (
+                          <PhoneIcon className="size-4" />
+                        ),
+                      }
+                    : // Phone banking's href is the list id, which rides the
+                      // detail rather than the history row, so it is unknown
+                      // for as long as that query is in flight. Holding the
+                      // slot disabled beats letting the whole footer appear a
+                      // beat after the drawer — the body is already showing
+                      // "Loading call progress…", and a CTA that materializes
+                      // under a thumb already moving is worse than one that
+                      // was visibly not ready yet. Only while loading: once
+                      // the detail has failed the body says so and offers the
+                      // recovery, and a button that can never enable is not a
+                      // state to render.
+                      detailQuery.isLoading
+                      ? {
+                          kind: 'disabled',
+                          label: CONTINUE_LABELS.phoneBanking,
+                          icon: <PhoneIcon className="size-4" />,
+                        }
+                      : null
               }
               secondary={
                 // Archive applies to every finished row the history's Archive

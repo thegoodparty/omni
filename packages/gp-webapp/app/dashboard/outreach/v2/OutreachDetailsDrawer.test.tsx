@@ -162,6 +162,21 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     ).not.toBeInTheDocument()
   })
 
+  // The href is the phone list's id, which rides the detail rather than the
+  // history row, so it is unknown for as long as that query is in flight. The
+  // footer holds the slot instead of arriving a beat late under a thumb that
+  // is already moving.
+  it('holds the Continue calling slot while the detail is still loading', async () => {
+    // Never resolves, so the drawer stays in the state this is about for the
+    // length of the test rather than racing the assertion.
+    api.mock('GET /v1/outreach/:id', () => new Promise<never>(() => undefined))
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    const cta = await screen.findByRole('button', { name: 'Continue calling' })
+    expect(cta).toBeDisabled()
+  })
+
   it('renders the completed results breakdown with percents and the Delete + Move to archive footer', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
