@@ -108,6 +108,49 @@ describe('ActivityStep — campaign chip row (completed + channel)', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('offers a completed nativePhoneBanking outreach under the phoneBanking channel', async () => {
+    setWinContext(true)
+    api.mock('GET /v1/outreach', {
+      status: 200,
+      data: [
+        outreach({
+          id: 4,
+          outreachType: 'nativePhoneBanking',
+          status: 'completed',
+          name: 'GOTV calls',
+        }),
+        outreach({
+          id: 5,
+          outreachType: 'nativePhoneBanking',
+          status: 'in_progress',
+          name: 'Still calling',
+        }),
+      ],
+    })
+    const user = userEvent.setup()
+
+    render(<ActivityStepHarness />)
+
+    await user.click(screen.getByRole('radio', { name: 'Phone Banking' }))
+
+    const anyCampaign = await screen.findByRole('radio', {
+      name: 'Any campaign',
+    })
+    expect(anyCampaign).toHaveAttribute('data-state', 'on')
+    expect(
+      await screen.findByRole('radio', { name: 'GOTV calls' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('radio', { name: 'Still calling' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'GOTV calls' }))
+
+    expect(lastConditions[0]?.outreachType).toBe('phoneBanking')
+    expect(lastConditions[0]?.outreachId).toBe(4)
+    expect(lastConditions[0]?.outreachName).toBe('GOTV calls')
+  })
+
   it('hides the campaign row entirely for door-knocking rows', async () => {
     setWinContext(true)
     api.mock('GET /v1/outreach', { status: 200, data: [] })
