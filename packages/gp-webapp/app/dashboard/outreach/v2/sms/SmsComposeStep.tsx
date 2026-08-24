@@ -24,7 +24,7 @@ import {
   SquareIcon,
   SunIcon,
   TargetIcon,
-  Trash2Icon,
+  XMarkIcon,
 } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { Intro } from '../social/Intro'
@@ -196,16 +196,14 @@ export const SmsComposeStep = ({
                   alt="Attachment preview"
                   className="max-h-56 w-full rounded-xl border border-border object-cover"
                 />
-                <IconButton
+                <button
                   type="button"
-                  variant="secondary"
-                  size="small"
                   aria-label="Remove image"
-                  className="absolute right-2 top-2"
                   onClick={() => onImageChange(null)}
+                  className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-foreground/80 text-background hover:bg-foreground"
                 >
-                  <Trash2Icon className="size-4" />
-                </IconButton>
+                  <XMarkIcon className="size-3.5" />
+                </button>
               </div>
             ) : (
               // globals.css forces flex-row on data-slot-less flex buttons

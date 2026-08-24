@@ -224,7 +224,9 @@ export const SmsReviewStep = ({
         <div className="flex items-center justify-between border-t border-border px-4 py-4">
           <span className="font-medium text-foreground">Total</span>
           <span className="font-semibold text-foreground">
-            {preparing || (!isFree && !checkoutSession) ? (
+            {prepareError || error ? (
+              '\u2014'
+            ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
             ) : (
               `$${money(totalCents)}`

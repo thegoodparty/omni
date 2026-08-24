@@ -155,7 +155,9 @@ export const SmsScheduleStep = ({
                 }}
                 disabled={(day) => day < earliestDay}
               />
-              <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+              {/* w-0 + min-w-full: contribute nothing to the popover's
+                  intrinsic width (the calendar sets it) and wrap inside it. */}
+              <div className="w-0 min-w-full border-t border-border px-3 py-2 text-xs text-muted-foreground">
                 {notCleared
                   ? 'Dates inside the 14-day verification window can\u2019t be scheduled.'
                   : 'Dates inside the 48-hour window can\u2019t be scheduled.'}

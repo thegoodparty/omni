@@ -41,10 +41,15 @@ export const identificationIntro = (
 // the user's message (which opens with the identification) — the backend
 // has no region concept and sends the script to the vendor verbatim
 // (merge token included).
+// The opt-out footer sits on its own line (design parity in the preview
+// bubble; SMS newlines are legal and Peerly gets the script verbatim).
 export const composeScript = (
   body: string,
   footer: string = OPT_OUT_FOOTER,
-): string => [SMS_GREETING, body.trim(), footer].filter(Boolean).join(' ')
+): string =>
+  [[SMS_GREETING, body.trim()].filter(Boolean).join(' '), footer]
+    .filter(Boolean)
+    .join('\n')
 
 // Prototype's hasIntro: the message head must read as an identification.
 // With no first name on file the name check is vacuous, so only the
