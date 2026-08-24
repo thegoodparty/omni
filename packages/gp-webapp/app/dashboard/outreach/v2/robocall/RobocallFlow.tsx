@@ -164,8 +164,15 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   }
 
   // Fresh flow every open — a cancelled-then-reopened flow must not resume.
+  // The flow host stays mounted (open just toggles), so closing must actively
+  // release the recorder: otherwise a mid-recording close leaves the mic live
+  // until the 60s cap. Reset on close AND on open.
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      resetRecorder()
+      resetAudioUpload()
+      return
+    }
     setStepId('purpose')
     setPurpose(null)
     setCampaignName('')

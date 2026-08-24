@@ -44,7 +44,9 @@ const readAudioDuration = (url: string): Promise<number | null> =>
     const el = new Audio()
     el.preload = 'metadata'
     el.onloadedmetadata = () =>
-      resolve(Number.isFinite(el.duration) ? Math.round(el.duration) : null)
+      // Round UP: a 60.4s clip exceeds the 60s delivery cap, so it must fail
+      // the > maxSeconds check rather than round down to a passing 60.
+      resolve(Number.isFinite(el.duration) ? Math.ceil(el.duration) : null)
     el.onerror = () => resolve(null)
     el.src = url
   })
@@ -70,6 +72,15 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
   // False once unmounted, so a getUserMedia promise that resolves after the
   // flow closes doesn't arm a recorder on a dead component.
   const mountedRef = useRef(true)
+  // True while a getUserMedia call is in flight, so a second Record click
+  // before it resolves can't open (and leak) a second MediaStream — status is
+  // still 'idle' during that async window, so the UI can't block it. reset()
+  // clears it, which also signals an in-flight start to abort (the flow host
+  // stays mounted, so mountedRef alone can't catch a close/Back mid-prompt).
+  const startingRef = useRef(false)
+  // Bumped on every uploadFile call and on reset, so a superseded/again-reset
+  // duration decode drops its object URL instead of capturing on a stale flow.
+  const uploadReqRef = useRef(0)
 
   const clearTimers = useCallback(() => {
     if (tickRef.current) {
@@ -111,18 +122,25 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
   }, [clearTimers])
 
   const start = useCallback(() => {
+    // Synchronous in-flight guard: blocks a double-click before the async
+    // getUserMedia resolves (status is still 'idle' then, so the UI can't).
+    if (startingRef.current) return
+    startingRef.current = true
     setError(null)
     if (!navigator.mediaDevices?.getUserMedia) {
+      startingRef.current = false
       setError('Recording is not supported in this browser')
       return
     }
     navigator.mediaDevices
       .getUserMedia({ audio: true })
       .then((stream) => {
-        // The flow can unmount while the mic-permission prompt is still open;
-        // if so, release the just-granted stream and don't arm anything.
-        if (!mountedRef.current) {
+        // Abort if the flow unmounted OR was reset/closed while the mic prompt
+        // was open (reset clears startingRef): release the just-granted stream
+        // and don't arm anything, so the mic never opens on a closed flow.
+        if (!mountedRef.current || !startingRef.current) {
           stream.getTracks().forEach((t) => t.stop())
+          startingRef.current = false
           return
         }
         streamRef.current = stream
@@ -170,8 +188,14 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
         }, 1000)
         // Hard cap: a recorded clip can never exceed the delivery limit.
         capRef.current = setTimeout(() => stop(), maxSeconds * 1000)
+        // Recording is armed; the button is now Stop, so release the guard for
+        // the next idle -> record cycle.
+        startingRef.current = false
       })
-      .catch(() => setError('Microphone permission is required to record'))
+      .catch(() => {
+        startingRef.current = false
+        setError('Microphone permission is required to record')
+      })
   }, [maxSeconds, setCaptured, stop, stopStream])
 
   const uploadFile = useCallback(
@@ -186,8 +210,16 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
         setError('Upload an MP3, WAV, M4A, AAC, or OGG file')
         return
       }
+      const requestId = uploadReqRef.current + 1
+      uploadReqRef.current = requestId
       const url = URL.createObjectURL(file)
       void readAudioDuration(url).then((durationSec) => {
+        // Superseded by a reset (close/Back/re-record) or a newer upload while
+        // the decode was pending: drop this URL, don't capture on a stale flow.
+        if (requestId !== uploadReqRef.current) {
+          URL.revokeObjectURL(url)
+          return
+        }
         if (durationSec === null) {
           URL.revokeObjectURL(url)
           setError("We couldn't read that audio file. Try a different format.")
@@ -218,8 +250,21 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
 
   const reset = useCallback(() => {
     clearTimers()
+    // Detach handlers before stopping so an in-flight recording's onstop can't
+    // fire against the just-cleared chunks (a phantom "empty recording" error
+    // or 1s clip); then stop it and release the mic.
+    const rec = recorderRef.current
+    if (rec) {
+      rec.ondataavailable = null
+      rec.onstop = null
+      if (rec.state !== 'inactive') rec.stop()
+    }
     stopStream()
     revokeUrl()
+    // Abort any in-flight getUserMedia (start's .then bails on this) and any
+    // pending upload decode.
+    startingRef.current = false
+    uploadReqRef.current += 1
     elapsedRef.current = 0
     recorderRef.current = null
     chunksRef.current = []
