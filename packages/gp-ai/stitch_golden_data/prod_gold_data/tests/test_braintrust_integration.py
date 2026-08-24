@@ -460,4 +460,6 @@ class TestLoadPendingOfficesStatesFilter:
         matcher.load_pending_offices(states=["de"])
 
         query = mock_dependencies["databricks"].return_value.execute_query.call_args[0][0]
-        assert "where state in ('DE')" in query
+        # The normalization must be IN the predicate: this test passes a
+        # lowercase 'de' and the warehouse column can hold one too.
+        assert "where upper(trim(state)) in ('DE')" in query

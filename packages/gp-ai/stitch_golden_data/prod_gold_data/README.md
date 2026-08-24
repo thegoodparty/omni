@@ -11,6 +11,7 @@ path lands in a later PR.
 ```
 prod_gold_data/
 ├── l2_br_matcher.py           # The matcher: class L2BrMatcher
+├── l2_br_match_schema.py      # Schema of record for llm_l2_br_match_results
 └── vector_store_generator.py  # Unrelated laptop tool, out of scope here --
                                 # still feeds bronze_data's pickle-based path
 ```
@@ -31,7 +32,8 @@ workloads, not one shared setting.
 
 ## Terminal-outcome contract
 
-A run persists two outcomes and no third. A `MatchResult` whose
+A run produces two outcomes and no third -- this module writes nothing, so
+"persists" belongs to the write path. A `MatchResult` whose
 `l2_state` / `l2_district_type` / `l2_district_name` are populated is a match;
 one where all three are `None` is an attempt that found nothing. There is no
 status column on the result or in `llm_l2_br_match_results`, so a populated

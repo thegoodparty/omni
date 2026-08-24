@@ -348,7 +348,12 @@ class L2BrMatcher:
         where_clause = ""
         if states is not None:
             states_str = "', '".join(_validate_states_filter(states))
-            where_clause = f"where state in ('{states_str}')"
+            # upper(trim(...)) on the COLUMN, not just on the literals. The
+            # literals are already canonical by this point; the column is
+            # warehouse data. Filtering the raw column discards a 'de' row
+            # before _normalize_state below can ever see it, and the result
+            # is a silent empty worklist rather than an error.
+            where_clause = f"where upper(trim(state)) in ('{states_str}')"
         limit_clause = f"limit {limit}" if limit is not None else ""
 
         query = f"""
@@ -370,10 +375,13 @@ class L2BrMatcher:
     def load_district_universe(self, states: list[str]) -> pd.DataFrame:
         """Read the menu source for exactly the states the worklist needs."""
         states_str = "', '".join(_normalize_state(s) for s in states)
+        # upper(trim(...)) for the same reason as load_pending_offices: a
+        # non-canonical state_postal_code would otherwise drop that state's
+        # districts from the menu entirely.
         query = f"""
         select state_postal_code, district_type, district_name
         from {self.district_universe_path}
-        where state_postal_code in ('{states_str}')
+        where upper(trim(state_postal_code)) in ('{states_str}')
         """
         return self.databricks.execute_query(query)
 
@@ -422,8 +430,15 @@ class L2BrMatcher:
             await self._embed_state_universe(state, group, embedding_batch_size)
 
     async def _embed_state_universe(self, state: str, district_rows: pd.DataFrame, embedding_batch_size: int) -> None:
-        """Embed one state's district universe, batched (FROZEN:
-        parallel=True), dispatched through this instance's own thread pool.
+        """Embed one state's district universe, batched, dispatched through
+        this instance's own thread pool.
+
+        No `parallel=` argument: `create_embeddings` never reads one. Passing
+        `parallel=True` here (as the producer did) looks like it selects the
+        document path, and it does not -- `len(texts) > 1` alone does, at
+        shared/llm_gemini.py:937. Leaving it in implies a second lever exists
+        for the very dispatch the query path depends on there being only one
+        of.
 
         `create_embeddings` does `asyncio.run(...)` internally for any
         multi-text input (shared/llm_gemini.py:941), and every state's
@@ -474,15 +489,21 @@ class L2BrMatcher:
         # current_delay * 2**attempt, and :844 ratchets current_delay back
         # toward this floor on every success -- so a low value (0.01, tried
         # in an earlier round to match vector_store_generator.py's settings)
-        # collapses roughly 4,000s of total retry sleep across 11 attempts
-        # to roughly 20s, worst exactly when concurrency is high enough to
-        # make a 429 wave likely. Tuning these wants a measured run, not a
+        # collapses the total retry sleep by orders of magnitude, worst
+        # exactly when concurrency is high enough to make a 429 wave likely.
+        # Recomputed rather than estimated: :857 doubles current_delay on
+        # every 429 up to a 30s cap and :869 then sleeps
+        # current_delay * 2**attempt, so a sustained 429 wave at the default
+        # 2.0 floor sleeps 4+16+64+240+480+960+1920+3840+7680+15360 =
+        # 30,564s across the ten waits before the eleventh attempt raises.
+        # At a 0.01 floor the same sequence is about 7,000s. An earlier
+        # revision of this comment said 4,000s and 20s; both were wrong,
+        # because they assumed a constant delay rather than the ratchet. Tuning these wants a measured run, not a
         # guess; that measured run is what the write-path PR and the
         # supervised cutover produce.
         embeddings = await self._run_in_pool(
             self.embedding_client.create_embeddings,
             texts,
-            parallel=True,
             batch_size=embedding_batch_size,
         )
         self._universe_by_state[state] = _StateUniverse(
