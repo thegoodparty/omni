@@ -180,6 +180,36 @@ class TestAppendResults:
         assert _calls(mock_databricks["cursor"], "insert into") == []
 
 
+class TestRunKey:
+    def test_a_naive_attempted_at_is_rejected_on_both_paths(self, mock_databricks):
+        """Failure this catches: a hand-built timestamp without tzinfo. On
+        append it splits one run into two keys -- the anti-join sees nothing
+        written, every office is inserted again, and the count check passes on
+        both. On delete it matches nothing, so the one recovery path there is
+        returns 0 having removed nothing. The baseline run stamps a
+        hand-chosen historical date, so this is the documented workflow.
+        """
+        naive = datetime(2026, 1, 1)
+        writer = MatchResultWriter()
+
+        with pytest.raises(ValueError, match="timezone-aware"):
+            writer.append_results([_match(1)], naive)
+        with pytest.raises(ValueError, match="timezone-aware"):
+            writer.delete_run(naive)
+
+    def test_a_duplicate_is_caught_even_when_the_colliding_id_is_already_written(self, mock_databricks):
+        """Failure this catches: validation running after the anti-join. The
+        anti-join drops every row whose id is already durable, so a batch
+        carrying that id twice loses both copies and the duplicate -- which
+        this module is the only enforcement of -- never becomes visible.
+        """
+        mock_databricks["cursor"].fetchall.return_value = [(1,)]
+        writer = MatchResultWriter()
+
+        with pytest.raises(ValueError, match="duplicated"):
+            writer.append_results([_match(1), _match(1, name="District 6"), _match(2)], ATTEMPTED_AT)
+
+
 class TestDeleteRun:
     def test_deletes_on_the_run_key_with_a_bound_parameter(self, mock_databricks):
         """Failure this catches: a rollback that deletes the wrong rows.

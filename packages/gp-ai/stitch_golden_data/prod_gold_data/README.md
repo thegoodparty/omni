@@ -49,7 +49,8 @@ as a match or coerced into an abstention.
 during the supervised cutover: append a batch of results under a run key, or
 delete a run.
 
-`attempted_at` is the run key, it must be **timezone-aware**, and the caller
+`attempted_at` is the run key, it must be **timezone-aware** (enforced, not
+just documented -- a naive value silently splits one run into two), and the caller
 passes it in so a sharded or resumed run keeps one key. `append_results` skips
 offices already written under that key, validates what is left, inserts it in
 chunks, then counts what the table holds for the key. Short means the run is

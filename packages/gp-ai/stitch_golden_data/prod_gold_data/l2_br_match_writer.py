@@ -111,6 +111,24 @@ def validate_results(results: list[MatchResult]) -> None:
         raise ValueError(f"{len(errors)} of {len(results)} row(s) failed validation:\n" + "\n".join(errors))
 
 
+def _require_aware(attempted_at: datetime) -> None:
+    """The run key must be timezone-aware. Enforced rather than documented,
+    because the failure is silent in both directions.
+
+    A naive key makes the anti-join see nothing already written, so a resumed
+    run re-inserts every office under a second timestamp representation and
+    the count check passes on both -- two rows per office, and "latest wins"
+    has no answer. On `delete_run` the same value matches nothing, so the one
+    recovery path there is returns 0 having removed nothing.
+
+    Reachable from the documented workflow rather than hypothetically: the
+    baseline run stamps a hand-chosen historical date, and a hand-built
+    `datetime` is naive unless someone remembers otherwise.
+    """
+    if attempted_at.tzinfo is None:
+        raise ValueError(f"attempted_at must be timezone-aware, got a naive datetime: {attempted_at!r}")
+
+
 def _chunked(rows: list[MatchResult], size: int) -> Iterator[list[MatchResult]]:
     for start in range(0, len(rows), size):
         yield rows[start : start + size]
@@ -168,10 +186,10 @@ class MatchResultWriter:
         """Append `results` under the run key `attempted_at`, and return how
         many rows this call wrote.
 
-        Skips any office already written under this key (the anti-join), then
-        validates what is left, then inserts it in chunks, then counts what
-        the table holds for this key and raises if it is short of what it
-        should be. That count is the whole of what replaces a transaction:
+        Validates the whole batch, then skips any office already written
+        under this key (the anti-join), then inserts what is left in chunks,
+        then counts what the table holds for this key and raises if it is
+        short of what it should be. That count is the whole of what replaces a transaction:
         the connector has none -- `Connection.commit()` is a documented no-op
         and `rollback()` raises `NotSupportedError` -- so each chunk commits
         independently and a failure part-way leaves an incomplete run. That
@@ -183,12 +201,20 @@ class MatchResultWriter:
         own docstring is a naive loop issuing one sequential request per row
         with no batching.
         """
+        _require_aware(attempted_at)
         if not results:
             self.logger.warning("append_results called with zero rows; nothing to do")
             return 0
 
         cursor = self._cursor()
         try:
+            # Validate BEFORE the anti-join, not after. The anti-join drops
+            # every row whose id is already durable, so a batch carrying the
+            # same id twice loses both copies when that id is already written
+            # -- and the duplicate, which this module is the only enforcement
+            # of, never becomes visible.
+            validate_results(results)
+
             rows_before, already_written = self._written(cursor, attempted_at)
             to_write = [r for r in results if r.br_database_id not in already_written]
             if already_written:
@@ -199,8 +225,6 @@ class MatchResultWriter:
             if not to_write:
                 self.logger.info("Every office in this batch is already written under this run key")
                 return 0
-
-            validate_results(to_write)
 
             for chunk in _chunked(to_write, RESULTS_INSERT_CHUNK_SIZE):
                 placeholders = ", ".join(["(?, ?, ?, ?, ?, ?)"] * len(chunk))
@@ -261,6 +285,7 @@ class MatchResultWriter:
         rebuild. The DELETE itself stays in Delta history, so what happened
         and when is still answerable afterwards.
         """
+        _require_aware(attempted_at)
         cursor = self._cursor()
         try:
             before = self._row_count(cursor, attempted_at)
