@@ -245,7 +245,9 @@ import { dirname, join, relative } from 'node:path'
 // surfaces (mutations, flow state, Stripe payment mount) that can't be server
 // components. Same +6 previously recorded against the pre-merge phase 1
 // baseline (580 -> 586).
-const BASELINE = 606
+// 2026-08-24: 606 -> 605 — SmsAudienceStep deleted in favor of the shared
+// OutreachAudienceStep (v2/audience/), which robocall already counts.
+const BASELINE = 605
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

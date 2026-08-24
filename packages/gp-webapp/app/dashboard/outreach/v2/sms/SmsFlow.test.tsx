@@ -150,6 +150,12 @@ describe('SmsFlow', () => {
   beforeEach(() => {
     mockLists()
     mockListDetail()
+    // useOutreachAudience's useElectedOffice fires on mount; 404 => not an
+    // elected official, exercising the hook's real 404->null branch.
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'No elected office' },
+    })
     mockOutreachList()
   })
 
