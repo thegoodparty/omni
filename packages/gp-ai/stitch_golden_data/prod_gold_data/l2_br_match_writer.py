@@ -176,6 +176,12 @@ class MatchResultWriter:
 
         cursor = self._cursor()
         try:
+            # Rows, not distinct ids, for the count baseline. If the table
+            # ever already held two rows for one office under this key, a
+            # `len(already_written)` baseline would under-count and fail an
+            # otherwise-good write. The anti-join needs the ids; the count
+            # check needs the row count; they are not the same number.
+            rows_before = self._row_count(cursor, attempted_at)
             already_written = self._written_ids(cursor, attempted_at)
             to_write = [r for r in results if r.br_database_id not in already_written]
             if already_written:
@@ -213,7 +219,7 @@ class MatchResultWriter:
                     params,
                 )
 
-            expected = len(already_written) + len(to_write)
+            expected = rows_before + len(to_write)
             actual = self._row_count(cursor, attempted_at)
             if actual != expected:
                 raise RuntimeError(

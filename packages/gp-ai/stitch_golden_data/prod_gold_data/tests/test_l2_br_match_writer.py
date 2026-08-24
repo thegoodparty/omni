@@ -88,7 +88,7 @@ class TestAppendResults:
         silently rewrites an f-string-interpolated query instead of failing
         loudly. Real district names carry them.
         """
-        mock_databricks["cursor"].fetchone.return_value = (1,)
+        mock_databricks["cursor"].fetchone.side_effect = [(0,), (1,)]
         writer = MatchResultWriter()
 
         writer.append_results([_match(1, name="O'Brien District")], ATTEMPTED_AT)
@@ -103,7 +103,7 @@ class TestAppendResults:
         against this connector.
         """
         n = 2 * RESULTS_INSERT_CHUNK_SIZE + 1
-        mock_databricks["cursor"].fetchone.return_value = (n,)
+        mock_databricks["cursor"].fetchone.side_effect = [(0,), (n,)]
         results = [_match(i, name=f"District {i}") for i in range(n)]
         writer = MatchResultWriter()
 
@@ -122,7 +122,8 @@ class TestAppendResults:
         choosing between them.
         """
         mock_databricks["cursor"].fetchall.return_value = [(1,), (2,)]
-        mock_databricks["cursor"].fetchone.return_value = (3,)
+        # (rows before the insert, rows after): 2 already there, 1 written.
+        mock_databricks["cursor"].fetchone.side_effect = [(2,), (3,)]
         writer = MatchResultWriter()
 
         written = writer.append_results([_match(1), _match(2), _match(3)], ATTEMPTED_AT)
@@ -138,7 +139,8 @@ class TestAppendResults:
         commits on its own; counting what landed is the only thing standing
         between an incomplete run and a published one.
         """
-        mock_databricks["cursor"].fetchone.return_value = (1,)
+        # Empty before, but only 1 of 3 rows landed.
+        mock_databricks["cursor"].fetchone.side_effect = [(0,), (1,)]
         writer = MatchResultWriter()
 
         with pytest.raises(RuntimeError, match="Short write"):
