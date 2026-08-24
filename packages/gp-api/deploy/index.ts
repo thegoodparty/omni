@@ -7,6 +7,7 @@ import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createVpc } from './components/vpc'
 
@@ -130,6 +131,14 @@ export = async () => {
     environment === 'preview'
       ? 'campaign-plan-shares-dev'
       : createCampaignPlanSharesBucket({ environment }).bucket.bucket
+
+  // Private bucket for recorded/uploaded robocall audio. Browser PUTs via
+  // presigned URL; gp-api task role reads back for delivery. Preview shares
+  // the dev bucket — no per-PR bucket.
+  const robocallAudioBucketName =
+    environment === 'preview'
+      ? 'robocall-audio-dev'
+      : createRobocallAudioBucket({ environment }).bucket.bucket
 
   // Private bucket for user-supplied inputs to agent experiment runs (first
   // use: agenda packets uploaded from /briefings). Browser PUTs via presigned
@@ -369,6 +378,7 @@ export = async () => {
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
     campaignPlanSharesBucketName,
+    robocallAudioBucketName,
     agentRunInputsBucketName,
     meetingPipelineBucketName,
     serveAnalysisBucketName,
@@ -508,6 +518,7 @@ export = async () => {
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
+      ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
       PEOPLE_DB_SSM_PARAM: peopleDbParameterName,

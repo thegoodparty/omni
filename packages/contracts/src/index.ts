@@ -747,6 +747,13 @@ export {
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
 export {
+  ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
+  RobocallAudioPresignRequestSchema,
+  type RobocallAudioPresignRequest,
+  RobocallAudioPresignResponseSchema,
+  type RobocallAudioPresignResponse,
+} from './outreach/RobocallAudio.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,
