@@ -13,18 +13,15 @@ Key Components:
 Usage:
     # Generate vector stores for all states + DC
     uv run stitch_golden_data/prod_gold_data/vector_store_generator.py
-    
+
     # Run production matching
     uv run stitch_golden_data/prod_gold_data/production_matcher.py
-    
+
     # Run complete pipeline
     uv run stitch_golden_data/prod_gold_data/orchestrator.py
 """
 
-from .vector_store_generator import VectorStoreGenerator
 from .production_matcher import ProductionMatcher
+from .vector_store_generator import VectorStoreGenerator
 
-__all__ = [
-    'VectorStoreGenerator',
-    'ProductionMatcher'
-]
+__all__ = ["VectorStoreGenerator", "ProductionMatcher"]

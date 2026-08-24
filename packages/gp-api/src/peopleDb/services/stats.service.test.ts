@@ -1,4 +1,3 @@
-import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatsService } from './stats.service'
 import type { PeopleDbService } from '../peopleDb.service'
@@ -32,22 +31,30 @@ describe('StatsService', () => {
       totalConstituents: 100,
     })
 
-    const result = await service.getStats({
+    const result = await service.findStats({
       districtId: 'district-1',
     } as never)
 
     expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
       where: { districtId: 'district-1' },
     })
-    expect(result.districtId).toBe('district-1')
+    expect(result?.districtId).toBe('district-1')
   })
 
-  it('throws NotFoundException when stats are missing', async () => {
+  it('returns null when stats are missing', async () => {
     mockPrisma.districtStats.findUnique.mockResolvedValue(null)
 
     await expect(
-      service.getStats({ districtId: 'missing-district-id' } as never),
-    ).rejects.toThrow(NotFoundException)
+      service.findStats({ districtId: 'missing-district-id' } as never),
+    ).resolves.toBeNull()
+  })
+
+  it('returns null total counts when stats are missing', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findTotalCounts('missing-district-id'),
+    ).resolves.toBeNull()
   })
 
   it('returns total counts for a district', async () => {
@@ -56,7 +63,7 @@ describe('StatsService', () => {
       totalConstituentsWithCellPhone: 55,
     })
 
-    const counts = await service.getTotalCounts('district-1')
+    const counts = await service.findTotalCounts('district-1')
 
     expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
       select: {
@@ -65,8 +72,8 @@ describe('StatsService', () => {
       },
       where: { districtId: 'district-1' },
     })
-    expect(counts.totalConstituents).toBe(111)
-    expect(counts.totalConstituentsWithCellPhone).toBe(55)
+    expect(counts?.totalConstituents).toBe(111)
+    expect(counts?.totalConstituentsWithCellPhone).toBe(55)
   })
 
   it('returns totalConstituents without throwing when the stats row exists', async () => {
@@ -91,11 +98,11 @@ describe('StatsService', () => {
     ).resolves.toBeNull()
   })
 
-  it('throws when total counts are missing', async () => {
+  it('returns null when total counts are missing', async () => {
     mockPrisma.districtStats.findUnique.mockResolvedValue(null)
 
-    await expect(service.getTotalCounts('missing-district-id')).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(
+      service.findTotalCounts('missing-district-id'),
+    ).resolves.toBeNull()
   })
 })

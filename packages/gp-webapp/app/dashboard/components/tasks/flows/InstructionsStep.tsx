@@ -6,7 +6,6 @@ import {
 import { Button } from '@styleguide'
 import { buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { useMemo } from 'react'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 
 interface InstructionsStepProps {
   type: string
@@ -62,10 +61,8 @@ const INSTRUCTIONS_BY_TYPE: InstructionsByTypeMap = {
   ],
 }
 
-const getInstructions = (type: string, isP2pUxEnabled: boolean): string[] =>
-  !isP2pUxEnabled && [TASK_TYPES.text, LEGACY_TASK_TYPES.sms].includes(type)
-    ? INSTRUCTIONS_BY_TYPE[TASK_TYPES.p2pDisabledText] || []
-    : INSTRUCTIONS_BY_TYPE[type] || []
+const getInstructions = (type: string): string[] =>
+  INSTRUCTIONS_BY_TYPE[type] || []
 
 // TODO: remove these once we replace old dashboard view with new task flow
 // legacy type "sms" uses the same instructions as "texting"
@@ -80,8 +77,7 @@ export default function InstructionsStep({
   nextCallback,
   closeCallback,
 }: InstructionsStepProps): React.JSX.Element {
-  const { p2pUxEnabled } = useP2pUxEnabled()
-  const instructions = getInstructions(type, p2pUxEnabled)
+  const instructions = getInstructions(type)
 
   const trackingAttrs = useMemo(
     () => buildTrackingAttrs('Start Task', { type }),

@@ -1,14 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import {
   differenceInBusinessDays,
   differenceInCalendarDays,
+  isBefore,
   subDays,
   subHours,
   subMinutes,
 } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { setTimeout as sleep } from 'timers/promises'
 import {
   Campaign,
   ExperimentRun,
@@ -39,7 +39,6 @@ import {
   PEERLY_PROFILE_STATUS_PENDING,
   PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
 } from '../../../vendors/peerly/services/peerly.const'
-import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { wouldBePublishableAfterFallbacks } from '../../../websites/services/websites.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
@@ -61,19 +60,14 @@ const AWAITING_PIN_NUDGE_DAYS = 7
 // budget (with headroom for the "…and N more" marker), never by row count.
 const SECTION_TEXT_BUDGET = 2800
 
-// Spacing between per-identity retrieve_cv calls in the nightly poll. Peerly
-// throttles bulk CV retrieval (429/400), so space the reads out rather than
-// firing the whole in-flight set at once (mirrors sweepPinDeliveryDetection).
-const PEERLY_CV_READ_SPACING_MS = 350
-
-// Per-run ceiling on Peerly reads — see pollPeerlyStatuses for the
-// visibility-timeout math this protects.
-const POLL_RECORD_CAP = 120
-
-// Case 1 (ENG-10795): an identity minted but its CV never shows a status at
-// all after this long is a submission dropped between GoodParty and Peerly —
-// our-side pipeline fault, not a candidate-side stall.
-const CV_NEVER_REACHED_MIN_AGE_DAYS = 3
+// Case 1 (ENG-10795): an identity minted but its CV never shows a status is a
+// submission dropped between GoodParty and Peerly — our-side pipeline fault,
+// not a candidate-side stall. CV creates the request at `Requested` status
+// synchronously on submission (confirmed with Peerly/Nate, 2026-08-17), so a
+// still-null peerlyCvStatus one full CV-scan cycle (12h) plus margin after
+// submission means the twice-daily scan observed a genuine absence — not
+// that the status hasn't propagated yet.
+const CV_NEVER_REACHED_MIN_AGE_HOURS = 13
 
 // Case 3a (ENG-10795): PIN entered (CV VERIFIED) but the profile is still
 // `pending` well past a nightly cycle — verify_pin -> token -> approve
@@ -92,12 +86,17 @@ const PROFILE_STALL_MIN_AGE_HOURS = 20
 // work CV/finalize queues over the weekend either).
 const VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD = 3
 
-const reportableCampaign = {
+// The suffix predicates must be OR'd inside the NOT. Prisma reads a bare
+// `NOT: [a, b]` as NOT(a AND b), and no address ends with both suffixes, so
+// that form is always true and excludes nobody.
+export const reportableCampaign = {
   isPro: true,
   user: {
-    NOT: INTERNAL_EMAIL_SUFFIXES.map((suffix) => ({
-      email: { endsWith: suffix, mode: Prisma.QueryMode.insensitive },
-    })),
+    NOT: {
+      OR: INTERNAL_EMAIL_SUFFIXES.map((suffix) => ({
+        email: { endsWith: suffix, mode: Prisma.QueryMode.insensitive },
+      })),
+    },
   },
 }
 
@@ -162,7 +161,6 @@ export class Nightly10DlcReportService extends createPrismaBase(
   constructor(
     private readonly queueService: QueueProducerService,
     private readonly slack: SlackService,
-    private readonly peerlyIdentityService: PeerlyIdentityService,
   ) {
     super()
   }
@@ -212,31 +210,18 @@ export class Nightly10DlcReportService extends createPrismaBase(
     const now = new Date()
     const proOnly = { campaign: reportableCampaign }
 
-    // Poll live Peerly state before the section queries below so the case-1
-    // and case-3a sections (ENG-10795) read this run's freshly-persisted
-    // peerlyCvStatus/peerlyProfileStatus columns, not last night's.
-    const pollCandidates = await this.model.findMany({
-      where: {
-        ...proOnly,
-        peerlyIdentityId: { not: null },
-        status: {
-          in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
-        },
-      },
-      include: { campaign: true },
-      // Oldest-touched first so records past the per-run poll cap (see
-      // pollPeerlyStatuses) get their turn on a later night.
-      orderBy: { updatedAt: Prisma.SortOrder.asc },
-    })
-    await this.pollPeerlyStatuses(pollCandidates)
-
+    // The report no longer polls Peerly itself — the twice-daily CV status
+    // scan (cvStatusPoll.service.ts) owns every scheduled retrieve_cv and
+    // getProfile read, so the sections below run off columns at most ~4h
+    // stale (last scan slot 8pm ET, report at midnight ET). All the
+    // section floors are ≥13h, so the staleness is immaterial.
     const [
       stuckSubmissions,
       errorRecords,
       rejectedRecords,
       billingBlocked,
       stuckDomains,
-      agingAwaitingPin,
+      agingCvInFlight,
       neverReachedCv,
       profileStalled,
       inReviewStalled,
@@ -291,24 +276,28 @@ export class Nightly10DlcReportService extends createPrismaBase(
           ...proOnly,
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: { not: null },
-          // A null CV status means the submission never reached
-          // CampaignVerify — no PIN ever went out, so the record belongs to
-          // the case-1 failure section, not this nudge. VERIFIED is the
-          // opposite end: the PIN was already entered, so nudging is wrong
-          // and a stalled profile belongs to case 3a instead.
+          // Split below into the two sections these statuses actually mean.
+          // Only APPROVED implies a PIN went out; REQUESTED and IN_REVIEW mean
+          // CampaignVerify is still reviewing, and nudging those candidates
+          // walked them into a PIN box with no PIN behind it (ENG-10866). A
+          // null CV status belongs to the case-1 failure section; VERIFIED is
+          // the opposite end (PIN already entered — a stall there is case 3a);
+          // REJECTED/WITHDRAWN land in the rejected section.
           peerlyCvStatus: {
-            not: null,
-            notIn: [PeerlyCvVerificationStatus.VERIFIED],
+            in: [
+              PeerlyCvVerificationStatus.APPROVED,
+              PeerlyCvVerificationStatus.REQUESTED,
+              PeerlyCvVerificationStatus.IN_REVIEW,
+            ],
           },
-          OR: [
-            {
-              pinSentDetectedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
-            },
-            {
-              pinSentDetectedAt: null,
-              updatedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
-            },
-          ],
+          // Coarse floor only: a record created less than the nudge window
+          // ago cannot have been waiting longer than it, so this can never
+          // over-exclude. The precise clock is applied per section in code
+          // below — the two sections measure different things, and the
+          // `updatedAt` this filter used to key off is bumped by *any* write
+          // to the row (including the nightly poll's own status write), which
+          // silently reset the age.
+          createdAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
         },
         include: { campaign: true },
       }),
@@ -333,12 +322,12 @@ export class Nightly10DlcReportService extends createPrismaBase(
           OR: [
             {
               peerlySubmissionStartedAt: {
-                lt: subDays(now, CV_NEVER_REACHED_MIN_AGE_DAYS),
+                lt: subHours(now, CV_NEVER_REACHED_MIN_AGE_HOURS),
               },
             },
             {
               peerlySubmissionStartedAt: null,
-              createdAt: { lt: subDays(now, CV_NEVER_REACHED_MIN_AGE_DAYS) },
+              createdAt: { lt: subHours(now, CV_NEVER_REACHED_MIN_AGE_HOURS) },
             },
           ],
         },
@@ -536,7 +525,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       },
       {
         title:
-          '🛑 Never reached CampaignVerify (>3d, likely our submit pipeline)',
+          '🛑 Never reached CampaignVerify (>13h, likely our submit pipeline)',
         lines: neverReachedCv.map((record) => {
           const submittedAt =
             record.peerlySubmissionStartedAt ?? record.createdAt
@@ -585,15 +574,63 @@ export class Nightly10DlcReportService extends createPrismaBase(
         ),
       },
     ]
+    const nudgeCutoff = subDays(now, AWAITING_PIN_NUDGE_DAYS)
+    // When the PIN went out: the detection sweep's stamp, else when CV reached
+    // APPROVED (Peerly issues the PIN on that transition). Never `updatedAt` —
+    // any write to the row bumps it, so an unrelated update would reset a
+    // three-week-old wait to "PIN out 0d".
+    const pinSentAt = (record: RecordWithCampaign) =>
+      record.pinSentDetectedAt ?? record.peerlyCvStatusChangedAt
+    // How long the candidate has been waiting with no PIN at all. Measured
+    // from the CV submission, not the last status change: REQUESTED ->
+    // IN_REVIEW is a transition, not a delivery, and this section exists to
+    // surface the total wait. Keying it off any *ChangedAt column would
+    // restart the clock every time CampaignVerify moved the record sideways.
+    const cvWaitingSince = (record: RecordWithCampaign) =>
+      record.peerlySubmissionStartedAt ?? record.createdAt
+
+    // A record carrying neither timestamp gives us no basis for "PIN out Nd".
+    // Falling back to createdAt would report the campaign's own age, so a
+    // months-old campaign reads as months of PIN delay that never happened —
+    // the same class of wrong number the updatedAt clock produced. Drop it
+    // from the nudge rather than print an age we can't stand behind.
+    const agingAwaitingPin = agingCvInFlight.flatMap((record) => {
+      const sentAt = pinSentAt(record)
+      return record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
+        sentAt !== null &&
+        isBefore(sentAt, nudgeCutoff)
+        ? [{ record, sentAt }]
+        : []
+    })
+    const agingCvUnissued = agingCvInFlight.filter(
+      (record) =>
+        record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED &&
+        isBefore(cvWaitingSince(record), nudgeCutoff),
+    )
+
     const nudgeSection: ReportSection = {
       title: `⏳ Awaiting PIN >${AWAITING_PIN_NUDGE_DAYS}d (candidate nudge)`,
       lines: agingAwaitingPin.map(
+        ({ record, sentAt }) =>
+          `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
+          `PIN out ${differenceInCalendarDays(now, sentAt)}d`,
+      ),
+    }
+
+    // Deliberately not a nudge: no PIN exists, so contacting the candidate can
+    // only push them into a PIN box they cannot satisfy. Waiting on
+    // CampaignVerify; IN_REVIEW past the business-day floor escalates to
+    // Peerly through its own section.
+    const cvUnissuedSection: ReportSection = {
+      title:
+        `⏳ CampaignVerify still reviewing >${AWAITING_PIN_NUDGE_DAYS}d ` +
+        '(no PIN issued — do not nudge)',
+      lines: agingCvUnissued.map(
         (record) =>
           `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-          `PIN out ${differenceInCalendarDays(
-            now,
-            record.pinSentDetectedAt ?? record.updatedAt,
-          )}d`,
+          `no PIN issued, waiting ` +
+          `${differenceInCalendarDays(now, cvWaitingSince(record))}d ` +
+          `(CV ${record.peerlyCvStatus})`,
       ),
     }
 
@@ -637,6 +674,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       ...failureSections,
       deferredDispatchSection,
       nudgeSection,
+      cvUnissuedSection,
     ].filter((section) => section.lines.length > 0)
 
     const blocks: SlackMessageBlock[] = [
@@ -695,145 +733,12 @@ export class Nightly10DlcReportService extends createPrismaBase(
         reportDate,
         stuckCount,
         awaitingPin: agingAwaitingPin.length,
+        cvUnissued: agingCvUnissued.length,
         deferredDispatch: deferredDispatch.length,
       },
       '[10DLC nightly report] Posted',
     )
     return true
-  }
-
-  // Poll live Peerly CV + profile status for every in-flight record and
-  // persist "how long in this state" (ENG-10793). One record's Peerly failure
-  // must not stop the rest of the poll or the report post, so each record is
-  // wrapped individually — a thrown error skips the record, keeping its
-  // stored values (never overwritten with null on a failed read).
-  // Capped so the poll stays inside the SQS visibility timeout (300s,
-  // deploy/index.ts): 350ms spacing + ~500ms Peerly latency ≈ 850ms/record,
-  // so 120 records ≈ 100s. An uncapped backlog would outlive the timeout,
-  // SQS would redeliver mid-run, and the duplicate consumer's writes would
-  // race this one's (the FIFO deduplicationId only covers the enqueue).
-  // Oldest records poll first (query orders by updatedAt asc), so records
-  // past the cap get their turn on a later night.
-  private async pollPeerlyStatuses(records: RecordWithCampaign[]) {
-    const capped = records.slice(0, POLL_RECORD_CAP)
-    if (records.length > POLL_RECORD_CAP) {
-      this.logger.warn(
-        { total: records.length, polled: POLL_RECORD_CAP },
-        '[10DLC nightly report] In-flight backlog exceeds per-run poll cap',
-      )
-    }
-    for (const record of capped) {
-      try {
-        await this.pollRecordStatus(record)
-      } catch (err) {
-        this.logger.error(
-          { err, tcrComplianceId: record.id },
-          '[10DLC nightly report] Peerly status poll failed for record',
-        )
-      }
-      await sleep(PEERLY_CV_READ_SPACING_MS)
-    }
-  }
-
-  private async pollRecordStatus(record: RecordWithCampaign) {
-    const { peerlyIdentityId } = record
-    if (!peerlyIdentityId) {
-      return
-    }
-
-    // Suppress per-identity Slack alerts on both reads — a Peerly outage
-    // during the poll would otherwise page once per record; the report and
-    // logs are the surface here.
-    const cvStatus =
-      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
-        peerlyIdentityId,
-        record.campaign,
-        { suppressSlackAlert: true },
-      )
-
-    const data: Prisma.TcrComplianceUpdateInput = {}
-    if (cvStatus !== record.peerlyCvStatus) {
-      // A Peerly "no CV request" null after a real status was already
-      // observed is not authoritative (the CV request may have been cleaned
-      // up on Peerly's side) — erasing history here would flip the record
-      // into the case-1 "never reached CV" section.
-      if (cvStatus !== null || record.peerlyCvStatus === null) {
-        data.peerlyCvStatus = cvStatus
-        data.peerlyCvStatusChangedAt = new Date()
-        // Leaving IN_REVIEW is progress — a later re-stall is a new incident
-        // and must re-escalate (ENG-10796).
-        if (record.peerlyCvStatus === PeerlyCvVerificationStatus.IN_REVIEW) {
-          data.cvInReviewEscalatedAt = null
-        }
-        // Leaving VERIFIED while waiting_to_finalize is also progress — the
-        // profile block below is skipped when cvStatus !== VERIFIED, so the
-        // claim must be cleared here or a future re-entry into
-        // VERIFIED+waiting_to_finalize could never re-escalate.
-        if (
-          record.peerlyCvStatus === PeerlyCvVerificationStatus.VERIFIED &&
-          record.peerlyProfileStatus ===
-            PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE
-        ) {
-          data.finalizeStalledEscalatedAt = null
-        }
-      }
-    }
-
-    // Only VERIFIED warrants the extra getProfile read — that's the signal
-    // case 3a cares about (PIN entered but token/approve never completed).
-    if (cvStatus === PeerlyCvVerificationStatus.VERIFIED) {
-      try {
-        // A 404 (NotFoundException) means the identity is gone on Peerly's
-        // side — a definitive answer, not a failed read. Clear the stale
-        // profile status rather than preserving it, or case 3a would flag
-        // the record forever.
-        const profileResponse = await this.peerlyIdentityService
-          .getIdentityProfile(peerlyIdentityId, record.campaign, {
-            suppressSlackAlert: true,
-          })
-          .catch((err: unknown) => {
-            if (err instanceof NotFoundException) {
-              return undefined
-            }
-            throw err
-          })
-        // A `null` response is an empty-body success or a swallowed API
-        // error upstream (`data || null`) — a transient non-answer, so keep
-        // the stored value (mirrors the null-CV guard above). The 404 path
-        // resolves to `undefined` and IS definitive: the identity is gone,
-        // so fall through and clear the stale status.
-        if (profileResponse !== null) {
-          const profileStatus = profileResponse?.profile?.status ?? null
-          if (profileStatus !== record.peerlyProfileStatus) {
-            data.peerlyProfileStatus = profileStatus
-            data.peerlyProfileStatusChangedAt = new Date()
-            // Same reset for case 3b — leaving waiting_to_finalize re-arms
-            // the escalation for a future stall.
-            if (
-              record.peerlyProfileStatus ===
-              PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE
-            ) {
-              data.finalizeStalledEscalatedAt = null
-            }
-          }
-        }
-      } catch (err) {
-        // A failed profile read must not discard the CV observation already
-        // staged in `data` — persist it and leave the profile fields for
-        // the next night's poll.
-        this.logger.error(
-          { err, tcrComplianceId: record.id },
-          '[10DLC nightly report] Profile read failed; keeping stored value',
-        )
-      }
-    }
-
-    // Unchanged values must not touch the row at all — the awaiting-PIN
-    // report section keys off updatedAt, so a no-op poll can't bump it.
-    if (Object.keys(data).length === 0) {
-      return
-    }
-    await this.model.update({ where: { id: record.id }, data })
   }
 
   // Once-only claim on cvInReviewEscalatedAt before posting to the shared

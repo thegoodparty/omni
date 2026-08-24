@@ -49,6 +49,13 @@ test.describe('native door-knocking turf rail', () => {
       page.getByRole('heading', { name: 'Saved lists · 1' }),
     ).toBeVisible()
 
+    // Delete is offered on the row itself, which is where lists get compared —
+    // asserted here, while the rail is the surface on screen, rather than after
+    // the details sheet has covered it.
+    await expect(
+      row.getByRole('button', { name: `Delete ${name} list`, exact: true }),
+    ).toBeEnabled()
+
     await row.getByRole('button', { name: 'Details', exact: true }).click()
 
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible({
@@ -59,10 +66,25 @@ test.describe('native door-knocking turf rail', () => {
     // that has never been knocked must therefore report no route AND still
     // offer deletion — the two halves of that derivation, asserted together so
     // a regression in either one fails here rather than at a frozen turf
-    // nobody can remove.
+    // nobody can remove. Enabled, not merely visible: the control now renders
+    // for a locked list too, so presence alone no longer distinguishes the two.
     await expect(page.getByText('Not knocked yet').first()).toBeVisible()
+    // `exact` matters — Playwright's name option is a substring match by
+    // default, and the row's own "Delete <name> list" contains this one, so
+    // without it this locator matches both and fails on strict mode.
     await expect(
-      page.getByRole('button', { name: `Delete ${name}` }),
+      page.getByRole('button', { name: `Delete ${name}`, exact: true }),
+    ).toBeEnabled()
+
+    // The pack never loads in this environment (no district tiles), so the
+    // audience and door sections are asserted only as far as their headings —
+    // enough to catch the sections disappearing, without depending on figures
+    // this spec has no data to produce.
+    await expect(
+      page.getByRole('heading', { name: 'Doors in this list' }),
+    ).toBeVisible()
+    await expect(
+      page.getByText(/Street addresses arrive with the route/),
     ).toBeVisible()
 
     await page.getByRole('button', { name: 'Close details' }).click()

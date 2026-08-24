@@ -1,0 +1,19 @@
+model PhoneBankingListEntry {
+  id                 Int                           @id @default(autoincrement())
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  list               PhoneBankingList              @relation(fields: [phoneBankingListId], references: [id], onDelete: Cascade)
+  phoneBankingListId Int                           @map("phone_banking_list_id")
+  // 1-based dial order within the list (mirrors DoorKnockingStop.seq).
+  seq                Int                           @db.SmallInt
+  // Which of the sheetCount call sheets this entry prints on.
+  sheetIndex         Int                           @map("sheet_index") @db.SmallInt
+  // The chosen number for this entry (cell falls back to landline) —
+  // grouped at build time so every household member sharing it lands on
+  // one entry.
+  phone              String
+  persons            PhoneBankingListEntryPerson[]
+
+  @@unique([phoneBankingListId, seq])
+  @@unique([phoneBankingListId, phone])
+  @@map("phone_banking_list_entry")
+}

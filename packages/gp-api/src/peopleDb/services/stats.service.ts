@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { DistrictStats } from '../../generated/people-prisma'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { StatsDTO } from '../schemas/people.schema'
@@ -7,18 +7,8 @@ import { StatsDTO } from '../schemas/people.schema'
 export class StatsService extends createPeopleDbBase(
   PEOPLE_MODELS.DistrictStats,
 ) {
-  async getStats(dto: StatsDTO): Promise<DistrictStats> {
-    const stats = await this.model.findUnique({
-      where: { districtId: dto.districtId },
-    })
-
-    if (!stats) {
-      throw new NotFoundException(
-        `District stats not found for districtId=${dto.districtId}`,
-      )
-    }
-
-    return stats
+  async findStats(dto: StatsDTO): Promise<DistrictStats | null> {
+    return this.model.findUnique({ where: { districtId: dto.districtId } })
   }
 
   async findTotalConstituents(districtId: string): Promise<number | null> {
@@ -29,19 +19,13 @@ export class StatsService extends createPeopleDbBase(
     return stats?.totalConstituents ?? null
   }
 
-  async getTotalCounts(districtId: string) {
-    const totalCounts = await this.model.findUnique({
+  async findTotalCounts(districtId: string) {
+    return this.model.findUnique({
       select: {
         totalConstituents: true,
         totalConstituentsWithCellPhone: true,
       },
       where: { districtId },
     })
-    if (!totalCounts) {
-      throw new NotFoundException(
-        `District stats not found for districtId=${districtId}`,
-      )
-    }
-    return totalCounts
   }
 }

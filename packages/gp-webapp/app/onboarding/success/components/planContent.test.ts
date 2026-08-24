@@ -29,6 +29,10 @@ const makeInput = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   registeredVoters: null,
   uniqueCellphones: null,
   uniqueLandlines: null,
+  projectedTurnoutLower: null,
+  projectedTurnoutUpper: null,
+  winNumberLower: null,
+  winNumberUpper: null,
   raceCandidates: [],
   milestones: null,
   ...overrides,
@@ -329,5 +333,44 @@ describe('buildPlanData contact schedule', () => {
   it('is empty when there is no valid election date', () => {
     const plan = buildPlanData(makeInput({ electionDateIso: null }))
     expect(plan.contactSchedule).toEqual([])
+  })
+})
+
+describe('buildPlanData prediction intervals', () => {
+  const rangeFor = (estimate: string, plan: ReturnType<typeof buildPlanData>) =>
+    plan.confidenceEstimates.find((c) => c.estimate === estimate)?.range
+
+  it('renders the served interval for turnout and votes needed', () => {
+    const plan = buildPlanData(
+      makeInput({
+        projectedTurnout: 2000,
+        projectedTurnoutLower: 1600,
+        projectedTurnoutUpper: 2600,
+        winNumber: 1000,
+        winNumberLower: 801,
+        winNumberUpper: 1301,
+      }),
+    )
+
+    expect(rangeFor('Projected voter turnout', plan)).toBe('1,600–2,600')
+    expect(rangeFor('Projected votes needed to win', plan)).toBe('801–1,301')
+  })
+
+  it('shows no interval where the model supplies none', () => {
+    const plan = buildPlanData(makeInput())
+
+    expect(plan.confidenceEstimates.every((c) => c.range === '')).toBe(true)
+  })
+
+  it('never puts an interval on registered voters', () => {
+    const plan = buildPlanData(
+      makeInput({
+        registeredVoters: 9000,
+        projectedTurnoutLower: 1600,
+        projectedTurnoutUpper: 2600,
+      }),
+    )
+
+    expect(rangeFor('Registered voters', plan)).toBe('')
   })
 })

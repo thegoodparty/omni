@@ -25,6 +25,7 @@ const turfStats = (stops: number, households: number) => ({
   people: stops * 2,
   households,
   partyMix: [],
+  ageMix: [],
 })
 
 const baseProps = {
@@ -34,11 +35,45 @@ const baseProps = {
   onClose: vi.fn(),
   districtHouseholds: 1500,
   ring: OPEN_RING,
-  turfStats: { stops: 14, people: 22, households: 9, partyMix: [] },
+  turfStats: {
+    stops: 14,
+    people: 22,
+    households: 9,
+    partyMix: [],
+    ageMix: [],
+  },
+  drawPointCount: 3,
+  onUndoPoint: vi.fn(),
+  onClearPoints: vi.fn(),
   onSaved: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
+  addressPreview: null,
+  previewPending: false,
+  previewFailed: false,
+  previewStale: false,
+  onShowAddresses: vi.fn(),
+  onHideAddresses: vi.fn(),
+  onRetryAddresses: vi.fn(),
 }
+
+const preview = (
+  locations: Array<{ doors: Array<{ address: string; people: number }> }>,
+  totals?: { stops: number; doors: number; people: number },
+) => ({
+  locations,
+  stops: totals?.stops ?? locations.length,
+  doors:
+    totals?.doors ??
+    locations.reduce((sum, location) => sum + location.doors.length, 0),
+  people:
+    totals?.people ??
+    locations.reduce(
+      (sum, location) =>
+        sum + location.doors.reduce((doors, door) => doors + door.people, 0),
+      0,
+    ),
+})
 
 describe('CreateListFlow', () => {
   beforeEach(() => {
@@ -66,6 +101,11 @@ describe('CreateListFlow', () => {
             coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
           },
           locked: false,
+          doorCount: null,
+          peopleCount: null,
+          loggedCount: null,
+          completedAt: null,
+          archivedAt: null,
           createdAt: new Date('2026-07-21T00:00:00Z'),
           updatedAt: new Date('2026-07-21T00:00:00Z'),
         },
@@ -142,6 +182,11 @@ describe('CreateListFlow', () => {
             coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
           },
           locked: false,
+          doorCount: null,
+          peopleCount: null,
+          loggedCount: null,
+          completedAt: null,
+          archivedAt: null,
           createdAt: new Date('2026-07-21T00:00:00Z'),
           updatedAt: new Date('2026-07-21T00:00:00Z'),
         },
@@ -173,10 +218,11 @@ describe('CreateListFlow', () => {
         step="draw"
         ring={null}
         turfStats={null}
+        drawPointCount={0}
       />,
     )
     expect(
-      screen.getByRole('button', { name: /Continue \(0 doors\)/ }),
+      screen.getByRole('button', { name: /Tap 3 points to continue/ }),
     ).toBeDisabled()
 
     rerender(
@@ -205,6 +251,62 @@ describe('CreateListFlow', () => {
     expect(
       screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
     ).toBeEnabled()
+  })
+
+  // The canvas has no Done: it closes the shape itself and only reports a ring
+  // from three points. A tester who placed two and went looking for a confirm
+  // button found a dead Continue and nothing on screen naming the rule.
+  it('says how many more points the disabled Continue is waiting for', () => {
+    const drawing = (drawPointCount: number) => (
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        turfStats={null}
+        drawPointCount={drawPointCount}
+      />
+    )
+    const { rerender } = render(drawing(1))
+    expect(
+      screen.getByRole('button', { name: '2 more points to continue' }),
+    ).toBeDisabled()
+
+    rerender(drawing(2))
+    expect(
+      screen.getByRole('button', { name: '1 more point to continue' }),
+    ).toBeDisabled()
+
+    // Third point placed: the shape exists, so the same button turns into the
+    // finish gesture rather than staying dead with no explanation.
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={turfStats(14, 9)}
+        drawPointCount={3}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
+    ).toBeEnabled()
+  })
+
+  // The other way to a disabled Continue with three points down: a shape drawn
+  // somewhere with nothing in it.
+  it('says when the drawn shape holds no doors', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={turfStats(0, 0)}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'No doors in this area' }),
+    ).toBeDisabled()
   })
 
   // The regression this footer shipped with: households came from a
@@ -310,6 +412,7 @@ describe('CreateListFlow', () => {
             { label: 'Republican', people: 30 },
             { label: 'Unknown', people: 10 },
           ],
+          ageMix: [],
         }}
       />,
     )
@@ -420,6 +523,310 @@ describe('CreateListFlow', () => {
           new RegExp(`can’t shade by ${label}`).test(element.textContent ?? ''),
       ),
     ).toBeInTheDocument()
+  })
+
+  // The bare option labels ('0'…'5+') made this read "the map can't shade by
+  // 0 yet", which sounds like a bug rather than a filter.
+  it('names the prior-contacts group rather than its bucket number', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        unpreviewableKeys={['contactsMade0', 'contactsMade3']}
+      />,
+    )
+
+    const disclosure = screen.getByText(
+      (_, element) =>
+        element?.tagName === 'P' &&
+        /can’t shade by/.test(element.textContent ?? ''),
+    )
+    // Named once, however many of its buckets are selected.
+    expect(disclosure.textContent).toContain(
+      'can’t shade by Prior contacts made yet',
+    )
+  })
+
+  // The mis-tap fix: a stray vertex was previously only draggable somewhere
+  // harmless, and a turf's polygon freezes permanently once it is knocked.
+  it('offers Undo only once a point exists, and Clear throughout', () => {
+    const onUndoPoint = vi.fn()
+    const onClearPoints = vi.fn()
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        turfStats={null}
+        drawPointCount={0}
+        onUndoPoint={onUndoPoint}
+        onClearPoints={onClearPoints}
+      />,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Undo last boundary point' }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'Clear the boundary' }),
+    ).toBeDisabled()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        turfStats={null}
+        drawPointCount={1}
+        onUndoPoint={onUndoPoint}
+        onClearPoints={onClearPoints}
+      />,
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Undo last boundary point' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Clear the boundary' }))
+    expect(onUndoPoint).toHaveBeenCalledTimes(1)
+    expect(onClearPoints).toHaveBeenCalledTimes(1)
+  })
+
+  // The draw chrome is a pointer-events-none overlay so taps reach the map
+  // underneath. Only the control cluster re-enables them — miss that and
+  // pressing Undo also drops a boundary point where the button was.
+  it('keeps the draw controls from leaking a click through to the map', () => {
+    render(<CreateListFlow {...baseProps} step="draw" drawPointCount={2} />)
+
+    const undo = screen.getByRole('button', {
+      name: 'Undo last boundary point',
+    })
+    const cluster = undo.parentElement
+    expect(cluster).toHaveClass('pointer-events-auto')
+    // The row around the cluster stays click-through, so the map keeps the
+    // full width of the band it was given.
+    expect(cluster?.parentElement).not.toHaveClass('pointer-events-auto')
+  })
+
+  // The gap the walkthrough reported: the draw step stated a door count and
+  // never said which doors it meant, at the one moment the shape can still be
+  // changed. One row per door, and a block of flats reads as the several doors
+  // it is under the single coordinate the router will visit.
+  it('lists the enclosed addresses, grouping the ones that share a location', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(2, 3)}
+        addressPreview={preview([
+          {
+            doors: [
+              { address: '1200 W Elm St Apt 1', people: 2 },
+              { address: '1200 W Elm St Apt 2', people: 1 },
+            ],
+          },
+          { doors: [{ address: '14 N Oak Ave', people: 4 }] },
+        ])}
+      />,
+    )
+
+    const panel = document.getElementById('draw-step-doors')
+    expect(panel).not.toBeNull()
+    expect(screen.getByText('2 doors at one location')).toBeInTheDocument()
+    // Three rows for the three doors the stats bar counts, and no numerals on
+    // them: nothing has decided a visiting order at draw time, so a numbered
+    // row would imply one the canvasser is held to.
+    expect(panel?.querySelectorAll('li li')).toHaveLength(3)
+    expect(panel?.querySelector('ol')).toBeNull()
+    expect(screen.getByText('1200 W Elm St Apt 1')).toBeInTheDocument()
+    expect(screen.getByText('1200 W Elm St Apt 2')).toBeInTheDocument()
+    expect(screen.getByText('14 N Oak Ave')).toBeInTheDocument()
+  })
+
+  // The rule this feature has already broken once: one quantity gets one
+  // number. The preview counts the same doors the route will be built from,
+  // so it REPLACES the pack's estimate — and the hedges that estimate needed
+  // go with it, because they explain a shortfall these counts don't have.
+  it('reports the preview counts and retires the estimate that stood in', () => {
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
+        }}
+        unpreviewableKeys={['age65Plus']}
+      />,
+    )
+
+    expect(screen.getByText('9')).toBeInTheDocument()
+    expect(screen.getByText(/The map can’t shade by/)).toBeInTheDocument()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
+        }}
+        unpreviewableKeys={['age65Plus']}
+        addressPreview={preview(
+          [{ doors: [{ address: '14 N Oak Ave', people: 3 }] }],
+          { stops: 6, doors: 7, people: 12 },
+        )}
+      />,
+    )
+
+    // The pack's 9 doors / 14 stops / 22 people are gone from the bar, not
+    // beside it.
+    expect(screen.getByText('7')).toBeInTheDocument()
+    expect(screen.getByText('6')).toBeInTheDocument()
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.queryByText('9')).toBeNull()
+    expect(screen.queryByText('14')).toBeNull()
+    expect(screen.queryByText('22')).toBeNull()
+    expect(screen.queryByText(/The map can’t shade by/)).toBeNull()
+    // What the preview does still owe the reader: these are suppressed
+    // already, so a shorter walk than this is not the expectation.
+    expect(screen.getByText(/already out/)).toBeInTheDocument()
+  })
+
+  // A ring over half a district holds more stops than a route can and more
+  // rows than a phone should render, so the list stops and says it stopped —
+  // silently showing 150 of 900 is the reading that misleads. The shortfall is
+  // counted in stops, the unit the cap above it is stated in.
+  it('says how many stops it left off the list', () => {
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        addressPreview={preview([
+          {
+            doors: [
+              { address: '1 A St', people: 1 },
+              { address: '3 A St', people: 1 },
+            ],
+          },
+        ])}
+      />,
+    )
+    expect(screen.queryByText(/Showing the first/)).toBeNull()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        addressPreview={preview(
+          [
+            {
+              doors: [
+                { address: '1 A St', people: 1 },
+                { address: '3 A St', people: 1 },
+              ],
+            },
+          ],
+          { stops: 900, doors: 2000, people: 4000 },
+        )}
+      />,
+    )
+    expect(
+      screen.getByText('Showing the first 1 of 900 stops.'),
+    ).toBeInTheDocument()
+  })
+
+  // The preview is a scan of people-db for one shape. Drawing must never
+  // trigger one, so the panel is a request the page answers rather than
+  // something the flow opens off state it already has.
+  it('asks the page for the addresses instead of opening the panel itself', () => {
+    const onShowAddresses = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(2, 3)}
+        onShowAddresses={onShowAddresses}
+      />,
+    )
+
+    expect(document.getElementById('draw-step-doors')).toBeNull()
+    const toggle = screen.getByRole('button', { name: 'See the addresses' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(onShowAddresses).toHaveBeenCalledTimes(1)
+  })
+
+  // A list of addresses under a boundary that has since moved is the worst
+  // reading this panel can produce: it looks like the answer and describes a
+  // different shape. It is withdrawn, the counts fall back to the estimate,
+  // and asking again is the candidate's press rather than an automatic
+  // round trip on every vertex.
+  it('withdraws a list whose boundary moved, and offers to ask again', () => {
+    const onShowAddresses = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
+        }}
+        previewStale
+        onShowAddresses={onShowAddresses}
+      />,
+    )
+
+    expect(screen.getByText(/Your boundary changed/)).toBeInTheDocument()
+    expect(document.querySelectorAll('#draw-step-doors li')).toHaveLength(0)
+    expect(screen.getByText('9')).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show the addresses here' }),
+    )
+    expect(onShowAddresses).toHaveBeenCalledTimes(1)
+  })
+
+  // A failed lookup leaves the estimate standing rather than blanking the
+  // step: the shape is still drawable and still savable without it.
+  it('offers a retry when the lookup fails', () => {
+    const onRetryAddresses = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
+        }}
+        previewFailed
+        onRetryAddresses={onRetryAddresses}
+      />,
+    )
+
+    expect(screen.getByText('9')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetryAddresses).toHaveBeenCalledTimes(1)
+  })
+
+  // Nothing to list, so nothing to offer: the button would spend a scan on a
+  // shape that Continue already says holds no doors.
+  it('offers no address list for a shape holding nothing', () => {
+    render(
+      <CreateListFlow {...baseProps} step="draw" turfStats={turfStats(0, 0)} />,
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'See the addresses' }),
+    ).toBeNull()
   })
 
   // gp-api 400s a contacts-made selection from an elected-office org

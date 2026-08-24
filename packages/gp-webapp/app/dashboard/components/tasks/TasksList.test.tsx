@@ -56,17 +56,6 @@ vi.mock('@shared/hooks/useVoterContacts', () => ({
   ],
 }))
 
-const { mockP2pUxState } = vi.hoisted(() => ({
-  mockP2pUxState: { p2pUxEnabled: false },
-}))
-
-vi.mock(
-  'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider',
-  () => ({
-    useP2pUxEnabled: () => mockP2pUxState,
-  }),
-)
-
 vi.mock('helpers/analyticsHelper', () => ({
   trackEvent: vi.fn(),
   buildTrackingAttrs: vi.fn(() => ({})),
@@ -181,7 +170,6 @@ beforeEach(() => {
   sessionStorage.clear()
   sessionStorage.setItem(TEST_SESSION_KEY, '1')
   mockUpdateVoterContactsLocal.mockReset()
-  mockP2pUxState.p2pUxEnabled = false
   mockUseUser.mockReturnValue([{ id: 'user-1' }, vi.fn()])
   mockClientFetch.mockImplementation(
     (route: { path?: string; method?: string }) => {
@@ -1208,9 +1196,7 @@ describe('TasksList text task 10DLC compliance lock', () => {
     }
   })
 
-  it('locks a text task when the Pro user is not 10DLC compliant and p2pUxEnabled is on', () => {
-    mockP2pUxState.p2pUxEnabled = true
-
+  it('locks a text task when the Pro user is not 10DLC compliant', () => {
     render(
       <TasksList
         campaign={makeCampaign({ isPro: true })}
@@ -1222,9 +1208,7 @@ describe('TasksList text task 10DLC compliance lock', () => {
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })
 
-  it('locks a p2pDisabledText task when the Pro user is not 10DLC compliant and p2pUxEnabled is on', () => {
-    mockP2pUxState.p2pUxEnabled = true
-
+  it('locks a p2pDisabledText task when the Pro user is not 10DLC compliant', () => {
     render(
       <TasksList
         campaign={makeCampaign({ isPro: true })}
@@ -1237,8 +1221,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
   })
 
   it('does NOT lock a text task when the Pro user is 10DLC compliant', () => {
-    mockP2pUxState.p2pUxEnabled = true
-
     render(
       <TasksList
         campaign={makeCampaign({ isPro: true })}
@@ -1250,23 +1232,7 @@ describe('TasksList text task 10DLC compliance lock', () => {
     expect(screen.getByRole('checkbox')).toBeInTheDocument()
   })
 
-  it('does NOT lock a text task for compliance when p2pUxEnabled is off', () => {
-    mockP2pUxState.p2pUxEnabled = false
-
-    render(
-      <TasksList
-        campaign={makeCampaign({ isPro: true })}
-        tasks={[makeTask({ flowType: TASK_TYPES.text })]}
-        tcrCompliance={makeTcrCompliance({ status: 'pending' })}
-      />,
-    )
-
-    expect(screen.getByRole('checkbox')).toBeInTheDocument()
-  })
-
   it('does NOT lock non-text tasks for 10DLC compliance', () => {
-    mockP2pUxState.p2pUxEnabled = true
-
     render(
       <TasksList
         campaign={makeCampaign({ isPro: true })}
@@ -1280,8 +1246,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
 
   it('opens the ComplianceModal when clicking a compliance-locked text task', async () => {
     const user = userEvent.setup()
-    mockP2pUxState.p2pUxEnabled = true
-
     render(
       <TasksList
         campaign={makeCampaign({ isPro: true })}
@@ -1296,8 +1260,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
   })
 
   it('does NOT lock a completed text task when the Pro user is not 10DLC compliant', () => {
-    mockP2pUxState.p2pUxEnabled = true
-
     render(
       <TasksList
         campaign={makeCampaign({ isPro: true })}
@@ -1324,8 +1286,6 @@ describe('TasksList text task 10DLC compliance lock', () => {
     'shows "$reason" tooltip when the user is locked with status "$status"',
     async ({ status, reason }) => {
       const user = userEvent.setup()
-      mockP2pUxState.p2pUxEnabled = true
-
       const { container } = render(
         <TasksList
           campaign={makeCampaign({ isPro: true })}

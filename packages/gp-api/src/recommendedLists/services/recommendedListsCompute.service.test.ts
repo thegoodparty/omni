@@ -304,7 +304,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
         registeredVoters: 41230,
         projectedTurnout: 100,
         votesNeeded: 9201,
-        electionCode: electionCode(parseISO('2026-11-03'), STATE),
+        electionCode: electionCode(parseISO('2026-11-03')),
         electionDate: '2026-11-03',
         subGeoLabel: 'counties',
         doorRatio: 0.62,

@@ -1,15 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { getCookie, deleteCookie } from 'helpers/cookieHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 vi.mock('helpers/cookieHelper', () => ({
   getCookie: vi.fn(),
   deleteCookie: vi.fn(),
 }))
 
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
 import { downloadVoterList } from './downloadVoterList.util'
 
 const mockedGetCookie = vi.mocked(getCookie)
 const mockedDeleteCookie = vi.mocked(deleteCookie)
+const mockedTrackEvent = vi.mocked(trackEvent)
 
 describe('downloadVoterList', () => {
   let clickSpy: ReturnType<typeof vi.spyOn>
@@ -22,6 +29,7 @@ describe('downloadVoterList', () => {
     capturedDownloadAttr = null
     mockedGetCookie.mockReturnValue(false)
     mockedDeleteCookie.mockClear()
+    mockedTrackEvent.mockClear()
     clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(function (this: HTMLAnchorElement) {
@@ -65,6 +73,7 @@ describe('downloadVoterList', () => {
         gender_female: true,
       },
       outreachType: 'doorKnocking',
+      surface: 'outreachWizard',
     })
 
     const req = parseCheckboxRequest()
@@ -85,6 +94,7 @@ describe('downloadVoterList', () => {
         gender_female: true,
       },
       outreachType: 'doorKnocking',
+      surface: 'outreachWizard',
     })
 
     expect(parseCheckboxRequest().customFilters).toEqual({
@@ -103,6 +113,7 @@ describe('downloadVoterList', () => {
         genderUnknown: true,
       },
       outreachType: 'phoneBanking',
+      surface: 'outreachWizard',
     })
 
     const req = parseCheckboxRequest()
@@ -119,6 +130,7 @@ describe('downloadVoterList', () => {
     const downloadPromise = downloadVoterList({
       voterFileFilter: {},
       outreachType: 'doorKnocking',
+      surface: 'outreachWizard',
     })
 
     expect(parseCheckboxRequest().customFilters).toEqual({ filters: [] })
@@ -138,6 +150,7 @@ describe('downloadVoterList', () => {
       {
         voterFileFilter: { audience_superVoters: true },
         outreachType: 'doorKnocking',
+        surface: 'outreachWizard',
       },
       setLoading,
       errorSnackbar,
@@ -146,6 +159,78 @@ describe('downloadVoterList', () => {
     expect(errorSnackbar).toHaveBeenCalledWith('Error downloading voter file')
     expect(setLoading).toHaveBeenNthCalledWith(1, true)
     expect(setLoading).toHaveBeenLastCalledWith(false)
+  })
+
+  // The export event must count identically across all three download
+  // surfaces, so it fires only from the cookie-confirmed success branch —
+  // matching ListDetailSheet's fire exactly. Counting the ambiguous 15s
+  // fallback here would make the outreach surfaces look busier than the CRM
+  // one for the same user behavior.
+  describe('export analytics', () => {
+    it('fires List Exported with the calling surface once the cookie confirms the download started', async () => {
+      const downloadPromise = downloadVoterList({
+        voterFileFilter: { audience_superVoters: true },
+        outreachType: 'doorKnocking',
+        surface: 'outreachWizard',
+      })
+
+      expect(mockedTrackEvent).not.toHaveBeenCalled()
+
+      await confirmDownload()
+      await downloadPromise
+
+      expect(mockedTrackEvent).toHaveBeenCalledExactlyOnceWith(
+        EVENTS.VoterData.ListExported,
+        { surface: 'outreachWizard' },
+      )
+    })
+
+    it('fires List Exported from the saved-list branch with its own surface', async () => {
+      const downloadPromise = downloadVoterList({
+        savedListId: 42,
+        outreachType: 'phoneBanking',
+        surface: 'outreachTable',
+      })
+
+      await confirmDownload()
+      await downloadPromise
+
+      expect(mockedTrackEvent).toHaveBeenCalledExactlyOnceWith(
+        EVENTS.VoterData.ListExported,
+        { surface: 'outreachTable' },
+      )
+    })
+
+    it('does not fire List Exported when the cookie handshake never arrives (15s fallback)', async () => {
+      const downloadPromise = downloadVoterList({
+        savedListId: 42,
+        outreachType: 'phoneBanking',
+        surface: 'outreachTable',
+      })
+
+      await vi.advanceTimersByTimeAsync(15000)
+      await downloadPromise
+
+      expect(mockedTrackEvent).not.toHaveBeenCalled()
+    })
+
+    it('does not fire List Exported when building the download throws', async () => {
+      clickSpy.mockImplementationOnce(() => {
+        throw new Error('download failed')
+      })
+
+      await downloadVoterList(
+        {
+          voterFileFilter: { audience_superVoters: true },
+          outreachType: 'doorKnocking',
+          surface: 'outreachWizard',
+        },
+        vi.fn(),
+        vi.fn(),
+      )
+
+      expect(mockedTrackEvent).not.toHaveBeenCalled()
+    })
   })
 
   // ENG-10765: the saved-list branch downloads via the segment export
@@ -161,6 +246,7 @@ describe('downloadVoterList', () => {
       const downloadPromise = downloadVoterList({
         savedListId: 42,
         outreachType: 'phoneBanking',
+        surface: 'outreachWizard',
         voterFileFilter: { audience_superVoters: true },
       })
 
@@ -176,7 +262,11 @@ describe('downloadVoterList', () => {
       const setLoading = vi.fn()
 
       const downloadPromise = downloadVoterList(
-        { savedListId: 42, outreachType: 'phoneBanking' },
+        {
+          savedListId: 42,
+          outreachType: 'phoneBanking',
+          surface: 'outreachWizard',
+        },
         setLoading,
       )
 
@@ -201,7 +291,11 @@ describe('downloadVoterList', () => {
       const setLoading = vi.fn()
 
       const downloadPromise = downloadVoterList(
-        { savedListId: 42, outreachType: 'phoneBanking' },
+        {
+          savedListId: 42,
+          outreachType: 'phoneBanking',
+          surface: 'outreachWizard',
+        },
         setLoading,
       )
 
@@ -218,6 +312,7 @@ describe('downloadVoterList', () => {
       const downloadPromise = downloadVoterList({
         savedListId: 42,
         outreachType: 'doorKnocking',
+        surface: 'outreachWizard',
       })
 
       expect(capturedHref).toContain('/api/v1/contacts/download?segment=42')
@@ -230,6 +325,7 @@ describe('downloadVoterList', () => {
     it('takes the checkbox path when savedListId is not provided', async () => {
       const downloadPromise = downloadVoterList({
         outreachType: 'phoneBanking',
+        surface: 'outreachWizard',
         voterFileFilter: { audience_superVoters: true },
       })
 

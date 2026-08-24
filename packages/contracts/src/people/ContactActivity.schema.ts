@@ -4,8 +4,10 @@ import {
   ContactStatusSourceSchema,
   DoorKnockOutcomeSchema,
   OutreachTypeSchema,
+  PhoneBankCallOutcomeSchema,
   SupportAnswerSchema,
   VoterOutreachAttributionSourceSchema,
+  WillVoteAnswerSchema,
 } from '../generated/enums'
 
 // The unified per-person activity feed (CRM TDD feature 3, ENG-10695): a
@@ -22,6 +24,7 @@ export const ConstituentActivityTypeSchema = z.enum([
   'DOOR_KNOCK',
   'TEXT',
   'ROBOCALL',
+  'PHONE_BANKING',
   'STATUS_CHANGE',
 ])
 export type ConstituentActivityType = z.infer<
@@ -124,6 +127,22 @@ export type RobocallConstituentActivity = z.infer<
   typeof RobocallConstituentActivitySchema
 >
 
+export const PhoneBankingConstituentActivitySchema = z.object({
+  type: z.literal(ConstituentActivityTypeSchema.enum.PHONE_BANKING),
+  date: z.string(),
+  data: z.object({
+    activityId: z.string(),
+    outcome: PhoneBankCallOutcomeSchema,
+    supportAnswer: SupportAnswerSchema.nullable(),
+    willVote: WillVoteAnswerSchema.nullable(),
+    note: z.string().nullable(),
+    manual: z.boolean(),
+  }),
+})
+export type PhoneBankingConstituentActivity = z.infer<
+  typeof PhoneBankingConstituentActivitySchema
+>
+
 // A contact-status-field override change (ENG-10835), Win-only — Serve orgs
 // can never write a ContactStatusEvent row (contacts.service.ts rejects the
 // PATCH for elected-office organizations), so this variant never appears in a
@@ -155,6 +174,7 @@ export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   DoorKnockConstituentActivitySchema,
   TextConstituentActivitySchema,
   RobocallConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
 ])
 export type ConstituentActivity = z.infer<typeof ConstituentActivitySchema>

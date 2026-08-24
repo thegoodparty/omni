@@ -47,7 +47,6 @@ const EMPTY_RACE_CONTEXT_FIELDS = {
   registeredVoters: null,
   uniqueCellphones: null,
   uniqueLandlines: null,
-  projectedVoterTurnout: null,
   projectedTurnoutLower: null,
   projectedTurnoutUpper: null,
   winNumberLower: null,

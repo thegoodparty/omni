@@ -16,6 +16,7 @@ from claude_agent_sdk import (
 from shared.logger import get_logger
 
 from .config import CAPABILITIES, AgentConfig, build_capability_prompt
+from .escalation import maybe_escalate
 from .github_auth import setup_github_auth
 
 logger = get_logger(__name__)
@@ -180,6 +181,14 @@ async def main():
     result = await run_agent(config)
 
     logger.info(f"Agent result: {result}")
+
+    # AFTER the result is logged and BEFORE the exit code is decided: an
+    # analysis that concluded there is a bounded fix to make queues the
+    # implementation run itself (see escalation.maybe_escalate). It reports its
+    # outcome instead of raising, so a failure to escalate cannot turn a
+    # successful analysis into a failed container.
+    outcome = maybe_escalate(result, config.label)
+    logger.info(f"Escalation: {outcome}")
 
     if result["status"] == "error":
         sys.exit(1)

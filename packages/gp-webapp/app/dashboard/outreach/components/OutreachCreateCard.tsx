@@ -4,7 +4,6 @@ import { OutreachImpact } from 'app/dashboard/outreach/components/OutreachImpact
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { MdLockOutline } from 'react-icons/md'
 import { OUTREACH_TYPES } from '../constants'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { Card, CardContent } from '@styleguide'
 import { ArrowRightIcon } from '@styleguide/components/ui/icons'
 
@@ -13,7 +12,9 @@ type OutreachType =
   | 'p2p'
   | 'robocall'
   | 'doorKnocking'
+  | 'nativeDoorKnocking'
   | 'phoneBanking'
+  | 'nativePhoneBanking'
   | 'socialMedia'
 
 interface OutreachCreateCardProps {
@@ -39,11 +40,10 @@ export const OutreachCreateCard = ({
   requiresPro = false,
 }: OutreachCreateCardProps) => {
   const [campaign] = useCampaign()
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const { isPro, hasFreeTextsOffer } = campaign || {}
 
   const isTextType = type === OUTREACH_TYPES.text || type === OUTREACH_TYPES.p2p
-  const showFreeOffer = p2pUxEnabled && isTextType && hasFreeTextsOffer
+  const showFreeOffer = isTextType && hasFreeTextsOffer
 
   return (
     <Card

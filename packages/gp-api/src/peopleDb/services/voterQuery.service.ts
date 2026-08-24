@@ -16,11 +16,7 @@ import {
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { VoterSampleService } from './voterSample.service'
 
-import {
-  GatewayTimeoutException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { DistrictService } from './district.service'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import { FilterData } from '../schemas/filters.schema'
@@ -39,19 +35,12 @@ import {
 import { buildAggregatesSql } from '../utils/buildAggregatesSql.util'
 import { buildOverlapCountSql } from '../utils/buildOverlapCountSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
+import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
 
 export const DATABASE_SCHEMA = 'green'
 
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
-
-// A hard ceiling on any people-db query run through the Prisma client. An
-// honest statewide filtered count is a full-partition scan that lands around
-// 3-4 seconds (the largest legitimate case); anything past this ceiling is a
-// pathological plan we want to fail loudly and alert on, not silently degrade
-// into a wrong answer. Streaming CSV downloads run on a separate pool and set
-// their own timeout, so this does not bound them.
-const STATEMENT_TIMEOUT_MS = 25_000
 
 type RawPeopleQueryArgs = {
   districtId: string | null
@@ -66,11 +55,6 @@ type RawPeopleQueryArgs = {
   // (the ~30s pathological plan for a rare pattern). Does not truncate.
   forceTrigramPlan?: boolean
 }
-
-const isStatementTimeoutError = (error: unknown): boolean =>
-  error instanceof Prisma.PrismaClientKnownRequestError &&
-  ((error.meta as { code?: unknown } | undefined)?.code === '57014' ||
-    error.message.includes('57014'))
 
 @Injectable()
 export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
@@ -306,9 +290,13 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       (args.contactsMadeIdOverrides?.include?.length ?? 0) === 0 &&
       (args.contactsMadeIdOverrides?.exclude?.length ?? 0) === 0
     ) {
-      const { totalConstituents } =
-        await this.statsService.getTotalCounts(districtId)
-      return totalConstituents
+      // A district with no pre-computed stats row has no shortcut, not no
+      // voters — fall through to the real count instead of failing the
+      // request.
+      const totalCounts = await this.statsService.findTotalCounts(districtId)
+      if (totalCounts) {
+        return totalCounts.totalConstituents
+      }
     }
 
     const whereClause = buildVoterWhereSql({
@@ -381,40 +369,13 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     )
   }
 
-  // Every count/aggregate/list/overlap query runs under a hard statement
-  // timeout so a pathological plan fails loudly (a classified 504 we can alert
-  // on) instead of holding a connection open or silently degrading into a
-  // wrong answer. No retry and no fenced fallback: a slow query is either a
-  // genuine large scan (well under the ceiling) or a bug we want surfaced.
-  // SET LOCAL only holds for the transaction it runs in, and Prisma batch
-  // transactions execute on a single connection, so the timeout scopes to
-  // exactly this query.
   private async runUnderStatementTimeout<T>(sql: Prisma.Sql): Promise<T[]> {
-    const startedAt = Date.now()
-    try {
-      // SET does not accept bind parameters; the interval is a compile-time
-      // constant, so Prisma.raw is safe here.
-      const [, rows] = await this.client.$transaction([
-        this.client.$executeRaw(
-          Prisma.raw(
-            `SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT_MS}ms'`,
-          ),
-        ),
-        this.client.$queryRaw<T[]>(sql),
-      ])
-      return rows
-    } catch (error) {
-      if (!isStatementTimeoutError(error)) {
-        throw error
-      }
-      this.logger.error(
-        { err: error, elapsedMs: Date.now() - startedAt },
-        'people-db query exceeded the statement timeout',
-      )
-      throw new GatewayTimeoutException(
-        'The voter query took too long to run. Narrow the audience and try again.',
-      )
-    }
+    return runUnderStatementTimeout<T>(
+      this.client,
+      sql,
+      this.logger,
+      'The voter query took too long to run. Narrow the audience and try again.',
+    )
   }
 
   private buildRawPeopleQuery(args: RawPeopleQueryArgs): Prisma.Sql {

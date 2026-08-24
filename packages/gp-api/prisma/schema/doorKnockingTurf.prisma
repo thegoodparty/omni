@@ -12,6 +12,24 @@ model DoorKnockingTurf {
   geoPoly           Json              @map("geo_poly")
   route             DoorKnockingRoute?
 
+  // The list lifecycle lives here rather than on the Outreach envelope even
+  // though the envelope already has a `status` enum that spells both states.
+  // The envelope requires a Campaign, and a Serve org knocks without one, so
+  // the knock transaction skips creating it entirely — a lifecycle stored
+  // there would be invisible to an org the Pro gate deliberately admits (see
+  // DoorKnockingPageGate). The envelope's status is written alongside these
+  // as a mirror, for the Win outreach history table.
+  completedAt       DateTime?         @map("completed_at")
+  archivedAt        DateTime?         @map("archived_at")
+  // Soft delete, and only ever for a knocked list. Deleting the row cascades
+  // turf -> route -> stops -> targets AND the Outreach envelope, which throws
+  // away the frozen addresses, the name snapshots kept for privacy deletion,
+  // and a Geoapify route that was billed once and is documented as never
+  // re-bought. Knock history itself survives regardless — it hangs off the
+  // organization, not this chain — so what a hard delete destroys is the
+  // context that says which list a knock belonged to.
+  deletedAt         DateTime?         @map("deleted_at")
+
   @@index([voterFileFilterId])
   @@map("door_knocking_turf")
 }

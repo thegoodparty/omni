@@ -1,0 +1,13 @@
+// Org-scoped suppression ledger: a wrong_number outcome adds the dialed
+// number here, which suppresses it for every household member attached to
+// it on future list builds. Durable — survives list/entry/person deletion.
+model PhoneBankingSuppressedPhone {
+  id               Int          @id @default(autoincrement())
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  phone            String
+
+  @@unique([organizationSlug, phone])
+  @@map("phone_banking_suppressed_phone")
+}

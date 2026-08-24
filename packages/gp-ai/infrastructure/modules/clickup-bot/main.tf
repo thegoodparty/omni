@@ -67,8 +67,14 @@ data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
 resource "aws_cloudwatch_log_group" "clickup_bot" {
-  name              = "/aws/lambda/clickup-bot-${var.environment}"
-  retention_in_days = 30
+  name = "/aws/lambda/clickup-bot-${var.environment}"
+  # Matches the agent's log group (see engineer-agent-fargate), and for a
+  # related reason: this is where delivery history lives, which is the only way
+  # to answer how many reported bugs the bot actually saw. That question is not
+  # academic here — a suspended webhook dropped every bug for two weeks from
+  # 2026-07-31 while looking healthy, and reconstructing the size of that gap
+  # afterwards depended entirely on these lines still existing.
+  retention_in_days = 400
 
   tags = {
     Environment = var.environment
@@ -336,6 +342,43 @@ resource "aws_lambda_function_event_invoke_config" "clickup_bot" {
   function_name          = aws_lambda_function.clickup_bot.function_name
   maximum_retry_attempts = 0
 }
+
+# RECONCILIATION SWEEP.
+#
+# The webhook is not a complete feed, and that is measured: of the 53 tasks
+# created workspace-wide on 2026-08-17 after the taskCreated subscription went
+# live, the only one that produced no delivery at all was the single
+# HubSpot-filed ticket — the exact class this bot serves. See the SWEEP block in
+# handler.py.
+#
+# This also covers the failure that actually hurt: a webhook ClickUp suspends
+# stops delivering silently, as it did for two weeks from 2026-07-31. A schedule
+# cannot be unsubscribed, so the bot degrades to "up to one interval late"
+# instead of "off, and nothing looks wrong".
+# THE SCHEDULE LIVES IN GITHUB ACTIONS, NOT HERE: see
+# .github/workflows/gpbot-sweep.yml.
+#
+# It was written as an aws_cloudwatch_event_rule first, and that is still the
+# better shape — a rule in the same state as the function it invokes, with no
+# dependency on a CI runner. It cannot be applied. The role CI deploys with
+# (github-actions-pulumi-deploy) grants lambda:* but has no `events:` action at
+# all, so creating the rule fails with AccessDenied and takes the whole
+# prod/clickup-bot apply down with it — including the function code update that
+# had already succeeded, leaving the sweep code deployed with nothing to trigger
+# it. The pre-existing rules elsewhere in this stack do not disprove this: they
+# were created out-of-band and their applies are no-ops now.
+#
+# The workflow invokes this function directly with {"gpbot_sweep": true}, which
+# lambda:* does permit, so the trigger needs no permission the deploy already
+# has. The cost is that GitHub's cron is best-effort and can run late — which
+# this particular job can absorb, because it is a backstop with a 24-hour
+# lookback and a permanent per-ticket idempotency check, not a latency-sensitive
+# path.
+#
+# To move it back here: add events:PutRule, PutTargets, DeleteRule,
+# RemoveTargets, DescribeRule, ListTargetsByRule and TagResource to
+# GitHubActionsPulumiDeployPolicy, then restore the rule/target/permission trio
+# and delete the workflow.
 
 # Fail-loud is only loud if someone hears it. The handler's failures are
 # handled returns (structured 500s/401s), not Lambda invocation errors, so the

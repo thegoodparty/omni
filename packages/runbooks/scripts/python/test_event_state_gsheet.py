@@ -202,13 +202,39 @@ _WRITEBACK_ENV = {
 }
 
 
-def test_main_writeback_questions_exits_2_when_an_env_var_is_missing(monkeypatch, capsys):
-    for name, value in _WRITEBACK_ENV.items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.delenv("GP_QUESTIONS_OPT_PARTIAL")
+def test_main_writeback_questions_exits_2_without_the_token(monkeypatch, capsys):
+    monkeypatch.delenv("CLICKUP_API_KEY", raising=False)
     rc = gs.main(["writeback-questions"])
     assert rc == 2
-    assert "GP_QUESTIONS_OPT_" in capsys.readouterr().err
+    assert "CLICKUP_API_KEY" in capsys.readouterr().err
+
+
+def test_main_writeback_questions_falls_back_to_the_code_owned_ids(monkeypatch, capsys):
+    # The ids are pointers, not config: only the token is required, so a run with nothing
+    # but CLICKUP_API_KEY set must still address the real list.
+    import question_writeback as qwb
+    import questions_clickup as qc
+
+    for name in _WRITEBACK_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CLICKUP_API_KEY", "k")
+    monkeypatch.setattr(gs, "question_rows_for_refresh",
+                        lambda: [{"question": "Q1", "state": "answerable",
+                                  "question_ref": "t1"}])
+    seen = {}
+    def fake_fetch(api_key, list_id, **kwargs):
+        seen["list_id"] = list_id
+        return {}
+    monkeypatch.setattr(qwb, "fetch_current_state", fake_fetch)
+    def fake_write(api_key, rows, **kwargs):
+        seen.update(kwargs)
+        return 1
+    monkeypatch.setattr(qwb, "write_answer_state", fake_write)
+    assert gs.main(["writeback-questions"]) == 0
+    assert seen["list_id"] == qc.LIST_ID
+    assert seen["state_field_id"] == qc.STATE_FIELD_ID
+    assert seen["checked_field_id"] == qc.CHECKED_FIELD_ID
+    assert seen["option_ids"] == qc.OPTION_IDS
 
 
 def test_main_writeback_questions_dry_run_reports_changed_count(monkeypatch, capsys):
