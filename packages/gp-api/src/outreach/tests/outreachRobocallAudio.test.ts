@@ -11,8 +11,11 @@ let orgSlug: string
 
 const mockUpload = () =>
   vi
-    .spyOn(service.app.get(S3Service), 'getSignedUrlForUpload')
-    .mockResolvedValue('https://s3.example/upload-url')
+    .spyOn(service.app.get(S3Service), 'createPresignedUpload')
+    .mockResolvedValue({
+      url: 'https://s3.example/robocall-audio-test',
+      fields: { key: 'stub', 'Content-Type': 'stub', Policy: 'stub' },
+    })
 
 beforeEach(async () => {
   const campaignId = 997
@@ -48,24 +51,26 @@ const postPresign = (body: object, slug = orgSlug) =>
   )
 
 describe('POST /v1/outreach/robocall/audio/presign', () => {
-  it('returns a presigned URL, a campaign-scoped key, and the expiry', async () => {
+  it('returns a presigned POST, a campaign-scoped key, and the expiry', async () => {
     const spy = mockUpload()
 
     const res = await postPresign({ contentType: 'audio/webm' })
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.uploadUrl).toBe('https://s3.example/upload-url')
+    expect(res.data.url).toBe('https://s3.example/robocall-audio-test')
+    expect(res.data.fields).toMatchObject({ 'Content-Type': 'stub' })
     expect(res.data.expiresIn).toBeGreaterThan(0)
     expect(res.data.key).toMatch(
       new RegExp(`^robocall/${campaign.id}/[0-9a-f-]+\\.webm$`),
     )
 
-    // The presign is bound to our bucket, the returned key, and the requested
-    // content type.
+    // The presign is bound to our bucket, the returned key, the requested
+    // content type, and a byte cap S3 enforces on upload.
     const call = spy.mock.calls[0]
     expect(call?.[0]).toBe('robocall-audio-test')
     expect(call?.[1]).toBe(res.data.key)
     expect(call?.[2]).toMatchObject({ contentType: 'audio/webm' })
+    expect(call?.[2]?.maxBytes).toBeGreaterThan(0)
   })
 
   it('maps the mp3 content type to an .mp3 key extension', async () => {

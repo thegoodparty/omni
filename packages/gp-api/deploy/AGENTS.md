@@ -16,7 +16,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/assets-bucket.ts`               | S3 bucket for user uploads                                                           |
 | `components/assets-router.ts`               | CloudFront fronting the assets bucket                                                |
 | `components/campaign-plan-shares-bucket.ts` | Private bucket for shared campaign-plan PDFs (per env; preview reuses dev)           |
-| `components/robocall-audio-bucket.ts`       | Private bucket for recorded robocall audio (per env; preview reuses dev; 90-day object expiry, CORS PUT) |
+| `components/robocall-audio-bucket.ts`       | Private bucket for recorded robocall audio (per env; preview reuses dev; 90-day object expiry, CORS POST for presigned-POST upload) |
 | `components/grafana.ts`                     | Grafana data sources, dashboards, contact points                                     |
 | `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                      |
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |

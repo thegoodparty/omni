@@ -748,6 +748,7 @@ export {
 } from './outreach/PhoneBankingScript.schema'
 export {
   ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
+  ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequestSchema,
   type RobocallAudioPresignRequest,
   RobocallAudioPresignResponseSchema,

@@ -63,14 +63,14 @@ export function createRobocallAudioBucket({
     ],
   })
 
-  // Allow the browser to PUT directly via presigned URL. Same origins as the
-  // other user-upload buckets, keeping the cross-bucket CORS policy consistent.
+  // Allow the browser to upload directly via presigned POST (a multipart form
+  // POST, not PUT — the POST policy is what lets S3 enforce the size cap).
   new aws.s3.BucketCorsConfigurationV2('robocall-audio-cors', {
     bucket: bucket.id,
     corsRules: [
       {
         allowedHeaders: ['*'],
-        allowedMethods: ['PUT'],
+        allowedMethods: ['POST'],
         allowedOrigins: select({
           dev: ['http://localhost:4000', 'https://dev.goodparty.org'],
           prod: ['https://goodparty.org'],

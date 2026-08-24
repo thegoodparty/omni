@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
 import {
+  ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequest,
   RobocallAudioPresignResponse,
 } from '@goodparty_org/contracts'
@@ -51,11 +52,16 @@ export class OutreachRobocallAudioService {
       EXTENSION_BY_TYPE[input.contentType]
     }`
 
-    const uploadUrl = await this.s3.getSignedUrlForUpload(this.bucket, key, {
-      expiresIn: UPLOAD_URL_EXPIRES_IN,
-      contentType: input.contentType,
-    })
+    const { url, fields } = await this.s3.createPresignedUpload(
+      this.bucket,
+      key,
+      {
+        expiresIn: UPLOAD_URL_EXPIRES_IN,
+        contentType: input.contentType,
+        maxBytes: ROBOCALL_AUDIO_MAX_BYTES,
+      },
+    )
 
-    return { uploadUrl, key, expiresIn: UPLOAD_URL_EXPIRES_IN }
+    return { url, fields, key, expiresIn: UPLOAD_URL_EXPIRES_IN }
   }
 }

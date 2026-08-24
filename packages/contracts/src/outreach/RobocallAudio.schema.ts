@@ -18,11 +18,14 @@ export const ROBOCALL_AUDIO_ALLOWED_MIME_TYPES = [
   'audio/x-m4a',
 ] as const
 
-// Only contentType is on the request: it becomes a signed header on the
-// presigned PUT, so S3 rejects a mismatched upload. Size/duration are enforced
-// client-side (60s cap) and re-checked server-side via headObject when the key
-// is persisted at ingest — a byte count on the request would sign nothing and
-// read as a control it isn't.
+// A robocall recording is capped at 60s; even a 60s uncompressed stereo WAV
+// stays under this. It's the hard ceiling S3 enforces on the upload via the
+// presigned POST's content-length-range condition, so an oversize upload is
+// rejected at upload time, not deferred to a later check.
+export const ROBOCALL_AUDIO_MAX_BYTES = 15 * 1024 * 1024
+
+// contentType is the only input; it's pinned as an exact condition on the
+// presigned POST so the browser can't upload a different type than requested.
 export const RobocallAudioPresignRequestSchema = z.object({
   contentType: z.enum(ROBOCALL_AUDIO_ALLOWED_MIME_TYPES),
 })
@@ -30,12 +33,15 @@ export type RobocallAudioPresignRequest = z.infer<
   typeof RobocallAudioPresignRequestSchema
 >
 
+// A presigned S3 POST (not PUT): S3 enforces the size cap and content type via
+// the policy, which a presigned PUT URL can't express. The browser POSTs a
+// multipart form of `fields` plus the file to `url`.
 export const RobocallAudioPresignResponseSchema = z.object({
-  // Presigned S3 PUT URL the browser uploads the audio to.
-  uploadUrl: z.string(),
+  url: z.string(),
+  fields: z.record(z.string(), z.string()),
   // The object key to persist against the send once upload completes.
   key: z.string(),
-  // Seconds the presigned URL stays valid.
+  // Seconds the presigned POST stays valid.
   expiresIn: z.number().int().positive(),
 })
 export type RobocallAudioPresignResponse = z.infer<
