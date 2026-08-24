@@ -1,5 +1,5 @@
 import { useTestService } from '@/test-service'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { UserRole } from '../../generated/prisma'
 import { PersonLookupService } from '../services/person-lookup.service'
 
@@ -159,11 +159,17 @@ describe('GET /v1/person-profiles/removals/lookup', () => {
   // election-api is a separate service, so the outbound call is stubbed at the
   // seam and everything this side of it — guard, query parsing, 404 mapping,
   // response schema — runs for real.
-  const stubLookup = () =>
-    vi.spyOn(service.app.get(PersonLookupService), 'lookup')
+  let lookupSpy: MockInstance<PersonLookupService['lookup']>
 
+  const stubLookup = () => {
+    lookupSpy = vi.spyOn(service.app.get(PersonLookupService), 'lookup')
+    return lookupSpy
+  }
+
+  // Restore only this spy: the harness installs its own mocks to authenticate
+  // the test client, and a blanket restore logs every later request out.
   afterEach(() => {
-    vi.restoreAllMocks()
+    lookupSpy?.mockRestore()
   })
 
   it('refuses a non-admin caller', async () => {
