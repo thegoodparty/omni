@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
+import { ROBOCALL_AUDIO_MAX_BYTES } from '@goodparty_org/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -59,7 +60,7 @@ describe('POST /v1/outreach/robocall/audio/presign', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.url).toBe('https://s3.example/robocall-audio-test')
     expect(res.data.fields).toMatchObject({ 'Content-Type': 'stub' })
-    expect(res.data.expiresIn).toBeGreaterThan(0)
+    expect(res.data.expiresIn).toBe(600)
     expect(res.data.key).toMatch(
       new RegExp(`^robocall/${campaign.id}/[0-9a-f-]+\\.webm$`),
     )
@@ -70,7 +71,7 @@ describe('POST /v1/outreach/robocall/audio/presign', () => {
     expect(call?.[0]).toBe('robocall-audio-test')
     expect(call?.[1]).toBe(res.data.key)
     expect(call?.[2]).toMatchObject({ contentType: 'audio/webm' })
-    expect(call?.[2]?.maxBytes).toBeGreaterThan(0)
+    expect(call?.[2]?.maxBytes).toBe(ROBOCALL_AUDIO_MAX_BYTES)
   })
 
   it('maps the mp3 content type to an .mp3 key extension', async () => {

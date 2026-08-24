@@ -1,12 +1,13 @@
 import { z } from 'zod'
 
 // The recorded/uploaded robocall message is stored in S3 (bucket
-// ROBOCALL_AUDIO_BUCKET). The browser PUTs the audio directly via a presigned
-// URL, so these are the shapes for POST /outreach/robocall/audio/presign.
+// ROBOCALL_AUDIO_BUCKET). The browser uploads the audio directly via a presigned
+// POST, so these are the shapes for POST /outreach/robocall/audio/presign.
 
 // Containers the in-browser recorder emits (webm/mp4/ogg) plus the formats the
-// upload picker accepts (mp3/wav/m4a/aac). The server sets ContentType on the
-// presigned PUT from this value, so it must match what the client uploads.
+// upload picker accepts (mp3/wav/m4a/aac). The server pins Content-Type on the
+// presigned POST policy from this value, so it must match what the client
+// uploads.
 export const ROBOCALL_AUDIO_ALLOWED_MIME_TYPES = [
   'audio/webm',
   'audio/mp4',

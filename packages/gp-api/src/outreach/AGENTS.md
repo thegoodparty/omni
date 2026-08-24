@@ -119,6 +119,6 @@ endpoints; `outreachPhoneBanking.test.ts` covers the phone-banking draft
 endpoint (Pro gate, per-purpose prompt assembly, improve mode);
 `outreachRobocallAudio.test.ts` covers the audio presign endpoint (URL +
 campaign-scoped key + extension mapping, invalid content type, Pro gate),
-mocking `S3Service.getSignedUrlForUpload`;
+mocking `S3Service.createPresignedUpload`;
 `outreachFlow.test.ts` covers the submission contract, the draft-first
 purchase path, and the failure-still-Slacks interceptor behavior.

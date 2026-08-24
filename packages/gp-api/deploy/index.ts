@@ -132,8 +132,8 @@ export = async () => {
       ? 'campaign-plan-shares-dev'
       : createCampaignPlanSharesBucket({ environment }).bucket.bucket
 
-  // Private bucket for recorded/uploaded robocall audio. Browser PUTs via
-  // presigned URL; gp-api task role reads back for delivery. Preview shares
+  // Private bucket for recorded/uploaded robocall audio. Browser uploads via
+  // presigned POST; gp-api task role reads back for delivery. Preview shares
   // the dev bucket — no per-PR bucket.
   const robocallAudioBucketName =
     environment === 'preview'

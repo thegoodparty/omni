@@ -6,14 +6,14 @@ export interface RobocallAudioBucketConfig {
 
 /**
  * Private bucket for the recorded/uploaded robocall message a candidate sends
- * (voter-outreach-v2 robocall). The browser PUTs the audio directly via a
- * presigned URL from `POST /v1/outreach/robocall/audio/presign`; gp-api reads
+ * (voter-outreach-v2 robocall). The browser uploads the audio directly via a
+ * presigned POST from `POST /v1/outreach/robocall/audio/presign`; gp-api reads
  * it back server-side to hand off to the delivery vendor. All public access is
- * blocked — the presigned URLs are the only way in.
+ * blocked — the presigned POST is the only way in.
  *
  * Objects expire after 90 days: the raw recording is only needed through the
  * send and a short window after, and it is voice PII we don't want to keep
- * indefinitely. CORS is required for the browser's cross-origin PUT.
+ * indefinitely. CORS is required for the browser's cross-origin POST.
  */
 export function createRobocallAudioBucket({
   environment,

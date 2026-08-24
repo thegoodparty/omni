@@ -16,9 +16,9 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { Campaign, Organization } from '../generated/prisma'
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 
-// Returns a presigned S3 PUT URL for the recorded robocall audio. Pro-gated the
-// same way as the robocall script draft; nothing persists here — the client
-// holds the returned key until the send is created in a later step.
+// Returns a presigned S3 POST (url + form fields) for the recorded robocall
+// audio. Pro-gated the same way as the robocall script draft; nothing persists
+// here — the client holds the returned key until the send is created later.
 @Controller('outreach')
 @UseCampaign()
 @UseOrganization()
