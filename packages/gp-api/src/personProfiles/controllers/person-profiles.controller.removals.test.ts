@@ -4,6 +4,7 @@ import { PersonProfilesController } from './person-profiles.controller'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
+import { PersonLookupService } from '../services/person-lookup.service'
 import { UsersService } from '@/users/services/users.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import type {
@@ -50,17 +51,20 @@ describe('PersonProfilesController removals', () => {
       {} as unknown as S3Service,
       {} as unknown as PersonIdBackfillService,
       {} as unknown as UsersService,
+      {} as unknown as PersonLookupService,
     )
   })
 
   it('gates every removal endpoint behind AdminOrM2MGuard', () => {
     // A dropped decorator would silently expose an unauthenticated write that
     // can flip any person's public page to "removed", so pin the guard here.
-    // The read matters just as much: it is the only removal shape that carries
-    // the ops note and the actor.
+    // The reads matter just as much: listRemovals is the only removal shape
+    // that carries the ops note and the actor, and lookupPerson turns a public
+    // slug into identity fields (personId, name, state, office).
     expect(guardsFor('setRemoval')).toContain(AdminOrM2MGuard)
     expect(guardsFor('clearRemoval')).toContain(AdminOrM2MGuard)
     expect(guardsFor('listRemovals')).toContain(AdminOrM2MGuard)
+    expect(guardsFor('lookupPerson')).toContain(AdminOrM2MGuard)
   })
 
   it('setRemoval delegates to the service and busts the marketing cache', async () => {

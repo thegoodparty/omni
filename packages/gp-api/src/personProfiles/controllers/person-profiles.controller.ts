@@ -41,10 +41,14 @@ import {
 import {
   ClearPersonProfileRemovalDto,
   ListPersonProfileRemovalsDto,
+  LookupPersonDto,
+  PersonLookupResponse,
+  PersonLookupResponseSchema,
   PersonProfileRemovalList,
   PersonProfileRemovalListSchema,
   SetPersonProfileRemovalDto,
 } from '../schemas/PersonProfileRemoval.schema'
+import { PersonLookupService } from '../services/person-lookup.service'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
@@ -68,6 +72,7 @@ export class PersonProfilesController {
     private readonly s3: S3Service,
     private readonly personIdBackfill: PersonIdBackfillService,
     private readonly users: UsersService,
+    private readonly personLookup: PersonLookupService,
   ) {}
 
   private requireUser(user: User | undefined): User {
@@ -319,6 +324,24 @@ export class PersonProfilesController {
     return this.personProfilesService.listRemovals({
       includeCleared: query.includeCleared ?? false,
     })
+  }
+
+  // Resolves the public URL a privacy request actually names into the personId
+  // the routes above are keyed by, so the operator can confirm the subject
+  // before submitting. Admin-gated because it maps a public slug onto identity
+  // fields for an arbitrary person.
+  @Get('removals/lookup')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(PersonLookupResponseSchema)
+  async lookupPerson(
+    @Query() query: LookupPersonDto,
+  ): Promise<PersonLookupResponse> {
+    const person = await this.personLookup.lookup(query.q)
+    if (!person) {
+      throw new NotFoundException('No person matches that slug or URL')
+    }
+    return person
   }
 
   private async requireOwnProfile(user: User) {

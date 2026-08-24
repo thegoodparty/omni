@@ -17,6 +17,7 @@ import { MarketingRevalidationService } from './services/marketing-revalidation.
 import { VoterDensityProxyService } from './services/voter-density-proxy.service'
 import { PersonIdBackfillService } from './services/person-id-backfill.service'
 import { PersonIdReconcileService } from './services/person-id-reconcile.service'
+import { PersonLookupService } from './services/person-lookup.service'
 import { PERSON_PROFILES_DATABRICKS } from './personProfiles.constants'
 
 // Single-row identifier lookups against the civics person mart, on the shared
@@ -58,6 +59,7 @@ const civicsDatabricksProviderFactory = (): DatabricksProvider | null => {
     VoterDensityProxyService,
     PersonIdBackfillService,
     PersonIdReconcileService,
+    PersonLookupService,
     {
       provide: PERSON_PROFILES_DATABRICKS,
       useFactory: civicsDatabricksProviderFactory,

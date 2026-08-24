@@ -43,7 +43,6 @@ export class ClearPersonProfileRemovalDto extends createZodDto(
 export const PersonProfileRemovalResponseSchema = z.object({
   personId: z.string(),
   removed: z.literal(true),
-  requestedAt: zDate(),
 })
 
 export type PersonProfileRemovalResponse = z.infer<
@@ -81,3 +80,26 @@ const ListPersonProfileRemovalsSchema = z
 export class ListPersonProfileRemovalsDto extends createZodDto(
   ListPersonProfileRemovalsSchema,
 ) {}
+
+// A privacy request names a public URL, not the UUID these endpoints are keyed
+// by, so the operator gets to paste whichever form they were handed: a full
+// `/people/...` URL or the bare slug.
+const LookupPersonSchema = z
+  .object({
+    q: z.string().min(1, 'a slug or /people/ URL is required').max(500),
+  })
+  .strict()
+
+export class LookupPersonDto extends createZodDto(LookupPersonSchema) {}
+
+// Identity for a confirmation step, not a data feed: enough for an operator to
+// recognise the subject before taking their page down, and nothing more. A
+// mis-keyed id removes the wrong person's page with no error to notice.
+export const PersonLookupResponseSchema = z.object({
+  personId: z.string(),
+  fullName: z.string().nullable(),
+  state: z.string().nullable(),
+  office: z.string().nullable(),
+})
+
+export type PersonLookupResponse = z.infer<typeof PersonLookupResponseSchema>

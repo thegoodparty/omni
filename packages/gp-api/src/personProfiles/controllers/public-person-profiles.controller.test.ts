@@ -492,9 +492,7 @@ describe('GET /v1/public-person-profiles removal gate', () => {
     // Both are 200 markers now, so precedence has to be explicit: a takedown
     // noindexes the page, an unpublished draft does not.
     await seedProfile({ publishedAt: null })
-    await service.prisma.personProfileRemoval.create({
-      data: { personId: PERSON_ID },
-    })
+    await seedRemoval()
 
     const res = await get()
     expect(res.status).toBe(200)
