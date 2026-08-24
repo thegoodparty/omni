@@ -192,6 +192,15 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
+  // Any change to the script the candidate must read aloud (purpose, tone,
+  // regenerate) or backing out of compose invalidates a recording made against
+  // the old script — drop it so a stale saved clip can't satisfy the Continue
+  // gate against a script the candidate never read.
+  const invalidateRecording = () => {
+    resetRecorder()
+    resetAudioUpload()
+  }
+
   const handleSelectPurpose = (selected: RobocallPurpose) => {
     // Switching purpose invalidates the drafted script and any recording tied
     // to the old one — otherwise a custom script could show read-only under a
@@ -199,8 +208,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     // Continue gate.
     if (selected !== purpose) {
       setScript('')
-      resetRecorder()
-      resetAudioUpload()
+      invalidateRecording()
     }
     setPurpose(selected)
     setStepId('audience')
@@ -230,10 +238,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     // Backing OFF compose drops the recording+upload for the same reason: a
     // saved clip must not silently keep Continue enabled after the user backs
     // out and re-advances (they re-record deliberately on return).
-    if (stepId === 'compose') {
-      resetRecorder()
-      resetAudioUpload()
-    }
+    if (stepId === 'compose') invalidateRecording()
     setStepId(previous)
   }
 
@@ -280,10 +285,15 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const handleToneChange = (t: SocialTone) => {
     setTone(t)
     if (purpose) requestDraft(purpose, t)
+    // The new draft supersedes the script a recording was read against.
+    invalidateRecording()
   }
 
   const handleRegenerate = () => {
-    if (purpose) requestDraft(purpose, tone)
+    if (purpose) {
+      requestDraft(purpose, tone)
+      invalidateRecording()
+    }
   }
 
   const hasBuilderSelection = hasAnyVoterFileSelection(

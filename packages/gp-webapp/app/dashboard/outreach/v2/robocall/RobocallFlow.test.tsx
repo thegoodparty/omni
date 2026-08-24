@@ -676,6 +676,30 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('drops the saved recording when the tone changes', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Recording saved')
+
+    // Switching tone re-drafts the script the clip was read against, so the
+    // recording is dropped and Continue locks until the candidate re-records.
+    mockDraft('A punchier take for the urgent tone.')
+    await userEvent.click(screen.getByText('Urgent'))
+
+    expect(
+      await screen.findByRole('button', { name: 'Start recording' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
   it('re-drafts when a different tone is chosen', async () => {
     await gotoCompose()
     expect(

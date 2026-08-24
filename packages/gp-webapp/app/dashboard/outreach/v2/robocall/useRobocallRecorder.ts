@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ROBOCALL_AUDIO_ALLOWED_MIME_TYPES } from '@goodparty_org/contracts'
 
 // idle -> recording -> preview (captured, not committed) -> saved. A discard
 // from preview/saved returns to idle. Mirrors the design's robocallRecordBar.
@@ -177,8 +178,12 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
     (file: File | null | undefined) => {
       setError(null)
       if (!file) return
-      if (!file.type.startsWith('audio/')) {
-        setError('Upload an audio file (MP3, WAV, or M4A)')
+      // Match the server's allowlist (what the presign policy will accept), not
+      // a broad audio/* wildcard — otherwise e.g. audio/flac previews fine then
+      // fails at save with a misleading "try re-recording" error.
+      const allowed: readonly string[] = ROBOCALL_AUDIO_ALLOWED_MIME_TYPES
+      if (!allowed.includes(file.type)) {
+        setError('Upload an MP3, WAV, M4A, AAC, or OGG file')
         return
       }
       const url = URL.createObjectURL(file)
