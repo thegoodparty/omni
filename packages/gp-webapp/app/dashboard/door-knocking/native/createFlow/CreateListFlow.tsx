@@ -362,22 +362,25 @@ export default function CreateListFlow({
   // the purpose card's own copy (#1385) — a card label doubling as a default
   // title is how a copy correction renamed live campaigns.
   //
-  // It follows the upstream records until the candidate types, so backing out
-  // to rename the list and returning brings the new name rather than the one
-  // this box was seeded with on the first visit. One keystroke ends that for
-  // good — a box they have written in is theirs.
-  //
-  // A save spends the suggestion too, so the second turf of a "draw another"
-  // run opens blank and its Save stays disabled until it is named. The
-  // audience behind it is unchanged, so re-offering the name just used is an
-  // invitation to end up with two lists called the same thing.
-  const suggestionSpent = useRef(false)
+  // Two things stop it, and they are separate. **A typed box is theirs**:
+  // one keystroke and no upstream rename ever overwrites it again. **A
+  // suggestion is spent once applied**: the box follows the records while it
+  // is untouched, so backing out to rename the list and returning brings the
+  // new name — but the SAME suggestion is never re-applied, which is what
+  // leaves the second turf of a "draw another" run blank. Its audience is
+  // unchanged, so re-offering the name just saved is an invitation to end up
+  // with two lists called the same thing; changing the goal or renaming the
+  // list produces a different suggestion and offers it.
+  const nameTouched = useRef(false)
+  const appliedSuggestion = useRef<string | null>(null)
   useEffect(() => {
-    if (step !== 'confirm' || suggestionSpent.current) return
+    if (step !== 'confirm' || nameTouched.current) return
     const suggestion =
       savedName.trim() ||
       (purpose ? doorKnockingPurposeNameSuggestion(purpose) : '')
-    if (suggestion) setName(suggestion)
+    if (!suggestion || suggestion === appliedSuggestion.current) return
+    appliedSuggestion.current = suggestion
+    setName(suggestion)
   }, [step, savedName, purpose])
 
   // Stops are what the router and its 150-stop cap are denominated in; doors
@@ -446,7 +449,9 @@ export default function CreateListFlow({
         queryKey: ['door-knocking-saved-lists'],
       })
       setName('')
-      suggestionSpent.current = true
+      // The next turf starts from an untyped box again, so a goal or list
+      // renamed after this save can still offer its name.
+      nameTouched.current = false
       setSavedAny(true)
       // The page owns the post-save transition (next draw vs close).
       onSaved(drawAnother)
@@ -829,7 +834,7 @@ export default function CreateListFlow({
                   maxLength={MAX_TURF_NAME_LENGTH}
                   placeholder="Name this list"
                   onChange={(e) => {
-                    suggestionSpent.current = true
+                    nameTouched.current = true
                     setName(e.target.value)
                   }}
                 />

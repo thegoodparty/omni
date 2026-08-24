@@ -1235,6 +1235,15 @@ describe('CreateListFlow steps', () => {
     rerender(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
     expect(screen.getByLabelText('Route name')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Save and exit' })).toBeDisabled()
+
+    // A different goal is a different suggestion, so the blank box is the
+    // same suggestion not being re-offered — not suggestions being over.
+    rerender(<CreateListFlow {...baseProps} step="filters" onSaved={onSaved} />)
+    fireEvent.click(
+      screen.getByRole('button', { name: /Turn out my supporters/ }),
+    )
+    rerender(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
+    expect(screen.getByLabelText('Route name')).toHaveValue('Turnout walk')
   })
 
   it('returns from the draw step to whichever pre-draw step was left', () => {
