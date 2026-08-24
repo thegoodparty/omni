@@ -245,7 +245,7 @@ last-write-wins made the door and Contacts disagree about the same person, and
 made a hand correction invisible at the door. `undecided` has no map member and
 reads as unknown (still worth knocking). The route
 payload ships `stopTargetId` per target (the interaction write key), that
-target's own recent outreach history (see below), no
+target's own recent outreach history and saved contact notes (see below), no
 `navigate` block (phone builds deep links from lat/lng + a per-route
 locale), and is snapshotted offline on the phone.
 
@@ -309,6 +309,67 @@ yet. That gate is load-bearing rather than tidy: an answered resident already
 paid for a serve and an ordinary door pays none, so this stays one serve per
 held-open sheet and does not become the per-door refetch ADR 0009 rejected the
 per-person endpoint to avoid.
+
+## Notes, at the door
+
+Each target also carries `notes`: that resident's saved `ContactNote` rows,
+newest first, capped at three, as `{ entries, total }` — see
+[ADR 0011](adr/0011-contact-notes-on-the-route-payload.md). It rides the
+payload for the reason `history` does, and this section is only the parts that
+differ.
+
+**The cap is three rather than five because free text is not priced like an
+activity row.** On ADR 0009's own rig, one 140-character note per target costs
+about what all five activity rows cost together (+14.3 KB gzip against
++24.1 KB), because an activity row is a handful of short fields gzip has
+already seen 142 times and a note is prose nobody has written before. Five
+notes per target would be +60 KB, more than double the feature ADR 0009 argued
+was worth 18 KB. At three, the worst case is +37 KB and realistic 25% coverage
+is +11 KB.
+
+**`total` is the resident's real note count, and it is on the wire on
+purpose.** A capped list that cannot say it is capped shows a subset as though
+it were the record. Inferring truncation from `entries.length` gets the
+three-note resident wrong forever; a boolean cannot tell three-of-four from
+three-of-forty. The count rides the same window that applies the cap, so it
+costs nothing. It is one object rather than sibling `notes`/`notesTotal` keys
+because rows and count are only meaningful together and nothing parses this
+payload at runtime to enforce that they both arrive.
+
+**Note _bodies_ are not clipped**, and the row cap alone therefore does not
+bound this the way it bounds the feed —
+`ContactNoteInputSchema` allows 10,000 characters. That tail is accepted rather
+than clipped because the two truncations fail differently: a missing note
+announces itself through `total`, and a clipped note looks like a complete note
+that ended oddly, with no way to fetch the rest from a porch.
+
+`DoorKnockingNotesService` reads every target on the route in **one** statement
+— `ROW_NUMBER()` for the cap, `COUNT(*) OVER` on the same partition for the
+count — served by `contact_note`'s
+`(organization_slug, person_id, created_at)` index. Ordering is
+`created_at DESC, id DESC`, matching `ContactNoteService.listForPerson`: a note
+sits where it was written, so editing a typo does not resurface a two-year-old
+note at the top.
+
+Keyed by `personId` like the feed, never rolled up to the address, and the
+block is always sent — `{ entries: [], total: 0 }` for a resident nobody has
+written about. An absent key means the payload predates the field, which is not
+a claim about the resident.
+
+**Neither paper surface carries notes** — not the printed walk sheet, not the
+downloadable PDF — for the reason that already keeps phone numbers and the
+demographic profile off them, and with more force: free text about a named
+voter on a page that stops being access-controlled the moment it leaves the
+building. `walkFacts.ts` already refuses to print the note on a `DOOR_KNOCK`
+feed row under the same rule.
+
+**Writes are not on this path.** The webapp posts to the CRM's own
+`contacts/:personId/notes` routes, so a canvasser out of signal can read notes
+and not add one. Deliberate: a failed write leaves the typed text in front of
+the person who wrote it, while a failed read is a blank card that looks exactly
+like a resident nobody has ever written about. Both halves are Pro-gated —
+`GET /turfs/:id/route` and every note route call `assertProAccess` — so unlike
+the two suppression writes below, this opens no ungated surface.
 
 ## Do-not-knock
 
