@@ -138,6 +138,21 @@ class TestAppendResults:
         assert 3 in params
         assert 1 not in params and 2 not in params
 
+    def test_a_fully_resumed_batch_returns_zero_without_inserting(self, mock_databricks):
+        """Failure this catches: a run resumed after it already finished
+        re-inserting every row it wrote. The anti-join empties the batch, and
+        the post-insert count check is rightly skipped here -- there is
+        nothing to count -- so this branch has to return cleanly rather than
+        fall through to a comparison it would fail.
+        """
+        mock_databricks["cursor"].fetchall.return_value = [(1,), (2,), (3,)]
+        writer = MatchResultWriter()
+
+        written = writer.append_results([_match(1), _match(2), _match(3)], ATTEMPTED_AT)
+
+        assert written == 0
+        assert _calls(mock_databricks["cursor"], "insert into") == []
+
     def test_a_short_write_raises_and_names_the_recovery(self, mock_databricks):
         """Failure this catches: a run that lost rows part-way through
         reporting success. The connector has no transactions, so each chunk
