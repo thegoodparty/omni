@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { HttpModule } from '@nestjs/axios'
 import { AwsModule } from '@/vendors/aws/aws.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
@@ -43,6 +44,7 @@ const civicsDatabricksProviderFactory = (): DatabricksProvider | null => {
   imports: [
     HttpModule,
     AwsModule,
+    PeopleQueryModule,
     CronModule,
     CrmModule,
     ElectionsModule,

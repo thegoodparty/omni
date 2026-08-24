@@ -72,9 +72,9 @@ service pointed at a disconnected client after a URL swap.
 
 `peopleQuery.module.ts` provides and exports: `DistrictService`,
 `StatsService`, `VoterSampleService`, `VoterQueryService`,
-`VoterDownloadService`, `VoterDoorKnockingService`. Import this module to get
-the whole people-db surface; don't reach for individual services from other
-modules directly.
+`VoterDownloadService`, `VoterDoorKnockingService`, `VoterPackService`,
+`VoterDensityService`. Import this module to get the whole people-db surface;
+don't reach for individual services from other modules directly.
 
 ## `plan_cache_mode=force_custom_plan` — do not remove it
 
@@ -275,6 +275,8 @@ Keep new tests in this module to that pattern — don't reach for
 | `services/district.service.ts`          | District resolution/scoping                                           |
 | `services/voterSample.service.ts`       | Sample rows (for preview/testing scenarios)                           |
 | `services/voterDoorKnocking.service.ts` | Door-knocking target resolution                                       |
+| `services/voterPack.service.ts`         | Encoded voter-pack build/read                                         |
+| `services/voterDensity.service.ts`      | Voter-density heat-map cells (read-only, precomputed H3 centroids)    |
 | `schemas/filters.schema.ts`             | Zod filter input schema                                               |
 | `utils/statementTimeout.util.ts`        | `runUnderStatementTimeout` — the 25s guard every query goes through   |
 | `utils/filters.sql.util.ts`             | `buildVoterFiltersSql` — filter → SQL translation, incl. id-set cap   |
