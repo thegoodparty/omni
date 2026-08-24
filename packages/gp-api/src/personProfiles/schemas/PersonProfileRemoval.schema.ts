@@ -43,7 +43,6 @@ export class ClearPersonProfileRemovalDto extends createZodDto(
 export const PersonProfileRemovalResponseSchema = z.object({
   personId: z.string(),
   removed: z.literal(true),
-  requestedAt: zDate(),
 })
 
 export type PersonProfileRemovalResponse = z.infer<
