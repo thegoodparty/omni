@@ -318,6 +318,7 @@ export const PhoneBankingFlow = ({
               audience.reachableLoading ||
               audience.reachableCount === null ||
               audience.reachableCount === 0,
+            loading: audience.reachableLoading,
           }
 
   const cta: FlowShellCta | null = saved

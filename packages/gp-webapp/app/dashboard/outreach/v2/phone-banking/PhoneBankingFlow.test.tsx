@@ -401,6 +401,18 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  it('keeps the selected list when backing from script into who (only backing OFF who discards it)', async () => {
+    mockDraft()
+    openFlow()
+    await advanceToScript()
+
+    await user.click(screen.getByLabelText('Back'))
+    expect(await screen.findByText('Likely Dems')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: /Continue \(10\)/ }),
+    ).toBeEnabled()
+  })
+
   it('offers the full CRM filter vocabulary in the builder — not just voter likelihood/party/cell/landline', async () => {
     openFlow()
     await advanceToWho()
