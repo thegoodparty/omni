@@ -97,6 +97,7 @@ const mockGetList = (list: PhoneBankingList) =>
   api.mock('GET /v1/phone-banking/lists/:id', { status: 200, data: list })
 
 const mockPush = vi.mocked(router.push!)
+const mockRefresh = vi.mocked(router.refresh)
 
 beforeEach(() => {
   vi.mocked(useSnackbar).mockReturnValue({
@@ -105,6 +106,7 @@ beforeEach(() => {
     successSnackbar: vi.fn(),
   })
   mockPush.mockClear()
+  mockRefresh.mockClear()
   vi.mocked(trackEvent).mockClear()
   // The entry panel always mounts PhoneBankingNotes for the active person;
   // stub it to empty so notes aren't the thing under test here.
@@ -124,6 +126,19 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(screen.getByText('0/3 called')).toBeInTheDocument()
     expect(screen.getByText('Alex Solo')).toBeInTheDocument()
     expect(screen.getAllByText('Not called').length).toBeGreaterThan(0)
+  })
+
+  it('the back arrow refreshes the router, busting a stale Router Cache snapshot of the hub', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    await user.click(
+      screen.getByRole('link', { name: 'Back to Voter Outreach' }),
+    )
+
+    expect(mockRefresh).toHaveBeenCalled()
   })
 
   it('an answered save carries the active tab personId, and switching tabs shows a different logged record', async () => {
