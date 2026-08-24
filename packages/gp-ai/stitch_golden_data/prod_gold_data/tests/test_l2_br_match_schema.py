@@ -66,6 +66,23 @@ class TestProvisioningRefusesADivergentTable:
         )
         return client
 
+    def test_the_query_reads_full_data_type_not_data_type(self):
+        # information_schema has both. `data_type` upper-cases everything and
+        # calls the confidence column LONG; `full_data_type` spells types as
+        # the DDL does. Switching to the shorter name fails all six columns on
+        # case, which invites a `.lower()` that then leaves `confidence`
+        # silently wrong -- and that is the column the position mart's
+        # confidence gates read. Every other test here mocks the client, so
+        # nothing else would catch the swap.
+        client = self._client_returning(RESULTS_SCHEMA)
+
+        ensure_results_table(client)
+
+        queries = [c.args[0] for c in client.execute_query.call_args_list]
+        schema_query = next(q for q in queries if "information_schema" in q)
+        assert "full_data_type" in schema_query
+        assert "data_type" not in schema_query.replace("full_data_type", "")
+
     def test_a_matching_table_is_accepted(self):
         client = self._client_returning(RESULTS_SCHEMA)
 
@@ -73,33 +90,21 @@ class TestProvisioningRefusesADivergentTable:
 
         assert any("create table if not exists" in c.args[0] for c in client.execute_query.call_args_list)
 
-    def test_a_missing_column_is_refused(self):
-        client = self._client_returning(RESULTS_SCHEMA[:-1])
-
-        with pytest.raises(RuntimeError, match="does not match this definition"):
-            ensure_results_table(client)
-
-    def test_a_lost_not_null_is_refused(self):
-        # The measured failure mode: create-or-replace keeps the comment and
-        # drops the constraint, on exactly these two columns.
-        weakened = tuple((name, dtype, True) for name, dtype, _ in RESULTS_SCHEMA)
-        client = self._client_returning(weakened)
-
-        with pytest.raises(RuntimeError, match="does not match this definition"):
-            ensure_results_table(client)
-
-    def test_a_changed_type_is_refused(self):
-        retyped = tuple(
-            (name, "string" if name == "confidence" else dtype, nullable) for name, dtype, nullable in RESULTS_SCHEMA
-        )
-        client = self._client_returning(retyped)
-
-        with pytest.raises(RuntimeError, match="does not match this definition"):
-            ensure_results_table(client)
-
-    def test_column_order_is_compared(self):
-        reordered = (RESULTS_SCHEMA[1], RESULTS_SCHEMA[0], *RESULTS_SCHEMA[2:])
-        client = self._client_returning(reordered)
+    @pytest.mark.parametrize(
+        "live",
+        [
+            RESULTS_SCHEMA[:-1],
+            tuple((name, dtype, True) for name, dtype, _ in RESULTS_SCHEMA),
+            tuple(
+                (name, "string" if name == "confidence" else dtype, nullable)
+                for name, dtype, nullable in RESULTS_SCHEMA
+            ),
+            (RESULTS_SCHEMA[1], RESULTS_SCHEMA[0], *RESULTS_SCHEMA[2:]),
+        ],
+        ids=["a-column-is-missing", "not-null-was-lost", "a-type-changed", "the-order-changed"],
+    )
+    def test_a_divergent_live_table_is_refused(self, live):
+        client = self._client_returning(live)
 
         with pytest.raises(RuntimeError, match="does not match this definition"):
             ensure_results_table(client)

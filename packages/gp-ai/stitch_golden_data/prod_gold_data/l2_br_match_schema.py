@@ -70,10 +70,18 @@ def live_results_schema(client: DatabricksClient) -> tuple[tuple[str, str, bool]
     """The live table's (name, type, nullable) triples, in order.
 
     Reads `information_schema.columns` rather than `DESCRIBE TABLE`, which
-    does not report nullability at all. Only `column_name`, `full_data_type`
-    and `is_nullable` are read: `is_identity` in this same view is a known
-    false negative in Databricks, so the view is trusted per-column rather
-    than wholesale.
+    does not report nullability at all.
+
+    `full_data_type`, not `data_type`. The view has both: `data_type` returns
+    `STRING`/`INT` upper-cased and calls the confidence column `LONG`, while
+    `full_data_type` returns `string`/`int`/`bigint` as the DDL spells them.
+    Switching to the shorter name fails all six columns on case, which invites
+    a `.lower()` that then leaves exactly one wrong -- `confidence`, whose
+    divergence is the one with a downstream reader in the position mart.
+
+    Only `column_name`, `full_data_type` and `is_nullable` are read.
+    `is_identity` in this same view is a known false negative in Databricks,
+    so it is trusted per-column rather than wholesale.
     """
     rows = client.execute_query(
         f"""
@@ -96,10 +104,16 @@ def ensure_results_table(databricks: DatabricksClient | None = None) -> None:
     Run by hand when provisioning. The caller needs `USE SCHEMA` and
     `CREATE TABLE`; the write path afterwards needs only `INSERT`.
 
-    Raises if the live table's columns differ from `RESULTS_COLUMNS`. Without
-    that the CREATE would no-op against an existing table and report success
-    while the two disagreed, which is the failure the write path would then
-    hit at INSERT time.
+    Raises if the live schema differs from `RESULTS_SCHEMA`. Without that the
+    CREATE would no-op against an existing table and report success while the
+    two disagreed, which is the failure the write path would then hit at
+    INSERT time.
+
+    This is a provisioning gate: it runs on the one-time call and catches a
+    wrong table being created. The `not_null` tests on the dbt source are the
+    other half -- they run on every build and catch a right table drifting
+    afterwards. Neither covers the other's window, so do not delete one as
+    redundant with the other.
     """
     logger = get_logger(__name__)
     client = databricks or DatabricksClient()
