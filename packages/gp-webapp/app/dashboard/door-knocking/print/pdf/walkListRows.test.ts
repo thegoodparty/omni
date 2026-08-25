@@ -69,6 +69,30 @@ describe('walkListRows', () => {
     expect(rows.map((row) => row.firstInHousehold)).toEqual([true, true])
   })
 
+  // The walk between stops is a fact about the stop, so it merges the same way
+  // the stop number does: one leg, printed once, however many doors the stop
+  // holds. Worded by `legTravelLine`, which the printable sheet also reads.
+  it('carries the walk from the last stop once per stop', () => {
+    const rows = walkListRows([
+      stop({ seq: 1, legSeconds: 0 }),
+      stop({
+        id: 12,
+        seq: 2,
+        legSeconds: 300,
+        displayAddress: '400 Birch Ln',
+        addresses: [
+          household('400 Birch Ln Apt 1', [target({ stopTargetId: 31 })]),
+          household('400 Birch Ln Apt 2', [target({ stopTargetId: 32 })]),
+        ],
+      }),
+    ])
+
+    // The first stop of a route has no previous stop to have walked from.
+    expect(rows[0]?.travel).toBeNull()
+    expect(rows[1]?.travel).toBe('5 min from last')
+    expect(rows[2]?.travel).toBeNull()
+  })
+
   // Paper leaves the building and stops being access-controlled when it does.
   // The fixture carries a cell number so this asserts the omission rather than
   // trusting it — and it asserts against the whole model, because the renderer

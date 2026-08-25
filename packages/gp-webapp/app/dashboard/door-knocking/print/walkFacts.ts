@@ -1,5 +1,6 @@
 import type {
   DoorKnockingRoutePayload,
+  RoutePayloadStop,
   RoutePayloadTarget,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
@@ -39,6 +40,26 @@ export const MARK_INSTRUCTION =
   'Mark each door by hand. Circle or tick a box, write short notes in the last column.'
 export const RECORDS_NOTICE =
   'Answers already logged in the app are printed below. Log these doors in the app when you’re back online — nothing written here reaches your voter records on its own.'
+
+// How long it takes to get from the previous stop to this one, or null for the
+// first stop of a route and for any leg the route reports as zero.
+//
+// A fact about the *stop*, not the door and not the resident, so it prints once
+// however many doors the stop holds — see `firstInStop` on both renderers. It is
+// here rather than in either of them because the printable sheet has always shown
+// it and the PDF never did, which is the divergence this file exists to stop: two
+// artifacts of one route, one of them silent about why the stops are in the order
+// they are in.
+//
+// The mode is deliberately not in the wording, though `WalkView` says "3m walk"
+// per leg. On a screen each stop is a card in a scrolling list; on paper every
+// leg on the sheet belongs to one route whose header already reads "Walking
+// loop", so repeating walk-or-drive on all 150 rows spends the narrowest column
+// on the page restating something stated above it. "from last" earns its two
+// words instead, because the number sits in the address column and needs to say
+// it is time spent getting there rather than time spent at the door.
+export const legTravelLine = (stop: RoutePayloadStop): string | null =>
+  stop.legSeconds > 0 ? `${formatDuration(stop.legSeconds)} from last` : null
 
 // Party, and whether the address is stale. Age used to lead this line and now
 // has a column of its own on both surfaces, so repeating it here would print a

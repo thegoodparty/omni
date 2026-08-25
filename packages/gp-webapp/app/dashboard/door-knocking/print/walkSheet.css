@@ -120,7 +120,7 @@
 /* A second or third person behind the same door: dotted, and the stop number
    and address cells stay empty. */
 .ws-table tbody tr.ws-mate td {
-  border-top: 1px dotted var(--color-border);
+  border-top: 1px dotted var(--color-border, #e2e8f0);
 }
 
 /* A row must not split across pages: half a mark box at the foot of one page
@@ -270,7 +270,7 @@
   gap: 16px;
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border, #e2e8f0);
 }
 
 .ws-logo {

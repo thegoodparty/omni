@@ -14,8 +14,8 @@ import {
 import { skipInstruction, STATUS_LABELS } from '../native/statusPresentation'
 import {
   describeTarget,
-  formatDuration,
   lastContactLine,
+  legTravelLine,
   MARK_INSTRUCTION,
   RECORDS_NOTICE,
   WALK_COLUMNS,
@@ -230,10 +230,7 @@ const stopRows = (stop: RoutePayloadStop) => {
       // the unit is the only thing telling a canvasser which one to knock.
       address:
         stop.addresses.length > 1 ? address.address : stop.displayAddress,
-      travel:
-        stop.legSeconds > 0
-          ? `${formatDuration(stop.legSeconds)} from last`
-          : null,
+      travel: legTravelLine(stop),
       alsoHere: others.length > 0 ? `Also here: ${others.join(', ')}` : null,
     }))
   })

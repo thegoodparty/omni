@@ -1,6 +1,6 @@
 import type { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
 import { skipInstruction, STATUS_LABELS } from '../../native/statusPresentation'
-import { describeTarget, lastContactLine } from '../walkFacts'
+import { describeTarget, lastContactLine, legTravelLine } from '../walkFacts'
 
 // What the three answer columns hold for one resident. `skip` and `logged`
 // replace the tick-boxes entirely — there is nothing to ask at either door.
@@ -36,6 +36,12 @@ export interface WalkListRow {
   // unsure — this is the line that tells them apart. Never a note and never a
   // phone number; see `lastContactLine`.
   lastContact: string | null
+  // How long the walk from the previous stop takes, on the stop's first row and
+  // null on every other row of it — the same merge as the stop number, because
+  // it is the same kind of fact. Null on the first stop of a route, which has no
+  // previous stop to have come from. Worded by `legTravelLine` rather than here,
+  // so the PDF and the printable sheet cannot describe one leg two ways.
+  travel: string | null
   answer: WalkListAnswer
   // The grid merges the stop-number cell down a stop and the address cell down
   // a household, so a block of flats reads as one stop and a shared front door
@@ -71,6 +77,7 @@ export const walkListRows = (
           age: target.age,
           meta: describeTarget(target),
           lastContact: lastContactLine(target),
+          travel: firstInStop ? legTravelLine(stop) : null,
           // Checked before the logged branch: a flagged resident is not to be
           // knocked whatever was recorded there before.
           answer: skip

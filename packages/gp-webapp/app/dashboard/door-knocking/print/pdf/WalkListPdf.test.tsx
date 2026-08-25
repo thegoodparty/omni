@@ -96,6 +96,25 @@ describe('WalkListPdf', () => {
     )
   })
 
+  // The header states the route's total; this is the per-leg number, in the
+  // address column under the door it leads to. Both paper surfaces word it with
+  // `legTravelLine`, so a volunteer with the PDF and a canvasser with the
+  // printed page read one leg the same way.
+  it('prints the walk from the previous stop under the address', async () => {
+    const text = await renderText([
+      stop(),
+      stop({ id: 12, seq: 2, legSeconds: 300 }),
+    ])
+
+    expect(text).toContain('5 min from last')
+  })
+
+  it('leaves the walk time off the first stop of a route', async () => {
+    expect(await renderText([stop({ legSeconds: 0 })])).not.toContain(
+      'from last',
+    )
+  })
+
   // Uppercase because the handoff tracks its column heads that way, and
   // `textTransform` reaches the glyphs the renderer writes rather than only the
   // style it writes them in.

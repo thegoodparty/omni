@@ -310,6 +310,13 @@ const ResidentRow = ({ row }: { row: WalkListRow }) => (
       {row.firstInHousehold && (
         <>
           <Text style={styles.addressText}>{row.address}</Text>
+          {/* Already merged to the stop's first row by the row model, and null on
+              a first stop, so this is one more Text node per stop rather than per
+              resident — the difference between ~150 nodes and ~250 on a capped
+              route. */}
+          {row.travel !== null && (
+            <Text style={styles.subText}>{row.travel}</Text>
+          )}
           {row.otherResidents.length > 0 && (
             <Text style={styles.subText}>
               Also here: {row.otherResidents.join(', ')}
