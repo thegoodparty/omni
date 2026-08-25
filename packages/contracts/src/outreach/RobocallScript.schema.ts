@@ -24,6 +24,11 @@ export const RobocallScriptDraftRequestSchema = z.object({
   purpose: RobocallPurposeSchema,
   tone: SocialToneSchema,
   currentDraft: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
+  // The rented caller-ID number the candidate will read aloud. When present,
+  // the drafted script must END with the spoken FCC disclosure (who paid for
+  // the call + this callback number); absent, no disclosure is added yet (the
+  // number isn't rented until the candidate reaches the compose step).
+  callbackNumber: z.string().min(1).max(32).optional(),
 })
 export type RobocallScriptDraftRequest = z.infer<
   typeof RobocallScriptDraftRequestSchema

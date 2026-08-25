@@ -115,6 +115,11 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // Stale-response guard: a tone switch / regenerate bumps this, and a draft
   // response is discarded unless it's still the latest request.
   const draftRequestRef = useRef(0)
+  // Latest purpose, read inside the rent onSuccess (which closes over the
+  // render that started the rent) so a purpose change while renting doesn't
+  // draft the old purpose — the fresh goToCompose drafts the new one instead.
+  const purposeRef = useRef(purpose)
+  purposeRef.current = purpose
   const recorder = useRobocallRecorder(MAX_RECORDING_SECONDS)
   const { reset: resetRecorder } = recorder
   const audioUpload = useRobocallAudioUpload()
@@ -147,14 +152,38 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   })
   const { mutate: runDraft } = draftMutation
 
+  // The rented CallHub caller-ID number the candidate reads aloud. Rented once
+  // on entering compose so the draft can carry the required "paid for by" +
+  // callback-number disclosure; held in flow state and reused across redrafts.
+  const [callbackNumber, setCallbackNumber] = useState<string | null>(null)
+  const rentMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/robocall/number',
+        {},
+      )
+      return data.phoneNumber
+    },
+  })
+  const { mutate: runRent, reset: resetRent } = rentMutation
+
   // Fire an AI script draft; a superseded response is discarded. Custom
-  // purpose writes its own script, so it never drafts.
-  const requestDraft = (p: RobocallPurpose, t: SocialTone) => {
+  // purpose writes its own script, so it never drafts. A callbackNumber makes
+  // the draft end with the spoken disclosure.
+  const requestDraft = (
+    p: RobocallPurpose,
+    t: SocialTone,
+    callback: string | null,
+  ) => {
     if (p === 'custom') return
     const requestId = draftRequestRef.current + 1
     draftRequestRef.current = requestId
     runDraft(
-      { purpose: p, tone: t },
+      {
+        purpose: p,
+        tone: t,
+        ...(callback ? { callbackNumber: callback } : {}),
+      },
       {
         onSuccess: (draft) => {
           if (requestId === draftRequestRef.current) setScript(draft)
@@ -189,11 +218,13 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setNow(new Date())
     setTone('warm')
     setScript('')
+    setCallbackNumber(null)
+    resetRent()
     draftRequestRef.current = 0
     resetRecorder()
     resetAudioUpload()
     resetAudience()
-  }, [open, resetAudience, resetRecorder, resetAudioUpload])
+  }, [open, resetAudience, resetRecorder, resetAudioUpload, resetRent])
 
   // Validate against the combined UTC instant so it's tz-correct: the send must
   // be at least 48h out. `earliest` (now + lead) drives both the "earliest
@@ -291,25 +322,50 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     }
   }
 
-  const goToCompose = () => {
-    // Kick off the first AI draft on entry (non-custom, and only if we don't
-    // already have one from a prior visit to this step).
+  // First AI draft on entry (non-custom, and only if we don't already have one
+  // from a prior visit). Custom writes its own words, so it never drafts — but
+  // it still needs the rented number to read aloud, shown in the compose step.
+  const draftIfNeeded = (callback: string | null) => {
     if (purpose && purpose !== 'custom' && !script.trim()) {
-      requestDraft(purpose, tone)
+      requestDraft(purpose, tone, callback)
     }
+  }
+
+  const rentCallbackNumber = () => {
+    // Don't fire a second billable rent while one is in flight (Back to
+    // schedule then Continue again before the first resolves).
+    if (rentMutation.isPending) return
+    const rentedForPurpose = purpose
+    runRent(undefined, {
+      onSuccess: (number) => {
+        setCallbackNumber(number)
+        // A purpose change while renting must not draft the old purpose.
+        if (purposeRef.current === rentedForPurpose) draftIfNeeded(number)
+      },
+    })
+  }
+
+  const goToCompose = () => {
     setStepId('compose')
+    // Rent the caller-ID number once, then draft with it so the script carries
+    // the disclosure. A revisit reuses the number already in hand.
+    if (callbackNumber) {
+      draftIfNeeded(callbackNumber)
+      return
+    }
+    rentCallbackNumber()
   }
 
   const handleToneChange = (t: SocialTone) => {
     setTone(t)
-    if (purpose) requestDraft(purpose, t)
+    if (purpose) requestDraft(purpose, t, callbackNumber)
     // The new draft supersedes the script a recording was read against.
     invalidateRecording()
   }
 
   const handleRegenerate = () => {
     if (purpose) {
-      requestDraft(purpose, tone)
+      requestDraft(purpose, tone, callbackNumber)
       invalidateRecording()
     }
   }
@@ -448,6 +504,10 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           audienceName={audience.selectedList?.name ?? 'your list'}
+          callbackNumber={callbackNumber}
+          isRentingNumber={rentMutation.isPending}
+          rentError={rentMutation.isError}
+          onRetryNumber={rentCallbackNumber}
           recorder={recorder}
           maxSeconds={MAX_RECORDING_SECONDS}
           onSaveRecording={handleSaveRecording}
