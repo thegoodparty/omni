@@ -160,6 +160,10 @@ describe('phone banking routes', () => {
       expect(entries).toHaveLength(1)
       expect(entries[0]?.phone).toBe(sharedPhone)
       expect(entries[0]?.persons).toHaveLength(2)
+      expect(entries[0]?.persons.map((p) => p.firstName).sort()).toEqual([
+        'A',
+        'B',
+      ])
       expect(entries[0]?.seq).toBe(1)
       expect(entries[0]?.sheetIndex).toBe(1)
 
@@ -509,6 +513,7 @@ describe('phone banking routes', () => {
       ) as Array<Record<string, unknown>>
       const liveRow = persons.find((p) => p.personId === livePersonId)
       expect(liveRow).toMatchObject({
+        firstName: 'Live',
         age: 61,
         party: 'Democratic',
         cellPhone: '3075559991',
@@ -523,6 +528,9 @@ describe('phone banking routes', () => {
       const vanishedRow = persons.find((p) => p.personId === vanishedPersonId)
       expect(vanishedRow).toMatchObject({
         name: 'Gone Fromdb',
+        // Frozen at build time — must come from the persisted row, not a
+        // live lookup, since this person no longer resolves.
+        firstName: 'Gone',
         age: null,
         party: null,
         address: null,

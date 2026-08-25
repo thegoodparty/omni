@@ -53,6 +53,7 @@ const buildList = (): PhoneBankingList => ({
         {
           personId: 'solo-1',
           name: 'Alex Solo',
+          firstName: 'Alex',
           age: 40,
           party: 'D',
           address: '1 Main St',
@@ -71,6 +72,7 @@ const buildList = (): PhoneBankingList => ({
         {
           personId: 'house-a',
           name: 'Casey Household',
+          firstName: 'Casey',
           age: 55,
           party: 'I',
           address: '2 Oak Ave',
@@ -81,6 +83,7 @@ const buildList = (): PhoneBankingList => ({
         {
           personId: 'house-b',
           name: 'Robin Household',
+          firstName: 'Robin',
           age: 52,
           party: 'I',
           address: '2 Oak Ave',

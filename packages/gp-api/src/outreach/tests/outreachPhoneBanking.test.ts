@@ -127,7 +127,8 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       (m: { role: string }) => m.role === 'system',
     )?.content
     expect(systemPrompt).toContain(
-      'Hi, my name is [your name], and I am a volunteer for',
+      'Hi, is this [voter name]? My name is [your name], and I am a ' +
+        'volunteer for',
     )
     expect(systemPrompt).toContain('no "Reply STOP"')
     expect(systemPrompt).toContain('no "Paid for by"')
@@ -167,7 +168,8 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       expect(userPrompt).not.toContain('[early voting')
       expect(userPrompt).not.toContain('[polling')
       expect(systemPrompt).toContain(
-        'Never emit a bracketed placeholder anywhere in the script other than "[your name]"',
+        'Never emit a bracketed placeholder anywhere in the script other ' +
+          'than "[your name]" and "[voter name]" in the volunteer opener.',
       )
     },
   )
@@ -288,15 +290,15 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(userPrompt).not.toContain('Write the call script.')
   })
 
-  it('instructs stripping voting-logistics brackets while preserving [your name]', async () => {
+  it('instructs stripping voting-logistics brackets while preserving [your name] and [voter name]', async () => {
     mockDraft('A clearer version of my own words.')
 
     const res = await postDraft({
       purpose: 'vote-early',
       tone: 'direct',
       currentDraft:
-        'Hi, my name is [your name]. Early voting runs ' +
-        '[early voting dates] at [early voting location].',
+        'Hi, is this [voter name]? My name is [your name]. Early voting ' +
+        'runs [early voting dates] at [early voting location].',
     })
 
     expect(res.status).toBe(HttpStatus.CREATED)
@@ -306,7 +308,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       (m: { role: string }) => m.role === 'system',
     )?.content
     expect(systemPrompt).toContain(
-      'The literal "[your name]" placeholder in the volunteer opener MUST',
+      'The literal "[your name]" and "[voter name]" placeholders in',
     )
     expect(systemPrompt).toContain('Strip any other bracketed placeholder')
     expect(systemPrompt).not.toContain(
