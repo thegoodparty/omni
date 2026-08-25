@@ -87,19 +87,30 @@ Refunds can be blocked on insufficient Stripe available balance — retry later.
 demo, `primaryResult !== 'lost'`, `didWin === null`, valid future
 `details.electionDate` — across ALL the user's campaigns. Diagnose (read
 replica): `SELECT id, slug, primary_result, did_win, is_demo,
-details->>'electionDate' FROM campaign WHERE user_id = <id>`. Two known traps:
+details->>'electionDate', details->>'wonGeneral' FROM campaign WHERE
+user_id = <id>`. Known traps:
 
 1. **Re-running candidate reuses the old campaign** — office-picker date
    change only merges `details`; `didWin=false` from the prior loss never
-   resets, so the campaign is permanently inactive.
-2. **PrimaryResultModal trap** — a campaign created AFTER its
-   BallotReady-sourced `details.primaryElectionDate` has passed forces a
-   no-escape modal on first dashboard visit; independents with no primary
-   answer "did not win" → `primary_result='lost'` minutes after signup.
-   Repair needs BOTH writes or the modal re-traps on next dashboard load:
+   resets, so the campaign is permanently inactive. Repair:
+   `UPDATE campaign SET did_win = NULL WHERE id = <id> AND did_win = false;`
+   and strip the stale prior-race keys so the result modals can't re-trap:
+   `UPDATE campaign SET details = details - 'primaryElectionDate' -
+   'wonGeneral' WHERE id = <id>;`
+2. **PrimaryResultModal trap** — a campaign whose BallotReady-sourced
+   `details.primaryElectionDate` has passed re-opens the primary-result modal
+   each session; independents with no primary answer "did not win" →
+   `primary_result='lost'`. Repair needs BOTH writes or the modal re-traps on
+   next dashboard load:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
    primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
+3. **`did_win=false` with `details.wonGeneral` null** — nothing user-facing
+   writes the `didWin` column (the election-result page writes
+   `details.wonGeneral`); this shape means a gp-admin campaign edit set it.
+   Before ENG-10892 the admin form coerced a never-set `didWin` to `false` on
+   ANY save, so a staff member merely opening + saving a campaign killed its
+   Pro eligibility. Repair as in trap 1.
 
 **"Cancelled Pro but Stripe kept billing" (ENG-10657 shape).** The
 portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect

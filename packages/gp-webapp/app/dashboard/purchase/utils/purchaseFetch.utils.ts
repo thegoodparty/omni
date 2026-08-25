@@ -1,3 +1,4 @@
+import { FetchError } from 'ofetch'
 import { apiRoutes } from 'gpApi/routes'
 import { clientFetch, ApiResponse } from 'gpApi/clientFetch'
 import { clientRequest } from 'gpApi/typed-request'
@@ -38,13 +39,44 @@ export function createCheckoutSession(
 // `clientSecret`. `returnUrl` is where Stripe sends the candidate when a
 // confirm requires a redirect (e.g. 3DS). `isPro` is flipped by the Stripe
 // webhook, not here.
+// gp-api's checkout-session guards (ENG-10771) answer with typed errorCodes;
+// surfacing them verbatim left candidates staring at a generic "[POST] ...:
+// 400" after filling out the whole wizard (ENG-10892). Translate each guard
+// into an actionable message for the payment step's error surface.
+const PRO_CHECKOUT_ERROR_MESSAGES: Record<string, string> = {
+  NO_ACTIVE_CAMPAIGN:
+    'Your campaign is not currently active, so we could not start a Pro ' +
+    'subscription. This usually means the election date has passed or an ' +
+    'election result was recorded. Contact us at campaignsuccess@goodparty.org ' +
+    'and we will get your campaign updated.',
+  ALREADY_PRO: 'You already have an active Pro subscription.',
+  CHECKOUT_ALREADY_COMPLETED:
+    'Your payment already went through. Your account should update in a ' +
+    'moment — try refreshing the page.',
+  CHECKOUT_IN_PROGRESS:
+    'Another checkout is already in progress. Please wait a moment and try again.',
+}
+
 export async function createProSubscriptionCheckoutSession(
   returnUrl?: string,
 ): Promise<CheckoutSessionResponse> {
-  const { data } = await clientRequest(
-    'POST /v1/payments/purchase/checkout-session',
-    { embedded: true, returnUrl },
-  )
+  let data
+  try {
+    ;({ data } = await clientRequest(
+      'POST /v1/payments/purchase/checkout-session',
+      { embedded: true, returnUrl },
+    ))
+  } catch (err) {
+    const errorCode =
+      err instanceof FetchError
+        ? (err.data as { errorCode?: string } | undefined)?.errorCode
+        : undefined
+    const message = errorCode && PRO_CHECKOUT_ERROR_MESSAGES[errorCode]
+    if (message) {
+      throw new Error(message)
+    }
+    throw err
+  }
 
   if (!data.clientSecret) {
     throw new Error('Missing client secret for Pro subscription checkout')
