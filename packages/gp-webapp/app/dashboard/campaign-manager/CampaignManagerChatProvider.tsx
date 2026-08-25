@@ -25,6 +25,7 @@ import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 import {
+  CAMPAIGN_MANAGER_BALLOT_KICKOFF,
   CAMPAIGN_MANAGER_HISTORY_KEY,
   buildCampaignManagerIntro,
   campaignManagerChatApi,
@@ -47,6 +48,9 @@ interface CampaignManagerChatContextValue {
   openConversation: (id: string) => void
   // Open the manager into the story-intake flow. Does NOT dismiss the meet card.
   startStory: () => void
+  // Open the manager and ask how to get on the ballot (the ballot-access home
+  // card). Does NOT dismiss the meet card.
+  startBallotAccess: () => void
   // First-run meet-card visibility, shared so the home card and a manager open
   // stay in sync across the (layout-level) dock and the (page-level) card.
   meetDismissed: boolean
@@ -139,6 +143,11 @@ export function CampaignManagerChatProvider({
   // The string mirrors gp-api's buildCampaignManagerGreeting (buildCampaign
   // ManagerIntro is its hand-synced client twin).
   const hiddenMessageContents = useMemo(() => {
+    // Only the two sentinels belong here. loadExisting skips the assistant turn
+    // that FOLLOWS a hidden user message, on the assumption that a hidden
+    // message's reply is a canned one it can safely drop. The ballot kickoff
+    // runs a real LLM turn, so hiding it would delete the candidate's filing
+    // answer from the transcript on every reload.
     const base = [
       CAMPAIGN_MANAGER_START_STORY_SENTINEL,
       CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
@@ -239,6 +248,27 @@ export function CampaignManagerChatProvider({
     void resumeAndOpen()
   }, [resumeAndOpen])
 
+  // Opens the manager and queues the ballot-access question so the candidate
+  // lands on the answer instead of an empty composer. Same one-shot kickoff
+  // path and same in-flight guard as startStory; does NOT dismiss the meet card
+  // (asking about the ballot is not "meeting the manager").
+  const startBallotAccess = useCallback(() => {
+    if (resumingRef.current) return
+    // Closing the chat clears pendingKickoff, which resets the body's
+    // kicked-off ref, so a second card click would fire the kickoff again. The
+    // story sentinel can absorb that (its reply is canned); this one is a real
+    // LLM turn, so it would append a duplicate paid exchange to the transcript.
+    // Once a conversation is open, reopening it is all the card does — the
+    // answer is already in the thread, and if they arrived at that conversation
+    // another way the manager already leads with ballot access for them.
+    if (conversationId) {
+      setChatOpen(true)
+      return
+    }
+    setPendingKickoff(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
+    void resumeAndOpen()
+  }, [conversationId, resumeAndOpen])
+
   // The personalize deep link (`/dashboard?personalize=1`) is how the plan-tab
   // story gate's "Open"/"Edit in campaign manager" links start the same story
   // flow as the manager home's own card. Read from the URL directly (not
@@ -266,10 +296,18 @@ export function CampaignManagerChatProvider({
       openManager,
       openConversation,
       startStory,
+      startBallotAccess,
       meetDismissed,
       dismissMeetCard,
     }),
-    [openManager, openConversation, startStory, meetDismissed, dismissMeetCard],
+    [
+      openManager,
+      openConversation,
+      startStory,
+      startBallotAccess,
+      meetDismissed,
+      dismissMeetCard,
+    ],
   )
 
   return (
