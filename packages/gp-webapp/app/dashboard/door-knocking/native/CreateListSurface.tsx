@@ -9,10 +9,12 @@ import {
 import {
   addressPreviewQueryOptions,
   savedListsQueryOptions,
+  TURF_COLORS,
 } from './turfQueries'
 import { voterPackQueryOptions } from './useVoterPack'
 import CreateListFlow from './createFlow/CreateListFlow'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
+import { CONFIRM_PEEK_TOP_PCT } from './createFlow/createFlowSteps'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PolygonRing } from './VoterMapCanvas'
 import type { PolygonStats } from './filterEngine'
@@ -23,6 +25,13 @@ import type { PolygonStats } from './filterEngine'
 // is a request TO the canvas or a fact FROM it — the canvas owns the ring
 // itself, so Undo and Clear are asks rather than edits made in the flow.
 //
+// The chosen list colour is a request of the same kind, which is why it moved
+// up here out of the confirm step's own `useState`: the ring the candidate is
+// judging the colour against is drawn by the canvas, and by this directory's
+// rule state the map reads cannot live in a component the page unmounts. So is
+// the framing — a step that covers part of the map asks for the shape back in
+// view, and the canvas is the only thing holding the camera.
+//
 // Kept beside the panel because both halves are one surface's contract: an
 // agent changing what the draw step asks of the map changes this file, and the
 // orchestrator only ever spreads the result onto `VoterMapCanvas`.
@@ -30,15 +39,30 @@ export const useCreateListDraw = (step: CreateFlowStep | null) => {
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [undoDrawToken, setUndoDrawToken] = useState(0)
+  const [frameDrawToken, setFrameDrawToken] = useState(0)
   const [pointCount, setPointCount] = useState(0)
   const [hintDismissed, setHintDismissed] = useState(false)
+  const [drawColor, setDrawColor] = useState<string>(TURF_COLORS[0])
 
   return {
     startDrawToken,
     clearDrawToken,
     undoDrawToken,
+    frameDrawToken,
     pointCount,
     onPointCount: setPointCount,
+    // The colour the confirm step is picking, drawn on the ring it is picking it
+    // for. Also handed back down to the flow, which renders the swatches.
+    drawColor,
+    onDrawColorChange: setDrawColor,
+    // What the confirm sheet covers, since the peek is stated as the fraction it
+    // leaves uncovered. Read off the sheet's own constant so its height and the
+    // camera's padding cannot come to describe different bands.
+    frameDrawBottomPct: 100 - CONFIRM_PEEK_TOP_PCT,
+    // Entering a step that covers part of the map: put the shape in what is
+    // left. Not fired by the ring changing — the canvasser is the one framing it
+    // while they draw.
+    frameDrawing: () => setFrameDrawToken((token) => token + 1),
     // A first-run coach mark, so it is gone the moment a point exists.
     hintVisible: step === 'draw' && !hintDismissed && pointCount === 0,
     dismissHint: () => setHintDismissed(true),
@@ -56,7 +80,13 @@ export const useCreateListDraw = (step: CreateFlowStep | null) => {
     clearPoints: () => setStartDrawToken((token) => token + 1),
     undoPoint: () => setUndoDrawToken((token) => token + 1),
     // Leaving the flow entirely: empty the shape rather than restart a session.
-    clearDrawing: () => setClearDrawToken((token) => token + 1),
+    // The colour resets with it, which the confirm step used to get for free by
+    // being unmounted — this hook outlives the flow, so what the unmount did has
+    // to be said out loud. Same asymmetry `hiddenTurfIds` records on the page.
+    clearDrawing: () => {
+      setClearDrawToken((token) => token + 1)
+      setDrawColor(TURF_COLORS[0])
+    },
   }
 }
 
@@ -141,6 +171,12 @@ export interface CreateListSurfaceProps {
   // Undo / Clear are requests to the canvas, which owns the in-progress ring.
   onUndoPoint: () => void
   onClearPoints: () => void
+  // The colour the confirm step's picker is on. Up on the page for the same
+  // reason the ring is: the canvas tints the boundary with it, and a candidate
+  // choosing the colour their list will be drawn in with the map hidden is the
+  // defect this closes. The flow still draws the swatches and reports the pick.
+  color: string
+  onColorChange: (color: string) => void
   onSaved: (drawAnother: boolean) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
@@ -163,6 +199,8 @@ export default function CreateListSurface({
   drawPointCount,
   onUndoPoint,
   onClearPoints,
+  color,
+  onColorChange,
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
@@ -262,6 +300,8 @@ export default function CreateListSurface({
       drawPointCount={drawPointCount}
       onUndoPoint={onUndoPoint}
       onClearPoints={onClearPoints}
+      color={color}
+      onColorChange={onColorChange}
       onSaved={(drawAnother) => {
         // A saved list is finished business, so the next shape is asked about
         // from scratch — same rule as backing out to the filters.

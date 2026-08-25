@@ -81,6 +81,10 @@ vi.mock('./VoterMapCanvas', () => ({
     routePins,
     selectedStopId,
     initialZoom,
+    drawColor,
+    frameDrawToken,
+    frameDrawBottomPct,
+    controlsHidden,
     onPolygonChange,
     onDrawPointCount,
     onRoutePinClick,
@@ -90,6 +94,10 @@ vi.mock('./VoterMapCanvas', () => ({
     routePins: Array<{ stopId: number; seq: number }>
     selectedStopId: number | null
     initialZoom?: number
+    drawColor: string
+    frameDrawToken: number
+    frameDrawBottomPct: number
+    controlsHidden?: boolean
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
     onRoutePinClick?: (pin: { stopId: number }) => void
@@ -115,6 +123,18 @@ vi.mock('./VoterMapCanvas', () => ({
         routePins.find((pin) => pin.stopId === selectedStopId)?.seq ?? null,
       )}
       data-initial-zoom={String(initialZoom)}
+      // The colour the in-progress boundary is drawn in. It is the confirm
+      // step's pick, which is why it has to arrive here at all: a candidate
+      // choosing the colour their list will be drawn in has nothing to judge it
+      // by unless the shape on screen is already wearing it.
+      data-draw-color={drawColor}
+      // Bumped by a step that has just covered part of the map, with the covered
+      // fraction beside it so the fit lands in the band that is left.
+      data-frame={String(frameDrawToken)}
+      data-frame-bottom={String(frameDrawBottomPct)}
+      // The band the confirm step uncovers is shielded from taps, so the map's
+      // own buttons standing in it would be dead ones.
+      data-controls-hidden={String(Boolean(controlsHidden))}
     >
       <button
         type="button"
@@ -1069,6 +1089,58 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(advance)
 
     expect(screen.getByLabelText('Route name')).toBeInTheDocument()
+  })
+
+  // The seam crossing this change is about: the colour picker sits in the flow,
+  // the ring it describes is drawn by the canvas, and the canvas outlives the
+  // flow — so the pick travels up to the page and back down as a canvas prop.
+  // The confirm step also covers most of the map, so the page asks for the shape
+  // to be re-framed into the band it leaves.
+  it('tints the map with the colour the confirm step is picking', async () => {
+    drawSession.placed = []
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    openFlowAndDraw()
+
+    const map = screen.getByTestId('voter-map')
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    // Drawing frames nothing: the canvasser is the one aiming the camera while
+    // they place points.
+    expect(map).toHaveAttribute('data-frame', '0')
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Continue \(\d+ doors\)/ }),
+    )
+
+    // Entering confirm asks for one fit, against the 70% the sheet covers, and
+    // takes the map's buttons down: the band it uncovers is shielded from taps,
+    // so a "+" standing in it is one that answers nothing.
+    expect(map).toHaveAttribute('data-frame', '1')
+    expect(map).toHaveAttribute('data-frame-bottom', '70')
+    expect(map).toHaveAttribute('data-controls-hidden', 'true')
+    expect(map).toHaveAttribute('data-draw-color', '#2563eb')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Green' }))
+
+    expect(map).toHaveAttribute('data-draw-color', '#16a34a')
+    // And the picker follows the page's answer, so the tick and the ring are one
+    // fact rather than two.
+    expect(screen.getByRole('button', { name: 'Green' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    // Leaving the flow puts the colour back: this state now outlives the step
+    // that owns it, so what unmounting used to do has to be done by hand.
+    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(map).toHaveAttribute('data-draw-color', '#2563eb')
+    // And the map is a map again, not a picture.
+    expect(map).toHaveAttribute('data-controls-hidden', 'false')
   })
 
   // What the walkthrough asked for: the actual houses, at the one moment the
