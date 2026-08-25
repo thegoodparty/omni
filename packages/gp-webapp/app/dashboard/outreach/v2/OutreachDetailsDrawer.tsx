@@ -58,7 +58,6 @@ import {
   UsersRoundIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
-import { dateUsHelper } from 'helpers/dateHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { TcrCompliance, VoterFileFilters } from 'helpers/types'
 import { clientRequest } from 'gpApi/typed-request'
@@ -78,6 +77,7 @@ import {
   getChannelLabel,
 } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import { shortOutreachDate } from './outreachDate.util'
 import { useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
@@ -112,11 +112,6 @@ const percentLabel = (count: number, total: number): string =>
 
 const PRICE_PER_TEXT =
   OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
-
-// Prototype date display ("Sent Sep 8") — same year-stripped short form the
-// history table uses.
-const shortDate = (date: string | Date): string =>
-  dateUsHelper(date, 'short').replace(/,\s*\d{4}$/, '')
 
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
@@ -376,8 +371,8 @@ export const OutreachDetailsDrawer = ({
                       <span className="text-sm text-muted-foreground">
                         ·{' '}
                         {bylineVerb
-                          ? `${bylineVerb} ${shortDate(displayDate)}`
-                          : shortDate(displayDate)}
+                          ? `${bylineVerb} ${shortOutreachDate(displayDate)}`
+                          : shortOutreachDate(displayDate)}
                       </span>
                     )}
                   </div>
@@ -409,7 +404,7 @@ export const OutreachDetailsDrawer = ({
                     <Metric
                       icon={<CalendarIcon />}
                       label="Date"
-                      value={displayDate ? shortDate(displayDate) : '—'}
+                      value={displayDate ? shortOutreachDate(displayDate) : '—'}
                     />
                     <Metric
                       icon={<FileTextIcon />}

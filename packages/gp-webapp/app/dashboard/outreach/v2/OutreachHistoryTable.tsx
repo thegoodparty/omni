@@ -27,7 +27,7 @@ import {
   ArchiveIcon,
   SlidersHorizontalIcon,
 } from '@styleguide/components/ui/icons'
-import { dateUsHelper } from 'helpers/dateHelper'
+import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import {
   ChannelBadge,
@@ -189,11 +189,9 @@ const rowTime = (row: HistoryRow): number => {
   return Number.isNaN(time) ? 0 : time
 }
 
-// The prototype shows "Jul 30" — short month, no year. dateUsHelper owns the
-// date-only parsing quirks, so reuse it and drop its year suffix.
 const rowDisplayDate = (row: HistoryRow): string | null => {
   const raw = row.date ?? row.createdAt
-  return raw ? dateUsHelper(raw, 'short').replace(/,\s*\d{4}$/, '') : null
+  return raw ? shortOutreachDate(raw) : null
 }
 
 export const OutreachHistoryTable = ({
