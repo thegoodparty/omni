@@ -14,6 +14,13 @@ import { ChevronDownIcon, ChevronRightIcon, cn } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
+import {
+  DoorNoteList,
+  editServedNotes,
+  withCreatedNote,
+  withDeletedNote,
+  withUpdatedNote,
+} from './doorNotes'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
@@ -128,6 +135,32 @@ export default function WalkView({
     personId: string,
     notAVoterReason: NotAVoterReason | undefined,
   ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
+  // ADR 0011. A note written at a door is the same kind of fact as a knock:
+  // recorded by this walk, and absent from the payload the walk was served
+  // with. So it takes the same road, into the cached payload the sheet reads —
+  // which makes the cache the door's ONE copy of a resident's notes, with
+  // nothing beside it that could disagree. Held instead in state above the card
+  // it would die with the sheet, and a note written on a door that was then
+  // closed without being logged would read as gone when that door was reopened:
+  // `openSheet`'s ADR 0009 refresh only fires for a resident logged this
+  // session, so nothing would go and ask for it either.
+  //
+  // Two properties come free with `patchPerson` and are the reason to reuse it
+  // rather than write a second patcher. It cancels the route query first, so a
+  // serve built before the note was saved cannot land after it and take the
+  // note back off the card — the same race that would otherwise put a logged
+  // door back to unknown. And a serve that genuinely arrives later *does*
+  // replace this, which is what a note a teammate wrote needs in order to ever
+  // show up here; a client-held list would shadow the server's for the rest of
+  // the walk.
+  const patchNotes = (
+    personId: string,
+    edit: (list: DoorNoteList) => DoorNoteList,
+  ) =>
+    patchPerson(personId, (target) => ({
+      ...target,
+      notes: editServedNotes(target.notes, edit),
+    }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
   const stopRowRefs = useRef(new Map<number, HTMLLIElement | null>())
   const [sheet, setSheet] = useState<{
@@ -656,6 +689,15 @@ export default function WalkView({
             if (knockStatus === 'not_a_voter') return
             advanceFrom(targetId)
           }}
+          onNoteCreated={(personId, created) =>
+            patchNotes(personId, (list) => withCreatedNote(list, created))
+          }
+          onNoteUpdated={(personId, updated) =>
+            patchNotes(personId, (list) => withUpdatedNote(list, updated))
+          }
+          onNoteDeleted={(personId, noteId) =>
+            patchNotes(personId, (list) => withDeletedNote(list, noteId))
+          }
           onDoNotKnockChanged={applyDoNotKnock}
           onNotAVoterChanged={(personId, notAVoterReason) => {
             applyNotAVoter(personId, notAVoterReason)
