@@ -244,12 +244,11 @@ export class DatabricksVoterService {
     }
   }
 
-  // Computed on demand rather than read from the precomputed DistrictStats
-  // table, which runs 8-22 days stale.
+  // No district resolution needed: the stats table is keyed by district id, so
+  // this is one lookup rather than a resolve plus an aggregate over the voters.
   async findStats(districtId: string): Promise<ComputedDistrictStats | null> {
-    const district = await this.resolveDistrict(districtId)
-    const { rows } = await this.run(buildDistrictStatsSql(district))
-    return mapDistrictStatsRow(districtId, rows[0], new Date())
+    const { rows } = await this.run(buildDistrictStatsSql(districtId))
+    return mapDistrictStatsRow(districtId, rows[0])
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

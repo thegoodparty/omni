@@ -332,40 +332,28 @@ describe('DatabricksVoterService', () => {
   })
 
   describe('findStats', () => {
-    beforeEach(() => {
-      query
-        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
-        .mockResolvedValueOnce(columnRows())
-    })
-
-    it('maps a zero-voter district back to null', async () => {
-      query.mockResolvedValueOnce({
-        columns: [],
-        rows: [['0', '0', ...Array.from({ length: 30 }, () => '0')]],
-      })
+    // No district resolution and no column probe: the stats table is keyed by
+    // district id, so findStats issues exactly one query.
+    it('returns null when the district has no stats row', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
 
       expect(await service.findStats(DISTRICT_ID)).toBeNull()
+      expect(query).toHaveBeenCalledTimes(1)
     })
 
-    it('returns a computed row for a district with voters', async () => {
+    it('reads the mirrored stats row straight through', async () => {
       query.mockResolvedValueOnce({
         columns: [],
         rows: [
           [
             '100',
             '40',
-            // age: Unknown/18-25/26-35/36-50/51+
-            '0',
-            '100',
-            '0',
-            '0',
-            '0',
-            // education(7) + homeowner(3) + presenceOfChildren(3), then the 13
-            // income buckets with the top one populated so a short row -- which
-            // would read undefined and coerce to 0 -- fails instead of passing.
-            ...Array.from({ length: 13 }, () => '0'),
-            ...Array.from({ length: 12 }, () => '0'),
-            '100',
+            '2026-08-22T00:33:05.582Z',
+            JSON.stringify([{ label: '18-25', count: '100', percent: '100' }]),
+            '[]',
+            '[]',
+            '[]',
+            JSON.stringify([{ label: '250k+', count: '60', percent: '60' }]),
           ],
         ],
       })
@@ -374,11 +362,12 @@ describe('DatabricksVoterService', () => {
 
       expect(stats?.totalConstituents).toBe(100)
       expect(stats?.totalConstituentsWithCellPhone).toBe(40)
+      expect(stats?.updatedAt.toISOString()).toBe('2026-08-22T00:33:05.582Z')
       expect(stats?.buckets.age).toEqual([
         { label: '18-25', count: 100, percent: 100 },
       ])
       expect(stats?.buckets.estimatedIncomeRange).toEqual([
-        { label: '250k+', count: 100, percent: 100 },
+        { label: '250k+', count: 60, percent: 60 },
       ])
     })
   })

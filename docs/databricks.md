@@ -111,15 +111,19 @@ The voter-data identity takes no hostname: there is one workspace, so
 `peopleDbx.config.ts` holds it as a constant. It keeps the warehouse in env so
 dev and prod can run on separate compute, and so moving off a saturated
 warehouse is a secret update and a task cycle rather than a deploy. It reads
-`mart_gp_api.voters` and `mart_gp_api.districts` -- pass-through views over the
-`dbt.m_people_api__*` models -- and is deliberately not interchangeable with the
-two agent identities above.
+`mart_gp_api.gp_api_voters`, `gp_api_districts`, and `gp_api_district_stats`,
+and is deliberately not interchangeable with the two agent identities above.
 
-Read the mart, not the `dbt` models underneath it. The data is identical, but
+Read the mart, never the `dbt` models underneath it. The data is the same, but
 the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the
 `mart_gp_api_readers` group, which survives the `CREATE OR REPLACE VIEW` a dbt
 rebuild performs. Table-level grants on the `dbt` objects do not -- they were
 granted directly once and silently vanished, taking every voter read with them.
+
+`gp_api_district_stats` mirrors Postgres's `DistrictStats` column for column,
+including which districts have no row at all. Read it rather than aggregating
+the voter rows: absence is the product's signal for "no constituent data for
+this office", so a query that always returns a number would erase it.
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

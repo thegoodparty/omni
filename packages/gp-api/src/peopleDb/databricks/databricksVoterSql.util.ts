@@ -17,10 +17,10 @@ import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 const TABLE = (name: string): string =>
   `${PEOPLE_DBX_CATALOG}.${PEOPLE_DBX_SCHEMA}.${name}`
 
-const VOTER_TABLE_NAME = 'voters'
+const VOTER_TABLE_NAME = 'gp_api_voters'
 
 export const VOTER_TABLE = TABLE(VOTER_TABLE_NAME)
-export const DISTRICT_TABLE = TABLE('districts')
+export const DISTRICT_TABLE = TABLE('gp_api_districts')
 
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
