@@ -108,6 +108,7 @@ export default function CreateListWizard({
     setBranch(null)
     setDemographicFilters({})
     setSupportStatus([])
+    setPrecincts([])
     setActivityConditions([blankActivityCondition()])
     setName('')
     setOpenSession((session) => session + 1)
