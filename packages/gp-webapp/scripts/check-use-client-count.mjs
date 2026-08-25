@@ -266,7 +266,12 @@ import { dirname, join, relative } from 'node:path'
 // native/doorNotes.ts, stays directive-free and inherits the boundary from its
 // importers: it is a hooks-and-pure-functions module with no JSX, the
 // turfLifecycle.ts rule.
-const BASELINE = 604
+// 2026-08-25: 604 -> 605 for
+// dashboard/contacts/crm/lists/DuplicateListDialog.tsx (ENG-10943). It owns
+// the confirm-then-mutate flow (useDuplicateList's mutation + its pending
+// state) for the duplicate-list AlertDialog — same shape as its siblings
+// RenameListDialog/DeleteListDialog, both already client components.
+const BASELINE = 605
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
