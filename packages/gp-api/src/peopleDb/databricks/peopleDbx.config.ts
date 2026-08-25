@@ -1,5 +1,10 @@
 export const PEOPLE_DBX_CATALOG = 'goodparty_data_catalog'
-export const PEOPLE_DBX_SCHEMA = 'dbt'
+// The consumer-facing mart, not the `dbt` models underneath it. Both are the
+// same data — these are pass-through views — but access is granted differently:
+// `mart_gp_api` carries a schema-scoped SELECT for the `mart_gp_api_readers`
+// group, which survives the CREATE OR REPLACE VIEW that a dbt rebuild performs.
+// Table-level grants on the dbt objects do not, and silently vanished once.
+export const PEOPLE_DBX_SCHEMA = 'mart_gp_api'
 
 // One workspace, and a workspace identifier is not a secret (docs/databricks.md
 // says so explicitly). Making it configurable bought nothing: there is no

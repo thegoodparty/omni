@@ -360,7 +360,12 @@ describe('DatabricksVoterService', () => {
             '0',
             '0',
             '0',
-            ...Array.from({ length: 25 }, () => '0'),
+            // education(7) + homeowner(3) + presenceOfChildren(3), then the 13
+            // income buckets with the top one populated so a short row -- which
+            // would read undefined and coerce to 0 -- fails instead of passing.
+            ...Array.from({ length: 13 }, () => '0'),
+            ...Array.from({ length: 12 }, () => '0'),
+            '100',
           ],
         ],
       })
@@ -371,6 +376,9 @@ describe('DatabricksVoterService', () => {
       expect(stats?.totalConstituentsWithCellPhone).toBe(40)
       expect(stats?.buckets.age).toEqual([
         { label: '18-25', count: 100, percent: 100 },
+      ])
+      expect(stats?.buckets.estimatedIncomeRange).toEqual([
+        { label: '250k+', count: 100, percent: 100 },
       ])
     })
   })

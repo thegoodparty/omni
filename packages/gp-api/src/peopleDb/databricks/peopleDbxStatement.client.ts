@@ -137,7 +137,10 @@ export class PeopleDbxUnavailableError extends Error {
 }
 
 const TERMINAL_FAILURE_STATES = new Set(['FAILED', 'CANCELED', 'CLOSED'])
-const UNREACHABLE_STATUSES = new Set([401, 403, 429, 502, 503, 504])
+// 404 belongs here: the statement id in a poll URL comes from a submit we just
+// made, so a miss means the warehouse expired the result out from under us, not
+// that we built a bad route.
+const UNREACHABLE_STATUSES = new Set([401, 403, 404, 429, 502, 503, 504])
 const SUCCEEDED = 'SUCCEEDED'
 
 @Injectable()

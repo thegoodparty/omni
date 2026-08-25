@@ -105,14 +105,21 @@ Both read the same connection coordinates from the environment:
 | `WIN_DATABRICKS_HTTP_PATH`                          | `/sql/1.0/warehouses/a6f5281417d1c869` (wh-win-agents)      |
 | `WIN_DATABRICKS_CLIENT_ID` / `WIN_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_win_agent` (Campaign Manager) |
 | `PEOPLE_DATABRICKS_WAREHOUSE_ID`                    | Bare warehouse id (no path) for the CRM's voter queries    |
-| `PEOPLE_DATABRICKS_CLIENT_ID` / `PEOPLE_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_people_db` (voter data) |
+| `PEOPLE_DATABRICKS_CLIENT_ID` / `PEOPLE_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for the `gp_api` SP (voter data) |
 
 The voter-data identity takes no hostname: there is one workspace, so
 `peopleDbx.config.ts` holds it as a constant. It keeps the warehouse in env so
 dev and prod can run on separate compute, and so moving off a saturated
-warehouse is a secret update and a task cycle rather than a deploy. Its grant
-covers `dbt.m_people_api__voter` and `dbt.m_people_api__district` only, and it
-is deliberately not interchangeable with the two agent identities above.
+warehouse is a secret update and a task cycle rather than a deploy. It reads
+`mart_gp_api.voters` and `mart_gp_api.districts` -- pass-through views over the
+`dbt.m_people_api__*` models -- and is deliberately not interchangeable with the
+two agent identities above.
+
+Read the mart, not the `dbt` models underneath it. The data is identical, but
+the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the
+`mart_gp_api_readers` group, which survives the `CREATE OR REPLACE VIEW` a dbt
+rebuild performs. Table-level grants on the `dbt` objects do not -- they were
+granted directly once and silently vanished, taking every voter read with them.
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

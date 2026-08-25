@@ -6,7 +6,7 @@ import {
   PeopleDbxUnavailableError,
 } from './peopleDbxStatement.client'
 import type { DbxStatement } from './databricksVoterSql.util'
-import { PEOPLE_DBX_HOSTNAME } from './peopleDbx.config'
+import { PEOPLE_DBX_HOSTNAME, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 
 const stmt = (sql: string): DbxStatement => ({ sql, params: [] })
 
@@ -84,7 +84,7 @@ describe('PeopleDbxStatementClient', () => {
       expect(body).toMatchObject({
         statement: 'SELECT 1',
         catalog: 'goodparty_data_catalog',
-        schema: 'dbt',
+        schema: PEOPLE_DBX_SCHEMA,
         format: 'JSON_ARRAY',
         disposition: 'INLINE',
         warehouse_id: 'wh1',

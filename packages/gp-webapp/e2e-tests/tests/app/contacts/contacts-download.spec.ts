@@ -1,4 +1,4 @@
-import { gunzipSync } from 'node:zlib'
+import { createGunzip } from 'node:zlib'
 import type { Readable } from 'node:stream'
 import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
@@ -119,10 +119,8 @@ test.describe('Contacts CSV download', () => {
       /^attachment;\s*filename="contacts\.csv"$/,
     )
 
-    const chunks: Buffer[] = []
-    for await (const chunk of response.data) {
-      chunks.push(Buffer.from(chunk))
-    }
-    assertCuratedCsv(gunzipSync(Buffer.concat(chunks)).toString('utf8'))
+    // Inflate as it arrives and stop at the first data row. Buffering the whole
+    // body first would mean holding a district-sized export in memory.
+    assertCuratedCsv(await readCsvHead(response.data.pipe(createGunzip())))
   })
 })

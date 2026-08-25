@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  GatewayTimeoutException,
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common'
@@ -14,6 +15,7 @@ import { DatabricksVoterService } from './databricksVoter.service'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
+  PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
   type PeopleDbxCsvChunk,
 } from './peopleDbxStatement.client'
@@ -65,6 +67,15 @@ export class DatabricksVoterDownloadService {
         throw new BadGatewayException(
           'Voter data is temporarily unavailable, so the export could not ' +
             'start. This is a connection problem, not an empty district.',
+        )
+      }
+      // A cold warehouse can take long enough to answer that the statement
+      // poll gives up, which is a retry-shortly condition rather than a broken
+      // service. DatabricksVoterService maps the same error the same way.
+      if (err instanceof PeopleDbxTimeoutError) {
+        throw new GatewayTimeoutException(
+          'Voter data export timed out before it could start. Try again ' +
+            'shortly.',
         )
       }
       throw new InternalServerErrorException('Failed to start download')

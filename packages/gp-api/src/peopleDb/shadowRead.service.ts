@@ -90,6 +90,7 @@ export class ShadowReadService {
         args,
         performance.now() - startedAt,
         value,
+        false,
         comparisonSettled,
       )
       return value
@@ -98,6 +99,7 @@ export class ShadowReadService {
         args,
         performance.now() - startedAt,
         null,
+        true,
         comparisonSettled,
       )
       throw err
@@ -129,6 +131,10 @@ export class ShadowReadService {
     },
     dbxMs: number,
     dbxValue: A | null,
+    // Explicit rather than inferred from `dbxValue === null`: a nullable A --
+    // `findStats` returns null for a district with no voters -- makes a
+    // successful empty answer indistinguishable from a thrown error.
+    dbxFailed: boolean,
     comparisonSettled: Promise<{
       ms: number
       value: C | null
@@ -136,9 +142,8 @@ export class ShadowReadService {
     }>,
   ): Promise<void> {
     const pg = await comparisonSettled
-    const dbxFailed = dbxValue === null
     const dbxPrint =
-      dbxValue === null
+      dbxFailed || dbxValue === null
         ? null
         : this.safeFingerprint(dbxValue, args.fingerprintAuthoritative)
     const pgPrint =
@@ -158,8 +163,11 @@ export class ShadowReadService {
           : null,
       dbxFingerprint: dbxPrint,
       pgFingerprint: pgPrint,
-      agrees:
-        dbxPrint !== null && pgPrint !== null ? dbxPrint === pgPrint : null,
+      // Both null is agreement, not an absent verdict: a district with no
+      // voters is the case where the two stores are most likely to disagree
+      // (Postgres has no stats row at all, Databricks computes on demand), so
+      // it is the one we least want to drop from the measurement.
+      agrees: comparable ? dbxPrint === pgPrint : null,
       dbxFailed,
       pgError: pg.error,
     }

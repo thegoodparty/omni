@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PeopleFiltersSchema } from '@goodparty_org/contracts'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import { ALL_KNOWN_PARTY_VALUES } from '../utils/politicalParty.rules'
-import { PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
+import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 import {
   buildAggregatesSql,
   buildCountSql,
@@ -16,6 +16,8 @@ import {
   buildVoterColumnsSql,
   buildVoterFiltersSql,
   createBag,
+  DISTRICT_TABLE,
+  VOTER_TABLE,
   type DbxDistrict,
 } from './databricksVoterSql.util'
 
@@ -83,13 +85,15 @@ describe('buildScopeSql', () => {
       buildVoterColumnsSql(),
     ]
 
+    const qualified = new RegExp(
+      `${PEOPLE_DBX_CATALOG}\\.${PEOPLE_DBX_SCHEMA}\\.[A-Za-z0-9_]+`,
+      'g',
+    )
     for (const { sql } of statements) {
-      const tables = sql.match(/m_people_api__[a-z_]+/g) ?? []
+      const tables = sql.match(qualified) ?? []
       expect(new Set(tables).size).toBeLessThanOrEqual(1)
       for (const table of tables) {
-        expect(['m_people_api__voter', 'm_people_api__district']).toContain(
-          table,
-        )
+        expect([VOTER_TABLE, DISTRICT_TABLE]).toContain(table)
       }
     }
 
@@ -97,10 +101,10 @@ describe('buildScopeSql', () => {
     // names no voter table at all: the table it asks about is a bound value.
     const columns = buildVoterColumnsSql()
     expect(columns.sql).toContain('information_schema.columns')
-    expect(columns.sql).not.toContain('m_people_api__voter')
+    expect(columns.sql).not.toContain(VOTER_TABLE)
     expect(columns.params.map(({ value }) => value)).toEqual([
       PEOPLE_DBX_SCHEMA,
-      'm_people_api__voter',
+      VOTER_TABLE.split('.').at(-1),
     ])
   })
 
