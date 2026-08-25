@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatsService } from './stats.service'
 import type { PeopleDbService } from '../peopleDb.service'
+import type { ShadowReadService } from '../shadowRead.service'
 
 describe('StatsService', () => {
   let service: StatsService
@@ -18,6 +19,12 @@ describe('StatsService', () => {
     }
 
     service = new StatsService()
+    // Disabled shadow reader: compare() must hand straight through to the
+    // primary, so these assertions describe the Postgres read and nothing else.
+    ;(service as unknown as { shadow: ShadowReadService }).shadow = {
+      enabled: false,
+      compare: (args: { primary: () => unknown }) => args.primary(),
+    } as unknown as ShadowReadService
     ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
       get instance() {
         return mockPrisma

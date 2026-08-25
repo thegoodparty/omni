@@ -113,6 +113,8 @@ describe('VoterDownloadService', () => {
     setupClient()
 
     service = new VoterDownloadService(
+      { enabled: false } as never,
+      { streamPeopleCsv: vi.fn() } as never,
       districtServiceMock as never,
       peopleDbUrlProviderMock as never,
     )
@@ -744,6 +746,8 @@ describe('VoterDownloadService', () => {
       }
 
       const unresolvedService = new VoterDownloadService(
+        { enabled: false } as never,
+        { streamPeopleCsv: vi.fn() } as never,
         districtServiceMock as never,
         unresolvedProvider as never,
       )
@@ -763,6 +767,8 @@ describe('VoterDownloadService', () => {
       }
 
       const unresolvedService = new VoterDownloadService(
+        { enabled: false } as never,
+        { streamPeopleCsv: vi.fn() } as never,
         districtServiceMock as never,
         unresolvedProvider as never,
       )

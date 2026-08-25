@@ -39,6 +39,7 @@ export const runUnderStatementTimeout = async <T>(
   sql: Prisma.Sql,
   logger: Logger,
   timeoutMessage: string,
+  timeoutMs: number = STATEMENT_TIMEOUT_MS,
 ): Promise<T[]> => {
   const startedAt = Date.now()
   try {
@@ -46,7 +47,7 @@ export const runUnderStatementTimeout = async <T>(
     // constant, so Prisma.raw is safe here.
     const [, rows] = await client.$transaction([
       client.$executeRaw(
-        Prisma.raw(`SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT_MS}ms'`),
+        Prisma.raw(`SET LOCAL statement_timeout = '${timeoutMs}ms'`),
       ),
       client.$queryRaw<T[]>(sql),
     ])

@@ -106,7 +106,11 @@ export const createHarness = async (): Promise<Harness> => {
   const prepare = async (cases: BenchCase[]): Promise<void> => {
     const needed = [
       ...new Set(
-        cases.filter((c) => c.variant.idSet).map((c) => c.cohort.districtId),
+        cases
+          // voter-by-id needs a real id too, and sampling inside the timed
+          // loop is what inflated a cell by ~50s before this existed.
+          .filter((c) => c.variant.idSet || c.queryType === 'voter-by-id')
+          .map((c) => c.cohort.districtId),
       ),
     ]
     for (const districtId of needed) await sampleIds(districtId)
@@ -198,6 +202,19 @@ export const createHarness = async (): Promise<Harness> => {
           samplePeopleSchema.parse({ districtId, size: 1000 }),
         )
         return
+      // Both by-id cases are single-row primary-key reads. The voter id comes
+      // from the same sampled set prepare() already materializes, so this adds
+      // no setup cost and uses an id that provably exists in the district.
+      case 'district-by-id':
+        await districts.findDistrictById(districtId)
+        return
+      case 'voter-by-id': {
+        const ids = await sampleIds(districtId)
+        const [id] = ids
+        if (!id) throw new Error(`no ids sampled for district ${districtId}`)
+        await voterQuery.findPerson(id, { districtId } as never)
+        return
+      }
       case 'stats': {
         const statsDto: StatsDTO = { districtId }
         await stats.findStats(statsDto)
