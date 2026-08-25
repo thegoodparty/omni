@@ -33,6 +33,7 @@ import {
   buildPageSql,
   buildSampleSql,
   buildVoterColumnsSql,
+  HOUSEHOLD_PAGE_COLUMNS,
   type DbxDistrict,
 } from './databricksVoterSql.util'
 import {
@@ -205,17 +206,26 @@ export class DatabricksVoterService {
     // it is what decides the request's latency. There is no precomputed-stats
     // shortcut for the unfiltered count here — DistrictStats runs 8-22 days
     // stale and the live count is cheap enough not to need it.
+    const { groupByHousehold } = dto
     const [countRows, pageRows] = await Promise.all([
-      dto.skipCount ? Promise.resolve(null) : this.run(buildCountSql(scope)),
+      dto.skipCount
+        ? Promise.resolve(null)
+        : this.run(buildCountSql({ ...scope, groupByHousehold })),
       this.run(
         buildPageSql({
           ...scope,
           columns: columnNames,
           take: dto.resultsPerPage,
           skip: (page - 1) * dto.resultsPerPage,
+          groupByHousehold,
         }),
       ),
     ])
+    // Grouped mode appends the two household columns after the projection, so
+    // the names have to grow with the row or toDbPerson misaligns them.
+    const rowColumns = groupByHousehold
+      ? [...columnNames, ...HOUSEHOLD_PAGE_COLUMNS]
+      : columnNames
 
     const totalResults = countRows ? Number(countRows.rows[0]?.[0] ?? 0) : 0
     const totalPages = Math.max(1, Math.ceil(totalResults / dto.resultsPerPage))
@@ -229,7 +239,7 @@ export class DatabricksVoterService {
         hasPreviousPage: page > 1,
       },
       people: pageRows.rows
-        .map((row) => toDbPerson(columnNames, row))
+        .map((row) => toDbPerson(rowColumns, row))
         .map(transformToPersonOutput),
     }
   }

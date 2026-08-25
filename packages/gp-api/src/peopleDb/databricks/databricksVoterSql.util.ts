@@ -1,4 +1,7 @@
-import { type IdOverrides } from '@goodparty_org/contracts'
+import {
+  HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  type IdOverrides,
+} from '@goodparty_org/contracts'
 import { FilterData, type FilterOperator } from '../schemas/filters.schema'
 import { VALUE_MAPPERS } from '../utils/filters.sql.util'
 import {
@@ -59,6 +62,17 @@ export const createBag = (): Bag => {
 const ident = (name: string): string => `\`${name.replace(/`/g, '``')}\``
 
 const col = (name: string): string => `v.${ident(name)}`
+
+// The same household key the Postgres path builds (buildHouseholdKeySql), in
+// Spark dialect: each component COALESCE'd so a NULL doesn't void the key,
+// TRIM'd and UPPER'd so formatting differences group together, joined on a
+// delimiter that cannot occur inside a component. Both stores must derive the
+// key identically or their door-knocking counts diverge. Columns come from
+// contracts so the definition stays in lockstep.
+const householdKey = (): string =>
+  `concat_ws('|', ${HOUSEHOLD_KEY_RESIDENCE_COLUMNS.map(
+    (name) => `upper(trim(coalesce(${col(name)}, '')))`,
+  ).join(', ')})`
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -620,10 +634,17 @@ export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
   return { sql, params: bag.params }
 }
 
-export const buildCountSql = (args: DbxScopeArgs): DbxStatement => {
+export const buildCountSql = (
+  args: DbxScopeArgs & { groupByHousehold?: boolean },
+): DbxStatement => {
   const bag = createBag()
+  // COUNT(DISTINCT key) so totalResults counts households rather than voters,
+  // matching the deduped page below.
+  const countExpr = args.groupByHousehold
+    ? `COUNT(DISTINCT ${householdKey()})`
+    : 'COUNT(*)'
   const sql =
-    `SELECT COUNT(*) AS voter_count FROM ${VOTER_TABLE} v` +
+    `SELECT ${countExpr} AS voter_count FROM ${VOTER_TABLE} v` +
     ` ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
@@ -647,11 +668,14 @@ export const buildOverlapCountSql = (
   return { sql, params: bag.params }
 }
 
+export const HOUSEHOLD_PAGE_COLUMNS = ['householdId', 'householdSize'] as const
+
 export const buildPageSql = (
   args: DbxScopeArgs & {
     columns: readonly string[]
     take: number
     skip: number
+    groupByHousehold?: boolean
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -659,9 +683,30 @@ export const buildPageSql = (
     .map((column) => `${col(column)} AS ${ident(column)}`)
     .join(', ')
   const scope = buildScopeSql(bag, args)
+  if (!args.groupByHousehold) {
+    const sql =
+      `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
+      ` ORDER BY ${col('id')}` +
+      ` LIMIT ${bag.bind(num(args.take), 'INT')}` +
+      ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
+    return { sql, params: bag.params }
+  }
+  // Spark has no DISTINCT ON, so one representative per household comes from
+  // ROW_NUMBER instead. Both windows are evaluated after the WHERE clause and
+  // before the dedupe, so householdSize counts the voters at that address who
+  // MATCH the active filters -- how many contacts the canvasser will actually
+  // find there, not raw occupancy. id breaks the tie so paging is stable.
+  const key = householdKey()
+  const inner =
+    `SELECT ${projection},` +
+    ` ${key} AS ${ident('householdId')},` +
+    ` COUNT(*) OVER (PARTITION BY ${key}) AS ${ident('householdSize')},` +
+    ` ROW_NUMBER() OVER (PARTITION BY ${key}` +
+    ` ORDER BY ${col('id')}) AS rn` +
+    ` FROM ${VOTER_TABLE} v ${scope}`
   const sql =
-    `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
-    ` ORDER BY ${col('id')}` +
+    `SELECT * EXCEPT (rn) FROM (${inner}) WHERE rn = 1` +
+    ` ORDER BY ${ident('householdId')}, ${ident('id')}` +
     ` LIMIT ${bag.bind(num(args.take), 'INT')}` +
     ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
   return { sql, params: bag.params }

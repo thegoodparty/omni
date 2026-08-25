@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { PeopleFiltersSchema } from '@goodparty_org/contracts'
+import {
+  HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  PeopleFiltersSchema,
+} from '@goodparty_org/contracts'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import { ALL_KNOWN_PARTY_VALUES } from '../utils/politicalParty.rules'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
@@ -650,5 +653,53 @@ describe('buildCsvSql', () => {
 
     expect(sql).not.toContain('`Registered Party`')
     expect(sql).toContain('`First Name`')
+  })
+})
+
+describe('household grouping', () => {
+  const scope = { district: CONGRESSIONAL, filters: noFilters() }
+
+  it('counts households rather than voters when grouping', () => {
+    const plain = buildCountSql(scope)
+    const grouped = buildCountSql({ ...scope, groupByHousehold: true })
+
+    expect(plain.sql).toContain('COUNT(*)')
+    expect(grouped.sql).toContain('COUNT(DISTINCT concat_ws')
+    // Every component normalized, or one household splits into several rows.
+    for (const column of HOUSEHOLD_KEY_RESIDENCE_COLUMNS) {
+      expect(grouped.sql).toContain(`upper(trim(coalesce(v.\`${column}\``)
+    }
+  })
+
+  it('keeps one representative row per household, sized by matching voters', () => {
+    const { sql } = buildPageSql({
+      ...scope,
+      columns: ['id'],
+      take: 20,
+      skip: 0,
+      groupByHousehold: true,
+    })
+
+    // Spark has no DISTINCT ON; the dedupe is ROW_NUMBER filtered to 1.
+    expect(sql).toContain('ROW_NUMBER() OVER (PARTITION BY')
+    expect(sql).toContain('WHERE rn = 1')
+    expect(sql).not.toContain('DISTINCT ON')
+    expect(sql).toContain('COUNT(*) OVER (PARTITION BY')
+    expect(sql).toContain('AS `householdId`')
+    expect(sql).toContain('AS `householdSize`')
+    // rn is scaffolding for the dedupe, not part of the row contract.
+    expect(sql).toContain('EXCEPT (rn)')
+  })
+
+  it('leaves the ungrouped page query undeduped', () => {
+    const { sql } = buildPageSql({
+      ...scope,
+      columns: ['id'],
+      take: 20,
+      skip: 0,
+    })
+
+    expect(sql).not.toContain('ROW_NUMBER')
+    expect(sql).not.toContain('householdId')
   })
 })
