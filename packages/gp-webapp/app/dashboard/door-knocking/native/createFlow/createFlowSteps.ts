@@ -21,6 +21,20 @@ export type PreDrawStage = (typeof PRE_DRAW_STAGES)[number]
 
 export type CreateFlowStage = PreDrawStage | 'draw' | 'confirm'
 
+// How much of the map the confirm step opens UNCOVERED, as a percentage of the
+// container both it and the map fill. The canvas prototype puts a 192px map band
+// above its confirm card, which is about what 30% of a phone's map area comes to
+// — and the sheet still keeps 70% for a name, eight swatches, a stats line and
+// two buttons.
+//
+// It lives in this module, which carries no imports, because it is the one
+// number the two halves of this surface have to agree on: `CreateListFlow` makes
+// it the sheet's top edge, and `useCreateListDraw` (across the seam, in
+// `CreateListSurface`) turns what is left of it into the camera padding the
+// drawn ring is fitted against. A copy on each side is a sheet and a camera that
+// silently stop describing the same band.
+export const CONFIRM_PEEK_TOP_PCT = 30
+
 export const flowStage = (
   step: CreateFlowStep,
   preDrawStage: PreDrawStage,

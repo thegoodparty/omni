@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import type {
   DoorKnockingPackManifest,
   DoorKnockingTurf,
@@ -241,7 +241,17 @@ describe('VoterMapCanvas drawing', () => {
     startDrawToken: 1,
     clearDrawToken: 0,
     undoDrawToken: 0,
+    drawColor: '#2563eb',
+    frameDrawToken: 0,
+    frameDrawBottomPct: 0,
   }
+
+  // The draw layers take their colours as flat values rather than per-datum
+  // accessors, so they are read off the layer instead of called.
+  const staticColor = (
+    id: string,
+    channel: 'getFillColor' | 'getLineColor',
+  ): number[] => layer(id)?.[channel] as unknown as number[]
 
   beforeEach(() => {
     gl.handlers.clear()
@@ -756,6 +766,145 @@ describe('VoterMapCanvas drawing', () => {
 
     expect(onRoutePinClick).not.toHaveBeenCalled()
     expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
+  })
+
+  // The confirm step asks a candidate to pick the colour their list will be
+  // drawn in. The ring was a fixed blue, so the pick was made against nothing
+  // that could show it — now the boundary wears it while it is being chosen.
+  it('draws the in-progress boundary in the colour being picked', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+    expect(staticColor('draw-preview', 'getLineColor')).toEqual([
+      37, 99, 235, 255,
+    ])
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        drawColor="#16a34a"
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const line = staticColor('draw-preview', 'getLineColor')
+    const fill = staticColor('draw-preview', 'getFillColor')
+    expect(line).toEqual([22, 163, 74, 255])
+    // Same hue behind the outline and much weaker, so the streets the shape is
+    // being cut around stay readable through it.
+    expect(fill.slice(0, 3)).toEqual(line.slice(0, 3))
+    expect(fill[3]).toBeLessThan(line[3] ?? 0)
+    // The corners belong to the same boundary, so they move with it — a blue
+    // handle on a green ring reads as two shapes.
+    expect(staticColor('draw-vertices', 'getFillColor')).toEqual(line)
+  })
+
+  // The map fills its container, so a step that covers the bottom of it and
+  // uncovers the top strip reveals empty streets while the shape stays centred
+  // behind the chrome. The covered band has to reach the camera as padding, or
+  // the reveal is a picture of somewhere else.
+  const framePadding = (): Record<string, number> =>
+    (
+      gl.map.fitBounds.mock.calls.at(-1) as
+        | [unknown, { padding: Record<string, number> }]
+        | undefined
+    )?.[1].padding ?? {}
+
+  it('frames the drawing into the band the chrome leaves uncovered', () => {
+    Object.defineProperty(gl.map.getCanvas(), 'clientHeight', {
+      value: 800,
+      configurable: true,
+    })
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.forEach(clickMap)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        frameDrawToken={1}
+        frameDrawBottomPct={70}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // The shape's own box, not the pack's — this is a fit around what was
+    // drawn.
+    expect(gl.map.fitBounds.mock.calls.at(-1)?.[0]).toEqual([
+      [-87.66, 41.92],
+      [-87.65, 41.93],
+    ])
+    const covered = framePadding()
+    expect(covered.bottom).toBeGreaterThan(covered.top ?? 0)
+    // What is left is the band above the sheet: roughly the 30% it uncovers,
+    // and never nothing.
+    const band = 800 - (covered.top ?? 0) - (covered.bottom ?? 0)
+    expect(band).toBeGreaterThan(0)
+    expect(band).toBeLessThan(800 * 0.31)
+
+    // Nothing covering the map pads it evenly, so the same request on a full
+    // -height map centres the shape rather than pushing it up.
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        frameDrawToken={2}
+        frameDrawBottomPct={0}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(framePadding().bottom).toBe(framePadding().top)
+  })
+
+  // The band the confirm step uncovers is a picture: it is shielded from taps,
+  // so every button standing in it is one that answers nothing when pressed.
+  it('takes the map controls down for a step showing the map as a picture', () => {
+    // The locate button hides itself where geolocation is unavailable, which
+    // jsdom is, so give it something to offer before asking whether the step
+    // took it away.
+    Object.defineProperty(navigator, 'geolocation', {
+      value: { watchPosition: vi.fn(), clearWatch: vi.fn() },
+      configurable: true,
+    })
+    Object.defineProperty(window, 'isSecureContext', {
+      value: true,
+      configurable: true,
+    })
+    const { container, rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(screen.getByLabelText('Show my location')).toBeInTheDocument()
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        controlsHidden
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByLabelText('Show my location')).not.toBeInTheDocument()
+    // maplibre's navigation stack is maplibre's own DOM inside the container,
+    // so it goes away by CSS rather than by being removed and rebuilt on a step
+    // change — the map element carries the rule that hides it.
+    expect(container.innerHTML).toContain('maplibregl-ctrl-top-right')
   })
 
   it('opens at street level when given an initial zoom', () => {
