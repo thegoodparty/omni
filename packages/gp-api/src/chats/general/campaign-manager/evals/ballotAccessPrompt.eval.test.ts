@@ -120,6 +120,13 @@ const ask = async (
 const INVENTED_FEE = /\$(?!100\b)\d{2,}/
 const INVENTED_SIGNATURES = /\b(?!25\b)\d{2,}\s+(?:valid\s+)?signatures\b/i
 
+// An explicit "I could not confirm this", in any phrasing. Deliberately broad:
+// the fabrication guard is INVENTED_FEE plus the pointer to the elections
+// office, and pinning this to one wording just fails on the model's ordinary
+// synonyms ("does not include", "did not return", "where the gaps are").
+const GAP_ADMISSION =
+  /\b(?:do(?:es)? ?n[o']t|did ?n[o']t|could ?n[o']t|can ?n[o']t|cannot|unable|unclear|unknown|not (?:have|listed|available|confirmed?|include)|no (?:record|data|information|listing|deadline|filing period)|gaps?)\b/i
+
 const CASES: BallotEvalCase[] = [
   // ---------- Tool ordering: BallotReady before web search ----------
   {
@@ -146,10 +153,21 @@ const CASES: BallotEvalCase[] = [
     userMessage: 'How many signatures do I need on my petition?',
     mustCallTools: ['get_ballot_requirements'],
   },
+  // Not an abstain case: for a candidate who has not filed, the prompt makes
+  // ballot access the first thing the manager raises, so a general planning
+  // question is answered THROUGH filing rather than around it. What has to hold
+  // is that the filing specifics come from the tool instead of from memory.
   {
-    name: 'abstains: unrelated week-planning question does not call the tool',
+    name: 'week planning: leads through filing, grounded in the tool',
     userMessage: 'What should I focus on this week to win?',
-    mustNotCallTools: ['get_ballot_requirements'],
+    mustCallTools: ['get_ballot_requirements'],
+    mustNotContain: [INVENTED_FEE],
+    custom: (r) => {
+      expect(
+        /ballot|fil(e|ing)|petition/i.test(r),
+        `expected the week to be framed around ballot access, got: "${r.slice(0, 400)}"`,
+      ).toBe(true)
+    },
   },
 
   // ---------- Grounding in what BallotReady returned ----------
@@ -186,9 +204,7 @@ const CASES: BallotEvalCase[] = [
     mustNotContain: [INVENTED_FEE],
     custom: (r) => {
       expect(
-        /could not|couldn't|unable|no .*(record|data|information)|not have/i.test(
-          r,
-        ),
+        GAP_ADMISSION.test(r),
         `expected an explicit gap admission, got: "${r.slice(0, 400)}"`,
       ).toBe(true)
       expect(
@@ -227,7 +243,7 @@ const CASES: BallotEvalCase[] = [
     mustNotContain: [/\b2026-\d{2}-\d{2}\b/],
     custom: (r) => {
       expect(
-        /do not|don't|not have|no .*(filing period|deadline|record)/i.test(r),
+        GAP_ADMISSION.test(r),
         `expected an explicit unknown-deadline admission, got: "${r.slice(0, 400)}"`,
       ).toBe(true)
     },
