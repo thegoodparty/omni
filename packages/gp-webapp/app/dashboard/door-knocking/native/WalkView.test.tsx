@@ -1,6 +1,6 @@
 import { ComponentProps, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   DoorKnockingRoutePayload,
@@ -2134,14 +2134,18 @@ describe('WalkView notes', () => {
 
     await writeNote('Come back Saturday')
 
-    // Released rather than awaited: a cancelled query never lands, so there is
-    // no arrival to wait for and the assertion has to be given time to be
-    // wrong. Without the cancellation this is exactly where the serve arrives
-    // and takes the note back off the card.
+    // Settled, not slept on, the way the ADR 0008 refresh test above reads its
+    // failed serve: the patch's cancellation puts this query idle immediately,
+    // so nothing lands and the note stays — while with the cancellation removed
+    // the query is still fetching here, and reaching idle means the serve has
+    // arrived and taken the note back off the card. A wall-clock wait would
+    // pass either way on a slow enough runner.
     releaseSecondServe!()
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    })
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(['door-knocking-route', 3])?.fetchStatus,
+      ).toBe('idle'),
+    )
 
     expect(screen.getByText('Come back Saturday')).toBeInTheDocument()
   })
