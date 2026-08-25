@@ -540,6 +540,49 @@ describe('phone banking routes', () => {
       })
     })
 
+    it('serves a list frozen before firstName existed, falling back to null rather than 500ing', async () => {
+      const personId = randomUUID()
+      mockPeoplePage([
+        fakePerson({
+          id: personId,
+          firstName: 'Pat',
+          lastName: 'Legacy',
+          cellPhone: '3075559994',
+        }),
+      ])
+      const build = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      const listId = build.data.id
+
+      // Simulates a row persisted before the ENG-10938 migration added the
+      // column — every pre-existing production row is null the same way.
+      await service.prisma.phoneBankingListEntryPerson.updateMany({
+        where: { personId },
+        data: { firstName: null },
+      })
+
+      mockPeoplePage([
+        fakePerson({
+          id: personId,
+          firstName: 'Pat',
+          lastName: 'Legacy',
+          cellPhone: '3075559994',
+        }),
+      ])
+
+      const res = await service.client.get(
+        `/v1/phone-banking/lists/${listId}`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      const person = res.data.entries[0]?.persons[0]
+      expect(person).toMatchObject({ name: 'Pat Legacy', firstName: null })
+    })
+
     it('404s for a list belonging to another organization', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075559993' })])
       const build = await service.client.post(
