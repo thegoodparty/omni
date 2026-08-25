@@ -129,6 +129,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
         {
           personId: 'sheet1-a',
           name: 'Sheet One Alex',
+          firstName: 'Alex',
           age: 40,
           party: 'D',
           address: '1 Main St',
@@ -152,6 +153,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
         {
           personId: 'sheet1-b',
           name: 'Sheet One Blair',
+          firstName: 'Blair',
           age: 33,
           party: 'I',
           address: '2 Oak Ave',
@@ -170,6 +172,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
         {
           personId: 'sheet2-a',
           name: 'Sheet Two Casey',
+          firstName: 'Casey',
           age: 29,
           party: 'R',
           address: '3 Pine Rd',
@@ -188,6 +191,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
         {
           personId: 'sheet2-b',
           name: 'Sheet Two Drew',
+          firstName: 'Drew',
           age: 60,
           party: 'D',
           address: '4 Elm St',
