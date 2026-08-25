@@ -261,7 +261,12 @@ export const SmsReviewStep = ({
             We couldn&apos;t set up your purchase. Go back a step and try again.
           </p>
         </Card>
-      ) : preparing || !outreachId ? (
+      ) : preparing ||
+        !outreachId ||
+        // The paid card and its "$X due today" note render only once the
+        // session amount is known — mounting earlier flashed "$0.00 due
+        // today" while Stripe loaded.
+        (!isFree && !checkoutSession && !error) ? (
         <div className="py-6">
           <LoadingAnimation title="Preparing your purchase…" />
         </div>

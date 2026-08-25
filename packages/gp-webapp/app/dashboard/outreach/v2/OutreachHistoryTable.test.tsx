@@ -552,7 +552,7 @@ describe('OutreachHistoryTable — unified history', () => {
     },
   ]
 
-  it('shows Will not send for a scheduled SMS row while verification pends', () => {
+  it('shows Needs compliance for a scheduled SMS row while verification pends', () => {
     render(
       <OutreachHistoryTable
         rows={willNotSendRows}
@@ -563,7 +563,7 @@ describe('OutreachHistoryTable — unified history', () => {
 
     const table = within(desktopTable())
     // Only the SMS row substitutes — the robocall keeps Scheduled.
-    expect(table.getByText('Will not send')).toBeInTheDocument()
+    expect(table.getByText('Needs compliance')).toBeInTheDocument()
     expect(table.getByText('Scheduled')).toBeInTheDocument()
   })
 
@@ -571,11 +571,11 @@ describe('OutreachHistoryTable — unified history', () => {
     render(<OutreachHistoryTable rows={willNotSendRows} onRowClick={vi.fn()} />)
 
     const table = within(desktopTable())
-    expect(table.queryByText('Will not send')).not.toBeInTheDocument()
+    expect(table.queryByText('Needs compliance')).not.toBeInTheDocument()
     expect(table.getAllByText('Scheduled')).toHaveLength(2)
   })
 
-  it('filters on the displayed label: Scheduled misses a Will not send row and vice versa', async () => {
+  it('filters on the displayed label: Scheduled misses a Needs compliance row and vice versa', async () => {
     render(
       <OutreachHistoryTable
         rows={willNotSendRows}
@@ -592,7 +592,7 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(table.queryByText('Scheduled robocall')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByLabelText('Scheduled'))
-    await userEvent.click(screen.getByLabelText('Will not send'))
+    await userEvent.click(screen.getByLabelText('Needs compliance'))
 
     table = within(desktopTable())
     expect(table.getByText('Scheduled robocall')).toBeInTheDocument()

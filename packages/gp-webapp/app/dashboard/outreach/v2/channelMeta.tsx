@@ -118,9 +118,9 @@ const STATUS_DISPLAY: Record<
 
 // The display label for a scheduled SMS row whose CampaignVerify clearance
 // is still pending — the carriers will hold the send, so "Scheduled" would
-// be a lie. Rendered as a tinted pill (not a StatusText) so it reads as a
-// warning, per the design.
-export const WILL_NOT_SEND_LABEL = 'Will not send'
+// be a lie. Rendered without a pill background, in the darker destructive
+// shade, per the design.
+export const WILL_NOT_SEND_LABEL = 'Needs compliance'
 
 export const HistoryStatusText = ({ label }: { label: string | null }) => {
   if (!label) {
@@ -128,13 +128,13 @@ export const HistoryStatusText = ({ label }: { label: string | null }) => {
   }
   if (label === WILL_NOT_SEND_LABEL) {
     return (
-      <Badge
-        shape="pill"
-        className="h-6 gap-1.5 whitespace-nowrap border-transparent bg-destructive/12 px-2.5 font-semibold text-destructive-dark [&>svg]:size-3.5"
+      <StatusText
+        tone="destructive"
+        icon={<ShieldAlertIcon />}
+        className="font-semibold text-destructive-dark [&_svg]:size-3.5"
       >
-        <ShieldAlertIcon />
         {WILL_NOT_SEND_LABEL}
-      </Badge>
+      </StatusText>
     )
   }
   const display = STATUS_DISPLAY[label]

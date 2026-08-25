@@ -43,7 +43,7 @@ interface OutreachHistoryTableProps {
   rows: HistoryRow[]
   onRowClick: (row: HistoryRow) => void
   // CampaignVerify clearance still pending: scheduled SMS rows will be held
-  // by the carriers, so their displayed status becomes "Will not send".
+  // by the carriers, so their displayed status becomes "Needs compliance".
   notCleared?: boolean
 }
 
@@ -173,7 +173,7 @@ const STATUS_FILTERS = [
   'In review',
   'Denied',
   'Scheduled',
-  'Will not send',
+  'Needs compliance',
   'In progress',
   'Done',
   'Pending payment',
@@ -209,7 +209,7 @@ export const OutreachHistoryTable = ({
   >(() => new Set(STATUS_FILTERS))
 
   // A scheduled-not-sent SMS row while verification pends displays (and
-  // filters) as "Will not send" — filtering on "Scheduled" must not catch
+  // filters) as "Needs compliance" — filtering on "Scheduled" must not catch
   // it. Two shapes qualify: legacy rows displaying "Scheduled" (spine
   // paid/in_progress) and draft-first rows finalize left at spine `pending`
   // with a phone list — the same set cancel-before-send acts on.

@@ -1,5 +1,12 @@
 import Link from 'next/link'
-import { Alert, AlertDescription, AlertTitle, Button, Card } from '@styleguide'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Button,
+  Card,
+} from '@styleguide'
 import { CheckCircleIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from 'app/dashboard/shared/candidateAccess'
@@ -21,9 +28,12 @@ export default async function Page(): Promise<React.JSX.Element> {
   return (
     <div className="min-h-screen bg-white pt-2 md:pt-4">
       <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
-        <span className="inline-flex h-7 items-center rounded-full bg-info-light px-3 text-xs font-semibold text-foreground">
+        <Badge
+          shape="pill"
+          className="h-6.5 gap-1.5 border-transparent bg-info-light px-3 text-xs font-semibold text-foreground"
+        >
           Verification
-        </span>
+        </Badge>
 
         <Card className="items-center gap-3 p-8 text-center">
           <span className="flex size-16 items-center justify-center rounded-full bg-success-light">

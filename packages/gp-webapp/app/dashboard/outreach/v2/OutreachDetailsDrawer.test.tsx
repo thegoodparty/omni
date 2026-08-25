@@ -487,7 +487,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('flags a scheduled SMS row as Will not send while verification pends, with Delete + Start verification', async () => {
+  it('flags a scheduled SMS row as Needs compliance while verification pends, with Cancel + Start verification', async () => {
     mockNoReceipt()
     api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
     let cancelParams: unknown
@@ -510,13 +510,13 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       />,
     )
 
-    expect(await screen.findByText('Will not send')).toBeInTheDocument()
+    expect(await screen.findByText('Needs compliance')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Cancel campaign' }),
     ).not.toBeInTheDocument()
 
-    // Delete rides the same cancel confirm + endpoint as Cancel campaign.
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    // Cancel rides the same confirm + endpoint as Cancel campaign.
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(await screen.findByText('Cancel this campaign?')).toBeInTheDocument()
     await userEvent.click(
       within(screen.getByRole('alertdialog')).getByRole('button', {
@@ -524,6 +524,40 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       }),
     )
     expect(cancelParams).toEqual({ id: '41' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('offers Delete only on a canceled row and removes it from the history', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...smsDetail, status: 'canceled' },
+    })
+    let deleteParams: unknown
+    api.mock('DELETE /v1/outreach/:id', ({ params }) => {
+      deleteParams = params
+      return { status: 200, data: undefined }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...scheduledSmsRow, status: 'canceled' }}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    expect(await screen.findByText('Delete this campaign?')).toBeInTheDocument()
+    await userEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Delete',
+      }),
+    )
+    expect(deleteParams).toEqual({ id: '41' })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 

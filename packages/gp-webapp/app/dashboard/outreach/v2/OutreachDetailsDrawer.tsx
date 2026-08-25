@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
   PhoneBankCallOutcome,
@@ -11,6 +11,10 @@ import type {
 } from '@goodparty_org/contracts'
 import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -19,6 +23,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  Badge,
   Button,
   Card,
   Drawer,
@@ -30,8 +35,6 @@ import {
   DrawerHeader,
   DrawerTitle,
   Eyebrow,
-  FilterPill,
-  FilterPillGroup,
   Progress,
   StatusText,
   Table,
@@ -52,6 +55,7 @@ import {
   PhoneIcon,
   RadioIcon,
   ReceiptIcon,
+  ShieldAlertIcon,
   ShieldCheckIcon,
   Trash2Icon,
   UserMinusIcon,
@@ -78,7 +82,7 @@ import {
 } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { shortOutreachDate } from './outreachDate.util'
-import { useOutreachDetail } from './useOutreachDetail'
+import { outreachDetailQueryKey, useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 
@@ -117,7 +121,7 @@ interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
   // CampaignVerify clearance state: while pending, scheduled SMS rows show
-  // "Will not send" and the footer offers Delete + Start verification.
+  // "Needs compliance" and the footer offers Cancel + Start verification.
   tcrCompliance?: TcrCompliance
 }
 
@@ -148,7 +152,8 @@ const Metric = ({
 
 // The canvas's Applied filters anatomy: a labelled pill group per dimension —
 // "Audience" (the saved list this campaign was sent to) above "Filters" (the
-// criteria that built it).
+// criteria that built it). Purely presentational, so plain Badges rather
+// than toggle pills — nothing here should read as clickable.
 const FilterGroup = ({
   title,
   values,
@@ -158,15 +163,17 @@ const FilterGroup = ({
 }) => (
   <div className="space-y-1.5">
     <p className="text-xs font-medium text-muted-foreground">{title}</p>
-    {/* Display-only: nothing selected, so the pills keep the design's
-        outlined resting state instead of the toggled-on fill. */}
-    <FilterPillGroup type="multiple" value={[]}>
+    <div className="flex flex-wrap gap-2">
       {values.map((label) => (
-        <FilterPill key={label} value={label}>
+        <Badge
+          key={label}
+          shape="pill"
+          className="border-border bg-transparent px-3 py-1.5 text-sm font-medium text-foreground"
+        >
           {label}
-        </FilterPill>
+        </Badge>
       ))}
-    </FilterPillGroup>
+    </div>
   </div>
 )
 
@@ -196,6 +203,7 @@ export const OutreachDetailsDrawer = ({
   const isPaidFlowSms = isSms && row?.phoneListId != null
 
   const [outreaches, setOutreaches] = useOutreach()
+  const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const deleteMutation = useMutation({
@@ -221,6 +229,10 @@ export const OutreachDetailsDrawer = ({
   // (spine status `pending`, created through the P2P flow) is cancelable —
   // the backend enforces the same set.
   const isCancelableSms = isPaidFlowSms && row?.status === 'pending'
+  // Delete is reserved for canceled campaigns — cancel already unwound the
+  // vendor job and the charge, so the row is pure history. The backend
+  // rejects every other status.
+  const isCanceled = row?.status === 'canceled'
   // A scheduled SMS row while CampaignVerify clearance pends: the carriers
   // will hold the send, so the drawer flags it and swaps the footer to
   // Delete + Start verification.
@@ -277,6 +289,11 @@ export const OutreachDetailsDrawer = ({
           o.id === row?.id ? { ...o, status: data.outreach.status } : o,
         ),
       )
+      if (row?.id) {
+        queryClient.invalidateQueries({
+          queryKey: outreachDetailQueryKey(row.id),
+        })
+      }
       setCancelConfirmOpen(false)
       onOpenChange(false)
       successSnackbar(
@@ -287,6 +304,24 @@ export const OutreachDetailsDrawer = ({
     },
     onError: () =>
       errorSnackbar("Couldn't cancel this campaign. Please try again."),
+  })
+
+  const [deleteCanceledConfirmOpen, setDeleteCanceledConfirmOpen] =
+    useState(false)
+  const deleteCanceledMutation = useMutation({
+    mutationFn: () => {
+      const rowId = row?.id
+      if (!rowId) return Promise.reject(new Error('row unavailable'))
+      return clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) })
+    },
+    onSuccess: () => {
+      setOutreaches(outreaches.filter((o) => o.id !== row?.id))
+      setDeleteCanceledConfirmOpen(false)
+      onOpenChange(false)
+      successSnackbar('Campaign deleted.')
+    },
+    onError: () =>
+      errorSnackbar("Couldn't delete this campaign. Please try again."),
   })
 
   const isArchived = Boolean(row?.archivedAt)
@@ -358,7 +393,7 @@ export const OutreachDetailsDrawer = ({
           <>
             {/* Desktop top padding clears the close button, which sits inside
                 the content column rather than on the sheet corner. */}
-            <div className="px-4 pt-6 pb-4 lg:px-6 lg:pt-14">
+            <div className="border-b border-border px-4 pt-6 pb-4 lg:px-6 lg:pt-14">
               <div className="mx-auto flex w-full max-w-[608px] items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -388,6 +423,30 @@ export const OutreachDetailsDrawer = ({
 
             <DrawerBody className="flex-1 overflow-y-auto px-4 pb-6 lg:px-6">
               <div className="mx-auto w-full max-w-[608px] space-y-6">
+                {isPendingVerificationSms && (
+                  // Same banner as the SMS flow: the drawer is where a user
+                  // lands from the "Needs compliance" history row, so the
+                  // unblock action leads here too.
+                  <Alert variant="info" icon={<ShieldAlertIcon />}>
+                    <AlertTitle>
+                      Compliance needed before this can send
+                    </AlertTitle>
+                    <AlertDescription>
+                      Carrier approval takes 1 to 2 weeks. Schedule now, start
+                      compliance so your text clears in time.
+                    </AlertDescription>
+                    <AlertAction>
+                      <Button
+                        type="button"
+                        variant="alertOutline"
+                        onClick={startVerification}
+                      >
+                        <ShieldCheckIcon />
+                        Start compliance
+                      </Button>
+                    </AlertAction>
+                  </Alert>
+                )}
                 {(audienceName || audienceLabels.length > 0) && (
                   <section className="space-y-3">
                     <Eyebrow>Applied filters</Eyebrow>
@@ -491,7 +550,7 @@ export const OutreachDetailsDrawer = ({
                         // (different modifier group in tailwind-merge), so
                         // the icon needs its own zero to sit flush left.
                         variant="link"
-                        className="h-auto px-0 has-[>svg]:px-0"
+                        className="h-auto px-0 no-underline has-[>svg]:px-0"
                         onClick={() => {
                           window.open(receiptUrl, '_blank', 'noopener')
                         }}
@@ -706,8 +765,8 @@ export const OutreachDetailsDrawer = ({
                     disabled={cancelMutation.isPending}
                     onClick={() => setCancelConfirmOpen(true)}
                   >
-                    <Trash2Icon className="size-4" />
-                    Delete
+                    <XCircleIcon className="size-4" />
+                    Cancel
                   </Button>
                   <Button className="flex-1" onClick={startVerification}>
                     <ShieldCheckIcon className="size-4" />
@@ -726,6 +785,20 @@ export const OutreachDetailsDrawer = ({
                   >
                     <XCircleIcon className="size-4" />
                     Cancel campaign
+                  </Button>
+                </div>
+              </DrawerFooter>
+            ) : isCanceled ? (
+              <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
+                <div className="mx-auto flex w-full max-w-[608px]">
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+                    disabled={deleteCanceledMutation.isPending}
+                    onClick={() => setDeleteCanceledConfirmOpen(true)}
+                  >
+                    <Trash2Icon className="size-4" />
+                    Delete
                   </Button>
                 </div>
               </DrawerFooter>
@@ -800,6 +873,31 @@ export const OutreachDetailsDrawer = ({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteCanceledConfirmOpen}
+        onOpenChange={setDeleteCanceledConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the canceled campaign from your history. This
+              can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep campaign</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteCanceledMutation.isPending}
+              onClick={() => deleteCanceledMutation.mutate()}
             >
               Delete
             </AlertDialogAction>

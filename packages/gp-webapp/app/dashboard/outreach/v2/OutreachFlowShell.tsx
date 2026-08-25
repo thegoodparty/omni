@@ -26,6 +26,12 @@ export interface FlowShellCta {
   onClick: () => void
   disabled?: boolean
   loading?: boolean
+  // Optional plain companion action rendered left of the primary (the
+  // design's interstitial footer: "Later" beside "Start verification").
+  secondary?: {
+    label: string
+    onClick: () => void
+  }
 }
 
 interface OutreachFlowShellProps {
@@ -133,15 +139,27 @@ export const OutreachFlowShell = ({
         }
         footer={
           cta ? (
-            <Button
-              type="button"
-              className="w-full text-sm"
-              onClick={cta.onClick}
-              disabled={cta.disabled}
-              loading={cta.loading}
-            >
-              {cta.label}
-            </Button>
+            <div className="flex w-full items-center gap-3">
+              {cta.secondary && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="flex-1 text-sm"
+                  onClick={cta.secondary.onClick}
+                >
+                  {cta.secondary.label}
+                </Button>
+              )}
+              <Button
+                type="button"
+                className="flex-1 text-sm"
+                onClick={cta.onClick}
+                disabled={cta.disabled}
+                loading={cta.loading}
+              >
+                {cta.label}
+              </Button>
+            </div>
           ) : undefined
         }
       >

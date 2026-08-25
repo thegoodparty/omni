@@ -671,6 +671,26 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     return { outreach: updated, refunded }
   }
 
+  // Deleting is reserved for canceled campaigns: cancel already tore down
+  // the vendor job and refunded the charge, so the row is pure history.
+  // Anything else still has money or a live send attached — those go
+  // through cancel first.
+  async deleteCanceledOutreach(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<void> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (outreach.status !== OutreachStatus.canceled) {
+      throw new BadRequestException('Only canceled campaigns can be deleted')
+    }
+    await this.model.delete({ where: { id: outreachId } })
+  }
+
   /**
    * Live receipt read for a paid campaign. No local payment snapshot
    * exists — the row only stores the checkout session id — so the card and

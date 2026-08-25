@@ -21,10 +21,11 @@ import {
 } from '@styleguide'
 import {
   BookmarkIcon,
-  CheckCircleIcon,
+  CircleCheckIcon,
   ClipboardListIcon,
   ClockIcon,
   DownloadIcon,
+  InfoIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
@@ -167,7 +168,7 @@ export const SuccessScreen = ({
     <div className="space-y-6 py-8 text-center">
       <div className="flex justify-center">
         <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
-          <CheckCircleIcon className="size-8 text-primary" />
+          <CircleCheckIcon className="size-8 text-primary" />
         </span>
       </div>
       <div className="space-y-2">
@@ -258,9 +259,7 @@ const VerificationRow = ({
   body: string
 }) => (
   <div className="flex items-start gap-3">
-    <span className="mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-4">
-      {icon}
-    </span>
+    <span className="mt-0.5 shrink-0 text-info [&_svg]:size-4">{icon}</span>
     <span>
       <span className="block text-sm font-semibold text-foreground">
         {title}
@@ -273,17 +272,11 @@ const VerificationRow = ({
 // Post-success interstitial (shown only while CampaignVerify clearance is
 // pending): the send is saved but held by the carriers, so the one useful
 // next action is starting verification.
-const VerificationInterstitial = ({
-  onLater,
-  onStartVerification,
-}: {
-  onLater: () => void
-  onStartVerification: () => void
-}) => (
+const VerificationInterstitial = () => (
   <div className="space-y-6 py-8">
     <Badge
       shape="pill"
-      className="border-transparent bg-info-light text-foreground"
+      className="h-6.5 gap-1.5 border-transparent bg-info-light px-3 text-xs font-semibold text-foreground"
     >
       Verification
     </Badge>
@@ -296,7 +289,7 @@ const VerificationInterstitial = ({
         campaign is verified with the carriers.
       </p>
     </div>
-    <Card className="gap-4 p-4">
+    <Card className="gap-0 divide-y divide-border p-0 [&>div]:p-4">
       <VerificationRow
         icon={<ClipboardListIcon />}
         title="What we need"
@@ -313,21 +306,13 @@ const VerificationInterstitial = ({
         body="Your text stays saved and scheduled while this is under review"
       />
     </Card>
-    <Alert variant="info">
+    <Alert variant="info" icon={<InfoIcon />}>
       <AlertTitle>Start now if you can</AlertTitle>
       <AlertDescription>
         Verification runs in the background, so starting today keeps your send
         date safe.
       </AlertDescription>
     </Alert>
-    <div className="flex items-center gap-3">
-      <Button type="button" variant="ghost" onClick={onLater}>
-        Later
-      </Button>
-      <Button type="button" className="flex-1" onClick={onStartVerification}>
-        Start verification
-      </Button>
-    </div>
   </div>
 )
 
@@ -749,76 +734,83 @@ export const SmsFlow = ({
 
   const dirty = !scheduled && purpose !== null
 
-  const cta: FlowShellCta | null = scheduled
-    ? null
-    : stepId === 'audience' && audience.mode === 'filters'
+  const cta: FlowShellCta | null =
+    scheduled && showVerify
       ? {
-          label: audience.builderCounting
-            ? 'Continue'
-            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
-          onClick: () => audience.setMode('name'),
-          disabled:
-            !hasAnyVoterFileSelection(
-              audience.builderFilters,
-              audience.builderSupportStatus,
-            ) ||
-            audience.builderCounting ||
-            audience.builderZeroMatch ||
-            audience.builderCapError,
-          loading:
-            hasAnyVoterFileSelection(
-              audience.builderFilters,
-              audience.builderSupportStatus,
-            ) && audience.builderCounting,
+          label: 'Start verification',
+          onClick: startVerification,
+          secondary: { label: 'Later', onClick: onClose },
         }
-      : stepId === 'audience' && audience.mode === 'name'
-        ? {
-            label: 'Continue',
-            onClick: () => {
-              void handleCreateListContinue()
-            },
-            disabled: audience.builderName.trim().length === 0,
-            loading: audience.createListPending || phoneListCreating,
-          }
-        : stepId === 'audience'
+      : scheduled
+        ? null
+        : stepId === 'audience' && audience.mode === 'filters'
           ? {
-              label: phoneListError
-                ? 'Try again'
-                : reachableCount !== null
-                  ? `Continue (${reachableCount.toLocaleString()})`
-                  : 'Continue',
-              onClick: () => {
-                void handleAudienceContinue()
-              },
+              label: audience.builderCounting
+                ? 'Continue'
+                : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+              onClick: () => audience.setMode('name'),
               disabled:
-                !selectedList ||
-                audience.reachableLoading ||
-                reachableCount === null ||
-                reachableCount === 0,
-              loading: phoneListCreating,
+                !hasAnyVoterFileSelection(
+                  audience.builderFilters,
+                  audience.builderSupportStatus,
+                ) ||
+                audience.builderCounting ||
+                audience.builderZeroMatch ||
+                audience.builderCapError,
+              loading:
+                hasAnyVoterFileSelection(
+                  audience.builderFilters,
+                  audience.builderSupportStatus,
+                ) && audience.builderCounting,
             }
-          : stepId === 'schedule'
+          : stepId === 'audience' && audience.mode === 'name'
             ? {
                 label: 'Continue',
-                onClick: () => setStepId('compose'),
-                disabled:
-                  name.trim().length === 0 ||
-                  scheduledAt === null ||
-                  violates48h ||
-                  outsideWindow,
+                onClick: () => {
+                  void handleCreateListContinue()
+                },
+                disabled: audience.builderName.trim().length === 0,
+                loading: audience.createListPending || phoneListCreating,
               }
-            : stepId === 'compose'
+            : stepId === 'audience'
               ? {
-                  label: 'Continue',
-                  onClick: () => setStepId('review'),
+                  label: phoneListError
+                    ? 'Try again'
+                    : reachableCount !== null
+                      ? `Continue (${reachableCount.toLocaleString()})`
+                      : 'Continue',
+                  onClick: () => {
+                    void handleAudienceContinue()
+                  },
                   disabled:
-                    body.trim().length === 0 ||
-                    missingIdentification ||
-                    composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                    image === null ||
-                    draftMutation.isPending,
+                    !selectedList ||
+                    audience.reachableLoading ||
+                    reachableCount === null ||
+                    reachableCount === 0,
+                  loading: phoneListCreating,
                 }
-              : null
+              : stepId === 'schedule'
+                ? {
+                    label: 'Continue',
+                    onClick: () => setStepId('compose'),
+                    disabled:
+                      name.trim().length === 0 ||
+                      scheduledAt === null ||
+                      violates48h ||
+                      outsideWindow,
+                  }
+                : stepId === 'compose'
+                  ? {
+                      label: 'Continue',
+                      onClick: () => setStepId('review'),
+                      disabled:
+                        body.trim().length === 0 ||
+                        missingIdentification ||
+                        composedLength > SMS_COMPOSED_MAX_LENGTH ||
+                        image === null ||
+                        draftMutation.isPending,
+                    }
+                  : null
 
   return (
     <OutreachFlowShell
@@ -869,10 +861,7 @@ export const SmsFlow = ({
         </Alert>
       )}
       {scheduled && showVerify ? (
-        <VerificationInterstitial
-          onLater={onClose}
-          onStartVerification={startVerification}
-        />
+        <VerificationInterstitial />
       ) : scheduled ? (
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}

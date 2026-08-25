@@ -287,6 +287,13 @@ export type APIEndpoints = {
     Response: CancelOutreachResponse
   }
 
+  // Canceled rows only — cancel has already unwound the vendor job and the
+  // charge, so delete is pure history removal. 400 for any other status.
+  'DELETE /v1/outreach/:id': {
+    Request: {}
+    Response: void
+  }
+
   // Live Stripe receipt for a paid SMS campaign (success screen + details
   // drawer's "View receipt"). Amount is in DOLLARS. 404 on free-texts rows
   // (no checkout session recorded); 502 when Stripe is unreachable.

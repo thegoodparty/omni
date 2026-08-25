@@ -193,3 +193,67 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 })
+
+const deleteOutreach = (id: number) =>
+  service.client.delete(`/v1/outreach/${id}`, {
+    headers: { 'x-organization-slug': orgSlug },
+  })
+
+describe('DELETE /v1/outreach/:id', () => {
+  it('deletes a canceled row', async () => {
+    const row = await seedOutreach({ status: OutreachStatus.canceled })
+
+    const res = await deleteOutreach(row.id)
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    const persisted = await service.prisma.outreach.findUnique({
+      where: { id: row.id },
+    })
+    expect(persisted).toBeNull()
+  })
+
+  it('rejects rows in any other status — cancel must unwind them first', async () => {
+    const row = await seedOutreach({ status: OutreachStatus.pending })
+
+    const res = await deleteOutreach(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const persisted = await service.prisma.outreach.findUnique({
+      where: { id: row.id },
+    })
+    expect(persisted).not.toBeNull()
+  })
+
+  it("404s another campaign's outreach", async () => {
+    const foreignCampaignId = 999
+    await service.prisma.organization.create({
+      data: {
+        slug: `campaign-${foreignCampaignId}`,
+        ownerId: service.user.id,
+        positionId: 'pos-1',
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        id: foreignCampaignId,
+        organizationSlug: `campaign-${foreignCampaignId}`,
+        userId: service.user.id,
+        slug: 'other-campaign-del',
+        details: {},
+        data: {},
+        aiContent: {},
+      },
+    })
+    const row = await service.prisma.outreach.create({
+      data: {
+        campaignId: foreignCampaignId,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.canceled,
+      },
+    })
+
+    const res = await deleteOutreach(row.id)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
