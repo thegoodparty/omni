@@ -52,6 +52,16 @@ describe('crud_saved_filters input schema', () => {
     ).toBe(false)
   })
 
+  it('rejects the legacy registration keys the filter engine ignores', () => {
+    expect(
+      tool.inputSchema.safeParse({
+        action: 'create',
+        name: 'Inactive registrations',
+        registeredVoterFalse: true,
+      }).success,
+    ).toBe(false)
+  })
+
   it('rejects names over the 40-character cap', () => {
     expect(
       tool.inputSchema.safeParse({

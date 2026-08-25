@@ -26,6 +26,16 @@ describe('buildCountContactsTool', () => {
     expect(result).toEqual({ count: 1234 })
   })
 
+  it('rejects the legacy registration keys the filter engine ignores', () => {
+    const tool = buildTool(vi.fn(() => Promise.resolve({ count: 0 })))
+    expect(
+      tool.inputSchema.safeParse({ registeredVoterTrue: true }).success,
+    ).toBe(false)
+    expect(
+      tool.inputSchema.safeParse({ registeredVoterFalse: true }).success,
+    ).toBe(false)
+  })
+
   it('rejects a malformed filter at the input schema', () => {
     const tool = buildTool(vi.fn(() => Promise.resolve({ count: 0 })))
     expect(tool.inputSchema.safeParse({ age18_25: 'yes' }).success).toBe(false)

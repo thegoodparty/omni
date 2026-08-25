@@ -23,12 +23,17 @@ export const MAX_SAVED_FILTER_NAME_LENGTH = 40
 // fields are enforced in execute below. The filter fields are the SAME Zod
 // shape the voter-file filter routes consume (Create/UpdateVoterFileFilterSchema
 // wrap voterFilterBaseSchema), so per-channel activity-outcome validity is
-// inherited at parse time, never re-implemented.
-const crudSavedFiltersInputSchema = voterFilterBaseSchema.extend({
-  action: z.enum(['list', 'create', 'update', 'delete']),
-  id: z.number().int().positive().optional(),
-  name: z.string().min(1).max(MAX_SAVED_FILTER_NAME_LENGTH).optional(),
-})
+// inherited at parse time, never re-implemented. The two legacy registration
+// keys are omitted and unknown keys rejected, as in count_contacts: the
+// filter engine silently ignores them.
+const crudSavedFiltersInputSchema = voterFilterBaseSchema
+  .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
+  .extend({
+    action: z.enum(['list', 'create', 'update', 'delete']),
+    id: z.number().int().positive().optional(),
+    name: z.string().min(1).max(MAX_SAVED_FILTER_NAME_LENGTH).optional(),
+  })
+  .strict()
 
 type SavedFilterRef = { id: number; name: string | null }
 
