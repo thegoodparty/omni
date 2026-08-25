@@ -13,7 +13,8 @@ persists only matches and abstentions -- a technical error fails the run
 instead of being recorded as a match.
 
 This module writes nothing. `run()` returns terminal results for the caller
-to print or inspect; the Databricks write path is a later PR.
+to print or inspect; the Databricks write path lives beside it in
+l2_br_match_writer.py.
 """
 
 import argparse
@@ -772,6 +773,29 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         self.logger.info(f"LLM cost: ${llm_cost:.6f}")
         self.logger.info(f"Total cost: ${embedding_cost + llm_cost:.6f}")
 
+    # -- Resource lifecycle ----------------------------------------------
+
+    def close(self) -> None:
+        """Release the Databricks connection. `main()` is the only caller.
+
+        There is deliberately no `self._executor.shutdown(...)` here, and
+        that is worth stating because it looks like an omission. A failed run
+        leaves up to a batch of Gemini calls mid-retry in non-daemon threads,
+        and `concurrent.futures.thread`'s atexit hook joins every live worker
+        -- so the CLI does sit there for as long as their own backoff takes,
+        up to roughly 1,023s at max_retries=11, after the traceback has
+        printed. `shutdown(wait=False, cancel_futures=True)` does NOT fix it:
+        it deregisters nothing from `_threads_queues`, so the atexit join
+        happens either way, and `cancel_futures` drains only QUEUED work,
+        which is always empty here (run() awaits each group of `batch_size`
+        offices, ~100 in flight against a 1,500-worker pool, so nothing ever
+        queues). Measured both ways: identical exit time.
+
+        The real fix is for the clients in shared/ to stop retrying blindly,
+        which is where the quota work goes too.
+        """
+        self.databricks.close()
+
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Match BallotReady offices to L2 districts. Dry run: writes nothing.")
@@ -806,7 +830,18 @@ async def main() -> None:
         )
         matcher.print_summary(results)
     finally:
+        # Ordered and guarded, because close() ends in Connection.close(),
+        # which raises on exactly the dead-session conditions that failed the
+        # run. flush_logs() runs first so a teardown failure cannot lose the
+        # Braintrust buffer, and the close is swallowed so it cannot replace
+        # the operator's real traceback with an unrelated cleanup error --
+        # which reordering alone does NOT prevent, since a raise here still
+        # supersedes the exception in flight.
         flush_logs()
+        try:
+            matcher.close()
+        except Exception:
+            matcher.logger.warning("matcher.close() raised during teardown", exc_info=True)
 
 
 if __name__ == "__main__":

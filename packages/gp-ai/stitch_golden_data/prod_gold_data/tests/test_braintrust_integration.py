@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +14,7 @@ from stitch_golden_data.prod_gold_data.l2_br_matcher import (
     _StateUniverse,
     _validate_district_universe,
     _validate_pending_offices,
+    main,
 )
 from stitch_golden_data.prod_gold_data.vector_store_generator import VectorStoreGenerator
 
@@ -542,6 +544,49 @@ class TestUniverseCoverageGuard:
         # the loop would have paid for them before raising. This is the
         # assertion that actually pins the ordering.
         mock_dependencies["embedding"].create_embeddings.assert_not_called()
+
+
+class TestMainTeardown:
+    def test_a_raising_close_does_not_replace_the_run_s_own_exception(self, mock_dependencies):
+        """Failure this catches: the operator losing the real traceback to an
+        unrelated cleanup error. The run fails because the session died, and
+        `Connection.close()` then raises on that same dead session -- so the
+        two failures are correlated rather than independent, and an unguarded
+        close in the `finally` supersedes the exception in flight.
+
+        Also pins the ORDER: flush_logs has to run first, or a teardown
+        failure takes the Braintrust buffer with it.
+        """
+        order: list[str] = []
+
+        def _close() -> None:
+            order.append("close")
+            raise RuntimeError("close also failed")
+
+        mock_dependencies["databricks"].return_value.execute_query.side_effect = RuntimeError("session died")
+        mock_dependencies["databricks"].return_value.close.side_effect = _close
+        mock_dependencies["embedding"].get_cost_stats.return_value = {"total_cost": 0.0}
+        mock_dependencies["llm"].get_usage_stats.return_value = {"total_cost": 0.0}
+
+        with (
+            patch("stitch_golden_data.prod_gold_data.l2_br_matcher._parse_args") as mock_args,
+            patch(
+                "stitch_golden_data.prod_gold_data.l2_br_matcher.flush_logs",
+                side_effect=lambda: order.append("flush_logs"),
+            ),
+        ):
+            mock_args.return_value = argparse.Namespace(
+                states=None, limit=None, batch_size=100, embedding_batch_size=100
+            )
+            with pytest.raises(RuntimeError, match="session died"):
+                asyncio.run(main())
+
+        # Order, not just survival. Asserting only that the run's exception
+        # propagates is tautological with respect to the ordering: the close
+        # is swallowed either way, so swapping the two lines leaves such a
+        # test green. Verified by swapping them and watching it pass, which
+        # is why this assertion exists.
+        assert order == ["flush_logs", "close"]
 
 
 class TestLoadPendingOfficesStatesFilter:
