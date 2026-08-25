@@ -17,6 +17,10 @@ export const PHONE_BANKING_NAME_MAX_LENGTH = 60
 // user-edited script saved with the audience at create time.
 export const PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH = 5000
 export const PHONE_BANKING_MAX_SHEET_COUNT = 20
+// The frozen artifact's household grouping: how many entries print per call
+// sheet. sheetCount (1-20) x this = the entry cap (max 1,200). Shared by
+// gp-api (entry cap + freeze) and the webapp (sheets-step coverage copy).
+export const PHONE_BANKING_SHEET_SIZE = 60
 
 // The audience is always a saved VoterFileFilter — the webapp's shared
 // outreach audience step (useOutreachAudience) persists a built list via
