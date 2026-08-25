@@ -18,6 +18,13 @@ import {
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import PersonSheet from './PersonSheet'
+import {
+  DoorNoteList,
+  editServedNotes,
+  withCreatedNote,
+  withDeletedNote,
+  withUpdatedNote,
+} from './doorNotes'
 
 // The knock form owns the dictation stack and its own mutation; this file is
 // about what the sheet itself puts on screen.
@@ -60,20 +67,44 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   ],
 })
 
-// The selection lives in WalkView, so switching resident only works here if
-// the harness holds it the same way the walk does.
+// Both of the sheet's controlled facts live in WalkView, so they live here too
+// or the sheet cannot be exercised at all: the selected resident, and — since
+// the notes list collapsed into the route cache — the targets themselves. This
+// harness is that half of the walk, standing in for `patchPerson`, so the
+// assertions below stay about what the sheet renders and reports.
 const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
+  const [residents, setResidents] = useState(targets)
   const [selectedTargetId, setSelectedTargetId] = useState(
     targets[0]!.stopTargetId,
   )
+  const patchNotes = (
+    personId: string,
+    edit: (list: DoorNoteList) => DoorNoteList,
+  ) =>
+    setResidents((current) =>
+      current.map((candidate) =>
+        candidate.personId === personId
+          ? { ...candidate, notes: editServedNotes(candidate.notes, edit) }
+          : candidate,
+      ),
+    )
   return (
     <PersonSheet
-      stop={stop(targets)}
+      stop={stop(residents)}
       selectedTargetId={selectedTargetId}
       onSelectTarget={setSelectedTargetId}
       statusFor={(candidate) => candidate.knockStatus}
       clientKeyFor={() => 'key'}
       onRecorded={vi.fn()}
+      onNoteCreated={(personId, created) =>
+        patchNotes(personId, (list) => withCreatedNote(list, created))
+      }
+      onNoteUpdated={(personId, updated) =>
+        patchNotes(personId, (list) => withUpdatedNote(list, updated))
+      }
+      onNoteDeleted={(personId, noteId) =>
+        patchNotes(personId, (list) => withDeletedNote(list, noteId))
+      }
       onDoNotKnockChanged={vi.fn()}
       onNotAVoterChanged={vi.fn()}
       onClose={vi.fn()}
@@ -636,6 +667,9 @@ describe('PersonSheet demographic information', () => {
         statusFor={() => 'unknown'}
         clientKeyFor={() => 'key'}
         onRecorded={vi.fn()}
+        onNoteCreated={vi.fn()}
+        onNoteUpdated={vi.fn()}
+        onNoteDeleted={vi.fn()}
         onDoNotKnockChanged={vi.fn()}
         onNotAVoterChanged={vi.fn()}
         onClose={vi.fn()}
@@ -734,10 +768,12 @@ describe('PersonSheet notes', () => {
   })
 
   // A note written at the door has to still be there when the canvasser flicks
-  // to the housemate to log them and comes back. The list is held above the
-  // card for exactly this, since the card itself remounts on the switch to drop
-  // the draft; re-seeding from the frozen payload would lose the note until the
-  // next serve.
+  // to the housemate to log them and comes back. The card itself remounts on
+  // the switch to drop the draft, so it cannot be what remembers: the write is
+  // reported up and lands on the target the sheet re-reads. Whose durability
+  // this really asserts is the walk's — `WalkView.test.tsx` carries the version
+  // that closes the sheet, which is where re-seeding from the frozen payload
+  // used to lose the note.
   it('keeps a note written this session across a resident switch', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/contacts/:personId/notes', ({ body }) => ({

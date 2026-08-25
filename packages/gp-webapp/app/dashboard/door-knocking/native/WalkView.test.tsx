@@ -1,6 +1,7 @@
 import { ComponentProps, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {
   DoorKnockingRoutePayload,
   NotAVoterReason,
@@ -1820,5 +1821,332 @@ describe('WalkView map pin taps', () => {
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 
     expect(screen.queryByText('Log this door')).toBeNull()
+  })
+})
+
+// ADR 0011. The card's own reads and writes are DoorNotesCard.test.tsx's and
+// the list algebra is doorNotes.test.ts's; what belongs here is the one thing
+// only the walk can hold — that a note written at a door outlives the sheet it
+// was written in, because it goes into the cached route payload rather than
+// into state that dies with the sheet.
+describe('WalkView notes', () => {
+  const target = (
+    stopTargetId: number,
+    name: string,
+    overrides: Partial<RoutePayloadTarget> = {},
+  ): RoutePayloadTarget => ({
+    stopTargetId,
+    personId: `person-${stopTargetId}`,
+    name,
+    age: 40,
+    politicalParty: null,
+    cellPhone: null,
+    landline: null,
+    knockStatus: 'unknown',
+    mayHaveMoved: false,
+    doNotKnock: false,
+    ...overrides,
+  })
+
+  const stop = (
+    id: number,
+    seq: number,
+    address: string,
+    targets: RoutePayloadTarget[],
+  ) => ({
+    id,
+    seq,
+    lat: 36.16,
+    lng: -86.78,
+    displayAddress: address,
+    legSeconds: 0,
+    legMeters: 0,
+    addresses: [
+      {
+        addressKey: address.toLowerCase().replaceAll(' ', '|'),
+        address,
+        targets,
+        otherResidents: [],
+      },
+    ],
+  })
+
+  const mockRoute = (
+    stops: DoorKnockingRoutePayload['stops'],
+    onServe?: () => void,
+  ) =>
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      onServe?.()
+      return {
+        status: 200,
+        data: {
+          route: {
+            id: 5,
+            doorKnockingTurfId: 3,
+            mode: 'walk' as const,
+            loop: false,
+            totalSeconds: 600,
+            totalMeters: 800,
+            stopCount: stops.length,
+            createdAt: new Date('2026-07-21T00:00:00Z'),
+          },
+          pathGeometry: null,
+          stops,
+        },
+      }
+    })
+
+  const savedNote = () =>
+    api.mock('POST /v1/contacts/:personId/notes', ({ params, body }) => ({
+      status: 200,
+      data: {
+        id: 'note-new',
+        personId: params.personId,
+        body: body.body,
+        createdAt: '2026-08-24T18:00:00.000Z',
+        updatedAt: '2026-08-24T18:00:00.000Z',
+      },
+    }))
+
+  const served = (body: string, id = 'note-1') => ({
+    id,
+    personId: 'person-21',
+    body,
+    createdAt: '2026-07-01T15:00:00.000Z',
+    updatedAt: '2026-07-01T15:00:00.000Z',
+  })
+
+  // The stop list is a list of listitems too, so a note row can only be counted
+  // from inside the card.
+  const notesCard = () =>
+    screen.getByRole('heading', { name: 'Notes' }).parentElement!
+
+  const writeNote = async (body: string) => {
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.type(screen.getByLabelText('Add a note'), body)
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    await waitFor(() => expect(screen.getByText(body)).toBeInTheDocument())
+  }
+
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  // The defect this whole path closes, in the shape a canvasser meets it: a
+  // note is the one thing worth writing at a door nobody answered, and a door
+  // nobody answered is often shut without being logged — the canvasser writes
+  // "come back Saturday", closes the sheet and walks on. Nothing then refreshes
+  // that resident (`openSheet`'s ADR 0009 serve is for residents logged this
+  // session, and this one was not), so a sheet re-seeded from the frozen
+  // payload showed a note that had definitely saved as though it had not.
+  it('keeps a note written at a door that was closed without being logged', async () => {
+    mockRoute([stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])])
+    savedNote()
+
+    render(<WalkHarness turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    await writeNote('Come back Saturday')
+
+    await closePersonSheet()
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+
+    expect(screen.getByText('Come back Saturday')).toBeInTheDocument()
+  })
+
+  // The count has to travel with the rows or the card starts lying in the
+  // direction that sends someone to Contacts for notes that are not there. A
+  // resident at the cap deleting one leaves two of eight — and it is still two
+  // of eight when the door is opened again, not the served three of nine.
+  it('keeps a deleted note deleted, and its count honest, across a reopen', async () => {
+    const user = userEvent.setup()
+    mockRoute([
+      stop(11, 1, '105 Elm St', [
+        target(21, 'Dorian Fen', {
+          notes: {
+            entries: [
+              served('Dog in the front yard'),
+              served('Works nights', 'note-2'),
+              served('Side gate is unlocked', 'note-3'),
+            ],
+            total: 9,
+          },
+        }),
+      ]),
+    ])
+    api.mock('DELETE /v1/contacts/notes/:noteId', { status: 200, data: {} })
+
+    render(<WalkHarness turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    expect(
+      screen.getByText(/Showing the 3 most recent of 9/),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen
+        .getAllByRole('button', { name: /^Delete note from/ })
+        .at(1) as HTMLElement,
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(screen.queryByText('Works nights')).toBeNull())
+
+    await closePersonSheet()
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+
+    expect(screen.queryByText('Works nights')).toBeNull()
+    expect(
+      screen.getByText(/Showing the 2 most recent of 8/),
+    ).toBeInTheDocument()
+  })
+
+  // The two rules #1406 argued for, asserted where they now live — on the
+  // payload rather than on a list held beside it, since that is the copy a
+  // reopened sheet reads. A fourth note is not evicted to imitate a wire cap
+  // that prices payload bytes a note in this browser does not cost, and an
+  // edit is replaced in place rather than floated to the top, because ADR 0011
+  // orders by `created_at` so that fixing a typo in an old note does not
+  // resurface it above one written this morning.
+  it('does not trim to the cap, and does not resurface an edited note', async () => {
+    const user = userEvent.setup()
+    mockRoute([
+      stop(11, 1, '105 Elm St', [
+        target(21, 'Dorian Fen', {
+          notes: {
+            entries: [
+              served('Newest served note'),
+              served('Middle served note', 'note-2'),
+              served('Oldest served note', 'note-3'),
+            ],
+            total: 3,
+          },
+        }),
+      ]),
+    ])
+    savedNote()
+    api.mock('PATCH /v1/contacts/notes/:noteId', ({ params, body }) => ({
+      status: 200,
+      data: {
+        ...served(body.body, params.noteId),
+        updatedAt: '2026-08-24T19:00:00.000Z',
+      },
+    }))
+
+    render(<WalkHarness turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    await writeNote('Written at the door')
+
+    // The last row is the oldest note, which is the one an in-place replace has
+    // to leave exactly where it is.
+    await user.click(
+      screen
+        .getAllByRole('button', { name: /^Edit note from/ })
+        .at(-1) as HTMLElement,
+    )
+    await user.clear(screen.getByLabelText('Edit note'))
+    await user.type(screen.getByLabelText('Edit note'), 'Oldest, corrected')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() =>
+      expect(screen.getByText('Oldest, corrected')).toBeInTheDocument(),
+    )
+
+    await closePersonSheet()
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+
+    const bodies = within(notesCard())
+      .getAllByRole('listitem')
+      .map((row) => row.textContent ?? '')
+    // Four rows, not three: the cap was never applied to a note already here.
+    expect(bodies).toHaveLength(4)
+    expect(bodies[0]).toContain('Written at the door')
+    expect(bodies[1]).toContain('Newest served note')
+    expect(bodies[2]).toContain('Middle served note')
+    // Still last, though it is the note most recently touched: ADR 0011 orders
+    // by when a note was written, not by when it was edited.
+    expect(bodies[3]).toContain('Oldest, corrected')
+    // Four of four, so the card claims no truncation it does not have.
+    expect(screen.queryByText(/Showing the/)).toBeNull()
+  })
+
+  // The same race `patchPerson` cancels for a knock, met by a note: the ADR
+  // 0009 feed refresh for this resident is already in flight when the note is
+  // written, and it was built by a server that had never seen it. Landing
+  // afterwards it would take the note back off a card the canvasser had just
+  // watched save.
+  it('does not let an in-flight serve undo a note written while it was open', async () => {
+    let releaseSecondServe: (() => void) | null = null
+    let serves = 0
+    api.mock('GET /v1/door-knocking/turfs/:id/route', async () => {
+      serves += 1
+      if (serves > 1) {
+        await new Promise<void>((resolve) => {
+          releaseSecondServe = resolve
+        })
+      }
+      return {
+        status: 200,
+        data: {
+          route: {
+            id: 5,
+            doorKnockingTurfId: 3,
+            mode: 'walk' as const,
+            loop: false,
+            totalSeconds: 600,
+            totalMeters: 800,
+            stopCount: 1,
+            createdAt: new Date('2026-07-21T00:00:00Z'),
+          },
+          pathGeometry: null,
+          stops: [
+            stop(11, 1, '105 Elm St', [
+              target(21, 'Dorian Fen', {
+                knockStatus: serves === 1 ? 'unknown' : 'not_home',
+                notes: { entries: [], total: 0 },
+              }),
+            ]),
+          ],
+        },
+      }
+    })
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-21', knockStatus: 'not_home' },
+    })
+    savedNote()
+
+    render(<WalkHarness turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    knockNotHome()
+    // Nothing ahead, so the door closes on itself; reopening a resident logged
+    // this session is what asks for the serve that is then held open.
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() => expect(serves).toBe(2))
+
+    await writeNote('Come back Saturday')
+
+    // Settled, not slept on, the way the ADR 0008 refresh test above reads its
+    // failed serve: the patch's cancellation puts this query idle immediately,
+    // so nothing lands and the note stays — while with the cancellation removed
+    // the query is still fetching here, and reaching idle means the serve has
+    // arrived and taken the note back off the card. A wall-clock wait would
+    // pass either way on a slow enough runner.
+    releaseSecondServe!()
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(['door-knocking-route', 3])?.fetchStatus,
+      ).toBe('idle'),
+    )
+
+    expect(screen.getByText('Come back Saturday')).toBeInTheDocument()
   })
 })

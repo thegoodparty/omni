@@ -62,11 +62,14 @@ interface DoorNotesCardProps {
 // to the person who caused it and still has their text, while a failed read
 // looks exactly like a resident nobody has ever written about.
 //
-// The list after a write is held in local state above this card (see
-// `doorNotes.ts`) rather than refetched. Asking for a whole route serve — this
-// feature's heaviest read — because someone typed a sentence is the per-door
-// fetch ADR 0009 rejected, and the response to a create or an edit is the row
-// itself, so there is nothing left to go and ask for.
+// The list after a write is **patched into the cached route payload** by
+// `WalkView` (see `doorNotes.ts` for the algebra), never refetched. Asking for
+// a whole route serve — this feature's heaviest read — because someone typed a
+// sentence is the per-door fetch ADR 0009 rejected, and the response to a
+// create or an edit is the row itself, so there is nothing left to go and ask
+// for. Patching the payload rather than holding a list beside it is what makes
+// a note survive the sheet closing: the card is handed `target.notes`, and
+// after a write that is what `target.notes` says.
 export default function DoorNotesCard({
   personId,
   notes,

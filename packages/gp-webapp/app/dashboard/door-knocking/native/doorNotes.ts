@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { ContactNote, RoutePayloadTargetNotes } from '@goodparty_org/contracts'
 
 // ADR 0011's `{ entries, total }` as the door holds it after a write, with one
@@ -82,40 +81,35 @@ export const withDeletedNote = (
   }
 }
 
-// The door sheet's per-resident note lists, held for as long as the sheet is
-// open and keyed by `personId` — never rolled up to the household, for ADR
-// 0011's reason: free text somebody typed about a named voter, read against the
-// housemate who opened the door, is a mistake made out loud.
+// One of the four edits above, applied to a resident's served block and handed
+// back in the shape the route payload holds — which is what lets the door's
+// only copy of a note list be the cached payload itself rather than a second
+// list beside it. `WalkView` writes the result through `patchPerson`, the same
+// path a logged knock takes.
 //
-// It lives above the card rather than inside it because the sheet switches
-// residents without closing: auto-advance walks between two people behind one
-// door, and so does the header's switcher. A card that seeded itself on mount
-// would re-read the frozen route payload every time the canvasser flicked back
-// to the housemate they had just written about, and the note would be gone from
-// a list it had been in a moment earlier.
+// The edit is a transform of the block passed in rather than of a snapshot
+// taken earlier, so two writes racing each other both land: each reads whatever
+// the cache holds at the moment it is applied.
 //
-// The served block is passed in at the point of use rather than captured, so
-// the seed is always the payload the sheet is currently rendering, and edits
-// apply through a transform rather than a snapshot — two deletes racing each
-// other both land instead of the second overwriting the first with a list built
-// before it.
-export const useDoorNotes = () => {
-  const [edited, setEdited] = useState<Record<string, DoorNoteList>>({})
-
-  const notesFor = (
-    personId: string,
-    served: RoutePayloadTargetNotes | undefined,
-  ): DoorNoteList => edited[personId] ?? seedDoorNotes(served)
-
-  const applyToNotes = (
-    personId: string,
-    served: RoutePayloadTargetNotes | undefined,
-    edit: (list: DoorNoteList) => DoorNoteList,
-  ) =>
-    setEdited((current) => ({
-      ...current,
-      [personId]: edit(current[personId] ?? seedDoorNotes(served)),
-    }))
-
-  return { notesFor, applyToNotes }
+// **`total ?? entries.length` is the one place the wire shape cannot carry what
+// the door knows**, and it is worth being explicit about what that costs.
+// `RoutePayloadTargetNotes.total` is an `int`, so a payload that predates ADR
+// 0011 — no `notes` key, `total: null` here — has no honest count to write back
+// once a canvasser adds a note to it. The alternatives were both worse. Leaving
+// the block absent would drop the note the moment it was written, which is the
+// defect this whole path exists to close. Inventing a count from the served
+// rows would be the inference ADR 0011 rejected outright. So the block
+// materialises describing exactly what the browser has and nothing more, and
+// what is given up is the card's "this walk was saved before notes rode the
+// route" line for that resident, from their first note onward. That line's work
+// is done on an *empty* card, where a blank section otherwise reads as "nobody
+// has ever written about this person"; a card showing a note the canvasser
+// wrote thirty seconds ago is not that false negative. It is also unreachable
+// on any payload a live serve produced, since the server always sends the block.
+export const editServedNotes = (
+  served: RoutePayloadTargetNotes | undefined,
+  edit: (list: DoorNoteList) => DoorNoteList,
+): RoutePayloadTargetNotes => {
+  const next = edit(seedDoorNotes(served))
+  return { entries: next.entries, total: next.total ?? next.entries.length }
 }

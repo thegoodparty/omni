@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  ContactNote,
   DoorKnockStatus,
   NotAVoterReason,
   RoutePayloadStop,
@@ -24,12 +25,7 @@ import DoNotKnockControl from './DoNotKnockControl'
 import NotAVoterControl from './NotAVoterControl'
 import ActivityFeedCard from './ActivityFeedCard'
 import DoorNotesCard from './DoorNotesCard'
-import {
-  useDoorNotes,
-  withCreatedNote,
-  withDeletedNote,
-  withUpdatedNote,
-} from './doorNotes'
+import { seedDoorNotes } from './doorNotes'
 import {
   STATUS_DOT_COLORS,
   STATUS_LABELS,
@@ -67,6 +63,12 @@ interface PersonSheetProps {
     personId: string,
     knockStatus: DoorKnockStatus,
   ) => void
+  // ADR 0011. Reported up rather than applied here, for the reason the knock
+  // status is: `WalkView` writes them into the cached route payload, so the
+  // list this sheet renders is the same list a reopened sheet renders.
+  onNoteCreated: (personId: string, note: ContactNote) => void
+  onNoteUpdated: (personId: string, note: ContactNote) => void
+  onNoteDeleted: (personId: string, noteId: string) => void
   onDoNotKnockChanged: (personId: string, doNotKnock: boolean) => void
   onNotAVoterChanged: (
     personId: string,
@@ -104,16 +106,15 @@ export default function PersonSheet({
   statusFor,
   clientKeyFor,
   onRecorded,
+  onNoteCreated,
+  onNoteUpdated,
+  onNoteDeleted,
   onDoNotKnockChanged,
   onNotAVoterChanged,
   onClose,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   const script = useDoorScript()
-  // Held here, not in the card: the sheet switches residents without closing,
-  // and a card that seeded itself on mount would lose a note the moment the
-  // canvasser flicked to the housemate and back. See `doorNotes.ts`.
-  const doorNotes = useDoorNotes()
   const target =
     targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
     targets[0]
@@ -272,26 +273,18 @@ export default function PersonSheet({
               carrying half a typed sentence about Dorian across the switcher
               and offering it under Marisol's name is text about a named voter
               attached to the wrong one. The saved lists themselves survive the
-              switch, because `useDoorNotes` keeps them above this remount. */}
+              switch — and the sheet closing, and the door being reopened —
+              because they are not held here at all: a write is reported up and
+              lands in the cached route payload, which is where `target.notes`
+              is read back from. One list per resident, and this card renders
+              it. */}
           <DoorNotesCard
             key={target.stopTargetId}
             personId={target.personId}
-            notes={doorNotes.notesFor(target.personId, target.notes)}
-            onCreated={(created) =>
-              doorNotes.applyToNotes(target.personId, target.notes, (list) =>
-                withCreatedNote(list, created),
-              )
-            }
-            onUpdated={(updated) =>
-              doorNotes.applyToNotes(target.personId, target.notes, (list) =>
-                withUpdatedNote(list, updated),
-              )
-            }
-            onDeleted={(noteId) =>
-              doorNotes.applyToNotes(target.personId, target.notes, (list) =>
-                withDeletedNote(list, noteId),
-              )
-            }
+            notes={seedDoorNotes(target.notes)}
+            onCreated={(created) => onNoteCreated(target.personId, created)}
+            onUpdated={(updated) => onNoteUpdated(target.personId, updated)}
+            onDeleted={(noteId) => onNoteDeleted(target.personId, noteId)}
           />
 
           {/* The prototype's demographic profile, scoped to `target` so

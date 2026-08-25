@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ContactNote } from '@goodparty_org/contracts'
 import {
+  editServedNotes,
   seedDoorNotes,
   withCreatedNote,
   withDeletedNote,
@@ -147,5 +148,73 @@ describe('withDeletedNote', () => {
     const list = { entries: [note({ id: 'a' })], total: 4 }
 
     expect(withDeletedNote(list, 'b')).toBe(list)
+  })
+})
+
+// The step that lets the cached route payload be the door's only copy of a
+// resident's notes: an edit goes in as one of the four above and comes back out
+// in the shape `RoutePayloadTarget.notes` holds, ready for `patchPerson`.
+describe('editServedNotes', () => {
+  it('applies the edit to the block the payload arrived with', () => {
+    const next = editServedNotes({ entries: [note()], total: 9 }, (list) =>
+      withCreatedNote(list, note({ id: 'note-2', body: 'New' })),
+    )
+
+    expect(next.entries.map((entry) => entry.id)).toEqual(['note-2', 'note-1'])
+    expect(next.total).toBe(10)
+  })
+
+  // Two writes racing each other both land, because each is applied to whatever
+  // the cache holds when it runs rather than to a list captured earlier.
+  it('composes with a second edit against its own result', () => {
+    const first = editServedNotes({ entries: [note()], total: 9 }, (list) =>
+      withCreatedNote(list, note({ id: 'note-2' })),
+    )
+
+    const second = editServedNotes(first, (list) =>
+      withDeletedNote(list, 'note-1'),
+    )
+
+    expect(second.entries.map((entry) => entry.id)).toEqual(['note-2'])
+    expect(second.total).toBe(9)
+  })
+
+  // The one thing the wire shape cannot carry. `total` is an int, so a payload
+  // that predates ADR 0011 has no count to write back once a note is added to
+  // it — and the two alternatives are both worse than materialising what the
+  // browser actually has: leaving the block absent would drop the note the
+  // moment it was written, which is the defect this path exists to close, and
+  // deriving a count from the served rows is the inference ADR 0011 rejected.
+  // What is given up is the card's "saved before notes rode the route" line for
+  // that resident, and that line does its work on an *empty* card, where a
+  // blank section otherwise reads as "nobody has ever written about this
+  // person". A card showing a note written thirty seconds ago is not that.
+  it('materialises a count for a payload that predates the field', () => {
+    const next = editServedNotes(undefined, (list) =>
+      withCreatedNote(list, note()),
+    )
+
+    expect(next).toEqual({ entries: [note()], total: 1 })
+  })
+
+  // The far corner of that trade, written down rather than left to be
+  // discovered: once a count is materialised it is a real count, so deleting
+  // the note that caused it decrements to nought and the card goes from "saved
+  // before notes rode the route" to "no notes about this resident yet" — a
+  // claim about the person, made off a payload that knows nothing about them.
+  // It is the price of not dropping the note in the first place, and it is
+  // reachable only on a snapshot old enough to predate the field, where the
+  // canvasser both wrote a note and took it back again. Pinned so that a change
+  // in this behaviour has to be a decision.
+  it('cannot get an unknown count back once one has been materialised', () => {
+    const afterCreate = editServedNotes(undefined, (list) =>
+      withCreatedNote(list, note()),
+    )
+
+    const afterDelete = editServedNotes(afterCreate, (list) =>
+      withDeletedNote(list, 'note-1'),
+    )
+
+    expect(afterDelete).toEqual({ entries: [], total: 0 })
   })
 })
