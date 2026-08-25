@@ -4,6 +4,7 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useQuery } from '@tanstack/react-query'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
+import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import type { Campaign } from 'helpers/types'
 import ProUpgradeEntry from './ProUpgradeEntry'
 
@@ -26,17 +27,23 @@ const queryResult = (
     refetch: vi.fn(),
   }) as unknown as ReturnType<typeof useQuery>
 
-// The entry runs three queries (campaign, website, TCR). Drive the campaign
-// query independently from the other two so we can exercise its loading state.
+// The entry runs four queries (campaign, website, TCR, eligibility). Drive the
+// campaign and eligibility queries independently from the other two so we can
+// exercise their loading/blocked states. Eligibility defaults to an active
+// campaign so the pre-existing routing tests exercise the redirect path.
 const setQueries = (
   campaign: ReturnType<typeof useQuery>,
   other: ReturnType<typeof useQuery>,
+  eligibility: ReturnType<typeof useQuery> = queryResult({
+    data: { hasActiveCampaign: true },
+  }),
 ): void => {
-  mockUseQuery.mockImplementation((options) =>
-    (options as { queryKey: unknown }).queryKey === CAMPAIGN_QUERY_KEY
-      ? campaign
-      : other,
-  )
+  mockUseQuery.mockImplementation((options) => {
+    const { queryKey } = options as { queryKey: unknown }
+    if (queryKey === CAMPAIGN_QUERY_KEY) return campaign
+    if (queryKey === ELIGIBILITY_QUERY_KEY) return eligibility
+    return other
+  })
 }
 
 describe('ProUpgradeEntry', () => {
@@ -147,5 +154,66 @@ describe('ProUpgradeEntry', () => {
       screen.getByRole('button', { name: /try again/i }),
     ).toBeInTheDocument()
     expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('shows the recoverable error when only the eligibility query fails', () => {
+    setQueries(queryResult(), queryResult(), queryResult({ isError: true }))
+
+    render(<ProUpgradeEntry />)
+
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument()
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('holds on the spinner while the eligibility query is pending', () => {
+    setQueries(queryResult(), queryResult(), queryResult({ isPending: true }))
+
+    render(<ProUpgradeEntry />)
+
+    expect(screen.getByText(/powered by/i)).toBeInTheDocument()
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('blocks entry with an explanation when no campaign is active (ENG-10892)', () => {
+    setQueries(
+      queryResult({ data: { details: {} } as Campaign }),
+      queryResult(),
+      queryResult({ data: { hasActiveCampaign: false } }),
+    )
+
+    render(<ProUpgradeEntry />)
+
+    expect(
+      screen.getByText(/pro requires an active campaign/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /contact support/i }),
+    ).toHaveAttribute(
+      'href',
+      expect.stringContaining('mailto:campaignsuccess@goodparty.org'),
+    )
+    expect(
+      screen.getByRole('link', { name: /back to dashboard/i }),
+    ).toHaveAttribute('href', '/dashboard')
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('still routes an already-Pro user to the success surface even with no active campaign', () => {
+    // An already-Pro user has nothing left to buy; the blocked screen would be
+    // a dead end over their post-payment surface.
+    setQueries(
+      queryResult({ data: { isPro: true, details: {} } as Campaign }),
+      queryResult(),
+      queryResult({ data: { hasActiveCampaign: false } }),
+    )
+
+    render(<ProUpgradeEntry />)
+
+    expect(
+      screen.queryByText(/pro requires an active campaign/i),
+    ).not.toBeInTheDocument()
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/success',
+    )
   })
 })

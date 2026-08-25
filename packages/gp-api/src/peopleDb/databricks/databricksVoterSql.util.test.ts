@@ -18,6 +18,7 @@ import {
   buildSearchSql,
   buildVoterColumnsSql,
   buildVoterFiltersSql,
+  buildPersonSql,
   createBag,
   DISTRICT_TABLE,
   VOTER_TABLE,
@@ -704,5 +705,48 @@ describe('household grouping', () => {
 
     expect(sql).not.toContain('ROW_NUMBER')
     expect(sql).not.toContain('householdId')
+  })
+})
+
+describe('buildPersonSql', () => {
+  const scope = { district: CONGRESSIONAL, filters: noFilters() }
+  const ID = '001252fe-fada-36f5-8fac-1044a4341bd5'
+
+  it('keeps the district scope on a single-voter read', () => {
+    const { sql, params } = buildPersonSql({
+      ...scope,
+      columns: ['id'],
+      id: ID,
+    })
+
+    // Without the scope an id from another office would resolve through this
+    // district's drawer.
+    expect(sql).toContain('v.`State` = :p0')
+    expect(sql).toContain('v.`US_Congressional_District` = :p1')
+    expect(sql).toContain('v.`id` = :p2')
+    expect(sql).toContain('LIMIT 1')
+    expect(params.map(({ value }) => value)).toEqual(['CA', '29', ID])
+  })
+
+  // Postgres cast to `uuid` and folded case; this column is a STRING that does
+  // not, and z.guid() hands the id through in whatever case it arrived.
+  it('folds a mixed-case guid to match the stored value', () => {
+    const { params } = buildPersonSql({
+      ...scope,
+      columns: ['id'],
+      id: ID.toUpperCase(),
+    })
+
+    expect(params.at(-1)?.value).toBe(ID)
+  })
+
+  it('binds the id rather than splicing it', () => {
+    const { sql } = buildPersonSql({
+      ...scope,
+      columns: ['id'],
+      id: "' OR 1=1 --",
+    })
+
+    expect(sql).not.toContain('OR 1=1')
   })
 })

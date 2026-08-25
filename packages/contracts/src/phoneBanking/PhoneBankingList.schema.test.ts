@@ -84,6 +84,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
         voicemail: 1,
         wrong_number: 0,
         refused: 0,
+        disconnected: 0,
+        hung_up: 0,
       },
       supporters: 1,
       unsure: 0,

@@ -133,6 +133,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
             voicemail: 8,
             wrong_number: 3,
             refused: 1,
+            disconnected: 0,
+            hung_up: 0,
           },
           supporters: 30,
           unsure: 10,
@@ -219,6 +221,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
             voicemail: 0,
             wrong_number: 0,
             refused: 0,
+            disconnected: 0,
+            hung_up: 0,
           },
           supporters: 8,
           unsure: 4,
@@ -233,7 +237,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
       await screen.findByText('Based on 10 phone banking contacts'),
     ).toBeInTheDocument()
     expect(screen.getByText('Answered')).toBeInTheDocument()
-    expect(screen.getByText('Refused to engage')).toBeInTheDocument()
+    expect(screen.getByText('Refused')).toBeInTheDocument()
     // Answered: 5 of 10 entriesCalled = 50%
     expect(screen.getAllByText('50%').length).toBeGreaterThan(0)
     expect(screen.getByText('Support: Yes')).toBeInTheDocument()
@@ -269,6 +273,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
             voicemail: 0,
             wrong_number: 0,
             refused: 0,
+            disconnected: 0,
+            hung_up: 0,
           },
           supporters: 16,
           unsure: 0,
@@ -320,6 +326,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
             voicemail: 0,
             wrong_number: 0,
             refused: 0,
+            disconnected: 0,
+            hung_up: 0,
           },
           supporters: 16,
           unsure: 0,
@@ -396,6 +404,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
             voicemail: 0,
             wrong_number: 0,
             refused: 0,
+            disconnected: 0,
+            hung_up: 0,
           },
           supporters: 16,
           unsure: 0,

@@ -23,8 +23,12 @@ import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.de
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { ContactNoteService } from '@/contactNote/services/contactNote.service'
-import { ContactNote, Organization } from '../generated/prisma'
+import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import {
+  ContactNoteService,
+  ContactNoteWithActor,
+} from '@/contactNote/services/contactNote.service'
+import { Organization, User } from '../generated/prisma'
 import {
   ContactNoteBodyDTO,
   ContactNoteIdParamsDTO,
@@ -32,12 +36,16 @@ import {
 } from './schemas/contactNote.schema'
 import { ContactsService } from './services/contacts.service'
 
-const toApi = (note: ContactNote): ContactNoteDto => ({
+const toApi = (note: ContactNoteWithActor): ContactNoteDto => ({
   id: note.id,
   personId: note.personId,
   body: note.body,
   createdAt: note.createdAt.toISOString(),
   updatedAt: note.updatedAt.toISOString(),
+  actorName: note.actor
+    ? [note.actor.firstName, note.actor.lastName].filter(Boolean).join(' ') ||
+      null
+    : null,
 })
 
 @Controller('contacts')
@@ -70,16 +78,21 @@ export class ContactNotesController {
     @Param() { personId }: ContactNotePersonParamsDTO,
     @Body() body: ContactNoteBodyDTO,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
   ): Promise<ContactNoteDto> {
     await this.contactsService.assertProAccess(organization)
     const note = await this.contactNoteService.create(
       organization.slug,
       personId,
       body.body,
+      user.id,
     )
     return toApi(note)
   }
 
+  // No @ReqUser here: actorUserId is author-at-creation only (mirrors the
+  // column's own semantics — an edit must not reattribute the note to
+  // whoever happens to fix a typo).
   @Patch('notes/:noteId')
   @ResponseSchema(ContactNoteSchema)
   async updateNote(

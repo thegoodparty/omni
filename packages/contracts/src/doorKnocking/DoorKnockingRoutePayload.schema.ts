@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   DoorKnockConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
   RobocallConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
   TextConstituentActivitySchema,
@@ -18,7 +19,7 @@ import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
 // Contacts and at the door, and reusing the schemas means the webapp's
 // existing feed rows render this without a fork.
 //
-// Two of the CRM's six variants are deliberately absent. POLL_INTERACTIONS
+// Two of the CRM's seven variants are deliberately absent. POLL_INTERACTIONS
 // is elected-office only and door knocking is Win-only. OUTREACH (the
 // deprecated VoterOutreachActivity rows) is keyed on lalVoterId, and
 // door_knocking_stop_target stores a people-db personId precisely so no raw
@@ -27,6 +28,7 @@ export const RouteTargetActivitySchema = z.discriminatedUnion('type', [
   DoorKnockConstituentActivitySchema,
   TextConstituentActivitySchema,
   RobocallConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
 ])
 

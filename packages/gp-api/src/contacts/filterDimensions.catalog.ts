@@ -124,6 +124,8 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   voicemail: 'Voicemail',
   wrong_number: 'Wrong Number',
   refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung Up',
 }
 
 // All five values (ENG-10837): `undecided`/`refused` (ENG-10833) exist only

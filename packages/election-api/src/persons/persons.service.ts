@@ -8,12 +8,19 @@ import { PersonFilterDto } from './persons.schema'
 import { PositionLevel, Prisma } from '../generated/prisma'
 
 // Candidacy carries PII (`email`); never expose it when nesting candidacies
-// under a Person on this public endpoint. The Race's `electionDate` is pulled
-// (narrow select, no PII) so consumers can date a candidacy — e.g. the public
-// profile's "Recent Experience" ("Candidate for Mayor · 2024").
+// under a Person on this public endpoint. The Race is pulled with a narrow,
+// non-PII select so consumers can both date a candidacy and link it:
+// `electionDate` gives "Recent Experience" its year ("Candidate for Mayor ·
+// 2024"), while `slug` + `positionLevel` are the pair gp-marketing feeds to
+// buildElectionPositionHrefFromRaceSlug for that row's "View Position" link.
+// Without them only the one candidacy the profile fetches in full could resolve
+// a position page, so every other run rendered unlinked. Mirrors the office
+// side, which reaches the same two fields through Position.Races below.
 const CANDIDACY_INCLUDE = {
   omit: { email: true },
-  include: { Race: { select: { electionDate: true } } },
+  include: {
+    Race: { select: { electionDate: true, slug: true, positionLevel: true } },
+  },
 } as const
 
 // Reaches the office's own Race so each term can carry the position slug the

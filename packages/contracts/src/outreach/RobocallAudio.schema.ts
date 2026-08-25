@@ -5,9 +5,11 @@ import { z } from 'zod'
 // POST, so these are the shapes for POST /outreach/robocall/audio/presign.
 
 // Containers the in-browser recorder emits (webm/mp4/ogg) plus the formats the
-// upload picker accepts (mp3/wav/m4a/aac). The server pins Content-Type on the
+// upload picker accepts (mp3/wav/m4a). The server pins Content-Type on the
 // presigned POST policy from this value, so it must match what the client
-// uploads.
+// uploads. Every type here must also be transcribable — the compliance gate's
+// MEDIA_FORMAT_BY_MIME must map each one, so keep the two lists in sync (raw
+// audio/aac is excluded: it isn't an AWS Transcribe MediaFormat).
 export const ROBOCALL_AUDIO_ALLOWED_MIME_TYPES = [
   'audio/webm',
   'audio/mp4',
@@ -15,7 +17,6 @@ export const ROBOCALL_AUDIO_ALLOWED_MIME_TYPES = [
   'audio/mpeg',
   'audio/wav',
   'audio/x-wav',
-  'audio/aac',
   'audio/x-m4a',
 ] as const
 

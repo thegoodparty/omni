@@ -151,6 +151,14 @@ export class PeopleDbxStatementClient {
 
   private token: { value: string; expiresAt: number } | null = null
 
+  // The token fetch in flight, if any. Without this, concurrent callers that
+  // all observe an absent or expired token each issue their own OIDC request:
+  // findPeople alone fires a count and a page under Promise.all, so the very
+  // first voter read after an expiry is already a race. A burst that trips the
+  // OIDC rate limit surfaces as 502s, and voter reads have no second source to
+  // fall back on.
+  private tokenFetch: Promise<string> | null = null
+
   private config(): PeopleDbxConfig {
     const config = resolvePeopleDbxConfig()
     if (!config) {
@@ -359,9 +367,20 @@ export class PeopleDbxStatementClient {
     if (config.accessToken) return config.accessToken
     const cached = this.token
     if (cached && cached.expiresAt > Date.now()) return cached.value
+    if (this.tokenFetch) return this.tokenFetch
     if (!config.oauthClientId || !config.oauthClientSecret) {
       throw new PeopleDbxUnavailableError('no usable credential is configured')
     }
+    // Assigned before the first await so a concurrent caller in the same tick
+    // sees it, and cleared on settle so a failed fetch does not poison the
+    // next attempt.
+    this.tokenFetch = this.fetchToken(config).finally(() => {
+      this.tokenFetch = null
+    })
+    return this.tokenFetch
+  }
+
+  private async fetchToken(config: PeopleDbxConfig): Promise<string> {
     const credential = Buffer.from(
       `${config.oauthClientId}:${config.oauthClientSecret}`,
     ).toString('base64')

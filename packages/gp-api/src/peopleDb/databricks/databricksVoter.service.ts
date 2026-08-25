@@ -31,6 +31,7 @@ import {
   buildDistrictSql,
   buildOverlapCountSql,
   buildPageSql,
+  buildPersonSql,
   buildSampleSql,
   buildVoterColumnsSql,
   HOUSEHOLD_PAGE_COLUMNS,
@@ -188,6 +189,31 @@ export class DatabricksVoterService {
     return PeopleOverlapCountResponseSchema.parse({
       count: Number(rows[0]?.[0] ?? 0),
     })
+  }
+
+  // Scoped to the district for the same reason the Postgres path is: an id
+  // from another office must not resolve through this drawer. The two
+  // not-found messages mirror Postgres exactly, because the webapp
+  // distinguishes "not in this district" from "no such person".
+  async findPerson(id: string, districtId: string) {
+    const district = await this.resolveDistrict(districtId)
+    const { columnNames } = buildVoterSelectSql()
+    const { rows } = await this.run(
+      buildPersonSql({
+        district,
+        filters: EMPTY_FILTERS,
+        columns: columnNames,
+        id,
+      }),
+    )
+    const [row] = rows
+    if (!row) {
+      if (!district.useVoterOnlyPath) {
+        throw new NotFoundException('Person not found in district')
+      }
+      throw new NotFoundException(`Person with ID ${id} not found`)
+    }
+    return transformToPersonOutput(toDbPerson(columnNames, row))
   }
 
   async findPeople(dto: ListPeopleDTO) {

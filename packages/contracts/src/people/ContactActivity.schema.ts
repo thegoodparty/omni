@@ -127,6 +127,9 @@ export type RobocallConstituentActivity = z.infer<
   typeof RobocallConstituentActivitySchema
 >
 
+// actorName/actorUserId follow the status-change pattern below: the writer's
+// display name (null for a legacy row logged before ENG-10946), and the raw
+// user id so the viewer can render "You" instead of their own name.
 export const PhoneBankingConstituentActivitySchema = z.object({
   type: z.literal(ConstituentActivityTypeSchema.enum.PHONE_BANKING),
   date: z.string(),
@@ -137,6 +140,8 @@ export const PhoneBankingConstituentActivitySchema = z.object({
     willVote: WillVoteAnswerSchema.nullable(),
     note: z.string().nullable(),
     manual: z.boolean(),
+    actorName: z.string().nullable(),
+    actorUserId: z.number().nullable(),
   }),
 })
 export type PhoneBankingConstituentActivity = z.infer<
@@ -149,8 +154,9 @@ export type PhoneBankingConstituentActivity = z.infer<
 // Serve feed. fromLabel/toLabel are the resolved display text (never the raw
 // enum value — see resolveContactStatusLabel in ContactStatus.schema),
 // fromLabel null for the never-seen-before edge (no prior override row).
-// actorName is the writer's display name, null for a future non-manual
-// source (door_knock/phone_banking) that isn't user-attributed.
+// actorName is the writer's display name, null for a non-manual source
+// (door_knock) that isn't user-attributed, or for a legacy phone_banking
+// row logged before ENG-10946 added attribution to that channel.
 export const StatusChangeConstituentActivitySchema = z.object({
   type: z.literal(ConstituentActivityTypeSchema.enum.STATUS_CHANGE),
   date: z.string(),

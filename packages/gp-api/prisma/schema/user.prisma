@@ -41,6 +41,8 @@ model User {
   userAgendaUploads     UserAgendaUpload[]
   personProfile         PersonProfile?
   contactStatusEvents   ContactStatusEvent[]
+  phoneBankingCalls     ContactInteractionPhoneBanking[]
+  contactNotes          ContactNote[]
 
   @@index([firstName])
   @@index([lastName])

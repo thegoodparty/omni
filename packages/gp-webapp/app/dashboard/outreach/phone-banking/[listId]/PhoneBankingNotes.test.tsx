@@ -14,6 +14,7 @@ const makeNote = (overrides: Partial<ContactNote> = {}): ContactNote => ({
   body: 'Left a voicemail, will call back',
   createdAt: '2026-08-01T12:00:00.000Z',
   updatedAt: '2026-08-01T12:00:00.000Z',
+  actorName: null,
   ...overrides,
 })
 
@@ -41,6 +42,24 @@ describe('<PhoneBankingNotes>', () => {
     expect(
       screen.getByRole('button', { name: 'Add a note' }),
     ).toBeInTheDocument()
+  })
+
+  it('renders the note author when actorName is present; a legacy null-actor note shows no author', async () => {
+    const notes: ContactNote[] = [
+      makeNote({ id: 'note_a', actorName: 'Jane Staffer' }),
+      makeNote({ id: 'note_b', body: 'Legacy note', actorName: null }),
+    ]
+    api.mock('GET /v1/contacts/:personId/notes', {
+      status: 200,
+      data: { results: notes },
+    })
+
+    render(<PhoneBankingNotes personId={PERSON_ID} />)
+
+    await screen.findByText('Left a voicemail, will call back')
+    expect(screen.getByText(/Jane Staffer/)).toBeInTheDocument()
+    expect(screen.getByText('Legacy note')).toBeInTheDocument()
+    expect(screen.getAllByText(/Jane Staffer/)).toHaveLength(1)
   })
 
   it('deletes a note after confirming', async () => {
