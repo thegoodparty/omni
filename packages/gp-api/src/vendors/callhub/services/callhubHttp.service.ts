@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios'
 import { Injectable } from '@nestjs/common'
 import { AxiosRequestConfig, AxiosResponse, isAxiosError } from 'axios'
+import FormData from 'form-data'
 import { firstValueFrom } from 'rxjs'
 import { PinoLogger } from 'nestjs-pino'
 import { CallhubBaseConfig } from '../config/callhubBaseConfig'
@@ -56,7 +57,7 @@ export class CallhubHttpService extends CallhubBaseConfig {
 
   private async withRetry<T>(
     send: () => Promise<AxiosResponse<T>>,
-    retryServerErrors: boolean,
+    opts: { retryServerErrors: boolean; allowRetry: boolean },
   ): Promise<AxiosResponse<T>> {
     let lastError: unknown
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -64,7 +65,8 @@ export class CallhubHttpService extends CallhubBaseConfig {
         return await send()
       } catch (error) {
         lastError = error
-        const canRetry = this.isRetryable(error, retryServerErrors)
+        const canRetry =
+          opts.allowRetry && this.isRetryable(error, opts.retryServerErrors)
         if (attempt === MAX_RETRIES || !canRetry) throw error
         await sleep(RETRY_BASE_DELAY_MS * (attempt + 1))
       }
@@ -76,7 +78,7 @@ export class CallhubHttpService extends CallhubBaseConfig {
     const res = await this.withRetry<T>(
       () =>
         firstValueFrom(this.httpService.get<T>(path, this.baseConfig(config))),
-      true,
+      { retryServerErrors: true, allowRetry: true },
     )
     return res.data
   }
@@ -86,12 +88,15 @@ export class CallhubHttpService extends CallhubBaseConfig {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
+    // A multipart stream (FormData) is consumed on the first send and can't be
+    // replayed, so a retried POST would send an empty body — don't retry it.
+    // A future POST carrying a raw stream must extend this guard likewise.
     const res = await this.withRetry<T>(
       () =>
         firstValueFrom(
           this.httpService.post<T>(path, body, this.baseConfig(config)),
         ),
-      false,
+      { retryServerErrors: false, allowRetry: !(body instanceof FormData) },
     )
     return res.data
   }

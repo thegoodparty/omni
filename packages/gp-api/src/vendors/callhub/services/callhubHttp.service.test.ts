@@ -1,5 +1,6 @@
 import { HttpService } from '@nestjs/axios'
 import { AxiosError, AxiosHeaders, AxiosResponse } from 'axios'
+import FormData from 'form-data'
 import { of, throwError } from 'rxjs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -53,6 +54,18 @@ describe('CallhubHttpService', () => {
     await expect(service.post('/v1/numbers/rent/', {})).rejects.toBeInstanceOf(
       AxiosError,
     )
+    expect(http.post).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry a POST carrying a consumed multipart stream', async () => {
+    // FormData is a one-shot stream; a retry would send an empty body.
+    const form = new FormData()
+    form.append('file', Buffer.from('x'), { filename: 'a.wav' })
+    http.post.mockReturnValue(throwError(() => axiosError(429)))
+
+    await expect(
+      service.post('/v1/media/upload/', form),
+    ).rejects.toBeInstanceOf(AxiosError)
     expect(http.post).toHaveBeenCalledTimes(1)
   })
 
