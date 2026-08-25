@@ -59,12 +59,15 @@ export function ListCard({
     <Card
       data-testid={testId}
       className={cn(
-        'relative gap-0 overflow-hidden p-3',
-        accentColor && 'pl-4',
-        // Both states carry the same border WIDTH — only the colour changes.
-        // `Card`'s base is 1px, so selecting a card that thickened to 2px grew
-        // it and nudged every card under it down the rail on each toggle.
-        selected ? 'border-2 border-tertiary-dark' : 'border-2 border-border',
+        'relative gap-0 overflow-hidden p-4',
+        accentColor && 'pl-5',
+        // Selection is drawn as a 1px border plus a 1px INSET RING rather than
+        // a 2px border. The canvas thickens its border on select, which grows
+        // the card and nudges every card under it down the rail on each toggle;
+        // a ring is a box-shadow and costs no layout, so the resting card keeps
+        // the canvas's 1px edge and the selected one still reads as 2px.
+        'border border-border',
+        selected && 'border-primary ring-1 ring-inset ring-primary',
         dimmed && 'opacity-70',
       )}
     >
@@ -92,11 +95,17 @@ export function ListCard({
           )}
         </div>
         {controls && (
-          <div className="flex shrink-0 items-center gap-0.5">{controls}</div>
+          // Pulled back into the card's own padding so the cluster sits in the
+          // corner rather than a full pad-width inside it. Negative margin
+          // rather than absolute positioning: these stay in flow, so they still
+          // reserve their width and can never end up on top of a long eyebrow.
+          <div className="-mr-2.5 -mt-2.5 flex shrink-0 items-center gap-0.5">
+            {controls}
+          </div>
         )}
       </div>
       {meta && meta.length > 0 && (
-        <ul className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground">
+        <ul className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground">
           {meta.map((item) => (
             <li key={item.key} className="inline-flex items-center gap-1.5">
               <span aria-hidden="true" className="inline-flex">

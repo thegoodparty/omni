@@ -114,6 +114,7 @@ export {
   ShieldCheck as ShieldCheckIcon,
   History as HistoryIcon,
   DoorOpen as DoorOpenIcon,
+  Footprints as FootprintsIcon,
   MessageSquareMore as MessageSquareMoreIcon,
   CalendarClock as CalendarClockIcon,
   CircleDot as CircleDotIcon,
