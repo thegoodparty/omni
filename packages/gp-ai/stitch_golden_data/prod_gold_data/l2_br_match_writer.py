@@ -79,8 +79,8 @@ def validate_results(results: list[MatchResult]) -> None:
     `attempted_at` and `br_database_id` nullity are `not null` in the DDL and
     Delta enforces that on write. `confidence` range is validated
     unconditionally upstream in `_selection_from_response` (integrality and
-    0-100), which is the only producer of the value and the only place with a
-    real failure story for it -- a model returning 3.9 and truncating to 3.
+    0-100) for every row that carries one; a geography-filter abstain writes
+    None with no model judgment behind it, which the nullable column accepts.
     `br_database_id` type is not checked either: `append_results` puts the id
     through a set membership test before this runs, so an unhashable one
     raises there first, and a hashable non-int can only come from a
