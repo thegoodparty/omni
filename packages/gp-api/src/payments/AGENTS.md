@@ -90,9 +90,12 @@ replica): `SELECT id, slug, primary_result, did_win, is_demo,
 details->>'electionDate', details->>'wonGeneral' FROM campaign WHERE
 user_id = <id>`. Known traps:
 
-1. **Re-running candidate reuses the old campaign** — office-picker date
-   change only merges `details`; `didWin=false` from the prior loss never
-   resets, so the campaign is permanently inactive. Repair:
+1. **Re-running candidate reuses the old campaign** — `didWin=false` from
+   the prior loss survived onto the new race. Fixed in ENG-10954: a
+   user-driven update (`PUT /campaigns/mine`) that moves `electionDate` to a
+   new upcoming date now clears `didWin`/`primaryResult` and strips the stale
+   `wonGeneral`/`primaryElectionDate` details keys. Rows stranded before the
+   fix (or written through other paths) still need the manual repair:
    `UPDATE campaign SET did_win = NULL WHERE id = <id> AND did_win = false;`
    and strip the stale prior-race keys so the result modals can't re-trap:
    `UPDATE campaign SET details = details - 'primaryElectionDate' -

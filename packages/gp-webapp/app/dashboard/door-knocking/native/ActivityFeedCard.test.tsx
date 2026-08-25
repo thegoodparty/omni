@@ -137,6 +137,8 @@ describe('ActivityFeedCard', () => {
               willVote: 'yes',
               note: null,
               manual: false,
+              actorName: null,
+              actorUserId: null,
             },
           },
         ]}

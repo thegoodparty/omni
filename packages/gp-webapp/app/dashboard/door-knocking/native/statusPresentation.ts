@@ -6,7 +6,7 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { isKnockable } from '../routeCounts'
+import { isKnockable, knockableTargets } from '../routeCounts'
 
 // 'unknown' is not "never knocked" — it also covers answered-but-unsure
 // (deriveKnockStatus), so the label matches the filter vocabulary.
@@ -122,6 +122,46 @@ export const rollupStopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
 // this is what it should read to.
 export const stopIsKnockable = (stop: RoutePayloadStop): boolean =>
   stop.addresses.some((address) => address.targets.some(isKnockable))
+
+// How a walk went, bucketed once for every surface that reports it. The walk's
+// seven-count strip and the details drawer's outcome table are the same
+// question asked of the same frozen route on two screens, so they read one
+// derivation — a local closure per surface is how the walk and the drawer would
+// come to describe one list differently, which is the failure `routeCounts.ts`
+// makes the same argument about for doors.
+//
+// The denominator is `knockableTargets`, like every people figure in this
+// feature: ADR 0007 do-not-knock and ADR 0008 not-a-voter residents are dropped,
+// so these seven sum to the People stat rather than to a wider population, and
+// the six non-`unknown` buckets sum to the people-logged figure. Every status is
+// present at zero, because the vocabulary is fixed and "nobody refused" is an
+// answer — a bucket that vanishes when it empties would make the table's own
+// shape a fact about the list.
+//
+// `not_a_voter` is the one bucket whose membership is partial, and deliberately
+// so. ADR 0008's follow-up is optional, so a resident logged not-a-voter at the
+// door carries the status immediately and a `notAVoterReason` only once someone
+// answers "what happened?" — which is what removes them from `knockableTargets`
+// entirely. So this bucket counts exactly the doors where that outcome was
+// recorded and the reason has not been given yet, and answering it moves that
+// resident out of the whole table rather than into another row. Reporting them
+// anywhere else would need a second, wider denominator on a surface whose point
+// is that one denominator holds.
+//
+// Nothing here re-derives a status. `knockStatus` arrives already
+// override-aware from gp-api's `doorKnockingStatus.service.ts`; a client twin of
+// that derivation is the drift these helpers exist to prevent.
+export const knockStatusCounts = (
+  stops: RoutePayloadStop[],
+): Record<DoorKnockStatus, number> => {
+  const counts = Object.fromEntries(
+    DOOR_KNOCK_STATUSES.map((status) => [status, 0]),
+  ) as Record<DoorKnockStatus, number>
+  for (const target of knockableTargets(stops)) {
+    counts[target.knockStatus] += 1
+  }
+  return counts
+}
 
 // ADR 0008. The one-line instruction paper carries, worded apart on purpose.
 // "Moved away" is about an address, so it only has to explain why the door is
