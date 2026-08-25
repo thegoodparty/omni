@@ -158,7 +158,9 @@ const FilterGroup = ({
 }) => (
   <div className="space-y-1.5">
     <p className="text-xs font-medium text-muted-foreground">{title}</p>
-    <FilterPillGroup type="multiple" value={values}>
+    {/* Display-only: nothing selected, so the pills keep the design's
+        outlined resting state instead of the toggled-on fill. */}
+    <FilterPillGroup type="multiple" value={[]}>
       {values.map((label) => (
         <FilterPill key={label} value={label}>
           {label}
