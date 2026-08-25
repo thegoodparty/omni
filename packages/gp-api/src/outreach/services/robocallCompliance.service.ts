@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { BadGatewayException, Injectable } from '@nestjs/common'
 import {
   RobocallComplianceChecks,
   RobocallComplianceChecksSchema,
@@ -89,18 +89,32 @@ export class RobocallComplianceService {
       },
     ]
 
-    const { object: checks } = await this.llm.jsonCompletion({
-      messages,
-      schema: RobocallComplianceChecksSchema,
-      temperature: 0,
-      maxTokens: 256,
-      userId: params.userId,
-    })
+    const checks = await this.runVerdict(messages, params.userId)
 
     const issues = CHECK_ISSUES.filter(([key]) => !checks[key]).map(
       ([, message]) => message,
     )
 
     return { passed: issues.length === 0, checks, transcript, issues }
+  }
+
+  private async runVerdict(
+    messages: LlmMessage[],
+    userId: string,
+  ): Promise<RobocallComplianceChecks> {
+    try {
+      const { object } = await this.llm.jsonCompletion({
+        messages,
+        schema: RobocallComplianceChecksSchema,
+        temperature: 0,
+        maxTokens: 256,
+        userId,
+      })
+      return object
+    } catch (err) {
+      // Fail-closed: a verdict we couldn't compute is a 502, never a pass.
+      this.logger.error({ err }, 'Robocall compliance verdict failed')
+      throw new BadGatewayException('Robocall compliance check failed')
+    }
   }
 }

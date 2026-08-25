@@ -81,4 +81,13 @@ describe('RobocallComplianceService', () => {
     )
     expect(llm.jsonCompletion).not.toHaveBeenCalled()
   })
+
+  it('fail-closed: an LLM failure surfaces as a 502, not a pass', async () => {
+    transcription.transcribe.mockResolvedValue('some transcript')
+    llm.jsonCompletion.mockRejectedValue(new Error('all models failed'))
+
+    await expect(service.checkRecording(params)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
 })
