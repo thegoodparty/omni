@@ -34,6 +34,7 @@ import {
   STATUS_LABELS,
   targetMarker,
 } from './statusPresentation'
+import { supportAsOf, supportStatus } from './supportPresentation'
 
 const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
   <span
@@ -51,6 +52,62 @@ const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
 const ResidentMarker = ({ marker }: { marker: string }) => (
   <span className="shrink-0 text-xs font-medium text-warning">{marker}</span>
 )
+
+// The canvas's "Voter support" card: where this resident stands, stated as a
+// current fact at the top of the acting half of the sheet. Without it the panel
+// went from the header straight to the form, so a canvasser walking up to a
+// door a teammate knocked last week could only find out by scrolling to the
+// activity feed and reading a row — at the one moment they are deciding what to
+// open with.
+//
+// **It states support and nothing else.** `supportStatus` is silent for every
+// status that carries no support signal (never knocked, not home, inaccessible,
+// refused, not a voter), because a card is a claim and those are all doors with
+// no answer behind them; an empty card, or one reading "Support unknown", would
+// turn the absence of an observation into one. The date is the same rule again:
+// it comes off the resident's own activity history when a row there states this
+// support answer, and the line is simply absent when nothing does — the status
+// on the payload carries no timestamp of its own and inventing one would date a
+// stance to whenever the walk happened to be served.
+//
+// **Will-vote is deliberately not here.** The canvas card carries a second line
+// for it and `RecordKnockForm` asks the question, but the answer only lives in
+// the CRM interaction — nothing derives it onto `knockStatus` the way support
+// is derived, so the panel has no current value to state. Recorded as still
+// open in `AGENTS.md` rather than approximated from the most recent knock,
+// which would quietly report one canvasser's answer as the resident's standing
+// position.
+//
+// ADR 0007 and 0008: withheld for a flagged resident, and withheld
+// structurally — it renders inside the same branch that withholds the script
+// and the form, so there is one flag predicate here and not a second copy of it
+// to drift. That is `targetMarker`'s rule at panel scale: the marker REPLACES
+// the status rather than sitting beside it, and "Supporter" over a door whose
+// footer says "asked not to be visited again" is exactly the pair of answers to
+// one question the rule exists to prevent.
+const VoterSupportCard = ({
+  target,
+  status,
+}: {
+  target: RoutePayloadTarget
+  status: DoorKnockStatus
+}) => {
+  const support = supportStatus(status)
+  if (!support) return null
+  const asOf = supportAsOf(target, support)
+  return (
+    <section className="rounded-md border border-border px-3 py-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Voter support
+      </h3>
+      <p className="mt-1 flex items-center gap-2 text-sm font-medium">
+        <StatusDot status={support} />
+        {STATUS_LABELS[support]}
+      </p>
+      {asOf && <p className="text-xs text-muted-foreground">As of {asOf}</p>}
+    </section>
+  )
+}
 
 interface PersonSheetProps {
   stop: RoutePayloadStop
@@ -461,6 +518,7 @@ export default function PersonSheet({
             />
           ) : (
             <>
+              <VoterSupportCard target={target} status={statusFor(target)} />
               {/* Above the form, because it's what the canvasser says before
                   there is anything to log. */}
               <DoorScript intro={script.intro} issues={script.issues} />
