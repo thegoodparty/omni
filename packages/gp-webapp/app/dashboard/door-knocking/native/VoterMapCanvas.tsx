@@ -988,16 +988,18 @@ export default function VoterMapCanvas({
   }
 
   return (
-    <div className="relative h-full w-full">
-      {/* maplibre owns the navigation stack's DOM, so it goes away by CSS
-          rather than by not being added — dropping and re-adding the control
-          on a step change would rebuild it mid-session. */}
-      <div
-        ref={containerRef}
-        className={`h-full w-full ${
-          controlsHidden ? '[&_.maplibregl-ctrl-top-right]:hidden' : ''
-        }`}
-      />
+    // maplibre owns the navigation stack's DOM, so it goes away by CSS rather
+    // than by not being added — dropping and re-adding the control on a step
+    // change would rebuild it mid-session. The rule rides this wrapper and not
+    // the map container below it: maplibre writes its own classes onto that
+    // node after mount, and a className React rewrites on every flip of
+    // `controlsHidden` would take `maplibregl-map` with it.
+    <div
+      className={`relative h-full w-full ${
+        controlsHidden ? '[&_.maplibregl-ctrl-top-right]:hidden' : ''
+      }`}
+    >
+      <div ref={containerRef} className="h-full w-full" />
       {!controlsHidden && (
         <LiveLocationControl
           location={location}

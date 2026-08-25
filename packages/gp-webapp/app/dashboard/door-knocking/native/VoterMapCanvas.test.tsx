@@ -901,10 +901,13 @@ describe('VoterMapCanvas drawing', () => {
     )
 
     expect(screen.queryByLabelText('Show my location')).not.toBeInTheDocument()
-    // maplibre's navigation stack is maplibre's own DOM inside the container,
-    // so it goes away by CSS rather than by being removed and rebuilt on a step
-    // change — the map element carries the rule that hides it.
-    expect(container.innerHTML).toContain('maplibregl-ctrl-top-right')
+    // maplibre's navigation stack is maplibre's own DOM, so it goes away by CSS
+    // rather than by being removed and rebuilt on a step change. The rule sits
+    // on the wrapper, never on the container maplibre writes its own classes
+    // onto — a className React rewrites would take `maplibregl-map` with it.
+    const wrapper = container.firstElementChild
+    expect(wrapper?.className).toContain('maplibregl-ctrl-top-right')
+    expect(wrapper?.firstElementChild?.className).toBe('h-full w-full')
   })
 
   it('opens at street level when given an initial zoom', () => {
