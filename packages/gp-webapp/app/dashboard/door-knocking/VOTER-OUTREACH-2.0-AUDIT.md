@@ -9,12 +9,19 @@ in.
 - **Fixed in this PR** — the canvas had it, we had drifted or never built it,
   and adopting it was unambiguous. 6 items.
 - **Deliberate, and still right** — we depart on purpose, the reasoning is on
-  record, and I re-checked that it still holds. Nothing changed. 18 items.
+  record, and I re-checked that it still holds. 18 items, of which **one has
+  since been overturned**: item 14, the walk's single-colour progress bar, which
+  the product owner ruled against on 2026-08-25. The canvas's segmented bar is
+  built. The entry is struck through and kept, with the argument that lost and
+  the reason it lost, because a departure that the person who owns the surface
+  reads as a bug is the useful thing to have written down.
 - **Needs a product answer** — a real difference that is somebody's decision,
-  not an engineer's. 8 items. **One of them has since been answered and built**
-  — item 4, the drawer's breakdown of how the walk went, which overturned the
-  recorded ruling against it. It is left in place with the argument that
-  overturned it rather than moved, because the decision is the useful part.
+  not an engineer's. 8 items, of which **three have since been answered and
+  built**: item 4, the drawer's breakdown of how the walk went, which overturned
+  the recorded ruling against it; and items 3 and 5, the confirm step's map band
+  and which of its two save buttons leads, both shipped in #1438. They are left
+  in place with the arguments that settled them rather than moved, because the
+  decision is the useful part.
 - **Deferred, with a named precondition** — right to build, wrong to build now,
   and the thing that has to change is written down. 1 item, under _Empty,
   loading, error and first-run states_: the canvas opens the create flow by
@@ -164,19 +171,32 @@ sees in the canvas's create flow, and that it is the canvas's answer to the
 cold-start problem our purpose step answers with a list of goals. It is a
 feature request, not a fix.
 
-### 3. The confirm step has no picture of what you drew
+### 3. The confirm step has no picture of what you drew — **answered and built (#1438)**
 
 **Canvas:** a 192px map at the top of the confirm step showing the selected
 voters and the polygon, tinted in the colour being chosen just below it.
 
-**Ours:** no map on that step — the sheet is full height and covers the page's
-map. The concrete cost is the colour picker: it asks a candidate to choose the
-colour their list will be drawn in on the map, with the map hidden. The stats
-line ("N doors · N stops · N voters") is the only description of the shape.
+**Ours, when this was written:** no map on that step — the sheet was full height
+and covered the page's map. The concrete cost was the colour picker: it asked a
+candidate to choose the colour their list would be drawn in on the map, with the
+map hidden. The stats line ("N doors · N stops · N voters") was the only
+description of the shape.
 
-**Why it isn't just fixed:** it needs a second map instance in a sheet, or the
-confirm sheet made partly transparent the way the who step's is. Both are real
-design decisions rather than a copy fix.
+**Ours now:** the confirm sheet opens short of the top rather than full height,
+and the strip it leaves is the page's own map — not a second instance. The ring
+is fitted into that strip on arrival (`frameDrawToken`, with the sheet's height
+handed to `fitBounds` as bottom padding, so the shape lands in the band that is
+left rather than centred behind the sheet), and it is drawn in the colour the
+picker below is currently on (`drawColor`), which is what makes choosing a
+colour a judgement instead of a guess.
+
+The two design decisions this item said were needed were both taken the third
+way: no second map instance and no transparency. The band is the live map with
+a shield over it, because the drawing session is still open at that point and a
+tap on the revealed strip would splice a vertex into the very shape being
+confirmed, with no Undo on that step to take it back. Since the band is a
+picture, maplibre's zoom and compass buttons come down with it
+(`controlsHidden`) — a shielded "+" is a control that answers nothing.
 
 ### 4. The details drawer has no breakdown of how the walk went — **built, and the ruling against it overturned**
 
@@ -240,17 +260,25 @@ still sum to the People stat, and the section says so in a line that appears onl
 when that row is non-empty: answering the follow-up takes the resident out of the
 table altogether rather than moving them to another row.
 
-### 5. Which button should the confirm step lead with?
+### 5. Which button should the confirm step lead with? — **answered and built (#1438)**
 
 **Canvas:** the primary button is "Save and draw another"; "Save and exit" is
 the outline one beside it.
 
-**Ours:** exactly inverted — "Save and exit" is primary.
+**Ours, when this was written:** exactly inverted — "Save and exit" was primary.
 
 Both buttons exist and do the same two things either way; what differs is which
 one the flow presents as the expected next move. The canvas assumes a candidate
-cutting several nights of walking in one sitting. Ours assumes one list at a
-time. That is a product intent question, so it is untouched.
+cutting several nights of walking in one sitting; ours assumed one list at a
+time. It was a product intent question, and the answer was the canvas's: a
+candidate who has opened this flow has sat down to cut turf, so the expected
+next move is the second shape and not the door out.
+
+**Ours now:** "Save and draw another" leads and "Save and exit" is the outline
+beside it. One detail worth recording because it only shows up once the order is
+flipped: the pair is `outline` and not `secondary`, because the styleguide's
+secondary is a filled tonal button — two filled buttons side by side weigh the
+same, and leading with one of them would then say nothing at all.
 
 ### 6. The panel's "Voter support" card
 
@@ -345,8 +373,36 @@ Nothing was changed.
 
 **The walk**
 
-14. **A single-colour progress bar** rather than the canvas's segmented one, with
-    the per-outcome counts printed underneath. Recorded, § B.
+14. ~~**A single-colour progress bar** rather than the canvas's segmented one,
+    with the per-outcome counts printed underneath. Recorded, § B.~~
+    **Overturned by the product owner, 2026-08-25, and the canvas's segmented
+    bar is now built.**
+
+    The original argument was that one bar answers "how far through am I", the
+    counts under it answer "how did it go", and stacking six colours into a bar
+    six pixels tall makes a thin segment unreadable while claiming to be a
+    chart. That reasoning is not wrong, but it was weighed by an engineer and
+    the call was not one to make from here: the product owner opened the walk,
+    saw a blue bar where the canvas has a coloured one, and read it as drift
+    rather than as a decision. That is the whole test a departure has to pass —
+    if the person who owns the surface cannot tell your reasoning from a bug,
+    the reasoning has lost.
+
+    What was built is the canvas's bar, and the objection is answered rather
+    than ignored: the counts stay underneath (the canvas prints them too, and
+    they are what makes a two-pixel segment mean anything), the bar is 8px
+    rather than 6, and `unknown` is deliberately not a segment — the track
+    shows through for it, so what is coloured is what has been logged and what
+    is grey is what is left. A seventh segment would have filled the bar on a
+    walk where nothing had happened yet. The segment order is shared with the
+    legend below it (`PROGRESS_STATUS_ORDER` in `statusPresentation.ts`), so
+    the bar and the words under it cannot come apart.
+
+    Logged here rather than deleted, because "we tried one bar and the owner
+    wanted six" is the useful record; a line saying only "segmented bar" would
+    invite the next reviewer to re-derive the original argument and change it
+    back.
+
 15. **Read-only travel-mode and loop chips** in the walk. The route is frozen;
     the mode it was bought for cannot be changed from inside it. (The details
     drawer does let you _read_ the figure in the other mode, which the canvas
@@ -385,7 +441,14 @@ Checked specifically, because this feature is used one-handed at a doorstep.
   the canvas. The panel is 430px wide against the canvas's 448px; not worth a
   change.
 - **The new chevrons** are full `IconButton` hit targets at the top of the panel,
-  where a thumb reaches, rather than inline text links.
+  where a thumb reaches, rather than inline text links. They are drawn `ghost`
+  rather than filled, which is the canvas's treatment and does not change the
+  target: three filled primary circles around a person's name made the chrome
+  the loudest thing on a panel whose subject is the person.
+- **The live-location switch is a labelled pill in the walk's control row**, not
+  a floating icon square over the map's corner. Same as the canvas, and it
+  matters most on a phone: an unlabelled square is a control you have to press
+  to find out about, and pressing this one turns on the GPS.
 - **The create flow's who step** can be dragged down to peek at the map
   recolouring live underneath, which the canvas does not do on a phone at all.
 
@@ -509,3 +572,26 @@ sits nowhere near the region above — see _Empty, loading, error and first-run
 states_. Anything else that governs a door-knocking surface from the shared
 outreach shell is outside what was audited here. A later pass should read
 `openFlow`, `openNewList` and the shell's own state around them.
+
+**And reading the markup is not the same as looking at the screen.** This audit
+and the two before it compared the prototype's TSX-in-HTML to our TSX, and all
+three pronounced the walk in good shape. The product owner then opened the app
+and listed a dozen differences in a minute. Reading source against source
+catches missing text and missing sections; it is structurally blind to icons,
+colours, spacing and placement, which is the entire category that was missed —
+a `mapPinOff` glyph, a `secondary-light` swatch, a button in the header rather
+than under the map. The corrections are recorded above (item 14, and items 3
+and 5 now that #1438 has landed), and the method note is this: **render both
+and look at them.** The prototype is a self-contained runnable file; our own
+components bundle against the app's compiled Tailwind in headless Chromium.
+Anything claiming parity on a visual surface should carry a picture of both.
+
+What that pass found beyond what was reported, all now built: the walk's
+control row was missing the canvas's icons entirely (footprints for walking,
+a car for driving, a repeat glyph for the loop, and a struck-through map pin
+on the location switch — added to the styleguide barrel from `lucide-react`,
+which is where the canvas's own set comes from); the per-leg time was
+unstyled where the canvas prints it in `info` blue behind a footprints glyph;
+a single-resident stop row closed on a bare status dot with no word beside it;
+and the door panel's three header controls were filled primary circles where
+the canvas draws plain glyphs. None of these appear in a markup diff.

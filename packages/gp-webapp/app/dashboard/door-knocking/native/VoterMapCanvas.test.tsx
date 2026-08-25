@@ -10,8 +10,15 @@ import VoterMapCanvas, {
   type RoutePin,
 } from './VoterMapCanvas'
 import { STATUS_RGB } from './statusPresentation'
+import type { LiveLocation } from './useLiveLocation'
 import type { DecodedPack } from './packDecoder'
 import type { FilterResult } from './filterEngine'
+
+const LOCATION_OFF: LiveLocation = {
+  status: 'off',
+  fix: null,
+  approximate: false,
+}
 
 vi.mock('appEnv', () => ({ NEXT_PUBLIC_GEOAPIFY_TILES_KEY: 'test-tiles-key' }))
 
@@ -244,6 +251,10 @@ describe('VoterMapCanvas drawing', () => {
     drawColor: '#2563eb',
     frameDrawToken: 0,
     frameDrawBottomPct: 0,
+    // A reading handed down from the page, not a watch this canvas starts:
+    // "off" is what it gets on every surface until the walk's own pill is
+    // pressed.
+    location: LOCATION_OFF,
   }
 
   // The draw layers take their colours as flat values rather than per-datum
@@ -871,17 +882,6 @@ describe('VoterMapCanvas drawing', () => {
   // The band the confirm step uncovers is a picture: it is shielded from taps,
   // so every button standing in it is one that answers nothing when pressed.
   it('takes the map controls down for a step showing the map as a picture', () => {
-    // The locate button hides itself where geolocation is unavailable, which
-    // jsdom is, so give it something to offer before asking whether the step
-    // took it away.
-    Object.defineProperty(navigator, 'geolocation', {
-      value: { watchPosition: vi.fn(), clearWatch: vi.fn() },
-      configurable: true,
-    })
-    Object.defineProperty(window, 'isSecureContext', {
-      value: true,
-      configurable: true,
-    })
     const { container, rerender } = render(
       <VoterMapCanvas
         {...baseProps}
@@ -889,7 +889,9 @@ describe('VoterMapCanvas drawing', () => {
         onDrawPointCount={vi.fn()}
       />,
     )
-    expect(screen.getByLabelText('Show my location')).toBeInTheDocument()
+    expect(container.firstElementChild?.className).not.toContain(
+      'maplibregl-ctrl-top-right',
+    )
 
     rerender(
       <VoterMapCanvas
@@ -900,7 +902,6 @@ describe('VoterMapCanvas drawing', () => {
       />,
     )
 
-    expect(screen.queryByLabelText('Show my location')).not.toBeInTheDocument()
     // maplibre's navigation stack is maplibre's own DOM, so it goes away by CSS
     // rather than by being removed and rebuilt on a step change. The rule sits
     // on the wrapper, never on the container maplibre writes its own classes
@@ -908,6 +909,65 @@ describe('VoterMapCanvas drawing', () => {
     const wrapper = container.firstElementChild
     expect(wrapper?.className).toContain('maplibregl-ctrl-top-right')
     expect(wrapper?.firstElementChild?.className).toBe('h-full w-full')
+  })
+
+  // The canvas draws the dot; it does not own the switch. "My live location"
+  // is a walk control in the prototype and is offered on no other surface, so
+  // this component must have no button of its own to take down — a second
+  // switch here would be a second answer to "am I being watched".
+  it('draws the fix it is handed and offers no control of its own', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(layer('live-location-dot')?.data).toEqual([])
+
+    const fix = { lng: -86.78, lat: 36.16, accuracyMeters: 9 }
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        location={{ status: 'tracking', fix, approximate: false }}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(layer('live-location-dot')?.data).toEqual([fix])
+    expect(layer('live-location-accuracy')?.data).toEqual([fix])
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  // A wifi or IP fix can sit a canvasser a block from the dot, so a coarse one
+  // is drawn as a guess rather than as a claim — and that judgement rides the
+  // reading from the page, not a boolean this component keeps.
+  it('mutes the dot when the fix is too coarse to trust', () => {
+    const fix = { lng: -86.78, lat: 36.16, accuracyMeters: 400 }
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        location={{ status: 'tracking', fix, approximate: false }}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    const confident = staticColor('live-location-dot', 'getFillColor')
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        location={{ status: 'tracking', fix, approximate: true }}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(staticColor('live-location-dot', 'getFillColor')).not.toEqual(
+      confident,
+    )
   })
 
   it('opens at street level when given an initial zoom', () => {

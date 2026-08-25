@@ -16,8 +16,7 @@ import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
-import LiveLocationControl from './LiveLocationControl'
-import { LiveLocationFix, useLiveLocation } from './useLiveLocation'
+import { LiveLocation, LiveLocationFix } from './useLiveLocation'
 
 // Dots and legend chips share one palette (statusPresentation.ts) so they
 // cannot disagree; indexes match DOOR_KNOCK_STATUSES order (the status
@@ -129,11 +128,17 @@ interface VoterMapCanvasProps {
   // when the token bumps, not on its own: dragging the sheet further open must
   // uncover more map, not re-aim the camera mid-gesture.
   frameDrawBottomPct: number
-  // Whether the zoom, compass and locate buttons are worth offering. A step
-  // that shows a band of the map as a picture shields it from taps, and a
-  // shielded "+" is a control that answers nothing — so the step that puts the
-  // shield up takes the buttons down with it.
+  // Whether the zoom and compass buttons are worth offering. A step that shows
+  // a band of the map as a picture shields it from taps, and a shielded "+" is
+  // a control that answers nothing — so the step that puts the shield up takes
+  // the buttons down with it.
   controlsHidden?: boolean
+  // Where the canvasser is, when they have asked to be shown. A reading and not
+  // a switch: this canvas draws the dot, the walk owns the control that turns it
+  // on (the canvas prototype puts "My live location" in the walk's control row
+  // and offers it on no other surface), and the page holds the watch because it
+  // is the one thing that outlives both.
+  location: LiveLocation
   onPolygonChange: (ring: PolygonRing | null) => void
   // Fires with the vertex count as points are placed (0 on start/clear) —
   // the page uses it to dismiss the draw instructions on the first click.
@@ -360,6 +365,7 @@ export default function VoterMapCanvas({
   frameDrawToken,
   frameDrawBottomPct,
   controlsHidden = false,
+  location,
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
@@ -403,9 +409,6 @@ export default function VoterMapCanvas({
   // middle of that gesture would fight the hand doing it.
   const frameBottomPctRef = useRef(frameDrawBottomPct)
   frameBottomPctRef.current = frameDrawBottomPct
-  // Opt-in: nothing is watched until the canvasser asks to be shown.
-  const [locationEnabled, setLocationEnabled] = useState(false)
-  const location = useLiveLocation(locationEnabled)
   const locationFix = location.fix
 
   useEffect(() => {
@@ -835,9 +838,15 @@ export default function VoterMapCanvas({
   // One recenter per time the canvasser turns location on: they asked where
   // they are, so show them — but only on that first fix, so the camera is
   // never yanked away from the route mid-walk as fixes keep arriving.
+  //
+  // "Turned on" is read off the status rather than off the switch, because the
+  // switch now lives on another surface: `off` is exactly the state the hook
+  // returns to when it is flipped back, so the arming and the disarming are the
+  // same one line they were when this component held the boolean.
   const recenteredRef = useRef(false)
+  const locationOff = location.status === 'off'
   useEffect(() => {
-    if (!locationEnabled) {
+    if (locationOff) {
       recenteredRef.current = false
       return
     }
@@ -847,7 +856,7 @@ export default function VoterMapCanvas({
       center: [locationFix.lng, locationFix.lat],
       duration: 600,
     })
-  }, [locationEnabled, locationFix])
+  }, [locationOff, locationFix])
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return
@@ -1000,13 +1009,6 @@ export default function VoterMapCanvas({
       }`}
     >
       <div ref={containerRef} className="h-full w-full" />
-      {!controlsHidden && (
-        <LiveLocationControl
-          location={location}
-          enabled={locationEnabled}
-          onToggle={setLocationEnabled}
-        />
-      )}
     </div>
   )
 }

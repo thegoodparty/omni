@@ -26,10 +26,16 @@ const renderControl = (
 }
 
 describe('LiveLocationControl', () => {
-  it('offers to show the canvasser where they are', () => {
+  // The canvas's own label, on the control itself. It used to be an unlabelled
+  // icon square with the words only in an aria-label, which is a control a
+  // sighted canvasser had to press to find out about.
+  it('offers to show the canvasser where they are, in words', () => {
     const onToggle = renderControl(location())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show my location' }))
+    const pill = screen.getByRole('button', { name: 'My live location' })
+    expect(pill).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(pill)
 
     expect(onToggle).toHaveBeenCalledWith(true)
   })
@@ -43,7 +49,12 @@ describe('LiveLocationControl', () => {
       true,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hide my location' }))
+    const pill = screen.getByRole('button', { name: 'My live location' })
+    // One control with a state, not two controls: the name never changes, so
+    // the pressed state is the only thing that has to be read.
+    expect(pill).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(pill)
 
     expect(onToggle).toHaveBeenCalledWith(false)
   })
