@@ -115,6 +115,11 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // Stale-response guard: a tone switch / regenerate bumps this, and a draft
   // response is discarded unless it's still the latest request.
   const draftRequestRef = useRef(0)
+  // Latest purpose, read inside the rent onSuccess (which closes over the
+  // render that started the rent) so a purpose change while renting doesn't
+  // draft the old purpose — the fresh goToCompose drafts the new one instead.
+  const purposeRef = useRef(purpose)
+  purposeRef.current = purpose
   const recorder = useRobocallRecorder(MAX_RECORDING_SECONDS)
   const { reset: resetRecorder } = recorder
   const audioUpload = useRobocallAudioUpload()
@@ -330,10 +335,12 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     // Don't fire a second billable rent while one is in flight (Back to
     // schedule then Continue again before the first resolves).
     if (rentMutation.isPending) return
+    const rentedForPurpose = purpose
     runRent(undefined, {
       onSuccess: (number) => {
         setCallbackNumber(number)
-        draftIfNeeded(number)
+        // A purpose change while renting must not draft the old purpose.
+        if (purposeRef.current === rentedForPurpose) draftIfNeeded(number)
       },
     })
   }

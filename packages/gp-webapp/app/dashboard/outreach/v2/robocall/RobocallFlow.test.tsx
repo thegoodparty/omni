@@ -873,4 +873,56 @@ describe('RobocallFlow', () => {
     // the spoken disclosure.
     expect(draftBody).toMatchObject({ callbackNumber: '+12025550147' })
   })
+
+  it('does not draft the old purpose if it changes while renting', async () => {
+    // Hold the rent open so a purpose change can land mid-flight.
+    let releaseRent!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseRent = resolve
+    })
+    api.mock('POST /v1/outreach/robocall/number', async () => {
+      await gate
+      return {
+        status: 200,
+        data: { phoneNumber: '+12025550147', region: 'DC' },
+      }
+    })
+    const draftPurposes: string[] = []
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      draftPurposes.push(body.purpose)
+      return { status: 200, data: { draft: 'a draft' } }
+    })
+
+    // Enter compose on "Persuade": the rent is in flight (body shows spinner).
+    await gotoComposeRaw('Persuade likely voters')
+    expect(
+      await screen.findByText('Getting your callback number…'),
+    ).toBeInTheDocument()
+
+    // Back out to the purpose step and switch to "Introduce".
+    await userEvent.click(screen.getByLabelText('Back')) // -> schedule
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByLabelText('Back')) // -> audience
+    await userEvent.click(screen.getByLabelText('Back')) // -> purpose
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+
+    // The gated rent resolves after the purpose changed; the guard must skip
+    // the stale persuade draft.
+    releaseRent()
+
+    // Navigate forward into compose for Introduce and wait for ITS draft to
+    // render. That synchronizes on the resolved rent, so the assertion runs
+    // only after any (buggy) stale persuade draft would already have fired.
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+    )
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('a draft')
+
+    // Only the current purpose was ever drafted — never the stale persuade one.
+    expect(draftPurposes).toEqual(['introduce_myself'])
+  })
 })
