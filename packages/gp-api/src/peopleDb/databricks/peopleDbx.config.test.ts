@@ -64,6 +64,9 @@ describe('peopleDbx config', () => {
       const config = resolvePeopleDbxConfig()
       expect(config?.oauthClientId).toBe('client')
       expect(config?.oauthClientSecret).toBe('secret')
+      // The assertion that matters: the client short-circuits on any token it
+      // is handed, so precedence only holds if the PAT is absent entirely.
+      expect(config?.accessToken).toBeUndefined()
     })
 
     it('is null when no credential is configured', () => {

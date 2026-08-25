@@ -368,7 +368,9 @@ const RecordBar = ({
           <UploadIcon className="size-4" />
           Upload audio
         </Button>
-        <span className="text-xs text-muted-foreground">MP3, WAV, or M4A</span>
+        <span className="text-xs text-muted-foreground">
+          MP3, WAV, M4A, or OGG
+        </span>
       </Card>
     </div>
   )

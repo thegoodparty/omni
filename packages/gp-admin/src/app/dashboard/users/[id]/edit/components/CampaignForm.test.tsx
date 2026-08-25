@@ -359,6 +359,78 @@ describe('CampaignForm', () => {
       })
     })
 
+    it('keeps an unset election result null through an unrelated save', async () => {
+      onSave.mockResolvedValue(undefined)
+      renderForm({ didWin: null })
+      const user = userEvent.setup()
+
+      const nameInput = screen.getByDisplayValue('Test Campaign')
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Updated')
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalled()
+      })
+      expect(
+        (onSave.mock.calls[0]![0] as CombinedCampaignFormData).didWin
+      ).toBeNull()
+    })
+
+    it('saves an explicit loss picked from the election result select', async () => {
+      onSave.mockResolvedValue(undefined)
+      renderForm({ didWin: null })
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Won Election' }))
+      await user.click(await screen.findByRole('option', { name: 'Lost' }))
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalled()
+      })
+      expect(
+        (onSave.mock.calls[0]![0] as CombinedCampaignFormData).didWin
+      ).toBe(false)
+    })
+
+    it('clears a recorded result back to null via "No result yet"', async () => {
+      onSave.mockResolvedValue(undefined)
+      renderForm({ didWin: false })
+      const user = userEvent.setup()
+
+      await user.click(screen.getByRole('combobox', { name: 'Won Election' }))
+      await user.click(
+        await screen.findByRole('option', { name: 'No result yet' })
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalled()
+      })
+      expect(
+        (onSave.mock.calls[0]![0] as CombinedCampaignFormData).didWin
+      ).toBeNull()
+    })
+
     // Stored campaigns predate the current schema: `launchStatus` and
     // `ballotLevel` live in JSON blobs where legacy rows hold null, and the
     // enums accept undefined but not null. Those rows used to mount the form

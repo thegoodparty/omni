@@ -55,7 +55,10 @@ export const resolvePeopleDbxConfig = (): PeopleDbxConfig | null => {
   return {
     hostname: PEOPLE_DBX_HOSTNAME,
     warehouseId,
-    accessToken,
+    // Withheld when OAuth is available, not just deprioritized: the client
+    // returns any accessToken it is given before it looks at the OAuth fields,
+    // so leaving a stale PAT in here is the same as choosing it.
+    accessToken: oauthClientId && oauthClientSecret ? undefined : accessToken,
     oauthClientId,
     oauthClientSecret,
   }
