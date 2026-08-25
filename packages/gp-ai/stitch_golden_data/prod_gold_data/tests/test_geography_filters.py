@@ -4,6 +4,7 @@ inside `_build_menu`. `test_braintrust_integration.py` stays the
 frozen-core suite; this module is additive.
 """
 
+import argparse
 import asyncio
 import math
 from unittest.mock import MagicMock, patch
@@ -17,6 +18,7 @@ from stitch_golden_data.prod_gold_data.l2_br_matcher import (
     _build_geography_block,
     _classify_office_geography,
     _StateUniverse,
+    main,
 )
 
 
@@ -596,3 +598,67 @@ class TestEmptyRestrictedMenuRaises:
             asyncio.run(matcher._build_menu("Test Race", "DE", eligible_indices=frozenset()))
 
         mock_dependencies["llm"].generate_structured_content.assert_not_called()
+
+
+class TestCountySubdivisionParentLength:
+    def test_county_subdivision_uses_its_own_parent_length(self):
+        """Failure this catches: the county_subdivision family (the only
+        10-digit parent id) sharing another family's length -- a 10-digit
+        geo_id must read as whole for G4040 while it reads as slice for the
+        7-digit families, and nothing else in the suite can see that
+        distinction.
+        """
+        types = ["Township", "Town_Ward", "State"]
+        whole = _classify_office_geography(
+            mtfcc="G4040",
+            is_judicial=False,
+            has_unknown_boundaries=False,
+            geo_id="2004539175",
+            sub_area_name="District",
+            sub_area_value="2",
+            state_district_types=types,
+        )
+        assert whole.eligible_indices is not None
+        assert "Town_Ward" not in {types[i] for i in whole.eligible_indices}
+
+        sliced = _classify_office_geography(
+            mtfcc="G4040",
+            is_judicial=False,
+            has_unknown_boundaries=False,
+            geo_id="200453917501",
+            sub_area_name="District",
+            sub_area_value="2",
+            state_district_types=types,
+        )
+        assert sliced.eligible_indices is not None
+        assert "Township" not in {types[i] for i in sliced.eligible_indices}
+
+
+class TestMainForwardsTheSchoolGateFlag:
+    def test_the_parsed_flag_reaches_run(self, mock_dependencies):
+        """Failure this catches: --enable-school-whole-assertion parsed but
+        never forwarded from main() to run(), leaving the holdout's enabled
+        arm silently identical to the default arm.
+        """
+        captured: dict = {}
+
+        async def _fake_run(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        with (
+            patch("stitch_golden_data.prod_gold_data.l2_br_matcher._parse_args") as mock_args,
+            patch.object(L2BrMatcher, "run", _fake_run),
+            patch.object(L2BrMatcher, "print_summary", lambda self, results: None),
+            patch("stitch_golden_data.prod_gold_data.l2_br_matcher.flush_logs", lambda: None),
+        ):
+            mock_args.return_value = argparse.Namespace(
+                states=None,
+                limit=None,
+                batch_size=100,
+                embedding_batch_size=100,
+                enable_school_whole_assertion=True,
+            )
+            asyncio.run(main())
+
+        assert captured["school_whole_assertion_enabled"] is True

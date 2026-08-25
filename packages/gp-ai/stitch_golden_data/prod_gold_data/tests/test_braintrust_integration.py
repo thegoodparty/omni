@@ -601,7 +601,11 @@ class TestMainTeardown:
             ),
         ):
             mock_args.return_value = argparse.Namespace(
-                states=None, limit=None, batch_size=100, embedding_batch_size=100
+                states=None,
+                limit=None,
+                batch_size=100,
+                embedding_batch_size=100,
+                enable_school_whole_assertion=False,
             )
             with pytest.raises(RuntimeError, match="session died"):
                 asyncio.run(main())

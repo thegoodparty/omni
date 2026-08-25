@@ -524,7 +524,17 @@ def _classify_office_geography(
         sub_types_present = _FAMILY_SUB_TYPES[family] & set(state_district_types)
         if not sub_types_present:
             return _GeographyVerdict(abstain=True, eligible_indices=frozenset(), verdict_sentence=None)
-        sentence = f"This office's geography is a genuine {noun} within its jurisdiction, not the whole area."
+        # Two slice provenances, two honest sentences: with the flag set the
+        # displayed geometry is a stand-in (the boundary line in the block
+        # says so), and claiming the geography IS a genuine sub-area would
+        # contradict it in the same prompt.
+        if has_unknown_boundaries:
+            sentence = (
+                f"This office is a districted {noun} within its jurisdiction; the displayed "
+                "geometry is a stand-in for its real, unmapped territory."
+            )
+        else:
+            sentence = f"This office's geography is a genuine {noun} within its jurisdiction, not the whole area."
         deny = _FAMILY_PARENT_TYPES[family]
     else:  # "whole"
         sentence = (
@@ -1240,6 +1250,7 @@ async def main() -> None:
             limit=args.limit,
             batch_size=args.batch_size,
             embedding_batch_size=args.embedding_batch_size,
+            school_whole_assertion_enabled=args.enable_school_whole_assertion,
         )
         matcher.print_summary(results)
     finally:
