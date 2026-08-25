@@ -35,14 +35,15 @@ export const apiURL = `${apiBaseURL}/api`
 // successful response through a healthy task — so re-issuing is safe even for
 // the write paths (the users are disposable @test.goodparty.org accounts the
 // sweep deletes).
-// 401 is retriable here too, and it's the dominant source of setup flakiness:
-// the token minted just above is a brand-new Clerk session, and gp-api can
-// reject it (401) for the first moment before the session/token propagates to
-// Clerk's verification — most visible under the 4 parallel shards hammering a
-// cold preview. It's transient, so retrying with backoff lets the session
-// settle; a genuinely invalid token just exhausts the attempts and throws the
-// same 401. Safe on the write paths for the same reason as the gateway codes —
-// the users are disposable @test.goodparty.org accounts the sweep deletes.
+// 401 is retriable here too, and it's the dominant source of setup flakiness —
+// but not because the token is bad. gp-api's SessionGuard resolves an unknown
+// clerkId by asking Clerk's Backend API who it is; when that instance-wide
+// budget is exhausted Clerk answers 429, gp-api swallows it, finds no user to
+// attach, and returns a bare 401. Nothing about the request is unauthorized, so
+// retrying past the rate window is the correct response; a genuinely invalid
+// token just exhausts the attempts and throws the same 401. Safe on the write
+// paths for the same reason as the gateway codes — the users are disposable
+// @test.goodparty.org accounts the sweep deletes.
 const RETRIABLE_STATUSES = new Set([401, 502, 503, 504])
 
 const isRetriableGatewayError = (error: unknown): boolean => {
@@ -70,10 +71,15 @@ export const withGatewayRetry = async <T>(
       ) {
         throw error
       }
-      const backoffMs = Math.min(1_000 * 2 ** (attempt - 1), 8_000)
+      // Half-fixed, half-random. Every shard's workers hit the same Clerk rate
+      // window at once, so a purely exponential schedule marches them back in
+      // lockstep and they collide again on each attempt; the random half
+      // decorrelates them without changing the expected wait.
+      const ceiling = Math.min(1_000 * 2 ** (attempt - 1), 8_000)
+      const backoffMs = Math.round(ceiling / 2 + Math.random() * (ceiling / 2))
       if (process.env.DEBUG) {
         console.log(
-          `[headless-user] ${label} transient gateway error on attempt ` +
+          `[withGatewayRetry] ${label} transient gateway error on attempt ` +
             `${attempt}/${GATEWAY_RETRY_ATTEMPTS}, retrying in ${backoffMs}ms`,
         )
       }
