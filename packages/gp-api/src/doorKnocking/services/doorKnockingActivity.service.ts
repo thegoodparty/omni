@@ -47,6 +47,9 @@ type PhoneBankingRow = BaseRow & {
   willVote: WillVoteAnswer | null
   note: string | null
   manual: boolean
+  actorUserId: number | null
+  actorFirstName: string | null
+  actorLastName: string | null
 }
 
 type StatusEventRow = BaseRow & {
@@ -135,16 +138,22 @@ export class DoorKnockingActivityService extends createPrismaBase(
           WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
         `),
         this.client.$queryRaw<PhoneBankingRow[]>(Prisma.sql`
-          SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
-                 outcome, support_answer AS "supportAnswer",
-                 will_vote AS "willVote", note, manual
+          SELECT ranked."personId", ranked."occurredAt", ranked.id,
+                 ranked.outcome, ranked."supportAnswer", ranked."willVote",
+                 ranked.note, ranked.manual, ranked."actorUserId",
+                 "user".first_name AS "actorFirstName",
+                 "user".last_name AS "actorLastName"
           FROM (
-            SELECT *, ${RANK_OVER} AS rank
+            SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
+                   outcome, support_answer AS "supportAnswer",
+                   will_vote AS "willVote", note, manual,
+                   actor_user_id AS "actorUserId", ${RANK_OVER} AS rank
             FROM contact_interaction_phone_banking
             WHERE organization_slug = ${organizationSlug}
               AND person_id IN (${ids})
           ) ranked
-          WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
+          LEFT JOIN "user" ON "user".id = ranked."actorUserId"
+          WHERE ranked.rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
         `),
         // ContactStatusEvent has no occurred_at — the append-only write time
         // is the event time, so created_at is aliased into the shared sort
@@ -228,6 +237,8 @@ export class DoorKnockingActivityService extends createPrismaBase(
             willVote: row.willVote,
             note: row.note,
             manual: row.manual,
+            actorName: composeActorName(row.actorFirstName, row.actorLastName),
+            actorUserId: row.actorUserId,
           },
         },
       ]),
