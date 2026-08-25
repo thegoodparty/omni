@@ -24,10 +24,15 @@
   color: var(--color-foreground);
 }
 
-/* Header. Repeats per printed page only as far as a browser can: the column
-   heads below are a `<thead>`, which every engine repeats, while this block is
-   flow content and prints once. See `WalkSheet.tsx` for why the page counter is
-   a blank to write in rather than a CSS counter. */
+/* Header. Inside the table's `<thead>`, which is what makes it repeat on every
+   printed page the way the handoff asks — see `WalkSheet.tsx`. The banner cell
+   itself contributes nothing; the padding below belongs to this block, so a
+   repeated header looks identical on every page. */
+.ws-table thead .ws-banner {
+  padding: 0;
+  border: none;
+}
+
 .ws-head {
   display: flex;
   align-items: flex-end;
@@ -85,7 +90,7 @@
   overflow-wrap: break-word;
 }
 
-.ws-table thead th {
+.ws-table thead .ws-cols th {
   padding: 0 4px 6px;
   border-bottom: 1px solid var(--color-foreground);
   font-size: 8.5px;
@@ -127,6 +132,10 @@
 
 .ws-seq {
   padding-left: 4px;
+  /* A stop number is never worth breaking over two lines, and a route that
+     somehow outgrew its column should overflow visibly rather than print "1"
+     above "5" above "0". */
+  white-space: nowrap;
 }
 
 .ws-name {
@@ -142,6 +151,7 @@
 }
 
 .ws-address {
+  padding-left: 2px;
   font-size: 9.5px;
 }
 
@@ -169,11 +179,26 @@
 
 /* Mark boxes. Outlined and never filled: printers drop background colours by
    default, so every mark on this page is a border or a glyph. */
+/* The three columns of mark boxes. Wider side padding than the 4px the handoff
+   gives a body cell, because the handoff has one column of boxes and this sheet
+   has three side by side: at 4px the gap between two columns of options is
+   narrower than the 10px gap between options inside one, so eleven boxes read
+   as one run rather than as three questions. There are no vertical rules to
+   separate them — the design rules the grid horizontally only — so the space
+   has to do it. */
+.ws-marks {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* One non-wrapping row of options per column, per the handoff. The `Answered`
+   column is sized to the 226px five of them measure so that stays true here,
+   where the handoff had only three to fit. */
 .ws-boxes {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .ws-opt {
@@ -199,7 +224,13 @@
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--color-muted-foreground);
-  white-space: nowrap;
+  /* The handoff's labels are one short word each and it sets them `nowrap`.
+     Ours include "Refused to engage", and holding five of those on one line
+     would cost the `Answered` column another 6% of the page. Wrapping the label
+     inside its own option keeps the row of boxes unwrapped, which is the part of
+     the rule that matters — a canvasser scanning for the third box counts
+     boxes, not lines. */
+  white-space: normal;
 }
 
 /* What replaces the boxes when there is nothing to ask: a flagged resident, or
@@ -233,7 +264,7 @@
   gap: 16px;
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid var(--color-foreground);
+  border-top: 1px solid var(--color-border);
 }
 
 .ws-logo {

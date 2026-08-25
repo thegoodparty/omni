@@ -298,9 +298,12 @@ describe('WalkSheet', () => {
   it('offers no answer the app has no value for', () => {
     renderSheet([stop()])
 
-    const offered = Array.from(document.querySelectorAll('.ws-opt span')).map(
-      (label) => label.textContent,
-    )
+    // `:not(.ws-box)` because the box is a span too — an empty one, since a
+    // printer would drop a filled background and every mark on this page has to
+    // be a border.
+    const offered = Array.from(
+      document.querySelectorAll('.ws-opt span:not(.ws-box)'),
+    ).map((label) => label.textContent)
     expect(offered).toEqual([
       'Answered',
       'Not home',

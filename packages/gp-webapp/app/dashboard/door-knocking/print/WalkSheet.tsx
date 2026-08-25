@@ -23,25 +23,47 @@ import {
 } from './walkFacts'
 import './walkSheet.css'
 
-// The columns, and the share of the page each gets. Percentages rather than the
-// handoff's own, because two of its columns are not on this sheet — there is no
-// Phone column (see below) and its four Support options are three here — and the
-// space they would have taken has to go somewhere. It goes to Name and Notes:
-// Name because it carries the party and the last-contact line beneath it, and
-// Notes because it is the only column a canvasser writes prose in.
+// The columns, and the share of the page each gets. The handoff's own
+// percentages wherever the column means the same thing on both — `# 2`, `Name
+// 18`, `Age 4`, `Address 16` — and every departure measured rather than
+// guessed, against a 960px content width (Letter landscape inside the handoff's
+// half-inch margins) in the browser this sheet is printed from.
+//
+// Each departure is one of the collisions this sheet escalates rather than
+// adopts:
+//
+//   - `Phone 11` is not here at all, and its share funds the `Will vote` column
+//     the handoff drops and the app's form still asks.
+//   - `#` is 3 rather than 2. The handoff renders 1 to 40 rows; a route here is
+//     capped at 150 stops, and "150" at 9.5px does not fit the 19px that 2% of
+//     the page comes to — it wrapped to two lines from stop 10 onward.
+//   - `Answered` is 24 rather than 12, because this surface offers all five
+//     outcomes where the handoff offers three. Five 12px boxes with their
+//     labels beneath measure 226px laid out in one row, which is 23.5% — and
+//     one row is what the handoff asks for.
+//   - `Support` is 9 rather than 16, for the mirror-image reason: three options
+//     against the handoff's four measure 79px, or 8.3%.
+//   - `Notes` gives up the residual 5, to 18. It is the column a canvasser
+//     writes in and the one worth protecting, so it is last to be charged and
+//     everything above it is measured to the pixel to keep the bill small.
+//
+// What does not fit at any of these widths is the last-contact line, whose
+// longest form runs about 224px against the 173px `Name` gets. It wraps to two
+// lines of 8.5px, which costs height rather than information; widening `Name`
+// far enough to hold it would have to come out of `Notes`.
 //
 // `table-layout: fixed` makes these binding rather than advisory, which is the
 // point: the widest street name on a route must not be able to squeeze the
 // column someone is writing in.
 const COLUMNS: Array<[label: string, width: string]> = [
   [WALK_COLUMNS.seq, '3%'],
-  [WALK_COLUMNS.name, '23%'],
-  [WALK_COLUMNS.age, '3%'],
-  [WALK_COLUMNS.address, '16%'],
-  [WALK_COLUMNS.answered, '18%'],
-  [WALK_COLUMNS.support, '9.5%'],
-  [WALK_COLUMNS.willVote, '9.5%'],
-  [WALK_COLUMNS.notes, '18%'],
+  [WALK_COLUMNS.name, '17%'],
+  [WALK_COLUMNS.age, '4%'],
+  [WALK_COLUMNS.address, '13%'],
+  [WALK_COLUMNS.answered, '26%'],
+  [WALK_COLUMNS.support, '10%'],
+  [WALK_COLUMNS.willVote, '10%'],
+  [WALK_COLUMNS.notes, '17%'],
 ]
 
 // An outlined square with its label beneath it, per the handoff. The label is
@@ -149,16 +171,16 @@ const ResidentRow = ({
               / No / Moved; "Moved" is not a value this app's form accepts, and
               the two outcomes it drops (nobody home, refused) are the two most
               common results of knocking a door. */}
-          <td>
+          <td className="ws-marks">
             <MarkBoxes options={OUTCOME_OPTIONS} />
           </td>
-          <td>
+          <td className="ws-marks">
             <MarkBoxes options={SUPPORT_OPTIONS} />
           </td>
           {/* The handoff has no Will-vote column. Kept, because the app's form
               asks it and a sheet that cannot record an answer the form wants is
               a sheet that has to be walked twice. */}
-          <td>
+          <td className="ws-marks">
             <MarkBoxes options={WILL_VOTE_OPTIONS} />
           </td>
           {/* Empty and stays empty. This is the column the canvasser writes in;
@@ -218,6 +240,56 @@ const SheetFooter = () => (
   </div>
 )
 
+interface SheetHeaderProps {
+  turfName: string
+  stops: RoutePayloadStop[]
+  payload: DoorKnockingRoutePayload
+}
+
+const SheetHeader = ({ turfName, stops, payload }: SheetHeaderProps) => (
+  <>
+    <div className="ws-head">
+      <div>
+        <h1 className="ws-title">{turfName}</h1>
+        {/* Stops, doors and people are three different numbers, and the PDF
+            quotes the same sentence from the same helper — the app and the paper
+            have reported different door counts for one route before. */}
+        <p className="ws-desc">{walkSummary(stops, payload.route)}</p>
+      </div>
+      {/* Deliberately no printed date. This renders in Node, whose clock is UTC,
+          so an evening print anywhere in the US would be stamped tomorrow — and
+          formatting it as UTC only makes the wrong date a consistent one. The
+          canvasser dates the sheet, which is both accurate and what people
+          already do with paper.
+
+          The page number is a blank for a harder reason. The handoff asks for
+          `counter(page) of counter(pages)`, and `counter(pages)` resolves only
+          inside an `@page` margin box — which no browser implements, and which
+          is in any case the one place a document cannot put its own content. In
+          flow content, the only place we can put it, Chrome resolves the counter
+          to nothing and prints "Page 0 of 0": a number that is wrong where a
+          blank would at least be honest. The PDF numbers its own pages from
+          `@react-pdf/renderer`'s render callback, because it is the surface that
+          knows how many there are — and a browser's print dialog offers page
+          numbers of its own besides. */}
+      <p className="ws-meta">
+        <span>
+          Canvasser <b>____________________</b>
+        </span>
+        <span>
+          Date <b>____ / ____ / ______</b>
+        </span>
+        <span>
+          Page <b>____ of ____</b>
+        </span>
+      </p>
+    </div>
+    <p className="ws-legend">
+      {MARK_INSTRUCTION} {RECORDS_NOTICE}
+    </p>
+  </>
+)
+
 interface WalkSheetProps {
   turfId: string
   turfName: string
@@ -258,47 +330,11 @@ export default function WalkSheet({
         </p>
       </div>
 
-      <header className="ws-head">
-        <div>
-          <h1 className="ws-title">{turfName}</h1>
-          {/* Stops, doors and people are three different numbers, and the PDF
-              quotes the same sentence from the same helper — the app and the
-              paper have reported different door counts for one route before. */}
-          <p className="ws-desc">{walkSummary(stops, payload.route)}</p>
-        </div>
-        {/* Deliberately no printed date. This renders in Node, whose clock is
-            UTC, so an evening print anywhere in the US would be stamped
-            tomorrow — and formatting it as UTC only makes the wrong date a
-            consistent one. The canvasser dates the sheet, which is both accurate
-            and what people already do with paper.
-
-            The page number is a blank for the same class of reason. The handoff
-            asks for `counter(page) of counter(pages)`, and both counters only
-            resolve inside an `@page` margin box — which is the one place a
-            browser will not let a document put content. In flow content, as
-            here, `counter(pages)` has no value at all and Chrome prints "Page 0
-            of 0". Blanks are honest about which surface knows: the PDF numbers
-            its own pages from `@react-pdf/renderer`'s render callback, because
-            it is the surface that knows how many there are. */}
-        <p className="ws-meta">
-          <span>
-            Canvasser <b>______________________</b>
-          </span>
-          <span>
-            Date <b>____________</b>
-          </span>
-          <span>
-            Page <b>____ of ____</b>
-          </span>
-        </p>
-      </header>
-
-      <p className="ws-legend">
-        {MARK_INSTRUCTION} {RECORDS_NOTICE}
-      </p>
-
       {stops.length === 0 ? (
-        <p className="ws-empty">This route has no stops.</p>
+        <>
+          <SheetHeader turfName={turfName} stops={stops} payload={payload} />
+          <p className="ws-empty">This route has no stops.</p>
+        </>
       ) : (
         <table className="ws-table">
           <colgroup>
@@ -306,8 +342,28 @@ export default function WalkSheet({
               <col key={label} style={{ width }} />
             ))}
           </colgroup>
+          {/* The handoff's header and legend repeat on every printed page. Its
+              prototype gets that from a paged-media component with a `header`
+              slot; a browser gives us exactly two regions it will repeat, and
+              `thead` is the one at the top of the page. So the header rides
+              inside the table rather than above it — flow content above a table
+              prints once, on page one, and every page after it would carry a
+              grid whose route has no name.
+
+              A `td` rather than a `th`, because it is a banner and not the head
+              of a column: eight `columnheader`s is what a screen reader and the
+              tests should both find in here. */}
           <thead>
             <tr>
+              <td className="ws-banner" colSpan={COLUMNS.length}>
+                <SheetHeader
+                  turfName={turfName}
+                  stops={stops}
+                  payload={payload}
+                />
+              </td>
+            </tr>
+            <tr className="ws-cols">
               {COLUMNS.map(([label]) => (
                 <th key={label} scope="col">
                   {label}

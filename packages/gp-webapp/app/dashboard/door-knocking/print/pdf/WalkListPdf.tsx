@@ -30,23 +30,38 @@ const px = (value: number): number => value * 0.75
 const MARGIN = px(48)
 const CONTENT_WIDTH = 792 - MARGIN * 2
 
-// The handoff's column percentages, minus its Phone column and re-spent on the
-// two columns that hold prose — Name, which carries the party and the
-// last-contact line beneath it, and Notes, which is the only column a canvasser
-// writes sentences in. Percentages resolved to points once, at module load,
-// because a fixed grid is what stops the widest street name on a route from
-// squeezing the column someone is writing in.
+// The handoff's own column percentages where the column means the same thing on
+// both surfaces — `Age 4`, and `Address` within a point of its 16 — resolved to
+// points once, at module load, because a fixed grid is what stops the widest
+// street name on a route from squeezing the column someone is writing in.
+//
+// The departures are the collisions this document escalates rather than adopts,
+// plus one the handoff's own fixture could not have hit:
+//
+//   - `Phone 11` is not here, and its share funds `Will vote`, the column the
+//     handoff drops and the app's form still asks.
+//   - `Answered` is 8 rather than 12, because this grid pre-prints two of the
+//     five outcomes where the printable page has room for all of them, and
+//     `Support` is 11 rather than 16 because ours is three-way against the
+//     handoff's four. Both savings go to `Notes`, at 26 the column a canvasser
+//     actually writes in.
+//   - `#` is 3 rather than 2: the handoff renders 1 to 40 rows, a route here is
+//     capped at 150 stops, and "150" does not fit 2% of a landscape page.
+//   - `Name` is 22 rather than 18, and this one is measured. It carries the
+//     last-contact line the handoff has no row for, and at 18 that line wrapped
+//     on roughly a third of the rows: 22 pages at the 150-stop cap against 19 at
+//     22%. The three pages are worth more than the four points.
 const share = (percent: number): number => (CONTENT_WIDTH * percent) / 100
 
 const COLUMN = {
   seq: share(3),
-  name: share(23),
-  age: share(3),
-  address: share(16),
+  name: share(22),
+  age: share(4),
+  address: share(15),
   answered: share(8),
-  support: share(10),
-  willVote: share(10),
-  notes: share(27),
+  support: share(11),
+  willVote: share(11),
+  notes: share(26),
 } as const
 
 // Traced from the design system rather than invented: `--color-foreground`,
