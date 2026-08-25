@@ -66,12 +66,13 @@ describe('RobocallTranscriptionService', () => {
     const text = await service.transcribe(params)
 
     expect(text).toBe('hello voters')
-    // Job was started with the S3 URI + mapped media format.
+    // Job started with the S3 URI and NO declared MediaFormat — Transcribe
+    // detects the format from the bytes (a mis-declared format fails the job).
     const start = mockSend.mock.calls[0]?.[0]
     expect(start.input.Media.MediaFileUri).toBe(
       's3://robocall-audio-test/robocall/1/clip.webm',
     )
-    expect(start.input.MediaFormat).toBe('webm')
+    expect(start.input.MediaFormat).toBeUndefined()
   })
 
   it('throws a 502 when the job fails', async () => {

@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import {
   GetTranscriptionJobCommand,
-  type MediaFormat,
   StartTranscriptionJobCommand,
   TranscribeClient,
 } from '@aws-sdk/client-transcribe'
 import { BadGatewayException, Injectable } from '@nestjs/common'
+import { ROBOCALL_AUDIO_ALLOWED_MIME_TYPES } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -19,16 +19,10 @@ const TranscriptFileSchema = z.object({
   }),
 })
 
-// Transcribe's MediaFormat enum; map our stored audio content types onto it.
-const MEDIA_FORMAT_BY_MIME: Record<string, MediaFormat> = {
-  'audio/webm': 'webm',
-  'audio/mp4': 'mp4',
-  'audio/x-m4a': 'mp4',
-  'audio/mpeg': 'mp3',
-  'audio/ogg': 'ogg',
-  'audio/wav': 'wav',
-  'audio/x-wav': 'wav',
-}
+// The upload allowlist is the transcription allowlist (you can't transcribe
+// what you couldn't upload), so bind to the one contract constant rather than
+// repeating it — a second copy would silently drift.
+const SUPPORTED_MIME_TYPES = new Set<string>(ROBOCALL_AUDIO_ALLOWED_MIME_TYPES)
 
 const POLL_INTERVAL_MS = 3000
 const MAX_POLLS = 40 // ~2 min ceiling for a ≤60s clip
@@ -58,8 +52,7 @@ export class RobocallTranscriptionService {
   }
 
   async transcribe(params: TranscribeParams): Promise<string> {
-    const mediaFormat = MEDIA_FORMAT_BY_MIME[params.contentType]
-    if (!mediaFormat) {
+    if (!SUPPORTED_MIME_TYPES.has(params.contentType)) {
       throw new BadGatewayException(
         `Unsupported audio type for transcription: ${params.contentType}`,
       )
@@ -69,11 +62,15 @@ export class RobocallTranscriptionService {
     const outputKey = `transcripts/${jobName}.json`
 
     try {
+      // No MediaFormat: our clips are audio-only MPEG-4 (Safari's audio/mp4 and
+      // uploaded .m4a alike), which AWS may detect as either `mp4` or `m4a`; a
+      // declared format that mismatches the detected one FAILS the job and
+      // would 502 this fail-closed gate on a valid recording. Let Transcribe
+      // detect it instead.
       await this.client.send(
         new StartTranscriptionJobCommand({
           TranscriptionJobName: jobName,
           LanguageCode: 'en-US',
-          MediaFormat: mediaFormat,
           Media: { MediaFileUri: `s3://${params.bucket}/${params.key}` },
           OutputBucketName: params.bucket,
           OutputKey: outputKey,
