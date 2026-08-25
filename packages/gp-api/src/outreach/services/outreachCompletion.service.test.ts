@@ -1,8 +1,7 @@
 import { BadGatewayException } from '@nestjs/common'
-import { addDays, format, subDays } from 'date-fns'
+import { addDays, subDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { DateFormats } from '@/shared/util/date.util'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyJob, PeerlyJobStatus } from '@/vendors/peerly/peerly.types'
 import {
@@ -21,23 +20,30 @@ const DEFAULT_PROJECT_ID = 'peerly-job'
 
 // The completion predicate compares a job's `end_date` against the real
 // wall-clock date (`sweepOutreachCompletions` sources `now` itself), so these
-// fixtures are relative to today rather than fixed calendar dates.
-const PAST_END_DATE = format(subDays(new Date(), 1), DateFormats.isoDate)
-const TODAY_END_DATE = format(new Date(), DateFormats.isoDate)
-const FUTURE_END_DATE = format(addDays(new Date(), 1), DateFormats.isoDate)
+// fixtures are relative to today rather than fixed calendar dates. The
+// service compares UTC calendar days, so the fixtures must be UTC-formatted
+// too — local formatting made "today" read as yesterday-UTC every evening
+// west of Greenwich and flipped the today-end_date case to completed.
+const isoDateUTC = (date: Date) => date.toISOString().slice(0, 10)
+const PAST_END_DATE = isoDateUTC(subDays(new Date(), 1))
+const TODAY_END_DATE = isoDateUTC(new Date())
+const FUTURE_END_DATE = isoDateUTC(addDays(new Date(), 1))
+const PAST_START_DATE = isoDateUTC(subDays(new Date(), 3))
+const FUTURE_START_DATE = isoDateUTC(addDays(new Date(), 14))
 
 let campaign: Campaign
 let completionService: OutreachCompletionService
 
 const buildJob = (
   overrides: Partial<
-    Pick<PeerlyJob, 'status' | 'leads_remaining' | 'end_date'>
+    Pick<PeerlyJob, 'status' | 'leads_remaining' | 'start_date' | 'end_date'>
   >,
 ): PeerlyJob =>
   ({
     id: DEFAULT_PROJECT_ID,
     status: PeerlyJobStatus.ACTIVE,
     leads_remaining: 10,
+    start_date: PAST_START_DATE,
     end_date: FUTURE_END_DATE,
     ...overrides,
   }) as PeerlyJob
@@ -153,6 +159,27 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       expect(updated.status).toBe(OutreachStatus.in_progress)
     },
   )
+
+  // A future-scheduled job reads PAUSED in Peerly (verified against a real
+  // dev job), and must stay pending until its start day — flipping it to
+  // in_progress early lies in the history UI and strips the pending-only
+  // cancel window.
+  it('keeps a PAUSED job with a future start_date pending', async () => {
+    const outreach = await createOutreach({ status: OutreachStatus.pending })
+    getJob.mockResolvedValue(
+      buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        leads_remaining: 0,
+        start_date: FUTURE_START_DATE,
+        end_date: FUTURE_START_DATE,
+      }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.pending)
+  })
 
   it('does not ratchet a pending outreach to completed when the job is still pending, even past its end_date', async () => {
     // Reproduces the pre-fix ratchet bug: a fresh job can be polled while

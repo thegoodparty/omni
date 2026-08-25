@@ -71,6 +71,14 @@ export const mapPeerlyJobToOutreachStatus = (
   if (job.status === PeerlyJobStatus.PENDING) {
     return OutreachStatus.pending
   }
+  // A job scheduled for the future reads `paused` in Peerly (verified against
+  // a real dev job, ENG-10727's inverse case), and `paused` alone must not
+  // ratchet the row to in_progress two weeks before anything sends — that
+  // both lies in the history UI and strips the pending-only cancel window.
+  // Not started until the start_date UTC day begins.
+  if (isBefore(now, parseIsoDateAsUTC(job.start_date))) {
+    return OutreachStatus.pending
+  }
   if (isPeerlyJobComplete(job, now)) {
     return OutreachStatus.completed
   }
