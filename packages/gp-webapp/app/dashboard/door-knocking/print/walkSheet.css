@@ -11,7 +11,13 @@
  * the values in one place, in the same units the designer wrote them.
  *
  * Colours are tokens, never literals, so the sheet follows the brand's
- * foreground the way every other surface does.
+ * foreground the way every other surface does — but every one carries the
+ * styleguide's own fallback. An undefined custom property makes the whole
+ * declaration invalid, and in a `border` shorthand that means no border at all:
+ * a mark box with no border is a box a canvasser cannot see, let alone tick. The
+ * theme is always loaded in the app, so the fallbacks are for the case this page
+ * is saved and reopened without it, which is a thing people do with a document
+ * whose entire purpose is to work offline.
  */
 
 @page {
@@ -21,7 +27,7 @@
 
 .ws {
   background: #fff;
-  color: var(--color-foreground);
+  color: var(--color-foreground, #020817);
 }
 
 /* Header. Inside the table's `<thead>`, which is what makes it repeat on every
@@ -51,7 +57,7 @@
 .ws-desc {
   margin: 4px 0 0;
   font-size: 12px;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
 }
 
 .ws-meta {
@@ -60,19 +66,19 @@
   flex-wrap: wrap;
   gap: 24px;
   font-size: 12px;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
   white-space: nowrap;
 }
 
 .ws-meta b {
-  color: var(--color-foreground);
+  color: var(--color-foreground, #020817);
   font-weight: 600;
 }
 
 .ws-legend {
   margin: 0 0 12px;
   font-size: 11px;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
 }
 
 /* Table. Fixed layout so the columns a canvasser writes in are the width the
@@ -92,12 +98,12 @@
 
 .ws-table thead .ws-cols th {
   padding: 0 4px 6px;
-  border-bottom: 1px solid var(--color-foreground);
+  border-bottom: 1px solid var(--color-foreground, #020817);
   font-size: 8.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
   text-align: left;
   white-space: nowrap;
 }
@@ -108,7 +114,7 @@
   background: #fff;
   /* The heavier rule is the boundary between households, so a shared front
      door reads as one door however many people answer it. */
-  border-top: 1px solid var(--color-foreground);
+  border-top: 1px solid var(--color-foreground, #020817);
 }
 
 /* A second or third person behind the same door: dotted, and the stop number
@@ -126,7 +132,7 @@
 .ws-seq,
 .ws-age {
   font-size: 9.5px;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
   font-variant-numeric: tabular-nums;
 }
 
@@ -174,7 +180,7 @@
   display: block;
   font-size: 8.5px;
   font-weight: 400;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
 }
 
 /* Mark boxes. Outlined and never filled: printers drop background colours by
@@ -212,7 +218,7 @@
   display: block;
   width: 12px;
   height: 12px;
-  border: 1.5px solid var(--color-foreground);
+  border: 1.5px solid var(--color-foreground, #020817);
   border-radius: 2px;
   background: #fff;
 }
@@ -223,7 +229,7 @@
   line-height: 1;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
   /* The handoff's labels are one short word each and it sets them `nowrap`.
      Ours include "Refused to engage", and holding five of those on one line
      would cost the `Answered` column another 6% of the page. Wrapping the label
@@ -243,7 +249,7 @@
 .ws-logged {
   font-size: 9.5px;
   font-style: italic;
-  color: var(--color-muted-foreground);
+  color: var(--color-muted-foreground, #64748b);
 }
 
 .ws-empty {
