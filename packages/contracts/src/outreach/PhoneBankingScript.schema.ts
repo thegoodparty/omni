@@ -33,11 +33,15 @@ export const PhoneBankingScriptDraftRequestSchema = z
       .max(PHONE_BANKING_SCRIPT_MAX_LENGTH)
       .optional(),
     previousDraft: z.string().max(PHONE_BANKING_SCRIPT_MAX_LENGTH).optional(),
+    // Whitespace-only is treated as absent, not a violation — a trim-then-
+    // min(1) without this transform 400s on '   ' even though the field is
+    // optional, since the client has no way to distinguish "blank" from a
+    // real schema violation.
     instructions: z
       .string()
       .trim()
-      .min(1)
       .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
+      .transform((v) => (v.length === 0 ? undefined : v))
       .optional(),
   })
   // The two paths are mutually exclusive by construction (the service picks

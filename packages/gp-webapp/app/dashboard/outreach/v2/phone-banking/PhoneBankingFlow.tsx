@@ -92,6 +92,13 @@ export const PhoneBankingFlow = ({
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
+  // Tracks whether the box holds unmodified AI output vs. candidate-typed
+  // text — same purpose as SocialFlow's manuallyEdited, scoped narrower:
+  // phone banking has no per-tone memory/Undo, so this only gates whether a
+  // tone change is allowed to send the current text as previousDraft (an
+  // explicit Regenerate click still does, since that's the candidate asking
+  // to discard whatever's on screen).
+  const [scriptManuallyEdited, setScriptManuallyEdited] = useState(false)
   const [instructions, setInstructions] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
   // Whether the candidate has manually changed the sheet count — gates the
@@ -169,6 +176,7 @@ export const PhoneBankingFlow = ({
     setPurpose(null)
     setTone('warm')
     setScript('')
+    setScriptManuallyEdited(false)
     setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
@@ -248,6 +256,7 @@ export const PhoneBankingFlow = ({
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           setScript(generated)
+          setScriptManuallyEdited(false)
         },
       },
     )
@@ -265,6 +274,7 @@ export const PhoneBankingFlow = ({
     // draft request.
     setTone('warm')
     setScript('')
+    setScriptManuallyEdited(false)
     setInstructions('')
     setStepId('who')
     requestDraft(selected, 'warm', undefined, undefined, '')
@@ -274,11 +284,21 @@ export const PhoneBankingFlow = ({
     if (nextTone === tone) return
     setTone(nextTone)
     if (!purpose || purpose === 'custom') return
-    requestDraft(purpose, nextTone, undefined, script.trim() || undefined)
+    // A tone change is not the candidate asking to discard their edits —
+    // only send previousDraft (and so invite the model to diverge) when the
+    // box still holds an unmodified AI generation. An explicit Regenerate
+    // click below is a discard request, so it always sends the current text.
+    requestDraft(
+      purpose,
+      nextTone,
+      undefined,
+      scriptManuallyEdited ? undefined : script.trim() || undefined,
+    )
   }
 
   const handleScriptChange = (value: string) => {
     setScript(value)
+    setScriptManuallyEdited(true)
     if (draftMutation.isError) resetDraftMutation()
   }
 

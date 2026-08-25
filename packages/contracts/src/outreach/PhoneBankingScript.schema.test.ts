@@ -52,6 +52,12 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
     ).not.toThrow()
   })
 
+  it('normalizes whitespace-only instructions to absent instead of rejecting', () => {
+    const request = { purpose: 'introduce', tone: 'warm', instructions: '   ' }
+    const parsed = PhoneBankingScriptDraftRequestSchema.parse(request)
+    expect(parsed.instructions).toBeUndefined()
+  })
+
   it('rejects currentDraft and previousDraft together', () => {
     const request = {
       purpose: 'introduce',
