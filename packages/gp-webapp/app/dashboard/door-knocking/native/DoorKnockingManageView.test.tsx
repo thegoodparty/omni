@@ -21,6 +21,7 @@ vi.mock('./TurfList', () => ({
     onShowDetails,
     onKnockTurf,
     onDeletedTurf,
+    onCreateList,
   }: {
     selectedTurfId: number | null
     hiddenTurfIds: Set<number>
@@ -29,6 +30,7 @@ vi.mock('./TurfList', () => ({
     onShowDetails: (turf: DoorKnockingTurf) => void
     onKnockTurf: (turf: DoorKnockingTurf) => void
     onDeletedTurf: (turf: DoorKnockingTurf) => void
+    onCreateList?: () => void
   }) => (
     <div
       data-testid="turf-list"
@@ -48,6 +50,11 @@ vi.mock('./TurfList', () => ({
           {label}
         </button>
       ))}
+      {onCreateList && (
+        <button type="button" onClick={onCreateList}>
+          create
+        </button>
+      )}
     </div>
   ),
 }))
@@ -133,6 +140,22 @@ describe('DoorKnockingManageView seam', () => {
     expect(view.onShowDetails).toHaveBeenCalledWith(turf)
     expect(view.onKnockTurf).toHaveBeenCalledWith(turf)
     expect(view.onDeletedTurf).toHaveBeenCalledWith(turf)
+  })
+
+  // The empty rail's Create list button opens a flow that replaces this whole
+  // surface, so the surface can only report the press. It passes the handler
+  // through untouched, and offers the rail none when it has none — the rail
+  // then names the header's button instead of rendering a dead one.
+  it('passes the create-list gesture through, and only when it has one', () => {
+    const onCreateList = vi.fn()
+    const view = renderView({ onCreateList })
+
+    fireEvent.click(screen.getByRole('button', { name: 'create' }))
+    expect(onCreateList).toHaveBeenCalledTimes(1)
+
+    view.unmount()
+    renderView()
+    expect(screen.queryByRole('button', { name: 'create' })).toBeNull()
   })
 
   // A chip reports the status and nothing else: whether it narrows, and what

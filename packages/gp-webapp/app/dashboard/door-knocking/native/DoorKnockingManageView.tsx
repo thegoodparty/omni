@@ -67,6 +67,13 @@ export interface DoorKnockingManageViewProps {
   // an existing route and confirming a new one.
   onKnockTurf: (turf: DoorKnockingTurf) => void
   onDeletedTurf: (turf: DoorKnockingTurf) => void
+  // The empty rail's Create list button was pressed. The create flow is the
+  // orchestrator's — it replaces this whole surface — so this reports the
+  // gesture like every other callback here. Optional, and the rail falls back
+  // to pointing at the header's Create list button when it is absent: the
+  // orchestrator's own wiring is a separate change, and an empty state that
+  // names the button it cannot press is what this already did.
+  onCreateList?: () => void
 }
 
 export default function DoorKnockingManageView({
@@ -81,6 +88,7 @@ export default function DoorKnockingManageView({
   onShowDetails,
   onKnockTurf,
   onDeletedTurf,
+  onCreateList,
 }: DoorKnockingManageViewProps) {
   // Below lg the rail is a bottom sheet over a full-bleed map, and this is
   // whether it is pulled up. Purely a class switch, never a mount: the rail's
@@ -153,6 +161,7 @@ export default function DoorKnockingManageView({
             onShowDetails={onShowDetails}
             onKnockTurf={onKnockTurf}
             onDeletedTurf={onDeletedTurf}
+            onCreateList={onCreateList}
           />
         </div>
         <section className="flex shrink-0 flex-col gap-2 border-t border-border p-4">

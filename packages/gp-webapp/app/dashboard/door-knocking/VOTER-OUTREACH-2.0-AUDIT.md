@@ -15,8 +15,13 @@ in.
   — item 4, the drawer's breakdown of how the walk went, which overturned the
   recorded ruling against it. It is left in place with the argument that
   overturned it rather than moved, because the decision is the useful part.
+- **Deferred, with a named precondition** — right to build, wrong to build now,
+  and the thing that has to change is written down. 1 item, under _Empty,
+  loading, error and first-run states_: the canvas opens the create flow by
+  itself for a candidate with no lists, and we will once
+  `GET /v1/door-knocking/pack` is fast enough to open a flow on.
 
-**32 differences total.** The build is close to the canvas. Most of what looks
+**33 differences total.** The build is close to the canvas. Most of what looks
 missing is either the "three quantities" problem the previous review describes
 (a stop, a door and a person are different things live, and the prototype's data
 made them identical) or a deliberate correction of something the canvas itself
@@ -398,6 +403,86 @@ a failed-address-preview state with a retry, a stale-boundary state for the
 address list, and a save-failed message on the confirm step. **No canvas state
 is missing.**
 
+That last sentence was, for a while, the whole of this section, and it is true
+about _states_ and wrong about _transitions_ — which is most of what "first run"
+means. The canvas has a first-run rule for door knocking. We do not have it, we
+are not going to build it yet, and both halves of that are worth writing down
+properly, because the reason is a number that will change.
+
+### The canvas opens the create flow for a candidate with no lists
+
+**Canvas:** entering door knocking with an empty rail opens the create list flow
+by itself, 60ms after the surface mounts. The rule is one line of
+`openFlow(channel)` at line **2289** — the outreach flow-opening function shared
+by all seven channels, some three thousand lines above the region this audit
+reviewed:
+
+> `if (channel === 'door') { this.setState({ doorOpen:true }); if (this.state.dkSaved.length===0) setTimeout(()=>this.openNewList(), 60); return; }`
+
+**Ours:** the landing map, with the rail's empty card in it. A candidate with no
+lists reads the card and presses Create list themselves.
+
+**This audit missed it for a mechanical reason**, which is the useful part of
+reporting it: the rule that governs a door-knocking screen does not live in the
+door-knocking region. Anything scoped to lines 5289–5838 — this audit, and the
+UI drift review before it — could only have found the surfaces the rule opens,
+never the rule.
+
+**It is a specification, not a demo shortcut.** Three things say so, and it is
+worth being sure, because "the prototype just wanted to show the flow" would be
+a perfectly ordinary explanation for a line like this:
+
+- It is a **written conditional**. A shortcut into the flow would be an
+  unconditional call; this one asks a question first.
+- The manage view stays reachable **and keeps its own zero-list empty card**. A
+  spec that meant "skip the landing view when there is nothing on it" would have
+  no use for that card, and the canvas would not have written one.
+- The two conditions read **deliberately different quantities**. The auto-open
+  tests `dkSaved.length` — every list, archived ones included — while the empty
+  card tests `savedVisible`, which is unarchived only. So a candidate who
+  archived their last list gets the empty card and _not_ the auto-open. That
+  asymmetry does nothing in a fixture and means something in a rule.
+
+**It is also not "the first time you ever open the page".** It keys off server
+state rather than a persisted flag, so it re-fires on every entry with an empty
+rail — including for a candidate who has just deleted their last list. That is
+the better of the two rules, and it is the one to build if we build it: a
+first-run flag needs somewhere to live, and it strands exactly the person who
+has arrived at an empty rail for the second time.
+
+**We have deliberately not implemented it, and the reason is the voter pack.**
+Our create flow is gated on the pack twice. The Create list button that opens
+it is `disabled={!packQuery.data}`, and one step in, the who step's Continue
+reads `districtHouseholds === 0`, disables itself and renders the literal text
+**"No matching households"**. Both gates are right while the entry to the flow
+is a button somebody presses: the button is simply unavailable until the pack
+decodes, and the second gate is then unreachable.
+
+Auto-opening only pays for itself if it un-gates the entry — spending the
+pack's wait inside the flow, on the purpose and who steps, instead of staring at
+a disabled button, is the entire benefit. And un-gating the entry is exactly
+what makes that second state reachable. A brand-new candidate would be one tap
+into the product and told, in a sentence, that their district contains no
+matching households. That is a false statement rather than a spinner, and it is
+the first thing the feature would ever say to them. Auto-opening _after_ the
+pack lands avoids it, but then it costs nothing and buys nothing — the wait is
+already over — and it silently never fires at all on the loads where the pack
+never arrives.
+
+Those loads are not rare, which is the whole of the argument:
+`GET /v1/door-knocking/pack` currently takes **12.7–43.5 s** and **fails
+outright about 15% of the time**.
+
+**So: deferred, with a named precondition — not rejected.** This is a correct
+thing to build, and a small change when the precondition is met. Once the pack
+is fast and reliable, the who step's zero-household branch stops being a state a
+first-time candidate can land in, and what remains is the canvas's own
+conditional asked against our turfs query — where "no lists" is the same
+`length === 0` and, per the rule above, should count archived lists too. The
+precondition is a performance and reliability number on one endpoint. Nobody
+needs to re-argue whether auto-opening is right; they need to check whether
+`/pack` is still slow.
+
 ## Print
 
 Not audited and not touched — another agent owns those surfaces. One thing to
@@ -416,3 +501,11 @@ The canvas region audited is lines 5289–5838 of `Voter Outreach.dc.html`:
 I did not review the ~640 screenshots in `uploads/`, the phone-banking and SMS
 regions, or the canvas's Pro paywall gate (`proGate`), which is a billing flow
 rather than a door-knocking surface.
+
+**That region is not the whole specification, and the first-run rule is the
+proof.** `openFlow(channel)` at line 2289 decides what happens when door
+knocking is _entered_, and it is shared by all seven outreach channels, so it
+sits nowhere near the region above — see _Empty, loading, error and first-run
+states_. Anything else that governs a door-knocking surface from the shared
+outreach shell is outside what was audited here. A later pass should read
+`openFlow`, `openNewList` and the shell's own state around them.

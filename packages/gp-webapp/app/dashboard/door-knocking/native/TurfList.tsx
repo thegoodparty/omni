@@ -15,6 +15,7 @@ import {
 } from '@styleguide'
 import { ListCard, type ListCardMetaItem } from 'app/dashboard/shared/ListCard'
 import { turfsQueryOptions } from './turfQueries'
+import { voterPackQueryOptions } from './useVoterPack'
 import DeleteTurfControl from './DeleteTurfControl'
 import {
   canArchiveTurf,
@@ -41,6 +42,12 @@ interface TurfListProps {
   // focus, hidden set), which would otherwise go on masking the map to a ring
   // the refetched rail no longer contains.
   onDeletedTurf: (turf: DoorKnockingTurf) => void
+  // The empty state's Create list button was pressed. The rail reports the
+  // gesture and never the consequence — the create flow is the orchestrator's,
+  // so what "open it" means stays there. Optional: without a handler the card
+  // has no button to offer and points at the header's Create list instead,
+  // which is what it did before there was one.
+  onCreateList?: () => void
 }
 
 export default function TurfList({
@@ -51,8 +58,20 @@ export default function TurfList({
   onShowDetails,
   onKnockTurf,
   onDeletedTurf,
+  onCreateList,
 }: TurfListProps) {
   const turfsQuery = useQuery(turfsQueryOptions)
+  // Read-only observer on the page's own pack, `enabled: false` so this rail
+  // never triggers a second tens-of-MB download of what the page already
+  // fetches and gates the whole feature on — the same read the who step's list
+  // picker makes, for the same reason. It exists so the empty state's Create
+  // list button can be disabled on `!packQuery.data`, the identical expression
+  // the header's Create list button is disabled on: two buttons that open the
+  // same flow must not disagree about when they work, and the only way to
+  // guarantee that without a prop is to read the same query. An observer
+  // rather than `getQueryData` because the button has to come alive if the
+  // pack lands while an empty rail is on screen.
+  const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
 
   const turfs = turfsQuery.data ?? []
 
@@ -87,17 +106,40 @@ export default function TurfList({
 
   // The first screen a new candidate sees. Rendering nothing left the rail
   // with a heading, status chips and no explanation of what a list is or how
-  // to get one — the only way forward being a button in the page header that
-  // nothing on this side pointed at.
+  // to get one. Explaining it and then pointing at a button elsewhere on the
+  // page was the next version of the same problem: the card describes the one
+  // thing there is to do here, so it is where the control belongs — the
+  // canvas's own `emptyCard` puts a Create list button inside it.
   if (turfs.length === 0) {
     return (
       <section className="flex flex-col gap-1.5">
         <h2 className="text-sm font-semibold">Saved lists</h2>
-        <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-          No lists yet. Use <span className="font-medium">Create list</span>{' '}
-          above to pick who you want to reach and draw the streets you want to
-          walk — saved lists show up here, ready to knock.
-        </p>
+        <div className="flex flex-col gap-3 rounded-md border border-dashed border-border p-3">
+          <p className="text-sm text-muted-foreground">
+            No lists yet. Pick who you want to reach and draw the streets you
+            want to walk — the list shows up here, ready to knock.
+          </p>
+          {onCreateList ? (
+            // Disabled on exactly what the header's Create list is disabled
+            // on. The flow's who step reads the same pack, and without it
+            // reports "No matching households" — so a button that opened the
+            // flow early would tell a brand-new candidate their district is
+            // empty rather than that we are still loading it.
+            <Button
+              size="small"
+              className="self-end"
+              disabled={!packQuery.data}
+              onClick={onCreateList}
+            >
+              Create list
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Use <span className="font-medium">Create list</span> above to make
+              your first one.
+            </p>
+          )}
+        </div>
       </section>
     )
   }
