@@ -316,7 +316,18 @@ export class CampaignsController {
 
     this.logger.debug({ campaign, ...{ slug, body } }, 'Updating campaign')
 
-    const updated = await this.campaigns.updateJsonFields(campaign.id, body)
+    // User-driven updates that move electionDate to a new upcoming date
+    // clear stale prior-race result state (ENG-10954). The admin M2M update
+    // (PUT /:id) deliberately does NOT pass this — staff set didWin/result
+    // fields explicitly there.
+    const updated = await this.campaigns.updateJsonFields(
+      campaign.id,
+      body,
+      true,
+      undefined,
+      undefined,
+      { resetStaleElectionResults: true },
+    )
     if (!updated) throw new NotFoundException('Campaign not found after update')
     return updated
   }
