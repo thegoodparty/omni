@@ -37,12 +37,16 @@ const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
   who: 'Who are you calling?',
   script: 'Write your call script',
-  sheets: 'How many lists would you like me to create?',
-  download: 'Your call list is ready',
+  sheets: 'How many call sheets would you like me to create?',
+  // Deliberately distinct from DownloadStep's own dynamic (singular/plural)
+  // "ready" title — this is only the sr-only shell title, and matching
+  // either variant exactly would make it collide with the visible one for
+  // that variant while staying non-unique text across the two states.
+  download: 'Download your call sheets',
 }
 
 const GENERIC_CREATE_ERROR_MESSAGE =
-  "We couldn't create this call list. Try again."
+  "We couldn't create your call sheets. Try again."
 
 // Phone banking is free (volunteers make the calls) — 0 tells the shared
 // audience step to omit the cost line entirely rather than show "for $0.00".

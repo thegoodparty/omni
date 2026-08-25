@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PhoneBankingListEntry } from '@goodparty_org/contracts'
 import {
@@ -29,6 +29,11 @@ import {
   EllipsisVerticalIcon,
   IconButton,
   Loader2Icon,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   StatusText,
   Trash2Icon,
   cn,
@@ -64,6 +69,8 @@ export default function PhoneBankingCallerPage({
   listId,
 }: PhoneBankingCallerPageProps): React.JSX.Element {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
 
@@ -75,6 +82,16 @@ export default function PhoneBankingCallerPage({
     entryId: number
     personId: string
   } | null>(null)
+
+  // Seeded once from the URL (?sheet=N) so a sheet-scoped link a volunteer
+  // is handed opens straight into that filter — real state, not re-derived
+  // from useSearchParams() every render, because selecting a sheet updates
+  // the URL via router.replace() and nothing re-subscribes this component to
+  // that navigation to force a re-render off it alone.
+  const [requestedSheet, setRequestedSheet] = useState<number | null>(() => {
+    const param = searchParams?.get('sheet') ?? null
+    return param !== null && /^\d+$/.test(param) ? Number(param) : null
+  })
 
   const listQuery = useQuery({
     queryKey: phoneBankingListQueryKey(listId),
@@ -95,21 +112,52 @@ export default function PhoneBankingCallerPage({
   })
 
   const list = listQuery.data
+
+  // The distinct sheet numbers actually present, ascending — not a 1..N
+  // range, since a small audience can freeze fewer sheets than a candidate
+  // asked for (same reasoning as the print route's sheetIndexesOf).
+  const sheetIndexes = list
+    ? [...new Set(list.entries.map((entry) => entry.sheetIndex))].sort(
+        (a, b) => a - b,
+      )
+    : []
+
+  // An out-of-range or malformed request (a sheet from a since-shrunk list,
+  // a hand-edited URL, or simply not having loaded `list` yet) falls back to
+  // "All" rather than rendering an empty page.
+  const selectedSheet =
+    requestedSheet !== null && sheetIndexes.includes(requestedSheet)
+      ? requestedSheet
+      : null
+
+  const setSheet = (sheet: number | null) => {
+    setRequestedSheet(sheet)
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    if (sheet === null) params.delete('sheet')
+    else params.set('sheet', String(sheet))
+    const query = params.toString()
+    router.replace(`${pathname}${query ? `?${query}` : ''}`, { scroll: false })
+  }
+
+  const visibleEntries = list
+    ? selectedSheet === null
+      ? list.entries
+      : list.entries.filter((entry) => entry.sheetIndex === selectedSheet)
+    : []
+
   const activeEntry = activeSelection
-    ? (list?.entries.find((entry) => entry.id === activeSelection.entryId) ??
+    ? (visibleEntries.find((entry) => entry.id === activeSelection.entryId) ??
       null)
     : null
-  const activeEntryIndex =
-    list && activeSelection
-      ? list.entries.findIndex((entry) => entry.id === activeSelection.entryId)
-      : -1
+  const activeEntryIndex = activeSelection
+    ? visibleEntries.findIndex((entry) => entry.id === activeSelection.entryId)
+    : -1
   const hasPrevEntry = activeEntryIndex > 0
-  const hasNextEntry = list
-    ? activeEntryIndex >= 0 && activeEntryIndex < list.entries.length - 1
-    : false
+  const hasNextEntry =
+    activeEntryIndex >= 0 && activeEntryIndex < visibleEntries.length - 1
 
   const goToEntryAt = (index: number) => {
-    const target = list?.entries[index]
+    const target = visibleEntries[index]
     const first = target?.persons[0]
     if (target && first)
       setActiveSelection({ entryId: target.id, personId: first.personId })
@@ -136,10 +184,25 @@ export default function PhoneBankingCallerPage({
     toggleExpanded(entry.id)
   }
 
-  const total = list ? totalPeopleCount(list) : 0
-  const called = list ? calledPeopleCount(list) : 0
-  const counts = list ? outcomeCounts(list) : undefined
+  const total = list ? totalPeopleCount({ entries: visibleEntries }) : 0
+  const called = list ? calledPeopleCount({ entries: visibleEntries }) : 0
+  const counts = list ? outcomeCounts({ entries: visibleEntries }) : undefined
   const pct = (n: number) => (total > 0 ? (n / total) * 100 : 0)
+
+  // Per-sheet called/total, surfaced in the sheet selector so a team can see
+  // which sheets are already done before picking one to split off.
+  const sheetStats = list
+    ? sheetIndexes.map((sheetIndex) => {
+        const entries = list.entries.filter(
+          (entry) => entry.sheetIndex === sheetIndex,
+        )
+        return {
+          sheetIndex,
+          total: totalPeopleCount({ entries }),
+          called: calledPeopleCount({ entries }),
+        }
+      })
+    : []
 
   return (
     <DashboardLayout
@@ -169,21 +232,69 @@ export default function PhoneBankingCallerPage({
             </h1>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button
-              asChild
-              variant="outline"
-              size="small"
-              className="rounded-full"
-              aria-label="Download call sheet PDF"
-              onClick={() =>
-                trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
-              }
-            >
-              <a href={`/dashboard/outreach/phone-banking/print/${listId}/pdf`}>
-                <DownloadIcon size={16} />
-                <span className="hidden lg:inline">PDF</span>
-              </a>
-            </Button>
+            {selectedSheet === null ? (
+              <Button
+                asChild
+                variant="outline"
+                size="small"
+                className="rounded-full"
+                aria-label="Download call sheet PDF"
+                onClick={() =>
+                  trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                }
+              >
+                <a
+                  href={`/dashboard/outreach/phone-banking/print/${listId}/pdf`}
+                >
+                  <DownloadIcon size={16} />
+                  <span className="hidden lg:inline">PDF</span>
+                </a>
+              </Button>
+            ) : (
+              // A sheet is selected: offer that single sheet's PDF alongside
+              // the full ZIP rather than replacing one download with the
+              // other — a volunteer working sheet 3 usually wants just that
+              // page, but the full set should never be a click further away.
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="small"
+                    className="rounded-full"
+                    aria-label="Download call sheet PDF"
+                  >
+                    <DownloadIcon size={16} />
+                    <span className="hidden lg:inline">PDF</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    asChild
+                    onClick={() =>
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                    }
+                  >
+                    <a
+                      href={`/dashboard/outreach/phone-banking/print/${listId}/pdf?sheet=${selectedSheet}`}
+                    >
+                      Sheet {selectedSheet} (PDF)
+                    </a>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    asChild
+                    onClick={() =>
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                    }
+                  >
+                    <a
+                      href={`/dashboard/outreach/phone-banking/print/${listId}/pdf`}
+                    >
+                      All sheets (ZIP)
+                    </a>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <IconButton
@@ -247,10 +358,46 @@ export default function PhoneBankingCallerPage({
           )}
           {list && counts && (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium text-foreground">
+                  {sheetIndexes.length > 1
+                    ? `${sheetIndexes.length} call sheets`
+                    : '1 call sheet'}
+                </span>
+                {sheetIndexes.length > 1 && (
+                  <Select
+                    value={
+                      selectedSheet === null ? 'all' : String(selectedSheet)
+                    }
+                    onValueChange={(value) =>
+                      setSheet(value === 'all' ? null : Number(value))
+                    }
+                  >
+                    <SelectTrigger
+                      className="w-64"
+                      aria-label="Filter by call sheet"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All sheets</SelectItem>
+                      {sheetStats.map((stat) => (
+                        <SelectItem
+                          key={stat.sheetIndex}
+                          value={String(stat.sheetIndex)}
+                        >
+                          {`Sheet ${stat.sheetIndex} — ${stat.called}/${stat.total} called`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
               <Card className="gap-3 p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Call progress
+                    {selectedSheet !== null && ` · Sheet ${selectedSheet}`}
                   </span>
                   <Badge variant="secondary" shape="pill">
                     {called}/{total} called
@@ -293,7 +440,7 @@ export default function PhoneBankingCallerPage({
                   </span>
                 </div>
                 <ol className="divide-y divide-border">
-                  {list.entries.map((entry) => {
+                  {visibleEntries.map((entry) => {
                     const suppressed = isEntrySuppressed(entry)
                     const expanded = expandedEntryIds.has(entry.id)
                     const single = entry.persons.length === 1
