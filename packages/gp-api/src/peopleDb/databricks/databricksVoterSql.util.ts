@@ -681,7 +681,11 @@ export const buildPersonSql = (
   const scope = buildScopeSql(bag, args)
   const sql =
     `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
-    ` AND ${col('id')} = ${bag.bind(args.id)}` +
+    // Lowercased for the same reason idList is: this column is a STRING and
+    // compares byte-exact, where the Postgres path cast to `uuid` and folded
+    // case. z.guid() accepts a mixed-case guid and passes it through, so
+    // without this a bookmarked upper-case URL 404s a person who exists.
+    ` AND ${col('id')} = ${bag.bind(args.id.toLowerCase())}` +
     ` LIMIT 1`
   return { sql, params: bag.params }
 }

@@ -725,6 +725,18 @@ describe('buildPersonSql', () => {
     expect(params.map(({ value }) => value)).toEqual(['CA', '29', ID])
   })
 
+  // Postgres cast to `uuid` and folded case; this column is a STRING that does
+  // not, and z.guid() hands the id through in whatever case it arrived.
+  it('folds a mixed-case guid to match the stored value', () => {
+    const { params } = buildPersonSql({
+      ...scope,
+      columns: ['id'],
+      id: ID.toUpperCase(),
+    })
+
+    expect(params.at(-1)?.value).toBe(ID)
+  })
+
   it('binds the id rather than splicing it', () => {
     const { sql } = buildPersonSql({
       ...scope,
