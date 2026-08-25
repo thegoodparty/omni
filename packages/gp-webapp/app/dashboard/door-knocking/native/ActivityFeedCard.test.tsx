@@ -127,6 +127,18 @@ describe('ActivityFeedCard', () => {
               outreachId: null,
             },
           },
+          {
+            type: 'PHONE_BANKING',
+            date: '2026-08-07T15:00:00.000Z',
+            data: {
+              activityId: 'pb-1',
+              outcome: 'answered',
+              supportAnswer: 'supporter',
+              willVote: 'yes',
+              note: null,
+              manual: false,
+            },
+          },
         ]}
       />,
     )
@@ -136,6 +148,7 @@ describe('ActivityFeedCard', () => {
     expect(rendered.getByText('Text')).toBeInTheDocument()
     expect(rendered.getByText('Robocall')).toBeInTheDocument()
     expect(rendered.getByText('No answer')).toBeInTheDocument()
+    expect(rendered.getByText('Phone Banking: Answered')).toBeInTheDocument()
   })
 
   // Leaving the walk in the same tab unmounts WalkView, and with it the
