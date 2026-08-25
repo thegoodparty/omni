@@ -765,6 +765,12 @@ export {
   type RobocallAudioPresignResponse,
 } from './outreach/RobocallAudio.schema'
 export {
+  RobocallComplianceChecksSchema,
+  type RobocallComplianceChecks,
+  RobocallComplianceVerdictSchema,
+  type RobocallComplianceVerdict,
+} from './outreach/RobocallCompliance.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,
