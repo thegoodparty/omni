@@ -22,6 +22,7 @@ import {
   MAX_TURF_NAME_LENGTH,
   TURF_COLORS,
   turfColorLabel,
+  turfColorTick,
   turfsQueryOptions,
 } from './turfQueries'
 
@@ -133,11 +134,13 @@ export default function EditTurfDialog({
                   style={{ backgroundColor: option }}
                   onClick={() => setColor(option)}
                 >
+                  {/* Inverts with the swatch, same rule as the walk list's
+                      stop numeral — a white tick vanishes on green and amber. */}
                   {color === option && (
                     <CheckCircleIcon
                       size={16}
                       aria-hidden="true"
-                      className="text-white"
+                      style={{ color: turfColorTick(option) }}
                     />
                   )}
                 </button>

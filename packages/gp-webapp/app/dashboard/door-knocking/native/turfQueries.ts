@@ -2,6 +2,7 @@ import { queryOptions } from '@tanstack/react-query'
 import type { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import type { VoterFileBackendFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { readableInkOnHex } from './statusPresentation'
 
 export const savedListsQueryOptions = queryOptions({
   queryKey: ['door-knocking-saved-lists'],
@@ -80,6 +81,14 @@ const TURF_COLOR_NAMES: Record<string, string> = {
 // still a worse label than a name and still better than nothing.
 export const turfColorLabel = (color: string): string =>
   TURF_COLOR_NAMES[color] ?? color
+
+// The tick that marks the chosen swatch sits ON the swatch, so it inverts with
+// it — the same rule and the same crossover as the walk list's stop numeral on
+// its status circle, which is why the helper is shared rather than copied. A
+// fixed white tick failed on four of these eight (green, amber, teal and lime
+// all land above the crossover), which is the mark meant to make the choice
+// legible being the thing that isn't.
+export const turfColorTick = (color: string): string => readableInkOnHex(color)
 
 // Shared by WalkView (list rail) and the page (map pins): same key, so
 // React Query serves one fetch to both.

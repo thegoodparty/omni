@@ -1905,13 +1905,15 @@ describe('WalkView map pin taps', () => {
     ).not.toBeDisabled()
   })
 
-  // Same numeral the row and the pin carry, so a canvasser reading the sheet
-  // knows which stop they are standing at.
+  // Same numeral the row and the pin carry — `seq`, never a position in a list,
+  // so the sheet cannot become a third name for one stop. The seqs here are 3
+  // and 7 for exactly that reason: with 1 and 2 an off-by-nothing index bug
+  // would agree with the right answer and the test would pass on a wrong build.
   it('names the stop by its route number in the sheet header', async () => {
     await walkThenTap(
       [
-        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
-        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+        stop(11, 3, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 7, '210 Cedar Row', [target(22, 'Marisol Vega')]),
       ],
       { stopId: 12, token: 1 },
     )
@@ -1921,8 +1923,54 @@ describe('WalkView map pin taps', () => {
         screen.getByRole('heading', { name: 'Marisol Vega' }),
       ).toBeInTheDocument(),
     )
-    // Two now — the row's and the sheet's — and both say Stop 2.
-    expect(screen.getAllByText(/Stop/).length).toBeGreaterThan(1)
+    // Every numbered badge on the page, read the way a screen reader gets it:
+    // the sr-only "Stop " prefix plus the numeral beside it. Two rows and then
+    // the sheet, which is the one under test — and the numbers are what a
+    // position-based bug would get wrong, printing 1, 2, 2 here.
+    expect(
+      screen
+        .getAllByText('Stop', { selector: 'span.sr-only' })
+        .map((label) => label.parentElement?.textContent?.trim()),
+    ).toEqual(['Stop 3', 'Stop 7', 'Stop 7'])
+  })
+
+  // The chevrons move the sheet between doors without unmounting it, so the
+  // scrolling body keeps its offset — a canvasser who read the activity feed at
+  // one house would arrive at the next already past the address and the phones.
+  it('returns the sheet to the top of the next door', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 11, token: 1 },
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Dorian Fen' }),
+      ).toBeInTheDocument(),
+    )
+    // The card headers are inside the scrolling body, so this finds it without
+    // reaching for a class name.
+    const body = screen
+      .getByText('Contact information')
+      .closest('div.overflow-y-auto') as HTMLElement
+    body.scrollTop = 420
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next door' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Marisol Vega' }),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      (
+        screen
+          .getByText('Contact information')
+          .closest('div.overflow-y-auto') as HTMLElement
+      ).scrollTop,
+    ).toBe(0)
   })
 })
 

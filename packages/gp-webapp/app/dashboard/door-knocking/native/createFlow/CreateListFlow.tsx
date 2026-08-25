@@ -47,6 +47,7 @@ import {
   MAX_TURF_NAME_LENGTH,
   TURF_COLORS,
   turfColorLabel,
+  turfColorTick,
 } from '../turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
 import type { DoorKnockingAddressPreviewResponse } from '@goodparty_org/contracts'
@@ -880,12 +881,14 @@ export default function CreateListFlow({
                     >
                       {/* The canvas's tick inside the chosen swatch. The ring
                           alone carries the choice in a second colour cue, on a
-                          control whose whole content is colour. */}
+                          control whose whole content is colour — and the tick
+                          inverts with the swatch it sits on, since a white one
+                          is invisible on half this palette. */}
                       {color === option && (
                         <CheckCircleIcon
                           size={16}
                           aria-hidden="true"
-                          className="text-white"
+                          style={{ color: turfColorTick(option) }}
                         />
                       )}
                     </button>

@@ -57,7 +57,14 @@ never do. These chevrons are asked for.
 
 ### 1. Door-to-door navigation in the door panel
 
-Above. The most substantive item in this audit.
+Above. The most substantive item in this audit. One detail worth recording
+because it only appears once the panel can walk: because the panel stays open
+between doors, its scrolling body kept whatever offset the last house was read
+at, so arriving at the next door could land you halfway down the panel, past the
+address and the phone numbers. It now returns to the top on each new door — but
+not when you switch between two people at the _same_ door, where the content is
+the same page and jumping to the top under the canvasser's finger would be its
+own bug.
 
 ### 2. The door panel never said which stop it was
 
@@ -82,7 +89,11 @@ colour's name (`'aria-label':opt.label`). Choosing a list colour by keyboard or
 screen reader meant listening to eight hex codes read out one character at a
 time. They are now Blue, Green, Amber, Red, Purple, Teal, Pink and Lime, and the
 selected one carries the canvas's tick inside it, so the choice is not conveyed
-by colour and a thin ring alone.
+by colour and a thin ring alone. The tick inverts with the swatch underneath it:
+a white one fails WCAG AA on four of the eight (green, amber, teal and lime),
+which would make the mark that exists to show the choice the least legible thing
+on the control. It reuses the same rule the walk list already applies to the stop
+numeral sitting on its status circle, and a test now sweeps both palettes.
 
 ### 5. The list details drawer never said what state the list was in
 

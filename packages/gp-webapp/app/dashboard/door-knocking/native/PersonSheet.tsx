@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import {
   ContactNote,
   DoorKnockStatus,
@@ -138,6 +139,18 @@ export default function PersonSheet({
   stopSeq,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
+  // The chevrons move the sheet from door to door without unmounting it, so the
+  // scrolling body keeps whatever offset the last house was read at — a
+  // canvasser who scrolled down to the activity feed would arrive at the next
+  // house already past the address, the phones and Open in Maps, which is the
+  // half of this panel they need first at a door. Reset on the STOP, not on the
+  // selected resident: switching residents at one door is a lateral move within
+  // the same page of content, and yanking the view to the top under a finger
+  // that just picked a housemate is its own bug.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0
+  }, [stop.id])
   const script = useDoorScript()
   const target =
     targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
@@ -244,7 +257,7 @@ export default function PersonSheet({
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-4">
           <section className="mb-4 rounded-lg border border-border">
             <SheetSectionHeader
               icon={CircleUserRoundIcon}

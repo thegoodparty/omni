@@ -24,6 +24,7 @@ import {
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
+  readableInkOn,
   rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
@@ -40,26 +41,11 @@ const formatDuration = (seconds: number): string => {
 
 // The numeral sits ON the stop's status color, so it has to invert with it the
 // way the map's pin numerals do — white on `not_home` yellow is a number nobody
-// can read at arm's length in daylight. Whichever of white and black contrasts
-// better by relative luminance (WCAG's own formula); the crossover is 0.179,
-// and every one of the seven statuses clears 4.8:1 under this rule. Fixed hex
-// rather than `text-foreground`, because the fill it sits on is a fixed hex too
-// and does not follow the theme.
-const linearChannel = (value: number): number => {
-  const channel = value / 255
-  return channel <= 0.03928
-    ? channel / 12.92
-    : ((channel + 0.055) / 1.055) ** 2.4
-}
-
-export const stopNumeralColor = (status: DoorKnockStatus): string => {
-  const [red, green, blue] = STATUS_RGB[status]
-  const luminance =
-    0.2126 * linearChannel(red) +
-    0.7152 * linearChannel(green) +
-    0.0722 * linearChannel(blue)
-  return luminance > 0.179 ? '#000000' : '#ffffff'
-}
+// can read at arm's length in daylight. The rule is `readableInkOn`
+// (`statusPresentation.ts`), shared with the tick inside a selected list-colour
+// swatch, and every one of the seven statuses clears 4.8:1 under it.
+export const stopNumeralColor = (status: DoorKnockStatus): string =>
+  readableInkOn(STATUS_RGB[status])
 
 interface WalkViewProps {
   turfId: number
