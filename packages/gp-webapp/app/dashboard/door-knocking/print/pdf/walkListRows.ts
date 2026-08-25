@@ -24,6 +24,11 @@ export interface WalkListRow {
   // form beside a non-target's name would invite a knock nobody requested.
   otherResidents: string[]
   name: string
+  // A column of its own since the design handoff, so it is no longer part of
+  // `meta`. Null prints an empty cell rather than a dash: a missing age is a gap
+  // in the voter file, and a canvasser reads anything in that cell as a fact
+  // about the person.
+  age: number | null
   meta: string
   // ENG-10876. When this campaign last reached this resident and what happened,
   // or null when it never has. A blank answer form means "worth knocking", which
@@ -63,6 +68,7 @@ export const walkListRows = (
             .map((resident) => resident.name)
             .filter((name): name is string => Boolean(name)),
           name: target.name ?? 'Name unavailable',
+          age: target.age,
           meta: describeTarget(target),
           lastContact: lastContactLine(target),
           // Checked before the logged branch: a flagged resident is not to be

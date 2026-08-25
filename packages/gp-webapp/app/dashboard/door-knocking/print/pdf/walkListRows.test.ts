@@ -231,7 +231,10 @@ describe('walkListRows', () => {
     expect(rows[0]?.otherResidents).toEqual(['Ruben Vega'])
   })
 
-  it('describes a resident with the age and party we have', () => {
+  // Age is a column of its own since the design handoff and the party stays on
+  // the meta line under the name, so this is the pair of assertions that stops a
+  // voter's age being printed twice in one row.
+  it('describes a resident with the party we have, and gives age its own field', () => {
     const rows = walkListRows([
       stop({
         addresses: [
@@ -246,7 +249,8 @@ describe('walkListRows', () => {
       }),
     ])
 
-    expect(rows[0]?.meta).toBe('68 · Republican · may have moved')
+    expect(rows[0]?.age).toBe(68)
+    expect(rows[0]?.meta).toBe('Republican · may have moved')
   })
 
   it('names a resident the voter file has no name for', () => {
@@ -262,6 +266,9 @@ describe('walkListRows', () => {
 
     expect(rows[0]?.name).toBe('Name unavailable')
     expect(rows[0]?.meta).toBe('')
+    // Null rather than a placeholder: the age cell prints empty, because a
+    // canvasser reads anything in it as a fact about the person.
+    expect(rows[0]?.age).toBeNull()
   })
 
   it('has no rows for a route with no stops', () => {

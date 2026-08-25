@@ -13,14 +13,38 @@ export const formatDuration = (seconds: number): string => {
   return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
 }
 
-// Age and party are the two things a canvasser uses to open a conversation,
-// and they're the only enrichment worth the ink.
+// The walk sheet's columns, in the order both paper surfaces rule them. Widths
+// are each surface's own — one is CSS percentages of a printed page and the
+// other is points in a fixed-width grid — but the wording is a fact both must
+// agree on, because a canvasser filling in one and a volunteer filling in the
+// other are handing the same answers to the same transcriber. Quoted twice, per
+// this directory's rule; putting it in `walkListRows` would reach the PDF only.
+export const WALK_COLUMNS = {
+  seq: '#',
+  name: 'Name',
+  age: 'Age',
+  address: 'Address',
+  answered: 'Answered',
+  support: 'Support',
+  willVote: 'Will vote',
+  notes: 'Notes',
+} as const
+
+// The two sentences above the grid, in the order they are read. The first is how
+// to fill the sheet in; the second is the one thing a canvasser loses a day's
+// work by assuming. Both surfaces printed a version of the second already, in
+// two different wordings — one route's paper saying the same thing two ways is
+// exactly what this file exists to stop.
+export const MARK_INSTRUCTION =
+  'Mark each door by hand. Circle or tick a box, write short notes in the last column.'
+export const RECORDS_NOTICE =
+  'Answers already logged in the app are printed below. Log these doors in the app when you’re back online — nothing written here reaches your voter records on its own.'
+
+// Party, and whether the address is stale. Age used to lead this line and now
+// has a column of its own on both surfaces, so repeating it here would print a
+// voter's age twice in one row.
 export const describeTarget = (target: RoutePayloadTarget): string =>
-  [
-    target.age === null ? null : `${target.age}`,
-    target.politicalParty,
-    target.mayHaveMoved ? 'may have moved' : null,
-  ]
+  [target.politicalParty, target.mayHaveMoved ? 'may have moved' : null]
     .filter(Boolean)
     .join(' · ')
 
