@@ -459,6 +459,18 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(jsonCompletion).not.toHaveBeenCalled()
   })
 
+  it('rejects currentDraft and previousDraft together without calling the LLM', async () => {
+    const res = await postDraft({
+      purpose: 'introduce',
+      tone: 'warm',
+      currentDraft: 'My own words.',
+      previousDraft: 'A script the candidate rejected.',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
   it('maps an LLM failure to 502', async () => {
     jsonCompletion.mockRejectedValue(new Error('model unavailable'))
 

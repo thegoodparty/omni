@@ -23,22 +23,34 @@ export const PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH = 500
 // varies instead of converging on the same script (ENG-10937). instructions
 // is the candidate's own freeform steering, applied on either path
 // (ENG-10936).
-export const PhoneBankingScriptDraftRequestSchema = z.object({
-  purpose: PhoneBankingScriptPurposeSchema,
-  tone: SocialToneSchema,
-  currentDraft: z
-    .string()
-    .min(1)
-    .max(PHONE_BANKING_SCRIPT_MAX_LENGTH)
-    .optional(),
-  previousDraft: z.string().max(PHONE_BANKING_SCRIPT_MAX_LENGTH).optional(),
-  instructions: z
-    .string()
-    .trim()
-    .min(1)
-    .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
-    .optional(),
-})
+export const PhoneBankingScriptDraftRequestSchema = z
+  .object({
+    purpose: PhoneBankingScriptPurposeSchema,
+    tone: SocialToneSchema,
+    currentDraft: z
+      .string()
+      .min(1)
+      .max(PHONE_BANKING_SCRIPT_MAX_LENGTH)
+      .optional(),
+    previousDraft: z.string().max(PHONE_BANKING_SCRIPT_MAX_LENGTH).optional(),
+    instructions: z
+      .string()
+      .trim()
+      .min(1)
+      .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
+      .optional(),
+  })
+  // The two paths are mutually exclusive by construction (the service picks
+  // improve vs. fresh generation off currentDraft alone, so a previousDraft
+  // riding alongside currentDraft would be silently dropped) — reject the
+  // combination instead of accepting and ignoring it.
+  .refine(
+    (v) => v.currentDraft === undefined || v.previousDraft === undefined,
+    {
+      message: 'currentDraft and previousDraft are mutually exclusive',
+      path: ['previousDraft'],
+    },
+  )
 export type PhoneBankingScriptDraftRequest = z.infer<
   typeof PhoneBankingScriptDraftRequestSchema
 >
