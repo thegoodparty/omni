@@ -413,18 +413,6 @@ def _geo_id_family_format(geo_id: str | None, parent_length: int) -> str:
     return "whole" if len(geo_id) == parent_length else "slice"
 
 
-def _sub_area_noun(sub_area_name: str | None) -> str:
-    """The word the geography sentence uses for the office's sub_area.
-    Vocabulary flavors the SENTENCE only -- classification never reads it,
-    by settled design ruling. A seat-designator name reads
-    "seat label"; a territory word, or no name at all (Bridgewater's
-    value-only case), reads "sub-area".
-    """
-    if sub_area_name and sub_area_name.strip() in _SEAT_DESIGNATOR_SUB_AREA_NAMES:
-        return "seat label"
-    return "sub-area"
-
-
 def _sanitize_prompt_text(value: str | None) -> str | None:
     """Collapse embedded newlines to spaces and cap length. This is
     vendor text entering a prompt, not operator input -- a malformed
@@ -526,7 +514,9 @@ def _classify_office_geography(
         if level == "malformed":
             return _GeographyVerdict(abstain=False, eligible_indices=None, verdict_sentence=None)
 
-    noun = _sub_area_noun(sub_area_name)
+    # Vocabulary flavors the sentence only; classification never reads it.
+    is_seat_word = bool(sub_area_name) and sub_area_name.strip() in _SEAT_DESIGNATOR_SUB_AREA_NAMES
+    noun = "seat label" if is_seat_word else "sub-area"
     if level == "slice":
         sub_types_present = _FAMILY_SUB_TYPES[family] & set(state_district_types)
         if not sub_types_present:
@@ -669,6 +659,26 @@ class L2BrMatcher:
 
         pending_df = pending_df.copy()
         pending_df["state"] = pending_df["state"].map(_normalize_state)
+        # One normalization site for the geography columns, same principle as
+        # `state` above. A batch whose nullable column comes back entirely
+        # NULL (a small --states/--limit slice) is inferred float64 by
+        # pandas, and NaN is TRUTHY: it would subscript-crash the geo_id
+        # format check, classify a no-sub_area office as carrying one, and
+        # render the literal string "nan" into a prompt. Coercing here means
+        # every consumer sees None/bool by construction.
+        # BR has shipped the literal string "null" for this source family
+        # before (gp-api normalizes the same sentinel); zero pending rows
+        # carry it today, so this is insurance at the site that already
+        # exists, not a reachable-bug fix.
+        for column in ("mtfcc", "geo_id", "sub_area_name", "sub_area_value"):
+            coerced = pending_df[column].astype(object).where(pd.notna(pending_df[column]), None)
+            pending_df[column] = coerced.map(
+                lambda v: None if v is None or str(v).strip().lower() in ("", "null") else v
+            )
+        for column in ("is_judicial", "has_unknown_boundaries"):
+            pending_df[column] = (
+                pending_df[column].astype(object).where(pd.notna(pending_df[column]), False).astype(bool)
+            )
         _validate_pending_offices(pending_df)
         return pending_df
 
@@ -1038,8 +1048,15 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
             return MatchResult(br_database_id, None, None, None, confidence=None)
 
         candidates = await self._build_menu(br_name, state, verdict.eligible_indices)
-        geography_block = _build_geography_block(
-            mtfcc, sub_area_name, sub_area_value, has_unknown_boundaries, verdict.verdict_sentence
+        # No block when no geography was supplied (mtfcc is 100% populated on
+        # the real worklist, so an empty one means a caller that never
+        # classified): fabricated blank context is worse than none.
+        geography_block = (
+            _build_geography_block(
+                mtfcc, sub_area_name, sub_area_value, has_unknown_boundaries, verdict.verdict_sentence
+            )
+            if mtfcc
+            else ""
         )
 
         response = await self._select_candidate(br_name, candidates, geography_block)
@@ -1098,8 +1115,8 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
                             br_name=office.name,
                             state=office.state,
                             mtfcc=office.mtfcc,
-                            is_judicial=bool(office.is_judicial),
-                            has_unknown_boundaries=bool(office.has_unknown_boundaries),
+                            is_judicial=office.is_judicial,
+                            has_unknown_boundaries=office.has_unknown_boundaries,
                             geo_id=office.geo_id,
                             sub_area_name=office.sub_area_name,
                             sub_area_value=office.sub_area_value,

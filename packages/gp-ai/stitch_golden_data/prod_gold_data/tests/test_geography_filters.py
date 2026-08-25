@@ -9,6 +9,7 @@ import math
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from stitch_golden_data.prod_gold_data.l2_br_matcher import (
@@ -22,7 +23,7 @@ from stitch_golden_data.prod_gold_data.l2_br_matcher import (
 @pytest.fixture
 def mock_dependencies():
     with (
-        patch("stitch_golden_data.prod_gold_data.l2_br_matcher.DatabricksClient"),
+        patch("stitch_golden_data.prod_gold_data.l2_br_matcher.DatabricksClient") as mock_db_cls,
         patch("stitch_golden_data.prod_gold_data.l2_br_matcher.Gemini3Client") as mock_llm_cls,
         patch("stitch_golden_data.prod_gold_data.l2_br_matcher.GeminiEmbeddingClient") as mock_emb_cls,
         patch("stitch_golden_data.prod_gold_data.l2_br_matcher.init_braintrust"),
@@ -32,7 +33,7 @@ def mock_dependencies():
         mock_llm_cls.return_value = mock_llm
         mock_emb = MagicMock()
         mock_emb_cls.return_value = mock_emb
-        yield {"llm": mock_llm, "embedding": mock_emb}
+        yield {"llm": mock_llm, "embedding": mock_emb, "databricks": mock_db_cls}
 
 
 def _unit_vector(angle_degrees: float) -> list[float]:
@@ -330,6 +331,11 @@ class TestNamedRegressions:
             {types[i] for i in verdict.eligible_indices} if verdict.eligible_indices is not None else set(types)
         )
         assert "Township" in eligible_types
+        if gate_enabled:
+            # Without this, a gate-on regression to an unrestricted menu
+            # passes: Township survives correct and no-op implementations
+            # alike, so the denial itself must be asserted.
+            assert "School_Subdistrict" not in eligible_types
 
 
 class TestGeographyBlock:
@@ -386,7 +392,10 @@ class TestGeographyBlockReachesThePrompt:
             district_types=["School_Board_District"],
             district_names=["Clay County School Board"],
         )
-        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kw: np.array([[1.0, 0.0]])
+        embedded_texts: list[str] = []
+        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kw: (
+            embedded_texts.append(texts[0]) or np.array([[1.0, 0.0]])
+        )
         mock_dependencies["llm"].generate_structured_content.return_value = {
             "selected_candidate_number": 1,
             "selection_confidence": 90,
@@ -409,28 +418,10 @@ class TestGeographyBlockReachesThePrompt:
         prompt = mock_dependencies["llm"].generate_structured_content.call_args[1]["prompt"]
         assert "Office geography" in prompt
         assert "District: 4" in prompt
-
-
-class TestOfficeNameQueryTextUnchanged:
-    def test_geography_fields_never_alter_the_race_query_embedding_text(self, mock_dependencies):
-        """Failure this catches: geography context leaking into the RACE
-        QUERY embedding text instead of only the LLM prompt's
-        districts_text -- that would silently move every similarity
-        score, the failure class the existing frozen-format test already
-        guards on the district side only (it never sees the caller).
-        """
-        matcher = L2BrMatcher()
-        matcher._universe_by_state["DE"] = _StateUniverse(
-            embeddings=np.array([[1.0, 0.0]]), states=["DE"], district_types=["House"], district_names=["District 5"]
-        )
-        captured_first_texts: list[str] = []
-        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kw: (
-            captured_first_texts.append(texts[0]) or np.array([[1.0, 0.0]])
-        )
-
-        asyncio.run(matcher._build_menu("Wilmington City Council", "DE"))
-
-        assert captured_first_texts[0] == "race name: Wilmington City Council"
+        # Folded from a standalone test: geography context must never leak
+        # into the race-query embedding text, and only the caller boundary
+        # can see that. The first embedded text is the race query verbatim.
+        assert embedded_texts[0] == "race name: Clay County School Board - District 4"
 
 
 class TestMenuPathRespectsEligibility:
@@ -449,7 +440,10 @@ class TestMenuPathRespectsEligibility:
         angles = list(range(13)) + [20]  # indices 0-12 outrank index 13 on raw similarity
         types = ["Denied"] * 13 + ["Eligible"]
         embeddings = np.array([_unit_vector(a) for a in angles])
-        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kw: np.array([[1.0, 0.0]])
+        embedded_texts: list[str] = []
+        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kw: (
+            embedded_texts.append(texts[0]) or np.array([[1.0, 0.0]])
+        )
 
         matcher = L2BrMatcher()
         matcher._universe_by_state["DE"] = _StateUniverse(
@@ -496,3 +490,86 @@ class TestMenuPathRespectsEligibility:
         )
         assert restricted_menu[10].l2_district_type == "Filler_13"
         assert "Denied_State_Best" not in [c.l2_district_type for c in restricted_menu]
+
+
+class TestLoadPendingOfficesNaNNormalization:
+    def test_an_all_null_nullable_column_is_coerced_to_none_and_false(self, mock_dependencies):
+        """Failure this catches: a small batch whose nullable column comes
+        back entirely NULL is inferred float64 by pandas, and truthy NaN
+        then subscript-crashes the geo_id format check, classifies a
+        no-sub_area office as carrying one, and renders the literal string
+        "nan" into a prompt. Coercion at the one load site is what makes
+        every downstream bool()/subscript safe by construction.
+        """
+        raw = pd.DataFrame(
+            {
+                "br_database_id": [1],
+                "name": ["Test Race"],
+                "state": ["DE"],
+                "mtfcc": ["G4110"],
+                "geo_id": [float("nan")],
+                "sub_area_name": [float("nan")],
+                "sub_area_value": ["NULL"],
+                "is_judicial": [float("nan")],
+                "has_unknown_boundaries": [float("nan")],
+            }
+        )
+        mock_dependencies["databricks"].return_value.execute_query.return_value = raw
+
+        out = L2BrMatcher().load_pending_offices()
+
+        row = out.iloc[0]
+        assert row["geo_id"] is None
+        assert row["sub_area_name"] is None
+        # A literal "null"/"NULL" string is BR's documented sentinel for
+        # this source family; it must normalize to absent, not truthy text.
+        assert row["sub_area_value"] is None
+        assert not row["is_judicial"] and out["is_judicial"].dtype == bool
+        assert not row["has_unknown_boundaries"] and out["has_unknown_boundaries"].dtype == bool
+
+
+class TestMatchOfficeAbstainsBeforeAnyCall:
+    @pytest.mark.parametrize(
+        ("mtfcc", "is_judicial", "sub_area_value", "types"),
+        [
+            ("X0024", False, None, ["County", "State"]),
+            ("X0014", True, None, ["County", "State"]),
+            ("G4110", False, "3", ["City", "State"]),
+        ],
+        ids=["party-committee", "judicial-no-vocabulary", "zero-subtype-slice"],
+    )
+    def test_an_abstaining_verdict_never_reaches_embeddings_or_the_llm(
+        self, mock_dependencies, mtfcc, is_judicial, sub_area_value, types
+    ):
+        """Failure this catches: `match_office`'s early return moved or
+        deleted, so an abstaining office still pays for query embeddings
+        and an LLM call -- every classifier-level test stays green because
+        none of them goes through the caller. Covers all three abstain
+        families and pins confidence=None (no model judgment happened).
+        """
+        matcher = L2BrMatcher()
+        matcher._universe_by_state["DE"] = _StateUniverse(
+            embeddings=np.array([[1.0, 0.0]] * len(types)),
+            states=["DE"] * len(types),
+            district_types=types,
+            district_names=[f"Name {i}" for i in range(len(types))],
+        )
+
+        result = asyncio.run(
+            matcher.match_office(
+                br_database_id=7,
+                br_name="Test Race",
+                state="DE",
+                mtfcc=mtfcc,
+                is_judicial=is_judicial,
+                has_unknown_boundaries=True,
+                geo_id="1234567",
+                sub_area_name=None,
+                sub_area_value=sub_area_value,
+            )
+        )
+
+        assert (result.l2_state, result.l2_district_type, result.l2_district_name) == (None, None, None)
+        assert result.confidence is None
+        mock_dependencies["embedding"].create_embeddings.assert_not_called()
+        mock_dependencies["llm"].generate_structured_content.assert_not_called()

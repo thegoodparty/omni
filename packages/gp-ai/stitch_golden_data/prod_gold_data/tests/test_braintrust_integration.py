@@ -535,7 +535,17 @@ class TestUniverseCoverageGuard:
         # the ordering assertion below would pass on a guard placed after the
         # loop. A partial universe is what makes the two cases differ.
         pending_df = pd.DataFrame(
-            {"br_database_id": [1, 2], "name": ["Test Race", "Other Race"], "state": ["DE", "CA"]}
+            {
+                "br_database_id": [1, 2],
+                "name": ["Test Race", "Other Race"],
+                "state": ["DE", "CA"],
+                "mtfcc": ["G4110", "G4110"],
+                "geo_id": ["1234567", "7654321"],
+                "sub_area_name": [None, None],
+                "sub_area_value": [None, None],
+                "is_judicial": [False, False],
+                "has_unknown_boundaries": [False, False],
+            }
         )
         partial_universe = pd.DataFrame(
             {
@@ -633,7 +643,17 @@ class TestLoadPendingOfficesStatesFilter:
 
     def test_states_none_means_no_filter_and_does_query(self, mock_dependencies):
         mock_dependencies["databricks"].return_value.execute_query.return_value = pd.DataFrame(
-            {"br_database_id": [1], "name": ["Race"], "state": ["DE"]}
+            {
+                "br_database_id": [1],
+                "name": ["Race"],
+                "state": ["DE"],
+                "mtfcc": ["G4110"],
+                "geo_id": ["1234567"],
+                "sub_area_name": [None],
+                "sub_area_value": [None],
+                "is_judicial": [False],
+                "has_unknown_boundaries": [False],
+            }
         )
         matcher = L2BrMatcher()
         result = matcher.load_pending_offices(states=None)
@@ -664,7 +684,17 @@ class TestLoadPendingOfficesStatesFilter:
 
     def test_a_named_state_reaches_the_where_clause(self, mock_dependencies):
         mock_dependencies["databricks"].return_value.execute_query.return_value = pd.DataFrame(
-            {"br_database_id": [1], "name": ["Race"], "state": ["DE"]}
+            {
+                "br_database_id": [1],
+                "name": ["Race"],
+                "state": ["DE"],
+                "mtfcc": ["G4110"],
+                "geo_id": ["1234567"],
+                "sub_area_name": [None],
+                "sub_area_value": [None],
+                "is_judicial": [False],
+                "has_unknown_boundaries": [False],
+            }
         )
         matcher = L2BrMatcher()
         matcher.load_pending_offices(states=["de"])
