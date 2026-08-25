@@ -351,5 +351,54 @@ describe('PeopleDbxStatementClient', () => {
         (statementInit?.headers as Record<string, string>).Authorization,
       ).toBe('Bearer minted')
     })
+
+    // findPeople runs its count and page under Promise.all, so the first read
+    // on a cold cache always has two callers racing for the token.
+    it('mints once when concurrent statements race a cold token', async () => {
+      let releaseToken: (() => void) | undefined
+      const tokenGate = new Promise<void>((resolve) => {
+        releaseToken = resolve
+      })
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.includes('/oidc/v1/token')) {
+          await tokenGate
+          return jsonResponse({ access_token: 'minted', expires_in: 3600 })
+        }
+        return jsonResponse(succeeded([['1']]))
+      })
+
+      const both = Promise.all([
+        client.query(stmt('SELECT 1')),
+        client.query(stmt('SELECT 2')),
+      ])
+      releaseToken?.()
+      await both
+
+      expect(callsMatching('/oidc/v1/token')).toHaveLength(1)
+    })
+
+    it('lets the next caller retry after a failed mint', async () => {
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve({
+          ok: false,
+          status: 429,
+          text: () => Promise.resolve('rate limited'),
+        }),
+      )
+      fetchMock.mockImplementation((url: string) =>
+        Promise.resolve(
+          url.includes('/oidc/v1/token')
+            ? jsonResponse({ access_token: 'minted', expires_in: 3600 })
+            : jsonResponse(succeeded([['1']])),
+        ),
+      )
+
+      await expect(client.query(stmt('SELECT 1'))).rejects.toThrow(
+        PeopleDbxUnavailableError,
+      )
+      // A rejected in-flight promise must not be left cached, or one blip
+      // would wedge every later request.
+      await expect(client.query(stmt('SELECT 2'))).resolves.toBeDefined()
+    })
   })
 })

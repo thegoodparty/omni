@@ -76,6 +76,8 @@ const PHONE_BANKING_ACTION_PREDICATES: Partial<
   voicemail: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.voicemail}`,
   wrong_number: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.wrong_number}`,
   refused: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.refused}`,
+  disconnected: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.disconnected}`,
+  hung_up: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.hung_up}`,
   support_yes: Prisma.sql`support_answer::text = ${SupportAnswer.supporter}`,
   support_unsure: Prisma.sql`support_answer::text = ${SupportAnswer.unsure}`,
   support_no: Prisma.sql`support_answer::text = ${SupportAnswer.non_supporter}`,

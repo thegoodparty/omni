@@ -22,18 +22,18 @@ export type ContactsMadeResolution =
   | IdFilterResolution
   | { kind: 'override'; idOverrides: IdOverrides }
 
-// ENG-10839: "a contact" is every logged interaction ROW across the three
-// contact_interaction_* tables, regardless of outcome — a 3-attempt
-// door-knock sync that logs 3 rows counts as 3, not 1. One grouped query
-// over a UNION ALL of all three tables' person_id column, bucketed by
-// HAVING — never six separate per-bucket queries (a person's count is
+// ENG-10839/ENG-10944: "a contact" is every logged interaction ROW across
+// the four contact_interaction_* tables, regardless of outcome — a
+// 3-attempt door-knock sync that logs 3 rows counts as 3, not 1. One
+// grouped query over a UNION ALL of all four tables' person_id column,
+// bucketed by HAVING — never per-bucket queries (a person's count is
 // query-time, computed once here and reused for every requested bucket).
 @Injectable()
 export class ContactsMadeResolutionService extends createPrismaBase(
   MODELS.ContactInteractionText,
 ) {
   // buckets: the non-zero buckets to match (5 = >= 5). Returns the set of
-  // person ids whose total interaction-row count across all three channels
+  // person ids whose total interaction-row count across all four channels
   // falls in ANY of the requested buckets (buckets OR together).
   async personIdsByContactCount(
     organizationSlug: string,
@@ -56,6 +56,9 @@ export class ContactsMadeResolutionService extends createPrismaBase(
         WHERE organization_slug = ${organizationSlug}
         UNION ALL
         SELECT person_id FROM contact_interaction_door_knock
+        WHERE organization_slug = ${organizationSlug}
+        UNION ALL
+        SELECT person_id FROM contact_interaction_phone_banking
         WHERE organization_slug = ${organizationSlug}
       ) all_interactions
       GROUP BY person_id

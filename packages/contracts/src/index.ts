@@ -741,6 +741,7 @@ export {
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
   PhoneBankingScriptDraftRequestSchema,
   type PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponseSchema,
@@ -764,6 +765,12 @@ export {
   RobocallAudioPresignResponseSchema,
   type RobocallAudioPresignResponse,
 } from './outreach/RobocallAudio.schema'
+export {
+  RobocallComplianceChecksSchema,
+  type RobocallComplianceChecks,
+  RobocallComplianceVerdictSchema,
+  type RobocallComplianceVerdict,
+} from './outreach/RobocallCompliance.schema'
 export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,

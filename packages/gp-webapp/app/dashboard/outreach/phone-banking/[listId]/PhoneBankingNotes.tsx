@@ -202,6 +202,7 @@ export default function PhoneBankingNotes({
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm text-muted-foreground">
                           {formatNoteDate(note.updatedAt)}
+                          {note.actorName ? ` · ${note.actorName}` : ''}
                         </p>
                         <div className="flex shrink-0 gap-1">
                           <IconButton

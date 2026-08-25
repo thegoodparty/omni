@@ -92,6 +92,14 @@ export const PhoneBankingFlow = ({
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
+  // Tracks whether the box holds unmodified AI output vs. candidate-typed
+  // text — same purpose as SocialFlow's manuallyEdited, scoped narrower:
+  // phone banking has no per-tone memory/Undo, so this only gates whether a
+  // tone change is allowed to send the current text as previousDraft (an
+  // explicit Regenerate click still does, since that's the candidate asking
+  // to discard whatever's on screen).
+  const [scriptManuallyEdited, setScriptManuallyEdited] = useState(false)
+  const [instructions, setInstructions] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
   // Whether the candidate has manually changed the sheet count — gates the
   // audience-derived default below so it never clobbers a deliberate choice.
@@ -168,6 +176,8 @@ export const PhoneBankingFlow = ({
     setPurpose(null)
     setTone('warm')
     setScript('')
+    setScriptManuallyEdited(false)
+    setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
     setName('')
@@ -211,25 +221,42 @@ export const PhoneBankingFlow = ({
   // Requests an AI script draft for the given purpose/tone; with
   // currentDraft it polishes that text in place (Improve with AI) instead
   // of writing fresh — the one generated path allowed for the custom
-  // purpose, mirroring SocialFlow's requestDraft.
+  // purpose, mirroring SocialFlow's requestDraft. previousDraft rides only
+  // on a fresh generation (Regenerate / a tone change) — it tells the model
+  // what the candidate just rejected so a re-roll actually varies
+  // (ENG-10937). instructionsOverride is the candidate's own freeform
+  // steering and applies on either path (ENG-10936); it defaults to the
+  // current instructions state, but handleSelectPurpose must pass '' — it
+  // resets instructions in the same tick, and the state update hasn't
+  // flushed yet when the immediate draft request fires, so reading the
+  // instructions closure here would still send the value from before the
+  // reset.
   const requestDraft = (
     nextPurpose: PhoneBankingPurpose | null,
     nextTone: SocialTone,
     currentDraft?: string,
+    previousDraft?: string,
+    instructionsOverride: string = instructions,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    const trimmedInstructions = instructionsOverride.trim()
     draftMutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(previousDraft === undefined ? {} : { previousDraft }),
+        ...(trimmedInstructions === ''
+          ? {}
+          : { instructions: trimmedInstructions }),
       },
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           setScript(generated)
+          setScriptManuallyEdited(false)
         },
       },
     )
@@ -237,27 +264,41 @@ export const PhoneBankingFlow = ({
 
   const handleSelectPurpose = (selected: PhoneBankingPurpose) => {
     setPurpose(selected)
-    // Reset tone/script state on every purpose pick (including re-picks after
-    // Back), not just the first one — otherwise picking 'custom' after
-    // viewing another purpose's script carries that script over instead of
-    // starting blank (custom skips the draft call, so nothing else clears
-    // it), and the tone pill can show a stale selection that doesn't match
-    // the newly requested draft's tone.
+    // Reset tone/script/instructions state on every purpose pick (including
+    // re-picks after Back), not just the first one — otherwise picking
+    // 'custom' after viewing another purpose's script carries that script
+    // over instead of starting blank (custom skips the draft call, so
+    // nothing else clears it), the tone pill can show a stale selection that
+    // doesn't match the newly requested draft's tone, and stale instructions
+    // typed for the old purpose would silently ride along on the new one's
+    // draft request.
     setTone('warm')
     setScript('')
+    setScriptManuallyEdited(false)
+    setInstructions('')
     setStepId('who')
-    requestDraft(selected, 'warm')
+    requestDraft(selected, 'warm', undefined, undefined, '')
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
     setTone(nextTone)
     if (!purpose || purpose === 'custom') return
-    requestDraft(purpose, nextTone)
+    // A tone change is not the candidate asking to discard their edits —
+    // only send previousDraft (and so invite the model to diverge) when the
+    // box still holds an unmodified AI generation. An explicit Regenerate
+    // click below is a discard request, so it always sends the current text.
+    requestDraft(
+      purpose,
+      nextTone,
+      undefined,
+      scriptManuallyEdited ? undefined : script.trim() || undefined,
+    )
   }
 
   const handleScriptChange = (value: string) => {
     setScript(value)
+    setScriptManuallyEdited(true)
     if (draftMutation.isError) resetDraftMutation()
   }
 
@@ -442,7 +483,11 @@ export const PhoneBankingFlow = ({
           onToneChange={handleToneChange}
           script={script}
           onScriptChange={handleScriptChange}
-          onRegenerate={() => requestDraft(purpose, tone)}
+          instructions={instructions}
+          onInstructionsChange={setInstructions}
+          onRegenerate={() =>
+            requestDraft(purpose, tone, undefined, script.trim() || undefined)
+          }
           onImprove={() => requestDraft(purpose, tone, script.trim())}
           canImprove={script.trim().length > 0 && !draftMutation.isPending}
           isDrafting={draftMutation.isPending}
