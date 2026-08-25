@@ -23,6 +23,13 @@ import { useDoorScript } from './useDoorScript'
 import DoNotKnockControl from './DoNotKnockControl'
 import NotAVoterControl from './NotAVoterControl'
 import ActivityFeedCard from './ActivityFeedCard'
+import DoorNotesCard from './DoorNotesCard'
+import {
+  useDoorNotes,
+  withCreatedNote,
+  withDeletedNote,
+  withUpdatedNote,
+} from './doorNotes'
 import {
   STATUS_DOT_COLORS,
   STATUS_LABELS,
@@ -103,6 +110,10 @@ export default function PersonSheet({
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   const script = useDoorScript()
+  // Held here, not in the card: the sheet switches residents without closing,
+  // and a card that seeded itself on mount would lose a note the moment the
+  // canvasser flicked to the housemate and back. See `doorNotes.ts`.
+  const doorNotes = useDoorNotes()
   const target =
     targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
     targets[0]
@@ -235,6 +246,53 @@ export default function PersonSheet({
               )}
             </div>
           </section>
+
+          {/* ADR 0011. Second in the body, above the demographic profile,
+              because it is the only card here a canvasser reads BEFORE they
+              knock: "dog in the yard, use the side gate" is the archetypal
+              note, and putting it under eleven rows the comment below
+              correctly calls reference material scanned mid-conversation is
+              putting it where nobody standing at a gate will find it. Contact
+              information keeps the top because the address and Open in Maps
+              are what get someone to the door in the first place.
+
+              In the scrolling body rather than the footer fragment, for the
+              same reason the activity feed is, and it is the same argument
+              twice over: notes are the record of the person, not an action on
+              them, so they keep rendering for a resident whose script and knock
+              form are withheld. A do-not-knock flag set on the wrong resident
+              is caught by reading what people have written about them, and a
+              note saying "this is the son, not the registered voter" is
+              precisely the kind of thing that would be hidden at the one moment
+              it is worth reading.
+
+              Keyed, unlike the feed beside it — not against a sibling
+              collision, which it has none of out here, but because the card
+              holds a draft and an open editor. Those belong to one resident:
+              carrying half a typed sentence about Dorian across the switcher
+              and offering it under Marisol's name is text about a named voter
+              attached to the wrong one. The saved lists themselves survive the
+              switch, because `useDoorNotes` keeps them above this remount. */}
+          <DoorNotesCard
+            key={target.stopTargetId}
+            personId={target.personId}
+            notes={doorNotes.notesFor(target.personId, target.notes)}
+            onCreated={(created) =>
+              doorNotes.applyToNotes(target.personId, target.notes, (list) =>
+                withCreatedNote(list, created),
+              )
+            }
+            onUpdated={(updated) =>
+              doorNotes.applyToNotes(target.personId, target.notes, (list) =>
+                withUpdatedNote(list, updated),
+              )
+            }
+            onDeleted={(noteId) =>
+              doorNotes.applyToNotes(target.personId, target.notes, (list) =>
+                withDeletedNote(list, noteId),
+              )
+            }
+          />
 
           {/* The prototype's demographic profile, scoped to `target` so
               switching resident switches the card — these are facts about one

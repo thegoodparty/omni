@@ -61,6 +61,25 @@ export const target = (
   knockStatus: 'unknown',
   mayHaveMoved: false,
   doNotKnock: false,
+  // ADR 0011, and carried for the same reason as the two blocks above. Saved
+  // contact notes ride the route payload for `PersonSheet`'s Notes section and
+  // are absent from both paper surfaces with more force again than the profile
+  // is: a page of free text a named person typed about a named voter is the
+  // largest disclosure on this payload, on the one surface that stops being
+  // access-controlled the moment it is printed. The body below is distinctive
+  // enough that a renderer leaking it fails a test rather than passing quietly.
+  notes: {
+    entries: [
+      {
+        id: '019826f4-0000-7000-8000-000000000001',
+        personId: 'person-1',
+        body: 'Do not ring the bell, the dog bites',
+        createdAt: '2026-07-01T15:00:00.000Z',
+        updatedAt: '2026-07-01T15:00:00.000Z',
+      },
+    ],
+    total: 9,
+  },
   ...overrides,
 })
 

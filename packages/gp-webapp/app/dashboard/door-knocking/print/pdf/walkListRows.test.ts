@@ -421,6 +421,24 @@ describe('walkListRows', () => {
     expect(JSON.stringify(rows)).not.toMatch(/Dog in the yard/)
   })
 
+  // ADR 0011's saved contact notes, and the same rule one level up: the knock
+  // note above is one line attached to an event, while this is the resident's
+  // whole written record. Asserted against the model rather than the page,
+  // because the renderer structurally cannot print what it was never handed.
+  // The fixture carries a note and a count of nine, so both halves can fail.
+  it('never carries a saved contact note into the PDF model', () => {
+    const rows = walkListRows([
+      stop({ addresses: [household('105 Elm St', [target()])] }),
+    ])
+
+    const model = JSON.stringify(rows)
+    expect(model).not.toMatch(/Do not ring the bell/)
+    // The count is a disclosure of its own — "9 notes on file" says how much
+    // has been written about this voter even with none of it printed.
+    expect(model).not.toMatch(/"total"/)
+    expect(model).not.toMatch(/019826f4/)
+  })
+
   // Both paper surfaces render in Node, whose clock is UTC, so a door knocked
   // at 8:30pm Eastern belongs to the previous month by any US reckoning and to
   // this one by the renderer's. Formatting in UTC is what makes the sheet the

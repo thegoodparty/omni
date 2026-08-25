@@ -162,6 +162,23 @@ describe('WalkListPdf', () => {
     }
   })
 
+  // ADR 0011. The largest disclosure on the payload — free text a named person
+  // typed about a named voter — on the surface that stops being
+  // access-controlled the moment it prints. The fixture carries a note and a
+  // count of nine, and the count is asserted too: "9 notes on file" says how
+  // much has been written about this voter even with none of it printed.
+  //
+  // The page's own "Notes" column heading is why this names the body rather
+  // than the word: the blank column a canvasser writes in is the point of the
+  // sheet, and asserting /notes/i would fail on the feature working.
+  it('never prints a saved contact note', async () => {
+    const text = await renderText([oneDoor([target()])])
+
+    expect(text).not.toMatch(/Do not ring the bell/)
+    expect(text).not.toMatch(/9 notes/i)
+    expect(text).not.toMatch(/of 9/)
+  })
+
   // Node's clock is UTC, so any date this stamps itself is tomorrow's for an
   // evening download anywhere in the US. The canvasser writes it instead.
   it('leaves the date to the canvasser rather than stamping one', () => {
