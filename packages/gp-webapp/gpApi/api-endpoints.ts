@@ -48,6 +48,7 @@ import type {
   RobocallAudioPresignResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
+  PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -911,6 +912,11 @@ export type APIEndpoints = {
     // unfiltered district.
     Request: { segment?: number }
     Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/precincts': {
+    Request: {}
+    Response: PeoplePrecinctsResponse
   }
 
   'GET /v1/contacts/:personId/notes': {

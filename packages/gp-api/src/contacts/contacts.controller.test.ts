@@ -224,3 +224,85 @@ describe('GET /v1/contacts authz', () => {
     )
   })
 })
+
+describe('GET /v1/contacts/precincts', () => {
+  const PRECINCTS = {
+    options: [
+      { county: 'ORANGE', precinct: '711', voters: 1204 },
+      { county: 'ORANGE', precinct: '', voters: 37 },
+    ],
+    truncated: false,
+  }
+
+  it('returns the district option list for a pro Win campaign', async () => {
+    await seedOrgWithCampaign({
+      slug: 'campaign-precinct',
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    // Mocked at the service boundary like every other happy-path test here:
+    // the real getPrecincts resolves the org's district through election-api,
+    // which is not reachable from the harness. The gate tests below exercise
+    // the real service.
+    const spy = vi
+      .spyOn(service.app.get(ContactsService), 'getPrecincts')
+      .mockResolvedValue(PRECINCTS)
+
+    const result = await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'campaign-precinct' },
+    })
+    spy.mockRestore()
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual(PRECINCTS)
+  })
+
+  // Nest matches routes in declaration order, so `precincts` has to be
+  // declared before `@Get(':id')` or the param route swallows it and the
+  // request 404s as a person lookup.
+  it('is not swallowed by the person-detail param route', async () => {
+    await seedOrgWithCampaign({
+      slug: 'campaign-precinct-order',
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const spy = vi
+      .spyOn(service.app.get(ContactsService), 'getPrecincts')
+      .mockResolvedValue(PRECINCTS)
+
+    await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'campaign-precinct-order' },
+    })
+    const called = spy.mock.calls.length
+    spy.mockRestore()
+
+    expect(called).toBeGreaterThan(0)
+  })
+
+  it('rejects an elected-office org before the pro gate', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'eo-precinct', ownerId: service.user.id },
+    })
+
+    const result = await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'eo-precinct' },
+    })
+
+    expect(result.status).toBe(400)
+    expect(JSON.stringify(result.data)).toContain('not available')
+  })
+
+  it('rejects a non-pro Win campaign', async () => {
+    await seedOrgWithCampaign({
+      slug: 'campaign-precinct-free',
+      ownerId: service.user.id,
+      isPro: false,
+    })
+
+    const result = await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'campaign-precinct-free' },
+    })
+
+    expect(result.status).toBe(400)
+  })
+})

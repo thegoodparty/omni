@@ -5,6 +5,8 @@ import {
   PeopleAggregatesResponseSchema,
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
+  PeoplePrecinctsResponse,
+  PeoplePrecinctsResponseSchema,
 } from '@goodparty_org/contracts'
 import {
   AggregatesDTO,
@@ -24,6 +26,16 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { DistrictService } from './district.service'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import { FilterData } from '../schemas/filters.schema'
+import { MAX_PRECINCT_OPTIONS } from '../databricks/databricksVoterSql.util'
+
+// The option list is the dimension's vocabulary, so it is enumerated
+// unfiltered — a list that narrowed with the other filters could drop a
+// precinct the user had already selected.
+const EMPTY_FILTERS: FilterData = {
+  filters: [],
+  filterValues: {},
+  filterOperators: {},
+}
 import { StatsService } from './stats.service'
 import {
   buildVoterSelectSql,
@@ -109,6 +121,63 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       throw new NotFoundException(`Person with ID ${id} not found`)
     }
     return transformToPersonOutput(person)
+  }
+
+  // The picker's option list. Unlike the other reads this one has no
+  // comparison arm: Postgres enumeration is the query the whole Databricks
+  // migration exists to escape (a 65k-voter district measured 40s against a
+  // freshly cut-over cluster, past the 25s ceiling), so running it alongside
+  // every picker open would reintroduce exactly that load for a number nobody
+  // reads. Databricks answers when it is configured; Postgres is the fallback
+  // for environments without it.
+  async findPrecincts(districtId: string): Promise<PeoplePrecinctsResponse> {
+    if (this.shadow.enabled) {
+      return this.shadow.databricks.findPrecincts(districtId)
+    }
+    return this.findPrecinctsFromPostgres(districtId)
+  }
+
+  private async findPrecinctsFromPostgres(
+    districtId: string,
+  ): Promise<PeoplePrecinctsResponse> {
+    const {
+      state,
+      useVoterOnlyPath,
+      districtId: resolvedId,
+    } = await resolveDistrict(this.districtService, { districtId })
+    const scopedId = useVoterOnlyPath ? null : resolvedId
+    const fromSql = scopedId
+      ? Prisma.sql`FROM "green"."DistrictVoter" dv
+          JOIN "green"."Voter" v
+            ON v."State" = dv."State" AND v."id" = dv."voter_id"`
+      : Prisma.sql`FROM "green"."Voter" v`
+    const whereSql = buildVoterWhereSql({
+      state,
+      districtId: scopedId,
+      filters: EMPTY_FILTERS,
+    })
+    const rows = await this.runUnderStatementTimeout<{
+      county: string | null
+      precinct: string | null
+      voters: bigint
+    }>(
+      Prisma.sql`SELECT v."County" AS county, v."Precinct" AS precinct,
+          COUNT(*)::bigint AS voters
+        ${fromSql}
+        ${whereSql}
+        GROUP BY v."County", v."Precinct"
+        ORDER BY voters DESC, county ASC, precinct ASC
+        LIMIT ${MAX_PRECINCT_OPTIONS + 1}`,
+    )
+    const truncated = rows.length > MAX_PRECINCT_OPTIONS
+    const options = (
+      truncated ? rows.slice(0, MAX_PRECINCT_OPTIONS) : rows
+    ).map((row) => ({
+      county: row.county ?? '',
+      precinct: row.precinct ?? '',
+      voters: Number(row.voters),
+    }))
+    return PeoplePrecinctsResponseSchema.parse({ options, truncated })
   }
 
   async findPeople(dto: ListPeopleDTO) {

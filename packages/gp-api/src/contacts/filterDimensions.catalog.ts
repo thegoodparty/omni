@@ -22,8 +22,16 @@ import {
 // The webapp wizard renders a parallel expression of this knowledge in
 // packages/gp-webapp/app/dashboard/contacts/ (filters.config.ts and
 // crm/shared/*), which cannot be imported across packages — keep labels
-// aligned with it by eye. Precinct and top-issue are deliberately absent
-// (blocked dimensions; adding them later is additive).
+// aligned with it by eye.
+//
+// Precinct is filterable in the wizard but is deliberately NOT listed here.
+// Every dimension in this catalog carries its complete value vocabulary, and
+// precinct has none: its values are enumerated per district by
+// GET /v1/contacts/precincts (a precinct number is only unique within its
+// county, and the same district can hold anywhere from 0 to 579 of them).
+// Advertising the dimension without its values would invite the assistant to
+// invent precinct names that match nobody. Listing it needs a tool that can
+// enumerate them first. Top-issue remains absent as a blocked dimension.
 
 export type FilterDimensionMode = 'win' | 'serve' | 'both'
 

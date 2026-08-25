@@ -787,11 +787,22 @@ export {
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
+  createPrecinctFilterSchema,
+  PRECINCT_PAIR_DELIMITER,
+  encodePrecinctPair,
+  decodePrecinctPair,
   PeopleFiltersSchema,
   type PeopleFilters,
   IdOverridesSchema,
   type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  PrecinctOptionSchema,
+  type PrecinctOption,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
+} from './people/PeoplePrecincts.schema'
 
 export {
   MAX_OVERLAP_SAVED_FILTER_SETS,
