@@ -152,7 +152,19 @@ export const statusesToBytes = (
 }
 
 export class PackEncoder {
-  private readonly dotIndex = new Map<string, number>()
+  // Keyed lat -> lng -> dot rather than on a `${lat}|${lng}` string. Building
+  // that string was 261ms of a 628k-row build — the single most expensive
+  // thing the encoder did, more than every dimension plane put together —
+  // because it allocates a string per person to look up a number. Two numeric
+  // Map probes cost 85ms and dedupe identically: the coordinates are already
+  // parsed float8s, so equal coordinates are equal numbers.
+  //
+  // A single numeric key would be faster still, and is not available: packing
+  // two 1e6-scaled coordinates into one float64 needs ~56 bits of mantissa and
+  // there are 53, so the product silently collides — and a dot-key collision
+  // merges two unrelated rooftops into one door.
+  private readonly dotIndex = new Map<number, Map<number, number>>()
+  private dotCount = 0
   private readonly householdIndex = new Map<string, number>()
   private positions = new Float32Array(128 * 1024)
   private positionsLength = 0
@@ -257,11 +269,15 @@ export class PackEncoder {
   }
 
   add(row: PackRow): void {
-    const dotKey = `${row.lat}|${row.lng}`
-    let dot = this.dotIndex.get(dotKey)
+    let atLat = this.dotIndex.get(row.lat)
+    if (atLat === undefined) {
+      atLat = new Map<number, number>()
+      this.dotIndex.set(row.lat, atLat)
+    }
+    let dot = atLat.get(row.lng)
     if (dot === undefined) {
-      dot = this.dotIndex.size
-      this.dotIndex.set(dotKey, dot)
+      dot = this.dotCount++
+      atLat.set(row.lng, dot)
       if (this.positionsLength + 2 > this.positions.length) {
         const next = new Float32Array(this.positions.length * 2)
         next.set(this.positions)
@@ -301,7 +317,7 @@ export class PackEncoder {
     const counts = {
       people: this.peopleCount,
       households: this.householdIndex.size,
-      dots: this.dotIndex.size,
+      dots: this.dotCount,
     }
     const pad4 = (n: number) => Math.ceil(n / 4) * 4
 

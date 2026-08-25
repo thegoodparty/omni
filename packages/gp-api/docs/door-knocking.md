@@ -469,16 +469,70 @@ only — no PII), so the proxy never patches bytes. Map-minimal SELECT: no
 AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
 `registered` computed as `(StateVoterID IS NOT NULL)`.
 
-### The response is a stream, and that is the whole point
+### It was slow because the pagination was quadratic
 
-A district scan takes 12.7-43.5 seconds and the encoder produces nothing until
-the last row. The route used to await the finished `Buffer` and hand it to
-`StreamableFile`, so **the socket carried no bytes for the length of the
-build** — and the gateway drops an idle connection at ~120s without writing a
-status. Two of thirteen requests in the seven days to 2026-08-25 died exactly
-there, logging `responseTimeMs: 119999, statusCode: null`. Nobody saw an
-error, because React Query's retry eventually won; the candidate saw a spinner
-for 165 seconds.
+The build used to keyset-paginate the district in 50,000-row pages. Every page
+re-ran the whole joined statement, and `v."id" > cursor` reached the `Voter`
+side of the merge join and **not** the `DistrictVoter` side — so nothing
+restricted the inner scan and each page re-walked the district from the start
+to reach its merge position. 58k DV rows scanned on page 0; 407k on page 6.
+The pass was quadratic in district size, which is why widening the flag to a
+bigger district made it worse than proportionally worse.
+
+Measured (`docs/perf/voter-pack-profile.md`, 628k-row dataset reproducing the
+production pack size to within 0.9%):
+
+| | keyset, 13 statements | one statement, one cursor |
+| --- | ---: | ---: |
+| blocks touched | 14,058,235 | 120,976 |
+| read from storage | **11.5 GB** | 945 MB |
+| Postgres execution | 5,389 ms | 2,072 ms |
+
+**11.5 GB of storage reads to return a 16 MB response**, and 72% of the
+request's wall clock was the Node process sitting idle on the people-db socket.
+That also explains the 12.7-43.5s spread better than anything else: a warm
+buffer pool put you at the fast end and an evicted one put you through the
+gateway's ceiling.
+
+So the scan is now **one unordered statement read through a server-side
+cursor** (`peopleDb/utils/cursorScan.util.ts`), measured 2.4-2.8x end to end.
+The cursor is what keeps the memory bound that pagination was there for —
+without it, 628k row objects are live at once (416 MB of JS heap).
+
+Three things about that are load-bearing:
+
+- **`ORDER BY v."id"` is gone, and nothing can see it.** The pack carries no
+  person identity on the wire: the client walks person → household → dot
+  positionally and aggregates (`filterEngine.ts`), saved turfs persist a
+  polygon rather than pack indices, and no manifest field names a row. Sorting
+  a district existed only to make a keyset cursor work.
+- **`cursor_tuple_fraction = 1`.** A cursor normally means "show me a page", so
+  the planner optimises for a fast first row — which is how it would justify
+  the merge-join shape this change exists to escape. The scan always drains, so
+  it must be costed whole.
+- **The per-fetch statement timeout is 45s, not the usual 25s.** The clock is
+  armed per `FETCH`, and the first one pays for the whole plan's startup where
+  a keyset page only paid for its own slice. See `peopleDb/AGENTS.md`.
+
+The local plan is a hash join over sequential scans. Production's `Voter` is a
+218M-row partitioned table with different statistics, so **`EXPLAIN` this
+against production before trusting the 116x** — and `pg_stat_statements`'s
+`shared_blks_read` for this query text is the one number that confirms the
+model held.
+
+### The response is also a stream, and that is a separate guarantee
+
+Even at 2 seconds the encoder produces nothing until the last row, and the
+route used to await the finished `Buffer` and hand it to `StreamableFile` — so
+**the socket carried no bytes for the length of the build**, and the gateway
+drops an idle connection at ~120s without writing a status. Two of thirteen
+requests in the seven days to 2026-08-25 died exactly there, logging
+`responseTimeMs: 119999, statusCode: null`. Nobody saw an error, because React
+Query's retry eventually won; the candidate saw a spinner for 165 seconds.
+
+The cursor makes the build faster; it does not make it *bounded*. A slow
+people-db still produces a long quiet gap, and the streaming envelope is what
+removes the cliff rather than moving it.
 
 So the response now opens **before** the build starts and stays busy while it
 runs (`doorKnocking/utils/packStream.util.ts`, framing in
@@ -491,13 +545,12 @@ runs (`doorKnocking/utils/packStream.util.ts`, framing in
 [u32 kind=pack][u32 length][the pack]          the payload, unchanged
 ```
 
-The guarantee is the heartbeat, not the streaming: partial delivery would
-still go quiet for however long one 50,000-row batch takes, while a timer
-bounds the idle gap at 15 seconds no matter what people_db does. **The pack
-itself is byte-identical** — the encoder is untouched, and only its start
-offset moved, which is why the frames are padded to 8 bytes (the manifest's
-4-byte-aligned offsets stay aligned, and the browser still mounts typed-array
-views without copying).
+The guarantee is the heartbeat, not the streaming: delivering the encoder's
+output incrementally would still go quiet for however long one chunk takes,
+while a timer bounds the idle gap at 15 seconds no matter what people_db does.
+**The pack's own bytes are untouched** — only its start offset moved, which is
+why the frames are padded to 8 bytes (the manifest's 4-byte-aligned offsets
+stay aligned, and the browser still mounts typed-array views without copying).
 
 Three consequences worth knowing before changing this:
 
@@ -507,25 +560,25 @@ Three consequences worth knowing before changing this:
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
 - **The client's disconnect now cancels the build.** Destroying the response
-  aborts the signal `VoterPackService.build` checks between batches — which
-  relies on Fastify destroying the stream it is sending when the socket goes
-  away. It does, and `aborts the build when the client hangs up` in
-  `doorKnocking.routes.test.ts` pins that at the wire rather than trusting it.
-  Killing
-  the connection never cancelled the Postgres scan, so a retry used to contend
-  with a build still running for nobody — which is also why the webapp query
-  is `retry: 0` with a 90s `AbortSignal.timeout` (under the gateway's ceiling,
-  so the client fails first and visibly).
-- **Every batch runs under the 25s statement timeout** like every other
-  people-db query (`peopleDb/AGENTS.md`). This query was the last one that
-  didn't.
+  aborts the signal the scan checks between chunks, which relies on Fastify
+  destroying the stream it is sending when the socket goes away. It does, and
+  `aborts the build when the client hangs up` in `doorKnocking.routes.test.ts`
+  pins that at the wire rather than trusting it. Killing the connection never
+  cancelled the Postgres scan, so a retry used to contend with a build still
+  running for nobody — which is also why the webapp query is `retry: 0` with a
+  90s `AbortSignal.timeout` (under the gateway's ceiling, so the client fails
+  first and visibly).
+- **Every fetch runs under a statement timeout** like every other people-db
+  query (`peopleDb/AGENTS.md`). This query was the last one that didn't.
 
 ### Why it is still built per request
 
-Caching the pack behind an ETag keyed on `(districtId, knock revision)` is the
-larger win — a repeat load would be a 304 instead of a 43-second rebuild — and
-it is **deliberately not done here**, because getting the key wrong shows a
-canvasser yesterday's dots. The key has to invalidate on all three of its
+Caching the pack behind an ETag keyed on `(districtId, knock revision)` would
+turn a repeat load into a 304 instead of a rebuild, and it is **deliberately
+not done here**, because getting the key wrong shows a canvasser yesterday's
+dots. It is also a much smaller prize than it looked before the query was
+fixed: the rebuild it avoids is no longer 43 seconds. The key has to
+invalidate on all three of its
 inputs and only two are in reach: the org's knock history (queryable) and
 `districtId` (trivial). The third is the L2-derived voter data itself, which
 has **no revision handle exposed to gp-api** — no mirror watermark, no refresh
@@ -536,6 +589,56 @@ it wants answering before the flag widens past one district.
 
 Note also that `generatedAt` in the manifest changes on every build, so a
 cache has to stabilize it or no two responses ever share an ETag.
+
+### What is left on the table, and why
+
+Three measured candidates that are **not** in the change that fixed the hang.
+
+**The household key costs ~550ms of people-db CPU per request.**
+`buildHouseholdKeySql`'s `CONCAT_WS`/`UPPER`/`TRIM` is 38% of the single-pass
+execution — more than the `DistrictVoter` join — and it recomputes, on every
+request, a value that never changes. A stored generated column or an
+expression index would remove it. It is not done here because it is a
+migration on a 218M-row partitioned mirror and the expression is shared with
+the list and CSV paths, so the blast radius is a decision about lock behaviour
+and rollout rather than a line of SQL. Note the same table's existing warning
+about expression indexes in `peopleDb/AGENTS.md` before proposing one.
+
+**Compressing the response beats bit-packing the planes, and neither is
+done.** The profile recommends bit-packing the dim planes (37 bits per person
+instead of 136) for a 49% smaller payload at zero encode cost, gated on
+transfer being a real problem. Measured against the alternative on a 628k-row
+pack:
+
+| | payload | cost |
+| --- | ---: | ---: |
+| raw (today) | 15.88 MB | — |
+| bit-packed planes | 8.09 MB | 3 files in lockstep, client decode unmeasured |
+| gzip level 1 | 4.89 MB | 90 ms |
+| brotli quality 4 | **4.00 MB** | 95 ms |
+
+The planes are low-cardinality bytes, which is exactly what a general-purpose
+compressor eats: **transport compression is a bigger win than bit-packing, for
+none of the wire-format change**, and it makes bit-packing worth much less
+than 49% afterwards because the redundancy it removes is the redundancy gzip
+was already removing. This route sends no `Content-Encoding` today.
+
+It is still not a one-liner, which is why it is not folded in here: a
+compressor buffers, and the heartbeat frames above are load-bearing precisely
+because they reach the socket promptly. Compressing the envelope means
+flushing (`Z_SYNC_FLUSH`) on every heartbeat, and it needs a test that says so
+— otherwise the first thing compression does is silently undo the guarantee
+this endpoint just got. Worth doing next, on its own, with that test.
+
+**The encoder's remaining headroom is small.** Its dot index is now keyed on
+the coordinates as numbers rather than on a `${lat}|${lng}` string, which was
+261ms of a 628k-row build — the most expensive single thing it did. What is
+left is a numeric *household* key, which needs a real numeric household id
+from Postgres. `hashtext` is 32-bit and at ~293k households that
+is ~10 expected collisions per district — each one merging two unrelated
+families into one door — so it is not shippable, and `hashtextextended` comes
+back from the driver as a string, which reintroduces the allocation it was
+meant to remove.
 
 ## The address preview (draw step)
 
