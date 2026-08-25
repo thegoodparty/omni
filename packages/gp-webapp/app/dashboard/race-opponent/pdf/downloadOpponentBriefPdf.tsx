@@ -30,6 +30,13 @@ export const downloadOpponentBriefsPdf = async (
   a.download = 'opponent-briefs.pdf'
   document.body.appendChild(a)
   a.click()
-  document.body.removeChild(a)
-  setTimeout(() => URL.revokeObjectURL(url), 100)
+  // Detach the anchor and free the object URL only after the browser has read
+  // the blob. Doing either in the same tick as click() cancels the download in
+  // current Chrome (the Save-As dialog appears but writes nothing / surfaces as
+  // a spurious "check your internet connection" error). Matches the campaign
+  // plan / ordinance-export fix (ENG-10905 / ENG-10860 / ENG-10953).
+  setTimeout(() => {
+    a.remove()
+    URL.revokeObjectURL(url)
+  }, 10_000)
 }
