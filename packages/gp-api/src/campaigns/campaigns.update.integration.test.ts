@@ -196,6 +196,24 @@ describe('PUT /v1/campaigns/mine — stale election-result reset (ENG-10954)', (
     expect(persisted.details).not.toHaveProperty('wonGeneral')
   })
 
+  it('clears an explicit primaryResult sent alongside the new election date', async () => {
+    const { org, campaign } = await seedRerunCampaign()
+    mockCrm()
+
+    const result = await service.client.put(
+      '/v1/campaigns/mine',
+      { details: { electionDate: '2030-11-05' }, primaryResult: 'lost' },
+      { headers: { 'x-organization-slug': org.slug } },
+    )
+
+    expect(result.status).toBe(200)
+    const persisted = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(persisted.primaryResult).toBeNull()
+    expect(persisted.didWin).toBeNull()
+  })
+
   it('does not reset on callers that omit the opt-in (admin M2M path)', async () => {
     const { campaign } = await seedRerunCampaign()
     mockCrm()

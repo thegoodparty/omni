@@ -570,10 +570,14 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (canDownloadFederal !== undefined) {
         campaignUpdateData.canDownloadFederal = canDownloadFederal
       }
-      if (primaryResult !== undefined) {
-        campaignUpdateData.primaryResult = primaryResult
-      } else if (resetStaleResults) {
+      // The reset outranks a caller-supplied primaryResult: when the
+      // election date just moved to a new upcoming race, any result in the
+      // same request describes a race that hasn't happened yet — persisting
+      // it would re-create the dead-campaign state the reset removes.
+      if (resetStaleResults) {
         campaignUpdateData.primaryResult = null
+      } else if (primaryResult !== undefined) {
+        campaignUpdateData.primaryResult = primaryResult
       }
       if (details) {
         const mergedDetails = deepMerge(
