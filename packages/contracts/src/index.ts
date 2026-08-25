@@ -908,6 +908,7 @@ export {
   PHONE_BANKING_NAME_MAX_LENGTH,
   PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
   PHONE_BANKING_MAX_SHEET_COUNT,
+  PHONE_BANKING_SHEET_SIZE,
   PhoneBankingCreateSchema,
   type PhoneBankingCreate,
   PhoneBankingCreateResponseSchema,

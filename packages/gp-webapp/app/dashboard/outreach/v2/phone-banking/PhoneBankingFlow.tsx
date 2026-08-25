@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import {
+  PHONE_BANKING_MAX_SHEET_COUNT,
+  PHONE_BANKING_SHEET_SIZE,
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
@@ -87,6 +89,9 @@ export const PhoneBankingFlow = ({
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
+  // Whether the candidate has manually changed the sheet count — gates the
+  // audience-derived default below so it never clobbers a deliberate choice.
+  const [sheetCountEdited, setSheetCountEdited] = useState(false)
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -160,6 +165,7 @@ export const PhoneBankingFlow = ({
     setTone('warm')
     setScript('')
     setSheetCount(1)
+    setSheetCountEdited(false)
     setName('')
     setNameEdited(false)
     setSaved(false)
@@ -168,6 +174,31 @@ export const PhoneBankingFlow = ({
     resetCreateMutation()
     resetAudience()
   }, [open, resetDraftMutation, resetCreateMutation, resetAudience])
+
+  // Sizes the default sheet count to the audience once it resolves, instead
+  // of leaving it at 1 (ENG-10941) — reachableCount counts PEOPLE while
+  // entries are distinct PHONES (households collapse), so this is an
+  // upper-bound heuristic, fine for a default. Skipped once the candidate has
+  // touched the field themselves.
+  useEffect(() => {
+    if (!open) return
+    if (sheetCountEdited) return
+    if (audience.reachableCount === null) return
+    setSheetCount(
+      Math.min(
+        PHONE_BANKING_MAX_SHEET_COUNT,
+        Math.max(
+          1,
+          Math.ceil(audience.reachableCount / PHONE_BANKING_SHEET_SIZE),
+        ),
+      ),
+    )
+  }, [open, sheetCountEdited, audience.reachableCount])
+
+  const handleSheetCountChange = (count: number) => {
+    setSheetCountEdited(true)
+    setSheetCount(count)
+  }
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -417,11 +448,16 @@ export const PhoneBankingFlow = ({
       ) : stepId === 'sheets' ? (
         <SheetCountStep
           sheetCount={sheetCount}
-          onSheetCountChange={setSheetCount}
+          onSheetCountChange={handleSheetCountChange}
           createErrorMessage={createErrorMessage}
+          reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+        <DownloadStep
+          response={createResponse}
+          audienceLabel={audienceLabel}
+          reachableCount={audience.reachableCount}
+        />
       ) : null}
     </OutreachFlowShell>
   )

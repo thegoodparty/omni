@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import {
   IdOverrides,
+  PHONE_BANKING_SHEET_SIZE,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
   PhoneBankingInteraction,
@@ -34,9 +35,6 @@ import {
   PhoneBankingPurpose as PrismaPhoneBankingPurpose,
 } from '../../generated/prisma'
 
-// The frozen artifact's household grouping: how many entries print per call
-// sheet. sheetCount (1-20, contracts) x this = the entry cap (max 1,200).
-const PHONE_BANKING_SHEET_SIZE = 60
 // Mirrors p2pPhoneListUpload.service.ts's SEGMENT_PAGE_SIZE — the page size
 // the resolved audience is paged through during a build.
 const BUILD_PAGE_SIZE = 1000
