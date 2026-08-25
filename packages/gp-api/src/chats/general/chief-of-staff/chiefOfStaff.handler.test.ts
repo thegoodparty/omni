@@ -9,12 +9,22 @@ import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.servi
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { PrioritiesToolPort } from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
+import type { LlmTool } from '@/llm/services/llm.service'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
 import type { Organization } from '../../../generated/prisma'
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+
+// Native web search has no description; every other registered tool does.
+const descriptionOf = (tool: LlmTool | undefined): string => {
+  if (!tool || !('description' in tool)) {
+    throw new Error('expected a tool with a description')
+  }
+  return tool.description
+}
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -479,6 +489,19 @@ describe('ChiefOfStaffHandler', () => {
       const toolNames = Object.keys(handler.buildTools(ctx))
       expect(toolNames).toContain('describe_filter_dimensions')
       expect(toolNames).toContain('count_contacts')
+    })
+
+    it('registers CRM tools whose descriptions carry the shared routing rules', async () => {
+      const features = buildFeatures(true)
+      const handler = buildCrmHandler({ features, contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(descriptionOf(tools.describe_filter_dimensions)).toContain(
+        DATA_SOURCE_ROUTING_RULES,
+      )
+      expect(descriptionOf(tools.count_contacts)).toContain(
+        DATA_SOURCE_ROUTING_RULES,
+      )
     })
 
     it('omits both tools when the serve-crm flag is off', async () => {

@@ -6,6 +6,7 @@ import {
   type ContactsService,
 } from '@/contacts/services/contacts.service'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 
 export type CountContactsOutput = { count: number } | { error: string }
 
@@ -38,7 +39,9 @@ export const buildCountContactsTool = (deps: {
     'describe_filter_dimensions — call it first. Returns { count }, never ' +
     'individual records. Returns a structured error instead of a count when ' +
     'the organization cannot run the filter (e.g. a Win campaign without ' +
-    'Pro, or a political-party filter on an elected-office organization).',
+    'Pro, or a political-party filter on an elected-office organization).' +
+    '\n\n' +
+    DATA_SOURCE_ROUTING_RULES,
   inputSchema: voterFilterBaseSchema,
   execute: async (input): Promise<CountContactsOutput> => {
     try {

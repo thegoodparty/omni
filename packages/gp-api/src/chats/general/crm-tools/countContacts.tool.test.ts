@@ -5,6 +5,7 @@ import {
   PRO_FILTERING_REQUIRED_MESSAGE,
   type ContactsService,
 } from '@/contacts/services/contacts.service'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import { buildCountContactsTool } from './countContacts.tool'
 
 const ORGANIZATION = { slug: 'win-campaign' } as Organization
@@ -66,5 +67,10 @@ describe('buildCountContactsTool', () => {
     const outage = new BadGatewayException('Failed to count from people API')
     const countContacts = vi.fn(() => Promise.reject(outage))
     await expect(buildTool(countContacts).execute({})).rejects.toBe(outage)
+  })
+
+  it('carries the cross-catalog routing rules in its description', () => {
+    const tool = buildTool(vi.fn(() => Promise.resolve({ count: 0 })))
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

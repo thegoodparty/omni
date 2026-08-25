@@ -11,6 +11,7 @@ import {
   type VoterFileFilterService,
 } from '@/voters/services/voterFileFilter.service'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 
 // Mirrors the webapp wizard's MAX_SEGMENT_NAME_LENGTH (client-enforced there);
 // enforced here because the tool description promises the cap.
@@ -85,7 +86,9 @@ export const buildCrudSavedFiltersTool = (deps: {
     'locked: update and delete return an error explaining it must be ' +
     'duplicated to change it. Returns ids, names, and counts only, never ' +
     'individual records, and returns a structured error when the ' +
-    'organization cannot manage lists (e.g. a Win campaign without Pro).',
+    'organization cannot manage lists (e.g. a Win campaign without Pro).' +
+    '\n\n' +
+    DATA_SOURCE_ROUTING_RULES,
   inputSchema: crudSavedFiltersInputSchema,
   execute: async (input): Promise<CrudSavedFiltersOutput> => {
     const { voterFileFilters, contacts, organization } = deps
