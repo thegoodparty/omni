@@ -233,7 +233,7 @@ describe('DoorKnockingResidents schemas', () => {
               maritalStatus: 'Likely Married',
               hasChildrenUnder18: 'Yes',
               veteranStatus: 'Yes',
-              homeowner: 'Likely',
+              homeowner: 'Homeowner',
               businessOwner: null,
               levelOfEducation: 'Graduate Degree',
               estimatedIncomeAmount: 82000,

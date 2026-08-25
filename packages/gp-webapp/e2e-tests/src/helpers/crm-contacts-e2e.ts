@@ -180,7 +180,7 @@ export type ContactsApiPerson = {
   nameSuffix: string | null
   age: number | null
   gender: 'Male' | 'Female' | null
-  homeowner: 'Yes' | 'Likely' | 'No' | null
+  homeowner: 'Homeowner' | 'Renter' | null
   cellPhone: string | null
 }
 

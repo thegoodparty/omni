@@ -19,6 +19,7 @@ import {
   useTrackerTasks,
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import GetOnBallotCard from './GetOnBallotCard'
 import PersonalizeStoryCard from './PersonalizeStoryCard'
 import StoryReadyCard from './StoryReadyCard'
 import {
@@ -91,6 +92,7 @@ interface Props {
   // Dismisses the meet card without opening the manager (the card's ⋮ Skip).
   onSkipMeet: () => void
   onPersonalize: () => void
+  onGetOnBallot: () => void
 }
 
 export default function CampaignManagerTasks({
@@ -98,6 +100,7 @@ export default function CampaignManagerTasks({
   onMeetManager,
   onSkipMeet,
   onPersonalize,
+  onGetOnBallot,
 }: Props): React.JSX.Element {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
@@ -138,6 +141,10 @@ export default function CampaignManagerTasks({
           onSkip={onSkipMeet}
         />
       )}
+
+      {/* Only for the candidate who said they have not filed yet; getting on
+          the ballot outranks personalizing, so it sits above the story cards. */}
+      <GetOnBallotCard onGetOnBallot={onGetOnBallot} />
 
       {/* Mutually exclusive: PersonalizeStoryCard shows while the story is
           incomplete, StoryReadyCard once it's complete. */}

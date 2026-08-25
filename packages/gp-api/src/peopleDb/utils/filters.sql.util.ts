@@ -186,10 +186,14 @@ export const VALUE_MAPPERS = {
         return value
     }
   },
-  homeowner: (value: string): string | null => {
+  // 'Yes' is the wire value behind the "Homeowner" pill (ENG-10947) and
+  // folds Probable Home Owner in, since the product taxonomy collapsed
+  // Yes/Likely into one Homeowner bucket. 'Likely' is kept, unfolded, only
+  // for saved filters persisted before the collapse (homeownerLikely).
+  homeowner: (value: string): string | string[] | null => {
     switch (value) {
       case 'Yes':
-        return 'Home Owner'
+        return ['Home Owner', 'Probable Home Owner']
       case 'Likely':
         return 'Probable Home Owner'
       case 'No':
@@ -554,7 +558,7 @@ const buildNumericFilter = (
 const buildMappedFieldFilter = (
   fieldName: string,
   op: FilterOperator | undefined,
-  mapValue: (value: string) => string | null,
+  mapValue: (value: string) => string | string[] | null,
 ): Prisma.Sql | null => {
   if (!op) return null
 
@@ -563,7 +567,11 @@ const buildMappedFieldFilter = (
     if (mappedValue === null) {
       return Prisma.sql`v."${Prisma.raw(fieldName)}" IS NULL`
     }
-    return buildFieldFilter(fieldName, { ...op, value: mappedValue })
+    // A one-to-many mapping (homeowner's 'Yes' folding in Probable Home
+    // Owner) needs an `in` clause even though the caller asked `eq`.
+    return Array.isArray(mappedValue)
+      ? buildFieldFilter(fieldName, { operator: 'in', values: mappedValue })
+      : buildFieldFilter(fieldName, { ...op, value: mappedValue })
   }
 
   if (op.operator === 'in' && op.values && op.values.length > 0) {
@@ -571,10 +579,11 @@ const buildMappedFieldFilter = (
     // is called for (gender, homeowner, etc.) is string-valued.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const originalValues = op.values as string[]
-    const mappedValues = originalValues
-      .map(mapValue)
-      .filter((v): v is string => v !== null)
-    const hasNull = originalValues.some((v) => mapValue(v) === null)
+    const mappedResults = originalValues.map(mapValue)
+    const mappedValues = mappedResults.flatMap((v) =>
+      v === null ? [] : Array.isArray(v) ? v : [v],
+    )
+    const hasNull = mappedResults.some((v) => v === null)
 
     if (hasNull && mappedValues.length > 0) {
       const sql = buildFieldFilter(fieldName, { ...op, values: mappedValues })

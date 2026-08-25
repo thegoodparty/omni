@@ -904,7 +904,7 @@ describe('TurfDetailsSheet applied filters', () => {
     // Both of these render as bare 'Yes'/'Unknown'; the heading above each is
     // the only thing that says which question it answers.
     expect(screen.getByText('Veteran Status')).toBeInTheDocument()
-    expect(screen.getByText('Homeowner')).toBeInTheDocument()
+    expect(screen.getByText('Homeownership')).toBeInTheDocument()
     expect(screen.getByText('Yes')).toBeInTheDocument()
     expect(screen.getByText('Unknown')).toBeInTheDocument()
   })

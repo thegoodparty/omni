@@ -66,7 +66,7 @@ const FIXTURE_PERSON: PersonOutput = {
   maritalStatus: 'Married',
   hasChildrenUnder18: 'No',
   veteranStatus: null,
-  homeowner: 'Yes',
+  homeowner: 'Homeowner',
   businessOwner: null,
   levelOfEducation: 'College Degree',
   ethnicityGroup: 'European',

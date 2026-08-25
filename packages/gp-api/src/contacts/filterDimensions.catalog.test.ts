@@ -33,6 +33,10 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   'age25_35',
   'age35_50',
   'age50Plus',
+  // Legacy wire value: still accepted from saved filters persisted before
+  // the Homeowner/Renter/Unknown collapse (ENG-10947), but no longer
+  // offered as its own catalog option.
+  'homeownerLikely',
 ])
 
 const schemaFieldKeys = new Set(Object.keys(voterFilterBaseSchema.shape))

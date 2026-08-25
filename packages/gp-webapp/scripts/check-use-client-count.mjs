@@ -271,7 +271,10 @@ import { dirname, join, relative } from 'node:path'
 // the confirm-then-mutate flow (useDuplicateList's mutation + its pending
 // state) for the duplicate-list AlertDialog — same shape as its siblings
 // RenameListDialog/DeleteListDialog, both already client components.
-const BASELINE = 605
+// 2026-08-25: 605 -> 606 for campaign-manager/GetOnBallotCard.tsx — the
+// ballot-access prompt card reads the campaign from context and persists its
+// own skip in localStorage, so it can't render on the server.
+const BASELINE = 606
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
