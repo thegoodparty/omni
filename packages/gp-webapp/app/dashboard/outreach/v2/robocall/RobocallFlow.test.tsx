@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { RobocallScriptDraftRequest } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { RobocallFlow } from './RobocallFlow'
@@ -174,6 +175,20 @@ const mockDraftError = () =>
     data: { message: 'boom' },
   })
 
+// Entering compose rents a caller-ID number (the candidate reads it aloud);
+// the draft fires only after the rent resolves.
+const mockRentNumber = (phoneNumber = '+12025550147') =>
+  api.mock('POST /v1/outreach/robocall/number', {
+    status: 200,
+    data: { phoneNumber, region: 'DC' },
+  })
+
+const mockRentNumberError = () =>
+  api.mock('POST /v1/outreach/robocall/number', {
+    status: 500,
+    data: { message: 'boom' },
+  })
+
 // Purpose -> audience -> schedule, then set a valid date+time and Continue into
 // compose WITHOUT pre-mocking a successful draft, so the caller controls
 // whether the on-entry draft succeeds or fails.
@@ -256,6 +271,7 @@ describe('RobocallFlow', () => {
       status: 404,
       data: { message: 'No elected office' },
     })
+    mockRentNumber()
   })
 
   it('opens on the purpose step with the robocall purposes', () => {
@@ -815,5 +831,46 @@ describe('RobocallFlow', () => {
     const textarea = screen.getByRole('textbox', { name: 'Robocall script' })
     await userEvent.type(textarea, 'Hi, this is my own script.')
     expect(textarea).toHaveValue('Hi, this is my own script.')
+  })
+
+  it('rents and shows the callback number on entering compose', async () => {
+    await gotoCompose()
+    // The rented number and the read-aloud reminder render above the script.
+    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Read your callback number aloud/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a retry when renting the callback number fails', async () => {
+    mockRentNumberError()
+    await gotoComposeRaw()
+
+    // Renting failed: the error + retry render (no number yet).
+    expect(
+      await screen.findByText(/We couldn't get a callback number just now/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('+12025550147')).not.toBeInTheDocument()
+
+    // Retry succeeds -> the number appears.
+    mockRentNumber()
+    mockDraft()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+  })
+
+  it('threads the rented callback number into the draft request', async () => {
+    let draftBody: RobocallScriptDraftRequest | null = null
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      draftBody = body
+      return { status: 200, data: { draft: 'A grounded script.' } }
+    })
+
+    await gotoComposeRaw()
+    await screen.findByText(/A grounded script/)
+
+    // The on-entry draft carries the rented number so the server can require
+    // the spoken disclosure.
+    expect(draftBody).toMatchObject({ callbackNumber: '+12025550147' })
   })
 })
