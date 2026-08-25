@@ -8,6 +8,8 @@ import {
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CircleUserRoundIcon,
   ClipboardListIcon,
   HouseIcon,
@@ -75,6 +77,25 @@ interface PersonSheetProps {
     reason: NotAVoterReason | undefined,
   ) => void
   onClose: () => void
+  // Door-to-door navigation, the canvas's own panel header
+  // (`navBtn('chevron-left', ()=>this.openPanel(route[idx-1].id), hasPrev)`).
+  // Null at the ends of the route, which renders the control disabled rather
+  // than absent: a chevron that vanishes at the last door is indistinguishable
+  // from a chevron that failed.
+  //
+  // This is NOT the auto-advance rule relaxed. `advanceFrom` stays forward-only
+  // because it moves the canvasser without being asked, and sending them back
+  // up the street they just walked is the thing it must not do. These are asked
+  // for, and going back a door is already possible from the stop list — this is
+  // the same act without closing the sheet, which is the whole point at a
+  // doorstep with one hand full.
+  onOpenPreviousStop: (() => void) | null
+  onOpenNextStop: (() => void) | null
+  // The stop's own number, as the walk list, the map's pin layer and the
+  // printed sheet all draw it (`stop.seq`, never an index). The canvas puts it
+  // in this header for the same reason it puts it on the pin: it is how a
+  // canvasser says where they are.
+  stopSeq: number
 }
 
 // The demo's person sheet: a right panel on desktop, a bottom sheet on
@@ -112,6 +133,9 @@ export default function PersonSheet({
   onDoNotKnockChanged,
   onNotAVoterChanged,
   onClose,
+  onOpenPreviousStop,
+  onOpenNextStop,
+  stopSeq,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   const script = useDoorScript()
@@ -133,7 +157,23 @@ export default function PersonSheet({
       />
       <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[85dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
         <div className="flex flex-col gap-3 border-b border-border p-4">
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-2">
+            {/* The canvas's panel header: back, the stop's number, the person,
+                forward. Both chevrons are rendered at every position and
+                disabled at the ends, so the pair keeps its place in the row
+                and the header does not reflow as the canvasser walks. */}
+            <IconButton
+              aria-label="Previous door"
+              disabled={onOpenPreviousStop === null}
+              onClick={() => onOpenPreviousStop?.()}
+            >
+              <ChevronLeftIcon size={18} />
+            </IconButton>
+            {/* Same numeral the list row and the map pin draw for this stop. */}
+            <span className="mt-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold tabular-nums text-primary-foreground">
+              <span className="sr-only">Stop </span>
+              {stopSeq}
+            </span>
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-xl font-semibold">
                 {target.name ?? 'Name unavailable'}
@@ -147,6 +187,13 @@ export default function PersonSheet({
                   .join(' · ') || 'No details on file'}
               </p>
             </div>
+            <IconButton
+              aria-label="Next door"
+              disabled={onOpenNextStop === null}
+              onClick={() => onOpenNextStop?.()}
+            >
+              <ChevronRightIcon size={18} />
+            </IconButton>
             <IconButton aria-label="Close person details" onClick={onClose}>
               <XMarkIcon size={18} />
             </IconButton>

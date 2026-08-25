@@ -478,7 +478,7 @@ describe('TurfList lifecycle', () => {
 
   // The CTA the canvas asks for: Knock while there is walking left, Move to
   // Archive once the list is done.
-  it('swaps Knock for Move to Archive on a done list', async () => {
+  it('swaps Knock for Move to archive on a done list', async () => {
     let archivedBody: unknown
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
@@ -510,7 +510,7 @@ describe('TurfList lifecycle', () => {
     expect(await screen.findByText('Done')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Knock' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: /Move to Archive/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Move to archive/ }))
 
     await waitFor(() => expect(archivedBody).toEqual({ archived: true }))
     expect(successSnackbar).toHaveBeenCalledWith('Moved to archive')

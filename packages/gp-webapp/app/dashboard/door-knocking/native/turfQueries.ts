@@ -59,6 +59,28 @@ export const TURF_COLORS = [
   '#65a30d',
 ] as const
 
+// The canvas labels each swatch with the colour's name (`'aria-label':opt.label`
+// over its `LIST_COLOR_OPTIONS`); both of our pickers labelled them with the hex
+// they paint with, so choosing a list colour by keyboard or screen reader meant
+// hearing "Turf color number two five six three e b" eight times. The name is
+// also what the two pickers have to agree on — the create flow and the edit
+// dialog draw the same eight swatches — so it lives beside the palette.
+const TURF_COLOR_NAMES: Record<string, string> = {
+  '#2563eb': 'Blue',
+  '#16a34a': 'Green',
+  '#d97706': 'Amber',
+  '#dc2626': 'Red',
+  '#7c3aed': 'Purple',
+  '#0d9488': 'Teal',
+  '#db2777': 'Pink',
+  '#65a30d': 'Lime',
+}
+
+// Falls back to the hex for a colour saved before this map existed, which is
+// still a worse label than a name and still better than nothing.
+export const turfColorLabel = (color: string): string =>
+  TURF_COLOR_NAMES[color] ?? color
+
 // Shared by WalkView (list rail) and the page (map pins): same key, so
 // React Query serves one fetch to both.
 export const routeQueryOptions = (turfId: number) =>
