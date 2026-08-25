@@ -130,7 +130,7 @@ export const HistoryStatusText = ({ label }: { label: string | null }) => {
     return (
       <Badge
         shape="pill"
-        className="whitespace-nowrap border-transparent bg-destructive-light text-destructive"
+        className="h-6 gap-1.5 whitespace-nowrap border-transparent bg-destructive/12 px-2.5 font-semibold text-destructive-dark [&>svg]:size-3.5"
       >
         <ShieldAlertIcon />
         {WILL_NOT_SEND_LABEL}
