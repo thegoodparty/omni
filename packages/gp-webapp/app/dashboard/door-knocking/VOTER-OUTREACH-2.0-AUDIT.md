@@ -46,7 +46,7 @@ route, they move the list along with the panel, and the panel now carries the
 stop's own number — the same numeral the list row, the map pin and the printed
 sheet all use, so "I'm at stop 14" means one thing everywhere.
 
-It is worth saying what this is *not*. The walk's auto-advance is still
+It is worth saying what this is _not_. The walk's auto-advance is still
 forward-only, and deliberately: it moves the canvasser without being asked, and
 sending them back up a street they have already walked is exactly what it must
 never do. These chevrons are asked for.
@@ -127,7 +127,7 @@ indication which is a two-hour walk and which is a Saturday.
 means either a pass over the decoded voter pack per list in the rail (the drawer
 does exactly one such pass, for the one list it is describing) or three new
 pre-route fields from the API. The previous review recommended the latter as "a
-small backend change" (§ *Still open*, item on `doorCount`); this audit is the
+small backend change" (§ _Still open_, item on `doorCount`); this audit is the
 second surface to want it. **This is the highest-value item on this list.**
 
 ### 2. Recommended lists do not exist in our build
@@ -260,8 +260,8 @@ Nothing was changed.
    none. We cannot: the pack has no bucket for several filters that gp-api
    honours perfectly well at knock time, so a pill showing "0" would be wrong
    and disabling it would block a filter that works. The rule throughout this
-   feature is that the gap is the preview's, never the filter's. *(Newly
-   recorded — this was not written down before.)*
+   feature is that the gap is the preview's, never the filter's. _(Newly
+   recorded — this was not written down before.)_
 9. **"Continue (N doors)" rather than "Add to saved lists (N)"** on the draw
    step. The canvas's own handler does not save there either; it opens the
    confirm step, exactly as ours does. Adopting that label would promise a write
@@ -287,7 +287,7 @@ Nothing was changed.
     the per-outcome counts printed underneath. Recorded, § B.
 15. **Read-only travel-mode and loop chips** in the walk. The route is frozen;
     the mode it was bought for cannot be changed from inside it. (The details
-    drawer does let you *read* the figure in the other mode, which the canvas
+    drawer does let you _read_ the figure in the other mode, which the canvas
     does not offer at all.)
 16. **"Mark this list done" on the rail card**, not in a walk kebab. Recorded in
     `AGENTS.md`: it is the one list action with no undo beside it, so it sits
