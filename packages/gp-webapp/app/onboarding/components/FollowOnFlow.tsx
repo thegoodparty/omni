@@ -243,7 +243,7 @@ export default function FollowOnFlow({
       })
     }
     if (answers.ballotStatus) {
-      attrs.push({ key: 'details.ballotStatus', value: answers.ballotStatus })
+      attrs.push({ key: 'ballotStatus', value: answers.ballotStatus })
     }
     return attrs
   }
@@ -421,7 +421,7 @@ export default function FollowOnFlow({
       liveCampaign
     ) {
       const ok = await updateCampaign([
-        { key: 'details.ballotStatus', value: answers.ballotStatus },
+        { key: 'ballotStatus', value: answers.ballotStatus },
       ])
       if (ok === false) return
     }

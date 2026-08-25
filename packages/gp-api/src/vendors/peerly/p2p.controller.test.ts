@@ -24,6 +24,7 @@ const mockCampaign: Campaign = {
   isVerified: false,
   didWin: null,
   primaryResult: null,
+  ballotStatus: null,
   dateVerified: null,
   tier: null,
   formattedAddress: null,

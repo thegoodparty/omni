@@ -6,6 +6,7 @@ import {
   ElectionLevelSchema,
 } from '@goodparty_org/contracts'
 import { StateSchema } from '@/shared/schemas/State.schema'
+import { BallotStatusSchema } from './ballotStatus.schema'
 
 const CampaignDetailsSchema = z
   .object({
@@ -16,15 +17,11 @@ const CampaignDetailsSchema = z
     zip: z.string(),
     knowRun: z.enum(['yes']),
     runForOffice: z.enum(['yes', 'no']),
-    // Onboarding's "Are you already on the ballot?" answer. Read by the
-    // Campaign Manager to coach ballot access, so it has to survive this
-    // allowlist (an omitted key is stripped, not rejected).
-    ballotStatus: z.enum([
-      'on-ballot',
-      'qualified-not-filed',
-      'considering',
-      'testing',
-    ]),
+    // Deprecated: the answer now lives on the campaign.ballotStatus column.
+    // Still accepted so a frontend from before the cutover isn't silently
+    // dropped mid-deploy; updateJsonFields forwards it to the column and
+    // removes it from details. Delete once no client sends it.
+    ballotStatus: BallotStatusSchema,
     pledged: z.boolean(),
     customIssues: z.array(
       z.object({
@@ -89,6 +86,7 @@ export const updateCampaignBodySchema = CampaignSchema.pick({
   .extend({
     details: CampaignDetailsSchema.optional(),
     primaryResult: z.enum(['won', 'lost']).nullish(),
+    ballotStatus: BallotStatusSchema.nullish(),
   })
   .strict()
 

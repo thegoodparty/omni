@@ -716,7 +716,7 @@ export default function OnboardingFlow({
       })
     }
     if (answers.ballotStatus) {
-      attrs.push({ key: 'details.ballotStatus', value: answers.ballotStatus })
+      attrs.push({ key: 'ballotStatus', value: answers.ballotStatus })
     }
     return attrs
   }
@@ -1083,7 +1083,7 @@ export default function OnboardingFlow({
     if (activeStep.id === 'ballot-status' && answers.ballotStatus) {
       if (campaign) {
         const updated = await updateCampaign([
-          { key: 'details.ballotStatus', value: answers.ballotStatus },
+          { key: 'ballotStatus', value: answers.ballotStatus },
         ])
         if (updated === false) return
       }
