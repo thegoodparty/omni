@@ -107,11 +107,19 @@ jobs:
   # named exactly "Validate"; this job preserves that name while the real work
   # fans out across the checks + sharded test jobs. It is green iff all of its
   # needs succeeded, so it gates merge on Checks plus every Test shard.
+  # `if: always()` + the explicit failure step matter: without them a failed
+  # need leaves this job SKIPPED, and the ruleset treats a skipped required
+  # check as satisfied, so auto-merge lands red PRs.
   validate:
     name: Validate
     needs: [checks, test]
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      - if: needs.checks.result != 'success' || needs.test.result != 'success'
+        run: |
+          echo "checks=${{ needs.checks.result }} test=${{ needs.test.result }}"
+          exit 1
       - run: echo "checks + all test shards passed"
 
   # Intentionally no needs: validate — the preview deploy runs in parallel with
