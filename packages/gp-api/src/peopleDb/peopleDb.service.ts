@@ -105,7 +105,11 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
     url.searchParams.set('connection_limit', '50')
     url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
-    // Queries that take longer than 60 seconds will be cancelled.
+    // A backstop, NOT the query ceiling — that is the 25s statement timeout in
+    // utils/statementTimeout.util.ts. This abandons the connection client-side
+    // while the query keeps running on people-db, so anything relying on it is
+    // burning database CPU for 35s after the caller has given up, and surfaces
+    // an unclassifiable `P2010 Code: N/A` instead of SQLSTATE 57014.
     url.searchParams.set('socket_timeout', '60')
 
     // Postgres plans a prepared statement custom for its first 5 executions,

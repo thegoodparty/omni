@@ -638,6 +638,37 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('renders a placeholder for a rostered opponent with no summary and no items (ENG-10893)', () => {
+    // A rostered opponent (from campaign_strategy_opponent) whose collection
+    // agent found no public sources is now included in the response with
+    // items: [] and summary: null, so KYO stays consistent with the plan's
+    // Executive Summary. The expanded card must not be visually empty — show
+    // a placeholder so the candidate knows they are known but not yet
+    // researched.
+    const rosterOnly: RaceOpponentResponse = {
+      collectionStatus: 'completed',
+      lastCollectedAt: '2026-06-20T12:00:00.000Z',
+      opponents: [
+        {
+          opponentName: 'Michael Foster',
+          party: 'Republican',
+          isIncumbent: true,
+          summary: null,
+          items: [],
+        },
+      ],
+    }
+    render(<RaceOpponentList initialData={rosterOnly} />)
+
+    expect(
+      screen.getByText("We haven't found public info on this opponent yet."),
+    ).toBeInTheDocument()
+    // Identity in the trigger row still renders.
+    expect(
+      screen.getByRole('button', { name: /Michael Foster/i }),
+    ).toBeInTheDocument()
+  })
+
   it('falls back to readable, source-linked raw text when summary is null', () => {
     const { container } = render(<RaceOpponentList initialData={nullSummary} />)
 

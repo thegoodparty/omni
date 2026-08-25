@@ -6,20 +6,16 @@ import H2 from '@shared/typography/H2'
 import { ChangeEvent } from 'react'
 
 interface HeroStepProps {
-  title?: string
   tagline?: string
   image?: string
-  onTitleChange: (value: string) => void
   onTaglineChange: (value: string) => void
   onImageChange: (file: File | null) => void
   noHeading?: boolean
 }
 
 export default function HeroStep({
-  title,
   tagline,
   image,
-  onTitleChange,
   onTaglineChange,
   onImageChange,
   noHeading = false,
@@ -29,17 +25,7 @@ export default function HeroStep({
       {!noHeading && (
         <H2 className="mb-6">Customize the content visitors will see first</H2>
       )}
-      <Label>
-        Title <sup>*</sup>
-      </Label>
-      <TextField
-        value={title}
-        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-          onTitleChange(e.target.value)
-        }
-        fullWidth
-      />
-      <Label className="mt-4">Tagline</Label>
+      <Label>Tagline</Label>
       <TextField
         value={tagline}
         onChange={(e: ChangeEvent<HTMLInputElement>) =>

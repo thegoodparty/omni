@@ -4,8 +4,10 @@ import {
   ContactStatusSourceSchema,
   DoorKnockOutcomeSchema,
   OutreachTypeSchema,
+  PhoneBankCallOutcomeSchema,
   SupportAnswerSchema,
   VoterOutreachAttributionSourceSchema,
+  WillVoteAnswerSchema,
 } from '../generated/enums'
 
 // The unified per-person activity feed (CRM TDD feature 3, ENG-10695): a
@@ -22,6 +24,7 @@ export const ConstituentActivityTypeSchema = z.enum([
   'DOOR_KNOCK',
   'TEXT',
   'ROBOCALL',
+  'PHONE_BANKING',
   'STATUS_CHANGE',
 ])
 export type ConstituentActivityType = z.infer<
@@ -124,14 +127,36 @@ export type RobocallConstituentActivity = z.infer<
   typeof RobocallConstituentActivitySchema
 >
 
+// actorName/actorUserId follow the status-change pattern below: the writer's
+// display name (null for a legacy row logged before ENG-10946), and the raw
+// user id so the viewer can render "You" instead of their own name.
+export const PhoneBankingConstituentActivitySchema = z.object({
+  type: z.literal(ConstituentActivityTypeSchema.enum.PHONE_BANKING),
+  date: z.string(),
+  data: z.object({
+    activityId: z.string(),
+    outcome: PhoneBankCallOutcomeSchema,
+    supportAnswer: SupportAnswerSchema.nullable(),
+    willVote: WillVoteAnswerSchema.nullable(),
+    note: z.string().nullable(),
+    manual: z.boolean(),
+    actorName: z.string().nullable(),
+    actorUserId: z.number().nullable(),
+  }),
+})
+export type PhoneBankingConstituentActivity = z.infer<
+  typeof PhoneBankingConstituentActivitySchema
+>
+
 // A contact-status-field override change (ENG-10835), Win-only — Serve orgs
 // can never write a ContactStatusEvent row (contacts.service.ts rejects the
 // PATCH for elected-office organizations), so this variant never appears in a
 // Serve feed. fromLabel/toLabel are the resolved display text (never the raw
 // enum value — see resolveContactStatusLabel in ContactStatus.schema),
 // fromLabel null for the never-seen-before edge (no prior override row).
-// actorName is the writer's display name, null for a future non-manual
-// source (door_knock/phone_banking) that isn't user-attributed.
+// actorName is the writer's display name, null for a non-manual source
+// (door_knock) that isn't user-attributed, or for a legacy phone_banking
+// row logged before ENG-10946 added attribution to that channel.
 export const StatusChangeConstituentActivitySchema = z.object({
   type: z.literal(ConstituentActivityTypeSchema.enum.STATUS_CHANGE),
   date: z.string(),
@@ -155,6 +180,7 @@ export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   DoorKnockConstituentActivitySchema,
   TextConstituentActivitySchema,
   RobocallConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
 ])
 export type ConstituentActivity = z.infer<typeof ConstituentActivitySchema>

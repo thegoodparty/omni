@@ -44,6 +44,7 @@ import StatusRow from './StatusRow'
 import {
   DoorKnockActivityRow,
   formatDateTime,
+  PhoneBankingActivityRow,
   RobocallActivityRow,
   StatusChangeActivityRow,
   TextActivityRow,
@@ -353,6 +354,8 @@ const ActivitiesContent: React.FC = () => {
             return <TextActivityRow key={idx} activity={activity} />
           case 'ROBOCALL':
             return <RobocallActivityRow key={idx} activity={activity} />
+          case 'PHONE_BANKING':
+            return <PhoneBankingActivityRow key={idx} activity={activity} />
           case 'STATUS_CHANGE':
             // Belt-and-suspenders: the feed itself never returns this type
             // for a Serve context (gp-api gates it on electedOfficeId), but

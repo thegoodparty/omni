@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { DATA_SOURCE_ROUTING_RULES } from './dataSourceRouting'
 import { SqlRejected } from './districtInsights.tool'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import {
@@ -593,5 +594,19 @@ describe('tool description — partisan guidance follows the scope', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope: winScope })
     expect(tool.description).toContain('Parties_Description')
     expect(tool.description).not.toContain('hard legal line')
+  })
+})
+
+describe('tool description — data source routing', () => {
+  const provider = new InMemoryDatabricksProvider(new Map())
+
+  it('query_constituent_data carries the routing rules', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
+  })
+
+  it('describe_constituent_data carries the routing rules', () => {
+    const tool = buildDescribeConstituentDataTool({ scope })
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

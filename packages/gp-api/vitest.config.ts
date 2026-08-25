@@ -47,12 +47,31 @@ export default defineConfig({
         lines: 74,
       },
       // Integration files (harness/runners/bench) are not unit-tested; keep
-      // them out of the coverage gate that runs under --coverage.
-      exclude: [...coverageConfigDefaults.exclude, 'perf/**'],
+      // them out of the coverage gate that runs under --coverage. deploy/ is
+      // infrastructure definitions, most of which only mean anything once
+      // Pulumi has applied them — the thresholds below are calibrated on src/.
+      exclude: [...coverageConfigDefaults.exclude, 'perf/**', 'deploy/**'],
     },
-    include: ['src/**/*.test.ts', 'scripts/**/*.test.ts', 'perf/**/*.test.ts'],
+    // deploy/ is excluded from tsconfig and the lint glob (it resolves against
+    // Pulumi's separate dependency tree), but the alert definitions under it
+    // are plain functions, and a wrong one is only ever discovered by a page
+    // that misleads whoever it wakes.
+    include: [
+      'src/**/*.test.ts',
+      'scripts/**/*.test.ts',
+      'perf/**/*.test.ts',
+      'deploy/**/*.test.ts',
+    ],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,
+    // Vitest's default is 5s, which is too tight for the route tests: each one
+    // boots a Nest app and does many real round trips to the shared Postgres
+    // container, and the runners are core-constrained (see maxWorkers below).
+    // Locally the slowest of them lands near 1.2s, but a CI runner under load
+    // from a burst of concurrent workflow runs pushed several past 5s and the
+    // first timeout cascaded through the rest of its file. This is a ceiling
+    // for a hung test, not a budget -- a healthy test is nowhere near it.
+    testTimeout: 30_000,
     // Unbounded, every forked worker runs its own Nest app + Prisma pool
     // against the one shared test Postgres container, which measured at
     // 200-350% sustained CPU on a full local run. CI's ubuntu-latest runners

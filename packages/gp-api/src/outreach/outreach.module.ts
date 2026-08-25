@@ -17,6 +17,9 @@ import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
+import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
+import { OutreachRobocallController } from './outreachRobocall.controller'
+import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachCompletionService } from './services/outreachCompletion.service'
 import { OutreachInboundSweepService } from './services/outreachInboundSweep.service'
@@ -24,7 +27,12 @@ import { OutreachMaterializationService } from './services/outreachMaterializati
 import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
+import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
+import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { RobocallTranscriptionService } from './services/robocallTranscription.service'
+import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
 
@@ -50,12 +58,23 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OrganizationsModule,
     ContactInteractionModule,
   ],
-  controllers: [OutreachController, OutreachSocialController],
+  controllers: [
+    OutreachController,
+    OutreachSocialController,
+    OutreachPhoneBankingController,
+    OutreachRobocallController,
+    OutreachRobocallAudioController,
+  ],
   providers: [
     OutreachService,
     OutreachSocialService,
     OutreachSocialGenerationService,
+    OutreachPhoneBankingGenerationService,
+    OutreachRobocallGenerationService,
+    RobocallTranscriptionService,
+    RobocallComplianceService,
     OutreachComposeContextService,
+    OutreachRobocallAudioService,
     OutreachCompletionService,
     OutreachInboundSweepService,
     OutreachNotificationService,

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { ActivityConditionResolutionService } from './services/activityConditionResolution.service'
 import { ContactInteractionDoorKnockService } from './services/contactInteractionDoorKnock.service'
+import { ContactInteractionPhoneBankingService } from './services/contactInteractionPhoneBanking.service'
 import { ContactInteractionRobocallService } from './services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from './services/contactInteractionText.service'
 import { ContactsMadeResolutionService } from './services/contactsMadeResolution.service'
@@ -12,6 +13,7 @@ import { SupportStatusService } from './services/supportStatus.service'
     ContactInteractionDoorKnockService,
     ContactInteractionTextService,
     ContactInteractionRobocallService,
+    ContactInteractionPhoneBankingService,
     SupportStatusService,
     ActivityConditionResolutionService,
     ContactStatusService,
@@ -21,6 +23,7 @@ import { SupportStatusService } from './services/supportStatus.service'
     ContactInteractionDoorKnockService,
     ContactInteractionTextService,
     ContactInteractionRobocallService,
+    ContactInteractionPhoneBankingService,
     SupportStatusService,
     ActivityConditionResolutionService,
     ContactStatusService,

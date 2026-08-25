@@ -5,6 +5,7 @@ const VALID_OUTREACH_TYPES: readonly string[] = [
   OUTREACH_TYPES.text,
   OUTREACH_TYPES.doorKnocking,
   OUTREACH_TYPES.phoneBanking,
+  OUTREACH_TYPES.nativePhoneBanking,
   OUTREACH_TYPES.socialMedia,
   OUTREACH_TYPES.robocall,
   OUTREACH_TYPES.p2p,

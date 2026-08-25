@@ -626,6 +626,17 @@ export const EVENTS = {
     },
     PhoneBanking: {
       Complete: 'Outreach - Phone Banking: Complete',
+      // v2 create flow (phase 1 TDD): fires once the create call succeeds.
+      ListCreated: 'Voter Outreach - Phone Banking Call List Created',
+      // Fires from every entry point that links to the print/[listId]/pdf
+      // route (the flow's download step, and later the call-session header
+      // button) — ENG-10918.
+      SheetDownloaded: 'Voter Outreach - Phone Banking Call Sheet Downloaded',
+      // ENG-10921: the in-app caller page. Distinct from the legacy
+      // Dashboard.VoterContact.PhoneBanking group above, which belongs to
+      // the pre-native script/download surface.
+      ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
+      CallLogged: 'Outreach - Phone Banking: Call Logged',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },

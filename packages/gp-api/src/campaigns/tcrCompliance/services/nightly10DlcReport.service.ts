@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule'
 import {
   differenceInBusinessDays,
   differenceInCalendarDays,
+  isBefore,
   subDays,
   subHours,
   subMinutes,
@@ -85,12 +86,17 @@ const PROFILE_STALL_MIN_AGE_HOURS = 20
 // work CV/finalize queues over the weekend either).
 const VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD = 3
 
-const reportableCampaign = {
+// The suffix predicates must be OR'd inside the NOT. Prisma reads a bare
+// `NOT: [a, b]` as NOT(a AND b), and no address ends with both suffixes, so
+// that form is always true and excludes nobody.
+export const reportableCampaign = {
   isPro: true,
   user: {
-    NOT: INTERNAL_EMAIL_SUFFIXES.map((suffix) => ({
-      email: { endsWith: suffix, mode: Prisma.QueryMode.insensitive },
-    })),
+    NOT: {
+      OR: INTERNAL_EMAIL_SUFFIXES.map((suffix) => ({
+        email: { endsWith: suffix, mode: Prisma.QueryMode.insensitive },
+      })),
+    },
   },
 }
 
@@ -215,7 +221,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       rejectedRecords,
       billingBlocked,
       stuckDomains,
-      agingAwaitingPin,
+      agingCvInFlight,
       neverReachedCv,
       profileStalled,
       inReviewStalled,
@@ -270,24 +276,28 @@ export class Nightly10DlcReportService extends createPrismaBase(
           ...proOnly,
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: { not: null },
-          // A null CV status means the submission never reached
-          // CampaignVerify — no PIN ever went out, so the record belongs to
-          // the case-1 failure section, not this nudge. VERIFIED is the
-          // opposite end: the PIN was already entered, so nudging is wrong
-          // and a stalled profile belongs to case 3a instead.
+          // Split below into the two sections these statuses actually mean.
+          // Only APPROVED implies a PIN went out; REQUESTED and IN_REVIEW mean
+          // CampaignVerify is still reviewing, and nudging those candidates
+          // walked them into a PIN box with no PIN behind it (ENG-10866). A
+          // null CV status belongs to the case-1 failure section; VERIFIED is
+          // the opposite end (PIN already entered — a stall there is case 3a);
+          // REJECTED/WITHDRAWN land in the rejected section.
           peerlyCvStatus: {
-            not: null,
-            notIn: [PeerlyCvVerificationStatus.VERIFIED],
+            in: [
+              PeerlyCvVerificationStatus.APPROVED,
+              PeerlyCvVerificationStatus.REQUESTED,
+              PeerlyCvVerificationStatus.IN_REVIEW,
+            ],
           },
-          OR: [
-            {
-              pinSentDetectedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
-            },
-            {
-              pinSentDetectedAt: null,
-              updatedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
-            },
-          ],
+          // Coarse floor only: a record created less than the nudge window
+          // ago cannot have been waiting longer than it, so this can never
+          // over-exclude. The precise clock is applied per section in code
+          // below — the two sections measure different things, and the
+          // `updatedAt` this filter used to key off is bumped by *any* write
+          // to the row (including the nightly poll's own status write), which
+          // silently reset the age.
+          createdAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
         },
         include: { campaign: true },
       }),
@@ -564,15 +574,63 @@ export class Nightly10DlcReportService extends createPrismaBase(
         ),
       },
     ]
+    const nudgeCutoff = subDays(now, AWAITING_PIN_NUDGE_DAYS)
+    // When the PIN went out: the detection sweep's stamp, else when CV reached
+    // APPROVED (Peerly issues the PIN on that transition). Never `updatedAt` —
+    // any write to the row bumps it, so an unrelated update would reset a
+    // three-week-old wait to "PIN out 0d".
+    const pinSentAt = (record: RecordWithCampaign) =>
+      record.pinSentDetectedAt ?? record.peerlyCvStatusChangedAt
+    // How long the candidate has been waiting with no PIN at all. Measured
+    // from the CV submission, not the last status change: REQUESTED ->
+    // IN_REVIEW is a transition, not a delivery, and this section exists to
+    // surface the total wait. Keying it off any *ChangedAt column would
+    // restart the clock every time CampaignVerify moved the record sideways.
+    const cvWaitingSince = (record: RecordWithCampaign) =>
+      record.peerlySubmissionStartedAt ?? record.createdAt
+
+    // A record carrying neither timestamp gives us no basis for "PIN out Nd".
+    // Falling back to createdAt would report the campaign's own age, so a
+    // months-old campaign reads as months of PIN delay that never happened —
+    // the same class of wrong number the updatedAt clock produced. Drop it
+    // from the nudge rather than print an age we can't stand behind.
+    const agingAwaitingPin = agingCvInFlight.flatMap((record) => {
+      const sentAt = pinSentAt(record)
+      return record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
+        sentAt !== null &&
+        isBefore(sentAt, nudgeCutoff)
+        ? [{ record, sentAt }]
+        : []
+    })
+    const agingCvUnissued = agingCvInFlight.filter(
+      (record) =>
+        record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED &&
+        isBefore(cvWaitingSince(record), nudgeCutoff),
+    )
+
     const nudgeSection: ReportSection = {
       title: `⏳ Awaiting PIN >${AWAITING_PIN_NUDGE_DAYS}d (candidate nudge)`,
       lines: agingAwaitingPin.map(
+        ({ record, sentAt }) =>
+          `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
+          `PIN out ${differenceInCalendarDays(now, sentAt)}d`,
+      ),
+    }
+
+    // Deliberately not a nudge: no PIN exists, so contacting the candidate can
+    // only push them into a PIN box they cannot satisfy. Waiting on
+    // CampaignVerify; IN_REVIEW past the business-day floor escalates to
+    // Peerly through its own section.
+    const cvUnissuedSection: ReportSection = {
+      title:
+        `⏳ CampaignVerify still reviewing >${AWAITING_PIN_NUDGE_DAYS}d ` +
+        '(no PIN issued — do not nudge)',
+      lines: agingCvUnissued.map(
         (record) =>
           `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-          `PIN out ${differenceInCalendarDays(
-            now,
-            record.pinSentDetectedAt ?? record.updatedAt,
-          )}d`,
+          `no PIN issued, waiting ` +
+          `${differenceInCalendarDays(now, cvWaitingSince(record))}d ` +
+          `(CV ${record.peerlyCvStatus})`,
       ),
     }
 
@@ -616,6 +674,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       ...failureSections,
       deferredDispatchSection,
       nudgeSection,
+      cvUnissuedSection,
     ].filter((section) => section.lines.length > 0)
 
     const blocks: SlackMessageBlock[] = [
@@ -674,6 +733,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         reportDate,
         stuckCount,
         awaitingPin: agingAwaitingPin.length,
+        cvUnissued: agingCvUnissued.length,
         deferredDispatch: deferredDispatch.length,
       },
       '[10DLC nightly report] Posted',

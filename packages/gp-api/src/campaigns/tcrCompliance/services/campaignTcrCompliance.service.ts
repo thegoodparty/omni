@@ -66,6 +66,7 @@ import {
 import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
 import { isGenericComplianceContent } from '../../../websites/util/genericContent.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
@@ -75,6 +76,7 @@ import {
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
+import { CampaignVerifyPinNotIssuedException } from '../utils/campaignVerifyPinNotIssued.util'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -84,8 +86,12 @@ const AGENTIC_KICKOFF_SWEEP_INTERVAL =
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
 
-const UNSUBMITTED_USECASE_SWEEP_INTERVAL =
-  parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
+// Hourly on a fixed wall clock, at :23 so the pass doesn't pile onto the
+// on-the-hour crons. Guarded by the hourly cron lock (see the sweep) because
+// every replica fires this and the pass has no per-record claim of its own.
+const UNSUBMITTED_USECASE_SWEEP_CRON = '23 * * * *'
+
+const UNSUBMITTED_USECASE_SWEEP_CRON_JOB = 'tcrUnsubmittedUsecaseSweep'
 
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
@@ -148,6 +154,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private queueService: QueueProducerService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly analytics: AnalyticsService,
+    private readonly cronLock: CronLockService,
   ) {
     super()
   }
@@ -278,25 +285,53 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // proved control via PIN, so this just finishes a flow whose approve step
   // threw. APPROVED is NOT a completion signal — CV can reach it before the
   // candidate enters their PIN, so acting on it would skip the PIN screen.
-  @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
+  // A fixed wall-clock @Cron behind the hourly cron lock, not an @Interval:
+  // @Interval fires independently in every replica (prod runs two) and
+  // submitUsecaseIfVerified has no per-record claim, so two concurrent passes
+  // over the same record would both mint a CV token and both approve — which
+  // double-finalizes the 10DLC brand and strands the identity in the MNO queue
+  // for manual vendor cleanup.
+  @Cron(UNSUBMITTED_USECASE_SWEEP_CRON, {
+    name: UNSUBMITTED_USECASE_SWEEP_CRON_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
   async sweepUnsubmittedUsecases() {
-    const candidates = await this.model.findMany({
-      where: {
-        status: TcrComplianceStatus.submitted,
-        peerlyIdentityId: { not: null },
-        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
-      },
-    })
+    // Pin one timestamp so the claim and the completion mark resolve to the
+    // same slot even if the pass crosses the hour boundary.
+    const now = new Date()
+    const claimed = await this.cronLock.tryClaimHourlyRun(
+      UNSUBMITTED_USECASE_SWEEP_CRON_JOB,
+      now,
+    )
+    if (!claimed) return
 
-    for (const record of candidates) {
-      try {
-        await this.submitUsecaseIfVerified(record)
-      } catch (err) {
-        this.logger.error(
-          { err, tcrComplianceId: record.id },
-          '[TCR Compliance] Failed to submit usecase for verified record',
-        )
+    try {
+      const candidates = await this.model.findMany({
+        where: {
+          status: TcrComplianceStatus.submitted,
+          peerlyIdentityId: { not: null },
+          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        },
+      })
+
+      for (const record of candidates) {
+        try {
+          await this.submitUsecaseIfVerified(record)
+        } catch (err) {
+          this.logger.error(
+            { err, tcrComplianceId: record.id },
+            '[TCR Compliance] Failed to submit usecase for verified record',
+          )
+        }
       }
+    } finally {
+      // Seal the claim even if the candidate query threw, otherwise the claim
+      // dangles until it goes stale and blocks the rest of this hour's slot
+      // for nothing — the next hour's slot is a fresh row either way.
+      await this.cronLock.markHourlyCompleted(
+        UNSUBMITTED_USECASE_SWEEP_CRON_JOB,
+        now,
+      )
     }
   }
 
@@ -1999,6 +2034,14 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign,
       )
     if (details.status !== PeerlyCvVerificationStatus.VERIFIED) {
+      // APPROVED is the only state in which a PIN actually exists. REQUESTED,
+      // IN_REVIEW, REJECTED and null all mean CampaignVerify never issued one,
+      // so forwarding the candidate's guess to verify_pin can only come back
+      // rejected — which we then reported as "that PIN didn't match", sending
+      // them into an unwinnable retry loop (ENG-10866).
+      if (details.status !== PeerlyCvVerificationStatus.APPROVED) {
+        throw new CampaignVerifyPinNotIssuedException()
+      }
       const pinIsValid =
         await this.peerlyIdentityService.verifyCampaignVerifyPin(
           peerlyIdentityId,

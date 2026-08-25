@@ -85,18 +85,6 @@ export type VoterIssue = {
 
 export type VoterIssueLevel = 'local' | 'regional' | 'state' | 'federal'
 
-export enum ProjectedTurnoutSourceColumns {
-  id = 'id',
-  createdAt = 'createdAt',
-  updatedAt = 'updatedAt',
-  electionYear = 'electionYear',
-  electionCode = 'electionCode',
-  projectedTurnout = 'projectedTurnout',
-  inferenceAt = 'inferenceAt',
-  modelVersion = 'modelVersion',
-  districtId = 'districtId',
-}
-
 export enum DistrictSourceColumns {
   id = 'id',
   createdAt = 'createdAt',
@@ -146,7 +134,6 @@ export type District = {
   state: string
   L2DistrictType: string
   L2DistrictName: string
-  projectedTurnout: SourceProjectedTurnout | null
   // L2-derived voter aggregates. Only `GET /districts/:id` returns the whole
   // District row; the position lookup hand-shapes a district response without
   // them, hence optional. `null` means the aggregate hasn't been computed for
@@ -241,7 +228,6 @@ export type CampaignStrategyContextResponse = {
   // 500s the campaign read.
   projected_turnout_lower?: number | null
   projected_turnout_upper?: number | null
-  projected_voter_turnout: number | null
   registered_voters: number | null
   unique_cellphones: number | null
   unique_landlines: number | null
@@ -251,16 +237,4 @@ export type CampaignStrategyContextResponse = {
   win_number_estimate: number | null
   win_number_lower?: number | null
   win_number_upper?: number | null
-}
-
-type SourceProjectedTurnout = {
-  id: string
-  createdAt: Date
-  updatedAt: Date
-  electionYear: number
-  electionCode: ElectionCode
-  projectedTurnout: number
-  inferenceAt: Date
-  modelVersion: string
-  districtId: string
 }

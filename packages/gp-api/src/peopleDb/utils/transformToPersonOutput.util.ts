@@ -25,7 +25,7 @@ const mapGender = (
   return null
 }
 
-const mapMaritalStatus = (
+export const mapMaritalStatus = (
   value: string | null | undefined,
 ): PersonOutputFormat['maritalStatus'] => {
   if (!value) return null
@@ -37,7 +37,7 @@ const mapMaritalStatus = (
   return null
 }
 
-const mapPresenceOfChildren = (
+export const mapPresenceOfChildren = (
   value: string | null | undefined,
 ): PersonOutputFormat['hasChildrenUnder18'] => {
   if (!value) return null
@@ -47,18 +47,19 @@ const mapPresenceOfChildren = (
   return null
 }
 
-const mapHomeowner = (
+export const mapHomeowner = (
   value: string | null | undefined,
 ): PersonOutputFormat['homeowner'] => {
   if (!value) return null
   const v = value.toLowerCase()
-  if (v === 'home owner') return 'Yes'
-  if (v === 'probable home owner') return 'Likely'
-  if (v === 'renter') return 'No'
+  // Probable homeowner folds into 'Homeowner' — display vocabulary matches
+  // the Homeowner/Renter/Unknown filter taxonomy (ENG-10947).
+  if (v === 'home owner' || v === 'probable home owner') return 'Homeowner'
+  if (v === 'renter') return 'Renter'
   return null
 }
 
-const mapEducation = (
+export const mapEducation = (
   value: string | null | undefined,
 ): PersonOutputFormat['levelOfEducation'] => {
   if (!value) return null
@@ -74,7 +75,7 @@ const mapEducation = (
   return null
 }
 
-const mapEthnicity = (
+export const mapEthnicity = (
   value: string | null | undefined,
 ): PersonOutputFormat['ethnicityGroup'] => {
   if (!value) return null
@@ -87,14 +88,14 @@ const mapEthnicity = (
   return null
 }
 
-const mapBusinessOwner = (
+export const mapBusinessOwner = (
   value: string | null | undefined,
 ): PersonOutputFormat['businessOwner'] => {
   if (!value) return null
   return 'Yes'
 }
 
-const mapVeteranStatus = (
+export const mapVeteranStatus = (
   value: string | null | undefined,
 ): PersonOutputFormat['veteranStatus'] => {
   if (!value) return null
@@ -109,7 +110,7 @@ export const mapPoliticalParty = (
   value: string | null | undefined,
 ): PersonOutputFormat['politicalParty'] => classifyPoliticalParty(value)
 
-const mapLanguage = (
+export const mapLanguage = (
   value: string | null | undefined,
 ): PersonOutputFormat['language'] => {
   if (!value) return 'Other'

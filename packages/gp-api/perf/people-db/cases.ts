@@ -10,6 +10,9 @@ export type QueryType =
   | 'search'
   | 'csv'
   | 'stats'
+  | 'district-by-id'
+  | 'voter-by-id'
+  | 'voterDensity'
 
 export type BenchCase = {
   id: string
@@ -17,6 +20,44 @@ export type BenchCase = {
   cohort: Cohort
   variant: FilterVariant
   iterations: number
+}
+
+export const QUERY_DESCRIPTIONS: Record<QueryType, string> = {
+  list:
+    'One page of contacts plus the pagination total. Runs a count as well ' +
+    'as the page fetch, so it is two queries behind one request.',
+  count:
+    'The count and average age/income behind a single tile (getAggregates). ' +
+    'One query, and the load-bearing one: it has to aggregate the whole ' +
+    'filtered set, not just a page of it.',
+  'list-detail':
+    'One whole GET /v1/contacts/list-detail: the base tile resolved first, ' +
+    'then its three channel tiles in parallel. Four aggregates, not one, so ' +
+    'reading count alone understates a real request by roughly 4x.',
+  search: 'Name search across the district, served by a trigram index.',
+  sample: 'A random sample of contacts, used to seed lists and previews.',
+  overlap:
+    'Saved-list overlap count: how many people the current selection and a ' +
+    'saved filter set have in common.',
+  csv:
+    'Full CSV export of the district, streamed to the client. The only path ' +
+    'that sets statement_timeout = 0, so nothing stops a slow one.',
+  'district-by-id':
+    'Primary-key lookup of one District row. The cheapest query the product ' +
+    'issues, and the floor any store has to beat: it is a single indexed row ' +
+    'read, not a scan, so it measures per-query overhead rather than data size.',
+  'voter-by-id':
+    'Primary-key lookup of one Voter row, scoped to the district (the ' +
+    'contact drawer). Same shape as district-by-id but against the 218M-row ' +
+    'partitioned table, so it separates index-seek cost from table size.',
+  stats:
+    'Precomputed district totals. No live scan at all, so this is the floor ' +
+    'that every other row should be read against.',
+  voterDensity:
+    'The public profile heat map: precomputed, k-anonymized H3 cells read by ' +
+    '(district_id, resolution). No aggregation and no geometry at request ' +
+    'time, so like stats it should sit near the floor — but it returns a row ' +
+    'per cell rather than one row, so watch the payload, not just the time.',
 }
 
 // 1 cold + 7 warm: enough warm samples that p50/p95 mean something (a 4-warm
@@ -27,13 +68,21 @@ export const DEFAULT_ITERATIONS = 8
 // 1 cold + 2 warm so every reported number is still an aggregate.
 const HEAVY_ITERATIONS = 3
 
-const NONE = FILTER_VARIANTS.find((v) => v.name === 'none') as FilterVariant
+// A cast would let a renamed variant reach the cases as `undefined` and only
+// fail deep in the harness; fail here instead, naming the variant.
+const requireVariant = (name: string): FilterVariant => {
+  const variant = FILTER_VARIANTS.find((v) => v.name === name)
+  if (!variant) {
+    throw new Error(`perf/people-db: missing the '${name}' filter variant`)
+  }
+  return variant
+}
+
+const NONE = requireVariant('none')
 // Every list-detail 504 in the week to 2026-08-16 was segment-scoped, so the
 // unfiltered universe cell alone would miss the shape that actually fails. A
 // party pick is the most common real saved-list filter.
-const SAVED_LIST = FILTER_VARIANTS.find(
-  (v) => v.name === 'single-multivalue',
-) as FilterVariant
+const SAVED_LIST = requireVariant('single-multivalue')
 
 // Heavy cells hold a connection for seconds; run them fewer times so a full
 // latency pass stays bounded. `large` qualifies as of 2026-08-16: its
@@ -51,6 +100,10 @@ const iterationsFor = (
   if (queryType === 'list' && variant.name === 'broad-lowselectivity') {
     return HEAVY_ITERATIONS
   }
+  // A 5k-id array against the 23M-row no-join scan is the slowest shape the
+  // suite can build; at 8 iterations the three outreach variants alone would
+  // add most of an hour to the pass.
+  if (variant.idSet) return HEAVY_ITERATIONS
   return DEFAULT_ITERATIONS
 }
 
@@ -91,6 +144,12 @@ export const buildLatencyCases = (
       push('csv', cohort, NONE)
     }
     push('stats', cohort, NONE)
+    // Single-row primary-key reads, so a filter variant would not change what
+    // is measured; one cell per band is the whole axis.
+    push('district-by-id', cohort, NONE)
+    push('voter-by-id', cohort, NONE)
+    // Precomputed, indexed (districtId, resolution) read — one cell per cohort.
+    push('voterDensity', cohort, NONE)
   }
   return cases
 }

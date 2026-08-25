@@ -1,18 +1,11 @@
 import { createZodDto } from 'nestjs-zod'
 import { STATE_CODES } from '@goodparty_org/nest-common'
 import { z } from 'zod'
-import {
-  DistrictSourceColumns,
-  ProjectedTurnoutSourceColumns,
-} from '../types/elections.types'
+import { DistrictSourceColumns } from '../types/elections.types'
 
 export const districtColumns = Object.values(
   DistrictSourceColumns,
 ) as (keyof typeof DistrictSourceColumns)[]
-
-export const projectedTurnoutColumns = Object.values(
-  ProjectedTurnoutSourceColumns,
-) as (keyof typeof ProjectedTurnoutSourceColumns)[]
 
 const getDistrictTypesSchema = z.object({
   state: z

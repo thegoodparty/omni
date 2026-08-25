@@ -15,12 +15,12 @@ import {
 } from '../schemas/people.schema'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { VoterSampleService } from './voterSample.service'
-
 import {
-  GatewayTimeoutException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+  COMPARISON_STATEMENT_TIMEOUT_MS,
+  ShadowReadService,
+} from '../shadowRead.service'
+
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { DistrictService } from './district.service'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import { FilterData } from '../schemas/filters.schema'
@@ -39,19 +39,12 @@ import {
 import { buildAggregatesSql } from '../utils/buildAggregatesSql.util'
 import { buildOverlapCountSql } from '../utils/buildOverlapCountSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
+import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
 
 export const DATABASE_SCHEMA = 'green'
 
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
-
-// A hard ceiling on any people-db query run through the Prisma client. An
-// honest statewide filtered count is a full-partition scan that lands around
-// 3-4 seconds (the largest legitimate case); anything past this ceiling is a
-// pathological plan we want to fail loudly and alert on, not silently degrade
-// into a wrong answer. Streaming CSV downloads run on a separate pool and set
-// their own timeout, so this does not bound them.
-const STATEMENT_TIMEOUT_MS = 25_000
 
 type RawPeopleQueryArgs = {
   districtId: string | null
@@ -67,14 +60,10 @@ type RawPeopleQueryArgs = {
   forceTrigramPlan?: boolean
 }
 
-const isStatementTimeoutError = (error: unknown): boolean =>
-  error instanceof Prisma.PrismaClientKnownRequestError &&
-  ((error.meta as { code?: unknown } | undefined)?.code === '57014' ||
-    error.message.includes('57014'))
-
 @Injectable()
 export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   constructor(
+    private readonly shadow: ShadowReadService,
     private readonly sampleService: VoterSampleService,
     private readonly districtService: DistrictService,
     private readonly statsService: StatsService,
@@ -83,6 +72,19 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async findPerson(id: string, query: GetPersonQueryDTO) {
+    if (!this.shadow.enabled) return this.findPersonFromPostgres(id, query)
+    return this.shadow.compare({
+      op: 'voter-by-id',
+      districtId: query.districtId,
+      authoritative: () =>
+        this.shadow.databricks.findPerson(id, query.districtId),
+      comparison: () => this.findPersonFromPostgres(id, query),
+      fingerprintAuthoritative: (person) => person.id ?? null,
+      fingerprintComparison: (person) => person.id ?? null,
+    })
+  }
+
+  private async findPersonFromPostgres(id: string, query: GetPersonQueryDTO) {
     const resolved = await resolveDistrict(this.districtService, query)
     const { districtId, state, useVoterOnlyPath } = resolved
     const select = buildVoterSelectSql().sql
@@ -110,6 +112,18 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async findPeople(dto: ListPeopleDTO) {
+    if (!this.shadow.enabled) return this.findPeopleFromPostgres(dto)
+    return this.shadow.compare({
+      op: 'list',
+      districtId: dto.districtId,
+      authoritative: () => this.shadow.databricks.findPeople(dto),
+      comparison: () => this.findPeopleFromPostgres(dto),
+      fingerprintAuthoritative: (result) => result.pagination.totalResults,
+      fingerprintComparison: (result) => result.pagination.totalResults,
+    })
+  }
+
+  private async findPeopleFromPostgres(dto: ListPeopleDTO) {
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
     const {
@@ -217,6 +231,20 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // membership (ENG-10706) — distinct from StatsService.getStats, which only
   // serves the precomputed, unfiltered DistrictStats row.
   async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
+    if (!this.shadow.enabled) return this.getAggregatesFromPostgres(dto)
+    return this.shadow.compare({
+      op: 'aggregates',
+      districtId: dto.districtId,
+      authoritative: () => this.shadow.databricks.getAggregates(dto),
+      comparison: () => this.getAggregatesFromPostgres(dto),
+      fingerprintAuthoritative: (result) => result.count,
+      fingerprintComparison: (result) => result.count,
+    })
+  }
+
+  private async getAggregatesFromPostgres(
+    dto: AggregatesDTO,
+  ): Promise<PeopleAggregatesResponse> {
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
@@ -236,7 +264,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     const row = rows[0]
     const count = Number(row?.count ?? 0n)
     if (count === 0 && effectiveDistrictId) {
-      await this.warnIfStatsButNoVoterRows(effectiveDistrictId, state)
+      this.probeStatsWithoutVoterRows(effectiveDistrictId, state)
     }
 
     // ENG-10775: gp-api/gp-webapp both validate this shape against the same
@@ -252,6 +280,20 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // also belong to at least one of the org's saved lists. Runs through the
   // same statement-timeout guard as the count/aggregates queries.
   async getOverlapCount(
+    dto: OverlapCountDTO,
+  ): Promise<PeopleOverlapCountResponse> {
+    if (!this.shadow.enabled) return this.getOverlapCountFromPostgres(dto)
+    return this.shadow.compare({
+      op: 'overlap',
+      districtId: dto.districtId,
+      authoritative: () => this.shadow.databricks.getOverlapCount(dto),
+      comparison: () => this.getOverlapCountFromPostgres(dto),
+      fingerprintAuthoritative: (result) => result.count,
+      fingerprintComparison: (result) => result.count,
+    })
+  }
+
+  private async getOverlapCountFromPostgres(
     dto: OverlapCountDTO,
   ): Promise<PeopleOverlapCountResponse> {
     const resolved = await resolveDistrict(this.districtService, dto)
@@ -278,6 +320,21 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async samplePeople(dto: SamplePeopleDTO) {
+    if (!this.shadow.enabled) return this.samplePeopleFromPostgres(dto)
+    return this.shadow.compare({
+      op: 'sample',
+      districtId: dto.districtId,
+      authoritative: () => this.shadow.databricks.samplePeople(dto),
+      comparison: () => this.samplePeopleFromPostgres(dto),
+      // A sample is deliberately non-deterministic, so the row count is the
+      // only thing worth comparing: identical ids would mean the seed had
+      // stopped rotating, not that the stores agreed.
+      fingerprintAuthoritative: (people) => people.length,
+      fingerprintComparison: (people) => people.length,
+    })
+  }
+
+  private async samplePeopleFromPostgres(dto: SamplePeopleDTO) {
     return this.sampleService
       .samplePeople(dto)
       .then((people) => people.map(transformToPersonOutput))
@@ -351,7 +408,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
 
     const count = Number(rows[0]?.voter_count ?? 0n)
     if (count === 0 && districtId) {
-      await this.warnIfStatsButNoVoterRows(districtId, state)
+      this.probeStatsWithoutVoterRows(districtId, state)
     }
     return count
   }
@@ -362,6 +419,23 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // joins to an empty set and returns 0 — which presents as a filter bug
   // (ENG-10745). Probing only on the zero-result path keeps the hot path free
   // of extra queries.
+  // The probe below is a logging side-effect, so it must never decide what the
+  // caller gets back. Awaited, a statement or pool timeout inside it turned a
+  // legitimate zero-result into an error response; in dual-read mode the
+  // comparison ceiling is tighter than the user-facing one, which makes that
+  // more likely rather than less. Failure to explain an empty district is not
+  // a failure to answer the request.
+  private probeStatsWithoutVoterRows(districtId: string, state: string): void {
+    void this.warnIfStatsButNoVoterRows(districtId, state).catch(
+      (err: unknown) => {
+        this.logger.warn(
+          { err, districtId, state },
+          'stats-without-voter-rows probe failed; skipping the diagnostic',
+        )
+      },
+    )
+  }
+
   private async warnIfStatsButNoVoterRows(
     districtId: string,
     state: string,
@@ -385,40 +459,20 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     )
   }
 
-  // Every count/aggregate/list/overlap query runs under a hard statement
-  // timeout so a pathological plan fails loudly (a classified 504 we can alert
-  // on) instead of holding a connection open or silently degrading into a
-  // wrong answer. No retry and no fenced fallback: a slow query is either a
-  // genuine large scan (well under the ceiling) or a bug we want surfaced.
-  // SET LOCAL only holds for the transaction it runs in, and Prisma batch
-  // transactions execute on a single connection, so the timeout scopes to
-  // exactly this query.
   private async runUnderStatementTimeout<T>(sql: Prisma.Sql): Promise<T[]> {
-    const startedAt = Date.now()
-    try {
-      // SET does not accept bind parameters; the interval is a compile-time
-      // constant, so Prisma.raw is safe here.
-      const [, rows] = await this.client.$transaction([
-        this.client.$executeRaw(
-          Prisma.raw(
-            `SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT_MS}ms'`,
-          ),
-        ),
-        this.client.$queryRaw<T[]>(sql),
-      ])
-      return rows
-    } catch (error) {
-      if (!isStatementTimeoutError(error)) {
-        throw error
-      }
-      this.logger.error(
-        { err: error, elapsedMs: Date.now() - startedAt },
-        'people-db query exceeded the statement timeout',
-      )
-      throw new GatewayTimeoutException(
-        'The voter query took too long to run. Narrow the audience and try again.',
-      )
-    }
+    return runUnderStatementTimeout<T>(
+      this.client,
+      sql,
+      this.logger,
+      'The voter query took too long to run. Narrow the audience and try again.',
+      // In dual-read mode these queries are comparison-only — Databricks
+      // serves the request — so they get a tighter ceiling than a user-facing
+      // 25s. A slow comparison must not hold a pooled connection when nothing
+      // is waiting on its answer. SET LOCAL means Postgres cancels the query
+      // itself rather than us abandoning it client-side and letting it burn
+      // CPU for another 17 seconds.
+      this.shadow.enabled ? COMPARISON_STATEMENT_TIMEOUT_MS : undefined,
+    )
   }
 
   private buildRawPeopleQuery(args: RawPeopleQueryArgs): Prisma.Sql {

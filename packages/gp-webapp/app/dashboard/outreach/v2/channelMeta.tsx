@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
 import { Badge, StatusText } from '@styleguide'
 import {
+  ArchiveIcon,
   CalendarClockIcon,
   CheckCircleIcon,
+  CircleDotIcon,
   ClockIcon,
   DoorOpenIcon,
   HeadphonesIcon,
@@ -54,10 +56,25 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   phoneBanking: {
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
-    iconTint: 'bg-warning-light',
-    badgeTint: 'border-transparent bg-warning-light text-foreground',
+    iconTint: 'bg-destructive-light',
+    badgeTint: 'border-transparent bg-destructive-light text-foreground',
+  },
+  nativePhoneBanking: {
+    label: 'Phone banking',
+    icon: <HeadphonesIcon />,
+    iconTint: 'bg-destructive-light',
+    badgeTint: 'border-transparent bg-destructive-light text-foreground',
   },
   doorKnocking: {
+    label: 'Door knocking',
+    icon: <DoorOpenIcon />,
+    iconTint: 'bg-success-light',
+    badgeTint: 'border-transparent bg-success-light text-foreground',
+  },
+  // Same presentation as the legacy type: a candidate reading the history has
+  // no use for the distinction between an eCanvasser draft and a native walk,
+  // and a channel that renders two ways reads as two channels.
+  nativeDoorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
     iconTint: 'bg-success-light',
@@ -93,8 +110,16 @@ const STATUS_DISPLAY: Record<
   'In review': { icon: <ClockIcon />, tone: 'primary' },
   Denied: { icon: <XCircleIcon />, tone: 'destructive' },
   Scheduled: { icon: <CalendarClockIcon />, tone: 'primary' },
+  'In progress': { icon: <CircleDotIcon />, tone: 'primary' },
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
+  // Shelved, not finished. No history row carries this label yet — the archive
+  // transition is reached from the door-knocking rail, whose details drawer
+  // renders this same component so one saved list is described the same way
+  // from both entry points — but gp-api stamps `archivedAt` on the outreach
+  // envelope in the same transaction as the turf, so the state is the table's
+  // too.
+  Archived: { icon: <ArchiveIcon />, tone: 'muted' },
 }
 
 export const HistoryStatusText = ({ label }: { label: string | null }) => {

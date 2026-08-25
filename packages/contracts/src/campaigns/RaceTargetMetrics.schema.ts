@@ -87,12 +87,6 @@ export const RaceTargetMetricsSchema = z.object({
   uniqueCellphones: z.number().nullable(),
   uniqueLandlines: z.number().nullable(),
   /**
-   * General-election turnout for the race's calendar year, regardless of
-   * whether the looked-up race is a primary, general, or runoff. Single
-   * baseline for the campaign-plan template.
-   */
-  projectedVoterTurnout: z.number().nullable(),
-  /**
    * 70% prediction interval around `projectedTurnout`, measured from how far
    * the model's past projections landed from actual results, and the same
    * interval carried through the win-number math. Null where the model has no

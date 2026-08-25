@@ -9,10 +9,12 @@ import { ImageDimensions } from '@/app/shared/utils/getImageDimensions'
 export default function HeroSection({
   activeTheme,
   content,
+  headline,
   imageDimensions,
 }: {
   activeTheme: any
   content: any
+  headline: string
   imageDimensions?: ImageDimensions
 }) {
   const hasImage = content?.main?.image
@@ -28,7 +30,7 @@ export default function HeroSection({
           }`}
         >
           <h1 className="font-bold text-4xl md:text-6xl mb-2 md:mb-4">
-            {content?.main?.title || ''}
+            {headline}
           </h1>
           <p className="text-xl mb-8">{content?.main?.tagline || ''}</p>
           <Link to={WEBSITE_SECTIONS.CONTACT} smooth duration={500}>

@@ -6,6 +6,7 @@ import {
   FILTER_DIMENSION_PROVENANCE_RULES,
   type FilterDimension,
 } from '@/contacts/filterDimensions.catalog'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 
 // Strict so "takes no input" in the description stays true in code: any
 // smuggled key (e.g. another org's slug) is rejected, not silently ignored.
@@ -30,7 +31,9 @@ export const buildDescribeFilterDimensionsTool = (deps: {
     'outcome vocabularies. Takes no input. Call this before composing any ' +
     'count_contacts filter so you only use dimensions and values that ' +
     'actually exist — never invent one.\n\n' +
-    FILTER_DIMENSION_PROVENANCE_RULES,
+    FILTER_DIMENSION_PROVENANCE_RULES +
+    '\n\n' +
+    DATA_SOURCE_ROUTING_RULES,
   inputSchema: describeFilterDimensionsInputSchema,
   execute: (): DescribeFilterDimensionsOutput => ({
     dimensions: deps.contacts.getFilterDimensions(deps.organization),

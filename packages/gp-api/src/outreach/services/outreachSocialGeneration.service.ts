@@ -12,7 +12,6 @@ import {
   SocialDraftRequest,
   SocialGenerateRequest,
   SocialPurpose,
-  SocialTone,
   socialAssetKindForPlatform,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
@@ -21,6 +20,7 @@ import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { SocialAssetKind, SocialAssetPlatform } from '../../generated/prisma'
 import { SOCIAL_PLATFORM_KIND } from '../util/socialAssets.util'
+import { TONE_STYLES } from '../util/messageTone.util'
 
 const PURPOSE_GOALS: Record<SocialPurpose, string> = {
   introduce_myself: 'introduce the candidate to voters',
@@ -55,21 +55,6 @@ const PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
     'A spoken-word video script of roughly 30-45 seconds, written to be ' +
     'read to camera in the first person, plus a short caption for the ' +
     'post in the caption field.',
-}
-
-const TONE_STYLES: Record<SocialTone, string> = {
-  warm:
-    'Warm: caring and personal. Lead with connection to neighbors and ' +
-    'community; gentle, encouraging language.',
-  direct:
-    'Direct: plain and to the point. Short sentences, a clear ask, no ' +
-    'filler or hedging.',
-  urgent:
-    'Urgent: time matters. Convey momentum and a now-or-never stake ' +
-    'without being alarmist.',
-  friendly:
-    'Friendly: upbeat and approachable. Conversational, light, like a ' +
-    'note to a friend.',
 }
 
 const DRAFT_SYSTEM_PROMPT = [

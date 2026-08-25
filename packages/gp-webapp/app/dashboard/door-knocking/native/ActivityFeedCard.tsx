@@ -1,10 +1,13 @@
 import { RouteTargetActivity } from '@goodparty_org/contracts'
+import { HistoryIcon } from '@styleguide'
 import {
   DoorKnockActivityRow,
+  PhoneBankingActivityRow,
   RobocallActivityRow,
   StatusChangeActivityRow,
   TextActivityRow,
 } from 'app/dashboard/contacts/crm/person/ActivityFeedEntry'
+import SheetSectionHeader from './SheetSectionHeader'
 
 // ADR 0009. What this campaign already did to this resident, newest first,
 // read off the route payload rather than fetched — the sheet has to render a
@@ -39,6 +42,9 @@ import {
 // it, so this narrows what is drawn without inventing anything.
 // Narrowed one variant at a time: a combined `TEXT || ROBOCALL` test widens
 // `data` back to the union and the spread stops type-checking.
+//
+// `PHONE_BANKING` needs no case: its row renders no outreach link, so there is
+// nothing here to strip. Should one ever be added there, it needs one here too.
 const withoutOutreachLinks = (
   activity: RouteTargetActivity,
 ): RouteTargetActivity => {
@@ -59,9 +65,7 @@ export default function ActivityFeedCard({
 }) {
   return (
     <section className="mb-4 rounded-lg border border-border">
-      <h3 className="border-b border-border px-4 py-3 text-sm font-semibold">
-        Activity feed
-      </h3>
+      <SheetSectionHeader icon={HistoryIcon} title="Activity feed" />
       <div className="p-4 text-sm">
         {history.length === 0 ? (
           // Named as a fact about this resident, not the household: the
@@ -91,6 +95,13 @@ export default function ActivityFeedCard({
               case 'ROBOCALL':
                 return (
                   <RobocallActivityRow
+                    key={activity.data.activityId}
+                    activity={activity}
+                  />
+                )
+              case 'PHONE_BANKING':
+                return (
+                  <PhoneBankingActivityRow
                     key={activity.data.activityId}
                     activity={activity}
                   />

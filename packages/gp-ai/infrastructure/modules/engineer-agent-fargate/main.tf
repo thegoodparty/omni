@@ -77,8 +77,19 @@ data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
 resource "aws_cloudwatch_log_group" "agent" {
-  name              = "/ecs/engineer-agent-${var.environment}"
-  retention_in_days = 30
+  name = "/ecs/engineer-agent-${var.environment}"
+  # This log group is the ONLY durable record of what the bot decided and what
+  # it cost. The `GPBOT-VERDICT` line and the per-run dollar figure are emitted
+  # here and almost nowhere else — a survey on 2026-08-20 found the verdict in
+  # just 2 of 165 ClickUp bot comments — so at 30 days the evidence for "is this
+  # thing working" was being deleted a month after each run, faster than anyone
+  # could report on a quarter of it.
+  #
+  # 400 rather than 90: reporting on this system is annual-ish and comparative
+  # ("how did Q3 look against Q2"), which needs a full year plus slack for a late
+  # look. Volume makes the choice nearly free — roughly 25 agent runs a month at
+  # a few hundred KB each.
+  retention_in_days = 400
 
   tags = {
     Environment = var.environment

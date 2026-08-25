@@ -2,7 +2,7 @@
 
 ## Overview
 
-gp-api has an automated alerting system that provisions [Grafana alert rules](https://goodparty.grafana.net) via Pulumi. Alerts are **only active in production** and live in a Grafana folder called `Alerts (provisioned via gp-api)`.
+gp-api has an automated alerting system that provisions [Grafana alert rules](https://goodparty.grafana.net) via Pulumi. **Both `dev` and `prod` provision the full set**, into `DEV Alerts (provisioned via gp-api)` and `PROD Alerts (provisioned via gp-api)` respectively, each rule carrying an `environment` label. Because the two are generated from the same definitions, every notification is prefixed with `[DEV]` or `[PROD]` -- without it the two pages are identical and there is no way to tell from Slack whether production is affected.
 
 There are two categories of alerts:
 
@@ -10,7 +10,7 @@ There are two categories of alerts:
 
 Every controller endpoint automatically gets one alert:
 
-- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) within a 1-hour window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers).
+- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers).
 
 These are generated automatically from the controllers in the codebase -- you don't write them by hand. **All controller alerts are disabled by default** and require explicit opt-in via the ownership mapping (see [Ownership](#ownership) below).
 
@@ -23,11 +23,13 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **Missing health check logs** (no `/v1/health` requests logged for 2 min)
 - **Slow Prisma connection acquisitions** (10+ connections exceeding 150ms in a 2-minute window)
 - **Door-knocking route planner spend ceiling** (>10,000 Geoapify credits across all organizations in 6h) -- the global view the per-org waypoint quota can't give. See gp-api `docs/door-knocking.md` § Spend visibility.
+- **Public campaign lookup failing** (>10% of resolvable `GET /v1/public-campaigns` lookups returning 5xx over 10 min) -- a rate-based rule for a route the generated one can't serve. See [High-volume routes](#high-volume-routes-prefer-a-ratio).
 
 ## Where do alerts show up?
 
 When an alert fires, Grafana sends a notification to the `#dev-alerts` Slack channel. The notification includes:
 
+- The environment the alert fired in, tagged `[DEV]` or `[PROD]` on both the title and the body (which of the two a contact point shows is Grafana's default templating to decide, so neither omits it)
 - The alert name and a description with guidance on how to investigate
 - A link back to the alert in Grafana
 - A mention of the owning Slack group (`@serve-bugs` or `@win-bugs`) if applicable
@@ -64,6 +66,7 @@ All alerting configuration lives in `deploy/`:
 | `deploy/components/alerts.ts`                     | Ownership mapping and global alerts                       |
 | `deploy/components/alerting/controller-alerts.ts` | Generates error count alerts for each controller endpoint |
 | `deploy/components/alerting/alerts.types.ts`      | Type definitions for `Alert` and `SlackGroup`             |
+| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention    |
 | `deploy/components/grafana.ts`                    | Converts alerts into Grafana rule groups via Pulumi       |
 
 ## How to opt in a controller
@@ -71,6 +74,24 @@ All alerting configuration lives in `deploy/`:
 Opting in a controller means assigning it an owner. Add the controller to the appropriate team in `ALERT_OWNERSHIP` in `deploy/components/alerts.ts`. The controller name is the string from the `@Controller('...')` decorator (e.g., `@Controller('contacts')` -> `'contacts'`), and will be typesafe and autocompleted by your editor.
 
 All of that controller's endpoint alerts become active on the next deploy.
+
+### High-volume routes: prefer a ratio
+
+The generated rule has a threshold of 0: one error in the window pages. That is
+the right default for a route that should never error, and the wrong one for a
+route with enough traffic to carry a standing error rate. `public-campaigns`
+serves roughly 2 req/s from the marketing site's candidate pages; opting it in
+would have paged continuously and been muted within a day, which is no better
+than the no-coverage state it was actually in.
+
+For a route like that, leave it out of `ALERT_OWNERSHIP` and hand-write a
+global alert expressing error *share* rather than error *count* -- see
+`public-campaigns-lookup-error-ratio` in `deploy/components/alerts.ts`. Two
+things are worth copying from it: pick a denominator that excludes statuses the
+route returns by design (there, the 404 that means "candidate hasn't claimed a
+profile", ~95% of its traffic), and `and` in a minimum-volume clause so a quiet
+window can't turn one stray error into a page. Below that floor the query
+returns no data, which `grafana.ts` maps to OK, not Alerting.
 
 ## How to override thresholds
 
@@ -117,5 +138,6 @@ Key things to know:
 
 - The `for` field is a grace period -- the threshold must be continuously exceeded for that duration before the alert actually fires.
 - `threshold` is compared with `>`, so `threshold: 0` means "fire if the value is greater than 0".
+- **A range vector wider than the fetch window is silently truncated.** The engine only pulls `timeRangeSeconds` of data per evaluation (600s by default), so a `[1h]` vector left at the default sees ten minutes, not an hour. Set `timeRangeSeconds` to at least the widest range vector in `expr`, and make sure any window your `message` quotes is the one that actually applies -- a message promising an hour sends whoever reads it looking through fifty minutes of logs the rule never queried.
 
 For more details on configuring alerts, see the [Grafana Alerting documentation](https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rule-evaluation/).

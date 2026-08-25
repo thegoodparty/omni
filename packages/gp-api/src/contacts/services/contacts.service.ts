@@ -47,6 +47,10 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import {
+  EXCLUDABLE_VOTER_COLUMNS,
+  type ExcludableVoterColumn,
+} from '@/peopleDb/voter.select'
+import {
   AggregatesDTO,
   DownloadPeopleDTO,
   GetPersonQueryDTO,
@@ -95,12 +99,11 @@ const ALL_CONTACTS_SEGMENT = 'all'
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 
-// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entries (people.select.ts).
-// The CSV download is a Postgres COPY stream gp-api cannot post-process, so
-// an `eo-` org's download asks people-api to drop this column from the
-// projection instead (ENG-10696). downloadVoterFilePeople (the separate
-// outreach/task-flow audience download) still only excludes party — this
-// list is scoped to the CRM download (downloadContacts) below (ENG-10830).
+// The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
+// `eo-` org's download drops this column from the projection instead
+// (ENG-10696). Only downloadVoterFilePeople (the separate outreach/task-flow
+// audience download) uses it alone; the CRM download excludes the wider
+// SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
 
 // people-api's Voter_Status vocabulary and the editable voter-likelihood
@@ -177,22 +180,13 @@ const extractContactsMadeSelection = (
 
 // Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
 // column still reveals the field exists (ENG-10830). Party (completing
-// ENG-10696), turnout propensity, and vote history.
-const SERVE_EXCLUDED_DOWNLOAD_COLUMNS = [
-  PARTY_DOWNLOAD_COLUMN,
-  'Residence_HHParties_Description',
-  'VoterParties_Change_Changed_Party',
-  'VotingPerformanceEvenYearGeneral',
-  'VotingPerformanceEvenYearPrimary',
-  'VotingPerformanceEvenYearGeneralAndPrimary',
-  'General_2026',
-  'General_2024',
-  'General_2022',
-  'General_2020',
-  'Primary_2026',
-  'Primary_2024',
-  'Primary_2022',
-  'Primary_2020',
+// ENG-10696), turnout propensity, and vote history. `EXCLUDABLE_VOTER_COLUMNS`
+// already enumerates exactly that set and is type-pinned to real
+// `DOWNLOAD_COLUMNS` entries, so this reads it rather than restating it. A
+// hand-maintained copy silently omitted every column added to the download
+// after ENG-10830 (DATA-2281).
+const SERVE_EXCLUDED_DOWNLOAD_COLUMNS: ExcludableVoterColumn[] = [
+  ...EXCLUDABLE_VOTER_COLUMNS,
 ]
 
 // What the shared filter resolution actually consumes: the request DTO, a
@@ -823,8 +817,10 @@ export class ContactsService {
   // activity-condition/support-status parts resolve to a person-id set
   // exactly as the live count does, so activity-based saved lists
   // participate correctly. Capped at the org's most-recently-saved
-  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — the lists index is
-  // an accepted N+1 today); truncation is logged, never a silent cap. A
+  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — do NOT justify that
+  // premise with the lists index: its per-row N+1 was a real defect that 504'd
+  // prod and is now capped client-side); truncation is logged, never a silent
+  // cap. A
   // saved list whose resolution is empty (matches nobody, e.g. a
   // now-orphaned activity condition) contributes nothing to the OR, so it's
   // dropped rather than sent as a meaningless filter set.
@@ -1065,7 +1061,7 @@ export class ContactsService {
 
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
-  // caller): one base count plus three channel-restricted counts. The four
+  // caller): one base count plus four channel-restricted counts. The five
   // calls settle independently (ENG-10806) — a saved list's demographics and
   // most reachability tiles shouldn't all flip to "Unavailable" because one
   // aggregate query failed. Only the base call is load-bearing: there's
@@ -1078,21 +1074,21 @@ export class ContactsService {
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
-    const [base, cellphone, landline, address] =
+    const [base, cellphone, landline, anyPhone, address] =
       await this.withOrgDistrictResolution(
         organization,
         async (districtParams) => {
-          // Resolve the load-bearing base tile FIRST, before firing the three
-          // channel scans. All four aggregates run the same DistrictVoter->Voter
+          // Resolve the load-bearing base tile FIRST, before firing the four
+          // channel scans. All five aggregates run the same DistrictVoter->Voter
           // membership scan (they differ only by an extra has-phone/has-address
           // predicate), and only `base` is load-bearing — a rejected base throws
           // below regardless. Under the people-db statement-timeout incidents a
-          // failing list-detail otherwise launches 4 concurrent scans (x2 with
-          // the fenced retry), 3 of which are pure collateral load the moment
+          // failing list-detail otherwise launches 5 concurrent scans (x2 with
+          // the fenced retry), 4 of which are pure collateral load the moment
           // base fails and can't render anything. Gating the channels on base
           // keeps a failing request to a single scan family instead of amplifying
           // the exact overload that's tripping the timeout. Healthy path is
-          // unchanged: base resolves fast, then the three channels still settle
+          // unchanged: base resolves fast, then the four channels still settle
           // INDEPENDENTLY (ENG-10806) so one slow channel can't blank the others.
           const [baseResult] = await Promise.allSettled([
             this.fetchPeopleAggregates(
@@ -1105,7 +1101,13 @@ export class ContactsService {
           if (baseResult.status === 'rejected') {
             // Reuse the rejected base as the channel placeholders: the route
             // throws on base below before any channel value is read.
-            return [baseResult, baseResult, baseResult, baseResult] as const
+            return [
+              baseResult,
+              baseResult,
+              baseResult,
+              baseResult,
+              baseResult,
+            ] as const
           }
           const channels = await Promise.allSettled([
             this.fetchPeopleAggregates(
@@ -1114,13 +1116,19 @@ export class ContactsService {
               idOverrides,
               contactsMadeIdOverrides,
             ),
-            // phoneBanking mirrors the built-in channel map
-            // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
-            // phones — the legacy raw-SQL export's phoneBanking population is
-            // landline-only.
             this.fetchPeopleAggregates(
               districtParams,
               { ...baseFilters, hasLandline: true },
+              idOverrides,
+              contactsMadeIdOverrides,
+            ),
+            // phoneBanking (ENG-10914): reachable by any phone, cell or
+            // landline — the list builder freezes any phone, cell first, so
+            // this count must agree with the built list rather than the
+            // landline-only legacy raw-SQL export population.
+            this.fetchPeopleAggregates(
+              districtParams,
+              { ...baseFilters, hasAnyPhone: true },
               idOverrides,
               contactsMadeIdOverrides,
             ),
@@ -1142,6 +1150,8 @@ export class ContactsService {
       cellphone.status === 'fulfilled' ? cellphone.value : null
     const landlineValue =
       landline.status === 'fulfilled' ? landline.value : null
+    const anyPhoneValue =
+      anyPhone.status === 'fulfilled' ? anyPhone.value : null
     const addressValue = address.status === 'fulfilled' ? address.value : null
 
     return {
@@ -1155,7 +1165,7 @@ export class ContactsService {
         // Robocall/telemarketing reach landlines, not cell phones (mirrors
         // TYPE_OVERRIDES in voterFilePeopleFilter.util.ts).
         robocall: landlineValue?.count ?? null,
-        phoneBanking: landlineValue?.count ?? null,
+        phoneBanking: anyPhoneValue?.count ?? null,
         doorKnocking: addressValue?.count ?? null,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: cellphoneValue?.count ?? null,
@@ -1417,7 +1427,7 @@ export class ContactsService {
     idOverrides: IdOverrides | undefined,
     contactsMadeIdOverrides: IdOverrides | undefined,
     groupByHousehold: boolean,
-    excludeColumns: string[] | undefined,
+    excludeColumns: ExcludableVoterColumn[] | undefined,
     res: FastifyReply,
   ): Promise<void> {
     const gpDownloadCookie =

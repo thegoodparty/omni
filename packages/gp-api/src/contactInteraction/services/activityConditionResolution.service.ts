@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
-import { DoorKnockOutcome, Prisma, SupportAnswer } from '@/generated/prisma'
+import {
+  DoorKnockOutcome,
+  PhoneBankCallOutcome,
+  Prisma,
+  SupportAnswer,
+} from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   type ActivityConditionAction,
@@ -58,6 +63,21 @@ const DOOR_KNOCK_ACTION_PREDICATES: Partial<
   answered: Prisma.sql`outcome::text = ${DoorKnockOutcome.answered}`,
   not_home: Prisma.sql`outcome::text = ${DoorKnockOutcome.not_home}`,
   refused_to_engage: Prisma.sql`outcome::text = ${DoorKnockOutcome.refused_to_engage}`,
+  support_yes: Prisma.sql`support_answer::text = ${SupportAnswer.supporter}`,
+  support_unsure: Prisma.sql`support_answer::text = ${SupportAnswer.unsure}`,
+  support_no: Prisma.sql`support_answer::text = ${SupportAnswer.non_supporter}`,
+}
+
+const PHONE_BANKING_ACTION_PREDICATES: Partial<
+  Record<ActivityConditionAction, Prisma.Sql>
+> = {
+  answered: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.answered}`,
+  no_answer: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.no_answer}`,
+  voicemail: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.voicemail}`,
+  wrong_number: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.wrong_number}`,
+  refused: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.refused}`,
+  disconnected: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.disconnected}`,
+  hung_up: Prisma.sql`outcome::text = ${PhoneBankCallOutcome.hung_up}`,
   support_yes: Prisma.sql`support_answer::text = ${SupportAnswer.supporter}`,
   support_unsure: Prisma.sql`support_answer::text = ${SupportAnswer.unsure}`,
   support_no: Prisma.sql`support_answer::text = ${SupportAnswer.non_supporter}`,
@@ -284,6 +304,8 @@ export class ActivityConditionResolutionService extends createPrismaBase(
         return this.resolveRobocall(organizationSlug, outreachId, actions)
       case 'doorKnocking':
         return this.resolveDoorKnock(organizationSlug, actions)
+      case 'phoneBanking':
+        return this.resolvePhoneBanking(organizationSlug, outreachId, actions)
       default:
         throw new BadRequestException(
           `Activity conditions aren't supported for the "${outreachType}" channel`,
@@ -352,6 +374,36 @@ export class ActivityConditionResolutionService extends createPrismaBase(
       SELECT DISTINCT person_id AS "personId"
       FROM contact_interaction_door_knock
       WHERE organization_slug = ${organizationSlug}
+      ${predicate ? Prisma.sql`AND ${predicate}` : Prisma.empty}
+    `)
+    return new Set(rows.map((row) => row.personId))
+  }
+
+  // Phone banking interactions link via phoneBankingListId, not
+  // Outreach.id (the @unique 1:1 on Outreach.phoneBankingListId), so a
+  // pinned outreachId scopes through a subquery rather than a direct
+  // column match.
+  private async resolvePhoneBanking(
+    organizationSlug: string,
+    outreachId: number | null | undefined,
+    actions: ActivityConditionAction[],
+  ): Promise<Set<string>> {
+    const predicate = buildActionsPredicate(
+      actions,
+      PHONE_BANKING_ACTION_PREDICATES,
+    )
+    const rows = await this.client.$queryRaw<{ personId: string }[]>(Prisma.sql`
+      SELECT DISTINCT person_id AS "personId"
+      FROM contact_interaction_phone_banking
+      WHERE organization_slug = ${organizationSlug}
+      ${
+        outreachId != null
+          ? Prisma.sql`AND phone_banking_list_id = (
+              SELECT phone_banking_list_id FROM outreach
+              WHERE id = ${outreachId}
+            )`
+          : Prisma.empty
+      }
       ${predicate ? Prisma.sql`AND ${predicate}` : Prisma.empty}
     `)
     return new Set(rows.map((row) => row.personId))

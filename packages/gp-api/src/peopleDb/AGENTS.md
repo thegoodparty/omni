@@ -72,9 +72,9 @@ service pointed at a disconnected client after a URL swap.
 
 `peopleQuery.module.ts` provides and exports: `DistrictService`,
 `StatsService`, `VoterSampleService`, `VoterQueryService`,
-`VoterDownloadService`, `VoterDoorKnockingService`. Import this module to get
-the whole people-db surface; don't reach for individual services from other
-modules directly.
+`VoterDownloadService`, `VoterDoorKnockingService`, `VoterPackService`,
+`VoterDensityService`. Import this module to get the whole people-db surface;
+don't reach for individual services from other modules directly.
 
 ## `plan_cache_mode=force_custom_plan` — do not remove it
 
@@ -112,6 +112,127 @@ Two traps when touching this:
   a space; the option is then silently ignored and the cliff returns with
   nothing to show it. It is written by hand with `%20` for this reason, and
   `peopleDb.service.test.ts` asserts the encoding.
+
+## Every query goes through `runUnderStatementTimeout` — no exceptions
+
+`utils/statementTimeout.util.ts` wraps a query in
+`$transaction([SET LOCAL statement_timeout = '25000ms', <query>])` and maps
+SQLSTATE 57014 to a `GatewayTimeoutException`. **Any new `$queryRaw` that can
+touch a Voter partition goes through it.** The one deliberate exception is
+`voterDownload.service.ts`, which runs a minutes-long COPY on its own pool and
+sets `statement_timeout = 0` explicitly.
+
+This is not belt-and-braces on top of `socket_timeout=60`. The two do
+materially different things, and the difference is the whole point:
+
+| | `statement_timeout` (25s) | `socket_timeout` (60s) |
+| --- | --- | --- |
+| Who cancels | Postgres, server-side | Prisma, client-side |
+| Query after firing | **killed** | **keeps running** on people-db |
+| Error surfaced | `P2010 Code: 57014` | `P2010 Code: N/A`, `Timed out during query execution` |
+| Maps to | classified 504 | unhandled 500 |
+
+So an unguarded query that goes pathological burns people-db CPU for a further
+**35 seconds** after the client has abandoned it — precisely the wrong
+behaviour when the datastore is already the thing under stress, and
+self-amplifying under retries.
+
+Prod 2026-08-20 is the natural experiment, and is why this rule is written down
+rather than left to taste. In one degradation window, on one cluster:
+
+| endpoint | guarded? | duration | outcome |
+| --- | --- | --- | --- |
+| `POST /v1/chats/:id/messages` | yes | 25,011 / 25,016ms | clean 504 |
+| `GET /v1/contacts/list-detail` | yes | 25,013ms | clean 504 |
+| `GET /v1/door-knocking/turfs/:id/route` | **no** | **60,209ms** | **unhandled 500** |
+
+Every guarded path died within 16ms of the 25s ceiling. The single unguarded
+path — `VoterDoorKnockingService.residents()` — rode the socket timeout to 60s.
+`voterDoorKnocking.service.ts` predated the timeout convention (added
+2026-07-27; the guard landed 2026-07-31 in `voterQuery.service.ts` only) and was
+simply never retrofitted. Note what the fix does and does not do: it makes that
+failure **faster, cheaper and attributable**. It does not make it less likely.
+
+## Door-knocking's address-key predicate is non-sargable (latent fragility)
+
+`residents()` filters on
+`buildDoorKnockingAddressKeySql('v') = ANY($1::text[])`, where the left side is
+`CONCAT_WS('|', UPPER(TRIM(COALESCE(col::text, ''))), …)` over several address
+columns. That is a **computed expression, not an indexed column**, and there is
+no matching expression index on the people-db mirror. Postgres therefore has to
+compute the key for every row in scope and compare it against the array, so cost
+scales with both the partition/district size and `addressKeys.length`.
+
+Contrast `evaluate()` directly above it: same key in the SELECT list, but its
+scan is bounded by a bbox (`buildBboxSql`) on indexed lat/long columns. It uses
+the computed key for output, not to constrain the scan. `residents()` uses it to
+constrain the scan, and that is the difference.
+
+This is a **latent fragility, not a live defect**. Measured reality as of
+2026-08-20: a two-second median on this endpoint, ten consecutive 200s for the
+same user and turf ~19h before the incident, and exactly one 5xx in seven days.
+It is best read as the reason `residents()` is the query that tips over *first*
+when people-db is degraded — not a cause of routine failure.
+
+**Do not propose an expression index on the strength of this alone.** The Voter
+table is a 200M-row partitioned production mirror; an index there is a human
+decision about lock behaviour and rollout, and one data point against a
+two-second median does not justify it. If this endpoint's failures ever become
+routine rather than a once-in-seven-days coincidence with a datastore-wide
+slowdown, this is where to start, and the shape to evaluate is an expression
+index matching `buildDoorKnockingAddressKeySql` exactly.
+
+Related arithmetic worth knowing if you come back here: `residentsCap =
+targetPersonIds.length * 10`, applied as `LIMIT residentsCap + 1`. The cap
+bounds the *result*, never the scan — a non-matching predicate still scans the
+partition regardless of how low the LIMIT is — and on a large route it is high
+enough that it stops meaningfully bounding anything. It exists to reject rather
+than truncate (see below), not to make the query cheap.
+
+### Its projection is wide, and that is not the same risk
+
+`residents()` selects eleven demographic columns (`Voter_Status`,
+`Marital_Status`, `Presence_Of_Children`, `Veteran_Status`,
+`Homeowner_Probability_Model`, `Business_Owner`, `Education_Of_Person`,
+`Estimated_Income_Amount_Int`, `Language_Code`,
+`EthnicGroups_EthnicGroup1Desc`, plus a computed
+`("StateVoterID" IS NOT NULL) AS "registered"`) on top of name/age/party/phones,
+so the door can show a canvasser who they are talking to.
+
+Read that against the note above rather than as a contradiction of it. The cost
+this query carries is in the **scan** — a computed key compared against an
+array, with no index to probe — and the column list does not move it: every one
+of these is read off a row the scan already had to visit, and the result is
+bounded by `residentsCap` either way. Widening the **projection** here is
+routine. Widening the **predicate**, raising the LIMIT, or softening the
+reject-rather-than-truncate guard is not, and none of those changed.
+
+`registered` is computed rather than selected raw on purpose: it is the pack's
+own definition of the word (`voterPack.service.ts` derives `registered` the same
+way), and it keeps a raw state voter id out of a payload with no use for one.
+Note the `Person` contract's `registeredVoter` is a hardcoded `'Yes'` that reads
+no column at all — don't reach for it as a model.
+
+Display mapping is **not** duplicated here. The service calls the same exported
+mappers `/v1/contacts` person detail uses
+(`utils/transformToPersonOutput.util.ts`), so `Inferred Married` reaches a door
+as "Likely Married" and `Completed Graduate School Likely` as "Graduate Degree",
+worded identically in both products. Two of those mappers are **presence-only**
+— `mapVeteranStatus` and `mapBusinessOwner` return `'Yes'` or null, because the
+columns hold a value meaning yes or nothing at all — so absence is
+indistinguishable from unknown and no consumer may render "No" for them. The one
+deliberate departure is `language`: `mapLanguage` returns `'Other'` for an
+absent value, which is right for a CSV column that must always have a cell and
+wrong at a door, so the service keeps a null column null and only maps a present
+value. That mirrors the `politicalParty` rule three lines above it.
+
+## Reject rather than truncate — do not "fix" this into pagination
+
+Both `evaluate()` and `residents()` deliberately fail the whole request rather
+than return a partial roster, via `LIMIT cap + 1` and a `BadRequestException`
+when the extra row comes back. A truncated roster sends a canvasser to the wrong
+doors, which is worse than an error. Any change that silently caps, paginates or
+drops residents here is a correctness regression, not a performance win.
 
 ## The state-literal partition-pruning invariant
 
@@ -154,7 +275,10 @@ Keep new tests in this module to that pattern — don't reach for
 | `services/district.service.ts`          | District resolution/scoping                                           |
 | `services/voterSample.service.ts`       | Sample rows (for preview/testing scenarios)                           |
 | `services/voterDoorKnocking.service.ts` | Door-knocking target resolution                                       |
+| `services/voterPack.service.ts`         | Encoded voter-pack build/read                                         |
+| `services/voterDensity.service.ts`      | Voter-density heat-map cells (read-only, precomputed H3 centroids)    |
 | `schemas/filters.schema.ts`             | Zod filter input schema                                               |
+| `utils/statementTimeout.util.ts`        | `runUnderStatementTimeout` — the 25s guard every query goes through   |
 | `utils/filters.sql.util.ts`             | `buildVoterFiltersSql` — filter → SQL translation, incl. id-set cap   |
 | `utils/buildVoterWhereSql.util.ts`      | WHERE-clause SQL builders, incl. `stateEquals`                        |
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |

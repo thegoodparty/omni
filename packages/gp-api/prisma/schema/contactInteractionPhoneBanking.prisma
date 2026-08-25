@@ -1,0 +1,47 @@
+enum PhoneBankCallOutcome {
+  answered
+  no_answer
+  voicemail
+  wrong_number
+  refused
+  // ENG-10945 additions: additive only, existing members are persisted
+  // inside saved filters (activity conditions) so they can never be renamed.
+  // disconnected = dead line, number-level like wrong_number (no personId,
+  // fans out, suppresses the phone). hung_up = a person ended the call,
+  // person-level optionality like refused (personId allowed, not required).
+  disconnected
+  hung_up
+}
+
+model ContactInteractionPhoneBanking {
+  id                 String               @id @default(uuid(7))
+  createdAt          DateTime             @default(now()) @map("created_at")
+  // Drives the voter_likelihood sourceId mint (`${id}:${updatedAt}`) so a
+  // corrected willVote answer on the same row records a new status event
+  // instead of the door-knock sync's replay-dedup no-op.
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  organizationSlug   String               @map("organization_slug")
+  organization       Organization         @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId           String               @map("person_id")
+  occurredAt         DateTime             @map("occurred_at")
+  // Null for manual logs; Postgres treats NULLs as distinct so the unique
+  // index never collides those rows.
+  list               PhoneBankingList?    @relation(fields: [phoneBankingListId], references: [id], onDelete: Cascade)
+  phoneBankingListId Int?                 @map("phone_banking_list_id")
+  outcome            PhoneBankCallOutcome
+  supportAnswer      SupportAnswer?       @map("support_answer")
+  // GOTV signal captured by the call session; null on manual/legacy rows.
+  willVote           WillVoteAnswer?      @map("will_vote")
+  note               String?
+  manual             Boolean              @default(false)
+  // ENG-10946: the caller who logged this row. Null on rows written before
+  // this column existed (no backfill) — the feed renders those authorless.
+  actorUserId        Int?                 @map("actor_user_id")
+  actor              User?                @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  // The upsert key: an answered-outcome save writes one row per person on
+  // the list, and a corrected answer upserts in place rather than forking.
+  @@unique([phoneBankingListId, personId])
+  @@index([organizationSlug, personId, occurredAt])
+  @@map("contact_interaction_phone_banking")
+}

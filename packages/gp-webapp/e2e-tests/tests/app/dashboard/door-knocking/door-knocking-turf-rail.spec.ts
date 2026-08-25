@@ -45,9 +45,18 @@ test.describe('native door-knocking turf rail', () => {
     const row = turfRow(page, turf.id)
     await expect(row).toBeVisible({ timeout: 30_000 })
     await expect(row.getByRole('button', { name, exact: true })).toBeVisible()
+    // Parenthesised, and counting the ACTIVE lists only — the archived ones are
+    // sectioned under their own heading below this one.
     await expect(
-      page.getByRole('heading', { name: 'Saved lists · 1' }),
+      page.getByRole('heading', { name: 'Saved lists (1)' }),
     ).toBeVisible()
+
+    // Delete is offered on the row itself, which is where lists get compared —
+    // asserted here, while the rail is the surface on screen, rather than after
+    // the details sheet has covered it.
+    await expect(
+      row.getByRole('button', { name: `Delete ${name} list`, exact: true }),
+    ).toBeEnabled()
 
     await row.getByRole('button', { name: 'Details', exact: true }).click()
 
@@ -59,13 +68,38 @@ test.describe('native door-knocking turf rail', () => {
     // that has never been knocked must therefore report no route AND still
     // offer deletion — the two halves of that derivation, asserted together so
     // a regression in either one fails here rather than at a frozen turf
-    // nobody can remove.
+    // nobody can remove. Enabled, not merely visible: the control now renders
+    // for a locked list too, so presence alone no longer distinguishes the two.
     await expect(page.getByText('Not knocked yet').first()).toBeVisible()
+    // `exact` matters — Playwright's name option is a substring match by
+    // default, and the row's own "Delete <name> list" contains this one, so
+    // without it this locator matches both and fails on strict mode.
     await expect(
-      page.getByRole('button', { name: `Delete ${name}` }),
+      page.getByRole('button', { name: `Delete ${name}`, exact: true }),
+    ).toBeEnabled()
+
+    // The pack never loads in this environment (no district tiles), so the
+    // sections are asserted only as far as their titles — enough to catch one
+    // disappearing, without depending on figures this spec has no data to
+    // produce. `getByText`, not `getByRole('heading')`: the shared drawer's
+    // section titles are the styleguide `Eyebrow`, a `p`, which is what the
+    // outreach history drawer has always used.
+    await expect(page.getByText('Overview', { exact: true })).toBeVisible()
+    await expect(
+      page.getByText('Applied filters', { exact: true }),
     ).toBeVisible()
 
-    await page.getByRole('button', { name: 'Close details' }).click()
+    // Overview only — the drawer reports about the list, never about the
+    // people in it. `TurfRoster` and the section that held it are gone, and
+    // this is the assertion that stops them coming back by accident.
+    await expect(page.getByText('Doors in this list')).toHaveCount(0)
+    await expect(
+      page.getByText(/Street addresses arrive with the route/),
+    ).toHaveCount(0)
+
+    // The close moved into the shared shell, where it carries the drawer's own
+    // name rather than one this surface invented.
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(row).toBeVisible()
   })
 })

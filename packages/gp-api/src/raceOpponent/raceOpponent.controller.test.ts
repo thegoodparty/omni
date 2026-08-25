@@ -454,6 +454,65 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
     expect(foe.isIncumbent).toBeNull()
   })
 
+  it('includes rostered opponents with no collected rows (ENG-10893)', async () => {
+    // The bug: an opponent persisted in the campaign_strategy_opponent roster
+    // (discovery or manual entry) but for whom the collection agent found no
+    // public sources gets dropped from KYO, while the plan's Executive
+    // Summary/Opposition Research (which reads the same roster) still shows
+    // them. Assert both KYO branches: with a matching roster row present, and
+    // with no collected rows at all for the rostered name.
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const plan = await service.prisma.campaignStrategy.create({
+      data: { campaignId: campaign.id, raceId: RACE_HASH },
+    })
+    await service.prisma.campaignStrategyOpponent.createMany({
+      data: [
+        {
+          campaignStrategyId: plan.id,
+          fullName: JANE,
+          partyAffiliation: 'Democratic',
+          incumbent: false,
+        },
+        {
+          campaignStrategyId: plan.id,
+          fullName: 'Michael Foster',
+          partyAffiliation: 'Republican',
+          incumbent: true,
+          websiteUrl: 'michaelforcity.com',
+        },
+      ],
+    })
+    await service.prisma.raceOpponent.create({
+      data: {
+        campaignId: campaign.id,
+        runId: 'run-x',
+        opponentName: JANE,
+        sourceType: BALLOTPEDIA,
+        sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+        content: { text: 'bio' },
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    const foster = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === 'Michael Foster',
+    )
+    expect(foster).toBeDefined()
+    expect(foster.items).toEqual([])
+    expect(foster.summary).toBeNull()
+    expect(foster.party).toBe('Republican')
+    expect(foster.isIncumbent).toBe(true)
+    expect(foster.websiteUrl).toBe('michaelforcity.com')
+  })
+
   it('returns a clean empty response when nothing has been collected', async () => {
     await seedCampaign({ slug: SLUG, ownerId: service.user.id, isPro: true })
 

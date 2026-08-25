@@ -92,8 +92,8 @@ export default function NotAVoterControl({
   }
 
   // Asked only once the door is already logged as `not_a_voter`. The outcome
-  // ships without a reason by design, so putting this question anywhere ahead
-  // of the save would charge the quick path a third tap to record a door.
+  // ships without a reason by design, so putting this question ahead of the
+  // save would make an optional answer the price of recording the door.
   if (target.knockStatus !== 'not_a_voter') return null
 
   return (

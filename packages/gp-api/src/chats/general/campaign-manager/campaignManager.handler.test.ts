@@ -6,6 +6,7 @@ import {
 import { ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
@@ -23,9 +24,18 @@ import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import type { ElectionsService } from '@/elections/services/elections.service'
 import type { FeaturesService } from '@/features/services/features.service'
+import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
+
+// Native web search has no description; every other registered tool does.
+const descriptionOf = (tool: LlmTool | undefined): string => {
+  if (!tool || !('description' in tool)) {
+    throw new Error('expected a tool with a description')
+  }
+  return tool.description
+}
 
 const buildHandler = (provider?: DatabricksProvider): CampaignManagerHandler =>
   new CampaignManagerHandler(
@@ -96,6 +106,16 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
   it('omits them when no Databricks provider is configured', () => {
     const tools = buildHandler(undefined).buildTools(ctxWith(ENABLED))
     expect(Object.keys(tools)).not.toContain('query_constituent_data')
+  })
+
+  it('registers mart tools whose descriptions carry the shared routing rules', () => {
+    const tools = buildHandler(fakeProvider).buildTools(ctxWith(ENABLED))
+    expect(descriptionOf(tools.query_constituent_data)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+    expect(descriptionOf(tools.describe_constituent_data)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
   })
 })
 
@@ -213,6 +233,16 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
     expect(Object.keys(tools)).toContain('describe_filter_dimensions')
     expect(Object.keys(tools)).toContain('count_contacts')
+  })
+
+  it('registers CRM tools whose descriptions carry the shared routing rules', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
+    expect(descriptionOf(tools.describe_filter_dimensions)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+    expect(descriptionOf(tools.count_contacts)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
   })
 
   it('omits both when the win-crm flag is off', () => {

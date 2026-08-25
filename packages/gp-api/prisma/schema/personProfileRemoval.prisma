@@ -9,13 +9,32 @@
 // applies to *unclaimed* persons that have no User or PersonProfile row at all,
 // and Person lives in election-api (a different service/schema). Unique on
 // personId so the flag is idempotent.
+//
+// A takedown is ACTIVE while `clearedAt IS NULL`. Reverting one sets clearedAt
+// rather than deleting the row, so the record that a person was once taken down
+// (and who honored it) survives the revert — this is the paper trail for a
+// request usually made under privacy law. Re-removing a cleared person reopens
+// the same row.
 model PersonProfileRemoval {
   id          String   @id @default(uuid(7))
   personId    String   @unique @map("person_id") // subject Person being removed (gp_candidate_id)
   note        String?  @db.Text // optional ops note on why/what was requested
   requestedAt DateTime @default(now()) @map("requested_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
 
+  // Who in ops applied/reverted the takedown. gp-admin authenticates to gp-api
+  // with a shared M2M token, so the operator is invisible to the request —
+  // there is no req.user to read and AdminAuditInterceptor logs nothing for M2M
+  // callers. The caller therefore has to name itself, and it is required so an
+  // unattributed takedown is impossible to record.
+  appliedBy      String    @map("applied_by")
+  clearedAt      DateTime? @map("cleared_at")
+  clearedBy      String?   @map("cleared_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // The public render gate resolves the active flag on every uncached profile
+  // request, and the admin list filters the same column.
+  @@index([clearedAt])
   @@map("person_profile_removal")
 }

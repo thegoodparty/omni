@@ -40,9 +40,47 @@ export const target = (
   // a fixture with none would let the omission pass by accident.
   cellPhone: '(312) 555-0101',
   landline: null,
+  // Carried for the same reason, and it matters more here. The eleven-attribute
+  // demographic profile rides the route payload for `PersonSheet` and is
+  // deliberately absent from both paper surfaces — paper leaves the building
+  // and stops being access-controlled when it does, which is the argument that
+  // already keeps phone numbers off these pages and applies with more force to
+  // a profile of a named voter. Every value below is distinctive enough that a
+  // renderer leaking it fails a test rather than passing quietly.
+  registeredVoter: true,
+  turnoutLikelihood: 'Super',
+  maritalStatus: 'Likely Married',
+  hasChildrenUnder18: 'Yes',
+  veteranStatus: 'Yes',
+  homeowner: 'Homeowner',
+  businessOwner: 'Yes',
+  levelOfEducation: 'Graduate Degree',
+  estimatedIncomeAmount: 82000,
+  language: 'Spanish',
+  ethnicityGroup: 'Hispanic',
   knockStatus: 'unknown',
   mayHaveMoved: false,
   doNotKnock: false,
+  // ADR 0011, and carried for the same reason as the two blocks above. Saved
+  // contact notes ride the route payload for `PersonSheet`'s Notes section and
+  // are absent from both paper surfaces with more force again than the profile
+  // is: a page of free text a named person typed about a named voter is the
+  // largest disclosure on this payload, on the one surface that stops being
+  // access-controlled the moment it is printed. The body below is distinctive
+  // enough that a renderer leaking it fails a test rather than passing quietly.
+  notes: {
+    entries: [
+      {
+        id: '019826f4-0000-7000-8000-000000000001',
+        personId: 'person-1',
+        body: 'Do not ring the bell, the dog bites',
+        createdAt: '2026-07-01T15:00:00.000Z',
+        updatedAt: '2026-07-01T15:00:00.000Z',
+        actorName: null,
+      },
+    ],
+    total: 9,
+  },
   ...overrides,
 })
 

@@ -22,6 +22,8 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import { CacheControls, MimeTypes } from 'http-constants-ts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UsersService } from '@/users/services/users.service'
 import {
@@ -38,8 +40,15 @@ import {
 } from '../schemas/personProfile.schema'
 import {
   ClearPersonProfileRemovalDto,
+  ListPersonProfileRemovalsDto,
+  LookupPersonDto,
+  PersonLookupResponse,
+  PersonLookupResponseSchema,
+  PersonProfileRemovalList,
+  PersonProfileRemovalListSchema,
   SetPersonProfileRemovalDto,
 } from '../schemas/PersonProfileRemoval.schema'
+import { PersonLookupService } from '../services/person-lookup.service'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
@@ -63,6 +72,7 @@ export class PersonProfilesController {
     private readonly s3: S3Service,
     private readonly personIdBackfill: PersonIdBackfillService,
     private readonly users: UsersService,
+    private readonly personLookup: PersonLookupService,
   ) {}
 
   private requireUser(user: User | undefined): User {
@@ -267,17 +277,25 @@ export class PersonProfilesController {
     return updated
   }
 
-  // --- Admin/ops privacy removal (minimal setter; no admin UI yet) ----------
+  // --- Admin/ops privacy removal -------------------------------------------
   // Not owner-scoped: removal typically targets an *unclaimed* person (no User,
   // no PersonProfile), so it is keyed by personId and gated to admin/M2M
   // callers rather than req.user. Setting/clearing busts the marketing cache so
   // the page flips to/from the K/L "removal requested" states immediately.
+  //
+  // The operator is a body field, not something the server derives. gp-admin
+  // (the UI for these routes) authenticates with a shared M2M token and
+  // authorizes the human in its own server action, so req.user is empty here
+  // and AdminAuditInterceptor — which keys off @Roles(admin) metadata — never
+  // fires. Switching these routes to @Roles(admin) is not the fix: RolesGuard
+  // rejects M2M callers, which is exactly what gp-admin is.
   @Post('removals')
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.OK)
   async setRemoval(@Body() body: SetPersonProfileRemovalDto) {
     const removal = await this.personProfilesService.setRemoval(
       body.personId,
+      body.appliedBy,
       body.note,
     )
     void this.revalidation.revalidatePerson(body.personId)
@@ -288,9 +306,42 @@ export class PersonProfilesController {
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.OK)
   async clearRemoval(@Body() body: ClearPersonProfileRemovalDto) {
-    await this.personProfilesService.clearRemoval(body.personId)
+    await this.personProfilesService.clearRemoval(body.personId, body.clearedBy)
     void this.revalidation.revalidatePerson(body.personId)
     return { personId: body.personId, removed: false as const }
+  }
+
+  // Carries the ops note and the actor, so it stays behind the same admin guard
+  // as the writes — the unauthenticated /unlisted feed is personId-only for
+  // precisely this reason.
+  @Get('removals')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(PersonProfileRemovalListSchema)
+  async listRemovals(
+    @Query() query: ListPersonProfileRemovalsDto,
+  ): Promise<PersonProfileRemovalList> {
+    return this.personProfilesService.listRemovals({
+      includeCleared: query.includeCleared ?? false,
+    })
+  }
+
+  // Resolves the public URL a privacy request actually names into the personId
+  // the routes above are keyed by, so the operator can confirm the subject
+  // before submitting. Admin-gated because it maps a public slug onto identity
+  // fields for an arbitrary person.
+  @Get('removals/lookup')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(PersonLookupResponseSchema)
+  async lookupPerson(
+    @Query() query: LookupPersonDto,
+  ): Promise<PersonLookupResponse> {
+    const person = await this.personLookup.lookup(query.q)
+    if (!person) {
+      throw new NotFoundException('No person matches that slug or URL')
+    }
+    return person
   }
 
   private async requireOwnProfile(user: User) {

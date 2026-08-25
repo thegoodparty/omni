@@ -23,7 +23,10 @@ import {
   TableRow,
   cn,
 } from '@styleguide'
-import { SlidersHorizontalIcon } from '@styleguide/components/ui/icons'
+import {
+  ArchiveIcon,
+  SlidersHorizontalIcon,
+} from '@styleguide/components/ui/icons'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
@@ -59,6 +62,27 @@ const peopleUnit = (type: HistoryRow['outreachType']): string =>
     ? 'people called'
     : 'people'
 
+// nativePhoneBanking carries no send counts on the list payload either — the
+// live-called count lives on the detail's phoneBanking block, same pattern
+// as SocialPlatformsMetric.
+const PhoneBankingCalledMetric = ({ id }: { id: number }) => {
+  const { data } = useOutreachDetail(id)
+  const count = data?.phoneBanking?.peopleCalled
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return <>{count.toLocaleString()} people called</>
+}
+
+const PhoneBankingSupportersMetric = ({ id }: { id: number }) => {
+  const { data } = useOutreachDetail(id)
+  const count = data?.phoneBanking?.supporters
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return <>{count.toLocaleString()} supporters</>
+}
+
 // compact = the mobile card's flat text-xs line; the table cell splits the
 // number (text-sm) from the unit (text-xs) per the prototype.
 const RowMetric = ({
@@ -70,6 +94,9 @@ const RowMetric = ({
 }) => {
   if (row.outreachType === OUTREACH_TYPES.socialMedia) {
     return <SocialPlatformsMetric id={row.id} />
+  }
+  if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
+    return <PhoneBankingCalledMetric id={row.id} />
   }
   const sent = row.textCount ?? row.billableTextCount
   if (typeof sent === 'number') {
@@ -93,8 +120,14 @@ const RowMetric = ({
 // Result metrics (responses, answers, supporters) arrive with the per-channel
 // result sweeps in phases 2-4; until then every row shows the prototype's
 // missing-results placeholder. Social keeps it permanently (engagements are
-// cut from v1 by the social channel spec).
-const RowResults = () => <span className="text-muted-foreground">—</span>
+// cut from v1 by the social channel spec). nativePhoneBanking's results
+// (supporter count) are already computed on the detail, so it fills the slot.
+const RowResults = ({ row }: { row: HistoryRow }) => {
+  if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
+    return <PhoneBankingSupportersMetric id={row.id} />
+  }
+  return <span className="text-muted-foreground">—</span>
+}
 
 // Filter vocabulary: one entry per channel pill (text and p2p are both "SMS").
 const CHANNEL_FILTERS = [
@@ -108,12 +141,12 @@ const CHANNEL_FILTERS = [
   {
     key: 'phone-bank',
     label: 'Phone banking',
-    types: [OUTREACH_TYPES.phoneBanking],
+    types: [OUTREACH_TYPES.phoneBanking, OUTREACH_TYPES.nativePhoneBanking],
   },
   {
     key: 'door',
     label: 'Door knocking',
-    types: [OUTREACH_TYPES.doorKnocking],
+    types: [OUTREACH_TYPES.doorKnocking, OUTREACH_TYPES.nativeDoorKnocking],
   },
 ] as const
 
@@ -132,6 +165,7 @@ const STATUS_FILTERS = [
   'In review',
   'Denied',
   'Scheduled',
+  'In progress',
   'Done',
   'Pending payment',
 ] as const
@@ -157,6 +191,7 @@ export const OutreachHistoryTable = ({
   onRowClick,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
+  const [showArchive, setShowArchive] = useState(false)
   const [channelFilter, setChannelFilter] = useState<Set<ChannelFilterKey>>(
     () => new Set(CHANNEL_FILTERS.map((c) => c.key)),
   )
@@ -168,6 +203,7 @@ export const OutreachHistoryTable = ({
     () =>
       [...rows]
         .filter((row) => {
+          if (Boolean(row.archivedAt) !== showArchive) return false
           // Rows outside both vocabularies (odd legacy types, null statuses)
           // always show — filters only subtract what they can name.
           const channel = channelFilterKey(row.outreachType)
@@ -180,7 +216,7 @@ export const OutreachHistoryTable = ({
           )
         })
         .sort((a, b) => rowTime(b) - rowTime(a)),
-    [rows, channelFilter, statusFilter],
+    [rows, showArchive, channelFilter, statusFilter],
   )
 
   const activeFilterCount =
@@ -202,7 +238,7 @@ export const OutreachHistoryTable = ({
 
   useEffect(() => {
     setPage(1)
-  }, [channelFilter, statusFilter])
+  }, [showArchive, channelFilter, statusFilter])
 
   const toggleChannel = (key: ChannelFilterKey, on: boolean) =>
     setChannelFilter((prev) => {
@@ -225,20 +261,30 @@ export const OutreachHistoryTable = ({
     setStatusFilter(new Set(STATUS_FILTERS))
   }
 
+  const activeRowCount = rows.filter((row) => !row.archivedAt).length
+
   const emptyMessage =
-    rows.length === 0
-      ? 'No campaigns yet. Pick a channel above to create your first.'
-      : 'No campaigns match your filters.'
+    visible.length === 0 && activeFilterCount > 0
+      ? 'No campaigns match your filters.'
+      : showArchive
+        ? 'No archived campaigns.'
+        : activeRowCount === 0 && rows.length > 0
+          ? 'All your campaigns are archived. Click “Archive” to view them.'
+          : activeRowCount === 0
+            ? 'No campaigns yet. Pick a channel above to create your first.'
+            : 'No campaigns match your filters.'
 
   return (
     <section className="space-y-3 mt-10 mb-32">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">
-            Outreach history
+            {showArchive ? 'Archived outreach' : 'Outreach history'}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Every campaign you&apos;ve sent, most recent first.
+            {showArchive
+              ? 'Completed and cancelled campaigns from earlier cycles.'
+              : "Every campaign you've sent, most recent first."}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -295,6 +341,15 @@ export const OutreachHistoryTable = ({
               )}
             </PopoverContent>
           </Popover>
+          <Button
+            variant="outline"
+            size="small"
+            onClick={() => setShowArchive((v) => !v)}
+            aria-pressed={showArchive}
+          >
+            <ArchiveIcon className="size-4" />
+            {showArchive ? 'Back to active' : 'Archive'}
+          </Button>
         </div>
       </div>
 
@@ -358,7 +413,7 @@ export const OutreachHistoryTable = ({
                     <RowMetric row={row} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    <RowResults />
+                    <RowResults row={row} />
                   </TableCell>
                   <TableCell className="text-right">
                     <HistoryStatusText label={getHistoryStatusLabel(row)} />
@@ -402,7 +457,7 @@ export const OutreachHistoryTable = ({
                 {row.name || row.title || 'Untitled campaign'}
               </span>
               <span className="text-xs text-muted-foreground">
-                <RowMetric row={row} compact /> · <RowResults />
+                <RowMetric row={row} compact /> · <RowResults row={row} />
               </span>
             </Card>
           ))

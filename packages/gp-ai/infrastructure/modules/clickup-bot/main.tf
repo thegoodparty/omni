@@ -67,8 +67,14 @@ data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
 resource "aws_cloudwatch_log_group" "clickup_bot" {
-  name              = "/aws/lambda/clickup-bot-${var.environment}"
-  retention_in_days = 30
+  name = "/aws/lambda/clickup-bot-${var.environment}"
+  # Matches the agent's log group (see engineer-agent-fargate), and for a
+  # related reason: this is where delivery history lives, which is the only way
+  # to answer how many reported bugs the bot actually saw. That question is not
+  # academic here — a suspended webhook dropped every bug for two weeks from
+  # 2026-07-31 while looking healthy, and reconstructing the size of that gap
+  # afterwards depended entirely on these lines still existing.
+  retention_in_days = 400
 
   tags = {
     Environment = var.environment

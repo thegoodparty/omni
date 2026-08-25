@@ -113,6 +113,7 @@ const savedDetail = {
   billableTextCount: null,
   campaignPlanDueDate: null,
   organizationSlug: null,
+  archivedAt: null,
   social: {
     purpose: 'introduce_myself',
     draftMessage: 'draft',
@@ -185,9 +186,11 @@ describe('SocialFlow', () => {
     expect(await screen.findByText('Adapted for facebook')).toBeInTheDocument()
     expect(screen.getByText('Caption for tiktok')).toBeInTheDocument()
 
-    // Campaign name is auto-suggested from the purpose and editable.
+    // Campaign name is auto-suggested from the purpose and editable. The card
+    // copy is "Introduce myself"; the name field gets the purpose's own short
+    // suggestion instead.
     const nameInput = screen.getByLabelText('Campaign name')
-    expect(nameInput).toHaveValue('Introduce myself')
+    expect(nameInput).toHaveValue('Introduction posts')
 
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -195,6 +198,23 @@ describe('SocialFlow', () => {
     expect(onSaved).toHaveBeenCalledWith(
       expect.objectContaining({ id: 77, outreachType: 'socialMedia' }),
     )
+  })
+
+  it('does not auto-suggest a name for the custom purpose (the candidate is writing their own message)', async () => {
+    mockDraft()
+    mockGenerate()
+    openFlow()
+    await user.click(screen.getByText('Write my own message'))
+    await screen.findAllByText('What do you want to say?')
+
+    await user.type(screen.getByLabelText('Draft message'), 'Entirely my words')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Where do you want to share it?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('Adapted for facebook')).toBeInTheDocument()
+
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 
   it('re-generates with the updated platform set after Back-and-edit from share', async () => {

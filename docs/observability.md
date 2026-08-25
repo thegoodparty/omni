@@ -26,6 +26,23 @@ gp-api emits OpenTelemetry (OTLP) to Grafana Cloud. Grafana dashboards and alert
 rules are defined as code in `packages/gp-api/deploy/components/grafana.ts` and
 `components/alerting/` — app-side metric names must line up with those.
 
+## Log redaction
+
+Every log line gp-api and election-api write passes through `redactLine`
+(`packages/nest-common/src/observability/log-redaction.ts`), wired in as pino's
+`hooks.streamWrite`. It scrubs the literal values of the env vars named in
+`SECRET_NAMES`, sensitive query parameters, connection-string passwords, and
+`Authorization` credentials for any scheme — in the raw header form
+(`Authorization: Bearer x`), in the JSON-serialized header bag pino emits for an
+Axios error (`"Authorization":"JWT x"`), and in the escaped form a caller
+produces by `JSON.stringify`-ing an error into a log message. Schemes are left
+visible; the credential becomes `[REDACTED]`.
+
+The hook only protects _logs_. Anything that leaves the process another way —
+Slack notifications, Sentry events, SQS payloads, HTTP responses — is not
+redacted, so don't hand a serialized Axios error (its `config.headers` carries
+the credential) to those paths.
+
 ## Sentry (frontend errors)
 
 - **Org slug:** `goodparty`

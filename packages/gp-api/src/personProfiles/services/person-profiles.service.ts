@@ -18,6 +18,12 @@ const withIssues = {
 
 const UNLISTED_PERSON_CAP = 50_000
 
+// The admin takedown log is a screen an operator reads, not a feed a machine
+// consumes, so it is capped orders of magnitude below the sitemap ceiling. A
+// privacy takedown is a hand-filed request; a log long enough to hit this is a
+// signal to build paging, not to raise the number.
+const REMOVAL_LIST_CAP = 2_000
+
 @Injectable()
 export class PersonProfilesService extends createPrismaBase(
   MODELS.PersonProfile,
@@ -57,6 +63,10 @@ export class PersonProfilesService extends createPrismaBase(
   async listUnlisted() {
     const [removals, deleted] = await Promise.all([
       this.client.personProfileRemoval.findMany({
+        // Only ACTIVE takedowns. A reverted one stays on the table as history,
+        // and matching on row existence would keep that person out of the
+        // sitemap permanently even though their page renders again.
+        where: { clearedAt: null },
         select: { personId: true },
         take: UNLISTED_PERSON_CAP,
       }),
@@ -198,28 +208,68 @@ export class PersonProfilesService extends createPrismaBase(
 
   // --- Privacy removal flag (personId-keyed, not on the overlay) ------------
   // Unclaimed persons have no PersonProfile row, so the removal flag lives in
-  // its own table keyed by the civics personId.
+  // its own table keyed by the civics personId. A takedown is ACTIVE only while
+  // clearedAt is null; a reverted one stays on the table as history, so every
+  // read below has to filter on it rather than on row existence.
 
   async isRemoved(personId: string): Promise<boolean> {
-    const removal = await this.client.personProfileRemoval.findUnique({
-      where: { personId },
+    const removal = await this.client.personProfileRemoval.findFirst({
+      where: { personId, clearedAt: null },
       select: { personId: true },
     })
     return Boolean(removal)
   }
 
-  // Idempotent set (upsert) — flagging an already-removed person just refreshes
-  // the note/timestamp.
-  setRemoval(personId: string, note?: string | null) {
+  // Idempotent set (upsert) — flagging an already-removed person refreshes the
+  // note/actor/timestamp. Re-flagging a *cleared* person reopens that same row
+  // (personId is unique, so there is only ever one), which is why the update
+  // resets the revert fields: leaving a stale clearedAt would upsert a takedown
+  // that reads as already reverted.
+  setRemoval(personId: string, appliedBy: string, note?: string | null) {
     return this.client.personProfileRemoval.upsert({
       where: { personId },
-      create: { personId, note: note ?? null },
-      update: { note: note ?? null, requestedAt: new Date() },
+      create: { personId, appliedBy, note: note ?? null },
+      update: {
+        appliedBy,
+        note: note ?? null,
+        requestedAt: new Date(),
+        clearedAt: null,
+        clearedBy: null,
+      },
     })
   }
 
-  async clearRemoval(personId: string): Promise<void> {
-    await this.client.personProfileRemoval.deleteMany({ where: { personId } })
+  // updateMany, not update: clearing a person who was never removed (or was
+  // already cleared) is a no-op rather than a 500, which keeps the endpoint
+  // idempotent for a double-clicked Undo.
+  async clearRemoval(personId: string, clearedBy: string): Promise<void> {
+    await this.client.personProfileRemoval.updateMany({
+      where: { personId, clearedAt: null },
+      data: { clearedAt: new Date(), clearedBy },
+    })
+  }
+
+  // Admin/ops view of the takedown log. Unlike listUnlisted this exposes the
+  // free-text note and the actor, so it must never be reachable without the
+  // admin guard. Cleared rows are the audit trail, hence opt-in rather than
+  // dropped.
+  listRemovals({ includeCleared = false } = {}) {
+    return this.client.personProfileRemoval.findMany({
+      where: includeCleared ? {} : { clearedAt: null },
+      // Active takedowns first (clearedAt null), then most recent within each
+      // group. Postgres sorts NULLs last on ASC by default, which would bury
+      // exactly the rows an operator opens this list to see.
+      orderBy: [
+        {
+          clearedAt: {
+            sort: Prisma.SortOrder.asc,
+            nulls: Prisma.NullsOrder.first,
+          },
+        },
+        { requestedAt: Prisma.SortOrder.desc },
+      ],
+      take: REMOVAL_LIST_CAP,
+    })
   }
 
   // Persists an inbound "claim this profile" lead from the public modal. There

@@ -77,7 +77,8 @@ shared building blocks**, they do not reimplement validators/mappers/submit:
 - EIN: `EinCheckInput` + `isValidEIN` + `checkEinSanity` (sanity check shared with committee-check).
 - Filing details: `submitTcrCompliance` + `toRegistrationFormData` + `validateRegistrationForm` (same path the standalone election-filing form uses).
 - Candidate profile: `useCandidateProfileForm` + `CandidateProfileFields` (extracted so the standalone profile page and the wizard step share one source).
-- PIN: `useSubmitCvPin` + `PinForm` + `getPinChannels`.
+- PIN: `useSubmitCvPin` + `PinForm` + `getPinChannels`, and **`useCvPinGate` decides
+  whether a PIN box may render at all** — see below.
 
 If you change a validator or submit path, change it in the shared module — both chromes
 consume it, so a fork drifts silently.
@@ -157,6 +158,24 @@ render on both dashboard homes via `ProUpgrade3ComplianceCard`
 `ProUpgrade3Compliance`). The wizard's `success`
 step just lands the candidate and routes them to `/dashboard`.
 
+### Never render a PIN box off the local status alone (ENG-10866)
+
+`TcrCompliance.status === 'submitted'` only means the registration reached Peerly. A PIN
+exists only once the **live** CampaignVerify status is `APPROVED` (or `VERIFIED`, meaning
+one was issued and consumed — the retry path still needs the box). `REQUESTED`,
+`IN_REVIEW`, `REJECTED` and `null` all mean no PIN was ever sent, and gp-api answers 409
+if you post one anyway.
+
+That gate is **one hook**, `texting-compliance/shared/useCvPinGate.ts`, returning
+`loading` / `not_awaiting_pin` / `verification_in_progress` / `ready` plus the
+`pinDelivery` payload. It exists because the gate was originally implemented inline in
+`ProUpgrade3Compliance` and the other two PIN surfaces (`/enter-pin`, `/submit-pin`)
+never got it — a candidate whose CV sat `IN_REVIEW` was shown a PIN box, typed a code,
+and was told "That PIN didn't match" five times over three days. Call the hook; never
+re-derive the condition. The `verification_in_progress` and `not_awaiting_pin` copy also
+lives in shared components (`CvVerificationInProgressNotice`,
+`PinStepUnavailableNotice`).
+
 ## Phase 4 entry points live elsewhere too
 
 The dashboard **entry banner** ("76% … win", `ProUpgradeBanner`) and the **locked-item
@@ -187,9 +206,15 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
 - **EIN presence is not enough.** Older surfaces persisted shape-valid placeholder EINs.
   `ProUpgradeEntry` derives `hasEin` via `checkEinSanity(...).valid`, not mere presence,
   so a bad EIN routes back to the EIN step instead of skipping it and failing later.
-- **Don't derive from partial state.** `ProUpgradeEntry` waits for all three queries
-  (campaign, website, TCR) and bails on any error — a failed fetch leaves data
-  undefined, which would mis-derive a returning candidate back to value-prop.
+- **Don't derive from partial state.** `ProUpgradeEntry` waits for all four queries
+  (campaign, website, TCR, eligibility) and bails on any error — a failed fetch leaves
+  data undefined, which would mis-derive a returning candidate back to value-prop.
+- **Ineligible campaigns are blocked at the entry** (ENG-10892). `ProUpgradeEntry`
+  also reads `GET /v1/eligibility` (the server-derived `isActiveCampaign` predicate —
+  never re-derive it client-side) and, for a non-Pro user with
+  `hasActiveCampaign: false`, renders an explanation + contact-support screen instead
+  of routing into the wizard. Already-Pro users skip the block and derive to
+  `SUCCESS` as before.
 - **Persist-then-navigate.** Steps that write state (`updateCampaign`, submits) only
   advance on success; a failed write shows an error snackbar and does NOT navigate, so
   there's never a stranded un-persisted answer.
@@ -212,21 +237,22 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
 
 ## Debugging the flow
 
-**"Purchase Error [POST] /payments/purchase/checkout-session: 400"** — the payment
-step surfaces a _generic_ error for every non-2xx, so read the response body/logs
-before touching this dir. The common codes come from gp-api guards, not from wizard
-bugs:
+**"Purchase Error" on the payment step** — the common codes come from gp-api
+guards, not from wizard bugs. Since ENG-10892 the wizard maps each guard's
+`errorCode` to a specific message (`PRO_CHECKOUT_ERROR_MESSAGES` in
+`app/dashboard/purchase/utils/purchaseFetch.utils.ts`); a still-generic
+"[POST] ...: 4xx" message means an unmapped code — read the response body/logs:
 
 - 400 `NO_ACTIVE_CAMPAIGN` — none of the user's campaigns passes `isActiveCampaign`
-  (past election, `didWin` set, or `primary_result='lost'`). The most common cause is
-  the **PrimaryResultModal trap**: `app/dashboard/components/PrimaryResultModal.tsx`
-  force-opens (no close/esc) when a campaign's BallotReady `primaryElectionDate` is
-  already past, and independents with no primary answer "I did not win" → the fresh
-  campaign is dead minutes after signup. Triage SQL + repair recipe:
+  (past election, `didWin` set, or `primary_result='lost'`). The entry screen blocks
+  this before the wizard (see Gotchas), so hitting it at payment means a direct-URL
+  arrival or state that changed mid-wizard. Known causes: a re-running candidate's
+  stale `didWin` from a prior loss, a gp-admin save that wrote `didWin=false` before
+  the tri-state fix (ENG-10892), or a primary answered "did not win" in
+  `PrimaryResultModal`. Triage SQL + repair recipe:
   `packages/gp-api/src/payments/CLAUDE.md` § Debugging Pro billing issues.
 - 409 `ALREADY_PRO` / `CHECKOUT_ALREADY_COMPLETED` / `CHECKOUT_IN_PROGRESS` — the
   double-charge guards (ENG-10771). Usually means the webhook seam above, not a bug.
-  Known deferred UX gap: the wizard shows the same generic error for all of these.
 
 **Manual test recipe (dev.goodparty.org)**: `/dashboard/pro-upgrade` → "Yes, I'm
 already filed" → EIN must look _real_ (`12-3456789` is rejected as a placeholder;

@@ -3,7 +3,9 @@ import { createContext, useContext, useState, ReactNode } from 'react'
 type OutreachType =
   | 'text'
   | 'doorKnocking'
+  | 'nativeDoorKnocking'
   | 'phoneBanking'
+  | 'nativePhoneBanking'
   | 'socialMedia'
   | 'robocall'
   | 'p2p'
@@ -32,12 +34,18 @@ export interface Outreach {
   date?: Date | string | null
   imageUrl?: string | null
   voterFileFilterId?: number | null
+  // The frozen route a nativeDoorKnocking envelope belongs to (unique on the
+  // Prisma model). It has always ridden the list payload — `findByCampaignId`
+  // selects the whole row — and is declared here because it is the only join
+  // key between a walk's two archive flags; see `native/turfLifecycle.ts`.
+  doorKnockingRouteId?: number | null
   phoneListId?: number | null
   identityId?: string | null
   didState?: string | null
   title?: string | null
   billableTextCount?: number | null
   textCount?: number | null
+  archivedAt?: Date | string | null
 }
 
 type OutreachContextValue = [Outreach[], (outreaches: Outreach[]) => void]

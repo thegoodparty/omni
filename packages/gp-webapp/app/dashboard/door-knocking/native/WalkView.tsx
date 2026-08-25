@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
@@ -10,16 +10,26 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
+import { ChevronDownIcon, ChevronRightIcon, cn, UsersIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
+import {
+  DoorNoteList,
+  editServedNotes,
+  withCreatedNote,
+  withDeletedNote,
+  withUpdatedNote,
+} from './doorNotes'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
+  knockStatusCounts,
+  readableInkOn,
   rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
+  STATUS_RGB,
   stopIsKnockable,
   targetMarker,
 } from './statusPresentation'
@@ -30,15 +40,41 @@ const formatDuration = (seconds: number): string => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+// The numeral sits ON the stop's status color, so it has to invert with it the
+// way the map's pin numerals do — white on `not_home` yellow is a number nobody
+// can read at arm's length in daylight. The rule is `readableInkOn`
+// (`statusPresentation.ts`), shared with the tick inside a selected list-colour
+// swatch, and every one of the seven statuses clears 4.8:1 under it.
+export const stopNumeralColor = (status: DoorKnockStatus): string =>
+  readableInkOn(STATUS_RGB[status])
+
 interface WalkViewProps {
   turfId: number
   // Lets the page refetch the voter pack after the walk: the landing map's
   // statuses are baked into the cached pack, so new knocks are invisible
   // there until it reloads.
   onKnockRecorded?: () => void
+  // A stop the canvasser tapped on the map. The page owns the map, this view
+  // owns which door is open, so the tap arrives as a request rather than as
+  // state — and `token` is what makes tapping the same pin again reopen the
+  // sheet that was just closed.
+  openStopRequest?: { stopId: number; token: number } | null
+  // The marked stop, held by the page because the map draws it too (see
+  // `useWalkMapSession`). This view is still what decides where the mark goes —
+  // it reports every stop it opens through `onSelectStop` — but it reads the
+  // value back rather than keeping a second copy, so the ringed pin and the
+  // marked row are one fact and cannot drift.
+  selectedStopId: number | null
+  onSelectStop: (stopId: number) => void
 }
 
-export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
+export default function WalkView({
+  turfId,
+  onKnockRecorded,
+  openStopRequest,
+  selectedStopId,
+  onSelectStop,
+}: WalkViewProps) {
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
   // Recorded statuses patch the route query cache itself (not component
@@ -86,7 +122,34 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     personId: string,
     notAVoterReason: NotAVoterReason | undefined,
   ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
+  // ADR 0011. A note written at a door is the same kind of fact as a knock:
+  // recorded by this walk, and absent from the payload the walk was served
+  // with. So it takes the same road, into the cached payload the sheet reads —
+  // which makes the cache the door's ONE copy of a resident's notes, with
+  // nothing beside it that could disagree. Held instead in state above the card
+  // it would die with the sheet, and a note written on a door that was then
+  // closed without being logged would read as gone when that door was reopened:
+  // `openSheet`'s ADR 0009 refresh only fires for a resident logged this
+  // session, so nothing would go and ask for it either.
+  //
+  // Two properties come free with `patchPerson` and are the reason to reuse it
+  // rather than write a second patcher. It cancels the route query first, so a
+  // serve built before the note was saved cannot land after it and take the
+  // note back off the card — the same race that would otherwise put a logged
+  // door back to unknown. And a serve that genuinely arrives later *does*
+  // replace this, which is what a note a teammate wrote needs in order to ever
+  // show up here; a client-held list would shadow the server's for the rest of
+  // the walk.
+  const patchNotes = (
+    personId: string,
+    edit: (list: DoorNoteList) => DoorNoteList,
+  ) =>
+    patchPerson(personId, (target) => ({
+      ...target,
+      notes: editServedNotes(target.notes, edit),
+    }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
+  const stopRowRefs = useRef(new Map<number, HTMLLIElement | null>())
   const [sheet, setSheet] = useState<{
     stopId: number
     targetId: number
@@ -157,6 +220,11 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       return next
     })
     setSheet({ stopId, targetId })
+    // The one place the mark moves. A row tap, a pin tap and auto-advance all
+    // arrive here, so the marked stop is always the door the sheet is
+    // offering rather than a history of taps — and the map is ringing the same
+    // stop for the same reason, off the same report.
+    onSelectStop(stopId)
     refreshFeedFor(targetId)
   }
   const clientKeyFor = (targetId: number): string =>
@@ -180,9 +248,10 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     knockableTargets(stopList).filter(
       (target) => target.knockStatus !== 'unknown',
     ).length
-  const statusCount = (stopList: RoutePayloadStop[], status: DoorKnockStatus) =>
-    knockableTargets(stopList).filter((target) => target.knockStatus === status)
-      .length
+  // The strip's seven counts, from the helper the details drawer's outcome
+  // table also reads — one bucketing of one frozen route, so the walk and the
+  // planning surface cannot report the same list differently.
+  const statusCounts = useMemo(() => knockStatusCounts(stops), [stops])
   const stopStatus = rollupStopStatus
   const primaryTargetName = (stop: RoutePayloadStop): string | null =>
     stop.addresses[0]?.targets[0]?.name ?? null
@@ -203,6 +272,16 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   const sheetStop = sheet
     ? (stops.find((stop) => stop.id === sheet.stopId) ?? null)
     : null
+  // The doors either side of the open one, in route order — `stops` is sorted by
+  // `seq`, so this is the order the walk is planned in and the order the pins are
+  // numbered in. Null at the ends, which is what disables the sheet's chevron.
+  const sheetStopIndex = sheetStop
+    ? stops.findIndex((stop) => stop.id === sheetStop.id)
+    : -1
+  const previousStop =
+    sheetStopIndex > 0 ? (stops[sheetStopIndex - 1] ?? null) : null
+  const nextStop =
+    sheetStopIndex >= 0 ? (stops[sheetStopIndex + 1] ?? null) : null
 
   // Every target in walk order, flattened: the unit the canvasser actually
   // moves through is a person at a door, not a stop.
@@ -241,6 +320,64 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       next.target.stopTargetId,
     )
   }
+
+  // A map pin tap opens the same `PersonSheet` a stop row opens, through the
+  // same `openSheet` — the pin is a way INTO the door-logging surface, never a
+  // second one, so replay keys and the ADR 0009 feed refresh come along with it.
+  //
+  // It goes straight to the sheet even for a multi-resident stop, where the row
+  // expands instead: the row's list is right under the finger that pressed it,
+  // while a pin is on a map band the list is scrolled away from, and the sheet's
+  // own resident switcher is the same picker one step further in.
+  //
+  // Whom it opens is the first resident still worth knocking, so a household
+  // with one flagged member lands on the person there is a conversation to have
+  // with. A hollow pin — `stopIsKnockable` false, nobody left — falls through to
+  // the first resident, deliberately: a tap that does nothing is the bug being
+  // fixed, and a sheet is not a form. `PersonSheet` withholds the script and
+  // `RecordKnockForm` for a flagged resident and renders the flag's own control
+  // and its `STATUS_CHANGE` row instead, so the tap answers "why am I being told
+  // to skip this house?" at the doorstep — the only place a flag set on the
+  // wrong resident gets caught — without offering a knock to log.
+  //
+  // It also brings the list to the tapped stop. The map band and the list are
+  // stacked, so the row for the pin under the thumb is usually scrolled off
+  // screen: without this, closing the sheet returns the canvasser to a list
+  // showing some other part of the street, and the numbered pin has no numbered
+  // row to match. `openSheet` selects; this is the half only a map tap needs.
+  const openStopFromMap = (stop: RoutePayloadStop) => {
+    const stopTargets = targetsForStop(stop)
+    const target = stopTargets.find(isKnockable) ?? stopTargets[0]
+    if (!target) return
+    openSheet(
+      stop.id,
+      stopTargets.map((t) => t.stopTargetId),
+      target.stopTargetId,
+    )
+    stopRowRefs.current.get(stop.id)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    })
+  }
+  // Held in a ref because the effect below has to re-run on `stops` — a request
+  // that arrives before the serve does retries when it lands — while an
+  // ordinary dependency on this function would re-run it on every render.
+  const openStopFromMapRef = useRef(openStopFromMap)
+  openStopFromMapRef.current = openStopFromMap
+  // The token this view has already acted on. Every knock patches the route
+  // cache and so rebuilds `stops`; without this the effect would reopen the
+  // sheet on each one, under a canvasser who had closed it.
+  const handledPinTapRef = useRef(0)
+  const requestToken = openStopRequest?.token ?? 0
+  const requestStopId = openStopRequest?.stopId ?? null
+  useEffect(() => {
+    if (requestToken === 0 || requestStopId === null) return
+    if (handledPinTapRef.current === requestToken) return
+    const stop = stops.find((candidate) => candidate.id === requestStopId)
+    if (!stop) return
+    handledPinTapRef.current = requestToken
+    openStopFromMapRef.current(stop)
+  }, [requestToken, requestStopId, stops])
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">
@@ -317,9 +454,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                     style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
                   />
                   {STATUS_LABELS[status]}{' '}
-                  <span className="tabular-nums">
-                    {statusCount(routeQuery.data?.stops ?? [], status)}
-                  </span>
+                  <span className="tabular-nums">{statusCounts[status]}</span>
                 </span>
               ))}
             </div>
@@ -343,11 +478,23 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             </div>
             <ol className="divide-y divide-border">
               {stops.map((stop) => (
-                <li key={stop.id}>
+                <li
+                  key={stop.id}
+                  ref={(element) => {
+                    stopRowRefs.current.set(stop.id, element)
+                  }}
+                >
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50"
+                    aria-current={selectedStopId === stop.id || undefined}
+                    className={cn(
+                      'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
+                      selectedStopId === stop.id
+                        ? 'bg-primary/10'
+                        : 'hover:bg-muted/50',
+                    )}
                     onClick={() => {
+                      onSelectStop(stop.id)
                       // One resident: straight to their sheet. Several:
                       // expand so the canvasser picks (the demo's behavior).
                       const stopTargets = targetsForStop(stop)
@@ -362,17 +509,34 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                       setOpenStopId(openStopId === stop.id ? null : stop.id)
                     }}
                   >
-                    {/* The stop's rolled-up status, and only that: the
-                        sequence number came out of the list view (Aug 14
-                        walkthrough) because the list is not walked in order —
-                        the map pins and the printed sheet are where an
-                        ordering is the point. */}
+                    {/* One circle carrying both of the stop's facts: the
+                        rolled-up status as the fill, and `seq` — the route's
+                        own order, the numeral the map's pin layer draws and the
+                        printed sheet prints — as the digit on it. The three
+                        surfaces have to name a stop the same way for a pin to
+                        be findable in the list at all, which is what the
+                        numbering is for; an index would drift from `seq` the
+                        moment anything but the whole route is listed. Selection
+                        is a ring rather than a fill, so it cannot take the
+                        status color's place — and the map's own pin is ringed
+                        the same way, off the same `selectedStopId`, so the two
+                        marks are one fact drawn twice. */}
                     <span
-                      className="h-7 w-7 shrink-0 rounded-full"
+                      className={cn(
+                        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',
+                        selectedStopId === stop.id && 'ring-2 ring-primary',
+                      )}
                       style={{
                         backgroundColor: STATUS_DOT_COLORS[stopStatus(stop)],
+                        color: stopNumeralColor(stopStatus(stop)),
                       }}
-                    />
+                    >
+                      {/* A numeral in a circle at the head of a row reads as a
+                          position on screen and as a bare digit to a screen
+                          reader, which has none of that layout. */}
+                      <span className="sr-only">Stop </span>
+                      {stop.seq}
+                    </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">
                         {primaryTargetName(stop) ?? stop.displayAddress}
@@ -396,8 +560,28 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                           </span>
                         ) : (
                           <>
+                            {/* The canvas puts a person glyph in front of this
+                                count (`icon('users',14), householdCount(v)`).
+                                Ours was a bare numeral sitting one gap away
+                                from the stop's own numeral in its circle, so
+                                "3" beside "12" named neither quantity — and to
+                                a screen reader the row read "Stop 12, 3". The
+                                glyph is the visual half and the sr-only noun
+                                the spoken one; the dots after it are per-person
+                                status, decorative here because the expanded row
+                                labels each one. */}
+                            <UsersIcon
+                              size={12}
+                              aria-hidden="true"
+                              className="shrink-0"
+                            />
                             <span className="tabular-nums">
                               {stopKnockable(stop).length}
+                              <span className="sr-only">
+                                {stopKnockable(stop).length === 1
+                                  ? ' person to knock'
+                                  : ' people to knock'}
+                              </span>
                             </span>
                             {stopKnockable(stop).map((target) => (
                               <span
@@ -493,6 +677,16 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       {sheetStop && sheet && (
         <PersonSheet
           stop={sheetStop}
+          stopSeq={sheetStop.seq}
+          // Both go through `openStopFromMap`, which is the one entry that also
+          // brings the list to the stop it opens — without it the canvasser
+          // walks four doors from the sheet and closes it onto a list still
+          // showing where they started. It picks the first resident still worth
+          // knocking, the same choice a pin tap makes.
+          onOpenPreviousStop={
+            previousStop ? () => openStopFromMap(previousStop) : null
+          }
+          onOpenNextStop={nextStop ? () => openStopFromMap(nextStop) : null}
           selectedTargetId={sheet.targetId}
           onSelectTarget={(targetId) => {
             setSheet({ stopId: sheet.stopId, targetId })
@@ -521,6 +715,15 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             if (knockStatus === 'not_a_voter') return
             advanceFrom(targetId)
           }}
+          onNoteCreated={(personId, created) =>
+            patchNotes(personId, (list) => withCreatedNote(list, created))
+          }
+          onNoteUpdated={(personId, updated) =>
+            patchNotes(personId, (list) => withUpdatedNote(list, updated))
+          }
+          onNoteDeleted={(personId, noteId) =>
+            patchNotes(personId, (list) => withDeletedNote(list, noteId))
+          }
           onDoNotKnockChanged={applyDoNotKnock}
           onNotAVoterChanged={(personId, notAVoterReason) => {
             applyNotAVoter(personId, notAVoterReason)

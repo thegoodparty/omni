@@ -315,6 +315,80 @@ describe('buildVoterFiltersSql', () => {
     })
   })
 
+  describe('homeowner filter (ENG-10947)', () => {
+    it('folds Probable Home Owner into the Homeowner selection', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Yes'] },
+        filterOperators: {
+          homeowner: { operator: 'eq', value: 'Yes' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Homeowner_Probability_Model')
+      expect(sqlStr).toContain('ANY(ARRAY[')
+      expect(flatValues(result)).toEqual(['Home Owner', 'Probable Home Owner'])
+    })
+
+    it('also folds Probable Home Owner in through the multi-select `in` path', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Yes', 'No'] },
+        filterOperators: {
+          homeowner: { operator: 'in', values: ['Yes', 'No'] },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+
+      expect(flatValues(result)).toEqual([
+        'Home Owner',
+        'Probable Home Owner',
+        'Renter',
+      ])
+    })
+
+    it('maps the Unknown selection to IS NULL', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Unknown'] },
+        filterOperators: {
+          homeowner: { operator: 'eq', value: 'Unknown' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Homeowner_Probability_Model')
+      expect(sqlStr).toContain('IS NULL')
+    })
+
+    // Saved filters persisted before the Homeowner/Renter/Unknown collapse
+    // can still carry the legacy `homeownerLikely` boolean, which resolves
+    // to this wire value — it must keep resolving to ONLY the probable
+    // bucket, not the folded Homeowner selection above.
+    it('keeps the legacy Likely wire value resolving to Probable Home Owner only', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Likely'] },
+        filterOperators: {
+          homeowner: { operator: 'eq', value: 'Likely' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Homeowner_Probability_Model')
+      expect(sqlStr).not.toContain('ANY(ARRAY[')
+      expect(flatValues(result)).toEqual(['Probable Home Owner'])
+    })
+  })
+
   describe('politicalParty filter (reconciled with display classifier)', () => {
     it('matches Democratic via an exact-value IN, not ILIKE', () => {
       const result = buildVoterFiltersSql(partyFilter(['Democratic']))
@@ -581,6 +655,69 @@ describe('buildVoterFiltersSql', () => {
       expect(sqlStr).toContain('Residence_Addresses_AddressLine')
       expect(sqlStr).toContain('IS NULL')
       expect(sqlStr).toContain("= ''")
+    })
+  })
+
+  // ENG-10914: phoneBanking reachability moved from landline-only to any
+  // phone (cell OR landline). This asserts the SQL shape AND, via a JS
+  // mirror of the predicate, that it matches exactly the population the
+  // ticket's test plan describes: cell-only and landline-only people, not
+  // a phoneless one.
+  describe('hasAnyPhone filter (ENG-10914)', () => {
+    it('emits an OR of cell-phone/landline IS NOT NULL checks for true', () => {
+      const filterData: FilterData = {
+        filters: ['hasAnyPhone'],
+        filterValues: {},
+        filterOperators: {
+          hasAnyPhone: { operator: 'is', value: 'not_null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('VoterTelephones_CellPhoneFormatted')
+      expect(sqlStr).toContain('VoterTelephones_LandlineFormatted')
+      expect(sqlStr).toContain('IS NOT NULL OR')
+    })
+
+    it('emits an AND of cell-phone/landline IS NULL checks for false', () => {
+      const filterData: FilterData = {
+        filters: ['hasAnyPhone'],
+        filterValues: {},
+        filterOperators: {
+          hasAnyPhone: { operator: 'is', value: 'null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('VoterTelephones_CellPhoneFormatted')
+      expect(sqlStr).toContain('VoterTelephones_LandlineFormatted')
+      expect(sqlStr).toContain('IS NULL AND')
+    })
+
+    // JS mirror of the emitted predicate, evaluated against the three rows
+    // the ticket's test plan calls for: a cell-only person, a landline-only
+    // person, and a phoneless person. Reachable count is 2, not 1 —
+    // landline-only was the whole population before ENG-10914.
+    const matchesHasAnyPhone = (
+      cellPhone: string | null,
+      landline: string | null,
+    ): boolean => cellPhone !== null || landline !== null
+
+    it('matches cell-only and landline-only people, not a phoneless one', () => {
+      const cellOnly = { cellPhone: '5551234567', landline: null }
+      const landlineOnly = { cellPhone: null, landline: '5559876543' }
+      const phoneless = { cellPhone: null, landline: null }
+
+      const reachable = [cellOnly, landlineOnly, phoneless].filter((person) =>
+        matchesHasAnyPhone(person.cellPhone, person.landline),
+      )
+
+      expect(reachable).toEqual([cellOnly, landlineOnly])
+      expect(reachable).toHaveLength(2)
     })
   })
 

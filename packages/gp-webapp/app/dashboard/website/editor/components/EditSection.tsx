@@ -15,7 +15,6 @@ interface EditSectionProps {
   website: Website
   onLogoChange: (file: File | null) => void
   onThemeChange: (key: string) => void
-  onTitleChange: (value: string) => void
   onTaglineChange: (value: string) => void
   onImageChange: (file: File | null) => void
   onBioChange: (content: string) => void
@@ -40,7 +39,6 @@ export default function EditSection({
   website,
   onLogoChange,
   onThemeChange,
-  onTitleChange,
   onTaglineChange,
   onImageChange,
   onBioChange,
@@ -86,10 +84,8 @@ export default function EditSection({
         )}
         {editSection === SECTIONS.title && (
           <HeroStep
-            title={website.content?.main?.title}
             tagline={website.content?.main?.tagline}
             image={website.content?.main?.image}
-            onTitleChange={onTitleChange}
             onTaglineChange={onTaglineChange}
             onImageChange={onImageChange}
             noHeading
