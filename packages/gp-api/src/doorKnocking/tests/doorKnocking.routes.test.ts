@@ -1693,6 +1693,19 @@ describe('door-knocking routes', () => {
             voicemailLeftAt: new Date('2026-07-02T10:01:00Z'),
           },
         })
+        // ENG-10944: phone banking is a household-fanned-out channel like
+        // door knocking — this asserts a phone-banked household member's
+        // call shows up in their own history, in the same merged vocabulary
+        // as text/robocall/status-change.
+        await service.prisma.contactInteractionPhoneBanking.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+        })
         await service.prisma.contactStatusEvent.create({
           data: {
             organizationSlug: orgSlug,
@@ -1713,11 +1726,15 @@ describe('door-knocking routes', () => {
           'STATUS_CHANGE',
           'TEXT',
           'ROBOCALL',
+          'PHONE_BANKING',
         ])
         // The labels are resolveContactStatusLabel's, the same ones the CRM
         // person view renders — not a door-knocking translation of the enum.
         expect(history?.[0]).toMatchObject({
           data: { fromLabel: 'Off', toLabel: 'On' },
+        })
+        expect(history?.[3]).toMatchObject({
+          data: { outcome: 'answered', supportAnswer: 'supporter' },
         })
       })
 
