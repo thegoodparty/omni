@@ -668,6 +668,24 @@ export const buildOverlapCountSql = (
   return { sql, params: bag.params }
 }
 
+// One voter by id, still scoped to the district. The scope is not redundant:
+// an id from one district must not resolve through another office's drawer, so
+// the same predicate the list uses also gates the detail read.
+export const buildPersonSql = (
+  args: DbxScopeArgs & { columns: readonly string[]; id: string },
+): DbxStatement => {
+  const bag = createBag()
+  const projection = args.columns
+    .map((column) => `${col(column)} AS ${ident(column)}`)
+    .join(', ')
+  const scope = buildScopeSql(bag, args)
+  const sql =
+    `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
+    ` AND ${col('id')} = ${bag.bind(args.id)}` +
+    ` LIMIT 1`
+  return { sql, params: bag.params }
+}
+
 export const HOUSEHOLD_PAGE_COLUMNS = ['householdId', 'householdSize'] as const
 
 export const buildPageSql = (
