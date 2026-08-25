@@ -39,11 +39,10 @@ export class ContactNoteService extends createPrismaBase(MODELS.ContactNote) {
     id: string,
     organizationSlug: string,
     body: string,
-    actorUserId: number,
   ): Promise<ContactNoteWithActor | null> {
     const [note] = await this.model.updateManyAndReturn({
       where: { id, organizationSlug },
-      data: { body, actorUserId },
+      data: { body },
       include: ACTOR_INCLUDE,
     })
     return note ?? null

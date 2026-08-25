@@ -87,7 +87,6 @@ describe('ContactNoteService', () => {
       note.id,
       'org-2',
       'hijacked',
-      service.user.id,
     )
     expect(miss).toBeNull()
     const afterMiss = await contactNotes.findFirstOrThrow({
@@ -99,7 +98,6 @@ describe('ContactNoteService', () => {
       note.id,
       'org-1',
       'edited',
-      service.user.id,
     )
     expect(updated?.body).toBe('edited')
     const persisted = await contactNotes.findFirstOrThrow({
@@ -109,7 +107,7 @@ describe('ContactNoteService', () => {
     expect(isAfter(persisted.updatedAt, note.updatedAt)).toBe(true)
   })
 
-  it('attributes a created and edited note to the acting user', async () => {
+  it('attributes a created note to the acting user, and an edit does not reattribute it', async () => {
     await seedOrg('org-1')
     const contactNotes = service.app.get(ContactNoteService)
 
@@ -124,5 +122,13 @@ describe('ContactNoteService', () => {
 
     const [listed] = await contactNotes.listForPerson('org-1', 'person-a')
     expect(listed?.actor?.firstName).toBe(service.user.firstName)
+
+    const updated = await contactNotes.updateByIdAndOrganizationSlug(
+      created.id,
+      'org-1',
+      'second draft',
+    )
+    expect(updated?.actorUserId).toBe(service.user.id)
+    expect(updated?.actor?.firstName).toBe(service.user.firstName)
   })
 })

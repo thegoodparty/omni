@@ -90,20 +90,21 @@ export class ContactNotesController {
     return toApi(note)
   }
 
+  // No @ReqUser here: actorUserId is author-at-creation only (mirrors the
+  // column's own semantics — an edit must not reattribute the note to
+  // whoever happens to fix a typo).
   @Patch('notes/:noteId')
   @ResponseSchema(ContactNoteSchema)
   async updateNote(
     @Param() { noteId }: ContactNoteIdParamsDTO,
     @Body() body: ContactNoteBodyDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ): Promise<ContactNoteDto> {
     await this.contactsService.assertProAccess(organization)
     const updated = await this.contactNoteService.updateByIdAndOrganizationSlug(
       noteId,
       organization.slug,
       body.body,
-      user.id,
     )
     if (!updated) {
       throw new NotFoundException('Note not found')
