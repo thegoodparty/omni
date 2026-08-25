@@ -37,16 +37,20 @@ const OUTCOME_LABELS: Record<PhoneBankCallOutcome, string> = {
   voicemail: 'Voicemail',
   wrong_number: 'Wrong number',
   refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung up',
 }
 
-// A wrong number or a refusal is a dead end: there is no household member
-// worth calling back, so the row prints an instruction rather than a
-// recorded-but-actionable outcome. `answered` / `no_answer` / `voicemail` are
-// informational — a callback may still be worthwhile — so they print as
-// `logged`, not `skip`.
+// A wrong number, a disconnected line, or a refusal is a dead end: there is
+// no household member worth calling back, so the row prints an instruction
+// rather than a recorded-but-actionable outcome. `answered` / `no_answer` /
+// `voicemail` / `hung_up` are informational — a callback may still be
+// worthwhile (hung_up carries no suppression/do-not-call, ENG-10945) — so
+// they print as `logged`, not `skip`.
 const SKIP_INSTRUCTIONS: Partial<Record<PhoneBankCallOutcome, string>> = {
   wrong_number: 'Wrong number — do not call again',
   refused: 'Refused — do not call again',
+  disconnected: 'Disconnected — do not call again',
 }
 
 const SUPPORT_LABELS: Record<SupportAnswer, string> = {

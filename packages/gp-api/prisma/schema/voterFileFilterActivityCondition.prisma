@@ -28,6 +28,9 @@ enum ActivityConditionAction {
   voicemail // phone banking
   wrong_number // phone banking
   refused // phone banking
+  // ENG-10945: phone banking's two new call dispositions.
+  disconnected // phone banking
+  hung_up // phone banking
 }
 
 model VoterFileFilterActivityCondition {

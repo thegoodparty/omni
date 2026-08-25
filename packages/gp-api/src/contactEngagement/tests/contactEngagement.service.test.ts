@@ -631,6 +631,8 @@ describe('ContactEngagementService', () => {
           willVote: 'yes',
           note: 'Confirmed will vote',
           manual: false,
+          actorUserId: null,
+          actor: null,
         },
       ])
       const campaignInput: IndividualActivityInput = {
@@ -668,6 +670,7 @@ describe('ContactEngagementService', () => {
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
         orderBy: expectedOrderBy,
         take: 21,
+        include: { actor: { select: { firstName: true, lastName: true } } },
       })
       // Newest (phone banking) first, oldest (door knock) last.
       expect(result.results).toEqual([
@@ -681,6 +684,8 @@ describe('ContactEngagementService', () => {
             willVote: 'yes',
             note: 'Confirmed will vote',
             manual: false,
+            actorName: null,
+            actorUserId: null,
           },
         },
         {

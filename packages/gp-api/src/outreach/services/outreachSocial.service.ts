@@ -179,6 +179,8 @@ export class OutreachSocialService extends createPrismaBase(
       [PhoneBankCallOutcome.voicemail]: 0,
       [PhoneBankCallOutcome.wrong_number]: 0,
       [PhoneBankCallOutcome.refused]: 0,
+      [PhoneBankCallOutcome.disconnected]: 0,
+      [PhoneBankCallOutcome.hung_up]: 0,
     }
     for (const { outcome } of calledEntries) {
       byOutcome[outcome] += 1

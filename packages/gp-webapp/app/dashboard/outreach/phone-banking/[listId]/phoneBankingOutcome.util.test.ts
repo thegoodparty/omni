@@ -131,21 +131,57 @@ describe('isEntrySuppressed', () => {
     expect(isEntrySuppressed(entry)).toBe(true)
   })
 
-  it('is false with no wrong_number interaction on the entry', () => {
+  it('is true once any person on the entry logged disconnected', () => {
+    const entry = makeEntry({
+      persons: [
+        makePerson({
+          personId: 'a',
+          interaction: {
+            outcome: 'disconnected',
+            supportAnswer: null,
+            willVote: null,
+            occurredAt: new Date(),
+          },
+        }),
+      ],
+    })
+    expect(isEntrySuppressed(entry)).toBe(true)
+  })
+
+  it('is false with no wrong_number/disconnected interaction on the entry', () => {
     expect(isEntrySuppressed(makeEntry())).toBe(false)
+  })
+
+  it('is false for a hung_up interaction (no suppression)', () => {
+    const entry = makeEntry({
+      persons: [
+        makePerson({
+          personId: 'a',
+          interaction: {
+            outcome: 'hung_up',
+            supportAnswer: null,
+            willVote: null,
+            occurredAt: new Date(),
+          },
+        }),
+      ],
+    })
+    expect(isEntrySuppressed(entry)).toBe(false)
   })
 })
 
 describe('engagementStatusFor', () => {
-  it('maps answered to engaged and refused to refused', () => {
+  it('maps answered to engaged, refused to refused, hung_up to hung_up', () => {
     expect(engagementStatusFor('answered')).toBe('engaged')
     expect(engagementStatusFor('refused')).toBe('refused')
+    expect(engagementStatusFor('hung_up')).toBe('hung_up')
   })
 
-  it('is undefined for the other three outcomes', () => {
+  it('is undefined for the other outcomes', () => {
     expect(engagementStatusFor('no_answer')).toBeUndefined()
     expect(engagementStatusFor('voicemail')).toBeUndefined()
     expect(engagementStatusFor('wrong_number')).toBeUndefined()
+    expect(engagementStatusFor('disconnected')).toBeUndefined()
   })
 })
 
@@ -239,6 +275,21 @@ describe('cascade state machine (draftWith*)', () => {
     expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
       entryId: 5,
       outcome: 'refused',
+      personId: 'active-person',
+    })
+  })
+
+  it('a persisted hung_up reopens as answered + engage Hung up so an unchanged re-save stays person-attributed', () => {
+    const draft = draftFromInteraction({
+      outcome: 'hung_up',
+      supportAnswer: null,
+      willVote: null,
+      occurredAt: new Date(),
+    })
+    expect(draft).toEqual({ outcome: 'answered', engagement: 'hung_up' })
+    expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
+      entryId: 5,
+      outcome: 'hung_up',
       personId: 'active-person',
     })
   })

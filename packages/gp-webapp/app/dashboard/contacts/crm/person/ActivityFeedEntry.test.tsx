@@ -2,8 +2,14 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { useUser } from '@shared/hooks/useUser'
-import { StatusChangeActivityRow } from './ActivityFeedEntry'
-import type { StatusChangeConstituentActivity } from '../shared/contacts-types'
+import {
+  PhoneBankingActivityRow,
+  StatusChangeActivityRow,
+} from './ActivityFeedEntry'
+import type {
+  PhoneBankingConstituentActivity,
+  StatusChangeConstituentActivity,
+} from '../shared/contacts-types'
 
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: vi.fn(),
@@ -100,5 +106,69 @@ describe('<StatusChangeActivityRow>', () => {
         "Someone changed Support Status from 'Support unknown' to 'Supporter'",
       ),
     ).toBeInTheDocument()
+  })
+})
+
+const makePhoneBankingActivity = (
+  overrides: Partial<PhoneBankingConstituentActivity['data']> = {},
+): PhoneBankingConstituentActivity => ({
+  type: 'PHONE_BANKING',
+  date: '2026-08-20T10:00:00.000Z',
+  data: {
+    activityId: 'cipb_1',
+    outcome: 'answered',
+    supportAnswer: null,
+    willVote: null,
+    note: null,
+    manual: false,
+    actorName: 'Jane Staffer',
+    actorUserId: 7,
+    ...overrides,
+  },
+})
+
+describe('<PhoneBankingActivityRow>', () => {
+  it("renders the actor's name when the viewer did not log the call", () => {
+    mockedUseUser.mockReturnValue([
+      { id: 99, email: 'other@goodparty.org' } as never,
+      vi.fn(),
+      false,
+    ])
+
+    render(<PhoneBankingActivityRow activity={makePhoneBankingActivity()} />)
+
+    expect(screen.getByText('Logged by Jane Staffer')).toBeInTheDocument()
+  })
+
+  it('renders "You" when the viewing user logged the call', () => {
+    mockedUseUser.mockReturnValue([
+      { id: 7, email: 'viewer@goodparty.org' } as never,
+      vi.fn(),
+      false,
+    ])
+
+    render(<PhoneBankingActivityRow activity={makePhoneBankingActivity()} />)
+
+    expect(screen.getByText('Logged by You')).toBeInTheDocument()
+    expect(screen.queryByText(/Jane Staffer/)).not.toBeInTheDocument()
+  })
+
+  it('renders no author line at all for a legacy null-actor row', () => {
+    mockedUseUser.mockReturnValue([
+      { id: 99, email: 'other@goodparty.org' } as never,
+      vi.fn(),
+      false,
+    ])
+
+    render(
+      <PhoneBankingActivityRow
+        activity={makePhoneBankingActivity({
+          actorName: null,
+          actorUserId: null,
+        })}
+      />,
+    )
+
+    expect(screen.queryByText(/^Logged by/)).not.toBeInTheDocument()
   })
 })
