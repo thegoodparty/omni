@@ -53,13 +53,21 @@ const isStatusKey = (key: string | null | undefined): key is StatusKey =>
 
 const getP2pStatusLabel = (row: HistoryRow): string | null => {
   const { p2pJob, status } = row
-  if (!p2pJob?.status || !status || !isStatusKey(status)) {
+  if (!status || !isStatusKey(status)) {
     return null
   }
-  // An active Peerly job displays as sent regardless of the spine status —
-  // except a canceled row, whose vendor job was deleted by the cancel.
+  // Cancel deletes the vendor job, so a canceled row has no p2pJob to
+  // merge — requiring one here read every canceled campaign as "n/a".
+  if (status === 'canceled') {
+    return p2pStatusLabels.canceled
+  }
+  if (!p2pJob?.status) {
+    return null
+  }
+  // An active Peerly job displays as sent regardless of the spine status
+  // (canceled rows returned above — their vendor job is gone).
   const displayStatus: StatusKey =
-    p2pJob.status === 'active' && status !== 'canceled' ? 'completed' : status
+    p2pJob.status === 'active' ? 'completed' : status
   return p2pStatusLabels[displayStatus]
 }
 

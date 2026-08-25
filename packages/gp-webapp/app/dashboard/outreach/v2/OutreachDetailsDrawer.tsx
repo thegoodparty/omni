@@ -487,8 +487,11 @@ export const OutreachDetailsDrawer = ({
                     {receiptUrl && (
                       <Button
                         type="button"
+                        // px-0 loses to the size variant's has-[>svg]:px-4
+                        // (different modifier group in tailwind-merge), so
+                        // the icon needs its own zero to sit flush left.
                         variant="link"
-                        className="h-auto px-0"
+                        className="h-auto px-0 has-[>svg]:px-0"
                         onClick={() => {
                           window.open(receiptUrl, '_blank', 'noopener')
                         }}
