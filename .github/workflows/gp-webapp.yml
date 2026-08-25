@@ -17,8 +17,8 @@ env:
   WORKSPACE: packages/gp-webapp
 
 jobs:
-  ci:
-    name: Validate
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -54,8 +54,39 @@ jobs:
       - name: Guard legacy fetch count
         run: npm run check:legacy-fetch -w ${{ env.WORKSPACE }}
 
+  # The vitest suite (~400 jsdom files) was the long pole of the single
+  # Validate job (~11 of its ~14 minutes), and it gates both PR merge and the
+  # release train's await-checks. Fan it out the same way gp-api does. No
+  # `next typegen` here: it only feeds tsc, which runs in Checks.
+  test:
+    name: Test (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+          build-contracts: 'true'
+
       - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }}
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/4
+
+  # Empty aggregation gate, mirroring gp-api's. The main branch ruleset
+  # requires a status check named exactly "Validate"; this job preserves that
+  # name while the real work fans out across the checks + sharded test jobs.
+  ci:
+    name: Validate
+    needs: [checks, test]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "checks + all test shards passed"
 
   deploy:
     name: Deploy
