@@ -21,7 +21,6 @@ export const CallhubRentedNumberSchema = z.object({
   country: z.string().nullish(),
   region: z.string().nullish(),
   is_active: z.boolean().nullish(),
-  is_used_in_campaign: z.boolean().nullish(),
   api_monthly_rental_charge: z.number().nullish(),
   api_setup_charge: z.number().nullish(),
   provider: z.string().nullish(),

@@ -43,8 +43,10 @@ describe('CallhubMediaService', () => {
     mimeType: 'audio/mpeg',
   }
 
-  it('uploads audio and returns the media id from a flat body', async () => {
-    http.post.mockResolvedValue({ media_file_id: '42', media_url: 'https://x' })
+  it('uploads audio and unwraps the data-enveloped id + url', async () => {
+    http.post.mockResolvedValue({
+      data: { media_file_id: '42', media_url: 'https://x' },
+    })
 
     const result = await service.uploadMedia(params)
 
@@ -54,14 +56,7 @@ describe('CallhubMediaService', () => {
       expect.anything(),
     )
     expect(result.media_file_id).toBe('42')
-  })
-
-  it('unwraps a data-enveloped response', async () => {
-    http.post.mockResolvedValue({ data: { media_file_id: '99' } })
-
-    const result = await service.uploadMedia(params)
-
-    expect(result.media_file_id).toBe('99')
+    expect(result.media_url).toBe('https://x')
   })
 
   it('rejects an unsupported mime type before calling the API', async () => {
