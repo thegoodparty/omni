@@ -169,8 +169,8 @@ export default function NativeDoorKnockingPage({
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
 
   // Only the outlines the rail says are shown. Hiding is display-only: the dots
-  // are the pack's and are unaffected, and the rows keep their Details, PDF and
-  // Knock affordances — a quiet ring is not an archived list.
+  // are the pack's and are unaffected, and the rows keep every affordance they
+  // had — a quiet ring is not an archived list.
   const visibleTurfs = useMemo(
     () => (turfsQuery.data ?? []).filter((turf) => !hiddenTurfIds.has(turf.id)),
     [turfsQuery.data, hiddenTurfIds],

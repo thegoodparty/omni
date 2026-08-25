@@ -548,10 +548,20 @@ needs to re-argue whether auto-opening is right; they need to check whether
 
 ## Print
 
-Not audited and not touched — another agent owns those surfaces. One thing to
-pass on: the canvas's walk kebab offers a PDF download from inside the walk. We
-offer "Print list" there, and the PDF from the rail card and the details drawer.
-Reported, not fixed.
+Not audited and not touched — another agent owns the paper itself. One thing
+this pass did change: **where the walk reaches it, and what it is called.**
+
+When this was written the canvas's walk offered a PDF download and we offered
+"Print list" under the map, with the PDF reachable from the rail card and the
+details drawer — so one artefact had two names depending on which surface you
+asked from. The walk's link is now **PDF**, in the page header where the canvas
+puts it, pointing at the PDF route rather than the HTML sheet.
+
+It is also the only paper affordance left on the walk. #1455 removed the rail
+card's, which was ours and never the canvas's, and that is what let this one be
+matched against the prototype directly instead of triangulated against a
+sibling row. The details drawer keeps its own, per list and only once that list
+is locked — an unknocked list has no route to print.
 
 ---
 

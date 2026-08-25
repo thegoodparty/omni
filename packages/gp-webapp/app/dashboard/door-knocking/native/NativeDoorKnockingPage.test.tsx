@@ -1426,8 +1426,9 @@ describe('NativeDoorKnockingPage walk map', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
 
-    // Outside a walk the header has nothing to print — no list is open. (The
-    // rail row and the details drawer carry their own, per list.)
+    // Outside a walk the header has nothing to print — no list is open. The
+    // details drawer carries its own, per list and only once that list is
+    // locked; the rail row's was removed in #1455 as ours, not the canvas's.
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Create list' })).toBeVisible(),
     )
