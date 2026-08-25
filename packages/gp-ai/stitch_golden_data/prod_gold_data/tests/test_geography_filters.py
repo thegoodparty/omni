@@ -280,15 +280,12 @@ class TestNamedRegressions:
         assert "City" in eligible_types  # out-of-family is never touched
 
     @pytest.mark.parametrize("gate_enabled", [False, True], ids=["gate-off", "gate-on"])
-    def test_clay_county_school_board_seat_is_gated_on_the_school_whole_assertion(self, gate_enabled, monkeypatch):
+    def test_clay_county_school_board_seat_is_gated_on_the_school_whole_assertion(self, gate_enabled):
         """Failure this catches: shipping Clay County's fix (denying the
         numbered School_Board_District seats for a countywide-boundary
         office) before the holdout adjudicates it, or -- the opposite
         failure -- the gate never taking effect once flipped.
         """
-        monkeypatch.setattr(
-            "stitch_golden_data.prod_gold_data.l2_br_matcher.SCHOOL_WHOLE_ASSERTION_ENABLED", gate_enabled
-        )
         types = ["School_Board_District", "Unified_School_District", "State"]
         verdict = _classify_office_geography(
             mtfcc="G5420",
@@ -298,8 +295,14 @@ class TestNamedRegressions:
             sub_area_name="District",
             sub_area_value="4",
             state_district_types=types,
+            school_whole_assertion_enabled=gate_enabled,
         )
         assert verdict.abstain is False
+        if not gate_enabled:
+            # The off arm must be steering-free: no whole-jurisdiction
+            # sentence reaches the prompt, or "off" is not today's behavior
+            # and the holdout's before/after comparison is contaminated.
+            assert verdict.verdict_sentence is None
         if gate_enabled:
             eligible_types = {types[i] for i in verdict.eligible_indices}
             assert "School_Board_District" not in eligible_types
@@ -307,15 +310,12 @@ class TestNamedRegressions:
             assert verdict.eligible_indices is None
 
     @pytest.mark.parametrize("gate_enabled", [False, True], ids=["gate-off", "gate-on"])
-    def test_bridgewater_value_only_sub_area_never_touches_the_out_of_family_township(self, gate_enabled, monkeypatch):
+    def test_bridgewater_value_only_sub_area_never_touches_the_out_of_family_township(self, gate_enabled):
         """Failure this catches: (a) a value-only sub_area (no name) read
         as "no sub_area" and passed through unclassified, and (b) the
         out-of-family Township answer -- the correct match here -- being
         denied in either gate state.
         """
-        monkeypatch.setattr(
-            "stitch_golden_data.prod_gold_data.l2_br_matcher.SCHOOL_WHOLE_ASSERTION_ENABLED", gate_enabled
-        )
         types = ["School_Subdistrict", "Township", "State"]
         verdict = _classify_office_geography(
             mtfcc="G5420",
@@ -325,6 +325,7 @@ class TestNamedRegressions:
             sub_area_name=None,
             sub_area_value="Bridgewater District",
             state_district_types=types,
+            school_whole_assertion_enabled=gate_enabled,
         )
         assert verdict.abstain is False
         eligible_types = (
@@ -572,4 +573,26 @@ class TestMatchOfficeAbstainsBeforeAnyCall:
         assert (result.l2_state, result.l2_district_type, result.l2_district_name) == (None, None, None)
         assert result.confidence is None
         mock_dependencies["embedding"].create_embeddings.assert_not_called()
+        mock_dependencies["llm"].generate_structured_content.assert_not_called()
+
+
+class TestEmptyRestrictedMenuRaises:
+    def test_a_restriction_that_empties_the_menu_raises_instead_of_abstaining(self, mock_dependencies):
+        """Failure this catches: cross-repo drift (the universe losing its
+        synthetic State row) turning a fully-restricted office into a
+        0-candidate LLM prompt whose forced 0-selection is recorded as a
+        model abstention, closing the office for 30 days over an
+        infrastructure failure.
+        """
+        matcher = L2BrMatcher()
+        matcher._universe_by_state["DE"] = _StateUniverse(
+            embeddings=np.array([[1.0, 0.0]]), states=["DE"], district_types=["County"], district_names=["KENT"]
+        )
+        mock_dependencies["embedding"].create_embeddings.side_effect = lambda texts, **kw: np.array(
+            [[1.0, 0.0]] * len(texts)
+        )
+
+        with pytest.raises(ValueError, match="left no eligible candidates"):
+            asyncio.run(matcher._build_menu("Test Race", "DE", eligible_indices=frozenset()))
+
         mock_dependencies["llm"].generate_structured_content.assert_not_called()

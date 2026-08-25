@@ -292,9 +292,11 @@ def _canonical_state_arg(value: str) -> str:
 
 # `False` because BR cannot distinguish a residency zone (every voter in
 # the jurisdiction votes on every numbered seat) from a genuinely zoned
-# electorate on these fields alone. The holdout's school cells adjudicate
-# the flip; until then this denies nothing, though R2 still fires for the
-# prompt sentence.
+# electorate on these fields alone. Gated off means no denial AND no
+# steering sentence -- the off arm must be today's behavior, or the
+# holdout's before/after comparison is contaminated. The holdout runs both
+# arms via --enable-school-whole-assertion; this constant is only the
+# default.
 SCHOOL_WHOLE_ASSERTION_ENABLED = False
 
 _PARTY_COMMITTEE_MTFCC = "X0024"  # R0: no public electoral district exists
@@ -451,7 +453,7 @@ def _build_geography_block(
 
     lines = [
         "Office geography (context only -- it does not decide the match):",
-        f"- Territory class: {_MTFCC_PLAIN_ENGLISH.get(mtfcc, f'mtfcc {mtfcc}')}",
+        f"- Territory class: {_MTFCC_PLAIN_ENGLISH.get(mtfcc, f'mtfcc {_sanitize_prompt_text(mtfcc)}')}",
         f"- Sub-area: {sub_area_line}",
         f"- Boundary geometry: {boundary_line}",
     ]
@@ -468,6 +470,7 @@ def _classify_office_geography(
     sub_area_name: str | None,
     sub_area_value: str | None,
     state_district_types: list[str],
+    school_whole_assertion_enabled: bool = SCHOOL_WHOLE_ASSERTION_ENABLED,
 ) -> _GeographyVerdict:
     """Map one office's geography fields to an abstain-or-restrict verdict
     against its state's already-built universe. Classified by
@@ -528,8 +531,11 @@ def _classify_office_geography(
             f"This office's geography covers the entire jurisdiction; the {noun} is a residency "
             "zone or seat designation, not a smaller territory."
         )
-        if family == "school" and not SCHOOL_WHOLE_ASSERTION_ENABLED:
-            return _GeographyVerdict(abstain=False, eligible_indices=None, verdict_sentence=sentence)
+        if family == "school" and not school_whole_assertion_enabled:
+            # Gated off: no denial and no steering sentence. Shipping the
+            # whole-jurisdiction claim into the prompt while "off" would be
+            # a soft denial in the exact direction the gate holds back.
+            return _GeographyVerdict(abstain=False, eligible_indices=None, verdict_sentence=None)
         deny = _FAMILY_SUB_TYPES[family]
 
     eligible = frozenset(i for i, t in enumerate(state_district_types) if t not in deny)
@@ -914,6 +920,13 @@ class L2BrMatcher:
                 candidates.insert(STATE_QUERY_INSERT_INDEX, _candidate(state_idx))
                 candidates = candidates[:MENU_SIZE]
 
+        if eligible_indices is not None and not candidates:
+            # A restriction that empties the menu is cross-repo drift (the
+            # universe always carries the synthetic State row today), not a
+            # judgment: recording it as an abstention would close the office
+            # for 30 days over an infrastructure failure.
+            raise ValueError(f"Geography restriction left no eligible candidates for state {state!r}")
+
         return candidates
 
     async def _select_candidate(
@@ -1016,6 +1029,7 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         geo_id: str | None = None,
         sub_area_name: str | None = None,
         sub_area_value: str | None = None,
+        school_whole_assertion_enabled: bool = SCHOOL_WHOLE_ASSERTION_ENABLED,
     ) -> MatchResult:
         """Match one BR office to an L2 district, or abstain.
 
@@ -1043,6 +1057,7 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
             sub_area_name=sub_area_name,
             sub_area_value=sub_area_value,
             state_district_types=state_universe.district_types,
+            school_whole_assertion_enabled=school_whole_assertion_enabled,
         )
         if verdict.abstain:
             return MatchResult(br_database_id, None, None, None, confidence=None)
@@ -1082,6 +1097,7 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         limit: int | None = None,
         batch_size: int = 100,
         embedding_batch_size: int = 100,
+        school_whole_assertion_enabled: bool = SCHOOL_WHOLE_ASSERTION_ENABLED,
     ) -> list[MatchResult]:
         """Match the pending worklist. Writes nothing -- this returns
         terminal results for the caller to print or persist.
@@ -1120,6 +1136,7 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
                             geo_id=office.geo_id,
                             sub_area_name=office.sub_area_name,
                             sub_area_value=office.sub_area_value,
+                            school_whole_assertion_enabled=school_whole_assertion_enabled,
                         )
                         for office in batch
                     )
@@ -1202,6 +1219,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=_positive_int,
         default=100,
         help="District texts embedded per call when building the universe (positive; default: 100)",
+    )
+    parser.add_argument(
+        "--enable-school-whole-assertion",
+        action="store_true",
+        help=(
+            "Deny school SUB-level types for whole-asserted school offices. Off by default until "
+            "the holdout adjudicates residency zones vs zoned electorates; the holdout runs both arms"
+        ),
     )
     return parser.parse_args(argv)
 
