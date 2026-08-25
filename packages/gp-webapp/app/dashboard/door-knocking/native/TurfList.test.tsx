@@ -45,6 +45,22 @@ const turf = (overrides: Partial<DoorKnockingTurf>): DoorKnockingTurf => ({
   ...overrides,
 })
 
+// Enough of a decoded pack for the rail to call it decoded — the empty card
+// only asks whether one is in the cache, never what is in it.
+const pack = {
+  manifest: {
+    version: 1,
+    generatedAt: '2026-08-20T12:00:00Z',
+    counts: { people: 4, households: 3, dots: 2 },
+    dims: [{ key: 'party', values: ['Unknown', 'Democratic', 'Republican'] }],
+    arrays: [],
+  },
+  positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
+  personToHousehold: new Uint32Array([0, 0, 1, 2]),
+  householdToDot: new Uint32Array([0, 0, 1]),
+  dimPlanes: new Map([['party', new Uint8Array([1, 1, 1, 2])]]),
+}
+
 const renderList = (props: Partial<ComponentProps<typeof TurfList>> = {}) =>
   render(
     <TurfList
@@ -247,6 +263,78 @@ describe('TurfList', () => {
 
     expect(await screen.findByText(/No lists yet/)).toBeInTheDocument()
     expect(screen.getByText('Saved lists')).toBeInTheDocument()
+  })
+
+  // The card describes the one thing there is to do on this screen, so the
+  // control belongs in it — pointing at a button elsewhere on the page was the
+  // next version of having no explanation at all.
+  it('offers Create list from inside the empty card', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+    const onCreateList = vi.fn()
+
+    renderList({ onCreateList })
+
+    const create = await screen.findByRole('button', { name: 'Create list' })
+    expect(create).toBeEnabled()
+    // The card no longer sends anyone looking for a button somewhere else.
+    expect(screen.queryByText(/Create list.*above/)).toBeNull()
+
+    fireEvent.click(create)
+    expect(onCreateList).toHaveBeenCalledTimes(1)
+  })
+
+  // The same expression the page header's Create list button is disabled on,
+  // read off the same query. The two open the same flow, and the flow's who
+  // step reports "No matching households" without a pack — so a card that let
+  // you in early would tell a brand-new candidate their district is empty.
+  it('keeps the empty card’s Create list disabled until the pack decodes', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    const onCreateList = vi.fn()
+
+    renderList({ onCreateList })
+
+    const create = await screen.findByRole('button', { name: 'Create list' })
+    expect(create).toBeDisabled()
+
+    fireEvent.click(create)
+    expect(onCreateList).not.toHaveBeenCalled()
+
+    // An observer, not a one-shot cache read: a pack that lands while the
+    // empty rail is on screen has to bring the button to life.
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create list' })).toBeEnabled(),
+    )
+  })
+
+  // The pack is the page's, and it is tens of megabytes. The rail reads it to
+  // agree with the header button, never to fetch it.
+  it('fetches no pack of its own to decide that', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+
+    renderList({ onCreateList: vi.fn() })
+
+    await screen.findByRole('button', { name: 'Create list' })
+    expect(
+      fetchSpy.mock.calls.filter(([input]) => String(input).includes('/pack')),
+    ).toHaveLength(0)
+    fetchSpy.mockRestore()
+  })
+
+  // Without a handler there is no flow to open, so the card keeps the pointer
+  // it had rather than rendering a button that does nothing.
+  it('points at the header button when there is no create handler', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    renderList()
+
+    expect(await screen.findByText(/No lists yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create list' })).toBeNull()
+    expect(screen.getByText(/above to make your first one/)).toBeInTheDocument()
   })
 
   it('shows a placeholder while the lists load', () => {
