@@ -196,4 +196,25 @@ describe('editServedNotes', () => {
 
     expect(next).toEqual({ entries: [note()], total: 1 })
   })
+
+  // The far corner of that trade, written down rather than left to be
+  // discovered: once a count is materialised it is a real count, so deleting
+  // the note that caused it decrements to nought and the card goes from "saved
+  // before notes rode the route" to "no notes about this resident yet" — a
+  // claim about the person, made off a payload that knows nothing about them.
+  // It is the price of not dropping the note in the first place, and it is
+  // reachable only on a snapshot old enough to predate the field, where the
+  // canvasser both wrote a note and took it back again. Pinned so that a change
+  // in this behaviour has to be a decision.
+  it('cannot get an unknown count back once one has been materialised', () => {
+    const afterCreate = editServedNotes(undefined, (list) =>
+      withCreatedNote(list, note()),
+    )
+
+    const afterDelete = editServedNotes(afterCreate, (list) =>
+      withDeletedNote(list, 'note-1'),
+    )
+
+    expect(afterDelete).toEqual({ entries: [], total: 0 })
+  })
 })
