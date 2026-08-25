@@ -31,8 +31,13 @@ describe('ContactNoteService', () => {
         createdAt: new Date('2026-02-01T00:00:00Z'),
       },
     })
-    await contactNotes.create('org-2', 'person-a', 'other org')
-    await contactNotes.create('org-1', 'person-b', 'other person')
+    await contactNotes.create('org-2', 'person-a', 'other org', service.user.id)
+    await contactNotes.create(
+      'org-1',
+      'person-b',
+      'other person',
+      service.user.id,
+    )
 
     const notes = await contactNotes.listForPerson('org-1', 'person-a')
 
@@ -43,7 +48,12 @@ describe('ContactNoteService', () => {
     await seedOrg('org-1')
     await seedOrg('org-2')
     const contactNotes = service.app.get(ContactNoteService)
-    const note = await contactNotes.create('org-1', 'person-a', 'keep me')
+    const note = await contactNotes.create(
+      'org-1',
+      'person-a',
+      'keep me',
+      service.user.id,
+    )
 
     const missCount = await contactNotes.deleteByIdAndOrganizationSlug(
       note.id,
@@ -95,5 +105,30 @@ describe('ContactNoteService', () => {
     })
     expect(persisted.body).toBe('edited')
     expect(isAfter(persisted.updatedAt, note.updatedAt)).toBe(true)
+  })
+
+  it('attributes a created note to the acting user, and an edit does not reattribute it', async () => {
+    await seedOrg('org-1')
+    const contactNotes = service.app.get(ContactNoteService)
+
+    const created = await contactNotes.create(
+      'org-1',
+      'person-a',
+      'first draft',
+      service.user.id,
+    )
+    expect(created.actorUserId).toBe(service.user.id)
+    expect(created.actor?.firstName).toBe(service.user.firstName)
+
+    const [listed] = await contactNotes.listForPerson('org-1', 'person-a')
+    expect(listed?.actor?.firstName).toBe(service.user.firstName)
+
+    const updated = await contactNotes.updateByIdAndOrganizationSlug(
+      created.id,
+      'org-1',
+      'second draft',
+    )
+    expect(updated?.actorUserId).toBe(service.user.id)
+    expect(updated?.actor?.firstName).toBe(service.user.firstName)
   })
 })

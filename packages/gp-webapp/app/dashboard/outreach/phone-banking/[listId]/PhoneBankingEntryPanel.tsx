@@ -240,6 +240,9 @@ export default function PhoneBankingEntryPanel({
                 Call
               </a>
             </Button>
+            <p className="text-xs text-muted-foreground">
+              Opens your device&apos;s phone app
+            </p>
             {noLiveEnrichment && (
               <p className="text-xs text-warning">
                 This person may have moved — showing the frozen name and number

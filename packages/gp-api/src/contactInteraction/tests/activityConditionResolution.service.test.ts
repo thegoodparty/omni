@@ -457,7 +457,7 @@ describe('ActivityConditionResolutionService', () => {
       expect(no).toEqual({ kind: 'filter', idFilter: { in: ['p-no'] } })
     })
 
-    it('resolves phone-banking outcome actions (answered, no_answer, voicemail, wrong_number, refused)', async () => {
+    it('resolves phone-banking outcome actions (answered, no_answer, voicemail, wrong_number, refused, disconnected, hung_up)', async () => {
       const org = await seedOrganization('org-pb-outcomes')
       const seedPhoneBanking = (
         personId: string,
@@ -480,6 +480,11 @@ describe('ActivityConditionResolutionService', () => {
         PhoneBankCallOutcome.wrong_number,
       )
       await seedPhoneBanking('p-refused', PhoneBankCallOutcome.refused)
+      await seedPhoneBanking(
+        'p-disconnected',
+        PhoneBankCallOutcome.disconnected,
+      )
+      await seedPhoneBanking('p-hung-up', PhoneBankCallOutcome.hung_up)
 
       const resolveAction = (action: ActivityConditionAction) =>
         resolution.resolveIdFilter(org, {
@@ -511,6 +516,14 @@ describe('ActivityConditionResolutionService', () => {
       expect(await resolveAction('refused')).toEqual({
         kind: 'filter',
         idFilter: { in: ['p-refused'] },
+      })
+      expect(await resolveAction('disconnected')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-disconnected'] },
+      })
+      expect(await resolveAction('hung_up')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-hung-up'] },
       })
     })
 
