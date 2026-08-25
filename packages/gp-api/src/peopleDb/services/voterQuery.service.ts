@@ -72,6 +72,19 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async findPerson(id: string, query: GetPersonQueryDTO) {
+    if (!this.shadow.enabled) return this.findPersonFromPostgres(id, query)
+    return this.shadow.compare({
+      op: 'voter-by-id',
+      districtId: query.districtId,
+      authoritative: () =>
+        this.shadow.databricks.findPerson(id, query.districtId),
+      comparison: () => this.findPersonFromPostgres(id, query),
+      fingerprintAuthoritative: (person) => person.id ?? null,
+      fingerprintComparison: (person) => person.id ?? null,
+    })
+  }
+
+  private async findPersonFromPostgres(id: string, query: GetPersonQueryDTO) {
     const resolved = await resolveDistrict(this.districtService, query)
     const { districtId, state, useVoterOnlyPath } = resolved
     const select = buildVoterSelectSql().sql
