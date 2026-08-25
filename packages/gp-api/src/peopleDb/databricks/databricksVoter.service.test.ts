@@ -371,4 +371,45 @@ describe('DatabricksVoterService', () => {
       ])
     })
   })
+
+  describe('findPerson', () => {
+    beforeEach(() => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+    })
+
+    it('returns the person when the id is inside the district', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [['voter-1', 'CA']],
+      })
+
+      const person = await service.findPerson('voter-1', DISTRICT_ID)
+
+      expect(person.id).toBe('voter-1')
+    })
+
+    // The webapp shows different copy for these two, so the distinction has to
+    // survive the move to Databricks.
+    it('says not-in-district when the district is scoped', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.findPerson('voter-1', DISTRICT_ID)).rejects.toThrow(
+        'Person not found in district',
+      )
+    })
+  })
+
+  describe('findPerson on a statewide district', () => {
+    it('says no-such-person when the scope is the whole state', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('State', 'CA', STATE_DISTRICT_ID))
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(
+        service.findPerson('voter-1', STATE_DISTRICT_ID),
+      ).rejects.toThrow('Person with ID voter-1 not found')
+    })
+  })
 })
