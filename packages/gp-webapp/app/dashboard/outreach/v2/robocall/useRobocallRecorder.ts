@@ -207,7 +207,7 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
       // fails at save with a misleading "try re-recording" error.
       const allowed: readonly string[] = ROBOCALL_AUDIO_ALLOWED_MIME_TYPES
       if (!allowed.includes(file.type)) {
-        setError('Upload an MP3, WAV, M4A, AAC, or OGG file')
+        setError('Upload an MP3, WAV, M4A, or OGG file')
         return
       }
       const requestId = uploadReqRef.current + 1
