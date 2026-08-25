@@ -10,13 +10,21 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { ChevronDownIcon, ChevronRightIcon, cn } from '@styleguide'
+import { ChevronDownIcon, ChevronRightIcon, cn, UsersIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
+import {
+  DoorNoteList,
+  editServedNotes,
+  withCreatedNote,
+  withDeletedNote,
+  withUpdatedNote,
+} from './doorNotes'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
+  readableInkOn,
   rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
@@ -33,26 +41,11 @@ const formatDuration = (seconds: number): string => {
 
 // The numeral sits ON the stop's status color, so it has to invert with it the
 // way the map's pin numerals do — white on `not_home` yellow is a number nobody
-// can read at arm's length in daylight. Whichever of white and black contrasts
-// better by relative luminance (WCAG's own formula); the crossover is 0.179,
-// and every one of the seven statuses clears 4.8:1 under this rule. Fixed hex
-// rather than `text-foreground`, because the fill it sits on is a fixed hex too
-// and does not follow the theme.
-const linearChannel = (value: number): number => {
-  const channel = value / 255
-  return channel <= 0.03928
-    ? channel / 12.92
-    : ((channel + 0.055) / 1.055) ** 2.4
-}
-
-export const stopNumeralColor = (status: DoorKnockStatus): string => {
-  const [red, green, blue] = STATUS_RGB[status]
-  const luminance =
-    0.2126 * linearChannel(red) +
-    0.7152 * linearChannel(green) +
-    0.0722 * linearChannel(blue)
-  return luminance > 0.179 ? '#000000' : '#ffffff'
-}
+// can read at arm's length in daylight. The rule is `readableInkOn`
+// (`statusPresentation.ts`), shared with the tick inside a selected list-colour
+// swatch, and every one of the seven statuses clears 4.8:1 under it.
+export const stopNumeralColor = (status: DoorKnockStatus): string =>
+  readableInkOn(STATUS_RGB[status])
 
 interface WalkViewProps {
   turfId: number
@@ -65,12 +58,21 @@ interface WalkViewProps {
   // state — and `token` is what makes tapping the same pin again reopen the
   // sheet that was just closed.
   openStopRequest?: { stopId: number; token: number } | null
+  // The marked stop, held by the page because the map draws it too (see
+  // `useWalkMapSession`). This view is still what decides where the mark goes —
+  // it reports every stop it opens through `onSelectStop` — but it reads the
+  // value back rather than keeping a second copy, so the ringed pin and the
+  // marked row are one fact and cannot drift.
+  selectedStopId: number | null
+  onSelectStop: (stopId: number) => void
 }
 
 export default function WalkView({
   turfId,
   onKnockRecorded,
   openStopRequest,
+  selectedStopId,
+  onSelectStop,
 }: WalkViewProps) {
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
@@ -119,14 +121,33 @@ export default function WalkView({
     personId: string,
     notAVoterReason: NotAVoterReason | undefined,
   ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
+  // ADR 0011. A note written at a door is the same kind of fact as a knock:
+  // recorded by this walk, and absent from the payload the walk was served
+  // with. So it takes the same road, into the cached payload the sheet reads —
+  // which makes the cache the door's ONE copy of a resident's notes, with
+  // nothing beside it that could disagree. Held instead in state above the card
+  // it would die with the sheet, and a note written on a door that was then
+  // closed without being logged would read as gone when that door was reopened:
+  // `openSheet`'s ADR 0009 refresh only fires for a resident logged this
+  // session, so nothing would go and ask for it either.
+  //
+  // Two properties come free with `patchPerson` and are the reason to reuse it
+  // rather than write a second patcher. It cancels the route query first, so a
+  // serve built before the note was saved cannot land after it and take the
+  // note back off the card — the same race that would otherwise put a logged
+  // door back to unknown. And a serve that genuinely arrives later *does*
+  // replace this, which is what a note a teammate wrote needs in order to ever
+  // show up here; a client-held list would shadow the server's for the rest of
+  // the walk.
+  const patchNotes = (
+    personId: string,
+    edit: (list: DoorNoteList) => DoorNoteList,
+  ) =>
+    patchPerson(personId, (target) => ({
+      ...target,
+      notes: editServedNotes(target.notes, edit),
+    }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
-  // Which stop the canvasser is on, shared by the list and the map: a pin tap
-  // and a row tap set the same value, so the numbered row and the numbered pin
-  // are two views of one selection rather than two places to keep your place.
-  // It survives closing the sheet — the door just worked is the one worth
-  // keeping marked — and auto-advance moves it, so the highlighted row is
-  // always the door the sheet is offering.
-  const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
   const stopRowRefs = useRef(new Map<number, HTMLLIElement | null>())
   const [sheet, setSheet] = useState<{
     stopId: number
@@ -198,7 +219,11 @@ export default function WalkView({
       return next
     })
     setSheet({ stopId, targetId })
-    setSelectedStopId(stopId)
+    // The one place the mark moves. A row tap, a pin tap and auto-advance all
+    // arrive here, so the marked stop is always the door the sheet is
+    // offering rather than a history of taps — and the map is ringing the same
+    // stop for the same reason, off the same report.
+    onSelectStop(stopId)
     refreshFeedFor(targetId)
   }
   const clientKeyFor = (targetId: number): string =>
@@ -245,6 +270,16 @@ export default function WalkView({
   const sheetStop = sheet
     ? (stops.find((stop) => stop.id === sheet.stopId) ?? null)
     : null
+  // The doors either side of the open one, in route order — `stops` is sorted by
+  // `seq`, so this is the order the walk is planned in and the order the pins are
+  // numbered in. Null at the ends, which is what disables the sheet's chevron.
+  const sheetStopIndex = sheetStop
+    ? stops.findIndex((stop) => stop.id === sheetStop.id)
+    : -1
+  const previousStop =
+    sheetStopIndex > 0 ? (stops[sheetStopIndex - 1] ?? null) : null
+  const nextStop =
+    sheetStopIndex >= 0 ? (stops[sheetStopIndex + 1] ?? null) : null
 
   // Every target in walk order, flattened: the unit the canvasser actually
   // moves through is a person at a door, not a stop.
@@ -459,7 +494,7 @@ export default function WalkView({
                         : 'hover:bg-muted/50',
                     )}
                     onClick={() => {
-                      setSelectedStopId(stop.id)
+                      onSelectStop(stop.id)
                       // One resident: straight to their sheet. Several:
                       // expand so the canvasser picks (the demo's behavior).
                       const stopTargets = targetsForStop(stop)
@@ -483,7 +518,9 @@ export default function WalkView({
                         numbering is for; an index would drift from `seq` the
                         moment anything but the whole route is listed. Selection
                         is a ring rather than a fill, so it cannot take the
-                        status color's place. */}
+                        status color's place — and the map's own pin is ringed
+                        the same way, off the same `selectedStopId`, so the two
+                        marks are one fact drawn twice. */}
                     <span
                       className={cn(
                         'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',
@@ -523,8 +560,28 @@ export default function WalkView({
                           </span>
                         ) : (
                           <>
+                            {/* The canvas puts a person glyph in front of this
+                                count (`icon('users',14), householdCount(v)`).
+                                Ours was a bare numeral sitting one gap away
+                                from the stop's own numeral in its circle, so
+                                "3" beside "12" named neither quantity — and to
+                                a screen reader the row read "Stop 12, 3". The
+                                glyph is the visual half and the sr-only noun
+                                the spoken one; the dots after it are per-person
+                                status, decorative here because the expanded row
+                                labels each one. */}
+                            <UsersIcon
+                              size={12}
+                              aria-hidden="true"
+                              className="shrink-0"
+                            />
                             <span className="tabular-nums">
                               {stopKnockable(stop).length}
+                              <span className="sr-only">
+                                {stopKnockable(stop).length === 1
+                                  ? ' person to knock'
+                                  : ' people to knock'}
+                              </span>
                             </span>
                             {stopKnockable(stop).map((target) => (
                               <span
@@ -620,6 +677,16 @@ export default function WalkView({
       {sheetStop && sheet && (
         <PersonSheet
           stop={sheetStop}
+          stopSeq={sheetStop.seq}
+          // Both go through `openStopFromMap`, which is the one entry that also
+          // brings the list to the stop it opens — without it the canvasser
+          // walks four doors from the sheet and closes it onto a list still
+          // showing where they started. It picks the first resident still worth
+          // knocking, the same choice a pin tap makes.
+          onOpenPreviousStop={
+            previousStop ? () => openStopFromMap(previousStop) : null
+          }
+          onOpenNextStop={nextStop ? () => openStopFromMap(nextStop) : null}
           selectedTargetId={sheet.targetId}
           onSelectTarget={(targetId) => {
             setSheet({ stopId: sheet.stopId, targetId })
@@ -648,6 +715,15 @@ export default function WalkView({
             if (knockStatus === 'not_a_voter') return
             advanceFrom(targetId)
           }}
+          onNoteCreated={(personId, created) =>
+            patchNotes(personId, (list) => withCreatedNote(list, created))
+          }
+          onNoteUpdated={(personId, updated) =>
+            patchNotes(personId, (list) => withUpdatedNote(list, updated))
+          }
+          onNoteDeleted={(personId, noteId) =>
+            patchNotes(personId, (list) => withDeletedNote(list, noteId))
+          }
           onDoNotKnockChanged={applyDoNotKnock}
           onNotAVoterChanged={(personId, notAVoterReason) => {
             applyNotAVoter(personId, notAVoterReason)

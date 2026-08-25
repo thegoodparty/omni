@@ -1,61 +1,97 @@
-# Golden Data Production Matcher
+# L2-to-BallotReady district matcher
 
-BR (Ballot Ready) to L2 district matching system for generating golden data.
+Matches BallotReady offices to L2 districts. Reads its worklist
+(`int__l2_br_match_pending_offices`) and its menu source
+(`int__l2_district_universe`) from Databricks, holds embeddings in memory for
+the run, and returns terminal results. The matcher itself writes nothing --
+`l2_br_match_writer.py` holds the Databricks write path.
 
-## Directory Structure
+## Directory structure
 
 ```
 prod_gold_data/
-├── output/                    # Match results
-│   ├── full_state_matching_*.parquet  # Per-state results
-│   └── full_state_matching.parquet    # Combined (run merge script)
-├── vector_store/              # L2 embeddings by state
-│   └── l2_embeddings_*.pkl
-├── production_matcher.py      # Main matching script
-└── vector_store_generator.py  # Generate L2 embeddings
+├── l2_br_matcher.py           # The matcher: class L2BrMatcher
+├── l2_br_match_schema.py      # Schema of record for llm_l2_br_match_results
+├── l2_br_match_writer.py      # The write path: class MatchResultWriter
+└── vector_store_generator.py  # Unrelated laptop tool, out of scope here --
+                                # still feeds bronze_data's pickle-based path
 ```
 
-## Running the Matcher
-
-### Single State
-```bash
-uv run stitch_golden_data/prod_gold_data/production_matcher.py TX
-```
-
-### All States
-```bash
-uv run stitch_golden_data/prod_gold_data/production_matcher.py all_states --max-workers 1500 --max-concurrent-states 2
-```
-
-## Merging State Files
-
-After running `all_states`, individual state parquet files are saved separately. To create a single combined file:
+## Running
 
 ```bash
-uv run stitch_golden_data/merge_all_states.py
+uv run stitch_golden_data/prod_gold_data/l2_br_matcher.py --states DE --limit 100
 ```
 
-This creates `output/full_state_matching.parquet` (~73 MB, 283K records).
+`--states` limits to specific state codes; omit it to process every state
+present in the pending worklist. `--limit` caps how many pending offices are
+read (must be positive). `--batch-size` controls how many offices are matched
+concurrently per group (default 100); `--embedding-batch-size` controls how
+many district texts go into one `create_embeddings` call when building the
+universe (default 100) -- the two are unrelated knobs for unrelated
+workloads, not one shared setting.
 
-## Output Schema
+## Terminal-outcome contract
 
-| Column | Description |
-|--------|-------------|
-| `name` | BR position name |
-| `id` | BR position ID |
-| `br_database_id` | BR database ID |
-| `state` | State code |
-| `l2_district_name` | Matched L2 district name |
-| `l2_district_type` | Matched L2 district type |
-| `is_matched` | Whether a match was found |
-| `llm_reason` | LLM reasoning for match decision |
-| `confidence` | Match confidence (0-100) |
-| `embeddings` | Top embedding candidates considered |
-| `top_embedding_score` | Highest embedding similarity score |
+A run produces two outcomes and no third -- this module writes nothing, so
+"persists" belongs to the write path. A `MatchResult` whose
+`l2_state` / `l2_district_type` / `l2_district_name` are populated is a match;
+one where all three are `None` is an attempt that found nothing. There is no
+status column on the result or in `llm_l2_br_match_results`, so a populated
+district name is the whole signal. A technical error (an LLM or embedding call
+raising, or a malformed LLM response) fails the run instead of being recorded
+as a match or coerced into an abstention.
 
-## Statistics
+## The write path
 
-- Total records: 283,821
-- Match rate: 95.8%
-- Average confidence: 98.9%
-- False positive rate: 0.01% (27 records)
+`MatchResultWriter` (`l2_br_match_writer.py`) is the only writer of
+`model_predictions.llm_l2_br_match_results`. Two operations, driven by hand
+during the supervised cutover: append a batch of results under a run key, or
+delete a run.
+
+`attempted_at` is the run key, it must be **timezone-aware** (enforced, not
+just documented -- a naive value silently splits one run into two), and the caller
+passes it in so a sharded or resumed run keeps one key. `append_results` skips
+offices already written under that key, validates what is left, inserts it in
+chunks, then counts what the table holds for the key. Short means the run is
+incomplete and `delete_run` is the repair; a *surplus* means another writer
+touched the same key concurrently, which is a different problem and is
+reported differently, because deleting there would destroy the other writer's
+rows. One run key must have a single writer.
+
+That count is what replaces a transaction: the connector has none, so a
+failure part-way leaves an *incomplete* run rather than a corrupt one -- every
+row stands on its own, and an office whose row never arrived is still on the
+pending list. `delete_run(attempted_at)` returns how many rows it removed,
+counted rather than asserted, since this connector hardcodes
+`Cursor.rowcount = -1` and a delete that matched nothing would otherwise be
+indistinguishable from one that worked.
+
+`MatchResultWriter` has no CLI and no production caller in this repo. It is
+driven by hand, or by the cutover runbook, which lives with the ticket rather
+than here.
+
+The label check that SPEC 3.5 requires -- re-testing every matched label
+against a freshly rebuilt universe just before publication -- is deliberately
+**not** here. It has to run after the warehouse rebuild in cutover step 5,
+which this module cannot do, and dbt already ships the generic test for it
+(`l2_district_tuple_exists`). It belongs to the serving PR's undated staging
+model, pointed at `int__l2_district_universe`.
+
+## Operations
+
+Both Gemini clients retry every exception blindly (`max_retries=11`,
+`base_delay=1.0`), so a run that hits a 429 wall stalls in backoff for up to
+roughly 1,023s per call before surfacing anything. At `--batch-size 100`
+against `max_connections=1200` that is usually per-minute throttling rather
+than an exhausted daily quota: **lower `--batch-size` and rerun.** Making the
+clients themselves fail fast means changing `shared/`, which every other
+service in this package imports, and belongs with the containerization work.
+
+## What is frozen
+
+The matcher core -- the district and query embedding text, the menu
+construction (top 13 by cosine, plus the bare "state" query inserted at
+index 10), the LLM prompt, its response schema, and the Braintrust project
+and prompt identifiers -- is an owner-decided constraint and is not touched
+here.

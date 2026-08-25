@@ -476,23 +476,10 @@ describe('TurfList lifecycle', () => {
     expect(successSnackbar).toHaveBeenCalledWith('List marked done')
   })
 
-  // Archiving from the card mirrors onto the walk's outreach envelope, joined
-  // through the frozen route (see turfLifecycle.ts). This campaign has no
-  // outreach at all — the Serve-org case — which is nothing to mirror rather
-  // than a mirror that failed, so the plain success below still holds.
-  const mockNoEnvelopeToMirror = () => {
-    api.mock('GET /v1/door-knocking/turfs/:id/route', {
-      status: 200,
-      data: { route: { id: 5 }, pathGeometry: null, stops: [] } as never,
-    })
-    api.mock('GET /v1/outreach', { status: 404, data: undefined as never })
-  }
-
   // The CTA the canvas asks for: Knock while there is walking left, Move to
   // Archive once the list is done.
-  it('swaps Knock for Move to Archive on a done list', async () => {
+  it('swaps Knock for Move to archive on a done list', async () => {
     let archivedBody: unknown
-    mockNoEnvelopeToMirror()
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [
@@ -523,7 +510,7 @@ describe('TurfList lifecycle', () => {
     expect(await screen.findByText('Done')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Knock' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: /Move to Archive/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Move to archive/ }))
 
     await waitFor(() => expect(archivedBody).toEqual({ archived: true }))
     expect(successSnackbar).toHaveBeenCalledWith('Moved to archive')
@@ -535,7 +522,6 @@ describe('TurfList lifecycle', () => {
   // with no way back is the trap this section exists to avoid.
   it('sections archived lists out of the rail and offers Restore', async () => {
     let archivedBody: unknown
-    mockNoEnvelopeToMirror()
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [

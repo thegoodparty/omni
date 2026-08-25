@@ -93,6 +93,16 @@ describe('POST /v1/contacts/count — contacts-made filter', () => {
       outcome: 'answered',
     })
 
+  const seedPhoneBanking = (organizationSlug: string, personId: string) =>
+    service.prisma.contactInteractionPhoneBanking.create({
+      data: {
+        organizationSlug,
+        personId,
+        occurredAt: new Date(),
+        outcome: 'answered',
+      },
+    })
+
   // The count route reads response.pagination.totalResults; the id filter and
   // contactsMadeIdOverrides the route forwards ride the DTO the in-process
   // VoterQueryService.findPeople receives.
@@ -264,6 +274,29 @@ describe('POST /v1/contacts/count — contacts-made filter', () => {
       operator: 'in',
       values: [pMatch],
       includeNull: false,
+    })
+  })
+
+  // ENG-10944: phone banking was the one contact_interaction_* table
+  // missing from the resolver's UNION, so a phone-banked voter matched
+  // "0 prior contacts made" forever regardless of how many calls were
+  // logged against them.
+  it('excludes a phone-banked person from the "0 prior contacts made" filter', async () => {
+    const slug = await setupWinProOrg('phone-banked')
+    const pPhoneBanked = randomUUID()
+    await seedPhoneBanking(slug, pPhoneBanked)
+
+    const findPeopleSpy = spyOnFindPeople()
+    await service.client.post(
+      '/v1/contacts/count',
+      { contactsMade0: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    const dto = findPeopleSpy.mock.calls[0]?.[0]
+    expect(dto?.filters.filterOperators.id).toEqual({
+      operator: 'notIn',
+      values: [pPhoneBanked],
     })
   })
 

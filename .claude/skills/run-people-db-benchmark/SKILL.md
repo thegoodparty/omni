@@ -80,6 +80,11 @@ npm run perf:people-db -- --mode=latency --env=prod
 npm run perf:people-db -- --mode=load --env=prod
 ```
 
+The suite measures whatever the services read. Voter queries come from
+Databricks (needs `PEOPLE_DATABRICKS_*`), and the `sample` cells still read
+people-db (needs `PEOPLE_DATABASE_URL`, and the VPN for prod). For a
+before/after comparison, run the same suite on `main` and on the branch.
+
 Run them **sequentially**. Concurrently they contend for the same 50-connection
 pool and neither number means anything.
 

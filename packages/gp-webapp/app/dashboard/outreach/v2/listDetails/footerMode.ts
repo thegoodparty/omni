@@ -43,8 +43,17 @@ export const CONTINUE_LABELS = {
 export const AUTOMATIC_NOTE =
   'This campaign is sending automatically. No action needed.'
 
-// `Show post` is the canvas's own exception for social, where there is no
-// results surface to open — it renders the button disabled rather than
-// dropping it, so the row keeps its shape across channels.
+// The `done` mode's primary slot — the canvas's "Show results", or "Show post"
+// on social. Both are exported and imported by nothing, on purpose: neither has
+// anything to open. No route in the webapp renders campaign results, and the one
+// place outcomes appear is a section in this drawer's own body (phone banking's
+// "Results"), so the destination is the surface the button would sit on. Nothing
+// records a published post URL either — social generates copy the candidate
+// posts themselves, and there is no publish step to observe.
+//
+// They stay here rather than being deleted so whoever builds this uses the
+// canvas's words instead of inventing a third phrasing, which is why the
+// vocabulary is centralized at all. Do not put a disabled button behind them:
+// see ADR 0012 (packages/gp-api/docs/adr) for what each would cost to back.
 export const SHOW_RESULTS_LABEL = 'Show results'
 export const SHOW_POST_LABEL = 'Show post'

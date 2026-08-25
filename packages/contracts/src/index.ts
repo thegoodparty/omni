@@ -765,6 +765,12 @@ export {
   type RobocallAudioPresignResponse,
 } from './outreach/RobocallAudio.schema'
 export {
+  RobocallComplianceChecksSchema,
+  type RobocallComplianceChecks,
+  RobocallComplianceVerdictSchema,
+  type RobocallComplianceVerdict,
+} from './outreach/RobocallCompliance.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,
@@ -907,10 +913,8 @@ export {
   type PhoneBankingPurpose,
   PHONE_BANKING_NAME_MAX_LENGTH,
   PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
-  PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
   PHONE_BANKING_MAX_SHEET_COUNT,
-  PhoneBankingFiltersSchema,
-  type PhoneBankingFilters,
+  PHONE_BANKING_SHEET_SIZE,
   PhoneBankingCreateSchema,
   type PhoneBankingCreate,
   PhoneBankingCreateResponseSchema,
@@ -939,3 +943,5 @@ export {
   PhoneBankingOutreachDetailSchema,
   type PhoneBankingOutreachDetail,
 } from './phoneBanking/PhoneBankingList.schema'
+
+export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'

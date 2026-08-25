@@ -200,6 +200,12 @@ describe('ENG-10777 — duplicate-list navigation, real provider + real sheet', 
     await user.click(
       await screen.findByRole('button', { name: /duplicate to edit/i }),
     )
+    // ENG-10943: duplicate now gates on a confirmation dialog before firing
+    // the create call.
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Duplicate' }),
+    )
 
     // AC: "Duplicating from inside a list's detail sheet switches that sheet
     // to the copy" — the DrawerTitle must visibly become the copy's name.
@@ -245,6 +251,12 @@ describe('ENG-10777 — duplicate-list navigation, real provider + real sheet', 
       await screen.findByRole('button', { name: 'List options' }),
     )
     await user.click(await screen.findByText('Duplicate to edit'))
+    // ENG-10943: the kebab item now opens a confirmation dialog rather than
+    // firing the create call directly.
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Duplicate' }),
+    )
 
     // AC: "Duplicating from the card kebab opens the copy's detail sheet
     // promptly" — scoped to the dialog (not the index row behind it, which
@@ -282,6 +294,10 @@ describe('ENG-10777 — duplicate-list navigation, real provider + real sheet', 
     await screen.findByText('Doorknocking campaign')
     await user.click(
       await screen.findByRole('button', { name: /duplicate to edit/i }),
+    )
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Duplicate' }),
     )
 
     // Selecting/navigating to the copy must not depend on that slow refetch

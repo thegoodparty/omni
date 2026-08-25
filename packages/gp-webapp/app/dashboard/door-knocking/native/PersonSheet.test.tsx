@@ -1,14 +1,30 @@
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, screen, within } from '@testing-library/react'
 import {
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import {
+  ContactNote,
   DoorKnockOutcome,
   RoutePayloadStop,
   RoutePayloadTarget,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import PersonSheet from './PersonSheet'
+import {
+  DoorNoteList,
+  editServedNotes,
+  withCreatedNote,
+  withDeletedNote,
+  withUpdatedNote,
+} from './doorNotes'
 
 // The knock form owns the dictation stack and its own mutation; this file is
 // about what the sheet itself puts on screen.
@@ -51,20 +67,47 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   ],
 })
 
-// The selection lives in WalkView, so switching resident only works here if
-// the harness holds it the same way the walk does.
+// Both of the sheet's controlled facts live in WalkView, so they live here too
+// or the sheet cannot be exercised at all: the selected resident, and — since
+// the notes list collapsed into the route cache — the targets themselves. This
+// harness is that half of the walk, standing in for `patchPerson`, so the
+// assertions below stay about what the sheet renders and reports.
 const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
+  const [residents, setResidents] = useState(targets)
   const [selectedTargetId, setSelectedTargetId] = useState(
     targets[0]!.stopTargetId,
   )
+  const patchNotes = (
+    personId: string,
+    edit: (list: DoorNoteList) => DoorNoteList,
+  ) =>
+    setResidents((current) =>
+      current.map((candidate) =>
+        candidate.personId === personId
+          ? { ...candidate, notes: editServedNotes(candidate.notes, edit) }
+          : candidate,
+      ),
+    )
   return (
     <PersonSheet
-      stop={stop(targets)}
+      stop={stop(residents)}
+      stopSeq={7}
+      onOpenPreviousStop={null}
+      onOpenNextStop={null}
       selectedTargetId={selectedTargetId}
       onSelectTarget={setSelectedTargetId}
       statusFor={(candidate) => candidate.knockStatus}
       clientKeyFor={() => 'key'}
       onRecorded={vi.fn()}
+      onNoteCreated={(personId, created) =>
+        patchNotes(personId, (list) => withCreatedNote(list, created))
+      }
+      onNoteUpdated={(personId, updated) =>
+        patchNotes(personId, (list) => withUpdatedNote(list, updated))
+      }
+      onNoteDeleted={(personId, noteId) =>
+        patchNotes(personId, (list) => withDeletedNote(list, noteId))
+      }
       onDoNotKnockChanged={vi.fn()}
       onNotAVoterChanged={vi.fn()}
       onClose={vi.fn()}
@@ -153,7 +196,12 @@ describe('PersonSheet section headers', () => {
   it('marks each card with a glyph for what it holds', () => {
     renderSheet([target()])
 
-    for (const title of ['Contact information', 'Household', 'Activity feed']) {
+    for (const title of [
+      'Contact information',
+      'Notes',
+      'Household',
+      'Activity feed',
+    ]) {
       const icon = screen
         .getByRole('heading', { name: title })
         .querySelector('svg')
@@ -617,11 +665,17 @@ describe('PersonSheet demographic information', () => {
             },
           ],
         }}
+        stopSeq={7}
+        onOpenPreviousStop={null}
+        onOpenNextStop={null}
         selectedTargetId={21}
         onSelectTarget={vi.fn()}
         statusFor={() => 'unknown'}
         clientKeyFor={() => 'key'}
         onRecorded={vi.fn()}
+        onNoteCreated={vi.fn()}
+        onNoteUpdated={vi.fn()}
+        onNoteDeleted={vi.fn()}
         onDoNotKnockChanged={vi.fn()}
         onNotAVoterChanged={vi.fn()}
         onClose={vi.fn()}
@@ -637,5 +691,190 @@ describe('PersonSheet demographic information', () => {
     // profile above belongs to the target alone.
     expect(household.queryByText('Likely Married')).toBeNull()
     expect(household.queryByText('Graduate Degree')).toBeNull()
+  })
+})
+
+// ADR 0011. The card's own reads and writes are covered in
+// DoorNotesCard.test.tsx; what belongs here is where the sheet puts it, whose
+// notes it shows, and what survives.
+describe('PersonSheet notes', () => {
+  const notesCard = () =>
+    screen.getByRole('heading', { name: 'Notes' }).parentElement!
+
+  const note = (overrides: Partial<ContactNote> = {}): ContactNote => ({
+    id: 'note-1',
+    personId: 'person-1',
+    body: 'Dog in the front yard, use the side gate',
+    createdAt: '2026-07-01T15:00:00.000Z',
+    updatedAt: '2026-07-01T15:00:00.000Z',
+    ...overrides,
+  })
+
+  it('renders the notes the route payload arrived with', () => {
+    renderSheet([target({ notes: { entries: [note()], total: 4 } })])
+
+    const card = within(notesCard())
+    expect(
+      card.getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+    expect(card.getByText(/Showing the 1 most recent of 4/)).toBeInTheDocument()
+  })
+
+  // The constraint the door sheet exists under: it opens onto a porch with no
+  // signal, so everything it renders comes off the payload the walk was frozen
+  // with. A note that only loads with four bars is a note the porch never sees.
+  it('asks the network for nothing when the sheet opens', async () => {
+    const requests: string[] = []
+    const record = ({ request }: { request: Request }) => {
+      requests.push(`${request.method} ${request.url}`)
+    }
+    mswServer.events.on('request:start', record)
+
+    renderSheet([target({ notes: { entries: [note()], total: 4 } })])
+    // A query started in a mount effect intercepts within a macrotask, so this
+    // has to be asserted after one rather than in the same tick.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    mswServer.events.removeListener('request:start', record)
+
+    expect(
+      within(notesCard()).getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+    expect(requests).toEqual([])
+  })
+
+  // Per-resident, never per-household — the same rule the activity feed
+  // follows, with worse material. Two registered voters behind one front door
+  // are two records, and free text somebody typed about one of them, read
+  // against the housemate who opened the door, is a mistake made out loud.
+  it('follows the selected resident rather than the household', () => {
+    renderSheet([
+      target({ notes: { entries: [note()], total: 1 } }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notes: {
+          entries: [
+            note({ id: 'note-2', personId: 'person-2', body: 'Works nights' }),
+          ],
+          total: 1,
+        },
+      }),
+    ])
+
+    expect(
+      within(notesCard()).getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+
+    const switched = within(notesCard())
+    expect(switched.getByText('Works nights')).toBeInTheDocument()
+    expect(switched.queryByText(/Dog in the front yard/)).toBeNull()
+  })
+
+  // A note written at the door has to still be there when the canvasser flicks
+  // to the housemate to log them and comes back. The card itself remounts on
+  // the switch to drop the draft, so it cannot be what remembers: the write is
+  // reported up and lands on the target the sheet re-reads. Whose durability
+  // this really asserts is the walk's — `WalkView.test.tsx` carries the version
+  // that closes the sheet, which is where re-seeding from the frozen payload
+  // used to lose the note.
+  it('keeps a note written this session across a resident switch', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/contacts/:personId/notes', ({ body }) => ({
+      status: 200,
+      data: note({
+        id: 'note-new',
+        body: body.body,
+        createdAt: '2026-08-24T15:00:00.000Z',
+        updatedAt: '2026-08-24T15:00:00.000Z',
+      }),
+    }))
+
+    renderSheet([
+      target({ notes: { entries: [], total: 0 } }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notes: { entries: [], total: 0 },
+      }),
+    ])
+
+    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.type(screen.getByLabelText('Add a note'), 'Wants a yard sign')
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    await waitFor(() =>
+      expect(
+        within(notesCard()).getByText('Wants a yard sign'),
+      ).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+    expect(within(notesCard()).queryByText('Wants a yard sign')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /Dorian Fen/ }))
+    expect(
+      within(notesCard()).getByText('Wants a yard sign'),
+    ).toBeInTheDocument()
+  })
+
+  // Deliberate, and the same split the activity feed makes: the footer is the
+  // acting half of the sheet and is withheld for a flagged resident, while the
+  // body describes the person and always renders. A note reading "this is the
+  // son, not the registered voter" is exactly what a mis-set flag looks like
+  // from the doorstep, and hiding it would make the flag unfalsifiable at the
+  // one place someone can check it.
+  it('keeps notes for a flagged resident whose form is withheld', () => {
+    renderSheet([
+      target({ doNotKnock: true, notes: { entries: [note()], total: 1 } }),
+    ])
+
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+    expect(
+      within(notesCard()).getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+  })
+
+  it('sits in the scrolling body rather than the pinned footer', () => {
+    renderSheet([target({ notes: { entries: [note()], total: 1 } })])
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    expect(body.contains(screen.getByRole('heading', { name: 'Notes' }))).toBe(
+      true,
+    )
+  })
+
+  // It is the only card in the body a canvasser reads BEFORE knocking, and the
+  // demographic profile is reference material scanned mid-conversation. Eleven
+  // rows of it between the address and "use the side gate" puts the note where
+  // nobody standing at a gate will find it.
+  it('comes before the demographic profile', () => {
+    renderSheet([target({ notes: { entries: [note()], total: 1 } })])
+
+    const notes = screen.getByRole('heading', { name: 'Notes' })
+    const demographics = screen.getByRole('heading', {
+      name: 'Demographic information',
+    })
+    expect(
+      notes.compareDocumentPosition(demographics) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  // A route the service worker snapshotted before ADR 0011 shipped has no
+  // `notes` key at all, and the phone holding it cannot refetch. The card still
+  // renders — it just says which of the two silences this is.
+  it('renders for a payload with no notes field', () => {
+    renderSheet([target()])
+
+    expect(
+      within(notesCard()).getByText(
+        /This walk was saved before notes rode the route/,
+      ),
+    ).toBeInTheDocument()
   })
 })

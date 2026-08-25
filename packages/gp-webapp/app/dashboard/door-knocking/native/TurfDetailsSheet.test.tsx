@@ -157,11 +157,49 @@ const renderSheet = ({
   return { onDeleted }
 }
 
+// The canvas draws a status indicator beside the name in BOTH details drawers,
+// and the outreach one has always rendered it while this one rendered nothing —
+// so a candidate could open Details on a finished list and find no statement of
+// that anywhere on the surface. Same component as the outreach drawer, so one
+// list cannot be described in two vocabularies from two entry points.
+describe('TurfDetailsSheet status', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+  })
+
+  it.each([
+    ['Scheduled', { locked: false }],
+    ['In progress', { locked: true }],
+    ['Done', { locked: true, completedAt: new Date('2026-08-20T00:00:00Z') }],
+    [
+      'Archived',
+      {
+        locked: true,
+        completedAt: new Date('2026-08-20T00:00:00Z'),
+        archivedAt: new Date('2026-08-22T00:00:00Z'),
+      },
+    ],
+  ])('names a %s list in the header', async (label, prop) => {
+    renderSheet({ prop })
+
+    expect(
+      await screen.findByRole('heading', { name: 'Elm St & 5th' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
+})
+
 // The archive seam. #1375 gave a list its own archivedAt while the outreach
 // envelope already had one, and nothing joined them — so a walk could be
-// shelved on one rail and still be live on the other. Both surfaces that offer
-// the shelf now go through the one writer in turfLifecycle.ts, which writes the
-// list and mirrors the envelope off it; these cover the drawer's half of that.
+// shelved on one rail and still be live on the other. The join is gp-api's:
+// `setArchived` moves both rows in one transaction, so what is left to cover
+// here is the drawer offering the shelf on the right lists and issuing the one
+// call. The mirror's own behavior — the repair, the restore, the Serve org with
+// no envelope — is asserted in `doorKnocking.routes.test.ts`.
 describe('TurfDetailsSheet archive', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -186,23 +224,6 @@ describe('TurfDetailsSheet archive', () => {
       data: routePayload,
     })
 
-  const mockUnreadableRoute = () =>
-    api.mock('GET /v1/door-knocking/turfs/:id/route', {
-      status: 500,
-      data: undefined as never,
-    })
-
-  const envelope = (overrides: Record<string, unknown> = {}) =>
-    ({
-      id: 30,
-      createdAt: '2026-08-10T00:00:00Z',
-      outreachType: 'nativeDoorKnocking',
-      name: 'Elm St & 5th',
-      status: 'in_progress',
-      doorKnockingRouteId: 5,
-      ...overrides,
-    }) as never
-
   // Same gate as the rail card, deliberately: gp-api applies the transition to
   // a knocked list, and a walk still in progress is not one a candidate should
   // be able to shelve from one surface and not the other.
@@ -213,14 +234,18 @@ describe('TurfDetailsSheet archive', () => {
     expect(
       await screen.findByRole('heading', { name: 'Elm St & 5th' }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Move to Archive/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Move to archive/ })).toBeNull()
   })
 
-  it('archives the list and the outreach row it is reported as', async () => {
+  // One request, and the envelope moves with it inside gp-api's transaction.
+  // Asserting the request count is what keeps the client mirror from growing
+  // back: it was two round trips a phone could die between.
+  it('archives the list in a single call', async () => {
     let turfBody: unknown
-    let envelopeArchive: { id?: string; body?: unknown } = {}
+    let archiveCalls = 0
     mockRoute()
     api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ params, body }) => {
+      archiveCalls += 1
       turfBody = body
       expect(params.id).toBe('1')
       return {
@@ -228,43 +253,26 @@ describe('TurfDetailsSheet archive', () => {
         data: turf({ locked: true, archivedAt: new Date() }),
       }
     })
-    api.mock('GET /v1/outreach', {
-      status: 200,
-      // A second walk's envelope, so the match is on the route id rather than
-      // on being the only door-knocking row in the campaign.
-      data: [envelope({ id: 31, doorKnockingRouteId: 99 }), envelope()],
-    })
-    api.mock('PATCH /v1/outreach/:id/archive', ({ params, body }) => {
-      envelopeArchive = { id: params.id, body }
-      return { status: 200, data: { id: 30, archivedAt: new Date() } }
-    })
 
     doneSheet()
-    await clickArchive('Move to Archive')
+    await clickArchive('Move to archive')
 
-    await waitFor(() => expect(envelopeArchive.id).toBe('30'))
+    await waitFor(() =>
+      expect(successSnackbar).toHaveBeenCalledWith('Moved to archive'),
+    )
     expect(turfBody).toEqual({ archived: true })
-    expect(envelopeArchive.body).toEqual({ archived: true })
-    expect(successSnackbar).toHaveBeenCalledWith('Moved to archive')
+    expect(archiveCalls).toBe(1)
   })
 
-  // Restore is the same call with the flag flipped, on both rows, so the two
-  // cannot come back out of step either.
-  it('restores both rows from one control', async () => {
+  // Restore is the same endpoint with the flag flipped, and gp-api clears the
+  // envelope's `archivedAt` alongside the turf's — so the two cannot come back
+  // out of step either.
+  it('restores from the same control', async () => {
     let turfBody: unknown
-    let envelopeBody: unknown
     mockRoute()
     api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ body }) => {
       turfBody = body
       return { status: 200, data: turf({ locked: true, archivedAt: null }) }
-    })
-    api.mock('GET /v1/outreach', {
-      status: 200,
-      data: [envelope({ archivedAt: '2026-08-15T00:00:00Z' })],
-    })
-    api.mock('PATCH /v1/outreach/:id/archive', ({ body }) => {
-      envelopeBody = body
-      return { status: 200, data: { id: 30, archivedAt: null } }
     })
 
     renderSheet({
@@ -277,103 +285,28 @@ describe('TurfDetailsSheet archive', () => {
 
     await clickArchive('Restore')
 
-    await waitFor(() => expect(envelopeBody).toEqual({ archived: false }))
+    await waitFor(() =>
+      expect(successSnackbar).toHaveBeenCalledWith('Restored from archive'),
+    )
     expect(turfBody).toEqual({ archived: false })
-    expect(successSnackbar).toHaveBeenCalledWith('Restored from archive')
   })
 
-  // A Serve org knocks without a campaign, so it has no envelope at all and
-  // the list endpoint answers 404. Nothing to mirror is not a failure.
-  it('archives a list that has no outreach campaign behind it', async () => {
+  // A failed archive is now a failed archive, with nothing half-applied behind
+  // it: the one call either committed both rows or committed neither, so
+  // pressing again is the right thing to tell someone to do.
+  it('reports a failed archive as failed, and says which action it was', async () => {
     mockRoute()
     api.mock('POST /v1/door-knocking/turfs/:id/archive', {
-      status: 200,
-      data: turf({ locked: true, archivedAt: new Date() }),
-    })
-    api.mock('GET /v1/outreach', { status: 404, data: undefined as never })
-
-    doneSheet()
-    await clickArchive('Move to Archive')
-
-    await waitFor(() =>
-      expect(successSnackbar).toHaveBeenCalledWith('Moved to archive'),
-    )
-    expect(errorSnackbar).not.toHaveBeenCalled()
-  })
-
-  // The route id is the join key, so a route that cannot be read leaves the
-  // envelope unaddressable. The list still moves — it is the candidate's to
-  // shelve, and it is written first — but the drawer cannot claim the history
-  // row followed.
-  it('reports the lag when the route the mirror joins on is unreadable', async () => {
-    let envelopeLooked = false
-    mockUnreadableRoute()
-    api.mock('POST /v1/door-knocking/turfs/:id/archive', {
-      status: 200,
-      data: turf({ locked: true, archivedAt: new Date() }),
-    })
-    api.mock('GET /v1/outreach', () => {
-      envelopeLooked = true
-      return { status: 200, data: [envelope()] }
-    })
-
-    doneSheet()
-    await clickArchive('Move to Archive')
-
-    await waitFor(() =>
-      expect(errorSnackbar).toHaveBeenCalledWith(
-        'Moved to archive, but your outreach history has not caught up yet.',
-      ),
-    )
-    // No route id to match on, so the lookup is never even attempted — the lag
-    // is reported rather than guessed at.
-    expect(envelopeLooked).toBe(false)
-    expect(successSnackbar).not.toHaveBeenCalled()
-  })
-
-  // A 404 from the outreach list is "no campaign", and only that. Anything
-  // else means we never learned whether an envelope exists, so it lands as a
-  // lagging mirror rather than as a clean archive.
-  it('does not call a failed envelope lookup a clean archive', async () => {
-    mockRoute()
-    api.mock('POST /v1/door-knocking/turfs/:id/archive', {
-      status: 200,
-      data: turf({ locked: true, archivedAt: new Date() }),
-    })
-    api.mock('GET /v1/outreach', { status: 500, data: undefined as never })
-
-    doneSheet()
-    await clickArchive('Move to Archive')
-
-    await waitFor(() =>
-      expect(errorSnackbar).toHaveBeenCalledWith(
-        'Moved to archive, but your outreach history has not caught up yet.',
-      ),
-    )
-    expect(successSnackbar).not.toHaveBeenCalled()
-  })
-
-  // Two writes, no transaction: the list IS shelved, and reporting a failed
-  // archive would send someone to press it again against a list that already
-  // moved. So the message is about the projection lagging, not about the act.
-  it('says the history lagged when only the mirror fails', async () => {
-    mockRoute()
-    api.mock('POST /v1/door-knocking/turfs/:id/archive', {
-      status: 200,
-      data: turf({ locked: true, archivedAt: new Date() }),
-    })
-    api.mock('GET /v1/outreach', { status: 200, data: [envelope()] })
-    api.mock('PATCH /v1/outreach/:id/archive', {
       status: 500,
       data: undefined as never,
     })
 
     doneSheet()
-    await clickArchive('Move to Archive')
+    await clickArchive('Move to archive')
 
     await waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith(
-        'Moved to archive, but your outreach history has not caught up yet.',
+        'This list could not be archived. Try again.',
       ),
     )
     expect(successSnackbar).not.toHaveBeenCalled()
@@ -1363,7 +1296,10 @@ describe('TurfDetailsSheet edit', () => {
 
     const input = await openEditor()
     fireEvent.change(input, { target: { value: 'Oak Ave' } })
-    fireEvent.click(screen.getByLabelText('Turf color #16a34a'))
+    // The swatch is named for the colour, not the hex it paints with — the
+    // canvas labels its own swatches `opt.label`, and "two five six three e b"
+    // is not a colour anyone can choose by ear.
+    fireEvent.click(screen.getByRole('button', { name: 'Green' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(sent.id).toBe('1'))

@@ -36,9 +36,14 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 
 - **Authenticated flows** use Clerk via `@clerk/testing/playwright`. `clerkSetup()` runs once in `global-setup.ts`; per-test sign-in helpers live in `src/helpers/clerk.helper.ts`.
 - **`authenticateTestUser(page, options?)`** (`tests/utils/api-registration.ts`) is the one-call way to get a logged-in user. Use it in a `beforeEach` (or at the top of a test) when the scenario needs an authenticated candidate. It:
-  1. creates a real Clerk user via the backend SDK, signs in through the UI, and mints a long-lived (1h) API token from a backend session — browser-minted Clerk session tokens expire after 60s, which 401s any `client` call made late in a long test,
-  2. calls gp-api `/v1/users/me`, then (unless `skipCampaignCreation`) creates **and launches** a campaign for a real race, and
-  3. writes the `token` / `user` / `organization-slug` cookies onto the Playwright context so the `page` is authenticated.
+  1. creates a real Clerk user via the backend SDK and mints a long-lived (1h) API token from a backend session — browser-minted Clerk session tokens expire after 60s, which 401s any `client` call made late in a long test,
+  2. calls gp-api `/v1/users/me`, then (unless `skipCampaignCreation`) creates **and launches** a campaign for a real race,
+  3. **signs in through the UI last** — see the ordering rule below, and
+  4. writes the `token` / `user` / `organization-slug` cookies onto the Playwright context so the `page` is authenticated.
+
+- **Provision through the API before the browser holds a Clerk session. Never the other way round.** gp-api has no user row for a freshly created Clerk identity; the first authenticated request JIT-provisions it, and to do that `SessionGuard` asks Clerk's **Backend API** who the `clerkId` belongs to. That Backend API has a per-instance rate limit shared by every PR preview and every CI shard. The moment a browser has a Clerk session for an unprovisioned user, the app fans out ~8 concurrent authenticated calls (`/v1/campaigns/mine`, `/v1/organizations`, `/v1/experiment/variants`, …), **each** racing to provision the same identity through that budget. Clerk answers `429`, gp-api turns the failed lookup into a bare **`401`**, and the whole fan-out fails — including the setup call the test was waiting on. Retrying does not help while the budget is exhausted.
+
+  So `authenticateTestUser` provisions the user (and the campaign) through the API client and calls `signInUser` **last**, when the DB row already exists: later requests read it locally and a rate-limited Clerk enrichment call degrades gracefully instead of 401ing. Any new helper that creates a user must follow the same order — `seedPrefilledElectedOffice` (`src/helpers/serve.helper.ts`) already does, seeding via the API before `redeemServeTicket` establishes the browser session. If you see setup fail with `AxiosError: Request failed with status code 401` on a first authenticated call, this is the mechanism; confirm it in gp-api's logs by searching for `Could not find or provision user` alongside `Too Many Requests`.
 
   It returns `{ user, client }` — `user` is the `AuthenticatedUser`, and `client` is an Axios instance pre-authed against gp-api (`Bearer` token, baseURL `${API_BASE_URL || BASE_URL}/api`) for hitting the API directly from a test.
 

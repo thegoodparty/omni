@@ -601,6 +601,18 @@ export = async () => {
         Resource: ['*'],
       },
       {
+        // Robocall compliance transcribes the recorded audio (batch Transcribe
+        // reads the clip from + writes the transcript to ROBOCALL_AUDIO_BUCKET,
+        // already covered by the S3 statements above). Transcribe job actions
+        // don't support resource scoping, so they're account-wide.
+        Effect: 'Allow',
+        Action: [
+          'transcribe:StartTranscriptionJob',
+          'transcribe:GetTranscriptionJob',
+        ],
+        Resource: ['*'],
+      },
+      {
         Effect: 'Allow',
         Action: ['ssm:GetParameter'],
         Resource: [peopleDbParameterArn],

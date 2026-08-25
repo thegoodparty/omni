@@ -4,6 +4,7 @@ import {
   FILTER_DIMENSION_PROVENANCE_RULES,
   FILTER_DIMENSIONS,
 } from '@/contacts/filterDimensions.catalog'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import {
   buildDescribeFilterDimensionsTool,
   type DescribeFilterDimensionsOutput,
@@ -75,5 +76,13 @@ describe('buildDescribeFilterDimensionsTool', () => {
   it('states the provenance rules without a mode-specific noun', () => {
     expect(FILTER_DIMENSION_PROVENANCE_RULES).not.toMatch(/voter/i)
     expect(FILTER_DIMENSION_PROVENANCE_RULES).not.toMatch(/constituent/i)
+  })
+
+  it('carries the cross-catalog routing rules in its description', () => {
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions: vi.fn(() => []) },
+      organization: ORGANIZATION,
+    })
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

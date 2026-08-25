@@ -69,6 +69,30 @@ describe('walkListRows', () => {
     expect(rows.map((row) => row.firstInHousehold)).toEqual([true, true])
   })
 
+  // The walk between stops is a fact about the stop, so it merges the same way
+  // the stop number does: one leg, printed once, however many doors the stop
+  // holds. Worded by `legTravelLine`, which the printable sheet also reads.
+  it('carries the walk from the last stop once per stop', () => {
+    const rows = walkListRows([
+      stop({ seq: 1, legSeconds: 0 }),
+      stop({
+        id: 12,
+        seq: 2,
+        legSeconds: 300,
+        displayAddress: '400 Birch Ln',
+        addresses: [
+          household('400 Birch Ln Apt 1', [target({ stopTargetId: 31 })]),
+          household('400 Birch Ln Apt 2', [target({ stopTargetId: 32 })]),
+        ],
+      }),
+    ])
+
+    // The first stop of a route has no previous stop to have walked from.
+    expect(rows[0]?.travel).toBeNull()
+    expect(rows[1]?.travel).toBe('5 min from last')
+    expect(rows[2]?.travel).toBeNull()
+  })
+
   // Paper leaves the building and stops being access-controlled when it does.
   // The fixture carries a cell number so this asserts the omission rather than
   // trusting it — and it asserts against the whole model, because the renderer
@@ -231,7 +255,10 @@ describe('walkListRows', () => {
     expect(rows[0]?.otherResidents).toEqual(['Ruben Vega'])
   })
 
-  it('describes a resident with the age and party we have', () => {
+  // Age is a column of its own since the design handoff and the party stays on
+  // the meta line under the name, so this is the pair of assertions that stops a
+  // voter's age being printed twice in one row.
+  it('describes a resident with the party we have, and gives age its own field', () => {
     const rows = walkListRows([
       stop({
         addresses: [
@@ -246,7 +273,8 @@ describe('walkListRows', () => {
       }),
     ])
 
-    expect(rows[0]?.meta).toBe('68 · Republican · may have moved')
+    expect(rows[0]?.age).toBe(68)
+    expect(rows[0]?.meta).toBe('Republican · may have moved')
   })
 
   it('names a resident the voter file has no name for', () => {
@@ -262,6 +290,9 @@ describe('walkListRows', () => {
 
     expect(rows[0]?.name).toBe('Name unavailable')
     expect(rows[0]?.meta).toBe('')
+    // Null rather than a placeholder: the age cell prints empty, because a
+    // canvasser reads anything in it as a fact about the person.
+    expect(rows[0]?.age).toBeNull()
   })
 
   it('has no rows for a route with no stops', () => {
@@ -419,6 +450,24 @@ describe('walkListRows', () => {
     ])
 
     expect(JSON.stringify(rows)).not.toMatch(/Dog in the yard/)
+  })
+
+  // ADR 0011's saved contact notes, and the same rule one level up: the knock
+  // note above is one line attached to an event, while this is the resident's
+  // whole written record. Asserted against the model rather than the page,
+  // because the renderer structurally cannot print what it was never handed.
+  // The fixture carries a note and a count of nine, so both halves can fail.
+  it('never carries a saved contact note into the PDF model', () => {
+    const rows = walkListRows([
+      stop({ addresses: [household('105 Elm St', [target()])] }),
+    ])
+
+    const model = JSON.stringify(rows)
+    expect(model).not.toMatch(/Do not ring the bell/)
+    // The count is a disclosure of its own — "9 notes on file" says how much
+    // has been written about this voter even with none of it printed.
+    expect(model).not.toMatch(/"total"/)
+    expect(model).not.toMatch(/019826f4/)
   })
 
   // Both paper surfaces render in Node, whose clock is UTC, so a door knocked

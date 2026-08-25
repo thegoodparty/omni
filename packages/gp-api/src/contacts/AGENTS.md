@@ -23,7 +23,7 @@ fixes track under ENG-10744.
 ## The mental model — read this before touching anything
 
 - **There is no Contact table.** A "contact" is a people-db `Voter` row
-  (200M+ L2 records, partitioned Postgres, read-mostly), served live
+  (hundreds of millions of L2 records, partitioned Postgres, read-mostly), served live
   through `PeopleQueryModule` (`src/peopleDb/`, direct in-process access —
   the sole path; the legacy people-api HTTP client and its S2S JWT machinery
   are gone). `personId` everywhere is that Voter row's `id` — a stable hash
@@ -123,7 +123,7 @@ id-list filter can't enumerate outside the org's district.
 | `VoterFileFilter`                              | The saved filter (UI "list"). ~60 demographic columns, `search`, `supportStatus`, `firstUsedForOutreachAt` (the lock), org FK cascade                                                                          |
 | `VoterFileFilterActivityCondition`             | Owned condition rows: `outreachType` + `outreachId?` (null = any campaign of that channel) + `actions[]` (`ActivityConditionAction` enum; per-channel validity is Zod-enforced at the boundary, 400 otherwise) |
 | `ContactInteractionText`                       | Per-recipient send truth: `outreachId` FK, `respondedAt`, `optedOutAt`, `sourceEventId`, `manual`. Unique `[outreachId, personId]`                                                                             |
-| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`)                                                                                                                                                     |
+| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`, `sourceCallId`) — but **the outcome columns are only ever written by the manual log**; campaign-materialized rows have them null forever (ADR 0013)  |
 | `ContactInteractionDoorKnock`                  | `outcome`, three-way `supportAnswer`, `note`, `manual`, `sourceId`. Unique `[organizationSlug, sourceId]`. Written by the in-house door-knocking tool, never by outreach launch                                |
 | `ContactNote`                                  | Org-authored per-person notes (body ≤ 10k)                                                                                                                                                                     |
 | `PeerlyPhoneList` / `PeerlyPhoneListRecipient` | Capture tables: which people (and which phone per person) actually landed on a Peerly phone list. The phone↔person mapping the inbound sweep depends on                                                        |
@@ -134,6 +134,15 @@ Outcome→column mapping used by filter resolution: SMS `responded` =
 `respondedAt` not null, `no_response` = null, `opted_out` = `optedOutAt`
 not null; robocall `answered`/`voicemail_left` from their timestamps,
 `no_answer` = both null; door knock from `outcome` and `supportAnswer`.
+
+**The three robocall actions do not mean what they read as (ADR 0013).** No
+robocall vendor is integrated, so campaign-materialized rows never get either
+timestamp: pinned to a campaign, `answered`/`voicemail_left` match zero people
+always and `no_answer` matches every recipient of that campaign. Only manual
+(`manual = true`, `outreachId` null) rows carry a real robocall outcome, and
+`resolveRobocall` does not consult `manual` — so unpinned conditions blend
+hand-logged observations with never-observed sends. Do not build reporting or
+a follow-up audience on these until the sweep in ADR 0013 exists.
 
 ## The flows
 
@@ -228,10 +237,10 @@ follow-up, not a one-line change.
 
 The wizard's "Prior contacts made" pill row (0/1/2/3/4/5+, Win-only — hidden for
 Serve like Political Party) counts every logged interaction ROW across
-`contact_interaction_text`/`_robocall`/`_door_knock`, regardless of outcome —
-a 3-attempt door-knock sync that logs 3 rows counts as 3. Six booleans on
-`VoterFileFilter` (`contactsMade0`…`contactsMade4`, `contactsMade5Plus`,
-5Plus meaning ≥5), added additively (migration
+`contact_interaction_text`/`_robocall`/`_door_knock`/`_phone_banking`,
+regardless of outcome — a 3-attempt door-knock sync that logs 3 rows counts
+as 3. Six booleans on `VoterFileFilter` (`contactsMade0`…`contactsMade4`,
+`contactsMade5Plus`, 5Plus meaning ≥5), added additively (migration
 `20260729042120_add_contacts_made_filter_columns`) and excluded from
 `convertVoterFileFilterToFilters`'s generic loop (`fieldsHandledSeparately`,
 same treatment as the `audience*` booleans) since they resolve through
@@ -240,7 +249,7 @@ same treatment as the `audience*` booleans) since they resolve through
 
 Resolution (`ContactsMadeResolutionService`, contactInteraction) runs one
 grouped SQL query per request — `SELECT person_id, COUNT(*) FROM (UNION ALL
-of the three tables) GROUP BY person_id HAVING <bucket predicate>` — never
+of the four tables) GROUP BY person_id HAVING <bucket predicate>` — never
 six per-bucket queries. Selection `S ⊆ {0,1,2,3,4,5}` maps to one of three
 shapes:
 

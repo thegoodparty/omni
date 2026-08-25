@@ -11,23 +11,33 @@ import WalkSurface, {
 // The walk's own rendering has its own suite. Stubbed so this file asserts only
 // the seam: what the orchestrator hands in, and what the walk asks of the map.
 const walkViewProps: {
-  current: { turfId: number; openStopRequest: OpenStopRequest | null } | null
+  current: {
+    turfId: number
+    openStopRequest: OpenStopRequest | null
+    selectedStopId: number | null
+  } | null
 } = { current: null }
 vi.mock('./WalkView', () => ({
   __esModule: true,
   default: (props: {
     turfId: number
     openStopRequest?: OpenStopRequest | null
+    selectedStopId: number | null
+    onSelectStop: (stopId: number) => void
     onKnockRecorded?: () => void
   }) => {
     walkViewProps.current = {
       turfId: props.turfId,
       openStopRequest: props.openStopRequest ?? null,
+      selectedStopId: props.selectedStopId,
     }
     return (
       <div data-testid="walk-view">
         <button type="button" onClick={props.onKnockRecorded}>
           record a knock
+        </button>
+        <button type="button" onClick={() => props.onSelectStop(12)}>
+          mark stop 12
         </button>
       </div>
     )
@@ -133,10 +143,14 @@ const Probe = ({ turfId }: { turfId: number | null }) => {
           : 'none'
       }
       data-hint={String(walkMap.hintVisible)}
+      data-selected={String(walkMap.selectedStopId)}
     >
       <WalkMapHint visible={walkMap.hintVisible} />
       <button type="button" onClick={() => walkMap.onPinTap({ stopId: 11 })}>
         tap pin 11
+      </button>
+      <button type="button" onClick={() => walkMap.selectStop(12)}>
+        mark stop 12
       </button>
       <button type="button" onClick={walkMap.reset}>
         reset
@@ -206,6 +220,46 @@ describe('useWalkMapSession', () => {
     expect(screen.getByTestId('walk-map')).toHaveAttribute('data-open', '11/2')
   })
 
+  // The mark the map rings is the one the walk reports, and a pin tap is not
+  // that report — it is a request the walk may not be able to honour (a stop
+  // the served payload doesn't carry is dropped there). Ringing a pin whose
+  // door never opened would put the map ahead of the list.
+  it('marks the stop the walk reports, not the pin that was tapped', () => {
+    mockRoute()
+    render(<Probe turfId={1} />)
+    expect(screen.getByTestId('walk-map')).toHaveAttribute(
+      'data-selected',
+      'null',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'tap pin 11' }))
+    expect(screen.getByTestId('walk-map')).toHaveAttribute(
+      'data-selected',
+      'null',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'mark stop 12' }))
+    expect(screen.getByTestId('walk-map')).toHaveAttribute(
+      'data-selected',
+      '12',
+    )
+  })
+
+  // The mark outlives the sheet on purpose, so leaving the walk is the only
+  // thing that clears it — every walk opens on a route with nowhere marked.
+  it('clears the marked stop on the way out of the walk', () => {
+    mockRoute()
+    render(<Probe turfId={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'mark stop 12' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'reset' }))
+
+    expect(screen.getByTestId('walk-map')).toHaveAttribute(
+      'data-selected',
+      'null',
+    )
+  })
+
   // The coach mark names the gesture it is dismissed by, and every walk opens
   // on a route the canvasser has not seen before.
   it('teaches the pin tap once per walk', async () => {
@@ -232,12 +286,15 @@ describe('WalkSurface seam', () => {
     walkViewProps.current = null
   })
 
-  it('passes the walk its turf and the map’s open request', () => {
+  it('passes the walk its turf, the map’s open request and the marked stop', () => {
     const onKnockRecorded = vi.fn()
+    const onSelectStop = vi.fn()
     render(
       <WalkSurface
         turfId={3}
         openStopRequest={{ stopId: 11, token: 2 }}
+        selectedStopId={11}
+        onSelectStop={onSelectStop}
         onKnockRecorded={onKnockRecorded}
       />,
     )
@@ -245,7 +302,13 @@ describe('WalkSurface seam', () => {
     expect(walkViewProps.current).toEqual({
       turfId: 3,
       openStopRequest: { stopId: 11, token: 2 },
+      selectedStopId: 11,
     })
+
+    // The other direction of the same value: the walk decides where the mark
+    // goes and reports it, and the page is what the map then reads it off.
+    fireEvent.click(screen.getByRole('button', { name: 'mark stop 12' }))
+    expect(onSelectStop).toHaveBeenCalledWith(12)
 
     fireEvent.click(screen.getByRole('button', { name: 'record a knock' }))
     expect(onKnockRecorded).toHaveBeenCalled()

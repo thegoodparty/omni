@@ -1,0 +1,415 @@
+import {
+  BadGatewayException,
+  BadRequestException,
+  GatewayTimeoutException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  aggregatesSchema,
+  listPeopleSchema,
+  overlapCountSchema,
+} from '../schemas/people.schema'
+import { DatabricksVoterService } from './databricksVoter.service'
+import {
+  PeopleDbxStatementClient,
+  PeopleDbxStatementTooLargeError,
+  PeopleDbxTimeoutError,
+  PeopleDbxUnavailableError,
+  type PeopleDbxRows,
+} from './peopleDbxStatement.client'
+
+const DISTRICT_ID = '635757db-1111-4111-8111-111111111111'
+const STATE_DISTRICT_ID = 'aaaaaaaa-1111-4111-8111-111111111111'
+
+const districtRows = (
+  type: string,
+  name: string,
+  id = DISTRICT_ID,
+): PeopleDbxRows => ({
+  columns: ['id', 'state', 'type', 'name'],
+  rows: [[id, 'CA', type, name]],
+})
+
+// The district `type` is interpolated as an identifier, so resolveDistrict
+// validates it against the voter table's real column set — a second query on
+// every resolution that is not the State-only path.
+const VOTER_COLUMNS = ['id', 'State', 'US_Congressional_District', 'Age_Int']
+
+const columnRows = (): PeopleDbxRows => ({
+  columns: ['column_name'],
+  rows: VOTER_COLUMNS.map((column) => [column]),
+})
+
+describe('DatabricksVoterService', () => {
+  let query: ReturnType<typeof vi.fn>
+  let service: DatabricksVoterService
+
+  const stubClient = (): PeopleDbxStatementClient =>
+    ({ query }) as unknown as PeopleDbxStatementClient
+
+  beforeEach(() => {
+    query = vi.fn()
+    service = new DatabricksVoterService(
+      {
+        setContext: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      } as never,
+      stubClient(),
+    )
+  })
+
+  describe('resolveDistrict', () => {
+    it('scopes a normal district on its L2 column, not the junction', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+
+      const district = await service.resolveDistrict(DISTRICT_ID)
+
+      expect(district.districtType).toBe('US_Congressional_District')
+      expect(district.districtName).toBe('29')
+      expect(district.useVoterOnlyPath).toBe(false)
+      expect(query.mock.calls[1]?.[0].sql).toContain(
+        'information_schema.columns',
+      )
+    })
+
+    it('takes the voter-only path for a State district named for its state', async () => {
+      query.mockResolvedValueOnce(
+        districtRows('State', 'CA', STATE_DISTRICT_ID),
+      )
+
+      const district = await service.resolveDistrict(STATE_DISTRICT_ID)
+
+      expect(district.useVoterOnlyPath).toBe(true)
+      // Nothing is interpolated on this path, so there is no column to check.
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the district predicate for a State district named otherwise', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('State', 'Statewide'))
+        .mockResolvedValueOnce(columnRows())
+
+      const district = await service.resolveDistrict(DISTRICT_ID)
+
+      expect(district.useVoterOnlyPath).toBe(false)
+    })
+
+    it('404s a district that does not exist', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.resolveDistrict(DISTRICT_ID)).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+
+    it('resolves a district once and reuses it', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+
+      await service.resolveDistrict(DISTRICT_ID)
+      await service.resolveDistrict(DISTRICT_ID)
+
+      // The district row plus the one column-list lookup, nothing more.
+      expect(query).toHaveBeenCalledTimes(2)
+    })
+
+    // A `type` that is not a column would be interpolated straight into the
+    // statement, so it is refused rather than queried.
+    it('refuses a district whose type is not a voter column', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('Bogus_Column', '29'))
+        .mockResolvedValueOnce(columnRows())
+
+      await expect(service.resolveDistrict(DISTRICT_ID)).rejects.toThrow(
+        InternalServerErrorException,
+      )
+    })
+
+    it('fetches the voter column list once and reuses it', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+        .mockResolvedValueOnce(
+          districtRows('State', 'Statewide', STATE_DISTRICT_ID),
+        )
+
+      await service.resolveDistrict(DISTRICT_ID)
+      await service.resolveDistrict(STATE_DISTRICT_ID)
+
+      expect(query).toHaveBeenCalledTimes(3)
+      const columnQueries = query.mock.calls.filter(([statement]) =>
+        String(statement.sql).includes('information_schema.columns'),
+      )
+      expect(columnQueries).toHaveLength(1)
+    })
+  })
+
+  describe('getAggregates', () => {
+    beforeEach(() => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+    })
+
+    it('coerces the string row the API returns into numbers', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['count', 'avgAge', 'avgIncome'],
+        rows: [['398619', '47.5', '82000.25']],
+      })
+
+      const result = await service.getAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(result).toEqual({
+        count: 398619,
+        avgAge: 47.5,
+        avgIncome: 82000.25,
+      })
+    })
+
+    it('keeps a null average null rather than folding it to zero', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['count', 'avgAge', 'avgIncome'],
+        rows: [['0', null, null]],
+      })
+
+      const result = await service.getAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(result).toEqual({ count: 0, avgAge: null, avgIncome: null })
+    })
+
+    it('translates a statement timeout into a 504, not a 500', async () => {
+      query.mockRejectedValueOnce(new PeopleDbxTimeoutError(60_000))
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(GatewayTimeoutException)
+    })
+
+    // There is no fallback store, so an unreachable warehouse has to surface as
+    // a diagnosable 502 — and critically NOT as an empty result, which the
+    // product reads as "this office has no constituent data".
+    it('translates an unreachable warehouse into a 502, not a 500', async () => {
+      query.mockRejectedValueOnce(
+        new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
+      )
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadGatewayException)
+    })
+
+    it('translates an oversized selection into a 400', async () => {
+      query.mockRejectedValueOnce(new PeopleDbxStatementTooLargeError(20e6))
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('lets any other query failure propagate', async () => {
+      query.mockRejectedValueOnce(new Error('TABLE_OR_VIEW_NOT_FOUND'))
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow('TABLE_OR_VIEW_NOT_FOUND')
+    })
+  })
+
+  describe('getOverlapCount', () => {
+    it('returns the counted overlap', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+        .mockResolvedValueOnce({
+          columns: ['overlap_count'],
+          rows: [['1234']],
+        })
+
+      const result = await service.getOverlapCount(
+        overlapCountSchema.parse({
+          districtId: DISTRICT_ID,
+          savedFilterSets: [{ hasCellPhone: true }],
+        }),
+      )
+
+      expect(result).toEqual({ count: 1234 })
+    })
+  })
+
+  describe('findPeople', () => {
+    const personRow = (id: string): Array<string | null> => [
+      id,
+      'lal-1',
+      'CA',
+      'Jane',
+      null,
+      'Doe',
+      null,
+      ...Array.from({ length: 30 }, () => null),
+      '47',
+      null,
+      null,
+    ]
+
+    beforeEach(() => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+    })
+
+    it('runs the count and the page as separate queries', async () => {
+      query
+        .mockResolvedValueOnce({ columns: ['voter_count'], rows: [['120']] })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [personRow('11111111-1111-4111-8111-111111111111')],
+        })
+
+      const result = await service.findPeople(
+        listPeopleSchema.parse({ districtId: DISTRICT_ID, resultsPerPage: 50 }),
+      )
+
+      expect(result.pagination).toEqual({
+        totalResults: 120,
+        currentPage: 1,
+        pageSize: 50,
+        totalPages: 3,
+        hasNextPage: true,
+        hasPreviousPage: false,
+      })
+      expect(result.people).toHaveLength(1)
+    })
+
+    it('skips the count query when the caller does not need it', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      const result = await service.findPeople(
+        listPeopleSchema.parse({ districtId: DISTRICT_ID, skipCount: true }),
+      )
+
+      expect(result.pagination.totalResults).toBe(0)
+      // district lookup + the column list + the page, and no count.
+      expect(query).toHaveBeenCalledTimes(3)
+    })
+
+    it('reports the page it actually fetched', async () => {
+      query
+        .mockResolvedValueOnce({ columns: ['voter_count'], rows: [['10']] })
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      const result = await service.findPeople(
+        listPeopleSchema.parse({
+          districtId: DISTRICT_ID,
+          page: 9,
+          resultsPerPage: 50,
+        }),
+      )
+
+      expect(result.pagination.currentPage).toBe(9)
+      expect(result.pagination.totalPages).toBe(1)
+      expect(result.people).toEqual([])
+    })
+  })
+
+  describe('findStats', () => {
+    // No district resolution and no column probe: the stats table is keyed by
+    // district id, so findStats issues exactly one query.
+    it('returns null when the district has no stats row', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      expect(await service.findStats(DISTRICT_ID)).toBeNull()
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it('reads the mirrored stats row straight through', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [
+          [
+            '100',
+            '40',
+            '2026-08-22T00:33:05.582Z',
+            JSON.stringify([{ label: '18-25', count: '100', percent: '100' }]),
+            '[]',
+            '[]',
+            '[]',
+            JSON.stringify([{ label: '250k+', count: '60', percent: '60' }]),
+          ],
+        ],
+      })
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats?.totalConstituents).toBe(100)
+      expect(stats?.totalConstituentsWithCellPhone).toBe(40)
+      expect(stats?.updatedAt.toISOString()).toBe('2026-08-22T00:33:05.582Z')
+      expect(stats?.buckets.age).toEqual([
+        { label: '18-25', count: 100, percent: 100 },
+      ])
+      expect(stats?.buckets.estimatedIncomeRange).toEqual([
+        { label: '250k+', count: 60, percent: 60 },
+      ])
+    })
+  })
+
+  describe('findPerson', () => {
+    beforeEach(() => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+    })
+
+    it('returns the person when the id is inside the district', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [['voter-1', 'CA']],
+      })
+
+      const person = await service.findPerson('voter-1', DISTRICT_ID)
+
+      expect(person.id).toBe('voter-1')
+    })
+
+    // The webapp shows different copy for these two, so the distinction has to
+    // survive the move to Databricks.
+    it('says not-in-district when the district is scoped', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.findPerson('voter-1', DISTRICT_ID)).rejects.toThrow(
+        'Person not found in district',
+      )
+    })
+  })
+
+  describe('findPerson on a statewide district', () => {
+    it('says no-such-person when the scope is the whole state', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('State', 'CA', STATE_DISTRICT_ID))
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(
+        service.findPerson('voter-1', STATE_DISTRICT_ID),
+      ).rejects.toThrow('Person with ID voter-1 not found')
+    })
+  })
+})

@@ -1,0 +1,294 @@
+/*
+ * The printed walk sheet, as a stylesheet rather than utility classes.
+ *
+ * Three reasons this is not Tailwind. `@page` has no utility and is the rule
+ * that makes the sheet landscape at all. The design handoff is specified in
+ * exact px — 10.5px names, 8.5px column heads, 0.04em tracking, a 1.5px mark
+ * box at 2px radius — and as arbitrary-value utilities every one of those
+ * numbers would be unreadable at the call site and impossible to diff against
+ * the spec. And a print document is the one surface where the CSS *is* the
+ * design: a reviewer checking this against the handoff should be able to read
+ * the values in one place, in the same units the designer wrote them.
+ *
+ * Colours are tokens, never literals, so the sheet follows the brand's
+ * foreground the way every other surface does — but every one carries the
+ * styleguide's own fallback. An undefined custom property makes the whole
+ * declaration invalid, and in a `border` shorthand that means no border at all:
+ * a mark box with no border is a box a canvasser cannot see, let alone tick. The
+ * theme is always loaded in the app, so the fallbacks are for the case this page
+ * is saved and reopened without it, which is a thing people do with a document
+ * whose entire purpose is to work offline.
+ */
+
+@page {
+  size: Letter landscape;
+  margin: 0.5in;
+}
+
+.ws {
+  background: #fff;
+  color: var(--color-foreground, #020817);
+}
+
+/* Header. Inside the table's `<thead>`, which is what makes it repeat on every
+   printed page the way the handoff asks — see `WalkSheet.tsx`. The banner cell
+   itself contributes nothing; the padding below belongs to this block, so a
+   repeated header looks identical on every page. */
+.ws-table thead .ws-banner {
+  padding: 0;
+  border: none;
+}
+
+.ws-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 12px;
+}
+
+.ws-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ws-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-muted-foreground, #64748b);
+}
+
+.ws-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  font-size: 12px;
+  color: var(--color-muted-foreground, #64748b);
+  white-space: nowrap;
+}
+
+.ws-meta b {
+  color: var(--color-foreground, #020817);
+  font-weight: 600;
+}
+
+.ws-legend {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: var(--color-muted-foreground, #64748b);
+}
+
+/* Table. Fixed layout so the columns a canvasser writes in are the width the
+   design gave them whatever the longest street name on the route turns out to
+   be, rather than whatever the content negotiates. */
+.ws-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 10.5px;
+}
+
+.ws-table th,
+.ws-table td {
+  overflow-wrap: break-word;
+}
+
+.ws-table thead .ws-cols th {
+  padding: 0 4px 6px;
+  border-bottom: 1px solid var(--color-foreground, #020817);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground, #64748b);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ws-table tbody td {
+  padding: 5px 4px;
+  vertical-align: middle;
+  background: #fff;
+  /* The heavier rule is the boundary between households, so a shared front
+     door reads as one door however many people answer it. */
+  border-top: 1px solid var(--color-foreground, #020817);
+}
+
+/* A second or third person behind the same door: dotted, and the stop number
+   and address cells stay empty. */
+.ws-table tbody tr.ws-mate td {
+  border-top: 1px dotted var(--color-border, #e2e8f0);
+}
+
+/* A row must not split across pages: half a mark box at the foot of one page
+   and its label at the head of the next is a box nobody can tick. */
+.ws-table tbody tr {
+  break-inside: avoid;
+}
+
+.ws-seq,
+.ws-age {
+  font-size: 9.5px;
+  color: var(--color-muted-foreground, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-seq {
+  padding-left: 4px;
+  /* A stop number is never worth breaking over two lines, and a route that
+     somehow outgrew its column should overflow visibly rather than print "1"
+     above "5" above "0". */
+  white-space: nowrap;
+}
+
+.ws-name {
+  padding-left: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+/* Same left edge as the primary member, no indent — the dotted rule is what
+   groups them, and an indent would read as a hierarchy that isn't there. */
+.ws-table tbody tr.ws-mate .ws-name {
+  font-weight: 500;
+}
+
+.ws-address {
+  padding-left: 2px;
+  font-size: 9.5px;
+}
+
+/* The first line of a cell that has several — the name, the address. A span
+   rather than a bare text node so it is one addressable line beside the muted
+   ones below it. */
+.ws-line {
+  display: block;
+}
+
+/* The muted lines under a name or an address — party, travel time, who else
+   lives here, when this resident was last contacted. Block, so each is its own
+   line, and back to a normal weight inside the 600 name cell.
+   
+   A step below the type scale's 9.5px, at the 8.5px it gives column heads: these
+   are the lines that decide how tall a row is, and the longest of them ("Last
+   contact: September 2026 · Door knock: Refused to engage") has to stay on one,
+   or the sheet grows by a page every few households. */
+.ws-sub {
+  display: block;
+  font-size: 8.5px;
+  font-weight: 400;
+  color: var(--color-muted-foreground, #64748b);
+}
+
+/* Mark boxes. Outlined and never filled: printers drop background colours by
+   default, so every mark on this page is a border or a glyph. */
+/* The three columns of mark boxes. Wider side padding than the 4px the handoff
+   gives a body cell, because the handoff has one column of boxes and this sheet
+   has three side by side: at 4px the gap between two columns of options is
+   narrower than the 10px gap between options inside one, so eleven boxes read
+   as one run rather than as three questions. There are no vertical rules to
+   separate them — the design rules the grid horizontally only — so the space
+   has to do it. */
+.ws-marks {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* One non-wrapping row of options per column, per the handoff. The `Answered`
+   column is sized to the 226px five of them measure so that stays true here,
+   where the handoff had only three to fit. */
+.ws-boxes {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ws-opt {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.ws-box {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--color-foreground, #020817);
+  border-radius: 2px;
+  background: #fff;
+}
+
+.ws-opt span {
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground, #64748b);
+  /* The handoff's labels are one short word each and it sets them `nowrap`.
+     Ours include "Refused to engage", and holding five of those on one line
+     would cost the `Answered` column another 6% of the page. Wrapping the label
+     inside its own option keeps the row of boxes unwrapped, which is the part of
+     the rule that matters — a canvasser scanning for the third box counts
+     boxes, not lines. */
+  white-space: normal;
+}
+
+/* What replaces the boxes when there is nothing to ask: a flagged resident, or
+   one already logged in the app. */
+.ws-instruction {
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.ws-logged {
+  font-size: 9.5px;
+  font-style: italic;
+  color: var(--color-muted-foreground, #64748b);
+}
+
+.ws-empty {
+  margin: 12px 0 0;
+  font-size: 10.5px;
+}
+
+/* The footer's own cell contributes nothing: the rule and the 20px gap below it
+   belong to `.ws-foot`, so a repeated footer looks the same on every page. */
+.ws-table tfoot td {
+  padding: 0;
+}
+
+.ws-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+}
+
+.ws-logo {
+  display: block;
+  height: 22px;
+  width: auto;
+}
+
+.ws-tagline {
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* On screen this page is a preview of paper, so it keeps the sheet's own
+   proportions instead of the dashboard's — but nothing here is print-only, so
+   what someone checks on a laptop is what comes out of the printer. */
+@media print {
+  .ws {
+    padding: 0;
+  }
+}

@@ -255,7 +255,23 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-24: 603 -> 604 for useRobocallAudioUpload — the hook that presigns
 // and POSTs the recording to S3 holds upload/error/key state and calls
 // clientRequest, so it can't run on the server.
-const BASELINE = 604
+// 2026-08-24: merge reconciliation — main's 604 minus this branch's WhoStep.tsx
+// deletion (phone banking's inline audience builder, replaced by the shared
+// v2/audience/ step) = 603.
+// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
+// The door's Notes section owns a compose draft, an in-place editor, three
+// mutations and a dictation session, so it cannot render on the server — the
+// same shape and the same reason as DoNotKnockControl and NotAVoterControl
+// above it, inside the client-only PersonSheet. Its state module,
+// native/doorNotes.ts, stays directive-free and inherits the boundary from its
+// importers: it is a hooks-and-pure-functions module with no JSX, the
+// turfLifecycle.ts rule.
+// 2026-08-25: 604 -> 605 for
+// dashboard/contacts/crm/lists/DuplicateListDialog.tsx (ENG-10943). It owns
+// the confirm-then-mutate flow (useDuplicateList's mutation + its pending
+// state) for the duplicate-list AlertDialog — same shape as its siblings
+// RenameListDialog/DeleteListDialog, both already client components.
+const BASELINE = 605
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -1,5 +1,6 @@
 import type {
   DoorKnockingRoutePayload,
+  RoutePayloadStop,
   RoutePayloadTarget,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
@@ -13,14 +14,58 @@ export const formatDuration = (seconds: number): string => {
   return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
 }
 
-// Age and party are the two things a canvasser uses to open a conversation,
-// and they're the only enrichment worth the ink.
+// The walk sheet's columns, in the order both paper surfaces rule them. Widths
+// are each surface's own — one is CSS percentages of a printed page and the
+// other is points in a fixed-width grid — but the wording is a fact both must
+// agree on, because a canvasser filling in one and a volunteer filling in the
+// other are handing the same answers to the same transcriber. Quoted twice, per
+// this directory's rule; putting it in `walkListRows` would reach the PDF only.
+export const WALK_COLUMNS = {
+  seq: '#',
+  name: 'Name',
+  age: 'Age',
+  address: 'Address',
+  answered: 'Answered',
+  support: 'Support',
+  willVote: 'Will vote',
+  notes: 'Notes',
+} as const
+
+// The two sentences above the grid, in the order they are read. The first is how
+// to fill the sheet in; the second is the one thing a canvasser loses a day's
+// work by assuming. Both surfaces printed a version of the second already, in
+// two different wordings — one route's paper saying the same thing two ways is
+// exactly what this file exists to stop.
+export const MARK_INSTRUCTION =
+  'Mark each door by hand. Circle or tick a box, write short notes in the last column.'
+export const RECORDS_NOTICE =
+  'Answers already logged in the app are printed below. Log these doors in the app when you’re back online — nothing written here reaches your voter records on its own.'
+
+// How long it takes to get from the previous stop to this one, or null for the
+// first stop of a route and for any leg the route reports as zero.
+//
+// A fact about the *stop*, not the door and not the resident, so it prints once
+// however many doors the stop holds — see `firstInStop` on both renderers. It is
+// here rather than in either of them because the printable sheet has always shown
+// it and the PDF never did, which is the divergence this file exists to stop: two
+// artifacts of one route, one of them silent about why the stops are in the order
+// they are in.
+//
+// The mode is deliberately not in the wording, though `WalkView` says "3m walk"
+// per leg. On a screen each stop is a card in a scrolling list; on paper every
+// leg on the sheet belongs to one route whose header already reads "Walking
+// loop", so repeating walk-or-drive on all 150 rows spends the narrowest column
+// on the page restating something stated above it. "from last" earns its two
+// words instead, because the number sits in the address column and needs to say
+// it is time spent getting there rather than time spent at the door.
+export const legTravelLine = (stop: RoutePayloadStop): string | null =>
+  stop.legSeconds > 0 ? `${formatDuration(stop.legSeconds)} from last` : null
+
+// Party, and whether the address is stale. Age used to lead this line and now
+// has a column of its own on both surfaces, so repeating it here would print a
+// voter's age twice in one row.
 export const describeTarget = (target: RoutePayloadTarget): string =>
-  [
-    target.age === null ? null : `${target.age}`,
-    target.politicalParty,
-    target.mayHaveMoved ? 'may have moved' : null,
-  ]
+  [target.politicalParty, target.mayHaveMoved ? 'may have moved' : null]
     .filter(Boolean)
     .join(' · ')
 

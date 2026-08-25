@@ -15,7 +15,7 @@ import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ALL_SOCIAL_PLATFORM_IDS } from '../socialPlatforms'
-import { socialPurposeLabel } from '../socialPurposes'
+import { socialPurposeNameSuggestion } from '../socialPurposes'
 import { PurposeStep } from './PurposeStep'
 import { ComposeStep } from './ComposeStep'
 import { PlatformsStep } from './PlatformsStep'
@@ -299,8 +299,11 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
       return
     }
     if (stepId === 'platforms') {
-      if (!nameEdited && purpose) {
-        setName(socialPurposeLabel(purpose))
+      // The custom purpose gets no suggestion: the candidate is writing their
+      // own message, so there is nothing to infer a name from — and its card
+      // copy ("Write my own message") would land in outreach history verbatim.
+      if (!nameEdited && purpose && purpose !== 'custom') {
+        setName(socialPurposeNameSuggestion(purpose))
       }
       setStepId('share')
     }

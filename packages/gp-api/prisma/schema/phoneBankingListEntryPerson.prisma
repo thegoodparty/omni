@@ -11,6 +11,11 @@ model PhoneBankingListEntryPerson {
   // targets at build time. Privacy deletion blanks this in place rather
   // than nulling it — the row is never removed.
   name                    String
+  // Split out of `name` at build time (ENG-10938) so the caller page can
+  // greet the contact by first name alone. Nullable: rows frozen before
+  // this field existed have no value to backfill, and even a fresh build
+  // can carry null when the voter record itself has no first name.
+  firstName               String?               @map("first_name")
 
   // A person appears at most once per entry, mirroring
   // DoorKnockingStopTarget's per-stop uniqueness.

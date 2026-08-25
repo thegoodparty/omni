@@ -12,6 +12,12 @@ export interface DistrictById {
 export class DistrictService extends createPeopleDbBase(
   PEOPLE_MODELS.District,
 ) {
+  // Deliberately NOT dual-read. Every voter read resolves its district first,
+  // including the ones still served only by Postgres (door knocking, voter
+  // packs, CSV download). Routing this through Databricks would make those
+  // reads fail when Databricks does, and would fold Databricks latency into
+  // the Postgres side of every comparison. The Databricks arm resolves the
+  // district itself, so its cost is already counted in that arm's timing.
   async findDistrictById(id: string): Promise<DistrictById> {
     const district = await this.model.findUnique({
       where: { id },

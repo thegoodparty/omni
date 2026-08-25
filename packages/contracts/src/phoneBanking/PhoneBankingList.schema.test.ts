@@ -7,6 +7,7 @@ import {
 const person = {
   personId: 'person-1',
   name: 'Marisol Vega',
+  firstName: null,
   age: null,
   party: null,
   address: null,

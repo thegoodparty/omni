@@ -309,6 +309,13 @@ export const CallSheetPdf = ({
         </Text>
         <View style={styles.script}>
           <Text style={styles.scriptLabel}>Script</Text>
+          {/* Deliberately not interpolated (ENG-10938): one script prints
+              once per sheet header above rows for up to 60 different
+              people, so there's no single "active contact" to substitute
+              — the voter-name token stays a literal bracket here, same as
+              the caller page shows for a list frozen before that field
+              existed. Only the digital caller page (PhoneBankingEntryPanel)
+              is single-contact enough to interpolate it. */}
           <Text style={styles.scriptText}>{script}</Text>
         </View>
         {/* Deliberately no printed date, for the same reason the walk list
