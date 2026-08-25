@@ -6,6 +6,7 @@ import {
   SqlRejected,
   validateInsightsSql,
 } from './districtInsights.tool'
+import { DATA_SOURCE_ROUTING_RULES } from './dataSourceRouting'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 import { isRecord } from './util/isRecord.util'
@@ -404,7 +405,9 @@ ${
 }
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.
 
-Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.`
+Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.
+
+${DATA_SOURCE_ROUTING_RULES}`
 }
 
 export const buildQueryConstituentDataTool = (deps: {
@@ -464,7 +467,8 @@ export const buildDescribeConstituentDataTool = (deps: {
   scope: ConstituentDataScope
 }): LlmStreamTool<Record<string, never>, ConstituentDataMetadata> => ({
   description:
-    'List the table, recommended breakdown dimensions (with labels), and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.',
+    'List the table, recommended breakdown dimensions (with labels), and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.\n\n' +
+    DATA_SOURCE_ROUTING_RULES,
   inputSchema: z.object({}),
   execute: () => ({
     table: [...deps.scope.allowedTables][0] ?? '',

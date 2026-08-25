@@ -1,6 +1,10 @@
 import * as grafana from '@pulumiverse/grafana'
-import { Alert, SlackGroup } from './alerting/alerts.types'
+import { Alert } from './alerting/alerts.types'
 import { GLOBAL_ALERTS } from './alerts'
+import {
+  buildAlertDescription,
+  buildAlertSummary,
+} from './alerting/alert-notification'
 import { controllerAlerts } from './alerting/controller-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
@@ -12,10 +16,6 @@ export interface GrafanaConfig {
 
 const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
 const PROM_DATASOURCE_UID = 'grafanacloud-prom'
-const SLACK_GROUP_IDS: Record<SlackGroup, string> = {
-  'serve-bugs': 'S0AD54G9D3K',
-  'win-bugs': 'S0AE3NTCXM3',
-}
 
 const datasourceConfig = {
   log: { uid: LOKI_DATASOURCE_UID, queryType: 'range' },
@@ -178,13 +178,8 @@ export const createGrafanaResources = async ({
     noDataState: 'OK',
     execErrState: 'Alerting',
     annotations: {
-      summary: alert.name,
-      description: [
-        alert.message.replace(/\$ENV/g, environment),
-        alert.notify ? `<!subteam^${SLACK_GROUP_IDS[alert.notify]}>` : '',
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
+      summary: buildAlertSummary(alert, environment),
+      description: buildAlertDescription(alert, environment),
     },
     labels: {
       environment,

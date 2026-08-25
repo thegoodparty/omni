@@ -339,7 +339,6 @@ export class RecommendedListsComputeService extends createPrismaBase(
         votesNeeded: votesNeeded === null ? null : Math.round(votesNeeded),
         electionCode: electionCode(
           electionDate ? parseISO(electionDate) : null,
-          district.state,
         ),
         electionDate,
         subGeoLabel: subGeoLabel(sub),

@@ -23,7 +23,7 @@ fixes track under ENG-10744.
 ## The mental model — read this before touching anything
 
 - **There is no Contact table.** A "contact" is a people-db `Voter` row
-  (200M+ L2 records, partitioned Postgres, read-mostly), served live
+  (hundreds of millions of L2 records, partitioned Postgres, read-mostly), served live
   through `PeopleQueryModule` (`src/peopleDb/`, direct in-process access —
   the sole path; the legacy people-api HTTP client and its S2S JWT machinery
   are gone). `personId` everywhere is that Voter row's `id` — a stable hash
@@ -101,7 +101,7 @@ gating is per-action inside the services (see Access control).
 | `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity)                                                                                                                                                                                                                                                                                                                                                                 |
 | `POST /v1/contacts/overlap-count`                                                  | Saved-list overlap for the wizard's "N (P%) voters already exist in lists you've saved" strip (ENG-10840): the in-progress selection AND'd with the union of the org's saved lists (capped at the 25 most recent, truncation logged). Same in-progress payload and Pro gate as `count`                                                                                                                                                                     |
 | `GET /v1/contacts/list-detail`                                                     | Saved-segment detail (`segment` param): demographics, reachable-by-channel (sms/robocall/phoneBanking/doorKnocking/polls), outreach history. Omitting `segment` returns the universe row's detail instead — the whole unfiltered district, `outreachHistory` always `[]` (ENG-10778). History excludes `doorKnocking` rows (the door-knock tool writes its own interaction rows) and orders null `date`s last with `createdAt` fallback fields (ENG-10776) |
-| `GET /v1/contacts/download`                                                        | CSV COPY stream: a curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766), not the raw L2 columns. Serve downloads drop party, turnout propensity, and vote history **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, ENG-10830) since a stream can't be post-processed                                                                                                                                     |
+| `GET /v1/contacts/download`                                                        | CSV COPY stream: a curated ~76-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766, widened in DATA-2281), not the raw L2 columns. Serve downloads drop party, turnout propensity, and vote history **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, which is `EXCLUDABLE_VOTER_COLUMNS` verbatim, ENG-10830) since a stream can't be post-processed                                                                                                                                     |
 | `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404)                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `POST /v1/contacts/:personId/interactions`                                         | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                      |
 | `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                     |
@@ -123,7 +123,7 @@ id-list filter can't enumerate outside the org's district.
 | `VoterFileFilter`                              | The saved filter (UI "list"). ~60 demographic columns, `search`, `supportStatus`, `firstUsedForOutreachAt` (the lock), org FK cascade                                                                          |
 | `VoterFileFilterActivityCondition`             | Owned condition rows: `outreachType` + `outreachId?` (null = any campaign of that channel) + `actions[]` (`ActivityConditionAction` enum; per-channel validity is Zod-enforced at the boundary, 400 otherwise) |
 | `ContactInteractionText`                       | Per-recipient send truth: `outreachId` FK, `respondedAt`, `optedOutAt`, `sourceEventId`, `manual`. Unique `[outreachId, personId]`                                                                             |
-| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`)                                                                                                                                                     |
+| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`, `sourceCallId`) — but **the outcome columns are only ever written by the manual log**; campaign-materialized rows have them null forever (ADR 0013)  |
 | `ContactInteractionDoorKnock`                  | `outcome`, three-way `supportAnswer`, `note`, `manual`, `sourceId`. Unique `[organizationSlug, sourceId]`. Written by the in-house door-knocking tool, never by outreach launch                                |
 | `ContactNote`                                  | Org-authored per-person notes (body ≤ 10k)                                                                                                                                                                     |
 | `PeerlyPhoneList` / `PeerlyPhoneListRecipient` | Capture tables: which people (and which phone per person) actually landed on a Peerly phone list. The phone↔person mapping the inbound sweep depends on                                                        |
@@ -134,6 +134,15 @@ Outcome→column mapping used by filter resolution: SMS `responded` =
 `respondedAt` not null, `no_response` = null, `opted_out` = `optedOutAt`
 not null; robocall `answered`/`voicemail_left` from their timestamps,
 `no_answer` = both null; door knock from `outcome` and `supportAnswer`.
+
+**The three robocall actions do not mean what they read as (ADR 0013).** No
+robocall vendor is integrated, so campaign-materialized rows never get either
+timestamp: pinned to a campaign, `answered`/`voicemail_left` match zero people
+always and `no_answer` matches every recipient of that campaign. Only manual
+(`manual = true`, `outreachId` null) rows carry a real robocall outcome, and
+`resolveRobocall` does not consult `manual` — so unpinned conditions blend
+hand-logged observations with never-observed sends. Do not build reporting or
+a follow-up audience on these until the sweep in ADR 0013 exists.
 
 ## The flows
 
@@ -147,14 +156,10 @@ filters (`convertVoterFileFilterToFilters` in
 with a small page; person detail adds derived `supportStatus` and
 `optedOutAt` (`ContactInteractionTextService.latestOptOutAt`). The count
 endpoint runs the identical translation with `resultsPerPage: 1` and
-returns `{ count, fenced }` — `fenced` (ENG-10804) mirrors
-`pagination.fenced`: true when the people-db query layer's statement-timeout guard
-floored the total at `FENCE_LIMIT` (10k), a lower bound rather than an
-exact figure. `GET /v1/contacts`'s own `pagination.fenced` carries the
-same signal for the list total. The webapp renders a fenced count via
-`formatFencedCount` ("10,000+") and never persists it as an exact
-`voterCount`; the assistant's `count_contacts` tool reports it as "at
-least N".
+returns `{ count }`. Every people-db query runs under a hard 25s statement
+timeout (`runUnderStatementTimeout`); a pathological plan fails loudly as a
+`GatewayTimeoutException` (504) rather than degrading into a floored or
+partial count — see `src/peopleDb/CLAUDE.md`.
 
 ### Activity-condition + support-status resolution
 
@@ -232,10 +237,10 @@ follow-up, not a one-line change.
 
 The wizard's "Prior contacts made" pill row (0/1/2/3/4/5+, Win-only — hidden for
 Serve like Political Party) counts every logged interaction ROW across
-`contact_interaction_text`/`_robocall`/`_door_knock`, regardless of outcome —
-a 3-attempt door-knock sync that logs 3 rows counts as 3. Six booleans on
-`VoterFileFilter` (`contactsMade0`…`contactsMade4`, `contactsMade5Plus`,
-5Plus meaning ≥5), added additively (migration
+`contact_interaction_text`/`_robocall`/`_door_knock`/`_phone_banking`,
+regardless of outcome — a 3-attempt door-knock sync that logs 3 rows counts
+as 3. Six booleans on `VoterFileFilter` (`contactsMade0`…`contactsMade4`,
+`contactsMade5Plus`, 5Plus meaning ≥5), added additively (migration
 `20260729042120_add_contacts_made_filter_columns`) and excluded from
 `convertVoterFileFilterToFilters`'s generic loop (`fieldsHandledSeparately`,
 same treatment as the `audience*` booleans) since they resolve through
@@ -244,7 +249,7 @@ same treatment as the `audience*` booleans) since they resolve through
 
 Resolution (`ContactsMadeResolutionService`, contactInteraction) runs one
 grouped SQL query per request — `SELECT person_id, COUNT(*) FROM (UNION ALL
-of the three tables) GROUP BY person_id HAVING <bucket predicate>` — never
+of the four tables) GROUP BY person_id HAVING <bucket predicate>` — never
 six per-bucket queries. Selection `S ⊆ {0,1,2,3,4,5}` maps to one of three
 shapes:
 
@@ -350,9 +355,11 @@ so channels without an interaction model still lock the filter.
 
 1. Stamp the filter lock (if a filter is attached — p2p can carry a phone
    list without one).
-2. Only `text | p2p | robocall` materialize. `doorKnocking` is permanently
-   excluded (the door-knock tool writes its own rows);
-   `phoneBanking`/`socialMedia` have no model yet.
+2. Only `text | p2p | robocall` materialize. `doorKnocking` and
+   `phoneBanking` are permanently excluded — each writes its own rows from
+   its own logging endpoint (the phone-banking call-outcome endpoint,
+   `src/phoneBanking/`, ENG-10915) rather than at launch; `socialMedia` has
+   no model yet.
 3. p2p/text with a captured Peerly phone list: rows come from
    `PeerlyPhoneListRecipient` — the actual SMS-reachable recipients — one
    `ContactInteractionText` per person (`createMany` +
@@ -481,21 +488,31 @@ over interaction rows with a non-null `support_answer`; a "list" =
   join); never assume it's set.
 - `ContactInteractionText.unsubscribedAt` was dropped before anything
   wrote it (SMS "unsubscribed" folded into `opted_out`, 2026-07-16).
-- Support answers are captured by door knocking only (for now); the
-  filter buckets exist in **both** modes.
+- Support answers are captured by door knocking and phone banking
+  (`SupportStatusService.derivedStatusSql` UNIONs both
+  `contact_interaction_door_knock` and `contact_interaction_phone_banking`,
+  ENG-10915); the filter buckets exist in **both** modes.
 - No paginated member browsing anywhere, by locked design — the list
   detail never shows people; individuals are reached via typeahead only.
   Don't add a member table.
 - Reachability has five channels: sms, robocall, phoneBanking, doorKnocking,
   polls. `email`/`metaAds` were removed (ENG-10783, no data source ever
   existed for them); `polls` mirrors the sms (has-cell-phone) count 1:1.
-- `fetchListDetailAggregates`'s four people-db aggregate calls (base, cellphone,
-  landline, address) settle independently (ENG-10806, `Promise.allSettled`):
-  a failed cellphone/landline/address call nulls only the reachability
-  channels it backs (`ListDetailReachabilitySchema`'s channels are
-  nullable) — the route still 200s and the other tiles render real numbers.
-  Only a failed base call still 502s (`BadGatewayException`); there's
-  nothing to show without it.
+  `phoneBanking` is reachable-by-any-phone (cell OR landline non-null,
+  ENG-10914) — it used to mirror `robocall`'s landline-only count, but the
+  list builder freezes any phone (cell first), so the tile now agrees with
+  the built list. `robocall` stays landline-only. The `hasAnyPhone`
+  people-db filter key (`src/peopleDb/utils/filters.sql.util.ts`) backs
+  both the tile and the `phoneBanking` entry in
+  `segmentsToFiltersMap.const.ts` (the built-in CRM segment/CSV export).
+- `fetchListDetailAggregates`'s five people-db aggregate calls (base,
+  cellphone, landline, anyPhone, address) settle independently
+  (ENG-10806, `Promise.allSettled`): a failed cellphone/landline/anyPhone/
+  address call nulls only the reachability channels it backs
+  (`ListDetailReachabilitySchema`'s channels are nullable) — the route
+  still 200s and the other tiles render real numbers. Only a failed base
+  call still 502s (`BadGatewayException`); there's nothing to show
+  without it.
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
 - Download does not re-apply a stored `search` (the download path has no

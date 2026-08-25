@@ -723,6 +723,9 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // enrich the grouped response — no new external call, this is the same
   // relation collect() reads via loadOpposition. Keyed by normalized name so
   // groupByOpponent can resolve party/incumbency per collected opponent.
+  // `displayName` preserves the original fullName so groupByOpponent can
+  // surface a rostered opponent with no collected rows using their real
+  // casing (ENG-10893).
   private async loadRoster(campaignId: number): Promise<
     Map<
       string,
@@ -730,6 +733,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         party: string | null
         isIncumbent: boolean | null
         websiteUrl: string | null
+        displayName: string
       }
     >
   > {
@@ -743,6 +747,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         party: string | null
         isIncumbent: boolean | null
         websiteUrl: string | null
+        displayName: string
       }
     >()
     for (const opponent of plan?.opponents ?? []) {
@@ -750,6 +755,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         party: opponent.partyAffiliation,
         isIncumbent: opponent.incumbent ?? null,
         websiteUrl: opponent.websiteUrl ?? null,
+        displayName: opponent.fullName.trim(),
       })
     }
     return byName
@@ -826,6 +832,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         party: string | null
         isIncumbent: boolean | null
         websiteUrl: string | null
+        displayName: string
       }
     >,
     summaries: Map<string, RaceOpponentSummary>,
@@ -853,6 +860,22 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       ) {
         websiteUrlByName.set(row.opponentName, row.sourceUrl)
       }
+    }
+    // Seed rostered opponents that have zero collected rows (ENG-10893). The
+    // plan's Executive Summary/Opposition Research reads the same roster and
+    // would otherwise diverge from KYO when the collection agent found no
+    // public sources for a rostered name (a match falls out of the response
+    // entirely rather than rendering with empty items). Match on the same
+    // normalized (trim+lowercase) key groupByOpponent uses to enrich, so an
+    // opponent whose collected rows just differ in casing/whitespace from the
+    // roster still deduplicates onto their collected entry.
+    const collectedNormalized = new Set<string>()
+    for (const opponentName of byName.keys()) {
+      collectedNormalized.add(opponentName.trim().toLowerCase())
+    }
+    for (const [normalized, rosterEntry] of roster.entries()) {
+      if (collectedNormalized.has(normalized)) continue
+      byName.set(rosterEntry.displayName, [])
     }
     const grouped = [...byName.entries()].map(([opponentName, items]) => {
       // Conservative name match against the roster: trim + lowercase only

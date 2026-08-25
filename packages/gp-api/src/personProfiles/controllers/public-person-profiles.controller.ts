@@ -46,14 +46,17 @@ import {
   recordVoterDensityRequest,
 } from '../observability/person-profiles.metrics'
 
-// A 200 "removal requested" payload: identity-free, no authored content, just
-// the `removed` flag so the marketing site knows to render the minimal K/L
-// states (which still show the crawlable civics spine from election-api). All
-// overlay fields are null; issues is empty.
-function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
+// A 200 marker payload: identity-free, no authored content, just the flag the
+// marketing site gates on. Every overlay field is null and issues is empty, so
+// nothing the owner wrote can leave the server on these paths — the caller
+// learns only which gate it hit.
+function buildMarkerResponse(
+  personId: string,
+  marker: { removed: true } | { unpublished: true },
+): PublicPersonProfileResponse {
   return {
     personId,
-    removed: true,
+    ...marker,
     displayName: null,
     roleTitleOverride: null,
     bioOverride: null,
@@ -82,10 +85,14 @@ function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
 // The marketing site's render gate. A profile is only "live" when it is
 // published and not deleted; this endpoint enforces that so unpublished/draft
 // content never leaves the server:
-//   - removal requested           -> 200 { removed: true } (page renders K/L)
-//   - never existed / unpublished -> 404 (page renders "not found")
-//   - deleted                     -> 410 Gone (page renders "removed")
-//   - live                        -> 200 with the whitelisted overlay
+//   - removal requested -> 200 { removed: true } (page renders K/L)
+//   - deleted           -> 410 Gone (page renders "not found")
+//   - unpublished/draft -> 200 { unpublished: true } (spine page, no claim CTA)
+//   - never existed     -> 404 (spine page with claim CTAs, or "not found")
+//   - live              -> 200 with the whitelisted overlay
+//
+// Deletion still outranks unpublished: an owner who deleted a draft asked for
+// the page to be gone, which is a stronger request than "not live right now".
 @Controller('public-person-profiles')
 @PublicAccess()
 @UsePipes(ZodValidationPipe)
@@ -164,7 +171,7 @@ export class PublicPersonProfilesController {
     // marker and no authored content. The marketing site renders K/L from this.
     if (await this.personProfilesService.isRemoved(dto.personId)) {
       gate('removed')
-      return buildRemovedResponse(dto.personId)
+      return buildMarkerResponse(dto.personId, { removed: true })
     }
 
     const profile = await this.personProfilesService.findByPersonId(
@@ -179,9 +186,13 @@ export class PublicPersonProfilesController {
       gate('gone')
       throw new GoneException('Profile has been removed')
     }
+    // Distinct from the 404 above: an owner exists and has authored something,
+    // it just isn't live. The marketing page renders the same civics spine
+    // either way, but it must not invite this person to claim a profile they
+    // already own — or invite voters to nudge them into finishing it.
     if (!profile.publishedAt) {
-      gate('not_found')
-      throw new NotFoundException('Profile is not published')
+      gate('unpublished')
+      return buildMarkerResponse(dto.personId, { unpublished: true })
     }
 
     gate('live')

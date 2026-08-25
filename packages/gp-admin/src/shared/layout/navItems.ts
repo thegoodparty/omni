@@ -5,6 +5,7 @@ import {
   HiGlobeAlt,
   HiLightningBolt,
   HiClipboardList,
+  HiEyeOff,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -46,6 +47,12 @@ export const navItems: NavItem[] = [
     href: '/dashboard/briefings',
     icon: HiClipboardList,
     permission: PERMISSIONS.REVIEW_BRIEFINGS,
+  },
+  {
+    title: 'Profile Removals',
+    href: '/dashboard/person-removals',
+    icon: HiEyeOff,
+    permission: PERMISSIONS.MANAGE_PERSON_REMOVALS,
   },
   {
     title: 'Settings',

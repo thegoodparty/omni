@@ -9,10 +9,14 @@ import { DoorKnockingController } from './doorKnocking.controller'
 import { DoorKnockingActivityService } from './services/doorKnockingActivity.service'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
+import { DoorKnockingNotesService } from './services/doorKnockingNotes.service'
 import { DoorKnockingPeopleApiService } from './services/doorKnockingPeopleApi.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
+import { DoorKnockingStatusService } from './services/doorKnockingStatus.service'
+import { DoorKnockingTurfCountsService } from './services/doorKnockingTurfCounts.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
+import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
 
 @Module({
   imports: [
@@ -27,11 +31,15 @@ import { DoorKnockingPackService } from './services/doorKnockingPack.service'
   providers: [
     DoorKnockingActivityService,
     DoorKnockingTurfService,
+    DoorKnockingTurfCountsService,
     DoorKnockingKnockService,
+    DoorKnockingNotesService,
     DoorKnockingPeopleApiService,
     DoorKnockingServeService,
+    DoorKnockingStatusService,
     DoorKnockingInteractionService,
     DoorKnockingPackService,
+    DoorKnockingPreviewService,
   ],
 })
 export class DoorKnockingModule {}

@@ -28,14 +28,17 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { lockTurf } from '../utils/turfLock.util'
+import { activeTurfScope } from '../utils/turfScope.util'
 import {
   assertWaypointQuota,
   recordWaypointSpend,
 } from '../utils/waypointQuota.util'
 
 // Leadership-approved hard cap; the DB CHECK on stop.seq enforces the same
-// bound.
-const MAX_STOPS = 150
+// bound. Exported so the draw-step preview materializes addresses only up to
+// the number of stops a savable list can hold, rather than carrying a second
+// 150 that can drift from this one.
+export const MAX_STOPS = 150
 // Geoapify bills the Route Planner at 10 credits per location (the
 // schema-documented meaning of route.credits).
 const GEOAPIFY_CREDITS_PER_LOCATION = 10
@@ -128,10 +131,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
         // edit can't slip a changed polygon between read and freeze — turf
         // update/delete take the same lock.
         const turf = await tx.doorKnockingTurf.findFirst({
-          where: {
-            id: turfId,
-            voterFileFilter: { organizationSlug: organization.slug },
-          },
+          where: { id: turfId, ...activeTurfScope(organization.slug) },
           // activityConditions is a relation, so it has to be pulled in
           // explicitly — without it the resolution below sees a list with no
           // conditions and knocks the unfiltered roster.

@@ -57,6 +57,7 @@ import {
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
 import {
+  hasRenderableName,
   isBioPublishable,
   isGenericComplianceContent,
   isGenuineIssue,
@@ -95,7 +96,6 @@ const REQUIRED_PUBLISH_FIELDS: Array<{
   path: string
   check: (content: PrismaJson.WebsiteContent) => boolean
 }> = [
-  { path: 'main.title', check: (c) => isNonEmpty(c.main?.title) },
   { path: 'about.bio', check: (c) => isBioPublishable(c.about?.bio) },
   {
     // Every issue must be genuine (real title+description, not the default),
@@ -127,13 +127,28 @@ const applyContactFallbacks = (content: PrismaJson.WebsiteContent) => {
   }
 }
 
-const assertReadyToPublish = (content: PrismaJson.WebsiteContent) => {
+const assertReadyToPublish = (
+  content: PrismaJson.WebsiteContent,
+  user: User,
+) => {
   const missing = REQUIRED_PUBLISH_FIELDS.filter(
     ({ check }) => !check(content),
   ).map(({ path }) => path)
   if (missing.length > 0) {
     throw new BadRequestException(
       `Website content is missing required fields for publishing: ${missing.join(', ')}`,
+    )
+  }
+  // The site's headline and page title are derived from the candidate's name at
+  // render time, so a nameless user publishes an empty hero — and verify-live's
+  // candidate-identity check then fails against a page carrying no name.
+  // Checked against firstName/lastName specifically, NOT getUserFullName: that
+  // helper falls back to the legacy `user.name`, which the public website
+  // response does not carry and candidate-sites therefore cannot render. A
+  // name-only user would pass this gate and still ship a blank headline.
+  if (!hasRenderableName(user)) {
+    throw new BadRequestException(
+      'Cannot publish: the campaign owner has no first or last name set.',
     )
   }
 }
@@ -260,9 +275,10 @@ export class WebsitesController {
       "Update the calling campaign's website content and optionally " +
       'publish it. The body deep-merges into Website.content; pass only ' +
       'fields you want to change. To publish, send `status: "published"` ' +
-      '— this requires the content sections main.title, about.bio, ' +
-      'about.issues (with title+description), and contact.email to be ' +
-      'present. Those same sections are re-checked on every update to an ' +
+      '— this requires the content sections about.bio, about.issues ' +
+      '(with title+description), and contact.email to be present, and the ' +
+      "campaign owner to have a name (the site's headline is derived from " +
+      'it). Those same requirements are re-checked on every update to an ' +
       'already-published site, so an edit that blanks one returns 400 ' +
       'rather than leaving a live site with incomplete content. ' +
       '`contact.address` and `contact.phone` are auto-filled ' +
@@ -353,7 +369,7 @@ export class WebsitesController {
     // (campaign 296539), which then failed their compliance run at submit_tcr.
     if (nextStatus === WebsiteStatus.published) {
       applyContactFallbacks(updatedContent)
-      assertReadyToPublish(updatedContent)
+      assertReadyToPublish(updatedContent, user)
     }
 
     const isFirstPublish =

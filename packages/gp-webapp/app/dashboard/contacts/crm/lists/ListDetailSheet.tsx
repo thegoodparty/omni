@@ -45,7 +45,7 @@ import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
 import RenameListDialog from './RenameListDialog'
 import DeleteListDialog from './DeleteListDialog'
-import { useDuplicateList } from './useDuplicateList'
+import DuplicateListDialog from './DuplicateListDialog'
 import { SectionLabel, StatTile } from './ListDetailSection'
 
 interface ListDetailSheetProps {
@@ -82,6 +82,7 @@ export default function ListDetailSheet({
 
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [duplicateOpen, setDuplicateOpen] = useState(false)
 
   const isUniverse = listId === ALL_SEGMENTS
 
@@ -166,8 +167,6 @@ export default function ListDetailSheet({
     })
   }, [listId, segment, isWinContextReady, isWinContext])
 
-  const duplicateMutation = useDuplicateList()
-
   const labels = getContactsLabels(isWinContext)
 
   const demographics = detailQuery.data?.demographics
@@ -191,7 +190,7 @@ export default function ListDetailSheet({
           isWinContext
             ? EVENTS.VoterData.ListExported
             : EVENTS.ConstituentData.ListExported,
-          { listSize },
+          { listSize, surface: 'listDetail' },
         )
       }
     })
@@ -228,8 +227,7 @@ export default function ListDetailSheet({
                     variant="ghost"
                     size="small"
                     className="gap-1.5 text-muted-foreground"
-                    onClick={() => duplicateMutation.mutate(segment)}
-                    loading={duplicateMutation.isPending}
+                    onClick={() => setDuplicateOpen(true)}
                   >
                     <LockIcon className="size-4" />
                     Duplicate to edit
@@ -257,10 +255,7 @@ export default function ListDetailSheet({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      disabled={duplicateMutation.isPending}
-                      onClick={() => duplicateMutation.mutate(segment)}
-                    >
+                    <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
                       <CopyIcon />
                       Duplicate
                     </DropdownMenuItem>
@@ -509,6 +504,11 @@ export default function ListDetailSheet({
             segment={segment}
             open={deleteOpen}
             onOpenChange={setDeleteOpen}
+          />
+          <DuplicateListDialog
+            segment={segment}
+            open={duplicateOpen}
+            onOpenChange={setDuplicateOpen}
           />
         </>
       )}

@@ -78,18 +78,23 @@ target-version = "py311"
 # Each entry below is debt, not a permanent exemption. The number is the error
 # count measured 2026-08-05; delete the line once that member is clean. Nothing
 # here is deployed except the three marked DEPLOYED, which are the priority.
+#
+# Every entry is anchored: a pattern with no slash matches a directory of that
+# name at ANY depth, so a bare "shared" would silently exempt a nested
+# helpers package such as stitch_golden_data/prod_gold_data/shared/ while
+# `ruff check .` still reported green. The `serve/*` entries already contain a
+# slash and are anchored by that.
 extend-exclude = [
-    "shared",                       # 623 (80 manual) — DEPLOYED, imported by every service; fix first
+    "./shared",                     # 623 (80 manual) — DEPLOYED, imported by every service; fix first
     "serve/hierarchical_discovery", # 469 (98 manual) — DEPLOYED, ships in the serve-analyze image
-    "hubspot_ddhq_match",           # 377 (24 manual) — DEPLOYED, the ddhq-matcher service
-    "ai_generated_campaign_plan",   # 833 — not deployed, older module
-    "bronze_data",                  # 478 — not deployed, data drop / config
-    "stitch_golden_data",           # 441 — not deployed, script-style
+    "./hubspot_ddhq_match",         # 377 (24 manual) — DEPLOYED, the ddhq-matcher service
+    "./ai_generated_campaign_plan", # 833 — not deployed, older module
+    "./bronze_data",                # 478 — not deployed, data drop / config
     "serve/classify",               # 237 — not deployed, script-style
     "serve/analyze_texts",          # 150 — not deployed, script-style
-    "silver-to-gold-migration",     # 131 — not deployed, script-style
-    "braintrust_eval_sandbox",      # not deployed, experiment sandbox
-    "llm_deployment",               # not deployed
+    "./silver-to-gold-migration",   # 131 — not deployed, script-style
+    "./braintrust_eval_sandbox",    # not deployed, experiment sandbox
+    "./llm_deployment",             # not deployed
 ]
 
 [tool.ruff.lint]

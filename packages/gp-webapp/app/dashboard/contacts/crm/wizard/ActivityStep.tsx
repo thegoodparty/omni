@@ -118,10 +118,17 @@ export default function ActivityStep({
     [outreachesQuery.data],
   )
 
+  // Native phone-banking envelopes are written with outreachType
+  // nativePhoneBanking (phoneBankingList.service.ts), but a phoneBanking
+  // condition is the single CRM-facing channel for both — without this, the
+  // Campaign row would ship empty except "Any campaign" for every org.
   const completedOutreachesForChannel = (channel: ActivityConditionChannel) =>
     outreaches.filter(
       (outreach) =>
-        outreach.status === 'completed' && outreach.outreachType === channel,
+        outreach.status === 'completed' &&
+        (outreach.outreachType === channel ||
+          (channel === 'phoneBanking' &&
+            outreach.outreachType === 'nativePhoneBanking')),
     )
 
   const updateCondition = (

@@ -6,6 +6,9 @@ enum OutreachType {
   // (see doorKnockingRouteId) so routes appear in the unified outreach list.
   nativeDoorKnocking
   phoneBanking
+  // Native: one envelope row per generated phone_banking_list (see
+  // phoneBankingListId) so lists appear in the unified outreach list.
+  nativePhoneBanking
   socialMedia
   robocall
   p2p
@@ -41,8 +44,12 @@ model Outreach {
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")
   // nativeDoorKnocking envelopes only: the list row carries its destination
   // (the per-channel pointer idiom, like phoneListId/projectId).
-  doorKnockingRoute     DoorKnockingRoute?      @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
-  doorKnockingRouteId   Int?                    @unique @map("door_knocking_route_id")
+  doorKnockingRoute                 DoorKnockingRoute?                 @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
+  doorKnockingRouteId               Int?                               @unique @map("door_knocking_route_id")
+  // nativePhoneBanking envelopes only: same per-channel pointer idiom as
+  // doorKnockingRouteId above.
+  phoneBankingList                  PhoneBankingList?                  @relation(fields: [phoneBankingListId], references: [id], onDelete: Cascade)
+  phoneBankingListId                Int?                               @unique @map("phone_banking_list_id")
   phoneListId                       Int?                               @map("phone_list_id")
   // P2P-specific fields
   identityId                        String?                            @map("identity_id")
@@ -58,6 +65,9 @@ model Outreach {
   // no backfill.
   organizationSlug                  String?                            @map("organization_slug")
   organization                      Organization?                      @relation(fields: [organizationSlug], references: [slug], onDelete: SetNull)
+  // Set when the owning organization archives the row from the history
+  // drawer; cleared on restore. Never set at creation.
+  archivedAt                        DateTime?                          @map("archived_at")
   social                            OutreachSocial?
   voterActivities                   VoterOutreachActivity[]
   raceOpponentContrasts             RaceOpponentContrast[]

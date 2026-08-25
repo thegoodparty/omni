@@ -120,7 +120,6 @@ test.describe('Websites - CRUD Operations', () => {
       headers: authHeaders(authToken, orgSlug),
     })
 
-    const mainTitle = 'Test Campaign Title'
     const issueTitle = 'Healthcare Reform'
     const issueDescription = 'Affordable healthcare for all citizens'
     const contactEmail = 'contact@test.com'
@@ -129,7 +128,6 @@ test.describe('Websites - CRUD Operations', () => {
     const updateResponse = await request.put('/v1/websites/mine', {
       headers: authHeaders(authToken, orgSlug),
       multipart: {
-        'main[title]': mainTitle,
         'about[bio]': 'A test biography',
         'about[issues][0][title]': issueTitle,
         'about[issues][0][description]': issueDescription,
@@ -146,14 +144,13 @@ test.describe('Websites - CRUD Operations', () => {
     const updatedWebsite =
       (await updateResponse.json()) as WebsiteWithDomain & {
         content: {
-          main?: { title?: string; tagline?: string; image?: string }
+          main?: { tagline?: string; image?: string }
           logo?: string
           about?: { issues?: Array<{ title: string; description: string }> }
           contact?: { email?: string }
         }
       }
 
-    expect(updatedWebsite.content.main?.title).toBe(mainTitle)
     expect(updatedWebsite.content.about?.issues?.[0]?.title).toBe(issueTitle)
     expect(updatedWebsite.content.about?.issues?.[0]?.description).toBe(
       issueDescription,
@@ -192,15 +189,15 @@ test.describe('Websites - CRUD Operations', () => {
     await request.put('/v1/websites/mine', {
       headers: authHeaders(authToken, orgSlug),
       multipart: {
-        'main[title]': 'Original Title',
         'main[tagline]': 'Original Tagline',
+        'about[bio]': 'Original biography',
       },
     })
 
     const updateResponse = await request.put('/v1/websites/mine', {
       headers: authHeaders(authToken, orgSlug),
       multipart: {
-        'main[title]': 'Updated Title',
+        'main[tagline]': 'Updated Tagline',
       },
     })
 
@@ -209,12 +206,13 @@ test.describe('Websites - CRUD Operations', () => {
     const updatedWebsite =
       (await updateResponse.json()) as WebsiteWithDomain & {
         content: {
-          main?: { title?: string; tagline?: string }
+          main?: { tagline?: string }
+          about?: { bio?: string }
         }
       }
 
-    expect(updatedWebsite.content.main?.title).toBe('Updated Title')
-    expect(updatedWebsite.content.main?.tagline).toBe('Original Tagline')
+    expect(updatedWebsite.content.main?.tagline).toBe('Updated Tagline')
+    expect(updatedWebsite.content.about?.bio).toBe('Original biography')
   })
 
   test('should return 401 when not authenticated', async ({ request }) => {

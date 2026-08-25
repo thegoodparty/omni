@@ -21,10 +21,10 @@ import { dateUsHelper } from 'helpers/dateHelper'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useShowContactProModal } from '../ContactProModal'
-import { useDuplicateList } from './useDuplicateList'
 import { useListRowDetail } from './useListRowDetail'
 import RenameListDialog from './RenameListDialog'
 import DeleteListDialog from './DeleteListDialog'
+import DuplicateListDialog from './DuplicateListDialog'
 
 interface ListCardProps {
   segment: SegmentResponse
@@ -43,9 +43,9 @@ export default function ListCard({ segment }: ListCardProps) {
   const showProUpgradeModal = useShowContactProModal()
   const { peopleCount, lastOutreach, isLoading, isError, isGated } =
     useListRowDetail(segment.id, canUseProFeatures)
-  const duplicateMutation = useDuplicateList()
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [duplicateOpen, setDuplicateOpen] = useState(false)
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
 
   // Mirrors AllContactsCard's gate — getListDetail is pro-gated, so a non-pro
@@ -77,10 +77,7 @@ export default function ListCard({ segment }: ListCardProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {isLocked ? (
-              <DropdownMenuItem
-                disabled={duplicateMutation.isPending}
-                onClick={() => duplicateMutation.mutate(segment)}
-              >
+              <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
                 <LockIcon />
                 Duplicate to edit
               </DropdownMenuItem>
@@ -90,10 +87,7 @@ export default function ListCard({ segment }: ListCardProps) {
                   <PencilIcon />
                   Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={duplicateMutation.isPending}
-                  onClick={() => duplicateMutation.mutate(segment)}
-                >
+                <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
                   <CopyIcon />
                   Duplicate
                 </DropdownMenuItem>
@@ -181,6 +175,11 @@ export default function ListCard({ segment }: ListCardProps) {
         segment={segment}
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
+      />
+      <DuplicateListDialog
+        segment={segment}
+        open={duplicateOpen}
+        onOpenChange={setDuplicateOpen}
       />
     </Card>
   )

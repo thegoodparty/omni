@@ -81,6 +81,13 @@ export const downloadCampaignPlanPdf = async (
   )}-campaign-plan.pdf`
   document.body.appendChild(a)
   a.click()
-  document.body.removeChild(a)
-  setTimeout(() => URL.revokeObjectURL(url), 100)
+  // Detach the anchor and free the object URL only after the browser has read
+  // the blob. Doing either in the same tick as click() cancels the download in
+  // current Chrome (the Save-As dialog appears but writes nothing / surfaces as
+  // a spurious network error) — worse for this multi-page plan PDF than for a
+  // small CSV. Matches the ordinance-export fix (ENG-10860, #1138).
+  setTimeout(() => {
+    a.remove()
+    URL.revokeObjectURL(url)
+  }, 10_000)
 }

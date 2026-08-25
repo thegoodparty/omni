@@ -8,6 +8,7 @@ import {
   type SocialAssetPlatform,
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
+import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
 
 export const SOCIAL_PURPOSE_VALUES = [
   'introduce_myself',
@@ -140,6 +141,9 @@ export const OutreachDetailSchema = z.object({
   imageUrl: z.string().nullable(),
   voterFileFilterId: z.number().nullable(),
   doorKnockingRouteId: z.number().nullable(),
+  // .nullish() (not .nullable()): existing rows/fixtures predate this column
+  // and omit the key entirely, not just send it null (ENG-10543 lesson).
+  phoneBankingListId: z.number().nullish(),
   phoneListId: z.number().nullable(),
   identityId: z.string().nullable(),
   didState: z.string().nullable(),
@@ -149,6 +153,8 @@ export const OutreachDetailSchema = z.object({
   billableTextCount: z.number().nullable(),
   campaignPlanDueDate: z.string().nullable(),
   organizationSlug: z.string().nullable(),
+  archivedAt: zCoerceDate().nullable(),
   social: OutreachSocialDetailSchema.optional(),
+  phoneBanking: PhoneBankingOutreachDetailSchema.optional(),
 })
 export type OutreachDetail = z.infer<typeof OutreachDetailSchema>

@@ -10,8 +10,10 @@ import {
   ContactStatusField,
   ContactStatusSource,
   DoorKnockOutcome,
+  PhoneBankCallOutcome,
   Prisma,
   SupportAnswer,
+  WillVoteAnswer,
 } from '../../generated/prisma'
 
 type BaseRow = { personId: string; occurredAt: Date; id: string }
@@ -37,6 +39,14 @@ type RobocallRow = BaseRow & {
   note: string | null
   manual: boolean
   outreachId: number | null
+}
+
+type PhoneBankingRow = BaseRow & {
+  outcome: PhoneBankCallOutcome
+  supportAnswer: SupportAnswer | null
+  willVote: WillVoteAnswer | null
+  note: string | null
+  manual: boolean
 }
 
 type StatusEventRow = BaseRow & {
@@ -86,67 +96,80 @@ export class DoorKnockingActivityService extends createPrismaBase(
     if (personIds.length === 0) return new Map()
 
     const ids = Prisma.join(personIds)
-    const [doorKnocks, texts, robocalls, statusEvents] = await Promise.all([
-      this.client.$queryRaw<DoorKnockRow[]>(Prisma.sql`
-        SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
-               outcome, support_answer AS "supportAnswer", note, manual
-        FROM (
-          SELECT *, ${RANK_OVER} AS rank
-          FROM contact_interaction_door_knock
-          WHERE organization_slug = ${organizationSlug}
-            AND person_id IN (${ids})
-        ) ranked
-        WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
-      `),
-      this.client.$queryRaw<TextRow[]>(Prisma.sql`
-        SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
-               responded_at AS "respondedAt", opted_out_at AS "optedOutAt",
-               note, manual, outreach_id AS "outreachId"
-        FROM (
-          SELECT *, ${RANK_OVER} AS rank
-          FROM contact_interaction_text
-          WHERE organization_slug = ${organizationSlug}
-            AND person_id IN (${ids})
-        ) ranked
-        WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
-      `),
-      this.client.$queryRaw<RobocallRow[]>(Prisma.sql`
-        SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
-               answered_at AS "answeredAt",
-               voicemail_left_at AS "voicemailLeftAt",
-               note, manual, outreach_id AS "outreachId"
-        FROM (
-          SELECT *, ${RANK_OVER} AS rank
-          FROM contact_interaction_robocall
-          WHERE organization_slug = ${organizationSlug}
-            AND person_id IN (${ids})
-        ) ranked
-        WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
-      `),
-      // ContactStatusEvent has no occurred_at — the append-only write time is
-      // the event time, so created_at is aliased into the shared sort key
-      // rather than the window being written differently.
-      this.client.$queryRaw<StatusEventRow[]>(Prisma.sql`
-        SELECT ranked."personId", ranked."occurredAt", ranked.id,
-               ranked.field, ranked."fromValue", ranked."toValue",
-               ranked.source, ranked."actorUserId",
-               "user".first_name AS "actorFirstName",
-               "user".last_name AS "actorLastName"
-        FROM (
-          SELECT person_id AS "personId", created_at AS "occurredAt", id,
-                 field, from_value AS "fromValue", to_value AS "toValue",
-                 source, actor_user_id AS "actorUserId",
-                 ROW_NUMBER() OVER (
-                   PARTITION BY person_id ORDER BY created_at DESC, id DESC
-                 ) AS rank
-          FROM contact_status_event
-          WHERE organization_slug = ${organizationSlug}
-            AND person_id IN (${ids})
-        ) ranked
-        LEFT JOIN "user" ON "user".id = ranked."actorUserId"
-        WHERE ranked.rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
-      `),
-    ])
+    const [doorKnocks, texts, robocalls, phoneBankings, statusEvents] =
+      await Promise.all([
+        this.client.$queryRaw<DoorKnockRow[]>(Prisma.sql`
+          SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
+                 outcome, support_answer AS "supportAnswer", note, manual
+          FROM (
+            SELECT *, ${RANK_OVER} AS rank
+            FROM contact_interaction_door_knock
+            WHERE organization_slug = ${organizationSlug}
+              AND person_id IN (${ids})
+          ) ranked
+          WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
+        `),
+        this.client.$queryRaw<TextRow[]>(Prisma.sql`
+          SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
+                 responded_at AS "respondedAt", opted_out_at AS "optedOutAt",
+                 note, manual, outreach_id AS "outreachId"
+          FROM (
+            SELECT *, ${RANK_OVER} AS rank
+            FROM contact_interaction_text
+            WHERE organization_slug = ${organizationSlug}
+              AND person_id IN (${ids})
+          ) ranked
+          WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
+        `),
+        this.client.$queryRaw<RobocallRow[]>(Prisma.sql`
+          SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
+                 answered_at AS "answeredAt",
+                 voicemail_left_at AS "voicemailLeftAt",
+                 note, manual, outreach_id AS "outreachId"
+          FROM (
+            SELECT *, ${RANK_OVER} AS rank
+            FROM contact_interaction_robocall
+            WHERE organization_slug = ${organizationSlug}
+              AND person_id IN (${ids})
+          ) ranked
+          WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
+        `),
+        this.client.$queryRaw<PhoneBankingRow[]>(Prisma.sql`
+          SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
+                 outcome, support_answer AS "supportAnswer",
+                 will_vote AS "willVote", note, manual
+          FROM (
+            SELECT *, ${RANK_OVER} AS rank
+            FROM contact_interaction_phone_banking
+            WHERE organization_slug = ${organizationSlug}
+              AND person_id IN (${ids})
+          ) ranked
+          WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
+        `),
+        // ContactStatusEvent has no occurred_at — the append-only write time
+        // is the event time, so created_at is aliased into the shared sort
+        // key rather than the window being written differently.
+        this.client.$queryRaw<StatusEventRow[]>(Prisma.sql`
+          SELECT ranked."personId", ranked."occurredAt", ranked.id,
+                 ranked.field, ranked."fromValue", ranked."toValue",
+                 ranked.source, ranked."actorUserId",
+                 "user".first_name AS "actorFirstName",
+                 "user".last_name AS "actorLastName"
+          FROM (
+            SELECT person_id AS "personId", created_at AS "occurredAt", id,
+                   field, from_value AS "fromValue", to_value AS "toValue",
+                   source, actor_user_id AS "actorUserId",
+                   ROW_NUMBER() OVER (
+                     PARTITION BY person_id ORDER BY created_at DESC, id DESC
+                   ) AS rank
+            FROM contact_status_event
+            WHERE organization_slug = ${organizationSlug}
+              AND person_id IN (${ids})
+          ) ranked
+          LEFT JOIN "user" ON "user".id = ranked."actorUserId"
+          WHERE ranked.rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
+        `),
+      ])
 
     const activities: [string, RouteTargetActivity][] = [
       ...doorKnocks.map((row): [string, RouteTargetActivity] => [
@@ -190,6 +213,21 @@ export class DoorKnockingActivityService extends createPrismaBase(
             note: row.note,
             manual: row.manual,
             outreachId: row.outreachId,
+          },
+        },
+      ]),
+      ...phoneBankings.map((row): [string, RouteTargetActivity] => [
+        row.personId,
+        {
+          type: 'PHONE_BANKING',
+          date: row.occurredAt.toISOString(),
+          data: {
+            activityId: row.id,
+            outcome: row.outcome,
+            supportAnswer: row.supportAnswer,
+            willVote: row.willVote,
+            note: row.note,
+            manual: row.manual,
           },
         },
       ]),

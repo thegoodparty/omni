@@ -5,11 +5,15 @@ import {
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 import {
+  readableInkOn,
+  readableInkOnHex,
   rollupStopStatus,
   skipInstruction,
+  STATUS_RGB,
   stopIsKnockable,
   targetMarker,
 } from './statusPresentation'
+import { TURF_COLORS, turfColorTick } from './turfQueries'
 
 const target = (
   knockStatus: DoorKnockStatus,
@@ -187,5 +191,59 @@ describe('flag markers', () => {
     }
     expect(targetMarker(both)).toBe('Do not knock')
     expect(skipInstruction(both)).toBe('Do not knock — skip this door')
+  })
+})
+
+// Two things in this feature print a mark on top of a fixed fill: the stop
+// numeral on its status circle and the tick inside a chosen list-colour swatch.
+// Both are read at arm's length, outdoors, in daylight — so the bar is WCAG AA
+// for normal text, and the assertion is the ratio itself rather than "returns
+// white for dark". Written as a sweep over both palettes, so a colour added to
+// either one without checking its ink fails here and not on a doorstep.
+describe('ink on a coloured fill', () => {
+  // WCAG 2.1's contrast ratio, written out here rather than imported from the
+  // module under test: the point is to check the module's answer against the
+  // spec, and a shared helper would let one wrong constant agree with itself.
+  const luminance = (hex: string): number => {
+    const value = hex.replace('#', '')
+    const channel = (offset: number) => {
+      const raw = parseInt(value.slice(offset, offset + 2), 16) / 255
+      return raw <= 0.03928 ? raw / 12.92 : ((raw + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+  }
+
+  const contrast = (foreground: string, background: string): number => {
+    const first = luminance(foreground)
+    const second = luminance(background)
+    const lighter = Math.max(first, second)
+    const darker = Math.min(first, second)
+    return (lighter + 0.05) / (darker + 0.05)
+  }
+
+  it('reads at AA on every knock status', () => {
+    for (const [status, rgb] of Object.entries(STATUS_RGB)) {
+      const fill = `#${rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`
+      expect(contrast(readableInkOn(rgb), fill), status).toBeGreaterThanOrEqual(
+        4.5,
+      )
+    }
+  })
+
+  // The regression this guards: a hardcoded white tick, which failed on four of
+  // these eight — the mark meant to make the choice legible being the one thing
+  // on the swatch that isn't.
+  it('reads at AA on every list colour', () => {
+    for (const color of TURF_COLORS) {
+      expect(
+        contrast(turfColorTick(color), color),
+        color,
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('answers the same question of a hex string and a triple', () => {
+    expect(readableInkOnHex('#ffffff')).toBe(readableInkOn([255, 255, 255]))
+    expect(readableInkOnHex('#000000')).toBe(readableInkOn([0, 0, 0]))
   })
 })

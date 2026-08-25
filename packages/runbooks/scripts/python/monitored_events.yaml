@@ -132,6 +132,7 @@ events:
 behaviors:
   - id: voter_file_exported
     question: "How many candidates export a voter file each week, and is that growing?"
+    question_ref: 86ak207a4
     answers:
       - "Are people creating and downloading lists but never doing outreach on our platform?"
     product: win
@@ -152,6 +153,7 @@ behaviors:
 
   - id: voter_file_created
     question: "How many candidates create a voter file, across every path that creates one?"
+    question_ref: 86ak209gc
     answers:
       - "Are people creating and downloading lists but never doing outreach on our platform?"
     product: win
@@ -172,6 +174,7 @@ behaviors:
 
   - id: voter_outreach_scheduled
     question: "How many candidates schedule voter outreach, by channel?"
+    question_ref: 86ak20ac5
     answers:
       - "Are people creating and downloading lists but never doing outreach on our platform?"
     product: win
@@ -188,6 +191,7 @@ behaviors:
 
   - id: campaign_plan_viewed
     question: "Do candidates open their campaign plan, and do they read it to the end?"
+    question_ref: 86ak20ama
     product: win
     okr: ["Active Candidates", "Onboarded"]
     asked_by: nate@goodparty.org

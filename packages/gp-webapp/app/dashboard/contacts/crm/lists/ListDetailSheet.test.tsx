@@ -736,11 +736,19 @@ describe('ListDetailSheet — "Duplicate to edit" (the sole edit path for a lock
     await user.click(
       await screen.findByRole('button', { name: /duplicate to edit/i }),
     )
+    // ENG-10943: the click above only opens the confirmation dialog now —
+    // no request is expected to have fired yet.
+    expect(sentBody).toBeNull()
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Duplicate' }),
+    )
 
     await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(555))
     expect(sentBody).toMatchObject({ name: 'GOTV text list (copy)' })
     expect(successSnackbar).toHaveBeenCalledWith('List duplicated')
     expect(errorSnackbar).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
   it('shows an error snackbar and does not navigate when the duplicate call fails', async () => {
@@ -759,11 +767,48 @@ describe('ListDetailSheet — "Duplicate to edit" (the sole edit path for a lock
     await user.click(
       await screen.findByRole('button', { name: /duplicate to edit/i }),
     )
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Duplicate' }),
+    )
 
     await vi.waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith('Failed to duplicate list'),
     )
     expect(selectList).not.toHaveBeenCalled()
+    // The confirmation stays open on failure so the user can retry or cancel
+    // — same convention as DeleteListDialog's generic-500 case.
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+  })
+
+  it('does not fire the create call until the confirmation is accepted', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [lockedSegment],
+    })
+    let requestCount = 0
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      requestCount += 1
+      return { status: 200, data: { id: 555, name: 'GOTV text list (copy)' } }
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await user.click(
+      await screen.findByRole('button', { name: /duplicate to edit/i }),
+    )
+    const alertDialog = await screen.findByRole('alertdialog')
+    expect(
+      within(alertDialog).getByText(/re-runs this list's filters/i),
+    ).toBeInTheDocument()
+    expect(requestCount).toBe(0)
+
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Cancel' }),
+    )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(requestCount).toBe(0)
   })
 })
 
@@ -944,6 +989,10 @@ describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
     await user.click(
       await screen.findByRole('button', { name: 'Duplicate to edit' }),
     )
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Duplicate' }),
+    )
 
     await vi.waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.SegmentCreated)).toHaveLength(1),
@@ -994,6 +1043,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListExported, {
       listSize: 100,
+      surface: 'listDetail',
     })
   })
 
@@ -1015,7 +1065,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     expect(eventCalls(EVENTS.ConstituentData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ConstituentData.ListExported,
-      { listSize: 100 },
+      { listSize: 100, surface: 'listDetail' },
     )
   })
 

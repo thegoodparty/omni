@@ -47,10 +47,21 @@ export default defineConfig({
         lines: 74,
       },
       // Integration files (harness/runners/bench) are not unit-tested; keep
-      // them out of the coverage gate that runs under --coverage.
-      exclude: [...coverageConfigDefaults.exclude, 'perf/**'],
+      // them out of the coverage gate that runs under --coverage. deploy/ is
+      // infrastructure definitions, most of which only mean anything once
+      // Pulumi has applied them — the thresholds below are calibrated on src/.
+      exclude: [...coverageConfigDefaults.exclude, 'perf/**', 'deploy/**'],
     },
-    include: ['src/**/*.test.ts', 'scripts/**/*.test.ts', 'perf/**/*.test.ts'],
+    // deploy/ is excluded from tsconfig and the lint glob (it resolves against
+    // Pulumi's separate dependency tree), but the alert definitions under it
+    // are plain functions, and a wrong one is only ever discovered by a page
+    // that misleads whoever it wakes.
+    include: [
+      'src/**/*.test.ts',
+      'scripts/**/*.test.ts',
+      'perf/**/*.test.ts',
+      'deploy/**/*.test.ts',
+    ],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,
     // Unbounded, every forked worker runs its own Nest app + Prisma pool

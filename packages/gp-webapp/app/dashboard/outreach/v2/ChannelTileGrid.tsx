@@ -10,6 +10,9 @@ import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useVoterOutreachV2SocialFlag } from '@shared/experiments/voterOutreachV2SocialFlag'
+import { useVoterOutreachV2RobocallFlag } from '@shared/experiments/voterOutreachV2RobocallFlag'
+import { useVoterOutreachV2PhoneBankingFlag } from '@shared/experiments/voterOutreachV2PhoneBankingFlag'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
@@ -19,6 +22,8 @@ interface ChannelTileGridProps {
   tcrCompliance?: TcrCompliance
   preselectedListId?: number
   onCreateSocial: () => void
+  onCreateRobocall: () => void
+  onCreatePhoneBanking: () => void
 }
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
@@ -39,6 +44,8 @@ export const ChannelTileGrid = ({
   tcrCompliance,
   preselectedListId,
   onCreateSocial,
+  onCreateRobocall,
+  onCreatePhoneBanking,
 }: ChannelTileGridProps) => {
   const router = useRouter()
   const [campaign] = useCampaign()
@@ -51,6 +58,25 @@ export const ChannelTileGrid = ({
   // TaskFlow — the same fallback shape every other channel gets until its
   // phase swaps the tile target.
   const socialV2 = useVoterOutreachV2SocialFlag()
+  // The robocall tile's own swap: flag on opens the new robocall flow, off
+  // (or unsettled) falls through to the legacy robocall TaskFlow — same shape
+  // as the social swap, but checked after the Pro gate since robocall is
+  // Pro-locked.
+  const robocallV2 = useVoterOutreachV2RobocallFlag()
+  // The phone-banking tile's own swap. Unlike social/robocall, flag-on ALSO
+  // changes the Pro gate: a non-Pro click redirects straight to
+  // /dashboard/pro-upgrade instead of the legacy Pro modal (upgrade-at-entry,
+  // ENG-10920) — flag off/unsettled keeps the legacy TaskFlow + Pro modal
+  // byte-identical.
+  const phoneBankingV2 = useVoterOutreachV2PhoneBankingFlag()
+  // Own equivalent of ContactsTableProvider's canUseProFeatures — not
+  // imported from there (contacts-scoped, would force an organization
+  // provider onto every tile-grid test). A pending elected-office query must
+  // NOT read as a refusal, or a Serve org's first render redirects to
+  // pro-upgrade before its own entitlement resolves.
+  const { data: electedOffice, isPending: electedOfficePending } =
+    useElectedOffice()
+  const canUseProFeatures = !!isPro || !!electedOffice
 
   // Consume-once preselected list (ENG-10762 conventions, mirrored from
   // OutreachCreateCards): the deep-link strip's router.replace re-runs the
@@ -88,11 +114,35 @@ export const ChannelTileGrid = ({
       setFlowType(type)
       return
     }
+    if (
+      type === OUTREACH_TYPES.phoneBanking &&
+      phoneBankingV2.ready &&
+      phoneBankingV2.enabled
+    ) {
+      // A pending elected-office query is not a refusal — wait for it to
+      // settle rather than redirecting a Serve org that will resolve true.
+      if (!canUseProFeatures && !electedOfficePending) {
+        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
+        router.push('/dashboard/pro-upgrade')
+        return
+      }
+      onCreatePhoneBanking()
+      return
+    }
+
     if (requiresPro && !isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
         source: 'outreach_page',
       })
       setShowProUpgradeModal(true)
+      return
+    }
+    if (
+      type === OUTREACH_TYPES.robocall &&
+      robocallV2.ready &&
+      robocallV2.enabled
+    ) {
+      onCreateRobocall()
       return
     }
     if (type === OUTREACH_TYPES.doorKnocking) {
@@ -123,7 +173,14 @@ export const ChannelTileGrid = ({
               iconClassName={meta.iconTint}
               label={meta.label}
               subCopy={formatCost(option?.cost ?? 0)}
-              locked={Boolean(option?.requiresPro && !isPro)}
+              locked={Boolean(
+                option?.requiresPro &&
+                (type === OUTREACH_TYPES.phoneBanking &&
+                phoneBankingV2.ready &&
+                phoneBankingV2.enabled
+                  ? !canUseProFeatures && !electedOfficePending
+                  : !isPro),
+              )}
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )

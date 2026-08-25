@@ -26,6 +26,9 @@ export {
   type WillVoteAnswer,
   WILL_VOTE_ANSWER_VALUES,
   WillVoteAnswerSchema,
+  type PhoneBankCallOutcome,
+  PHONE_BANK_CALL_OUTCOME_VALUES,
+  PhoneBankCallOutcomeSchema,
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
@@ -142,6 +145,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
+  PhoneBankingConstituentActivitySchema,
+  type PhoneBankingConstituentActivity,
   StatusChangeConstituentActivitySchema,
   type StatusChangeConstituentActivity,
   ConstituentActivitySchema,
@@ -732,6 +737,39 @@ export {
   OutreachDetailSchema,
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
+export {
+  PhoneBankingScriptPurposeSchema,
+  type PhoneBankingScriptPurpose,
+  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PhoneBankingScriptDraftRequestSchema,
+  type PhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponseSchema,
+  type PhoneBankingScriptDraftResponse,
+} from './outreach/PhoneBankingScript.schema'
+export {
+  ROBOCALL_PURPOSE_VALUES,
+  RobocallPurposeSchema,
+  type RobocallPurpose,
+  ROBOCALL_SCRIPT_MAX_LENGTH,
+  RobocallScriptDraftRequestSchema,
+  type RobocallScriptDraftRequest,
+  RobocallScriptDraftResponseSchema,
+  type RobocallScriptDraftResponse,
+} from './outreach/RobocallScript.schema'
+export {
+  ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
+  ROBOCALL_AUDIO_MAX_BYTES,
+  RobocallAudioPresignRequestSchema,
+  type RobocallAudioPresignRequest,
+  RobocallAudioPresignResponseSchema,
+  type RobocallAudioPresignResponse,
+} from './outreach/RobocallAudio.schema'
+export {
+  OutreachArchiveRequestSchema,
+  type OutreachArchiveRequest,
+  OutreachArchiveResponseSchema,
+  type OutreachArchiveResponse,
+} from './outreach/OutreachArchive.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -768,6 +806,7 @@ export {
 export {
   DoorKnockingResidentsRequestSchema,
   type DoorKnockingResidentsRequest,
+  DoorKnockingDemographicsShape,
   DoorKnockingResidentTargetSchema,
   type DoorKnockingResidentTarget,
   DoorKnockingResidentsAddressSchema,
@@ -775,6 +814,15 @@ export {
   DoorKnockingResidentsResponseSchema,
   type DoorKnockingResidentsResponse,
 } from './doorKnocking/DoorKnockingResidents.schema'
+
+export {
+  DoorKnockingPreviewDoorSchema,
+  type DoorKnockingPreviewDoor,
+  DoorKnockingPreviewLocationSchema,
+  type DoorKnockingPreviewLocation,
+  DoorKnockingAddressPreviewResponseSchema,
+  type DoorKnockingAddressPreviewResponse,
+} from './doorKnocking/DoorKnockingAddressPreview.schema'
 
 export {
   DoorKnockingPackRequestSchema,
@@ -798,6 +846,8 @@ export {
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,
   type DoorKnockingTurf,
+  DoorKnockingArchiveRequestSchema,
+  type DoorKnockingArchiveRequest,
   DoorKnockingKnockRequestSchema,
   type DoorKnockingKnockRequest,
   DoorKnockingRouteHeaderSchema,
@@ -815,6 +865,9 @@ export {
   RouteTargetActivitySchema,
   type RouteTargetActivity,
   ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
+  RoutePayloadTargetNotesSchema,
+  type RoutePayloadTargetNotes,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,
@@ -847,3 +900,42 @@ export {
   SetNotAVoterResponseSchema,
   type SetNotAVoterResponse,
 } from './doorKnocking/DoorKnockingNotAVoter.schema'
+
+export {
+  PHONE_BANKING_PURPOSE_VALUES,
+  PhoneBankingPurposeSchema,
+  type PhoneBankingPurpose,
+  PHONE_BANKING_NAME_MAX_LENGTH,
+  PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_MAX_SHEET_COUNT,
+  PHONE_BANKING_SHEET_SIZE,
+  PhoneBankingCreateSchema,
+  type PhoneBankingCreate,
+  PhoneBankingCreateResponseSchema,
+  type PhoneBankingCreateResponse,
+} from './phoneBanking/PhoneBankingCreate.schema'
+
+export {
+  PHONE_BANKING_CALL_NOTE_MAX_LENGTH,
+  RecordPhoneBankingCallSchema,
+  type RecordPhoneBankingCall,
+  PhoneBankingCallResultSchema,
+  type PhoneBankingCallResult,
+  RecordPhoneBankingCallResponseSchema,
+  type RecordPhoneBankingCallResponse,
+} from './phoneBanking/PhoneBankingCall.schema'
+
+export {
+  PhoneBankingInteractionSchema,
+  type PhoneBankingInteraction,
+  PhoneBankingListPersonSchema,
+  type PhoneBankingListPerson,
+  PhoneBankingListEntrySchema,
+  type PhoneBankingListEntry,
+  PhoneBankingListSchema,
+  type PhoneBankingList,
+  PhoneBankingOutreachDetailSchema,
+  type PhoneBankingOutreachDetail,
+} from './phoneBanking/PhoneBankingList.schema'
+
+export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'

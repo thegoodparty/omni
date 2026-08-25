@@ -3,6 +3,7 @@ import { BadGatewayException, Injectable } from '@nestjs/common'
 import { isAxiosError } from 'axios'
 import { PinoLogger } from 'nestjs-pino'
 import { lastValueFrom } from 'rxjs'
+import { VoterDensityService } from '@/peopleDb/services/voterDensity.service'
 import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { VoterDensityResponse } from '../schemas/public/VoterDensity.schema'
 
@@ -15,25 +16,24 @@ interface ElectionApiVoterDistrict {
 }
 
 /**
- * Resolves a person's L2 district (via election-api) for the public /people
- * page's voter-density heat map.
+ * Resolves a person's L2 district (via election-api) and reads the precomputed,
+ * k-anonymized voter-density cells for that district from people-db (via
+ * gp-api's in-process `peopleDb` module) for the public /people page's heat
+ * map. The cells are aggregated H3 centroids only — no raw PII ever transits.
  *
- * The density cells themselves were previously proxied from a people-api
- * `/v1/people/voter-density` endpoint over S2S. people-api has been removed
- * (its data access now lives in gp-api's `peopleDb` module), and that density
- * endpoint was never implemented on the people-api side — so there is no
- * source to port. Until a people-db voter-density query exists, this returns
- * no cells and the page renders no map (the same behavior production had, since
- * the upstream endpoint always 404'd). A future people-db density query is the
- * intended home; wire it into `getVoterDensity` when it lands.
- *
- * Returns null when the person maps to no L2 district so the controller 404s
- * and the page renders no map.
+ * Degrades to no-map for the domain cases the page expects: a person that maps
+ * to no L2 district returns null (the controller 404s, the page renders no
+ * map), and a district with no density rows returns empty cells (the page also
+ * hides the map on low `coverage`, so a sparsely-covered district shows no map
+ * rather than a misleading one). A hard election-api failure (non-404) is NOT
+ * swallowed — it surfaces as a 502, recorded as an `error` — so a genuine
+ * outage stays visible instead of masquerading as "no map".
  */
 @Injectable()
 export class VoterDensityProxyService {
   constructor(
     private readonly httpService: HttpService,
+    private readonly voterDensity: VoterDensityService,
     private readonly logger: PinoLogger,
     private readonly tokenService: ElectionApiTokenService,
   ) {
@@ -46,15 +46,16 @@ export class VoterDensityProxyService {
     const districtId = await this.resolveDistrictId(personId)
     if (!districtId) return null
 
-    // No people-db voter-density query exists yet; render no map. See the
-    // class doc for the migration note.
-    return { coverage: null, cells: [] }
+    const { coverage, cells } =
+      await this.voterDensity.getVoterDensity(districtId)
+    return { coverage, cells }
   }
 
   // election-api owns the person -> office/candidacy -> position -> district
-  // chain; we just call its resolver. A missing person (404) or any resolution
-  // failure is treated as "no district" (null) rather than an error, so the
-  // page degrades to no-map instead of erroring.
+  // chain; we just call its resolver. A missing person or a person that maps to
+  // no district (404 / null districtId) is "no district" (null), so the page
+  // degrades to no-map; any other failure surfaces as a 502 rather than being
+  // silently hidden.
   private async resolveDistrictId(personId: string): Promise<string | null> {
     if (!ELECTION_API_URL) {
       throw new Error('Please set ELECTION_API_URL in your .env')

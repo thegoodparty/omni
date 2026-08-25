@@ -1,3 +1,16 @@
+## 2026-08-24
+
+### Potential instrumentation gaps
+
+Coverage: 19 tracked — 0 new, 0 open, 12 accepted, 7 dismissed.
+
+No new gaps.
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
 ## 2026-08-20
 
 ### Potential instrumentation gaps

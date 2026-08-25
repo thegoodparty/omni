@@ -3,11 +3,15 @@ import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
   ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
+import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
+import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
+import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
 import {
   Campaign,
   OutreachStatus,
@@ -294,6 +298,315 @@ describe('door-knocking routes', () => {
         { ...orgHeaders(), validateStatus: () => true },
       )
       expect(res.status).toBe(400)
+    })
+  })
+
+  describe('list lifecycle', () => {
+    const complete = (turfId: number) =>
+      service.client.post(
+        `/v1/door-knocking/turfs/${turfId}/complete`,
+        {},
+        {
+          ...orgHeaders(),
+          validateStatus: () => true,
+        },
+      )
+
+    const setArchived = (turfId: number, archived: boolean) =>
+      service.client.post(
+        `/v1/door-knocking/turfs/${turfId}/archive`,
+        { archived },
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+    const knockedTurf = async (name = 'Elm St turf') => {
+      const turf = await createTurf(name)
+      stubVendors()
+      const res = await knock(turf.id)
+      expect(res.status).toBe(201)
+      return { turf, routeId: res.data.route.id as number }
+    }
+
+    it('completing a walk stamps the turf and closes its outreach envelope', async () => {
+      const { turf, routeId } = await knockedTurf()
+
+      const res = await complete(turf.id)
+      expect(res.status).toBe(201)
+      expect(res.data.completedAt).not.toBeNull()
+      // The response still carries counts. It is assembled from the row read
+      // inside the write transaction plus a counts read after it, rather than
+      // by re-fetching the turf — so this is what catches that split coming
+      // apart and silently answering nulls.
+      expect(res.data.doorCount).toEqual(expect.any(Number))
+
+      // The envelope is the Win outreach history's copy of the same fact. It
+      // is a mirror, not the source — hence asserting both moved together.
+      const envelope = await service.prisma.outreach.findFirst({
+        where: { doorKnockingRouteId: routeId },
+      })
+      expect(envelope?.status).toBe(OutreachStatus.completed)
+    })
+
+    // The card renders the completion date, so a stray second tap must not
+    // move it — that would misreport when the walk actually finished.
+    it('completing twice keeps the original timestamp', async () => {
+      const { turf } = await knockedTurf()
+
+      const first = await complete(turf.id)
+      const second = await complete(turf.id)
+
+      expect(second.status).toBe(201)
+      expect(second.data.completedAt).toBe(first.data.completedAt)
+    })
+
+    it('refuses to complete a list nobody has knocked', async () => {
+      const turf = await createTurf()
+
+      const res = await complete(turf.id)
+      expect(res.status).toBe(409)
+    })
+
+    const envelopeFor = (routeId: number) =>
+      service.prisma.outreach.findFirstOrThrow({
+        where: { doorKnockingRouteId: routeId },
+      })
+
+    // Archived is a shelf the client renders differently, not a hidden state:
+    // the row keeps coming back so there is something to restore, and so the
+    // print path can still resolve the list's name.
+    //
+    // Both directions mirror onto the envelope, in the same transaction as the
+    // turf. Restore is the half that is easy to forget: an archive that mirrors
+    // and a restore that does not leaves the two rows disagreeing again, one
+    // press later.
+    it('archives and restores, moving the outreach envelope with the list', async () => {
+      const { turf, routeId } = await knockedTurf()
+
+      const archived = await setArchived(turf.id, true)
+      expect(archived.status).toBe(201)
+      expect(archived.data.archivedAt).not.toBeNull()
+      expect((await envelopeFor(routeId)).archivedAt?.toISOString()).toBe(
+        archived.data.archivedAt,
+      )
+
+      const list = await service.client.get(
+        '/v1/door-knocking/turfs',
+        orgHeaders(),
+      )
+      expect(list.data).toHaveLength(1)
+      expect(list.data[0].archivedAt).not.toBeNull()
+
+      const restored = await setArchived(turf.id, false)
+      expect(restored.data.archivedAt).toBeNull()
+      expect((await envelopeFor(routeId)).archivedAt).toBeNull()
+    })
+
+    // Same reasoning as completing twice: the card renders "archived since".
+    // The envelope is held to it too — the mirror runs on every call, so it
+    // writes the turf's existing stamp rather than a fresh `now`.
+    it('archiving twice keeps the original timestamp on both rows', async () => {
+      const { turf, routeId } = await knockedTurf()
+
+      const first = await setArchived(turf.id, true)
+      const mirrored = (await envelopeFor(routeId)).archivedAt
+      const second = await setArchived(turf.id, true)
+
+      expect(second.data.archivedAt).toBe(first.data.archivedAt)
+      expect((await envelopeFor(routeId)).archivedAt).toEqual(mirrored)
+    })
+
+    // The drift this mirror exists to end, in the state prod is already in:
+    // lists archived before the mirror shipped have an envelope that never
+    // followed. Pressing Archive again is the only repair a candidate has, so
+    // the mirror runs ahead of the idempotence guard rather than behind it.
+    it('mirrors a list archived before the envelope was ever joined to it', async () => {
+      const { turf, routeId } = await knockedTurf()
+      const archivedAt = new Date('2026-08-01T00:00:00.000Z')
+      await service.prisma.doorKnockingTurf.update({
+        where: { id: turf.id },
+        data: { archivedAt },
+      })
+
+      const res = await setArchived(turf.id, true)
+
+      expect(res.status).toBe(201)
+      // The repair must not cost the original date on the way through.
+      expect(res.data.archivedAt).toBe(archivedAt.toISOString())
+      expect((await envelopeFor(routeId)).archivedAt).toEqual(archivedAt)
+    })
+
+    // A Serve org knocks without a campaign, so the knock transaction never
+    // creates an envelope. Nothing to mirror is the normal outcome there, not
+    // an error — hence updateMany rather than update.
+    it('archives a list for an organization that has no outreach envelope', async () => {
+      const suffix = Date.now()
+      const eoSlug = `eo-dk-archive-${suffix}`
+      await service.prisma.organization.create({
+        data: {
+          slug: eoSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      const eoFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: eoSlug, name: 'EO archive audience' },
+      })
+      const eoHeaders = { headers: { 'x-organization-slug': eoSlug } }
+      const created = await service.client.post(
+        '/v1/door-knocking/turfs',
+        {
+          voterFileFilterId: eoFilter.id,
+          name: 'EO archive turf',
+          color: '#3355ff',
+          geoPoly: GEO_POLY,
+        },
+        eoHeaders,
+      )
+      stubVendors()
+      const knocked = await service.client.post(
+        `/v1/door-knocking/turfs/${created.data.id}/knock`,
+        { mode: 'walk', loop: false },
+        eoHeaders,
+      )
+      expect(
+        await service.prisma.outreach.count({
+          where: { doorKnockingRouteId: knocked.data.route.id },
+        }),
+      ).toBe(0)
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${created.data.id}/archive`,
+        { archived: true },
+        { ...eoHeaders, validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(201)
+      expect(res.data.archivedAt).not.toBeNull()
+    })
+
+    it('hard-deletes an unknocked list, because there is nothing to keep', async () => {
+      const turf = await createTurf()
+
+      const res = await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+      expect(res.status).toBe(204)
+
+      const row = await service.prisma.doorKnockingTurf.findUnique({
+        where: { id: turf.id },
+      })
+      expect(row).toBeNull()
+    })
+
+    // The reason soft delete exists. A hard delete here would cascade the
+    // route someone was billed for, its frozen addresses, and the outreach
+    // envelope — so this asserts each of those survives while the list itself
+    // becomes unreachable.
+    it('tombstones a knocked list instead of cascading its paid route away', async () => {
+      const { turf, routeId } = await knockedTurf()
+
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingRouteId: routeId } },
+        })
+      const logged = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+          outcome: 'answered',
+        },
+        orgHeaders(),
+      )
+      expect(logged.status).toBe(201)
+
+      const res = await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+      expect(res.status).toBe(204)
+
+      const row = await service.prisma.doorKnockingTurf.findUnique({
+        where: { id: turf.id },
+      })
+      expect(row?.deletedAt).not.toBeNull()
+
+      expect(
+        await service.prisma.doorKnockingRoute.findUnique({
+          where: { id: routeId },
+        }),
+      ).not.toBeNull()
+      expect(
+        await service.prisma.outreach.findFirst({
+          where: { doorKnockingRouteId: routeId },
+        }),
+      ).not.toBeNull()
+      // Knock history hangs off the organization rather than this chain, so it
+      // was never at risk — asserted anyway, because that independence is the
+      // premise the whole delete policy rests on.
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(1)
+    })
+
+    it('treats a tombstoned list as gone from every read and write path', async () => {
+      const { turf } = await knockedTurf()
+      await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+
+      const opts = { ...orgHeaders(), validateStatus: () => true }
+      const list = await service.client.get(
+        '/v1/door-knocking/turfs',
+        orgHeaders(),
+      )
+      expect(list.data).toHaveLength(0)
+
+      expect(
+        (await service.client.get(`/v1/door-knocking/turfs/${turf.id}`, opts))
+          .status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.get(
+            `/v1/door-knocking/turfs/${turf.id}/route`,
+            opts,
+          )
+        ).status,
+      ).toBe(404)
+      // The one that would be silent: re-knocking a deleted list would bill a
+      // second route against a list the candidate believes is gone.
+      expect((await knock(turf.id)).status).toBe(404)
+    })
+
+    // The deliberate exception to the line above, pinned because it reads like
+    // an oversight. The phone snapshots the route and syncs later, so a list
+    // deleted mid-walk must not turn a canvasser's queued knocks into 404s and
+    // throw away work they actually did. These rows hang off the organization
+    // rather than the turf, so they outlive the list by design.
+    it('still accepts a knock synced against a tombstoned list', async () => {
+      const { turf, routeId } = await knockedTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingRouteId: routeId } },
+        })
+
+      await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+
+      const logged = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+          outcome: 'not_home',
+        },
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(logged.status).toBe(201)
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(1)
     })
   })
 
@@ -904,6 +1217,20 @@ describe('door-knocking routes', () => {
               politicalParty: 'Democratic',
               cellPhone: '(615) 555-0142',
               landline: '(615) 555-0199',
+              // The eleven attributes people-api resolved, already through the
+              // display mappers. A mix of answered and absent, because a real
+              // row is usually partial.
+              registeredVoter: true,
+              turnoutLikelihood: 'Super',
+              maritalStatus: 'Likely Married',
+              hasChildrenUnder18: 'Yes',
+              veteranStatus: 'Yes',
+              homeowner: 'Likely',
+              businessOwner: null,
+              levelOfEducation: 'Graduate Degree',
+              estimatedIncomeAmount: 82000,
+              language: 'Spanish',
+              ethnicityGroup: 'Hispanic',
             },
             {
               personId: PERSON_2,
@@ -985,6 +1312,48 @@ describe('door-knocking routes', () => {
       expect(dedupedAddress?.otherResidents).toEqual([{ name: 'Teo Vega' }])
     })
 
+    it('carries the demographic profile onto a live target', async () => {
+      const { res } = await knockAndServe()
+
+      const target = res.data.stops
+        .flatMap((stop: { addresses: Array<{ targets: unknown[] }> }) =>
+          stop.addresses.flatMap((address) => address.targets),
+        )
+        .find((t: { personId: string }) => t.personId === PERSON_1)
+
+      expect(target).toMatchObject({
+        registeredVoter: true,
+        turnoutLikelihood: 'Super',
+        maritalStatus: 'Likely Married',
+        hasChildrenUnder18: 'Yes',
+        veteranStatus: 'Yes',
+        homeowner: 'Likely',
+        // Presence-only: absent stays null, never 'No'.
+        businessOwner: null,
+        levelOfEducation: 'Graduate Degree',
+        estimatedIncomeAmount: 82000,
+        language: 'Spanish',
+        ethnicityGroup: 'Hispanic',
+      })
+    })
+
+    // Targets only. A non-target resident is household context for the
+    // conversation, not someone the candidate asked to contact — the same rule
+    // that already keeps phone numbers off them.
+    it('leaves other residents name-only', async () => {
+      const { res } = await knockAndServe()
+
+      const residents = res.data.stops.flatMap(
+        (stop: { addresses: Array<{ otherResidents: unknown[] }> }) =>
+          stop.addresses.flatMap((address) => address.otherResidents),
+      )
+
+      expect(residents).not.toHaveLength(0)
+      for (const resident of residents) {
+        expect(Object.keys(resident as object)).toEqual(['name'])
+      }
+    })
+
     it('flags moved-away targets and falls back to the frozen name', async () => {
       const { res } = await knockAndServe()
 
@@ -1012,6 +1381,20 @@ describe('door-knocking routes', () => {
         cellPhone: null,
         landline: null,
         mayHaveMoved: true,
+        // The demographic profile is live-only for the same reason: a mover has
+        // no live row, so the card describes nobody rather than describing
+        // whoever lives at that address now.
+        registeredVoter: null,
+        turnoutLikelihood: null,
+        maritalStatus: null,
+        hasChildrenUnder18: null,
+        veteranStatus: null,
+        homeowner: null,
+        businessOwner: null,
+        levelOfEducation: null,
+        estimatedIncomeAmount: null,
+        language: null,
+        ethnicityGroup: null,
       })
     })
 
@@ -1310,6 +1693,19 @@ describe('door-knocking routes', () => {
             voicemailLeftAt: new Date('2026-07-02T10:01:00Z'),
           },
         })
+        // ENG-10944: phone banking is a household-fanned-out channel like
+        // door knocking — this asserts a phone-banked household member's
+        // call shows up in their own history, in the same merged vocabulary
+        // as text/robocall/status-change.
+        await service.prisma.contactInteractionPhoneBanking.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+        })
         await service.prisma.contactStatusEvent.create({
           data: {
             organizationSlug: orgSlug,
@@ -1330,11 +1726,15 @@ describe('door-knocking routes', () => {
           'STATUS_CHANGE',
           'TEXT',
           'ROBOCALL',
+          'PHONE_BANKING',
         ])
         // The labels are resolveContactStatusLabel's, the same ones the CRM
         // person view renders — not a door-knocking translation of the enum.
         expect(history?.[0]).toMatchObject({
           data: { fromLabel: 'Off', toLabel: 'On' },
+        })
+        expect(history?.[3]).toMatchObject({
+          data: { outcome: 'answered', supportAnswer: 'supporter' },
         })
       })
 
@@ -1386,6 +1786,226 @@ describe('door-knocking routes', () => {
       })
     })
 
+    // ADR 0011. Notes ride the payload for the reason the feed does: the
+    // at-the-door sheet is fetch-free, so anything it cannot show from what
+    // the walk opened with is not there when a canvasser is out of signal.
+    describe('resident notes (ADR 0011)', () => {
+      const notesFor = (res: { data: { stops: unknown } }, personId: string) =>
+        (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{
+                personId: string
+                notes: {
+                  entries: Array<{
+                    id: string
+                    personId: string
+                    body: string
+                    createdAt: string
+                    updatedAt: string
+                  }>
+                  total: number
+                }
+              }>
+            }>
+          }>
+        )
+          .flatMap((stop) => stop.addresses)
+          .flatMap((address) => address.targets)
+          .find((target) => target.personId === personId)?.notes
+
+      const writeNotes = (
+        personId: string,
+        notes: Array<{ body: string; createdAt: string; updatedAt?: string }>,
+      ) =>
+        service.prisma.contactNote.createMany({
+          data: notes.map((note) => ({
+            organizationSlug: orgSlug,
+            personId,
+            body: note.body,
+            createdAt: new Date(note.createdAt),
+            updatedAt: new Date(note.updatedAt ?? note.createdAt),
+          })),
+        })
+
+      // Empty and absent are different claims, and this is the one that pins
+      // it: the server always sends the block, so a missing `notes` key means
+      // "this payload predates the field" rather than "nobody wrote anything".
+      it('serves an empty block for a resident with no notes', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(notesFor(res, PERSON_2)).toEqual({ entries: [], total: 0 })
+      })
+
+      it('orders notes newest first, with both timestamps', async () => {
+        await writeNotes(PERSON_1, [
+          {
+            body: 'Asked about the sidewalk repairs',
+            createdAt: '2026-06-01T10:00:00Z',
+          },
+          {
+            body: 'Dog in the front yard, use the side gate',
+            createdAt: '2026-07-01T10:00:00Z',
+            // An edited note keeps its place in the list — ordering is by when
+            // it was written, so fixing a typo does not resurface an old note.
+            updatedAt: '2026-07-20T09:30:00Z',
+          },
+          { body: 'Wants a yard sign', createdAt: '2026-06-15T10:00:00Z' },
+        ])
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)).toMatchObject({
+          total: 3,
+          entries: [
+            {
+              body: 'Dog in the front yard, use the side gate',
+              createdAt: '2026-07-01T10:00:00.000Z',
+              updatedAt: '2026-07-20T09:30:00.000Z',
+            },
+            {
+              body: 'Wants a yard sign',
+              createdAt: '2026-06-15T10:00:00.000Z',
+              updatedAt: '2026-06-15T10:00:00.000Z',
+            },
+            {
+              body: 'Asked about the sidewalk repairs',
+              createdAt: '2026-06-01T10:00:00.000Z',
+            },
+          ],
+        })
+      })
+
+      // The id is what makes the note editable and deletable from the door,
+      // and it is the CRM's own row id rather than anything derived here — the
+      // webapp posts it straight back to `PATCH/DELETE contacts/notes/:id`.
+      it('carries the CRM note id and personId through unchanged', async () => {
+        await writeNotes(PERSON_1, [
+          { body: 'Back door only', createdAt: '2026-07-01T10:00:00Z' },
+        ])
+        const saved = await service.prisma.contactNote.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: PERSON_1 },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)?.entries[0]).toMatchObject({
+          id: saved.id,
+          personId: PERSON_1,
+        })
+      })
+
+      // The same reason the feed is keyed by personId: two people behind one
+      // door are two records, and free text written about one of them read
+      // against the other is worse material to get wrong than an outcome.
+      it('scopes notes to the resident, not the household', async () => {
+        await writeNotes(PERSON_1, [
+          {
+            body: 'Supportive, wants a sign',
+            createdAt: '2026-07-01T10:00:00Z',
+          },
+        ])
+        await writeNotes(PERSON_2, [
+          {
+            body: 'Asked us not to come back',
+            createdAt: '2026-07-02T10:00:00Z',
+          },
+        ])
+
+        const { res } = await knockAndServe()
+
+        // PERSON_1 and PERSON_2 share PIPED_KEY — one address, one door.
+        expect(notesFor(res, PERSON_1)?.entries.map((n) => n.body)).toEqual([
+          'Supportive, wants a sign',
+        ])
+        expect(notesFor(res, PERSON_2)?.entries.map((n) => n.body)).toEqual([
+          'Asked us not to come back',
+        ])
+      })
+
+      // The cap bounds the payload; `total` is what stops the capped list
+      // reading as the whole record. Without it the sheet would show three
+      // notes out of nine and say nothing about the other six.
+      it(`caps at ${ROUTE_TARGET_NOTE_LIMIT} newest and reports the true total`, async () => {
+        await writeNotes(
+          PERSON_1,
+          Array.from({ length: 9 }, (_, index) => ({
+            body: `Note ${index + 1}`,
+            createdAt: `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00Z`,
+          })),
+        )
+
+        const { res } = await knockAndServe()
+
+        const notes = notesFor(res, PERSON_1)
+        expect(notes?.entries).toHaveLength(ROUTE_TARGET_NOTE_LIMIT)
+        expect(notes?.entries.map((n) => n.body)).toEqual([
+          'Note 9',
+          'Note 8',
+          'Note 7',
+        ])
+        expect(notes?.total).toBe(9)
+      })
+
+      // A resident sitting exactly on the cap is the case a renderer inferring
+      // truncation from `entries.length` gets wrong, so the payload has to be
+      // unambiguous about it.
+      it('reports no truncation for a resident sitting on the cap', async () => {
+        await writeNotes(
+          PERSON_1,
+          Array.from({ length: ROUTE_TARGET_NOTE_LIMIT }, (_, index) => ({
+            body: `Note ${index + 1}`,
+            createdAt: `2026-07-0${index + 1}T10:00:00Z`,
+          })),
+        )
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)?.total).toBe(ROUTE_TARGET_NOTE_LIMIT)
+      })
+
+      it("never leaks another organization's notes", async () => {
+        const otherSlug = `campaign-notes-elsewhere-${Date.now()}`
+        await service.prisma.organization.create({
+          data: {
+            slug: otherSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        await service.prisma.contactNote.create({
+          data: {
+            organizationSlug: otherSlug,
+            personId: PERSON_1,
+            body: 'Another campaign wrote this',
+          },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)).toEqual({ entries: [], total: 0 })
+      })
+
+      // The serve is this feature's heaviest read and runs on every walk open
+      // and every map open, so notes are fetched for the whole route at once.
+      // One call carrying every target's personId is what rules out the
+      // per-target fetch; the service turns that into a single windowed
+      // statement rather than a query per person.
+      it('reads every target in one call rather than one per target', async () => {
+        const notesService = service.app.get(DoorKnockingNotesService)
+        const spy = vi.spyOn(notesService, 'notesByPersonId')
+
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(spy).toHaveBeenCalledTimes(1)
+        expect(spy.mock.calls[0]?.[1]).toEqual(
+          expect.arrayContaining([PERSON_1, PERSON_2, PERSON_3, PERSON_4]),
+        )
+      })
+    })
+
     it('404s for a turf that has not been knocked', async () => {
       const turf = await createTurf()
       const res = await service.client.get(
@@ -1425,6 +2045,220 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(404)
     })
   })
+
+  // The rail's per-list counts. The requirement is not "three plausible
+  // numbers" — it is that a list reads the same on the rail as it does in the
+  // details sheet one tap later, so these assert the rail's counts against the
+  // SERVE PAYLOAD's own derivation rather than against constants alone. The
+  // constants are here too, so a change that breaks both sides identically
+  // still fails.
+  describe('turf counts', () => {
+    const PERSON_1 = '00000001-1111-1111-1111-111111111111'
+    const PERSON_2 = '00000002-1111-1111-1111-111111111111'
+    const PERSON_3 = '00000003-1111-1111-1111-111111111111'
+    const PERSON_4 = '00000004-1111-1111-1111-111111111111'
+
+    type PayloadTarget = {
+      personId: string
+      knockStatus: string
+      doNotKnock: boolean
+      notAVoterReason?: string
+    }
+    type PayloadStop = { addresses: Array<{ targets: PayloadTarget[] }> }
+
+    // `routeCounts.ts` in gp-webapp, transcribed: this is what the details
+    // sheet and the walk view compute off the same payload. Kept as an
+    // independent reference on purpose — gp-api cannot import the webapp
+    // module, so the equivalence is asserted rather than assumed.
+    const fromPayload = (stops: PayloadStop[]) => {
+      const doors = stops.reduce(
+        (total, stop) => total + stop.addresses.length,
+        0,
+      )
+      const knockable = stops.flatMap((stop) =>
+        stop.addresses.flatMap((address) =>
+          address.targets.filter(
+            (target) => !target.doNotKnock && !target.notAVoterReason,
+          ),
+        ),
+      )
+      return {
+        doorCount: doors,
+        peopleCount: knockable.length,
+        loggedCount: knockable.filter(
+          (target) => target.knockStatus !== 'unknown',
+        ).length,
+      }
+    }
+
+    const listTurfs = async () => {
+      const res = await service.client.get(
+        '/v1/door-knocking/turfs',
+        orgHeaders(),
+      )
+      expect(res.status).toBe(200)
+      return res.data as Array<{
+        id: number
+        locked: boolean
+        doorCount: number | null
+        peopleCount: number | null
+        loggedCount: number | null
+      }>
+    }
+
+    const serveRoute = async (turfId: number) => {
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turfId}/route`,
+        orgHeaders(),
+      )
+      expect(res.status).toBe(200)
+      return res.data.stops as PayloadStop[]
+    }
+
+    // Every way the three numbers can diverge from a naive count, in one
+    // route: a shared door (doors < people), a do-not-knock resident and a
+    // not-a-voter resident (people < targets), an answered-but-unsure knock
+    // that derives back to `unknown` (logged < knocked), and a not-home knock
+    // that counts as logged even though nobody was reached.
+    const messyFixture = async () => {
+      await service.prisma.contactCurrentStatus.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            field: 'do_not_knock',
+            value: 'active',
+          },
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_3,
+            field: 'not_a_voter',
+            value: 'moved',
+          },
+        ],
+      })
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          // Logged: nobody was reached, but the door has an answer written
+          // down, which is what "logged" means.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_2,
+            occurredAt: new Date('2026-07-02T10:00:00Z'),
+            outcome: 'not_home',
+          },
+          // NOT logged: `deriveKnockStatus` collapses answered-but-unsure to
+          // `unknown` on purpose — the door is still worth knocking.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_4,
+            occurredAt: new Date('2026-07-03T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'unsure',
+          },
+          // A flagged resident's own knock: it must not reach `loggedCount`,
+          // because they are not in `peopleCount` to begin with.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-04T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+        ],
+      })
+    }
+
+    it('reports counts the details sheet derives identically for the same list', async () => {
+      await messyFixture()
+      const turf = await createTurf()
+      stubVendors()
+      expect((await knock(turf.id)).status).toBe(201)
+
+      const stops = await serveRoute(turf.id)
+      const [row] = await listTurfs()
+
+      expect({
+        doorCount: row?.doorCount,
+        peopleCount: row?.peopleCount,
+        loggedCount: row?.loggedCount,
+      }).toEqual(fromPayload(stops))
+      // Two people share PIPED_KEY at one coordinate, so three doors hold
+      // four targets; the two flags drop two of them; one of the two
+      // survivors has an answer written down.
+      expect(row).toMatchObject({
+        locked: true,
+        doorCount: 3,
+        peopleCount: 2,
+        loggedCount: 1,
+      })
+    })
+
+    // The point at which a naive count diverges, stated as a comparison
+    // rather than a constant: the frozen route really does hold four targets.
+    it('drops do-not-knock and not-a-voter residents from people, but not their doors', async () => {
+      await messyFixture()
+      const turf = await createTurf()
+      stubVendors()
+      await knock(turf.id)
+
+      const frozenTargets = await service.prisma.doorKnockingStopTarget.count()
+      const [row] = await listTurfs()
+
+      expect(frozenTargets).toBe(4)
+      expect(row?.peopleCount).toBe(2)
+      // A flagged resident is still behind a door somebody walks past, and
+      // the details sheet's roster still lists them — so the door count is
+      // unmoved by the flags.
+      expect(row?.doorCount).toBe(3)
+      // PERSON_1 is flagged AND has a supporter knock on file. Counting them
+      // would put `loggedCount` above `peopleCount`.
+      expect(row?.loggedCount).toBe(1)
+    })
+
+    it('carries no counts on an unlocked list, and no zeroes either', async () => {
+      const turf = await createTurf()
+
+      const [before] = await listTurfs()
+      expect(before).toMatchObject({
+        locked: false,
+        doorCount: null,
+        peopleCount: null,
+        loggedCount: null,
+      })
+
+      stubVendors()
+      await knock(turf.id)
+
+      const [after] = await listTurfs()
+      expect(after).toMatchObject({ locked: true, doorCount: 3 })
+    })
+
+    // The cost rule. `serve` is the feature's heaviest read — a nested route
+    // fetch, a people-api round trip and four CRM queries — so the rail must
+    // never reach for it, and the aggregate behind the counts must not grow a
+    // round trip per list.
+    it('answers every list from one batched aggregate, never a serve per list', async () => {
+      const countsService = service.app.get(DoorKnockingTurfCountsService)
+      const serveService = service.app.get(DoorKnockingServeService)
+      const forRoutes = vi.spyOn(countsService, 'forRoutes')
+      const serve = vi.spyOn(serveService, 'serve')
+
+      stubVendors()
+      for (const name of ['Ash St', 'Birch Ave', 'Cedar Ln']) {
+        await knock((await createTurf(name)).id)
+      }
+
+      const rows = await listTurfs()
+
+      expect(rows).toHaveLength(3)
+      expect(rows.every((row) => row.doorCount === 3)).toBe(true)
+      expect(forRoutes).toHaveBeenCalledTimes(1)
+      expect(forRoutes.mock.calls[0]?.[1]).toHaveLength(3)
+      expect(serve).not.toHaveBeenCalled()
+    })
+  })
+
   describe('interactions', () => {
     const CLIENT_KEY = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 
@@ -2370,6 +3204,166 @@ describe('door-knocking routes', () => {
     })
   })
 
+  // ADR 0010. The knock's own evaluation, run without the vendor call, so the
+  // draw step can name the doors before anything is bought.
+  describe('address preview', () => {
+    const previewOpts = () => ({ ...orgHeaders(), validateStatus: () => true })
+
+    const preview = (body: Record<string, unknown> = {}) =>
+      service.client.post(
+        '/v1/door-knocking/address-preview',
+        { geoPoly: GEO_POLY, filters: {}, ...body },
+        previewOpts(),
+      )
+
+    const lastEvaluateArg = () => {
+      const { evaluate } = service.app.get(DoorKnockingPeopleApiService)
+      const { calls } = (evaluate as unknown as ReturnType<typeof vi.fn>).mock
+      return calls.at(-1)?.[0] as Record<string, unknown> | undefined
+    }
+
+    // A second unit at the first building's coordinate: one stop the router
+    // visits, two doors a canvasser knocks. The whole reason the preview
+    // reports stops and doors as different numbers.
+    const OTHER_UNIT_KEY = '1200|W|ELM|ST||4A|62704'
+
+    it('lists unit addresses by stop, on the counts the freeze would produce', async () => {
+      stubVendors({
+        people: [
+          person(1, 41.9, -87.65, PIPED_KEY),
+          person(2, 41.9, -87.65, PIPED_KEY),
+          person(3, 41.9, -87.65, OTHER_UNIT_KEY),
+          person(4, 41.901, -87.651),
+          bboxOnlyPerson,
+        ],
+      })
+
+      const res = await preview()
+
+      expect(res.status).toBe(201)
+      // Two coordinates survive the ray-cast — the bbox-only person is
+      // dropped, so neither their stop nor their door is counted anywhere.
+      // Addresses render through the same helper the frozen route uses, so
+      // the door previewed here and the door walked later read identically.
+      expect(res.data).toEqual({
+        stops: 2,
+        doors: 3,
+        people: 4,
+        locations: [
+          {
+            doors: [
+              { address: '1200 W ELM ST Apt 3B', people: 2 },
+              { address: '1200 W ELM ST Apt 4A', people: 1 },
+            ],
+          },
+          { doors: [{ address: 'KEY-4', people: 1 }] },
+        ],
+      })
+    })
+
+    // A shape drawn over nothing is an ordinary moment in drawing, not a
+    // failure — the knock 400s here because it is committing a turf.
+    it('answers an empty shape with zeros instead of the knock 400', async () => {
+      stubVendors({ people: [] })
+
+      const res = await preview()
+
+      expect(res.status).toBe(201)
+      expect(res.data).toEqual({
+        stops: 0,
+        doors: 0,
+        people: 0,
+        locations: [],
+      })
+    })
+
+    it('asks evaluation to drop the org suppressed people (ADR 0007/0008)', async () => {
+      const turf = await createTurf()
+      stubVendors()
+      expect((await knock(turf.id)).status).toBe(201)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+      await service.client.post(
+        '/v1/door-knocking/do-not-knock',
+        { stopTargetId: target.id, value: 'active' },
+        previewOpts(),
+      )
+
+      expect((await preview()).status).toBe(201)
+
+      // The exclusion is a WHERE clause, and its SQL half is asserted in
+      // voterDoorKnocking.service.test.ts; what matters here is that the
+      // preview asks for it at all. A door whose every resident is flagged
+      // therefore has nobody to evaluate and never reaches the list — the
+      // route built from this shape would not contain it either.
+      expect(lastEvaluateArg()).toMatchObject({
+        excludePersonIds: [target.personId],
+      })
+    })
+
+    // The saved list is resolved through the identical three steps the knock
+    // runs, so a draft carrying activity conditions previews the audience it
+    // will knock rather than the one convertVoterFileFilterToFilters alone
+    // would produce.
+    it('resolves the draft filters and bounds the scan by the ring bbox', async () => {
+      stubVendors()
+
+      expect((await preview({ filters: { partyDemocrat: true } })).status).toBe(
+        201,
+      )
+
+      const arg = lastEvaluateArg()
+      expect(arg?.districtId).toBe(DISTRICT_ID)
+      expect(arg?.bbox).toEqual({
+        minLat: 41.89,
+        maxLat: 41.91,
+        minLng: -87.66,
+        maxLng: -87.64,
+      })
+    })
+
+    it('spends no vendor credit and freezes nothing', async () => {
+      const fetchSpy = stubVendors()
+
+      expect((await preview()).status).toBe(201)
+
+      expect(
+        fetchSpy.mock.calls.filter(([url]) =>
+          String(url).includes('routeplanner'),
+        ),
+      ).toHaveLength(0)
+      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+      expect(await service.prisma.doorKnockingStop.count()).toBe(0)
+      expect(await service.prisma.doorKnockingRoutePlannerSpend.count()).toBe(0)
+    })
+
+    // The counts are the draw step's only figures once a preview exists, so
+    // the cap must bound what is materialized without bounding what is
+    // reported — a shape the candidate has to shrink still has to say by how
+    // much.
+    it('caps the listing at the stop limit while still counting every stop', async () => {
+      const crowd = Array.from({ length: 160 }, (_, index) =>
+        person(index + 1, 41.895, -87.655 + index * 0.00005, `KEY-${index}`),
+      )
+      stubVendors({ people: crowd })
+
+      const res = await preview()
+
+      expect(res.status).toBe(201)
+      expect(res.data.stops).toBe(160)
+      expect(res.data.doors).toBe(160)
+      expect(res.data.locations).toHaveLength(150)
+      // Whole locations only: every listed stop shows all of its doors.
+      expect(
+        (res.data.locations as Array<{ doors: unknown[] }>).every(
+          (location) => location.doors.length === 1,
+        ),
+      ).toBe(true)
+    })
+  })
+
   describe('Pro gate (ENG-10888)', () => {
     const downgrade = () =>
       service.prisma.campaign.update({
@@ -2398,6 +3392,12 @@ describe('door-knocking routes', () => {
         ['put', `/v1/door-knocking/turfs/${turfId}`, { name: 'Renamed' }],
         ['get', `/v1/door-knocking/turfs/${turfId}/route`, undefined],
         ['get', '/v1/door-knocking/pack', undefined],
+        // ADR 0010: a read of voter data, so it is gated with the rest.
+        [
+          'post',
+          '/v1/door-knocking/address-preview',
+          { geoPoly: GEO_POLY, filters: {} },
+        ],
         [
           'post',
           '/v1/door-knocking/interactions',
@@ -2411,6 +3411,18 @@ describe('door-knocking routes', () => {
           'post',
           `/v1/door-knocking/turfs/${turfId}/knock`,
           { mode: 'walk', loop: false },
+        ],
+        // After the knock above, so both find a route and exercise their real
+        // path rather than the not-yet-knocked 409. `complete` takes no body
+        // but still needs `{}`: the loop below only passes headers as the
+        // third argument, and axios reads a POST's second argument as data —
+        // so `undefined` would send the headers as the payload and lose the
+        // org, 404ing before the gate it is here to test.
+        ['post', `/v1/door-knocking/turfs/${turfId}/complete`, {}],
+        [
+          'post',
+          `/v1/door-knocking/turfs/${turfId}/archive`,
+          { archived: true },
         ],
         // Last on purpose: the Pro-org loop below shares one turf, and a delete
         // in the middle would leave every route after it answering 404 without
@@ -2452,8 +3464,8 @@ describe('door-knocking routes', () => {
       // Then the whole list, asserted by the absence of the gate's own message
       // rather than by status. Run against a live Pro org most of these answer
       // 2xx, but a couple legitimately fail on their own terms — POST
-      // /interactions carries a synthetic stopTargetId (404), and PUT/DELETE
-      // meet assertNotLocked once the knock above them has run (409). A status
+      // /interactions carries a synthetic stopTargetId (404), and PUT meets
+      // assertNotLocked once the knock above it has run (409). A status
       // assertion would be testing those reasons; this asserts exactly the one
       // thing the gate could get wrong, which is refusing an entitled org.
       for (const [method, path, body] of gatedRoutes(turf.id)) {

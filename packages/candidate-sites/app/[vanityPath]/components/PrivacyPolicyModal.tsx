@@ -8,15 +8,16 @@ import formatPhoneNumber from '@/app/shared/utils/phoneFormatter'
 interface PrivacyPolicyModalProps {
   open: boolean
   content: Website['content']
+  campaignName: string
   activeTheme: WebsiteTheme
 }
 
 export default function PrivacyPolicyModal({
   open,
   content,
+  campaignName,
   activeTheme,
 }: PrivacyPolicyModalProps) {
-  const campaignName = content?.main?.title || ''
   const currentDate = new Date().toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
@@ -46,9 +47,7 @@ export default function PrivacyPolicyModal({
       }}
     >
       <div className="mb-4">
-        <h3 className="font-semibold text-lg mb-2">
-          {content?.main?.title || ''}
-        </h3>
+        <h3 className="font-semibold text-lg mb-2">{campaignName}</h3>
         <p className="text-sm mb-4">Last Updated: {currentDate}</p>
       </div>
       <div className="space-y-4 text-sm">

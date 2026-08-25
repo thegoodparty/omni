@@ -104,6 +104,26 @@ Both read the same connection coordinates from the environment:
 | `WIN_DATABRICKS_SERVER_HOSTNAME`                    | `dbc-3d8ca484-79f3.cloud.databricks.com` (same workspace) |
 | `WIN_DATABRICKS_HTTP_PATH`                          | `/sql/1.0/warehouses/a6f5281417d1c869` (wh-win-agents)      |
 | `WIN_DATABRICKS_CLIENT_ID` / `WIN_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_win_agent` (Campaign Manager) |
+| `PEOPLE_DATABRICKS_WAREHOUSE_ID`                    | Bare warehouse id (no path) for the CRM's voter queries    |
+| `PEOPLE_DATABRICKS_CLIENT_ID` / `PEOPLE_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for the `gp_api` SP (voter data) |
+
+The voter-data identity takes no hostname: there is one workspace, so
+`peopleDbx.config.ts` holds it as a constant. It keeps the warehouse in env so
+dev and prod can run on separate compute, and so moving off a saturated
+warehouse is a secret update and a task cycle rather than a deploy. It reads
+`mart_gp_api.gp_api_voters`, `gp_api_districts`, and `gp_api_district_stats`,
+and is deliberately not interchangeable with the two agent identities above.
+
+Read the mart, never the `dbt` models underneath it. The data is the same, but
+the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the
+`mart_gp_api_readers` group, which survives the `CREATE OR REPLACE VIEW` a dbt
+rebuild performs. Table-level grants on the `dbt` objects do not -- they were
+granted directly once and silently vanished, taking every voter read with them.
+
+`gp_api_district_stats` mirrors Postgres's `DistrictStats` column for column,
+including which districts have no row at all. Read it rather than aggregating
+the voter rows: absence is the product's signal for "no constituent data for
+this office", so a query that always returns a number would erase it.
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not
