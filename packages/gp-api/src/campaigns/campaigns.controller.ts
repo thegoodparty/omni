@@ -287,11 +287,12 @@ export class CampaignsController {
       )
     }
 
-    if (
+    const isAdminSlugOverride =
       typeof slug === 'string' &&
       campaign?.slug !== slug &&
       userHasRole(user, [UserRole.admin, UserRole.sales])
-    ) {
+
+    if (isAdminSlugOverride) {
       campaign = await this.campaigns.findFirstOrThrow({
         where: { slug },
       })
@@ -316,7 +317,20 @@ export class CampaignsController {
 
     this.logger.debug({ campaign, ...{ slug, body } }, 'Updating campaign')
 
-    const updated = await this.campaigns.updateJsonFields(campaign.id, body)
+    // User-driven updates that move electionDate to a new upcoming date
+    // clear stale prior-race result state (ENG-10954). Staff paths never get
+    // this: the admin M2M update (PUT /:id) sets didWin explicitly, and the
+    // slug-override branch here must not silently wipe a recorded result —
+    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply
+    // it through this endpoint.
+    const updated = await this.campaigns.updateJsonFields(
+      campaign.id,
+      body,
+      true,
+      undefined,
+      undefined,
+      isAdminSlugOverride ? {} : { resetStaleElectionResults: true },
+    )
     if (!updated) throw new NotFoundException('Campaign not found after update')
     return updated
   }
