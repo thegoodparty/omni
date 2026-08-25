@@ -4,6 +4,13 @@ enum PhoneBankCallOutcome {
   voicemail
   wrong_number
   refused
+  // ENG-10945 additions: additive only, existing members are persisted
+  // inside saved filters (activity conditions) so they can never be renamed.
+  // disconnected = dead line, number-level like wrong_number (no personId,
+  // fans out, suppresses the phone). hung_up = a person ended the call,
+  // person-level optionality like refused (personId allowed, not required).
+  disconnected
+  hung_up
 }
 
 model ContactInteractionPhoneBanking {
@@ -27,6 +34,10 @@ model ContactInteractionPhoneBanking {
   willVote           WillVoteAnswer?      @map("will_vote")
   note               String?
   manual             Boolean              @default(false)
+  // ENG-10946: the caller who logged this row. Null on rows written before
+  // this column existed (no backfill) — the feed renders those authorless.
+  actorUserId        Int?                 @map("actor_user_id")
+  actor              User?                @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
   // The upsert key: an answered-outcome save writes one row per person on
   // the list, and a corrected answer upserts in place rather than forking.

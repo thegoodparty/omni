@@ -66,11 +66,13 @@ export default function PhoneBankingOutcomeForm({
 
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
     if (!savedDraft.outcome) return
-    // What the API stored, not the raw pill: engage = Refused persists as a
-    // `refused` outcome on this person.
+    // What the API stored, not the raw pill: engage = Refused/Hung up
+    // persists as that outcome on this person.
     const savedOutcome =
-      savedDraft.outcome === 'answered' && savedDraft.engagement === 'refused'
-        ? 'refused'
+      savedDraft.outcome === 'answered' &&
+      (savedDraft.engagement === 'refused' ||
+        savedDraft.engagement === 'hung_up')
+        ? savedDraft.engagement
         : savedDraft.outcome
     trackEvent(EVENTS.Outreach.PhoneBanking.CallLogged, {
       listId,
@@ -198,6 +200,7 @@ export default function PhoneBankingOutcomeForm({
             >
               <FilterPill value="engaged">Engaged</FilterPill>
               <FilterPill value="refused">Refused</FilterPill>
+              <FilterPill value="hung_up">Hung up</FilterPill>
             </FilterPillGroup>
           </div>
         </div>
