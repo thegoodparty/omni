@@ -507,7 +507,11 @@ Three consequences worth knowing before changing this:
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
 - **The client's disconnect now cancels the build.** Destroying the response
-  aborts the signal `VoterPackService.build` checks between batches. Killing
+  aborts the signal `VoterPackService.build` checks between batches — which
+  relies on Fastify destroying the stream it is sending when the socket goes
+  away. It does, and `aborts the build when the client hangs up` in
+  `doorKnocking.routes.test.ts` pins that at the wire rather than trusting it.
+  Killing
   the connection never cancelled the Postgres scan, so a retry used to contend
   with a build still running for nobody — which is also why the webapp query
   is `retry: 0` with a 90s `AbortSignal.timeout` (under the gateway's ceiling,

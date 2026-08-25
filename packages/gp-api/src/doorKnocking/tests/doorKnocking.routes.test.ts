@@ -3315,6 +3315,40 @@ describe('door-knocking routes', () => {
         PACK_STREAM_FRAME_KINDS.error,
       )
     })
+
+    // Cancellation is wired to the response stream's `close`, which assumes
+    // Fastify destroys the stream it is sending when the client goes away. It
+    // does, but that is a fact about the adapter rather than about this code,
+    // so it is pinned here: without it the district scan outlives the browser
+    // and the next attempt contends with a build nobody is waiting for.
+    it('aborts the build when the client hangs up', async () => {
+      let buildSignal: AbortSignal | undefined
+      // Restored at the end: this build never resolves, and a later test that
+      // walks every gated route would hang on it.
+      const packSpy = vi
+        .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
+        .mockImplementation((_request, signal) => {
+          buildSignal = signal
+          return new Promise<Buffer>(() => undefined)
+        })
+
+      const abort = new AbortController()
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'stream',
+        signal: abort.signal,
+        validateStatus: () => true,
+      })
+      await new Promise<void>((resolve) =>
+        (res.data as Readable).once('data', () => resolve()),
+      )
+      await vi.waitFor(() => expect(buildSignal).toBeDefined())
+
+      abort.abort()
+
+      await vi.waitFor(() => expect(buildSignal?.aborted).toBe(true))
+      packSpy.mockRestore()
+    })
   })
 
   // ADR 0010. The knock's own evaluation, run without the vendor call, so the
