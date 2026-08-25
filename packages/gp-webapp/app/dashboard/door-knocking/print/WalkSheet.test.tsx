@@ -286,17 +286,34 @@ describe('WalkSheet', () => {
     }
   })
 
-  // Conflict 2 in the handoff. Its Support column offers Strong / Lean / Undec /
-  // No, and the app's form has three values; a box on paper that the form cannot
-  // accept is an answer the canvasser cannot file. Same for its "Moved"
-  // outcome, which is not in our vocabulary at all.
+  // Conflicts 2 and 3 in the handoff. Its Support column offers Strong / Lean /
+  // Undec / No against the app's three values, and its Answered column offers a
+  // "Moved" this app does not record at all; a box on paper the form cannot
+  // accept is an answer the canvasser cannot file.
+  //
+  // Asserted as the exact set of labels rather than as words the page must not
+  // contain, because the page legitimately says "may have moved" and "Moved
+  // away — skip this resident" elsewhere. What must not appear is a *box*
+  // offering an answer, so the boxes are what this reads.
   it('offers no answer the app has no value for', () => {
     renderSheet([stop()])
 
-    const page = document.body.textContent ?? ''
-    for (const invented of [/strong/i, /\blean/i, /undec/i, /\bmoved\b/i]) {
-      expect(page).not.toMatch(invented)
-    }
+    const offered = Array.from(document.querySelectorAll('.ws-opt span')).map(
+      (label) => label.textContent,
+    )
+    expect(offered).toEqual([
+      'Answered',
+      'Not home',
+      'Inaccessible',
+      'Refused to engage',
+      'Not a voter',
+      'Yes',
+      'No',
+      'Unsure',
+      'Yes',
+      'No',
+      'Unsure',
+    ])
   })
 
   // Phones are on the route payload for the app's person sheet, but paper
