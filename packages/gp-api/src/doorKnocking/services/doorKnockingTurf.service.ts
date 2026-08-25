@@ -214,14 +214,34 @@ export class DoorKnockingTurfService extends createPrismaBase(
   ): Promise<DoorKnockingTurf> {
     const turf = await this.client.$transaction(async (tx) => {
       const locked = await this.lockAndFindKnocked(tx, id, organizationSlug)
+      // One timestamp for both rows. Reusing the turf's existing stamp is what
+      // makes the guard below safe to skip the mirror past: an already-archived
+      // list re-archived writes the date it already had, so neither row moves.
+      const archivedAt = archived ? (locked.archivedAt ?? new Date()) : null
+
+      // Mirror onto the envelope, for the same reason complete() mirrors
+      // `status`: the turf is the object a candidate acts on — a Serve org has
+      // one without a campaign — and the envelope is the campaign-reporting
+      // projection the outreach history's Archive toggle filters on. Same
+      // updateMany, so a missing envelope is a no-op rather than an error.
+      //
+      // Deliberately BEFORE the idempotence guard, and unconditional. Lists
+      // archived before this mirror existed have an envelope that never
+      // followed, and returning early on them would leave that drift
+      // permanent — the one repair path a candidate has is pressing Archive
+      // again. Writing the turf's own timestamp rather than `now` is what lets
+      // this run every time without the guard's promise being broken.
+      await tx.outreach.updateMany({
+        where: { doorKnockingRouteId: locked.route.id },
+        data: { archivedAt },
+      })
+
       // Idempotent in the archiving direction for the same reason complete()
       // is: the card renders "archived since", and a double-tap or a client
       // retry must not walk that date forward. Un-archiving has nothing to
       // preserve — it writes null either way.
       if (archived && locked.archivedAt) return locked
-      return this.stampKnocked(tx, locked, {
-        archivedAt: archived ? new Date() : null,
-      })
+      return this.stampKnocked(tx, locked, { archivedAt })
     })
     return this.withCounts(turf, organizationSlug)
   }
