@@ -4,6 +4,7 @@ Thin wrappers around third-party SDKs. Each subdirectory is a Nest module that o
 
 - `aws/` — S3, SSM, Route53 (etc.)
 - `braintrust/` — LLM eval logging
+- `callhub/` — robocall / voice broadcast (caller-ID number rental so far)
 - `clerk/` — Clerk auth (M2M token verification lives in `SessionGuard`)
 - `contentful/` — CMS content
 - `ecanvasserIntegration/` — Ecanvasser CRM
