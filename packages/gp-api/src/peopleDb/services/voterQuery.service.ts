@@ -251,7 +251,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     const row = rows[0]
     const count = Number(row?.count ?? 0n)
     if (count === 0 && effectiveDistrictId) {
-      await this.warnIfStatsButNoVoterRows(effectiveDistrictId, state)
+      this.probeStatsWithoutVoterRows(effectiveDistrictId, state)
     }
 
     // ENG-10775: gp-api/gp-webapp both validate this shape against the same
@@ -395,7 +395,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
 
     const count = Number(rows[0]?.voter_count ?? 0n)
     if (count === 0 && districtId) {
-      await this.warnIfStatsButNoVoterRows(districtId, state)
+      this.probeStatsWithoutVoterRows(districtId, state)
     }
     return count
   }
@@ -406,6 +406,23 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // joins to an empty set and returns 0 — which presents as a filter bug
   // (ENG-10745). Probing only on the zero-result path keeps the hot path free
   // of extra queries.
+  // The probe below is a logging side-effect, so it must never decide what the
+  // caller gets back. Awaited, a statement or pool timeout inside it turned a
+  // legitimate zero-result into an error response; in dual-read mode the
+  // comparison ceiling is tighter than the user-facing one, which makes that
+  // more likely rather than less. Failure to explain an empty district is not
+  // a failure to answer the request.
+  private probeStatsWithoutVoterRows(districtId: string, state: string): void {
+    void this.warnIfStatsButNoVoterRows(districtId, state).catch(
+      (err: unknown) => {
+        this.logger.warn(
+          { err, districtId, state },
+          'stats-without-voter-rows probe failed; skipping the diagnostic',
+        )
+      },
+    )
+  }
+
   private async warnIfStatsButNoVoterRows(
     districtId: string,
     state: string,

@@ -32,6 +32,8 @@ export class ShadowReadService {
   // PinoLogger, not @nestjs/common's Logger: only Pino's (object, message)
   // signature puts these fields at the top level of the log line, and the
   // whole point of the comparison is being able to aggregate them in LogQL.
+  private warnedUnresolved = false
+
   constructor(
     private readonly logger: PinoLogger,
     readonly databricks: DatabricksVoterService,
@@ -43,9 +45,24 @@ export class ShadowReadService {
   // comparison. When off — no flag, or no resolvable credential — callers keep
   // serving from Postgres alone, so an environment without Databricks
   // configured is unaffected rather than broken.
+  //
+  // "Asked for but unresolvable" is a deploy mistake, not a configuration
+  // choice, and it is the dangerous one: without this warning it is
+  // indistinguishable from "switched off", so a week of intended measurement
+  // can pass serving Postgres with nothing but an absence of log lines to show
+  // for it. Warned once rather than per request so it cannot flood.
   get enabled(): boolean {
     if (process.env.PEOPLE_DB_DUAL_READ !== 'true') return false
-    return resolvePeopleDbxConfig() !== null
+    if (resolvePeopleDbxConfig() !== null) return true
+    if (!this.warnedUnresolved) {
+      this.warnedUnresolved = true
+      this.logger.warn(
+        { flag: 'PEOPLE_DB_DUAL_READ' },
+        'dual read is enabled but PEOPLE_DATABRICKS_* is unresolved; ' +
+          'serving voter reads from people-db Postgres and logging no comparison',
+      )
+    }
+    return false
   }
 
   // Returns the DATABRICKS result. Databricks is authoritative here, so its

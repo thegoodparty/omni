@@ -15,15 +15,18 @@ const configure = (): void => {
 
 describe('ShadowReadService', () => {
   let service: ShadowReadService
+  let logger: {
+    setContext: ReturnType<typeof vi.fn>
+    info: ReturnType<typeof vi.fn>
+    warn: ReturnType<typeof vi.fn>
+  }
   let saved: Record<string, string | undefined>
 
   beforeEach(() => {
     saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]))
     for (const k of ENV_KEYS) delete process.env[k]
-    service = new ShadowReadService(
-      { setContext: vi.fn(), info: vi.fn(), log: vi.fn() } as never,
-      {} as never,
-    )
+    logger = { setContext: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    service = new ShadowReadService(logger as never, {} as never)
   })
 
   afterEach(() => {
@@ -54,6 +57,21 @@ describe('ShadowReadService', () => {
   it('stays disabled when the flag is on but no credential resolves', () => {
     process.env.PEOPLE_DB_DUAL_READ = 'true'
     expect(service.enabled).toBe(false)
+  })
+
+  // Asked-for-but-unresolvable is a deploy mistake, and silently serving
+  // Postgres for a week looks identical to being switched off.
+  it('warns once when the flag is on but nothing resolves', () => {
+    process.env.PEOPLE_DB_DUAL_READ = 'true'
+    service.enabled
+    service.enabled
+    service.enabled
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not warn when it is simply switched off', () => {
+    service.enabled
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 
   it('is enabled only with both the flag and a credential', () => {
