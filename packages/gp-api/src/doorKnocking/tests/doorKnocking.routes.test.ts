@@ -1704,6 +1704,7 @@ describe('door-knocking routes', () => {
             occurredAt: new Date('2026-07-01T10:00:00Z'),
             outcome: 'answered',
             supportAnswer: 'supporter',
+            actorUserId: service.user.id,
           },
         })
         await service.prisma.contactStatusEvent.create({
@@ -1734,7 +1735,12 @@ describe('door-knocking routes', () => {
           data: { fromLabel: 'Off', toLabel: 'On' },
         })
         expect(history?.[3]).toMatchObject({
-          data: { outcome: 'answered', supportAnswer: 'supporter' },
+          data: {
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+            actorName: `${service.user.firstName} ${service.user.lastName}`,
+            actorUserId: service.user.id,
+          },
         })
       })
 
