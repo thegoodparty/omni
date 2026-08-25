@@ -126,26 +126,30 @@ describe('WalkListPdf', () => {
     expect(blank).toContain('YESNO' + 'YESNOUNSURE' + 'YESNOUNSURE')
   })
 
-  // Conflict 1 in the handoff, which rules an 11% Phone column. Paper stops
-  // being access-controlled the moment it leaves the building, so the column is
-  // not implemented — and the row model is never handed a number to put in it.
+  // The handoff rules an 11% Phone column and the canvas has no walk sheet to
+  // set a precedent either way, so it is a new proposal rather than a settled
+  // decision — and it is open with the designer. Until it is settled the column
+  // is not implemented: paper stops being access-controlled the moment it leaves
+  // the building, and the row model is never handed a number to put in it.
   it('rules no phone column, whatever the handoff asks for', () => {
     expect(blank).not.toMatch(/Phone/i)
   })
 
-  // Conflicts 2 and 3. The handoff's Support column offers Strong / Lean /
-  // Undec / No against the app's three values, and its Answered column offers a
-  // "Moved" this app does not record at all. A box on paper the form cannot
-  // accept is an answer the canvasser cannot file.
+  // The handoff's Support column offers Strong / Lean / Undec / No and its
+  // Answered column offers a "Moved". Both contradict the Voter Outreach 2.0
+  // canvas as well as our enum, so they are an error in the handoff rather than
+  // a decision to reconcile. What this pins is that the boxes stay generated
+  // from the form's own constants, because a box on paper the form cannot accept
+  // is an answer nobody can file.
   it('offers no answer the app has no value for', () => {
     for (const invented of [/strong/i, /\blean/i, /undec/i, /moved/i]) {
       expect(blank).not.toMatch(invented)
     }
   })
 
-  // Conflict 4. The handoff has no Will-vote column; the app's form asks the
-  // question, and a sheet that cannot record its answer is a sheet that has to
-  // be walked twice.
+  // The handoff has no Will-vote column, and the canvas asks the question, so
+  // the handoff simply omitted it. A sheet that cannot record an answer the form
+  // wants is a sheet that has to be walked twice.
   it('keeps the will-vote column the handoff drops', () => {
     expect(blank).toContain('WILL VOTE')
   })

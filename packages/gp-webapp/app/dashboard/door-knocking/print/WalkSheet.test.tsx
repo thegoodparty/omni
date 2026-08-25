@@ -286,10 +286,13 @@ describe('WalkSheet', () => {
     }
   })
 
-  // Conflicts 2 and 3 in the handoff. Its Support column offers Strong / Lean /
-  // Undec / No against the app's three values, and its Answered column offers a
-  // "Moved" this app does not record at all; a box on paper the form cannot
-  // accept is an answer the canvasser cannot file.
+  // The handoff's Support column offers Strong / Lean / Undec / No and its
+  // Answered column offers a "Moved". Both contradict the Voter Outreach 2.0
+  // canvas as well as our enum — the canvas ticks `Yes / No / Unsure` for both
+  // follow-ups, has no "Moved" door outcome, and its only "Strong" is a value of
+  // a voter's CRM support attribute — so they are an error in the handoff. What
+  // this pins is that the boxes stay generated from the form's own constants,
+  // because a box on paper the form cannot accept is an answer nobody can file.
   //
   // Asserted as the exact set of labels rather than as words the page must not
   // contain, because the page legitimately says "may have moved" and "Moved

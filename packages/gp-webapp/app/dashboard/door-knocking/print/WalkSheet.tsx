@@ -74,7 +74,12 @@ const COLUMNS: Array<[label: string, width: string]> = [
 // The options are always the form's own — `OUTCOME_OPTIONS`, `SUPPORT_OPTIONS`,
 // `WILL_VOTE_OPTIONS` — never a list written out here. Paper is transcribed back
 // into that form, so a box this sheet offers that the form does not is an answer
-// the canvasser cannot file.
+// the canvasser cannot file. The design handoff's own lists (a four-way Strong /
+// Lean / Undec / No support, and a "Moved" outcome) are an error in the handoff
+// rather than a decision to reconcile: the Voter Outreach 2.0 canvas, which is
+// this feature's source of truth, ticks `Yes / No / Unsure` for both follow-ups
+// and has no "Moved" door outcome anywhere. See the `### Paper` section of
+// AGENTS.md. The handoff's box *geometry* is what this component implements.
 const MarkBoxes = ({
   options,
 }: {
@@ -167,19 +172,19 @@ const ResidentRow = ({
         </td>
       ) : (
         <>
-          {/* All five outcomes, not the handoff's three. The handoff offers Yes
-              / No / Moved; "Moved" is not a value this app's form accepts, and
-              the two outcomes it drops (nobody home, refused) are the two most
-              common results of knocking a door. */}
+          {/* All five outcomes. Paper cannot branch the way the app's
+              walkthrough does, so every ending it can reach has to be offered at
+              once — and this surface has a whole column to spend on them. */}
           <td className="ws-marks">
             <MarkBoxes options={OUTCOME_OPTIONS} />
           </td>
           <td className="ws-marks">
             <MarkBoxes options={SUPPORT_OPTIONS} />
           </td>
-          {/* The handoff has no Will-vote column. Kept, because the app's form
-              asks it and a sheet that cannot record an answer the form wants is
-              a sheet that has to be walked twice. */}
+          {/* The handoff has no Will-vote column; the canvas asks the question,
+              so the handoff simply omitted it. Kept, because a sheet that cannot
+              record an answer the form wants is a sheet that has to be walked
+              twice. */}
           <td className="ws-marks">
             <MarkBoxes options={WILL_VOTE_OPTIONS} />
           </td>

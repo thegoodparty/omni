@@ -35,8 +35,8 @@ const CONTENT_WIDTH = 792 - MARGIN * 2
 // points once, at module load, because a fixed grid is what stops the widest
 // street name on a route from squeezing the column someone is writing in.
 //
-// The departures are the collisions this document escalates rather than adopts,
-// plus one the handoff's own fixture could not have hit:
+// The departures follow from the columns this grid actually has, plus one thing
+// the handoff's own fixture could not have hit:
 //
 //   - `Phone 11` is not here, and its share funds `Will vote`, the column the
 //     handoff drops and the app's form still asks.
@@ -184,9 +184,16 @@ const styles = StyleSheet.create({
 
 // Always the form's own options, never a list typed out here. Paper is
 // transcribed back into that form, so a box this grid offers that the form does
-// not is an answer the canvasser cannot file — which is why the handoff's
-// four-way Support (Strong / Lean / Undec / No) and its "Moved" outcome are not
-// on this page. See the `### Paper` section of AGENTS.md.
+// not is an answer the canvasser cannot file.
+//
+// This is also why the handoff's four-way Support (Strong / Lean / Undec / No)
+// and its "Moved" outcome are not on this page: they contradict the Voter
+// Outreach 2.0 canvas, which is this feature's source of truth and ticks `Yes /
+// No / Unsure` for both follow-ups. "Strong" occurs once in the whole canvas, as
+// one of four values of a voter's CRM *support attribute*, which is a field on a
+// record rather than something anyone ticks at a door; "Lean" occurs nowhere.
+// They are an error in the handoff, not a decision to reconcile. See the
+// `### Paper` section of AGENTS.md.
 const MarkBoxes = ({
   options,
 }: {
@@ -207,9 +214,13 @@ const MarkBoxes = ({
 // Answered" is not a question anyone can read. The values are real outcomes, so
 // a ticked box maps onto something the form accepts; the three this drops
 // (inaccessible, refused, not a voter) are the ones a canvasser needs to write a
-// reason beside anyway, and Notes is the next column. Not "Moved", which the
-// handoff offers as a third option and which is not a value this app records at
-// all. The printable page has a form per person and prints all five.
+// reason beside anyway, and Notes is the next column.
+//
+// Two options, not the handoff's three: its third is "Moved", which is not a
+// door outcome in this app or in the canvas — the only "Moved" in the canvas is
+// the "Moved to archive" toast for a list. A resident who moved is
+// `notAVoterReason`, a record flag, and `skipInstruction` already prints what it
+// means in place of these boxes. The printable page has room for all five.
 const ANSWERED_OPTIONS: ReadonlyArray<readonly [DoorKnockOutcome, string]> = [
   ['answered', 'Yes'],
   ['not_home', 'No'],
