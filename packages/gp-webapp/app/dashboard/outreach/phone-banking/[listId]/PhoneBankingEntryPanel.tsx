@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect } from 'react'
-import type {
-  PhoneBankingCallResult,
-  PhoneBankingListEntry,
+import {
+  type PhoneBankingCallResult,
+  type PhoneBankingListEntry,
+  VOTER_NAME_TOKEN,
 } from '@goodparty_org/contracts'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import {
@@ -54,6 +55,31 @@ interface PhoneBankingEntryPanelProps {
   onSaved: (results: PhoneBankingCallResult[]) => void
 }
 
+// Case-insensitive so a script emitted with different casing still matches;
+// [.*+?^${}()|[\]\\] escapes every regex metacharacter the literal token
+// contains (the brackets themselves).
+const VOTER_NAME_TOKEN_PATTERN = new RegExp(
+  `(${VOTER_NAME_TOKEN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
+  'gi',
+)
+
+// Renders the frozen script with every occurrence of the voter-name token
+// swapped for the active contact's first name, set apart visually so
+// callers can tell it's live data rather than part of the fixed script.
+const renderScriptWithVoterName = (
+  script: string,
+  firstName: string,
+): React.ReactNode =>
+  script.split(VOTER_NAME_TOKEN_PATTERN).map((part, index) =>
+    part.toLowerCase() === VOTER_NAME_TOKEN.toLowerCase() ? (
+      <span key={index} className="font-semibold">
+        {firstName}
+      </span>
+    ) : (
+      part
+    ),
+  )
+
 // Sheet on desktop, drawer on mobile — same split as
 // crm/lists/ListDetailSheet and the design-source PhoneBankSession
 // reference; segmented Tabs (not a pill row) for the per-person switcher on
@@ -94,6 +120,10 @@ export default function PhoneBankingEntryPanel({
 
   if (!person) return <></>
 
+  // Frozen lists predate `firstName` (ENG-10938), and an empty/whitespace
+  // value is treated the same as absent — either way, fall back to the
+  // first word of the frozen `name`.
+  const firstName = person.firstName?.trim() || person.name.split(' ')[0] || ''
   const noLiveEnrichment = hasNoLiveEnrichment(person)
   const householdHasOthersUnlogged = entry.persons.some(
     (candidate) =>
@@ -220,7 +250,7 @@ export default function PhoneBankingEntryPanel({
 
           <ProfileCard title="Call script" icon={ScrollTextIcon}>
             <p className="whitespace-pre-line text-sm text-foreground">
-              {script}
+              {renderScriptWithVoterName(script, firstName)}
             </p>
           </ProfileCard>
 

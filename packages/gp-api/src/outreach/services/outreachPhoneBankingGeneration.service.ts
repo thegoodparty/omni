@@ -8,6 +8,7 @@ import {
   PhoneBankingScriptDraftRequest,
   PhoneBankingScriptPurpose,
   type RaceTargetMetrics,
+  VOTER_NAME_TOKEN,
 } from '@goodparty_org/contracts'
 import { isValid } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
@@ -73,10 +74,10 @@ const PURPOSE_STRUCTURE: Record<PhoneBankingScriptPurpose, string> = {
 const VOLUNTEER_OPENER_RULE =
   'The volunteer opener is the first line of every script and is spoken ' +
   'by the VOLUNTEER, in their own first person, never the candidate: ' +
-  '"Hi, my name is [your name], and I am a volunteer for" followed by ' +
-  'the candidate name given below. Keep "[your name]" as a literal ' +
-  'bracketed placeholder for the volunteer to fill in — never invent a ' +
-  'volunteer name.'
+  `"Hi, is this ${VOTER_NAME_TOKEN}? My name is [your name], and I am a ` +
+  'volunteer for" followed by the candidate name given below. Keep ' +
+  `"[your name]" and "${VOTER_NAME_TOKEN}" as literal bracketed ` +
+  'placeholders — never invent a volunteer name or a voter name.'
 
 const COMPLIANCE_BAN_RULE =
   'NEVER include SMS or robocall compliance lines: no "Reply STOP", no ' +
@@ -88,13 +89,15 @@ const COMPLIANCE_BAN_RULE =
 // "[your name]" — ground real election/early-voting dates where we have
 // them (see the date context below) and write around the gap in plain
 // language where we don't, the same way the social drafts handle missing
-// specifics.
+// specifics. Amended by ENG-10938: the voter-name token is also allowed
+// in the opener, interpolated with the active contact's first name on
+// the caller page.
 const NO_PLACEHOLDER_BRACKETS_RULE =
   'Never emit a bracketed placeholder anywhere in the script other than ' +
-  '"[your name]" in the volunteer opener. Where a specific date, time, ' +
-  'or place is not given below, write around the gap in plain language ' +
-  'instead of inventing one or leaving a bracket for a volunteer to ' +
-  'fill in.'
+  `"[your name]" and "${VOTER_NAME_TOKEN}" in the volunteer opener. ` +
+  'Where a specific date, time, or place is not given below, write ' +
+  'around the gap in plain language instead of inventing one or ' +
+  'leaving a bracket for a volunteer to fill in.'
 
 const ELECTION_DATE_DISAMBIGUATION_RULE =
   'If more than one election date is given below (for example a primary ' +
@@ -132,8 +135,8 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  the volunteer opener, dates, deadlines, places, events, times,',
   '  names, numbers, and asks. Dropping one is a failure. Do not',
   '  paraphrase specifics away.',
-  '- The literal "[your name]" placeholder in the volunteer opener MUST',
-  '  be preserved exactly.',
+  `- The literal "[your name]" and "${VOTER_NAME_TOKEN}" placeholders in`,
+  '  the volunteer opener MUST be preserved exactly.',
   '- Strip any other bracketed placeholder the original contains (for',
   '  example "[early voting dates]" or "[polling location]") and',
   '  rewrite around the gap in plain language instead — never leave it',

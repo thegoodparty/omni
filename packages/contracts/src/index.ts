@@ -937,3 +937,5 @@ export {
   PhoneBankingOutreachDetailSchema,
   type PhoneBankingOutreachDetail,
 } from './phoneBanking/PhoneBankingList.schema'
+
+export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'

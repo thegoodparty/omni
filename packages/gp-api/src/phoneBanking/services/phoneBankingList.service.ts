@@ -81,7 +81,7 @@ type ListWithEntries = Prisma.PhoneBankingListGetPayload<{
   include: typeof LIST_WITH_ENTRIES_INCLUDE
 }>
 
-type PersonName = { personId: string; name: string }
+type PersonName = { personId: string; name: string; firstName: string | null }
 
 const formatAddress = (address: Person['address']): string | null => {
   const cityState = [address.city, address.state].filter(Boolean).join(', ')
@@ -253,11 +253,12 @@ export class PhoneBankingListService extends createPrismaBase(
         const phone = this.pickDialNumber(person, suppressedPhones)
         if (!phone) continue
 
+        const firstName = person.firstName ?? null
         const existing = grouped.get(phone)
         if (existing) {
-          existing.push({ personId: person.id, name })
+          existing.push({ personId: person.id, name, firstName })
         } else if (grouped.size < maxEntries) {
-          grouped.set(phone, [{ personId: person.id, name }])
+          grouped.set(phone, [{ personId: person.id, name, firstName }])
         }
       }
 
@@ -299,6 +300,7 @@ export class PhoneBankingListService extends createPrismaBase(
             create: persons.map((person) => ({
               personId: person.personId,
               name: person.name,
+              firstName: person.firstName,
             })),
           },
         }
@@ -390,6 +392,7 @@ export class PhoneBankingListService extends createPrismaBase(
         return {
           personId: person.personId,
           name: person.name,
+          firstName: person.firstName,
           age: live?.age ?? null,
           party: organization.slug.startsWith('eo-')
             ? null

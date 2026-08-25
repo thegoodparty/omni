@@ -26,6 +26,7 @@ const makePerson = (
 ): PhoneBankingListPerson => ({
   personId: 'p1',
   name: 'Jane Doe',
+  firstName: 'Jane',
   age: 42,
   party: 'D',
   address: '1 Main St',
