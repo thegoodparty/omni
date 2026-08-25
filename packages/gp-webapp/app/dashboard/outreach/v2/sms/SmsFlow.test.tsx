@@ -160,6 +160,34 @@ describe('SmsFlow', () => {
     mockOutreachList()
   })
 
+  it('shows the persistent compliance banner while verification is pending and routes Start compliance', async () => {
+    const { onClose } = openFlow(null)
+
+    expect(
+      screen.getByText('Compliance needed before this can send'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Carrier approval takes 1 to 2 weeks/),
+    ).toBeInTheDocument()
+
+    // No TCR record → the election-filing entry, per ComplianceModal.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start compliance' }),
+    )
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/profile/texting-compliance/election-filing',
+    )
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('hides the compliance banner once verification has cleared', () => {
+    openFlow()
+
+    expect(
+      screen.queryByText('Compliance needed before this can send'),
+    ).not.toBeInTheDocument()
+  })
+
   it('pushes the earliest send to 14 days while verification is pending', async () => {
     mockDraft()
     openFlow(null)

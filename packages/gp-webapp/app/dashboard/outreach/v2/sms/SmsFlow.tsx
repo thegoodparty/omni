@@ -12,6 +12,7 @@ import type {
 import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Alert,
+  AlertAction,
   AlertDescription,
   AlertTitle,
   Badge,
@@ -24,6 +25,8 @@ import {
   ClipboardListIcon,
   ClockIcon,
   DownloadIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
@@ -843,6 +846,28 @@ export const SmsFlow = ({
           limit={60}
         />
       )}
+      {!scheduled && notCleared && (
+        // Persistent while CampaignVerify clearance pends: every step opens
+        // with the design's compliance call-to-action so the user can start
+        // verification before the scheduled send needs it.
+        <Alert variant="info" icon={<ShieldAlertIcon />} className="mb-6">
+          <AlertTitle>Compliance needed before this can send</AlertTitle>
+          <AlertDescription>
+            Carrier approval takes 1 to 2 weeks. Schedule now, start compliance
+            so your text clears in time.
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              type="button"
+              variant="alertOutline"
+              onClick={startVerification}
+            >
+              <ShieldCheckIcon />
+              Start compliance
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
       {scheduled && showVerify ? (
         <VerificationInterstitial
           onLater={onClose}
@@ -966,7 +991,6 @@ export const SmsFlow = ({
         >
           <SmsReviewStep
             name={name}
-            notCleared={notCleared}
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
             composedMessage={composedMessage}

@@ -44,9 +44,6 @@ const fmtDate = (d: Date) =>
 interface SmsReviewStepProps {
   name: string
   audienceName: string
-  // Peerly CampaignVerify not yet VERIFIED: the send is held until it
-  // clears, per the design's not-cleared banner.
-  notCleared: boolean
   sendAt: Date
   composedMessage: string
   imagePreviewUrl: string | null
@@ -68,7 +65,6 @@ interface SmsReviewStepProps {
 export const SmsReviewStep = ({
   name,
   audienceName,
-  notCleared,
   sendAt,
   composedMessage,
   imagePreviewUrl,
@@ -144,17 +140,6 @@ export const SmsReviewStep = ({
         title="Review & pay"
         body="Review your campaign details and complete your payment."
       />
-
-      {notCleared && (
-        <Alert variant="info" icon={<InfoIcon className="size-4" />}>
-          <AlertTitle>You&apos;re not cleared yet</AlertTitle>
-          <AlertDescription>
-            Your text scheduled for {fmtDate(sendAt)} may not go out. If
-            verification is not cleared by then, the send is held and you can
-            reschedule.
-          </AlertDescription>
-        </Alert>
-      )}
 
       <Card className="gap-0 overflow-hidden p-0">
         <div className="flex items-center gap-3 px-4 py-4">
