@@ -174,17 +174,12 @@ const styles = StyleSheet.create({
     right: MARGIN,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: px(20),
     borderTopWidth: px(1),
-    borderTopColor: FOREGROUND,
+    borderTopColor: RULE,
   },
-  tagline: {
-    flex: 1,
-    marginLeft: px(8),
-    fontSize: px(12),
-    fontFamily: 'Helvetica-Oblique',
-  },
-  pageNumber: { fontSize: px(12), color: MUTED },
+  tagline: { fontSize: px(12), fontFamily: 'Helvetica-Oblique' },
 })
 
 // Always the form's own options, never a list typed out here. Paper is
@@ -366,8 +361,23 @@ const Header = ({ turfName, payload }: HeaderProps) => (
         Canvasser <Text style={styles.metaValue}>______________________</Text>
       </Text>
       <Text style={styles.meta}>
-        Date <Text style={styles.metaValue}>____________</Text>
+        Date <Text style={styles.metaValue}>____ / ____ / ______</Text>
       </Text>
+      {/* The page counter the handoff asks for, in the row it asks for it in,
+          on the surface that can answer it: `totalPages` is known here because
+          this renderer lays the whole document out before it writes any of it.
+          The printable page prints blanks in this same slot — see
+          `WalkSheet.tsx` for why no browser resolves `counter(pages)`. */}
+      <Text
+        style={styles.meta}
+        render={({
+          pageNumber,
+          totalPages,
+        }: {
+          pageNumber: number
+          totalPages: number
+        }) => `Page ${pageNumber} of ${totalPages}`}
+      />
     </View>
   </View>
 )
@@ -375,22 +385,9 @@ const Header = ({ turfName, payload }: HeaderProps) => (
 const Footer = () => (
   <View style={styles.footer} fixed>
     <GoodPartyLogo height={px(22)} />
+    {/* Logo left, tagline right, and nothing else — the page number lives in the
+        header, where the handoff puts it. */}
     <Text style={styles.tagline}>Empowering people to run, win, and serve</Text>
-    {/* The page counter the handoff asks for, on the surface that can answer it:
-        `totalPages` is known here because this renderer lays the whole document
-        out before it writes any of it. The printable page prints blanks instead
-        — see `WalkSheet.tsx` for why a browser cannot resolve `counter(pages)`
-        outside an `@page` margin box. */}
-    <Text
-      style={styles.pageNumber}
-      render={({
-        pageNumber,
-        totalPages,
-      }: {
-        pageNumber: number
-        totalPages: number
-      }) => `Page ${pageNumber} of ${totalPages}`}
-    />
   </View>
 )
 
