@@ -255,7 +255,7 @@ export class PhoneBankingListService extends createPrismaBase(
         const phone = this.pickDialNumber(person, suppressedPhones)
         if (!phone) continue
 
-        const firstName = person.firstName || null
+        const firstName = person.firstName ?? null
         const existing = grouped.get(phone)
         if (existing) {
           existing.push({ personId: person.id, name, firstName })

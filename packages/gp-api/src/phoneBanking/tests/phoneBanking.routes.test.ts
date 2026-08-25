@@ -245,6 +245,31 @@ describe('phone banking routes', () => {
       expect(res.data).toMatchObject({ entryCount: 1, personCount: 1 })
     })
 
+    it('preserves an empty-string firstName rather than coercing it to null', async () => {
+      mockPeoplePage([
+        fakePerson({
+          id: randomUUID(),
+          firstName: '',
+          lastName: 'Legacy',
+          cellPhone: '3075554446',
+        }),
+      ])
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      const person = await service.prisma.phoneBankingListEntryPerson.findFirst(
+        {
+          where: { entry: { phoneBankingListId: res.data.id } },
+        },
+      )
+      expect(person?.firstName).toBe('')
+    })
+
     it('excludes a not_a_voter (moved/deceased) person from the build', async () => {
       const excludedId = randomUUID()
       await service.prisma.contactCurrentStatus.create({

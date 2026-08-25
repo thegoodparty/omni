@@ -168,6 +168,29 @@ describe('<PhoneBankingEntryPanel>', () => {
     expect(within(dialog).getByText('Jamie')).toHaveClass('font-semibold')
   })
 
+  it('falls back to the first word of `name` when `firstName` is empty or whitespace-only', async () => {
+    const entry = buildEntry({
+      persons: [
+        {
+          personId: 'person-1',
+          name: 'Jordan Multiword',
+          firstName: '   ',
+          age: null,
+          party: null,
+          address: null,
+          cellPhone: '5551110001',
+          landline: null,
+          interaction: null,
+        },
+      ],
+    })
+
+    renderPanel({ entry })
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Jordan')).toHaveClass('font-semibold')
+  })
+
   it('leaves an unrecognized bracket token untouched', async () => {
     renderPanel({ script: 'Hi, remember to mention [event name] today.' })
 

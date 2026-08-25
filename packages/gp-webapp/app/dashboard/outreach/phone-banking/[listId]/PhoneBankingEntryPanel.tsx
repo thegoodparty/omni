@@ -120,9 +120,10 @@ export default function PhoneBankingEntryPanel({
 
   if (!person) return <></>
 
-  // Frozen lists predate `firstName` (ENG-10938) — fall back to the first
-  // word of the frozen `name` for those.
-  const firstName = person.firstName || person.name.split(' ')[0] || ''
+  // Frozen lists predate `firstName` (ENG-10938), and an empty/whitespace
+  // value is treated the same as absent — either way, fall back to the
+  // first word of the frozen `name`.
+  const firstName = person.firstName?.trim() || person.name.split(' ')[0] || ''
   const noLiveEnrichment = hasNoLiveEnrichment(person)
   const householdHasOthersUnlogged = entry.persons.some(
     (candidate) =>
