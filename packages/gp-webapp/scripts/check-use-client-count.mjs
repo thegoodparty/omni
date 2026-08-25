@@ -248,7 +248,17 @@ import { dirname, join, relative } from 'node:path'
 // stay directive-free and inherit the boundary from their importers, the
 // savedListFilters.ts rule: turfLifecycle.ts is a hooks module with no JSX, and
 // TurfLegend.tsx holds no state and binds only handlers it is handed.
-// 2026-08-24: 601 -> 602 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
+// 2026-08-24: 601 -> 603 for the robocall compose step (phase 3):
+// RobocallComposeStep owns the tone pills, AI-draft display, and record-bar
+// interaction, and its useRobocallRecorder hook drives MediaRecorder state and
+// object-URL lifecycle — both hold browser-only state, so both are client.
+// 2026-08-24: 603 -> 604 for useRobocallAudioUpload — the hook that presigns
+// and POSTs the recording to S3 holds upload/error/key state and calls
+// clientRequest, so it can't run on the server.
+// 2026-08-24: merge reconciliation — main's 604 minus this branch's WhoStep.tsx
+// deletion (phone banking's inline audience builder, replaced by the shared
+// v2/audience/ step) = 603.
+// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
 // The door's Notes section owns a compose draft, an in-place editor, three
 // mutations and a dictation session, so it cannot render on the server — the
 // same shape and the same reason as DoNotKnockControl and NotAVoterControl
@@ -256,7 +266,7 @@ import { dirname, join, relative } from 'node:path'
 // native/doorNotes.ts, stays directive-free and inherits the boundary from its
 // importers: it is a hooks-and-pure-functions module with no JSX, the
 // turfLifecycle.ts rule.
-const BASELINE = 602
+const BASELINE = 604
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

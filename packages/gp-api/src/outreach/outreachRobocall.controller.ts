@@ -1,9 +1,9 @@
 import { Body, Controller, Post, UseInterceptors } from '@nestjs/common'
 import {
-  PhoneBankingScriptDraftRequest,
-  PhoneBankingScriptDraftRequestSchema,
-  PhoneBankingScriptDraftResponse,
-  PhoneBankingScriptDraftResponseSchema,
+  RobocallScriptDraftRequest,
+  RobocallScriptDraftRequestSchema,
+  RobocallScriptDraftResponse,
+  RobocallScriptDraftResponseSchema,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
@@ -17,39 +17,39 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, Organization, User } from '../generated/prisma'
-import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
+import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
 const candidateName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
 
-// Stateless, like the social draft endpoint: nothing persists here. The
-// create flow holds the draft client-side and freezes it via the (separate)
-// POST /v1/phone-banking/lists endpoint.
+// Stateless, like the social and phone-banking draft endpoints: nothing
+// persists here. The robocall flow holds the script client-side; the recorded
+// audio (and its compliance verdict) is a separate, later step.
 @Controller('outreach')
 @UseCampaign()
 @UseOrganization()
 @UseInterceptors(ZodResponseInterceptor)
-export class OutreachPhoneBankingController {
+export class OutreachRobocallController {
   constructor(
-    private readonly generationService: OutreachPhoneBankingGenerationService,
+    private readonly generationService: OutreachRobocallGenerationService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
     private readonly logger: PinoLogger,
   ) {
-    this.logger.setContext(OutreachPhoneBankingController.name)
+    this.logger.setContext(OutreachRobocallController.name)
   }
 
-  @Post('phone-banking/draft')
-  @ResponseSchema(PhoneBankingScriptDraftResponseSchema)
+  @Post('robocall/draft')
+  @ResponseSchema(RobocallScriptDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
     @ReqOrganization() organization: Organization,
-    @Body(new ZodValidationPipe(PhoneBankingScriptDraftRequestSchema))
-    input: PhoneBankingScriptDraftRequest,
-  ): Promise<PhoneBankingScriptDraftResponse> {
+    @Body(new ZodValidationPipe(RobocallScriptDraftRequestSchema))
+    input: RobocallScriptDraftRequest,
+  ): Promise<RobocallScriptDraftResponse> {
     await this.contacts.assertProAccess(organization)
 
     // Office is prompt enrichment (see outreachSocial.controller): an
@@ -73,7 +73,6 @@ export class OutreachPhoneBankingController {
         candidateName(user),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
-        campaign,
         await this.composeContext.buildCampaignContext(campaign),
       ),
     }

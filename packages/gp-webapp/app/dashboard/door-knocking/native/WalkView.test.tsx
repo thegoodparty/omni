@@ -1,3 +1,4 @@
+import { ComponentProps, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
@@ -11,6 +12,30 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import WalkView, { stopNumeralColor } from './WalkView'
 import { STATUS_DOT_COLORS, STATUS_RGB } from './statusPresentation'
+
+// The marked stop now lives on the page, because the map rings the same stop
+// the list marks and the canvas can only be handed a prop. This is the
+// orchestrator's half of that — `useWalkMapSession` in production — so the
+// suite can go on asserting the list's own behaviour: the view still decides
+// where the mark goes and reports it, and reads back what it reported.
+const WalkHarness = ({
+  onSelectStop,
+  ...props
+}: Omit<ComponentProps<typeof WalkView>, 'selectedStopId' | 'onSelectStop'> & {
+  onSelectStop?: (stopId: number) => void
+}) => {
+  const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
+  return (
+    <WalkView
+      {...props}
+      selectedStopId={selectedStopId}
+      onSelectStop={(stopId) => {
+        setSelectedStopId(stopId)
+        onSelectStop?.(stopId)
+      }}
+    />
+  )
+}
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -156,7 +181,7 @@ describe('WalkView', () => {
   })
 
   it('renders stops in seq order with totals and the logged counter', async () => {
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
@@ -184,7 +209,7 @@ describe('WalkView', () => {
   // cannot name the same stop three ways — the fixture is served out of order
   // for exactly that reason.
   it('numbers each stop by its route order, on the circle that carries its status', async () => {
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
@@ -207,7 +232,7 @@ describe('WalkView', () => {
   // mark that cleared on close would leave a fifty-row list with nothing saying
   // where in the street the walk had got to.
   it('marks the stop the walk is on, and keeps it marked after the sheet closes', async () => {
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
 
     expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
@@ -221,7 +246,7 @@ describe('WalkView', () => {
   // The offline story: paper is reached from the walk, and the sheet has to
   // open in its own tab so the walk in progress isn't navigated away from.
   it('links out to the printable list for this turf', async () => {
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
 
     const link = await screen.findByRole('link', { name: 'Print list' })
     expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/3')
@@ -236,7 +261,7 @@ describe('WalkView', () => {
       data: { personId: 'person-1', doNotKnock: true },
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
 
     fireEvent.click(screen.getByRole('button', { name: /don.t knock/i }))
@@ -271,7 +296,7 @@ describe('WalkView', () => {
     const unknownChip = () =>
       screen.getByText(/Support unknown/, { selector: 'span' })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     // Dorian is the unreached door of the two; Marisol is already a supporter.
     await waitFor(() =>
       expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
@@ -327,7 +352,7 @@ describe('WalkView', () => {
       data: mixedHousehold,
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('210 Cedar Row')).toBeInTheDocument(),
@@ -358,7 +383,7 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     expect(
       screen.getByText('May have moved since this route was built.'),
@@ -403,7 +428,7 @@ describe('WalkView', () => {
       data: { personId: 'person-1', knockStatus: 'not_home' },
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     answerQuestion('Did they answer?', 'Not home')
     fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
@@ -427,7 +452,7 @@ describe('WalkView', () => {
   it('does not report a door the server refused', async () => {
     api.mock('POST /v1/door-knocking/interactions', { status: 500, data: {} })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
@@ -454,7 +479,7 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(1))
@@ -478,7 +503,7 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(1))
@@ -500,7 +525,7 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     // Walk the engaged branch, then back out to Not home — the answers picked
     // inside it must not leak onto an outcome the contract rejects them for.
@@ -633,7 +658,7 @@ describe('WalkView not-a-voter reason', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotAVoter()
 
@@ -657,7 +682,7 @@ describe('WalkView not-a-voter reason', () => {
   it('holds the sheet on the logged door so the follow-up can be answered', async () => {
     logNotAVoter()
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotAVoter()
 
@@ -674,7 +699,7 @@ describe('WalkView not-a-voter reason', () => {
   it('marks the resident and withholds the form once a reason is given', async () => {
     mockLiveRoute()
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
@@ -697,7 +722,7 @@ describe('WalkView not-a-voter reason', () => {
   it('drops a flagged resident out of the progress counts', async () => {
     mockLiveRoute()
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await waitFor(() =>
       expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
     )
@@ -741,7 +766,7 @@ describe('WalkView not-a-voter reason', () => {
       data: { personId: 'person-1' },
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
@@ -794,7 +819,7 @@ describe('WalkView not-a-voter reason', () => {
       },
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('210 Cedar Row')).toBeInTheDocument(),
@@ -840,7 +865,7 @@ describe('WalkView not-a-voter reason', () => {
     })
     logNotAVoter()
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
@@ -870,7 +895,7 @@ describe('WalkView not-a-voter reason', () => {
   it('asks for the fresh feed once the follow-up is answered', async () => {
     const serves = mockLiveRoute()
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
@@ -895,7 +920,7 @@ describe('WalkView not-a-voter reason', () => {
   it('asks for the fresh feed when the question is closed unanswered', async () => {
     const serves = mockLiveRoute()
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
@@ -926,7 +951,7 @@ describe('WalkView not-a-voter reason', () => {
       data: { personId: 'person-1', knockStatus: 'not_home' },
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
     // Nothing unlogged ahead, so this closes the sheet without going through
@@ -1028,7 +1053,7 @@ describe('WalkView auto-advance', () => {
     ])
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
@@ -1051,7 +1076,7 @@ describe('WalkView auto-advance', () => {
     ])
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
 
@@ -1074,7 +1099,7 @@ describe('WalkView auto-advance', () => {
     ])
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
@@ -1097,7 +1122,7 @@ describe('WalkView auto-advance', () => {
     ])
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
@@ -1120,7 +1145,7 @@ describe('WalkView auto-advance', () => {
     ])
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
@@ -1143,7 +1168,7 @@ describe('WalkView auto-advance', () => {
     ])
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     // A multi-resident stop expands instead of opening, so the resident is
     // picked from the expansion.
     await waitFor(() =>
@@ -1192,7 +1217,7 @@ describe('WalkView auto-advance', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
@@ -1241,7 +1266,7 @@ describe('WalkView auto-advance', () => {
     mockRoute([stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])])
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
@@ -1289,7 +1314,7 @@ describe('WalkView auto-advance', () => {
     })
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     expect(
       screen.getByText('No previous outreach to this resident.'),
@@ -1324,7 +1349,7 @@ describe('WalkView auto-advance', () => {
     })
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
     await waitFor(() =>
@@ -1352,7 +1377,7 @@ describe('WalkView auto-advance', () => {
     })
     logNotHome('person-21')
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
@@ -1405,7 +1430,7 @@ describe('WalkView auto-advance', () => {
       },
     }))
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
     await waitFor(() =>
@@ -1471,7 +1496,7 @@ describe('WalkView auto-advance', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
@@ -1522,7 +1547,7 @@ describe('WalkView auto-advance', () => {
       }
     })
 
-    render(<WalkView turfId={3} />)
+    render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
     await waitFor(() =>
@@ -1647,11 +1672,11 @@ describe('WalkView map pin taps', () => {
     request: { stopId: number; token: number },
   ) => {
     mockRoute(stops)
-    const { rerender } = render(<WalkView turfId={3} />)
+    const { rerender } = render(<WalkHarness turfId={3} />)
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
-    rerender(<WalkView turfId={3} openStopRequest={request} />)
+    rerender(<WalkHarness turfId={3} openStopRequest={request} />)
     return rerender
   }
 
@@ -1764,7 +1789,9 @@ describe('WalkView map pin taps', () => {
     )
     await closePersonSheet()
 
-    rerender(<WalkView turfId={3} openStopRequest={{ stopId: 11, token: 2 }} />)
+    rerender(
+      <WalkHarness turfId={3} openStopRequest={{ stopId: 11, token: 2 }} />,
+    )
 
     await waitFor(() =>
       expect(screen.getByText('Log this door')).toBeInTheDocument(),

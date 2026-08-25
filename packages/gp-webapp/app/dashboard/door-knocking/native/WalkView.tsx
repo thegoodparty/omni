@@ -65,12 +65,21 @@ interface WalkViewProps {
   // state — and `token` is what makes tapping the same pin again reopen the
   // sheet that was just closed.
   openStopRequest?: { stopId: number; token: number } | null
+  // The marked stop, held by the page because the map draws it too (see
+  // `useWalkMapSession`). This view is still what decides where the mark goes —
+  // it reports every stop it opens through `onSelectStop` — but it reads the
+  // value back rather than keeping a second copy, so the ringed pin and the
+  // marked row are one fact and cannot drift.
+  selectedStopId: number | null
+  onSelectStop: (stopId: number) => void
 }
 
 export default function WalkView({
   turfId,
   onKnockRecorded,
   openStopRequest,
+  selectedStopId,
+  onSelectStop,
 }: WalkViewProps) {
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
@@ -120,13 +129,6 @@ export default function WalkView({
     notAVoterReason: NotAVoterReason | undefined,
   ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
-  // Which stop the canvasser is on, shared by the list and the map: a pin tap
-  // and a row tap set the same value, so the numbered row and the numbered pin
-  // are two views of one selection rather than two places to keep your place.
-  // It survives closing the sheet — the door just worked is the one worth
-  // keeping marked — and auto-advance moves it, so the highlighted row is
-  // always the door the sheet is offering.
-  const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
   const stopRowRefs = useRef(new Map<number, HTMLLIElement | null>())
   const [sheet, setSheet] = useState<{
     stopId: number
@@ -198,7 +200,11 @@ export default function WalkView({
       return next
     })
     setSheet({ stopId, targetId })
-    setSelectedStopId(stopId)
+    // The one place the mark moves. A row tap, a pin tap and auto-advance all
+    // arrive here, so the marked stop is always the door the sheet is
+    // offering rather than a history of taps — and the map is ringing the same
+    // stop for the same reason, off the same report.
+    onSelectStop(stopId)
     refreshFeedFor(targetId)
   }
   const clientKeyFor = (targetId: number): string =>
@@ -459,7 +465,7 @@ export default function WalkView({
                         : 'hover:bg-muted/50',
                     )}
                     onClick={() => {
-                      setSelectedStopId(stop.id)
+                      onSelectStop(stop.id)
                       // One resident: straight to their sheet. Several:
                       // expand so the canvasser picks (the demo's behavior).
                       const stopTargets = targetsForStop(stop)
@@ -483,7 +489,9 @@ export default function WalkView({
                         numbering is for; an index would drift from `seq` the
                         moment anything but the whole route is listed. Selection
                         is a ring rather than a fill, so it cannot take the
-                        status color's place. */}
+                        status color's place — and the map's own pin is ringed
+                        the same way, off the same `selectedStopId`, so the two
+                        marks are one fact drawn twice. */}
                     <span
                       className={cn(
                         'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',

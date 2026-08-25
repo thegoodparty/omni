@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { DoorKnockingTurf } from '@goodparty_org/contracts'
+import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -79,14 +79,16 @@ vi.mock('./VoterMapCanvas', () => ({
     filterResult,
     turfs,
     routePins,
+    selectedStopId,
     initialZoom,
     onPolygonChange,
     onDrawPointCount,
     onRoutePinClick,
   }: {
     filterResult: { people: number }
-    turfs: unknown[]
-    routePins: Array<{ stopId: number }>
+    turfs: Array<{ id: number; archivedAt: Date | null }>
+    routePins: Array<{ stopId: number; seq: number }>
+    selectedStopId: number | null
     initialZoom?: number
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
@@ -98,6 +100,20 @@ vi.mock('./VoterMapCanvas', () => ({
       // How many outlines the map was handed, which is what a per-list hide
       // changes — the dots are the pack's and are unaffected.
       data-turfs={String(turfs.length)}
+      // Whether an archived list is still among them. Dimming happens inside
+      // the canvas off `archivedAt`; what the page owes it is the row.
+      data-archived-turfs={turfs
+        .filter((entry) => entry.archivedAt !== null)
+        .map((entry) => entry.id)
+        .join(',')}
+      // The stop the map is ringing. The walk list marks the same one, so this
+      // is the value that has to agree with the row carrying `aria-current`.
+      data-selected-stop={String(selectedStopId)}
+      // The numeral the ringed pin draws — `seq`, the frozen route order, which
+      // is also what the marked row prints.
+      data-selected-seq={String(
+        routePins.find((pin) => pin.stopId === selectedStopId)?.seq ?? null,
+      )}
       data-initial-zoom={String(initialZoom)}
     >
       <button
@@ -230,6 +246,92 @@ const selectTurf = async () => {
   await waitFor(() =>
     expect(screen.getByText(/voters in this list/)).toBeInTheDocument(),
   )
+}
+
+// One stop, one resident. `seq` is the frozen route order — served here in
+// order, since the walk sorts by it either way and these tests are about the
+// two surfaces naming the same stop with the same numeral.
+const walkStop = (
+  id: number,
+  seq: number,
+  displayAddress: string,
+  name: string,
+  knockStatus: DoorKnockStatus = 'unknown',
+) => ({
+  id,
+  seq,
+  lat: 36.16,
+  lng: -86.78,
+  displayAddress,
+  legSeconds: 0,
+  legMeters: 0,
+  addresses: [
+    {
+      addressKey: `${id}|elm|st`,
+      address: displayAddress,
+      otherResidents: [],
+      targets: [
+        {
+          stopTargetId: id + 10,
+          personId: `person-${id}`,
+          name,
+          age: 40,
+          politicalParty: null,
+          cellPhone: null,
+          landline: null,
+          knockStatus,
+          mayHaveMoved: false,
+          doNotKnock: false,
+        },
+      ],
+    },
+  ],
+})
+
+const routePayloadOf = (stops: ReturnType<typeof walkStop>[]) => ({
+  route: {
+    id: 5,
+    doorKnockingTurfId: 1,
+    mode: 'walk' as const,
+    loop: false,
+    totalSeconds: 600,
+    totalMeters: 800,
+    stopCount: stops.length,
+    createdAt: new Date('2026-07-21T00:00:00Z'),
+  },
+  pathGeometry: null,
+  stops,
+})
+
+// Into a walk on the one saved list, which is locked and so goes straight into
+// its frozen route with no confirm dialog.
+const startWalk = async (
+  stops = [
+    walkStop(11, 1, '105 Elm St', 'Dorian Fen'),
+    walkStop(12, 2, '210 Cedar Row', 'Marisol Vega'),
+  ],
+) => {
+  api.mock('GET /v1/door-knocking/turfs', {
+    status: 200,
+    data: [{ ...turf, locked: true }],
+  })
+  api.mock('GET /v1/voters/voter-file/filters', {
+    status: 200,
+    data: [{ id: 7 }],
+  })
+  api.mock('GET /v1/door-knocking/turfs/:id/route', {
+    status: 200,
+    data: routePayloadOf(stops),
+  })
+  render(
+    <NativeDoorKnockingPage
+      pathname="/dashboard/door-knocking"
+      campaign={null}
+    />,
+  )
+  await screen.findByText('Elm St & 5th')
+  fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
+  return screen.findByRole('button', { name: 'tap pin 11' })
 }
 
 describe('NativeDoorKnockingPage landing rail', () => {
@@ -587,6 +689,54 @@ describe('NativeDoorKnockingPage list visibility', () => {
       />,
     )
   }
+
+  // The eye and the archive are two different answers and must not fight. The
+  // eye REMOVES a ring from the map — that is this filter — while archiving
+  // only quiets one, which the canvas does off `archivedAt` on the row it is
+  // still handed. So an archived list is still drawn (a ring that vanished on
+  // archive would leave the shelf looking exactly like a delete), and hiding
+  // one still hides it: the strength is only ever applied to what is drawn.
+  it('keeps handing the map an archived list, and still drops it when hidden', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf,
+        {
+          ...second,
+          locked: true,
+          completedAt: new Date('2026-08-20T00:00:00Z'),
+          archivedAt: new Date('2026-08-22T00:00:00Z'),
+        },
+      ],
+    })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 7 }, { id: 8 }],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText('Riverside loop')
+
+    const map = screen.getByTestId('voter-map')
+    expect(map).toHaveAttribute('data-turfs', '2')
+    expect(map).toHaveAttribute('data-archived-turfs', '2')
+
+    // The archived row keeps its eye, which is the only way to get an archived
+    // outline off the map entirely.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Hide Riverside loop on the map' }),
+    )
+
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-turfs', '1')
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-archived-turfs',
+      '',
+    )
+  })
 
   // The create flow unmounts the rail, and with it the eye toggle that is the
   // only disclosure a ring is hidden. Coming back to a quieted outline nobody
@@ -1039,77 +1189,6 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
 // them, so a pin has to be a way into that door's log — and something on screen
 // has to say so.
 describe('NativeDoorKnockingPage walk map', () => {
-  const routePayload = {
-    route: {
-      id: 5,
-      doorKnockingTurfId: 1,
-      mode: 'walk' as const,
-      loop: false,
-      totalSeconds: 600,
-      totalMeters: 800,
-      stopCount: 1,
-      createdAt: new Date('2026-07-21T00:00:00Z'),
-    },
-    pathGeometry: null,
-    stops: [
-      {
-        id: 11,
-        seq: 1,
-        lat: 36.16,
-        lng: -86.78,
-        displayAddress: '105 Elm St',
-        legSeconds: 0,
-        legMeters: 0,
-        addresses: [
-          {
-            addressKey: '105|elm|st',
-            address: '105 Elm St',
-            otherResidents: [],
-            targets: [
-              {
-                stopTargetId: 21,
-                personId: 'person-21',
-                name: 'Dorian Fen',
-                age: 40,
-                politicalParty: null,
-                cellPhone: null,
-                landline: null,
-                knockStatus: 'unknown' as const,
-                mayHaveMoved: false,
-                doNotKnock: false,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  }
-
-  const startWalk = async () => {
-    api.mock('GET /v1/door-knocking/turfs', {
-      status: 200,
-      data: [{ ...turf, locked: true }],
-    })
-    api.mock('GET /v1/voters/voter-file/filters', {
-      status: 200,
-      data: [{ id: 7 }],
-    })
-    api.mock('GET /v1/door-knocking/turfs/:id/route', {
-      status: 200,
-      data: routePayload,
-    })
-    render(
-      <NativeDoorKnockingPage
-        pathname="/dashboard/door-knocking"
-        campaign={null}
-      />,
-    )
-    await screen.findByText('Elm St & 5th')
-    // A locked list goes straight into its saved route.
-    fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
-    return screen.findByRole('button', { name: 'tap pin 11' })
-  }
-
   beforeEach(() => {
     testQueryClient.clear()
   })
@@ -1125,6 +1204,76 @@ describe('NativeDoorKnockingPage walk map', () => {
     expect(
       screen.getByRole('heading', { name: 'Dorian Fen' }),
     ).toBeInTheDocument()
+  })
+
+  // The list has marked the stop the walk is on since #1392; the map drew
+  // nothing for it, because a mark on the canvas needs a prop on a canvas all
+  // three modes share. Both halves now read one `selectedStopId`, so a row tap
+  // rings a pin and a pin tap marks a row — and the numeral is `seq` on both,
+  // never a DOM index, which is what makes "the pin under my thumb" findable
+  // in a fifty-row list.
+  it('marks one stop on the list and on the map, whichever half was tapped', async () => {
+    await startWalk()
+
+    // A pin tap: the map's own gesture, and the list has to follow it.
+    fireEvent.click(screen.getByRole('button', { name: 'tap pin 12' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-selected-stop',
+        '12',
+      ),
+    )
+    const marked = () =>
+      screen
+        .getAllByRole('listitem')
+        .map((item) => item.querySelector('button'))
+        .filter((row) => row?.getAttribute('aria-current') === 'true')
+    expect(marked()).toHaveLength(1)
+    expect(marked()[0]).toHaveTextContent('Stop 2')
+    // The same numeral on both halves: the pin's is `seq` off the route, the
+    // row's is `seq` off the same payload.
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-selected-seq',
+      '2',
+    )
+
+    // A row tap: the list's own gesture, and the map has to follow that one.
+    fireEvent.click(
+      screen
+        .getAllByRole('listitem')[0]
+        ?.querySelector('button') as HTMLElement,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-selected-stop',
+        '11',
+      ),
+    )
+    expect(marked()).toHaveLength(1)
+    expect(marked()[0]).toHaveTextContent('Stop 1')
+  })
+
+  // Every walk opens on a route the canvasser has not seen, so the mark cannot
+  // survive the way out — a pin ringed from last night's walk would be the
+  // stranding rule broken on the surface it matters most.
+  it('leaves no stop marked on the way back from a walk', async () => {
+    await startWalk()
+    fireEvent.click(screen.getByRole('button', { name: 'tap pin 12' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-selected-stop',
+        '12',
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-selected-stop',
+      'null',
+    )
   })
 
   // The gesture was undiscoverable even once it worked: nothing on the walk
@@ -1147,5 +1296,96 @@ describe('NativeDoorKnockingPage walk map', () => {
     await screen.findByText(/voters in your district with a mapped address/)
 
     expect(screen.queryByText('Tap a pin to log the door.')).toBeNull()
+  })
+})
+
+// `endWalk` is the orchestrator's, which is why the list's own Done control
+// could be wired on the card in #1395 and this could not. What it must NOT be
+// is unconditional: leaving is the only way out of a walk, and Done takes the
+// Knock control off the card, so stamping every exit would tell a canvasser who
+// stopped after three doors that their list was finished.
+describe('NativeDoorKnockingPage end of walk', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  const trackComplete = () => {
+    const completed: string[] = []
+    api.mock('POST /v1/door-knocking/turfs/:id/complete', ({ params }) => {
+      completed.push(params.id)
+      return {
+        status: 200,
+        data: {
+          ...turf,
+          locked: true,
+          completedAt: new Date('2026-08-24T00:00:00Z'),
+        },
+      }
+    })
+    return completed
+  }
+
+  it('marks the list done when the walk left nothing to knock', async () => {
+    const completed = trackComplete()
+    await startWalk([
+      walkStop(11, 1, '105 Elm St', 'Dorian Fen', 'not_home'),
+      walkStop(12, 2, '210 Cedar Row', 'Marisol Vega', 'supporter'),
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    // `not_home` counts: the quantity is doors with an answer written down, the
+    // same one the walk's own progress bar reads.
+    await waitFor(() => expect(completed).toEqual(['1']))
+  })
+
+  it('leaves a half-walked list alone on the way out', async () => {
+    const completed = trackComplete()
+    await startWalk([
+      walkStop(11, 1, '105 Elm St', 'Dorian Fen', 'not_home'),
+      walkStop(12, 2, '210 Cedar Row', 'Marisol Vega'),
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create list' })).toBeVisible(),
+    )
+    expect(completed).toEqual([])
+    // And the way back in is still on the card, which is the whole point.
+    expect(await screen.findByRole('button', { name: 'Knock' })).toBeVisible()
+  })
+
+  // A serve that never landed reports no stops, which is indistinguishable from
+  // a list with nobody in it — and Done is the one rail action with no undo
+  // beside it, so it is never stamped off a fetch that failed.
+  it('does not mark a list done off a route that failed to load', async () => {
+    const completed = trackComplete()
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [{ ...turf, locked: true }],
+    })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText('Elm St & 5th')
+    fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Back to the map' }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create list' })).toBeVisible(),
+    )
+    expect(completed).toEqual([])
   })
 })

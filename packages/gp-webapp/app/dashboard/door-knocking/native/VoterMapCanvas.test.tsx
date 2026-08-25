@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
-import type { DoorKnockingPackManifest } from '@goodparty_org/contracts'
+import type {
+  DoorKnockingPackManifest,
+  DoorKnockingTurf,
+} from '@goodparty_org/contracts'
 import VoterMapCanvas, {
   ringInsertIndex,
   type PolygonRing,
@@ -22,12 +25,13 @@ interface MockLayerProps {
   data: unknown
   pickable?: boolean
   radiusMinPixels?: number
-  // Accessors the pin layers derive per pin, so a test can ask what a given
-  // pin would actually be drawn as.
-  getFillColor?: (pin: RoutePin) => number[]
-  getLineColor?: (pin: RoutePin) => number[]
-  getLineWidth?: (pin: RoutePin) => number
-  getColor?: (pin: RoutePin) => number[]
+  // Accessors the layers derive per row, so a test can ask what a given pin or
+  // a given saved list would actually be drawn as. `unknown` because the mock
+  // stands in for every layer on the canvas and each one has its own datum.
+  getFillColor?: (datum: unknown) => number[]
+  getLineColor?: (datum: unknown) => number[]
+  getLineWidth?: (datum: unknown) => number
+  getColor?: (datum: unknown) => number[]
 }
 
 interface PickParams {
@@ -136,6 +140,34 @@ const filterResult: FilterResult = {
   statusPerDot: new Uint8Array([0, 0]),
 }
 
+// A saved list as the rail hands it over. Only the ring, the colour and the
+// archive stamp matter to the canvas; the rest is the row's own shape.
+const turfFixture: DoorKnockingTurf = {
+  id: 1,
+  voterFileFilterId: 7,
+  name: 'Elm St & 5th',
+  color: '#2563eb',
+  geoPoly: {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [-87.66, 41.92],
+        [-87.65, 41.92],
+        [-87.65, 41.93],
+        [-87.66, 41.92],
+      ],
+    ],
+  },
+  locked: true,
+  doorCount: null,
+  peopleCount: null,
+  loggedCount: null,
+  completedAt: null,
+  archivedAt: null,
+  createdAt: new Date('2026-07-21T00:00:00Z'),
+  updatedAt: new Date('2026-07-21T00:00:00Z'),
+}
+
 const POINTS: PolygonRing = [
   [-87.66, 41.92],
   [-87.65, 41.92],
@@ -202,6 +234,7 @@ describe('VoterMapCanvas drawing', () => {
     filterResult,
     turfs: [],
     routePins: [],
+    selectedStopId: null,
     routeLoop: false,
     routeGeometry: null,
     focusTurf: null,
@@ -560,6 +593,102 @@ describe('VoterMapCanvas drawing', () => {
     const numbers = layer('route-pin-numbers')
     expect(numbers?.getColor?.(knockable)).toEqual([255, 255, 255, 255])
     expect(numbers?.getColor?.(flagged)).toEqual([...status, 255])
+  })
+
+  // The list has always marked the stop the walk is on; the map drew nothing
+  // for it, so the two surfaces described the same street in two vocabularies.
+  // The ring goes OUTSIDE the pin because the pin's own fill and stroke are
+  // already saying which status it is and whether anyone there is knockable.
+  it('rings the marked stop without taking a channel off its pin', () => {
+    const marked: RoutePin = {
+      stopId: 11,
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'unknown',
+      knockable: true,
+    }
+    const other: RoutePin = { ...marked, stopId: 12, seq: 2 }
+
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[marked, other]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    // Nothing marked: the halo layer exists but has nothing in it, so the walk
+    // map opens with no claim about where the canvasser is.
+    expect(layerData('route-pin-selection')).toEqual([])
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[marked, other]}
+        selectedStopId={11}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // Matched on the stop's identity, not on the numeral both surfaces draw.
+    expect(layerData('route-pin-selection')).toEqual([marked])
+    const halo = layer('route-pin-selection')
+    // Outside the pin, so the status fill and the hollow-pin ring survive it.
+    expect(halo?.radiusMinPixels ?? 0).toBeGreaterThan(
+      layer('route-pins')?.radiusMinPixels ?? 0,
+    )
+    // A mark and not a control: the tap has to reach the pin underneath, which
+    // is the thing that opens the door.
+    expect(halo?.pickable).toBe(false)
+    expect(layer('route-pins')?.getFillColor?.(marked)).toEqual([
+      ...STATUS_RGB.unknown,
+      235,
+    ])
+  })
+
+  // Archiving is a rail decision about which lists a candidate is working
+  // through, so the outline stays — quiet, in its own colour, because that
+  // colour is what ties a ring to the card that names it.
+  it('draws an archived list’s ring at a fraction of its own strength', () => {
+    const active = {
+      ...turfFixture,
+      id: 1,
+      color: '#2563eb',
+      archivedAt: null,
+    }
+    const archived = {
+      ...turfFixture,
+      id: 2,
+      color: '#2563eb',
+      archivedAt: new Date('2026-08-20T00:00:00Z'),
+    }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        turfs={[active, archived]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const turfLayer = layer('saved-turfs')
+    const activeLine = turfLayer?.getLineColor?.(active) ?? []
+    const archivedLine = turfLayer?.getLineColor?.(archived) ?? []
+    // Same hue, less of it — a recoloured ring would stop matching the card.
+    expect(archivedLine.slice(0, 3)).toEqual(activeLine.slice(0, 3))
+    expect(archivedLine[3]).toBeLessThan(activeLine[3] ?? 0)
+    // Still drawn: the shelf is not a delete, and on the map that is the only
+    // thing telling the two apart.
+    expect(archivedLine[3]).toBeGreaterThan(0)
+    expect(turfLayer?.getFillColor?.(archived)?.[3] ?? 0).toBeLessThan(
+      turfLayer?.getFillColor?.(active)?.[3] ?? 0,
+    )
   })
 
   // A canvasser standing in front of a house taps its pin — that was inert,

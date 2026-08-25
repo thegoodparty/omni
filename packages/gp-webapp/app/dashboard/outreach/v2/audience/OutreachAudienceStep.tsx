@@ -56,6 +56,8 @@ interface OutreachAudienceStepProps {
   // server-side, in which case we show "couldn't count" rather than zero.
   reachableCount: number | null
   reachableLoading: boolean
+  // 0 for a free channel (phone banking) — the cost line and the per-contact
+  // rate are omitted entirely rather than rendering "for $0.00".
   pricePerContact: number
   // In-flow list builder (the CRM wizard's dumb steps re-hosted here).
   builderFilters: VoterFileFilters
@@ -175,8 +177,9 @@ export const OutreachAudienceStep = ({
                     ) : reachableCount !== null ? (
                       <>
                         {copy.reachVerb} {reachableCount.toLocaleString()}{' '}
-                        {copy.reachNoun} for $
-                        {money(reachableCount * pricePerContact)}
+                        {copy.reachNoun}
+                        {pricePerContact > 0 &&
+                          ` for $${money(reachableCount * pricePerContact)}`}
                       </>
                     ) : (
                       "We couldn't count this list right now."
@@ -258,9 +261,11 @@ export const OutreachAudienceStep = ({
           </span>
         </p>
       </div>
-      <p className="text-sm text-muted-foreground">
-        {copy.unitCostLabel} ${pricePerContact.toFixed(3)}
-      </p>
+      {pricePerContact > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {copy.unitCostLabel} ${pricePerContact.toFixed(3)}
+        </p>
+      )}
     </div>
   )
 }
