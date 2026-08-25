@@ -2,11 +2,14 @@
 
 import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { useMutation } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
+  OutreachReceipt,
   PhoneBankCallOutcome,
   SupportAnswer,
 } from '@goodparty_org/contracts'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +49,7 @@ import {
   FileTextIcon,
   Loader2Icon,
   PhoneIcon,
+  ReceiptIcon,
   Share2Icon,
   Trash2Icon,
   UsersRoundIcon,
@@ -53,12 +57,22 @@ import {
 } from '@styleguide/components/ui/icons'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
-import type { VoterFileFilters } from 'helpers/types'
+import type { TcrCompliance, VoterFileFilters } from 'helpers/types'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
-import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
+import {
+  ELECTION_FILING_PATH,
+  SUBMIT_PIN_PATH,
+} from 'app/dashboard/shared/ComplianceModal'
+import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  ChannelBadge,
+  HistoryStatusText,
+  WILL_NOT_SEND_LABEL,
+  getChannelLabel,
+} from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
@@ -95,6 +109,9 @@ const percentLabel = (count: number, total: number): string =>
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
+  // CampaignVerify clearance state: while pending, scheduled SMS rows show
+  // "Will not send" and the footer offers Delete + Start verification.
+  tcrCompliance?: TcrCompliance
 }
 
 // min-w-0 belongs on the card as well as the inner text span: `grid-cols-2`
@@ -153,7 +170,9 @@ interface DetailRow extends HistoryRow {
 export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
+  tcrCompliance,
 }: OutreachDetailsDrawerProps) => {
+  const router = useRouter()
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
   const detailQuery = useOutreachDetail(row?.id ?? null, row !== null)
@@ -191,6 +210,44 @@ export const OutreachDetailsDrawer = ({
       row?.outreachType === OUTREACH_TYPES.p2p) &&
     row?.status === 'pending' &&
     row?.phoneListId != null
+  // A scheduled SMS row while CampaignVerify clearance pends: the carriers
+  // will hold the send, so the drawer flags it and swaps the footer to
+  // Delete + Start verification.
+  const notCleared =
+    tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
+  const isPendingVerificationSms = isCancelableSms && notCleared
+
+  // ComplianceModal's status-aware target: SUBMITTED waits on the
+  // CampaignVerify PIN; anything else enters at the election-filing form.
+  const startVerification = () => {
+    router.push(
+      tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
+        ? SUBMIT_PIN_PATH
+        : ELECTION_FILING_PATH,
+    )
+    onOpenChange(false)
+  }
+
+  // Only rows created through the paid P2P flow ever record a checkout
+  // session; the endpoint 404s the rest (free-texts, legacy), which simply
+  // leaves the link unrendered.
+  const receiptQuery = useQuery({
+    queryKey: ['outreach-receipt', row?.id ?? -1],
+    queryFn: async (): Promise<OutreachReceipt> => {
+      const { data } = await clientRequest('GET /v1/outreach/:id/receipt', {
+        id: String(row?.id),
+      })
+      return data
+    },
+    enabled:
+      row !== null &&
+      (row.outreachType === OUTREACH_TYPES.text ||
+        row.outreachType === OUTREACH_TYPES.p2p) &&
+      row.phoneListId != null,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+  const receiptUrl = receiptQuery.data?.receiptUrl ?? null
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const cancelMutation = useMutation({
     mutationFn: () => {
@@ -263,6 +320,11 @@ export const OutreachDetailsDrawer = ({
       : statusLabel === 'Done'
         ? 'Sent'
         : null
+  // The pill next to the title swaps to the warning label; the byline keeps
+  // "Scheduled for {date}" — the send date itself is unchanged.
+  const displayStatusLabel = isPendingVerificationSms
+    ? WILL_NOT_SEND_LABEL
+    : statusLabel
 
   return (
     <Drawer open={row !== null} onOpenChange={onOpenChange} direction="bottom">
@@ -289,7 +351,7 @@ export const OutreachDetailsDrawer = ({
                     <h2 className="text-[22px] font-semibold text-foreground">
                       {row.name || row.title || 'Untitled campaign'}
                     </h2>
-                    <HistoryStatusText label={statusLabel} />
+                    <HistoryStatusText label={displayStatusLabel} />
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <ChannelBadge type={row.outreachType} />
@@ -381,6 +443,19 @@ export const OutreachDetailsDrawer = ({
                       />
                     )}
                   </div>
+                  {receiptUrl && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto px-0"
+                      onClick={() => {
+                        window.open(receiptUrl, '_blank', 'noopener')
+                      }}
+                    >
+                      <ReceiptIcon className="size-4" />
+                      View receipt
+                    </Button>
+                  )}
                 </section>
 
                 {isSocial && detailQuery.isLoading && (
@@ -560,7 +635,27 @@ export const OutreachDetailsDrawer = ({
               </DrawerFooter>
             )}
 
-            {isCancelableSms && (
+            {isPendingVerificationSms ? (
+              // Held-by-carriers rows: Delete rides the shipped cancel
+              // machinery (same confirm, same endpoint — refund included);
+              // the primary action is unblocking the send.
+              <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
+                <div className="mx-auto flex w-full max-w-[608px] gap-3">
+                  <Button
+                    variant="ghost"
+                    className="shrink-0 text-destructive hover:bg-destructive/10"
+                    disabled={cancelMutation.isPending}
+                    onClick={() => setCancelConfirmOpen(true)}
+                  >
+                    <Trash2Icon className="size-4" />
+                    Delete
+                  </Button>
+                  <Button className="flex-1" onClick={startVerification}>
+                    Start verification
+                  </Button>
+                </div>
+              </DrawerFooter>
+            ) : isCancelableSms ? (
               <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
                 <div className="mx-auto flex w-full max-w-[608px]">
                   <Button
@@ -574,7 +669,7 @@ export const OutreachDetailsDrawer = ({
                   </Button>
                 </div>
               </DrawerFooter>
-            )}
+            ) : null}
 
             {/* Archive applies to every completed row (the history's
                 Archive toggle filters all types); Delete stays

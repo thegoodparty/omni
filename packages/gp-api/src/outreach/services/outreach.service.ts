@@ -4,7 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+import {
+  OutreachReceipt,
+  P2P_SCRIPT_MAX_LENGTH,
+} from '@goodparty_org/contracts'
 import {
   Campaign,
   Outreach,
@@ -666,6 +669,56 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       data: { status: OutreachStatus.canceled },
     })
     return { outreach: updated, refunded }
+  }
+
+  /**
+   * Live receipt read for a paid campaign. No local payment snapshot
+   * exists — the row only stores the checkout session id — so the card and
+   * receipt URL come from Stripe on every read. Free-texts rows never
+   * record a session, so they 404 here; a Stripe failure is a 502, never
+   * an empty receipt.
+   */
+  async getOutreachReceipt(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<OutreachReceipt> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach?.stripeCheckoutSessionId) {
+      throw new NotFoundException('No receipt for this outreach')
+    }
+    let session: Awaited<
+      ReturnType<StripeService['retrieveCheckoutSessionWithCharge']>
+    >
+    try {
+      session = await this.stripeService.retrieveCheckoutSessionWithCharge(
+        outreach.stripeCheckoutSessionId,
+      )
+    } catch (error) {
+      this.logger.error(
+        { err: error },
+        `Receipt read failed for outreach ${outreachId}`,
+      )
+      throw new BadGatewayException('Could not load the receipt from Stripe')
+    }
+    const paymentIntent =
+      typeof session.payment_intent === 'object' ? session.payment_intent : null
+    const charge =
+      paymentIntent && typeof paymentIntent.latest_charge === 'object'
+        ? paymentIntent.latest_charge
+        : null
+    const card = charge?.payment_method_details?.card
+    return {
+      // DOLLARS, matching the checkout-session endpoint convention.
+      amount: (session.amount_total ?? 0) / 100,
+      cardBrand: card?.brand ?? null,
+      cardLast4: card?.last4 ?? null,
+      receiptUrl: charge?.receipt_url ?? null,
+      paidAt: charge?.created
+        ? new Date(charge.created * 1000).toISOString()
+        : null,
+    }
   }
 
   async findByCampaignId(campaignId: number) {

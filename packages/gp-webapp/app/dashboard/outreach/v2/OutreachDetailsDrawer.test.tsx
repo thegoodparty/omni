@@ -405,8 +405,19 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     status: 'pending' as const,
     phoneListId: 9,
   }
+  // Cleared compliance keeps the shipped Cancel campaign footer; omitting it
+  // reads as verification-pending and swaps to Delete + Start verification.
+  const verifiedCompliance = {
+    peerlyCvStatus: 'VERIFIED',
+  } as React.ComponentProps<typeof OutreachDetailsDrawer>['tcrCompliance']
+  const mockNoReceipt = () =>
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
 
   it('confirms, cancels, updates the row, and notes the refund', async () => {
+    mockNoReceipt()
     const successSnackbar = vi.fn()
     vi.mocked(useSnackbar).mockReturnValue({
       displaySnackbar: vi.fn(),
@@ -431,6 +442,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       <OutreachDetailsDrawer
         row={scheduledSmsRow}
         onOpenChange={onOpenChange}
+        tcrCompliance={verifiedCompliance}
       />,
     )
 
@@ -455,6 +467,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
   })
 
   it('offers no cancel action on a completed row', async () => {
+    mockNoReceipt()
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: { ...smsDetail, status: 'completed' },
@@ -463,6 +476,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       <OutreachDetailsDrawer
         row={{ ...scheduledSmsRow, status: 'completed' }}
         onOpenChange={vi.fn()}
+        tcrCompliance={verifiedCompliance}
       />,
     )
     expect(
@@ -471,5 +485,100 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(
       screen.queryByRole('button', { name: 'Cancel campaign' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('flags a scheduled SMS row as Will not send while verification pends, with Delete + Start verification', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    let cancelParams: unknown
+    api.mock('POST /v1/outreach/:id/cancel', ({ params }) => {
+      cancelParams = params
+      return {
+        status: 200,
+        data: {
+          outreach: { ...smsDetail, status: 'canceled' },
+          refunded: true,
+        },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    expect(await screen.findByText('Will not send')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+
+    // Delete rides the same cancel confirm + endpoint as Cancel campaign.
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(await screen.findByText('Cancel this campaign?')).toBeInTheDocument()
+    await userEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Cancel campaign',
+      }),
+    )
+    expect(cancelParams).toEqual({ id: '41' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('routes Start verification to the election-filing entry when no TCR record exists', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    const { router } = await import('helpers/test-utils/router-mocking')
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Start verification' }),
+    )
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/profile/texting-compliance/election-filing',
+    )
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('shows View receipt when the receipt endpoint returns one, opening it in a new tab', async () => {
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 42,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: 'https://pay.stripe.com/receipts/rcpt_1',
+        paidAt: '2026-08-24T12:00:00.000Z',
+      },
+    })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={vi.fn()}
+        tcrCompliance={verifiedCompliance}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'View receipt' }),
+    )
+    expect(open).toHaveBeenCalledWith(
+      'https://pay.stripe.com/receipts/rcpt_1',
+      '_blank',
+      'noopener',
+    )
+    open.mockRestore()
   })
 })

@@ -756,6 +756,10 @@ export {
   CancelOutreachResponseSchema,
   type CancelOutreachResponse,
 } from './outreach/OutreachCancel.schema'
+export {
+  OutreachReceiptSchema,
+  type OutreachReceipt,
+} from './outreach/OutreachReceipt.schema'
 
 export {
   SMS_PURPOSE_VALUES,

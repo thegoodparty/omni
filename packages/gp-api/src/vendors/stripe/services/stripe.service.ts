@@ -101,6 +101,14 @@ export class StripeService {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
 
+  // Receipt read: card brand/last4 and the hosted receipt URL live on the
+  // payment intent's latest charge, which plain retrieve leaves as an id.
+  async retrieveCheckoutSessionWithCharge(sessionId: string) {
+    return await this.stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent.latest_charge'],
+    })
+  }
+
   // Returns the session's terminal disposition: a completed session means a
   //  payment already went through, which callers must treat differently from
   //  an expired one — the paid session's fulfillment may still be in flight,

@@ -15,6 +15,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 import type { OutreachDetail } from '@goodparty_org/contracts'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { ChannelTileGrid } from './ChannelTileGrid'
 import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
@@ -149,12 +150,16 @@ const OutreachHubContent = ({
       <OutreachHistoryTable
         rows={outreaches ?? []}
         onRowClick={setDetailsRow}
+        notCleared={
+          tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
+        }
       />
       <OutreachDetailsDrawer
         row={detailsRow}
         onOpenChange={(open) => {
           if (!open) setDetailsRow(null)
         }}
+        tcrCompliance={tcrCompliance}
       />
     </div>
   )

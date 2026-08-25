@@ -5,7 +5,8 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { SmsDraftRequest } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
-import { SmsFlow } from './SmsFlow'
+import { router } from 'helpers/test-utils/router-mocking'
+import { SmsFlow, SuccessScreen } from './SmsFlow'
 
 // A cleared (VERIFIED) compliance keeps the default flow on the 48-hour
 // scheduling floor; the verification-pending test omits it to exercise
@@ -201,6 +202,11 @@ describe('SmsFlow', () => {
 
   it('runs purpose → audience → schedule → compose → review and schedules free', async () => {
     const draftCalls = mockDraft()
+    let receiptCalls = 0
+    api.mock('GET /v1/outreach/:id/receipt', () => {
+      receiptCalls += 1
+      return { status: 404, data: { message: 'No receipt' } }
+    })
     const { onScheduled } = openFlow()
 
     // Purpose
@@ -273,6 +279,16 @@ describe('SmsFlow', () => {
       expect.objectContaining({ outreachId: 55, phoneListToken: 'tok-1' }),
     )
     expect(onScheduled).toHaveBeenCalledTimes(1)
+
+    // Free path: design subtitle, but no receipt — there is no charge, and
+    // the endpoint must never be called (it would 404 the free row).
+    expect(
+      screen.getByText(
+        /Your sms campaign will reach 1,200 recipients starting/,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
+    expect(receiptCalls).toBe(0)
   })
 
   it('builds a new list in-flow and continues into scheduling', async () => {
@@ -320,5 +336,124 @@ describe('SmsFlow', () => {
     await userEvent.click(screen.getByText('Persuade likely voters'))
     expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('routes Done into the verification interstitial while clearance pends', async () => {
+    mockDraft()
+    const { onClose } = openFlow(null)
+
+    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+
+    // The 14-day compliance floor: pick a date 16 days out, paging the
+    // calendar when the target lands in the next month.
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    const target = new Date()
+    target.setDate(target.getDate() + 16)
+    await userEvent.click(screen.getByText('Pick a date'))
+    if (target.getMonth() !== new Date().getMonth()) {
+      await userEvent.click(
+        await screen.findByRole('button', { name: /next month/i }),
+      )
+    }
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: new RegExp(
+          `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
+        ),
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText(/AI body \(warm\) for introduce_myself/)
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Pay $0.00' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Payment successful!')).toBeInTheDocument(),
+    )
+
+    // Done swaps the sheet body to the interstitial instead of closing.
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('One more step before this can send'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('What we need')).toBeInTheDocument()
+    expect(screen.getByText('How long it takes')).toBeInTheDocument()
+    expect(screen.getByText('Nothing is lost')).toBeInTheDocument()
+    expect(screen.getByText('Start now if you can')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Later' })).toBeInTheDocument()
+
+    // No TCR record → the election-filing entry, per ComplianceModal.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start verification' }),
+    )
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/profile/texting-compliance/election-filing',
+    )
+    expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('SuccessScreen receipt', () => {
+  // The paid branch is unreachable through the flow in jsdom (CheckoutPayment
+  // mounts real Stripe elements), so the receipt renders from a direct mount.
+  it('renders the Stripe receipt for a paid send and opens the hosted copy', async () => {
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 42,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: 'https://pay.stripe.com/receipts/rcpt_1',
+        paidAt: '2026-08-24T12:00:00.000Z',
+      },
+    })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    render(
+      <SuccessScreen
+        contactCount={1200}
+        sendAt={new Date('2026-09-08T10:00:00')}
+        outreachId={55}
+        paid
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByText(/starting Tue, Sep 8, 2026 at 10:00 AM\./),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Receipt')).toBeInTheDocument()
+    expect(
+      screen.getByText('SMS campaign, 1,200 recipients'),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('$42.00')).toHaveLength(2)
+    expect(screen.getByText('Cost per outreach')).toBeInTheDocument()
+    expect(screen.getByText('$0.035')).toBeInTheDocument()
+    expect(screen.getByText('Visa •••• 4242')).toBeInTheDocument()
+    expect(screen.getByText('Charged today')).toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Download receipt' }),
+    )
+    expect(open).toHaveBeenCalledWith(
+      'https://pay.stripe.com/receipts/rcpt_1',
+      '_blank',
+      'noopener',
+    )
+    open.mockRestore()
   })
 })

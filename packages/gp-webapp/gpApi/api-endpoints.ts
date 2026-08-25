@@ -33,6 +33,7 @@ import type {
   OutreachArchiveRequest,
   OutreachArchiveResponse,
   OutreachDetail,
+  OutreachReceipt,
   SocialDraftRequest,
   SocialDraftResponse,
   SocialGenerateRequest,
@@ -284,6 +285,14 @@ export type APIEndpoints = {
   'POST /v1/outreach/:id/cancel': {
     Request: {}
     Response: CancelOutreachResponse
+  }
+
+  // Live Stripe receipt for a paid SMS campaign (success screen + details
+  // drawer's "View receipt"). Amount is in DOLLARS. 404 on free-texts rows
+  // (no checkout session recorded); 502 when Stripe is unreachable.
+  'GET /v1/outreach/:id/receipt': {
+    Request: {}
+    Response: OutreachReceipt
   }
 
   // Synchronous, stateless: one structured LLM call writes the compose-step

@@ -11,6 +11,7 @@ import {
   PencilIcon,
   PhoneIcon,
   Share2Icon,
+  ShieldAlertIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
@@ -115,9 +116,26 @@ const STATUS_DISPLAY: Record<
   Canceled: { icon: <XCircleIcon />, tone: 'muted' },
 }
 
+// The display label for a scheduled SMS row whose CampaignVerify clearance
+// is still pending — the carriers will hold the send, so "Scheduled" would
+// be a lie. Rendered as a tinted pill (not a StatusText) so it reads as a
+// warning, per the design.
+export const WILL_NOT_SEND_LABEL = 'Will not send'
+
 export const HistoryStatusText = ({ label }: { label: string | null }) => {
   if (!label) {
     return <StatusText tone="muted">n/a</StatusText>
+  }
+  if (label === WILL_NOT_SEND_LABEL) {
+    return (
+      <Badge
+        shape="pill"
+        className="whitespace-nowrap border-transparent bg-destructive-light text-destructive"
+      >
+        <ShieldAlertIcon />
+        {WILL_NOT_SEND_LABEL}
+      </Badge>
+    )
   }
   const display = STATUS_DISPLAY[label]
   return (

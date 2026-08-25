@@ -1,18 +1,38 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
+  OutreachReceipt,
   SmsDraftRequest,
   SmsPurpose,
   SocialTone,
 } from '@goodparty_org/contracts'
 import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
-import { Button } from '@styleguide'
-import { CheckCircleIcon } from '@styleguide/components/ui/icons'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Button,
+  Card,
+} from '@styleguide'
+import {
+  BookmarkIcon,
+  CheckCircleIcon,
+  ClipboardListIcon,
+  ClockIcon,
+  DownloadIcon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
+import {
+  ELECTION_FILING_PATH,
+  SUBMIT_PIN_PATH,
+} from 'app/dashboard/shared/ComplianceModal'
+import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -95,40 +115,216 @@ interface SmsFlowProps {
   onScheduled: () => Promise<void>
 }
 
-const SuccessScreen = ({
+const successDate = (d: Date) =>
+  d.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
+const successTime = (d: Date) =>
+  d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+
+// "visa" → "Visa" — Stripe reports card brands lowercase.
+const cardBrandLabel = (brand: string) =>
+  brand.charAt(0).toUpperCase() + brand.slice(1)
+
+// Exported for its component test — the paid branch is unreachable through
+// the flow in jsdom (CheckoutPayment mounts real Stripe elements).
+export const SuccessScreen = ({
   contactCount,
   sendAt,
+  outreachId,
+  paid,
   onDone,
 }: {
   contactCount: number
   sendAt: Date | null
+  outreachId: number | null
+  // Free-texts sends skip the receipt entirely — there is no charge, and
+  // the endpoint 404s rows without a checkout session.
+  paid: boolean
   onDone: () => void
-}) => (
-  <div className="space-y-6 py-8 text-center">
-    <div className="flex justify-center">
-      <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
-        <CheckCircleIcon className="size-8 text-primary" />
-      </span>
+}) => {
+  const receiptQuery = useQuery({
+    queryKey: ['outreach-receipt', outreachId],
+    queryFn: async (): Promise<OutreachReceipt> => {
+      const { data } = await clientRequest('GET /v1/outreach/:id/receipt', {
+        id: String(outreachId),
+      })
+      return data
+    },
+    enabled: paid && outreachId !== null,
+    retry: false,
+  })
+  const receipt = paid ? receiptQuery.data : undefined
+
+  return (
+    <div className="space-y-6 py-8 text-center">
+      <div className="flex justify-center">
+        <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
+          <CheckCircleIcon className="size-8 text-primary" />
+        </span>
+      </div>
+      <div className="space-y-2">
+        <h2 className="text-2xl font-semibold text-foreground">
+          Payment successful!
+        </h2>
+        <p className="text-muted-foreground">
+          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+          recipients
+          {sendAt
+            ? ` starting ${successDate(sendAt)} at ${successTime(sendAt)}.`
+            : ' soon.'}
+        </p>
+      </div>
+      {receipt && (
+        <Card className="gap-0 p-0 text-left">
+          <div className="flex items-center justify-between px-4 py-4">
+            <p className="font-medium text-foreground">Receipt</p>
+            <p className="text-sm text-muted-foreground">
+              {new Date().toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </p>
+          </div>
+          <div className="border-t border-border px-4 py-4">
+            <dl className="space-y-1.5 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">
+                  SMS campaign, {contactCount.toLocaleString()} recipients
+                </dt>
+                <dd className="text-foreground">
+                  ${receipt.amount.toFixed(2)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Cost per outreach</dt>
+                <dd className="text-foreground">
+                  ${PRICE_PER_MESSAGE.toFixed(3)}
+                </dd>
+              </div>
+              {receipt.cardBrand && receipt.cardLast4 && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Card</dt>
+                  <dd className="text-foreground">
+                    {cardBrandLabel(receipt.cardBrand)} •••• {receipt.cardLast4}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </div>
+          <div className="flex items-center justify-between border-t border-border px-4 py-4">
+            <span className="font-semibold text-foreground">Charged today</span>
+            <span className="font-semibold text-foreground">
+              ${receipt.amount.toFixed(2)}
+            </span>
+          </div>
+        </Card>
+      )}
+      {receipt?.receiptUrl && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            window.open(receipt.receiptUrl ?? '', '_blank', 'noopener')
+          }}
+        >
+          <DownloadIcon className="size-4" />
+          Download receipt
+        </Button>
+      )}
+      <Button size="large" className="w-full" onClick={onDone}>
+        Done
+      </Button>
     </div>
+  )
+}
+
+const VerificationRow = ({
+  icon,
+  title,
+  body,
+}: {
+  icon: React.ReactNode
+  title: string
+  body: string
+}) => (
+  <div className="flex items-start gap-3">
+    <span className="mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-4">
+      {icon}
+    </span>
+    <span>
+      <span className="block text-sm font-semibold text-foreground">
+        {title}
+      </span>
+      <span className="block text-sm text-muted-foreground">{body}</span>
+    </span>
+  </div>
+)
+
+// Post-success interstitial (shown only while CampaignVerify clearance is
+// pending): the send is saved but held by the carriers, so the one useful
+// next action is starting verification.
+const VerificationInterstitial = ({
+  onLater,
+  onStartVerification,
+}: {
+  onLater: () => void
+  onStartVerification: () => void
+}) => (
+  <div className="space-y-6 py-8">
+    <Badge
+      shape="pill"
+      className="border-transparent bg-info-light text-foreground"
+    >
+      Verification
+    </Badge>
     <div className="space-y-2">
       <h2 className="text-2xl font-semibold text-foreground">
-        Payment successful!
+        One more step before this can send
       </h2>
       <p className="text-muted-foreground">
-        Your text campaign has been scheduled and will reach{' '}
-        {contactCount.toLocaleString()} recipients
-        {sendAt
-          ? ` on ${sendAt.toLocaleDateString('en-US', {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-            })}.`
-          : ' soon.'}
+        Your text is saved and scheduled, but it will not go out until your
+        campaign is verified with the carriers.
       </p>
     </div>
-    <Button size="large" className="w-full" onClick={onDone}>
-      Done
-    </Button>
+    <Card className="gap-4 p-4">
+      <VerificationRow
+        icon={<ClipboardListIcon />}
+        title="What we need"
+        body="Your candidacy, your campaign EIN and your filing details"
+      />
+      <VerificationRow
+        icon={<ClockIcon />}
+        title="How long it takes"
+        body="About 1 to 2 weeks for the carriers to clear your campaign"
+      />
+      <VerificationRow
+        icon={<BookmarkIcon />}
+        title="Nothing is lost"
+        body="Your text stays saved and scheduled while this is under review"
+      />
+    </Card>
+    <Alert variant="info">
+      <AlertTitle>Start now if you can</AlertTitle>
+      <AlertDescription>
+        Verification runs in the background, so starting today keeps your send
+        date safe.
+      </AlertDescription>
+    </Alert>
+    <div className="flex items-center gap-3">
+      <Button type="button" variant="ghost" onClick={onLater}>
+        Later
+      </Button>
+      <Button type="button" className="flex-1" onClick={onStartVerification}>
+        Start verification
+      </Button>
+    </div>
   </div>
 )
 
@@ -143,6 +339,7 @@ export const SmsFlow = ({
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
+  const router = useRouter()
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsPurpose | null>(null)
@@ -176,6 +373,8 @@ export const SmsFlow = ({
   const [draftCreateError, setDraftCreateError] = useState(false)
   const isDraftCreatingRef = useRef(false)
   const [scheduled, setScheduled] = useState(false)
+  const [paidSend, setPaidSend] = useState(false)
+  const [showVerify, setShowVerify] = useState(false)
 
   const draftRequestRef = useRef(0)
 
@@ -223,6 +422,8 @@ export const SmsFlow = ({
     setDraftOutreachId(null)
     setDraftCreateError(false)
     setScheduled(false)
+    setPaidSend(false)
+    setShowVerify(false)
     resetDraftMutation()
   }, [open, resetDraftMutation, resetAudience])
 
@@ -501,9 +702,22 @@ export const SmsFlow = ({
     image,
   ])
 
-  const handleScheduled = async () => {
+  const handleScheduled = async (paid: boolean) => {
+    setPaidSend(paid)
     setScheduled(true)
     await onScheduled()
+  }
+
+  // ComplianceModal's status-aware target: a SUBMITTED registration is
+  // waiting on the CampaignVerify PIN; anything else (typically no record)
+  // enters at the election-filing form.
+  const startVerification = () => {
+    router.push(
+      tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
+        ? SUBMIT_PIN_PATH
+        : ELECTION_FILING_PATH,
+    )
+    onClose()
   }
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
@@ -629,11 +843,18 @@ export const SmsFlow = ({
           limit={60}
         />
       )}
-      {scheduled ? (
+      {scheduled && showVerify ? (
+        <VerificationInterstitial
+          onLater={onClose}
+          onStartVerification={startVerification}
+        />
+      ) : scheduled ? (
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
           sendAt={scheduledAt}
-          onDone={onClose}
+          outreachId={draftOutreachId}
+          paid={paidSend}
+          onDone={notCleared ? () => setShowVerify(true) : onClose}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />

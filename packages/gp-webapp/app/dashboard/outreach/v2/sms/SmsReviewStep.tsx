@@ -60,7 +60,9 @@ interface SmsReviewStepProps {
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
-  onComplete: () => Promise<void>
+  // paid=false on the free-texts redemption path — the success screen only
+  // fetches a Stripe receipt for a real charge.
+  onComplete: (paid: boolean) => Promise<void>
 }
 
 export const SmsReviewStep = ({
@@ -118,7 +120,7 @@ export const SmsReviewStep = ({
         setPayError(true)
         return
       }
-      await onComplete()
+      await onComplete(false)
     } catch {
       setPayError(true)
     } finally {
@@ -132,7 +134,7 @@ export const SmsReviewStep = ({
     if (!response.ok) {
       throw new Error('Failed to complete purchase')
     }
-    await onComplete()
+    await onComplete(true)
   }
 
   return (

@@ -29,7 +29,11 @@ import {
 } from '@styleguide/components/ui/icons'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import { ChannelBadge, HistoryStatusText } from './channelMeta'
+import {
+  ChannelBadge,
+  HistoryStatusText,
+  WILL_NOT_SEND_LABEL,
+} from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { useOutreachDetail } from './useOutreachDetail'
 
@@ -38,6 +42,9 @@ const PAGE_SIZE = 10
 interface OutreachHistoryTableProps {
   rows: HistoryRow[]
   onRowClick: (row: HistoryRow) => void
+  // CampaignVerify clearance still pending: scheduled SMS rows will be held
+  // by the carriers, so their displayed status becomes "Will not send".
+  notCleared?: boolean
 }
 
 // Social rows carry no send counts on the list payload — the platform count
@@ -159,12 +166,14 @@ const channelFilterKey = (
     (c.types as readonly string[]).includes(type ?? ''),
   )?.key ?? null
 
-// The unified label vocabulary across both legacy status maps.
+// The unified label vocabulary across both legacy status maps, plus the
+// verification-pending substitution label.
 const STATUS_FILTERS = [
   'Draft',
   'In review',
   'Denied',
   'Scheduled',
+  'Will not send',
   'In progress',
   'Done',
   'Pending payment',
@@ -190,6 +199,7 @@ const rowDisplayDate = (row: HistoryRow): string | null => {
 export const OutreachHistoryTable = ({
   rows,
   onRowClick,
+  notCleared = false,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
@@ -200,6 +210,27 @@ export const OutreachHistoryTable = ({
     Set<(typeof STATUS_FILTERS)[number]>
   >(() => new Set(STATUS_FILTERS))
 
+  // A scheduled-not-sent SMS row while verification pends displays (and
+  // filters) as "Will not send" — filtering on "Scheduled" must not catch
+  // it. Two shapes qualify: legacy rows displaying "Scheduled" (spine
+  // paid/in_progress) and draft-first rows finalize left at spine `pending`
+  // with a phone list — the same set cancel-before-send acts on.
+  const displayStatusLabel = (row: HistoryRow): string | null => {
+    const label = getHistoryStatusLabel(row)
+    const isSms =
+      row.outreachType === OUTREACH_TYPES.text ||
+      row.outreachType === OUTREACH_TYPES.p2p
+    if (
+      notCleared &&
+      isSms &&
+      (label === 'Scheduled' ||
+        (row.status === 'pending' && row.phoneListId != null))
+    ) {
+      return WILL_NOT_SEND_LABEL
+    }
+    return label
+  }
+
   const visible = useMemo(
     () =>
       [...rows]
@@ -209,7 +240,7 @@ export const OutreachHistoryTable = ({
           // always show — filters only subtract what they can name.
           const channel = channelFilterKey(row.outreachType)
           if (channel !== null && !channelFilter.has(channel)) return false
-          const status = getHistoryStatusLabel(row)
+          const status = displayStatusLabel(row)
           return (
             status === null ||
             !(STATUS_FILTERS as readonly string[]).includes(status) ||
@@ -217,7 +248,8 @@ export const OutreachHistoryTable = ({
           )
         })
         .sort((a, b) => rowTime(b) - rowTime(a)),
-    [rows, showArchive, channelFilter, statusFilter],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- notCleared is the only input displayStatusLabel closes over
+    [rows, showArchive, channelFilter, statusFilter, notCleared],
   )
 
   const activeFilterCount =
@@ -417,7 +449,7 @@ export const OutreachHistoryTable = ({
                     <RowResults row={row} />
                   </TableCell>
                   <TableCell className="text-right">
-                    <HistoryStatusText label={getHistoryStatusLabel(row)} />
+                    <HistoryStatusText label={displayStatusLabel(row)} />
                   </TableCell>
                 </TableRow>
               ))
@@ -452,7 +484,7 @@ export const OutreachHistoryTable = ({
                   <span>{rowDisplayDate(row) ?? 'n/a'}</span>
                   <ChannelBadge type={row.outreachType} />
                 </div>
-                <HistoryStatusText label={getHistoryStatusLabel(row)} />
+                <HistoryStatusText label={displayStatusLabel(row)} />
               </div>
               <span className="truncate text-base font-medium text-foreground">
                 {row.name || row.title || 'Untitled campaign'}

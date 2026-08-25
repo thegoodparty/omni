@@ -122,4 +122,7 @@ export {
   Users as UsersIcon,
   Video as VideoIcon,
   Youtube as YoutubeIcon,
+  Bookmark as BookmarkIcon,
+  Receipt as ReceiptIcon,
+  ShieldAlert as ShieldAlertIcon,
 } from 'lucide-react'

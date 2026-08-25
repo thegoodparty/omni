@@ -11,7 +11,7 @@ phone banking also carries `@UseOrganization()` for the Pro gate)
 | Route | Where | What |
 | --- | --- | --- |
 | `POST /outreach` (multipart) + `GET /outreach` | `outreach.controller.ts` | Legacy create/list. Create accepts `draft: true` (p2p only) → row stored `pending_payment`, hidden from the list. Image required for text/p2p |
-| `POST /outreach/social/draft` / `social/generate` / `social` (save), `GET /outreach/:id`, `PATCH /outreach/:id/archive` | `outreachSocial.controller.ts` | Social flow (VO 2.0 phase 1): stateless draft/improve, per-platform asset generation, atomic save, detail read; archive/restore for the history drawer, org-scoped via `@UseOrganization()` |
+| `POST /outreach/social/draft` / `social/generate` / `social` (save), `GET /outreach/:id`, `GET /outreach/:id/receipt`, `POST /outreach/:id/cancel`, `PATCH /outreach/:id/archive` | `outreachSocial.controller.ts` | Social flow (VO 2.0 phase 1): stateless draft/improve, per-platform asset generation, atomic save, detail read; receipt (live Stripe read off the stored checkout session, dollars; 404 free-texts rows, 502 on Stripe failure) and cancel-before-send for paid SMS rows, campaign-scoped; archive/restore for the history drawer, org-scoped via `@UseOrganization()` |
 | `POST /outreach/phone-banking/draft` | `outreachPhoneBanking.controller.ts` | Phone banking script draft/improve (VO 2.0 phone banking): stateless, Pro-gated (`@UseOrganization()` + `ContactsService.assertProAccess`) — the create flow freezes the chosen text onto the list itself via `POST /phone-banking/lists` (`src/phoneBanking/`) |
 
 `GET /outreach/:id` deliberately lives on the social controller: detail reads
