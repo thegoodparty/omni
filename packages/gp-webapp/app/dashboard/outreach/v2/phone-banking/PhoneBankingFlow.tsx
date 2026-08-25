@@ -216,18 +216,24 @@ export const PhoneBankingFlow = ({
   // purpose, mirroring SocialFlow's requestDraft. previousDraft rides only
   // on a fresh generation (Regenerate / a tone change) — it tells the model
   // what the candidate just rejected so a re-roll actually varies
-  // (ENG-10937). instructions is the candidate's own freeform steering and
-  // applies on either path (ENG-10936).
+  // (ENG-10937). instructionsOverride is the candidate's own freeform
+  // steering and applies on either path (ENG-10936); it defaults to the
+  // current instructions state, but handleSelectPurpose must pass '' — it
+  // resets instructions in the same tick, and the state update hasn't
+  // flushed yet when the immediate draft request fires, so reading the
+  // instructions closure here would still send the value from before the
+  // reset.
   const requestDraft = (
     nextPurpose: PhoneBankingPurpose | null,
     nextTone: SocialTone,
     currentDraft?: string,
     previousDraft?: string,
+    instructionsOverride: string = instructions,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
-    const trimmedInstructions = instructions.trim()
+    const trimmedInstructions = instructionsOverride.trim()
     draftMutate(
       {
         purpose: nextPurpose,
@@ -249,16 +255,19 @@ export const PhoneBankingFlow = ({
 
   const handleSelectPurpose = (selected: PhoneBankingPurpose) => {
     setPurpose(selected)
-    // Reset tone/script state on every purpose pick (including re-picks after
-    // Back), not just the first one — otherwise picking 'custom' after
-    // viewing another purpose's script carries that script over instead of
-    // starting blank (custom skips the draft call, so nothing else clears
-    // it), and the tone pill can show a stale selection that doesn't match
-    // the newly requested draft's tone.
+    // Reset tone/script/instructions state on every purpose pick (including
+    // re-picks after Back), not just the first one — otherwise picking
+    // 'custom' after viewing another purpose's script carries that script
+    // over instead of starting blank (custom skips the draft call, so
+    // nothing else clears it), the tone pill can show a stale selection that
+    // doesn't match the newly requested draft's tone, and stale instructions
+    // typed for the old purpose would silently ride along on the new one's
+    // draft request.
     setTone('warm')
     setScript('')
+    setInstructions('')
     setStepId('who')
-    requestDraft(selected, 'warm')
+    requestDraft(selected, 'warm', undefined, undefined, '')
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
