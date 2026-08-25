@@ -86,6 +86,19 @@ never send `pending_payment` themselves.
   of truth and the envelope's status is a mirror of it, because the envelope
   needs a `campaignId` and Serve orgs knock without one; see
   `docs/door-knocking.md`.
+- **Robocall materializes recipients and captures no delivery outcome, and
+  `answeredAt`/`voicemailLeftAt` on those rows are permanently null (ADR
+  0013).** There is no robocall vendor integration to sweep: CallHub is named
+  only in prose, Peerly's integration is its P2P texting product (the CDR
+  report is SMS-shaped), robocall outreaches never get a `projectId`, and the
+  channel has no send step — fulfillment is CAS's, out of band, off the legacy
+  `POST /outreach` Slack. The two columns ARE written, but only by the manual
+  per-person log (`ContactInteractionsController`, `outreachId: null` by
+  design), so the same null means "logged as not answered" on a manual row and
+  "never observed" on a campaign row. `OutreachInboundSweep` is text/p2p only
+  and must stay that way until the vendor question is settled — **do not build
+  a partial robocall sweep**; half-populating those columns turns "we never
+  looked" into a disposition. ADR 0013 costs the real thing.
 - `Outreach.archivedAt` (nullable, unset at creation) backs the v2 history
   drawer's archive/restore action. `OutreachService.setArchived` scopes the
   update by `organizationSlug` (not `campaignId`) and reads the response back

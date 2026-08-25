@@ -116,9 +116,18 @@ work.** Assume the UI is days once that answer is yes.
 
 **Robocall.** Needs a delivery-outcome ingestion that does not exist: the robocall
 twin of `OutreachInboundSweep`, writing `answeredAt` / `voicemailLeftAt` onto the
-already-materialized rows from Peerly's call records. Same shape as the text
-sweep, and it has to land before any UI. Weeks, and it shares the same
-verification problem.
+already-materialized rows. Same shape as the text sweep, and it has to land
+before any UI.
+
+> **Correction ([ADR 0013](0013-robocall-delivery-outcomes-are-unbuilt.md)).**
+> The outcome claim above is confirmed, but "from Peerly's call records" is
+> wrong: there are none. Robocall does not go through Peerly — Peerly's
+> integration is its P2P texting product and robocall outreaches never get a
+> `projectId` — and no robocall vendor is integrated at all, so this is not
+> weeks of sweep work behind a verification problem. It is blocked on settling
+> which vendor delivers a robocall. 0013 also finds a live consequence this ADR
+> understated: the shipped robocall activity-condition actions silently match
+> zero people (`answered`, `voicemail_left`) or every recipient (`no_answer`).
 
 **Door knocking.** The outcomes exist. What is missing is the join: the envelope
 carries `doorKnockingRouteId`, and nothing maps a route back to its turf — the
@@ -152,3 +161,5 @@ options, orders of magnitude apart, with nothing in between:
   whether the canvas's separate destination is still wanted before it is built.
 - **Whether robocall delivery outcomes are worth ingesting** for their own sake
   (contact history, activity conditions) independently of this footer slot.
+  Audited in [ADR 0013](0013-robocall-delivery-outcomes-are-unbuilt.md): worth
+  it, but blocked on a vendor decision before any of it is engineering work.

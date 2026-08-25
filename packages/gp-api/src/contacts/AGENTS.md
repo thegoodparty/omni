@@ -123,7 +123,7 @@ id-list filter can't enumerate outside the org's district.
 | `VoterFileFilter`                              | The saved filter (UI "list"). ~60 demographic columns, `search`, `supportStatus`, `firstUsedForOutreachAt` (the lock), org FK cascade                                                                          |
 | `VoterFileFilterActivityCondition`             | Owned condition rows: `outreachType` + `outreachId?` (null = any campaign of that channel) + `actions[]` (`ActivityConditionAction` enum; per-channel validity is Zod-enforced at the boundary, 400 otherwise) |
 | `ContactInteractionText`                       | Per-recipient send truth: `outreachId` FK, `respondedAt`, `optedOutAt`, `sourceEventId`, `manual`. Unique `[outreachId, personId]`                                                                             |
-| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`)                                                                                                                                                     |
+| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`, `sourceCallId`) — but **the outcome columns are only ever written by the manual log**; campaign-materialized rows have them null forever (ADR 0013)  |
 | `ContactInteractionDoorKnock`                  | `outcome`, three-way `supportAnswer`, `note`, `manual`, `sourceId`. Unique `[organizationSlug, sourceId]`. Written by the in-house door-knocking tool, never by outreach launch                                |
 | `ContactNote`                                  | Org-authored per-person notes (body ≤ 10k)                                                                                                                                                                     |
 | `PeerlyPhoneList` / `PeerlyPhoneListRecipient` | Capture tables: which people (and which phone per person) actually landed on a Peerly phone list. The phone↔person mapping the inbound sweep depends on                                                        |
@@ -134,6 +134,15 @@ Outcome→column mapping used by filter resolution: SMS `responded` =
 `respondedAt` not null, `no_response` = null, `opted_out` = `optedOutAt`
 not null; robocall `answered`/`voicemail_left` from their timestamps,
 `no_answer` = both null; door knock from `outcome` and `supportAnswer`.
+
+**The three robocall actions do not mean what they read as (ADR 0013).** No
+robocall vendor is integrated, so campaign-materialized rows never get either
+timestamp: pinned to a campaign, `answered`/`voicemail_left` match zero people
+always and `no_answer` matches every recipient of that campaign. Only manual
+(`manual = true`, `outreachId` null) rows carry a real robocall outcome, and
+`resolveRobocall` does not consult `manual` — so unpinned conditions blend
+hand-logged observations with never-observed sends. Do not build reporting or
+a follow-up audience on these until the sweep in ADR 0013 exists.
 
 ## The flows
 
