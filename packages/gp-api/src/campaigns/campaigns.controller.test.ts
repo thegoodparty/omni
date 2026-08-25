@@ -714,7 +714,7 @@ describe('CampaignsController', () => {
         true,
         undefined,
         undefined,
-        { resetStaleElectionResults: true },
+        {},
       )
     })
 
@@ -740,7 +740,7 @@ describe('CampaignsController', () => {
         true,
         undefined,
         undefined,
-        { resetStaleElectionResults: true },
+        {},
       )
     })
 
@@ -782,7 +782,7 @@ describe('CampaignsController', () => {
         true,
         undefined,
         undefined,
-        { resetStaleElectionResults: true },
+        {},
       )
 
       // Campaign-scoped facts ride the org-scoped group(), not the user
@@ -817,7 +817,7 @@ describe('CampaignsController', () => {
         true,
         undefined,
         undefined,
-        { resetStaleElectionResults: true },
+        {},
       )
 
       expect(analyticsService.identify).not.toHaveBeenCalled()
@@ -850,7 +850,7 @@ describe('CampaignsController', () => {
         true,
         undefined,
         undefined,
-        { resetStaleElectionResults: true },
+        {},
       )
 
       expect(analyticsService.group).toHaveBeenCalledWith(5, 'campaign-200', {
