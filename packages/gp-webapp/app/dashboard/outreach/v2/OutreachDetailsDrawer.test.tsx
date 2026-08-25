@@ -549,7 +549,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('shows View receipt when the receipt endpoint returns one, opening it in a new tab', async () => {
+  it('shows Payment details from the receipt with View receipt opening in a new tab', async () => {
     api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
     api.mock('GET /v1/outreach/:id/receipt', {
       status: 200,
@@ -571,14 +571,49 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       />,
     )
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'View receipt' }),
-    )
+    // The receipt amount is the charge of record, in dollars.
+    expect(await screen.findByText('$42.00')).toBeInTheDocument()
+    expect(screen.getByText('Payment details')).toBeInTheDocument()
+    expect(screen.getByText('Cost per outreach')).toBeInTheDocument()
+    expect(screen.getByText('$0.035')).toBeInTheDocument()
+    expect(screen.getByText('Unsubscribes')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'View receipt' }))
     expect(open).toHaveBeenCalledWith(
       'https://pay.stripe.com/receipts/rcpt_1',
       '_blank',
       'noopener',
     )
     open.mockRestore()
+  })
+
+  it('reads Free with no receipt and renders the composed script verbatim', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+
+    const script =
+      'Hello {first_name}, this is Ada, candidate for City Council.\nReply STOP to opt out.'
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...scheduledSmsRow, script }}
+        onOpenChange={vi.fn()}
+        tcrCompliance={verifiedCompliance}
+      />,
+    )
+
+    // No receipt + no billable count = a fully free send.
+    expect(await screen.findByText('Free')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'View receipt' }),
+    ).not.toBeInTheDocument()
+
+    expect(screen.getByText('Message')).toBeInTheDocument()
+    // Line breaks survive: the script renders as one pre-wrap block, not
+    // re-composed copy.
+    expect(
+      screen.getByText((_, el) => el?.textContent === script, {
+        selector: 'p',
+      }),
+    ).toBeInTheDocument()
   })
 })

@@ -47,11 +47,14 @@ import {
   ClockIcon,
   DollarSignIcon,
   FileTextIcon,
+  HashIcon,
   Loader2Icon,
   PhoneIcon,
+  RadioIcon,
   ReceiptIcon,
-  Share2Icon,
+  ShieldCheckIcon,
   Trash2Icon,
+  UserMinusIcon,
   UsersRoundIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
@@ -61,6 +64,7 @@ import type { TcrCompliance, VoterFileFilters } from 'helpers/types'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
+import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import {
   ELECTION_FILING_PATH,
@@ -105,6 +109,14 @@ const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {
 
 const percentLabel = (count: number, total: number): string =>
   total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
+
+const PRICE_PER_TEXT =
+  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
+
+// Prototype date display ("Sent Sep 8") — same year-stripped short form the
+// history table uses.
+const shortDate = (date: string | Date): string =>
+  dateUsHelper(date, 'short').replace(/,\s*\d{4}$/, '')
 
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
@@ -179,6 +191,12 @@ export const OutreachDetailsDrawer = ({
   const social = detailQuery.data?.social
   const phoneBanking = detailQuery.data?.phoneBanking
   const isCompleted = row?.status === 'completed'
+  const isSms =
+    row?.outreachType === OUTREACH_TYPES.text ||
+    row?.outreachType === OUTREACH_TYPES.p2p
+  // Only rows created through the paid P2P flow carry a phone list — the
+  // set that has payment details (and possibly a receipt) to show.
+  const isPaidFlowSms = isSms && row?.phoneListId != null
 
   const [outreaches, setOutreaches] = useOutreach()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -205,11 +223,7 @@ export const OutreachDetailsDrawer = ({
   // Cancel-before-send: only a paid, scheduled-not-started text campaign
   // (spine status `pending`, created through the P2P flow) is cancelable —
   // the backend enforces the same set.
-  const isCancelableSms =
-    (row?.outreachType === OUTREACH_TYPES.text ||
-      row?.outreachType === OUTREACH_TYPES.p2p) &&
-    row?.status === 'pending' &&
-    row?.phoneListId != null
+  const isCancelableSms = isPaidFlowSms && row?.status === 'pending'
   // A scheduled SMS row while CampaignVerify clearance pends: the carriers
   // will hold the send, so the drawer flags it and swaps the footer to
   // Delete + Start verification.
@@ -239,15 +253,18 @@ export const OutreachDetailsDrawer = ({
       })
       return data
     },
-    enabled:
-      row !== null &&
-      (row.outreachType === OUTREACH_TYPES.text ||
-        row.outreachType === OUTREACH_TYPES.p2p) &&
-      row.phoneListId != null,
+    enabled: row !== null && isPaidFlowSms,
     retry: false,
     staleTime: 5 * 60 * 1000,
   })
   const receiptUrl = receiptQuery.data?.receiptUrl ?? null
+  // The receipt is the charge of record; rows without one (free-texts sends
+  // 404 it) fall back to the billable count at the standard per-text price —
+  // which lands on $0.00, i.e. "Free".
+  const totalCost =
+    receiptQuery.data?.amount ??
+    (row?.billableTextCount ?? row?.textCount ?? 0) * PRICE_PER_TEXT
+  const isFreeSms = totalCost <= 0
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const cancelMutation = useMutation({
     mutationFn: () => {
@@ -359,8 +376,8 @@ export const OutreachDetailsDrawer = ({
                       <span className="text-sm text-muted-foreground">
                         ·{' '}
                         {bylineVerb
-                          ? `${bylineVerb} ${dateUsHelper(displayDate, 'long')}`
-                          : dateUsHelper(displayDate, 'long')}
+                          ? `${bylineVerb} ${shortDate(displayDate)}`
+                          : shortDate(displayDate)}
                       </span>
                     )}
                   </div>
@@ -392,9 +409,7 @@ export const OutreachDetailsDrawer = ({
                     <Metric
                       icon={<CalendarIcon />}
                       label="Date"
-                      value={
-                        displayDate ? dateUsHelper(displayDate, 'long') : '—'
-                      }
+                      value={displayDate ? shortDate(displayDate) : '—'}
                     />
                     <Metric
                       icon={<FileTextIcon />}
@@ -402,7 +417,7 @@ export const OutreachDetailsDrawer = ({
                       value={row.name || row.title || 'Untitled campaign'}
                     />
                     <Metric
-                      icon={<Share2Icon />}
+                      icon={<RadioIcon />}
                       label="Channel"
                       value={getChannelLabel(row.outreachType)}
                     />
@@ -442,21 +457,65 @@ export const OutreachDetailsDrawer = ({
                         value={socialPurposeLabel(social.purpose)}
                       />
                     )}
+                    {isSms && (
+                      // No per-campaign opt-out feed exists yet (the results
+                      // sweep is a later slice), so this reads 0 — the same
+                      // value the design shows for a not-yet-sent row.
+                      <Metric
+                        icon={<UserMinusIcon />}
+                        label="Unsubscribes"
+                        value="0"
+                      />
+                    )}
                   </div>
-                  {receiptUrl && (
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="h-auto px-0"
-                      onClick={() => {
-                        window.open(receiptUrl, '_blank', 'noopener')
-                      }}
-                    >
-                      <ReceiptIcon className="size-4" />
-                      View receipt
-                    </Button>
-                  )}
                 </section>
+
+                {isPaidFlowSms && (
+                  <section className="space-y-3">
+                    <Eyebrow>Payment details</Eyebrow>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Metric
+                        icon={<DollarSignIcon />}
+                        label="Total cost"
+                        value={isFreeSms ? 'Free' : `$${totalCost.toFixed(2)}`}
+                      />
+                      <Metric
+                        icon={<HashIcon />}
+                        label="Cost per outreach"
+                        value={
+                          isFreeSms ? '—' : `$${PRICE_PER_TEXT.toFixed(3)}`
+                        }
+                      />
+                    </div>
+                    {receiptUrl && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="h-auto px-0"
+                        onClick={() => {
+                          window.open(receiptUrl, '_blank', 'noopener')
+                        }}
+                      >
+                        <ReceiptIcon className="size-4" />
+                        View receipt
+                      </Button>
+                    )}
+                  </section>
+                )}
+
+                {isSms && row.script && (
+                  <section className="space-y-3">
+                    <Eyebrow>Message</Eyebrow>
+                    {/* The stored script is already the fully composed send
+                        (greeting + body + opt-out footer) — render it
+                        verbatim, line breaks included. */}
+                    <Card className="rounded-lg p-3">
+                      <p className="text-sm whitespace-pre-wrap text-foreground">
+                        {row.script}
+                      </p>
+                    </Card>
+                  </section>
+                )}
 
                 {isSocial && detailQuery.isLoading && (
                   <StatusText
@@ -559,7 +618,7 @@ export const OutreachDetailsDrawer = ({
                         value="Free"
                       />
                       <Metric
-                        icon={<DollarSignIcon />}
+                        icon={<HashIcon />}
                         label="Cost per outreach"
                         value="—"
                       />
@@ -651,6 +710,7 @@ export const OutreachDetailsDrawer = ({
                     Delete
                   </Button>
                   <Button className="flex-1" onClick={startVerification}>
+                    <ShieldCheckIcon className="size-4" />
                     Start verification
                   </Button>
                 </div>
