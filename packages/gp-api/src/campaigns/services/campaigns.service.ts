@@ -48,7 +48,10 @@ import {
 } from '../campaigns.types'
 import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
 import { FOLLOW_ON_CAMPAIGN_ADVISORY_LOCK_KEY } from '../campaigns.consts'
-import { isActiveCampaign } from '../util/eligibility.util'
+import {
+  isActiveCampaign,
+  isUpcomingElectionDate,
+} from '../util/eligibility.util'
 import { toCampaignGroupTraits } from '../util/campaignGroupTraits.util'
 import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
@@ -513,6 +516,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     trackCampaign: boolean = true,
     scalarFields?: Prisma.CampaignUpdateInput,
     outerTx?: Prisma.TransactionClient,
+    opts: { resetStaleElectionResults?: boolean } = {},
   ) {
     const {
       data,
@@ -533,8 +537,26 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
       if (!campaign) return false
 
+      // A re-running candidate reuses their campaign, so a didWin /
+      // primaryResult / details.wonGeneral recorded for the PREVIOUS race
+      // would permanently fail isActiveCampaign (and block Pro) on the new
+      // one (ENG-10954). When the caller is a user-driven details update
+      // that moves electionDate to a different upcoming date, clear that
+      // stale result state. Detected here, inside the transaction, against
+      // the freshly-read row.
+      const newElectionDate = details?.electionDate
+      const resetStaleResults = Boolean(
+        opts.resetStaleElectionResults &&
+        typeof newElectionDate === 'string' &&
+        newElectionDate !== campaign.details?.electionDate &&
+        isUpcomingElectionDate(newElectionDate, new Date()),
+      )
+
       const campaignUpdateData: Prisma.CampaignUpdateInput = {
         ...scalarFields,
+      }
+      if (resetStaleResults) {
+        campaignUpdateData.didWin = null
       }
       if (data) {
         campaignUpdateData.data = deepMerge(campaign.data as object, data)
@@ -548,7 +570,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (canDownloadFederal !== undefined) {
         campaignUpdateData.canDownloadFederal = canDownloadFederal
       }
-      if (primaryResult !== undefined) {
+      // The reset outranks a caller-supplied primaryResult: when the
+      // election date just moved to a new upcoming race, any result in the
+      // same request describes a race that hasn't happened yet — persisting
+      // it would re-create the dead-campaign state the reset removes.
+      if (resetStaleResults) {
+        campaignUpdateData.primaryResult = null
+      } else if (primaryResult !== undefined) {
         campaignUpdateData.primaryResult = primaryResult
       }
       if (details) {
@@ -570,6 +598,18 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
             party: string
             description: string
           }>
+        }
+        // Delete (not null out) the prior race's keys — the details schema
+        // types them non-nullable, and a stale passed primaryElectionDate
+        // re-opens the primary-result modal. A value supplied by this update
+        // (the newly picked office's own dates) is kept.
+        if (resetStaleResults) {
+          if (details.wonGeneral === undefined) {
+            delete mergedDetails.wonGeneral
+          }
+          if (details.primaryElectionDate === undefined) {
+            delete mergedDetails.primaryElectionDate
+          }
         }
         campaignUpdateData.details = mergedDetails
       }

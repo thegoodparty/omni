@@ -11,7 +11,10 @@ in.
 - **Deliberate, and still right** — we depart on purpose, the reasoning is on
   record, and I re-checked that it still holds. Nothing changed. 18 items.
 - **Needs a product answer** — a real difference that is somebody's decision,
-  not an engineer's. 8 items.
+  not an engineer's. 8 items. **One of them has since been answered and built**
+  — item 4, the drawer's breakdown of how the walk went, which overturned the
+  recorded ruling against it. It is left in place with the argument that
+  overturned it rather than moved, because the decision is the useful part.
 
 **32 differences total.** The build is close to the canvas. Most of what looks
 missing is either the "three quantities" problem the previous review describes
@@ -170,34 +173,67 @@ line ("N doors · N stops · N voters") is the only description of the shape.
 confirm sheet made partly transparent the way the who step's is. Both are real
 design decisions rather than a copy fix.
 
-### 4. The details drawer has no breakdown of how the walk went
+### 4. The details drawer has no breakdown of how the walk went — **built, and the ruling against it overturned**
 
 **Canvas:** a status breakdown table on the details drawer — each of the seven
 canvass statuses with a count and a percentage — in the door-knocking drawer and
 in the outreach history drawer.
 
-**Ours:** one figure, "People logged — 34 of 61 · 56%", with a bar.
+**Ours, when this was written:** one figure, "People logged — 34 of 61 · 56%",
+with a bar. A candidate who wanted to know how a finished walk actually went —
+how many doors were refusals, how many nobody was home — could only get it by
+re-entering the walk.
 
-This is where I want to **question a recorded ruling**, per the brief.
-`UI-DRIFT-REVIEW.md` **§6** rules the breakdown out because "its 'support'
-breakdown is the landing rail's seven canvass-status chips [...] reporting the
-same seven numbers again in a second visual form on a surface opened from that
-rail is how two presentations of one quantity start disagreeing."
+**Ours now:** a "How the walk went" section on the drawer, one row per canvass
+status with a count, a percentage and a bar in that status's own colour.
 
-I think the premise no longer holds for a **knocked** list, for two reasons:
+This is the one item in this audit where a **recorded ruling was overturned**
+rather than confirmed, and it was overturned with the product owner's agreement.
+The argument is written out here in full rather than cited, because it is the
+whole content of the decision.
 
-- They are not the same numbers. The rail's chips are computed from the voter
-  pack over the list's polygon and filters — a superset, which the rail itself
-  labels "About". A knocked list's outcomes come from its frozen route and are
-  exact. Two different quantities that legitimately differ, which is the
-  opposite of the failure §6 guards against.
-- They are not the same scope. Details can be opened on a list that is not the
-  selected one, in which case the rail's chips describe some other list entirely.
+**What the ruling was.** The outcome table had been refused on the grounds that
+it would reprint the landing rail's seven canvass-status chips: the rail already
+shows a `canvassStatusCounts` chip per status one click away, and reporting one
+quantity twice, in two visual forms, on two surfaces reached from each other is
+how two presentations of it start disagreeing.
 
-So a candidate who wants to know how a finished walk actually went — how many
-doors were refusals, how many nobody was home — can currently only get it by
-re-entering the walk. I have **not** built it, because §6 is a recorded decision
-and this is the argument against it, not a licence to overturn it.
+**Why it no longer holds for a knocked list.**
+
+- **They are not the same numbers.** The rail's chips are computed from the
+  voter pack over the list's polygon and filters — a superset, which is why the
+  rail itself hedges them as "About". A knocked list's outcomes come from its
+  frozen route and are exact, which is the same reason the drawer's own door and
+  people counts stop being hedged once a route exists. Two quantities that
+  legitimately differ is the opposite of one quantity reported twice.
+- **They are not the same scope.** Details can be opened on a list that is not
+  the selected one, in which case the rail's chips are describing a different
+  list entirely while the drawer describes the one on screen.
+
+**What the old argument still gets right, and what was kept because of it.** For
+an **unknocked** list both readings really would come off the same pack pass, so
+the new section has no pre-route branch at all: it says "Not knocked yet" and
+draws nothing. And because the worry was two presentations drifting, the table
+shares its arithmetic with the walk rather than computing its own — one helper
+(`knockStatusCounts`) buckets the route, and the walk's seven-count strip and
+this table both read it, so the walk and the planning surface cannot report one
+list differently. Breaking that helper fails the tests behind both surfaces,
+which is the point of sharing it.
+
+Three constraints carried over from the existing rules: the denominator is
+knockable people (so the seven rows sum to the People stat above them, and the
+six non-unknown rows sum to the people-logged figure), the word is **logged**
+and never "reached", and nothing re-derives a status client-side — each door's
+outcome is the value gp-api already computed.
+
+**One wrinkle, decided deliberately.** "Not a voter" is both a flag that removes
+someone from every people count and an outcome a canvasser can log at the door —
+and the flag is only set when the optional "what happened?" follow-up is
+answered. So a resident logged not-a-voter with nothing answered yet is still in
+the denominator, and lands in that row. The table keeps them there, so its rows
+still sum to the People stat, and the section says so in a line that appears only
+when that row is non-empty: answering the follow-up takes the resident out of the
+table altogether rather than moving them to another row.
 
 ### 5. Which button should the confirm step lead with?
 
@@ -255,8 +291,18 @@ Nothing was changed.
    belongs to the preview, never to the filter.
 3. **"Support unknown" rather than "Not visited".** Recorded, §7, and answered
    by the 2026-08-20 product call.
-4. **Party and age only in the audience breakdown.** Recorded, §6 — and the
-   canvas's "top issues" group is still data we do not hold.
+4. **Party and age only in the audience breakdown.** A survivorship constraint
+   rather than a design preference, and it is unaffected by the outcome table
+   built under _Needs a product answer_ item 4: the voter pack carries sixteen
+   dimensions, but a frozen route's targets carry a live `age` and
+   `politicalParty` and nothing else (`native/audienceMix.ts` lines 4–18), so a
+   breakdown built on the pack's full set would empty itself the moment the list
+   was knocked — a candidate watching fourteen dimensions disappear as a reward
+   for walking. Two that survive the lock beat sixteen that don't. Separately,
+   the canvas's "top issues" group is data we do not hold in any form — no pack
+   dim, no route field, no column — so it could only ever be empty or invented.
+   Those two refusals stand on their own; the third that used to be argued
+   alongside them (the canvas's "support" group) is the one that was overturned.
 5. **Age buckets.** Recorded, §8.
 6. **Travel time vs knocking time on the drawer.** The canvas has one
    "Estimated time"; we have two labels because they are two quantities

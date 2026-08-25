@@ -105,6 +105,8 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     drawPointCount={3}
     onUndoPoint={vi.fn()}
     onClearPoints={vi.fn()}
+    color="#2563eb"
+    onColorChange={vi.fn()}
     onSaved={onSaved}
     isElectedOfficial={false}
     unpreviewableKeys={[]}
@@ -252,9 +254,18 @@ describe('useCreateListDraw', () => {
         data-undo={String(draw.undoDrawToken)}
         data-points={String(draw.pointCount)}
         data-hint={String(draw.hintVisible)}
+        data-color={draw.drawColor}
+        data-frame={String(draw.frameDrawToken)}
+        data-frame-bottom={String(draw.frameDrawBottomPct)}
       >
         <button type="button" onClick={draw.startDrawing}>
           start
+        </button>
+        <button type="button" onClick={draw.frameDrawing}>
+          frame
+        </button>
+        <button type="button" onClick={() => draw.onDrawColorChange('#16a34a')}>
+          pick green
         </button>
         <button type="button" onClick={draw.clearPoints}>
           clear points
@@ -310,6 +321,44 @@ describe('useCreateListDraw', () => {
 
     rerender(<Probe step="confirm" />)
     expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'false')
+  })
+
+  // The colour lives here rather than in the confirm step because the CANVAS
+  // draws the ring in it, and the canvas outlives the flow — the same rule the
+  // draw tokens follow. Leaving the flow has to put it back by hand, which is
+  // what the unmounted `useState` used to do for free.
+  it('holds the chosen colour, and resets it when the flow is left', () => {
+    render(<Probe step="confirm" />)
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#2563eb')
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick green' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#16a34a')
+
+    // Clear is a restarted drawing session, so the colour survives it — the
+    // candidate is still cutting the same list.
+    fireEvent.click(screen.getByRole('button', { name: 'clear points' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#16a34a')
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear drawing' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#2563eb')
+  })
+
+  // The framing is a request, not a reaction to the ring: the canvasser is the
+  // one aiming the camera while they draw, and only a step that has just covered
+  // the map needs the shape put back in view.
+  it('asks for a fit only when a step asks, and states what it covers', () => {
+    render(<Probe step="confirm" />)
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '0')
+    // The confirm sheet uncovers the top 30%, so 70% of the map is what the
+    // camera has to pad around. Derived from the sheet's own constant, so the
+    // two cannot drift.
+    expect(screen.getByTestId('draw')).toHaveAttribute(
+      'data-frame-bottom',
+      '70',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'frame' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '1')
   })
 
   it('bumps undo and clear-drawing on their own tokens', () => {

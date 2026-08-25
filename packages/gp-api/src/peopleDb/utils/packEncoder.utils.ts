@@ -41,7 +41,7 @@ const UNKNOWN = 'Unknown'
 // corresponding list filter would match.
 const invertMapper = (
   filterKey: keyof typeof PEOPLE_FILTER_VALUE_ENUMS,
-  mapper: (value: string) => string | null,
+  mapper: (value: string) => string | string[] | null,
 ): { values: string[]; rawToByte: Map<string, number> } => {
   const values = [UNKNOWN]
   const rawToByte = new Map<string, number>()
@@ -49,8 +49,15 @@ const invertMapper = (
     if (value === UNKNOWN) continue
     const raw = mapper(value)
     if (raw === null) continue
+    // homeowner's 'Yes' maps to two raw values (ENG-10947's Homeowner/
+    // Probable Home Owner fold), but the pack encodes one byte per person —
+    // it can't represent an OR of two buckets under one wire value, so it
+    // keeps its pre-fold behavior and inverts only the first (see
+    // voterFilterPreview.ts's homeownerYes comment for the disclosed gap).
+    const rawForByte = Array.isArray(raw) ? raw[0] : raw
+    if (rawForByte === undefined) continue
     values.push(value)
-    rawToByte.set(raw, values.length - 1)
+    rawToByte.set(rawForByte, values.length - 1)
   }
   return { values, rawToByte }
 }

@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event'
 import {
   ContactNote,
   DoorKnockOutcome,
+  DoorKnockStatus,
   RoutePayloadStop,
   RoutePayloadTarget,
   RouteTargetActivity,
@@ -537,6 +538,214 @@ describe('PersonSheet activity feed', () => {
   })
 })
 
+// The canvas's "Voter support" card. What it states, and — the larger half of
+// this — every case where it states nothing at all, since a card is a claim and
+// most doors on a route have nothing behind them to claim.
+describe('PersonSheet voter support', () => {
+  const card = () =>
+    screen.queryByRole('heading', { name: 'Voter support' })?.parentElement ??
+    null
+
+  const supportKnock = (
+    activityId: string,
+    date: string,
+    supportAnswer: 'supporter' | 'unsure' | 'non_supporter' | null,
+  ): RouteTargetActivity => ({
+    type: 'DOOR_KNOCK',
+    date,
+    data: {
+      activityId,
+      outcome: 'answered',
+      supportAnswer,
+      note: null,
+      manual: false,
+    },
+  })
+
+  const supportOverride = (
+    activityId: string,
+    date: string,
+    toLabel: string,
+  ): RouteTargetActivity => ({
+    type: 'STATUS_CHANGE',
+    date,
+    data: {
+      activityId,
+      field: 'support_status',
+      fromLabel: null,
+      toLabel,
+      actorName: 'Rosa Iyer',
+      actorUserId: 77,
+      source: 'manual',
+    },
+  })
+
+  it('states where the resident stands, and when they said it', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [
+          supportKnock('dk-1', '2026-08-10T15:00:00.000Z', 'supporter'),
+        ],
+      }),
+    ])
+
+    const support = within(card()!)
+    expect(support.getByText('Supporter')).toBeInTheDocument()
+    expect(support.getByText('As of August 2026')).toBeInTheDocument()
+  })
+
+  it('states a non-supporter in the same words the walk list uses', () => {
+    renderSheet([target({ knockStatus: 'non_supporter' })])
+
+    expect(within(card()!).getByText('Non-supporter')).toBeInTheDocument()
+  })
+
+  // The whole reason the card exists: the answer has to be readable at the
+  // moment the canvasser is deciding what to open with, not after scrolling the
+  // body down to the activity feed.
+  it('sits above the knock form', () => {
+    renderSheet([target({ knockStatus: 'supporter' })])
+
+    const heading = screen.getByRole('heading', { name: 'Voter support' })
+    expect(
+      heading.compareDocumentPosition(screen.getByTestId('record-knock-form')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  // Never knocked. `unknown` is the grey the rosters print beside other people
+  // because a row needs a value; a card does not, and "Support unknown" over a
+  // door nobody has ever been to states a finding where there is no
+  // observation.
+  it('says nothing about a resident nobody has knocked', () => {
+    renderSheet([target({ knockStatus: 'unknown' })])
+
+    expect(card()).toBeNull()
+    // The household roster below still prints the grey label, which is the
+    // distinction: a row in a list of people needs a value per person, and a
+    // card stating one fact can decline to make a claim.
+    expect(
+      within(
+        screen.getByRole('heading', { name: 'Household' }).parentElement!,
+      ).getByText('Support unknown'),
+    ).toBeInTheDocument()
+  })
+
+  // A door with no answer behind it is not a stance. `not_home` is the one a
+  // canvasser meets most often, and the rest of the outcome statuses are the
+  // same argument.
+  it.each<DoorKnockStatus>([
+    'not_home',
+    'inaccessible',
+    'refused',
+    'not_a_voter',
+  ])('says nothing about a %s door', (knockStatus) => {
+    renderSheet([target({ knockStatus })])
+
+    expect(card()).toBeNull()
+  })
+
+  // Will-vote is asked at the door and stored, but nothing derives it onto
+  // `knockStatus`, so the panel has no current value to state — recorded as
+  // open in AGENTS.md rather than approximated from the last knock. The
+  // assertion is here so building it becomes a deliberate act with a failing
+  // test beside it.
+  it('makes no claim about whether they will vote', () => {
+    renderSheet([target({ knockStatus: 'supporter' })])
+
+    expect(screen.queryByText(/will vote/i)).toBeNull()
+  })
+
+  // A stance with no dated row behind it is still worth stating; the date is
+  // what has to go missing rather than be invented. This is also the offline
+  // case — a route snapshotted before ADR 0009 shipped carries no history at
+  // all.
+  it('states the support without a date when nothing in the history says when', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [supportKnock('dk-1', '2026-08-10T15:00:00.000Z', null)],
+      }),
+    ])
+
+    const support = within(card()!)
+    expect(support.getByText('Supporter')).toBeInTheDocument()
+    expect(support.queryByText(/As of/)).toBeNull()
+  })
+
+  // An override outranks the interaction history server-side, so the row that
+  // set it is the row that dates the card.
+  it('dates the card from a support-status override', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [
+          supportOverride('se-1', '2026-08-11T15:00:00.000Z', 'Supporter'),
+          supportKnock('dk-1', '2026-06-02T15:00:00.000Z', 'non_supporter'),
+        ],
+      }),
+    ])
+
+    expect(within(card()!).getByText('As of August 2026')).toBeInTheDocument()
+  })
+
+  // The newest row that speaks to support is the only one allowed to date the
+  // card. When it disagrees with the status on the payload — an override
+  // outside ADR 0009's five-row window is how that happens — the honest answer
+  // is no date, not the older row that happens to agree.
+  it('refuses to date the card from a superseded answer', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [
+          supportKnock('dk-2', '2026-08-12T15:00:00.000Z', 'unsure'),
+          supportKnock('dk-1', '2026-06-02T15:00:00.000Z', 'supporter'),
+        ],
+      }),
+    ])
+
+    const support = within(card()!)
+    expect(support.getByText('Supporter')).toBeInTheDocument()
+    expect(support.queryByText(/As of/)).toBeNull()
+  })
+
+  // ADR 0007 and 0008, at panel scale: the marker replaces the status rather
+  // than sitting beside it. "Supporter" over a footer reading "asked not to be
+  // visited again" is the pair of answers to one question that `targetMarker`
+  // exists to prevent, so the card is withheld by the same branch that
+  // withholds the script and the form.
+  it.each<[string, Partial<RoutePayloadTarget>]>([
+    ['do-not-knock', { doNotKnock: true }],
+    ['not-a-voter', { notAVoterReason: 'moved' }],
+  ])('withholds the card for a flagged %s resident', (_label, flag) => {
+    renderSheet([target({ knockStatus: 'supporter', ...flag })])
+
+    expect(card()).toBeNull()
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+  })
+
+  // Support is a fact about one person, and two people behind one door
+  // disagree — the same rule the notes and the activity feed follow.
+  it('follows the selected resident rather than the household', () => {
+    renderSheet([
+      target({ knockStatus: 'supporter' }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        knockStatus: 'non_supporter',
+      }),
+    ])
+
+    expect(within(card()!).getByText('Supporter')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+
+    expect(within(card()!).getByText('Non-supporter')).toBeInTheDocument()
+  })
+})
+
 // The eleven attributes product asked to surface at the door. Every one is a
 // column already in `DOWNLOAD_COLUMNS` — handed to candidates as a CSV today
 // behind the same district access check and the same Pro gate — so this card is
@@ -553,7 +762,7 @@ describe('PersonSheet demographic information', () => {
       maritalStatus: 'Likely Married',
       hasChildrenUnder18: 'Yes',
       veteranStatus: 'Yes',
-      homeowner: 'Likely',
+      homeowner: 'Renter',
       businessOwner: 'Yes',
       levelOfEducation: 'Graduate Degree',
       estimatedIncomeAmount: 82000,
@@ -572,7 +781,7 @@ describe('PersonSheet demographic information', () => {
       ['Marital status', 'Likely Married'],
       ['Has children under 18', 'Yes'],
       ['Veteran', 'Yes'],
-      ['Homeowner', 'Likely'],
+      ['Homeowner', 'Renter'],
       ['Business owner', 'Yes'],
       ['Level of education', 'Graduate Degree'],
       ['Estimated household income', '$75k - $100k'],

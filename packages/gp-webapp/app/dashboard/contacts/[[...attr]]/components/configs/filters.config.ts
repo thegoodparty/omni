@@ -110,11 +110,10 @@ const filterSections = [
       },
       {
         key: 'homeowner',
-        label: 'Homeowner',
+        label: 'Homeownership',
         options: [
-          { key: 'homeownerYes', label: 'Yes' },
-          { key: 'homeownerLikely', label: 'Likely' },
-          { key: 'homeownerNo', label: 'No' },
+          { key: 'homeownerYes', label: 'Homeowner' },
+          { key: 'homeownerNo', label: 'Renter' },
           { key: 'homeownerUnknown', label: 'Unknown' },
         ],
       },

@@ -101,6 +101,26 @@ class _StateUniverse:
     district_names: list[str]
 
 
+@dataclass(frozen=True)
+class _GeographyVerdict:
+    """One office's geography classification: whether it
+    abstains before any embedding or LLM call, which of the state's
+    already-built universe indices the frozen menu mechanics may rank,
+    and the sentence `districts_text` carries for it.
+
+    `eligible_indices=None` means no restriction (pass-through, judicial
+    with no vocabulary in the state -- handled by `abstain` instead --
+    or a gated-off school whole-assertion): callers must check for `None`
+    rather than compare against a full index range, so a state whose
+    universe shrinks between runs is never mistaken for "nothing
+    eligible". `verdict_sentence` is `None` unless R2 actually fired.
+    """
+
+    abstain: bool
+    eligible_indices: frozenset[int] | None
+    verdict_sentence: str | None
+
+
 def _normalize_state(value: Any) -> str:
     """Strip and upper-case one value.
 
@@ -262,6 +282,276 @@ def _canonical_state_arg(value: str) -> str:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+# -- Geography filters -------------------------------------
+#
+# Fields BallotReady already ships remove impossible options from the menu
+# before the LLM sees it, and add context to the prompt. No field asserts
+# a match on its own, and denial is always within an office's own family,
+# so a correct out-of-family answer is never touched. If the filters leave
+# nothing eligible, the office abstains before the LLM.
+
+# `False` because BR cannot distinguish a residency zone (every voter in
+# the jurisdiction votes on every numbered seat) from a genuinely zoned
+# electorate on these fields alone. Gated off means no denial AND no
+# steering sentence -- the off arm must be today's behavior, or the
+# holdout's before/after comparison is contaminated. The holdout runs both
+# arms via --enable-school-whole-assertion; this constant is only the
+# default.
+SCHOOL_WHOLE_ASSERTION_ENABLED = False
+
+_PARTY_COMMITTEE_MTFCC = "X0024"  # R0: no public electoral district exists
+_STATEWIDE_MTFCC = "G4000"
+_JUDICIAL_TYPE_PREFIX = "Judicial_"
+_SOLE_SUPREME_JUDICIAL_TYPE = "Judicial_Supreme_Court_District"
+
+# Parent (whole-jurisdiction) and sub-level (numbered zone) type sets per
+# family, enumerated from the canonical vocabulary in
+# gp-data-platform/dbt/project/macros/l2_district_columns.sql
+# (get_l2_district_types(scope="all")), not hand-picked. A type added
+# there needs this table re-checked -- that coupling is why this comment
+# names the macro path instead of restating the enumeration's rationale.
+_FAMILY_PARENT_TYPES: dict[str, frozenset[str]] = {
+    "county": frozenset({"County"}),
+    "place": frozenset({"City", "Village", "Borough", "Hamlet_Community_Area"}),
+    "school": frozenset(
+        {
+            "School_District",
+            "Unified_School_District",
+            "City_School_District",
+            "County_Unified_School_District",
+            "Elementary_School_District",
+            "High_School_District",
+            "Middle_School_District",
+            "Exempted_Village_School_District",
+            "Board_of_Education_District",
+            "County_Board_of_Education_District",
+        }
+    ),
+    "county_subdivision": frozenset({"Township", "Town_District"}),
+}
+_FAMILY_SUB_TYPES: dict[str, frozenset[str]] = {
+    "county": frozenset(
+        {"County_Commissioner_District", "County_Supervisorial_District", "County_Legislative_District"}
+    ),
+    "place": frozenset({"City_Ward", "City_Council_Commissioner_District", "Village_Ward", "Borough_Ward"}),
+    "school": frozenset(
+        {
+            "School_Subdistrict",
+            "Unified_School_SubDistrict",
+            "Elementary_School_SubDistrict",
+            "High_School_SubDistrict",
+            "Board_of_Education_SubDistrict",
+            "County_Board_of_Education_SubDistrict",
+            "School_Board_District",
+        }
+    ),
+    "county_subdivision": frozenset({"Township_Ward", "Town_Ward"}),
+}
+# Census geo_id length of the family's PARENT (whole-jurisdiction) id; a
+# genuine sub-unit id is strictly longer. Measured:
+# county 5 (G4020/X0005), place 7 (G4110/G4210/X0001), school 7
+# (G5420/G5400/G5410/X0102, the LEA id), county subdivision 10 (G4040).
+_FAMILY_PARENT_GEOID_LENGTH: dict[str, int] = {
+    "county": 5,
+    "place": 7,
+    "school": 7,
+    "county_subdivision": 10,
+}
+_FAMILY_BY_MTFCC: dict[str, str] = {
+    "G4020": "county",
+    "X0005": "county",
+    "G4110": "place",
+    "G4210": "place",
+    "X0001": "place",
+    "G5420": "school",
+    "G5400": "school",
+    "G5410": "school",
+    "X0102": "school",
+    "G4040": "county_subdivision",
+}
+
+# The measured top-20 sub_area_name vocabulary splits into seat designators
+# (a whole-jurisdiction seat number) and territory words (a real slice).
+# Reading only, never a classifier input by settled design ruling: it flavors the geography sentence's wording and nothing else.
+_SEAT_DESIGNATOR_SUB_AREA_NAMES = frozenset({"Seat", "Position", "Place", "Office", "Group", "Post"})
+
+# Background knowledge (Census MTFCC + BR's own X-code extensions), used
+# only for descriptive prompt context; an unmapped code falls back to its
+# bare value rather than raising, since it still must reach the prompt.
+_MTFCC_PLAIN_ENGLISH: dict[str, str] = {
+    "G4000": "state",
+    "G4020": "county",
+    "G4040": "county subdivision (township or town)",
+    "G4110": "incorporated place (city, village, or borough)",
+    "G4210": "census-designated place (unincorporated community)",
+    "G5200": "congressional district",
+    "G5210": "state legislative district, upper chamber",
+    "G5220": "state legislative district, lower chamber",
+    "G5400": "elementary school district",
+    "G5410": "secondary school district",
+    "G5420": "unified school district",
+    "X0001": "city council district",
+    "X0005": "county commission district",
+    "X0024": "party committee area",
+    "X0102": "school subdistrict",
+}
+_MAX_PROMPT_FIELD_LENGTH = 200  # vendor text entering a prompt; capped, not trusted
+
+
+def _geo_id_family_format(geo_id: str | None, parent_length: int) -> str:
+    """Classify geo_id against a family's parent (whole-jurisdiction)
+    Census id length: "whole" (exactly the parent format), "slice" (a
+    real sub-unit id, strictly longer), or "malformed" (missing, shorter
+    than the parent format, or not digits where the family's Census id
+    must be numeric). Only the first `parent_length` characters must be
+    digits -- a slice id's own suffix need not be (Compton's trustee-area
+    geo_id ends in a letter), so this checks the parent prefix only.
+    """
+    if not geo_id:
+        return "malformed"
+    prefix = geo_id[:parent_length]
+    if len(prefix) < parent_length or not prefix.isdigit():
+        return "malformed"
+    return "whole" if len(geo_id) == parent_length else "slice"
+
+
+def _sanitize_prompt_text(value: str | None) -> str | None:
+    """Collapse embedded newlines to spaces and cap length. This is
+    vendor text entering a prompt, not operator input -- a malformed
+    sub_area value must not be able to break the block's structure or
+    blow past a reasonable field size.
+    """
+    if not value:
+        return None
+    return " ".join(str(value).split())[:_MAX_PROMPT_FIELD_LENGTH] or None
+
+
+def _build_geography_block(
+    mtfcc: str,
+    sub_area_name: str | None,
+    sub_area_value: str | None,
+    has_unknown_boundaries: bool,
+    verdict_sentence: str | None,
+) -> str:
+    """The delimited block appended to `districts_text`: context
+    only, never an assertion. Three lines always; a fourth only when R2
+    actually fired, which is what `verdict_sentence` being non-`None`
+    means.
+    """
+    name = _sanitize_prompt_text(sub_area_name)
+    value = _sanitize_prompt_text(sub_area_value)
+    if name and value:
+        sub_area_line = f"{name}: {value}"
+    else:
+        sub_area_line = name or value or "none recorded"
+
+    boundary_line = (
+        "unknown (BR is showing a higher-level area in place of this office's real territory)"
+        if has_unknown_boundaries
+        else "known (this is the office's own territory)"
+    )
+
+    lines = [
+        "Office geography (context only -- it does not decide the match):",
+        f"- Territory class: {_MTFCC_PLAIN_ENGLISH.get(mtfcc, f'mtfcc {_sanitize_prompt_text(mtfcc)}')}",
+        f"- Sub-area: {sub_area_line}",
+        f"- Boundary geometry: {boundary_line}",
+    ]
+    if verdict_sentence:
+        lines.append(f"- {verdict_sentence}")
+    return "\n".join(lines)
+
+
+def _classify_office_geography(
+    mtfcc: str,
+    is_judicial: bool,
+    has_unknown_boundaries: bool,
+    geo_id: str | None,
+    sub_area_name: str | None,
+    sub_area_value: str | None,
+    state_district_types: list[str],
+    school_whole_assertion_enabled: bool = SCHOOL_WHOLE_ASSERTION_ENABLED,
+) -> _GeographyVerdict:
+    """Map one office's geography fields to an abstain-or-restrict verdict
+    against its state's already-built universe. Classified by
+    the FIRST rule that applies:
+
+    R0: a party-committee seat has no public electoral district.
+    R1: `is_judicial` owns the office outright, by abstain (no judicial
+        vocabulary in the state and not statewide-shaped, or the state's
+        only judicial type is the wrong level) or by a judicial-only-plus-
+        State menu. It never falls through to R2 -- the flag-vs-class
+        mismatches this excludes follow the flag, not the mtfcc.
+    R2: a known family (county, place, school, county subdivision) with
+        at least one sub_area field present classifies by the boundary
+        flag and geo_id format, never by sub_area vocabulary. A
+        slice-asserted office whose state carries none of the family's
+        sub-level types abstains rather than falling back to an
+        out-of-family or statewide answer (the v1 critical fix: within-
+        family denial alone can never empty the pool on its own).
+
+    `state_district_types` is positional against the caller's own
+    embedded universe lists (`_StateUniverse.district_types`), so the
+    returned indices index directly into them.
+    """
+    if mtfcc == _PARTY_COMMITTEE_MTFCC:
+        return _GeographyVerdict(abstain=True, eligible_indices=frozenset(), verdict_sentence=None)
+
+    if is_judicial:
+        judicial_types = {t for t in state_district_types if t.startswith(_JUDICIAL_TYPE_PREFIX)}
+        is_statewide_shaped = mtfcc == _STATEWIDE_MTFCC
+        if not is_statewide_shaped and (not judicial_types or judicial_types == {_SOLE_SUPREME_JUDICIAL_TYPE}):
+            return _GeographyVerdict(abstain=True, eligible_indices=frozenset(), verdict_sentence=None)
+        eligible = frozenset(i for i, t in enumerate(state_district_types) if t in judicial_types or t == "State")
+        return _GeographyVerdict(abstain=False, eligible_indices=eligible, verdict_sentence=None)
+
+    has_sub_area = bool(sub_area_name) or bool(sub_area_value)
+    family = _FAMILY_BY_MTFCC.get(mtfcc) if has_sub_area else None
+    if family is None:
+        return _GeographyVerdict(abstain=False, eligible_indices=None, verdict_sentence=None)
+
+    if has_unknown_boundaries:
+        level = "slice"
+    else:
+        level = _geo_id_family_format(geo_id, _FAMILY_PARENT_GEOID_LENGTH[family])
+        if level == "malformed":
+            return _GeographyVerdict(abstain=False, eligible_indices=None, verdict_sentence=None)
+
+    # Vocabulary flavors the sentence only; classification never reads it.
+    is_seat_word = bool(sub_area_name) and sub_area_name.strip() in _SEAT_DESIGNATOR_SUB_AREA_NAMES
+    noun = "seat label" if is_seat_word else "sub-area"
+    if level == "slice":
+        sub_types_present = _FAMILY_SUB_TYPES[family] & set(state_district_types)
+        if not sub_types_present:
+            return _GeographyVerdict(abstain=True, eligible_indices=frozenset(), verdict_sentence=None)
+        # Two slice provenances, two honest sentences: with the flag set the
+        # displayed geometry is a stand-in (the boundary line in the block
+        # says so), and claiming the geography IS a genuine sub-area would
+        # contradict it in the same prompt.
+        if has_unknown_boundaries:
+            sentence = (
+                f"This office is a districted {noun} within its jurisdiction; the displayed "
+                "geometry is a stand-in for its real, unmapped territory."
+            )
+        else:
+            sentence = f"This office's geography is a genuine {noun} within its jurisdiction, not the whole area."
+        deny = _FAMILY_PARENT_TYPES[family]
+    else:  # "whole"
+        sentence = (
+            f"This office's geography covers the entire jurisdiction; the {noun} is a residency "
+            "zone or seat designation, not a smaller territory."
+        )
+        if family == "school" and not school_whole_assertion_enabled:
+            # Gated off: no denial and no steering sentence. Shipping the
+            # whole-jurisdiction claim into the prompt while "off" would be
+            # a soft denial in the exact direction the gate holds back.
+            return _GeographyVerdict(abstain=False, eligible_indices=None, verdict_sentence=None)
+        deny = _FAMILY_SUB_TYPES[family]
+
+    eligible = frozenset(i for i, t in enumerate(state_district_types) if t not in deny)
+    return _GeographyVerdict(abstain=False, eligible_indices=eligible, verdict_sentence=sentence)
+
+
 class L2BrMatcher:
     """Matches BallotReady offices to L2 districts. See module docstring for
     what is frozen and what changed in this PR.
@@ -318,8 +608,9 @@ class L2BrMatcher:
     # -- Read path -----------------------------------------------------
 
     def load_pending_offices(self, states: list[str] | None = None, limit: int | None = None) -> pd.DataFrame:
-        """Read the worklist. Exactly the three columns this PR needs -- the
-        geography columns exist on the table but belong to the next PR.
+        """Read the worklist, including the geography columns the
+        filters classify on (`mtfcc`, `geo_id`, `sub_area_name`,
+        `sub_area_value`, `is_judicial`, `has_unknown_boundaries`).
 
         `states=None` means no filter (read every state); `states=[]` is an
         explicit empty selection and reads nothing -- a bare `if states:`
@@ -344,7 +635,19 @@ class L2BrMatcher:
         the sole place any caller reads them.
         """
         if states is not None and not states:
-            return pd.DataFrame(columns=["br_database_id", "name", "state"])
+            return pd.DataFrame(
+                columns=[
+                    "br_database_id",
+                    "name",
+                    "state",
+                    "mtfcc",
+                    "geo_id",
+                    "sub_area_name",
+                    "sub_area_value",
+                    "is_judicial",
+                    "has_unknown_boundaries",
+                ]
+            )
 
         where_clause = ""
         if states is not None:
@@ -358,7 +661,9 @@ class L2BrMatcher:
         limit_clause = f"limit {limit}" if limit is not None else ""
 
         query = f"""
-        select br_database_id, name, state
+        select
+            br_database_id, name, state, mtfcc, geo_id, sub_area_name, sub_area_value,
+            is_judicial, has_unknown_boundaries
         from {self.pending_offices_path}
         {where_clause}
         order by br_database_id
@@ -370,6 +675,26 @@ class L2BrMatcher:
 
         pending_df = pending_df.copy()
         pending_df["state"] = pending_df["state"].map(_normalize_state)
+        # One normalization site for the geography columns, same principle as
+        # `state` above. A batch whose nullable column comes back entirely
+        # NULL (a small --states/--limit slice) is inferred float64 by
+        # pandas, and NaN is TRUTHY: it would subscript-crash the geo_id
+        # format check, classify a no-sub_area office as carrying one, and
+        # render the literal string "nan" into a prompt. Coercing here means
+        # every consumer sees None/bool by construction.
+        # BR has shipped the literal string "null" for this source family
+        # before (gp-api normalizes the same sentinel); zero pending rows
+        # carry it today, so this is insurance at the site that already
+        # exists, not a reachable-bug fix.
+        for column in ("mtfcc", "geo_id", "sub_area_name", "sub_area_value"):
+            coerced = pending_df[column].astype(object).where(pd.notna(pending_df[column]), None)
+            pending_df[column] = coerced.map(
+                lambda v: None if v is None or str(v).strip().lower() in ("", "null") else v
+            )
+        for column in ("is_judicial", "has_unknown_boundaries"):
+            pending_df[column] = (
+                pending_df[column].astype(object).where(pd.notna(pending_df[column]), False).astype(bool)
+            )
         _validate_pending_offices(pending_df)
         return pending_df
 
@@ -544,7 +869,9 @@ class L2BrMatcher:
             embeddings.append(result[0])
         return embeddings
 
-    async def _build_menu(self, br_name: str, state: str) -> list[DistrictCandidate]:
+    async def _build_menu(
+        self, br_name: str, state: str, eligible_indices: frozenset[int] | None = None
+    ) -> list[DistrictCandidate]:
         """Build the up-to-13-candidate menu for one office.
 
         FROZEN, owner-decided and not reviewable: top 13 by cosine on the
@@ -552,6 +879,14 @@ class L2BrMatcher:
         at index 10 (the 11th slot) if it is not already among the race
         results, then the list is truncated back to 13. A heuristic, not a
         guarantee. Do not "fix" it.
+
+        `eligible_indices` narrows WHICH universe indices those
+        frozen mechanics may rank -- `None` means every index is eligible,
+        today's behavior. It is applied to both rankings before either
+        truncates, not after: trimming a denied candidate out of the top 13
+        post hoc would still let it occupy a slot and displace an eligible
+        rank-14 candidate, and it would still be eligible for the slot-11
+        insertion.
 
         Raises if `state` has no built universe entry. A missing input is
         an infrastructure failure, not a judgment: returning an empty menu
@@ -567,6 +902,7 @@ class L2BrMatcher:
         race_query_embedding, state_query_embedding = await self._embed_query_texts([race_query, state_query])
 
         embeddings = state_universe.embeddings
+        pool = range(len(embeddings)) if eligible_indices is None else eligible_indices
 
         def _candidate(idx: int) -> DistrictCandidate:
             return DistrictCandidate(
@@ -576,7 +912,7 @@ class L2BrMatcher:
             )
 
         race_similarities = sorted(
-            ((self._cosine_similarity(race_query_embedding, embeddings[i]), i) for i in range(len(embeddings))),
+            ((self._cosine_similarity(race_query_embedding, embeddings[i]), i) for i in pool),
             reverse=True,
         )
         race_results = race_similarities[:MENU_SIZE]
@@ -584,7 +920,7 @@ class L2BrMatcher:
         candidates = [_candidate(idx) for _, idx in race_results]
 
         state_similarities = sorted(
-            ((self._cosine_similarity(state_query_embedding, embeddings[i]), i) for i in range(len(embeddings))),
+            ((self._cosine_similarity(state_query_embedding, embeddings[i]), i) for i in pool),
             reverse=True,
         )
 
@@ -594,17 +930,35 @@ class L2BrMatcher:
                 candidates.insert(STATE_QUERY_INSERT_INDEX, _candidate(state_idx))
                 candidates = candidates[:MENU_SIZE]
 
+        if eligible_indices is not None and not candidates:
+            # A restriction that empties the menu is cross-repo drift (the
+            # universe always carries the synthetic State row today), not a
+            # judgment: recording it as an abstention would close the office
+            # for 30 days over an infrastructure failure.
+            raise ValueError(f"Geography restriction left no eligible candidates for state {state!r}")
+
         return candidates
 
-    async def _select_candidate(self, br_name: str, candidates: list[DistrictCandidate]) -> dict[str, Any]:
-        """Ask the LLM to pick a candidate. FROZEN: prompt, schema, trace
-        name. Never catches -- an LLM failure must fail the run, not be
-        delivered as a match.
+    async def _select_candidate(
+        self, br_name: str, candidates: list[DistrictCandidate], geography_block: str = ""
+    ) -> dict[str, Any]:
+        """Ask the LLM to pick a candidate. FROZEN: prompt template,
+        response schema, trace name, and the other three variables. Never
+        catches -- an LLM failure must fail the run, not be delivered as a
+        match.
+
+        `geography_block` is appended to this function's own
+        `districts_text` value, after the frozen candidate list -- no new
+        template variable. Empty by default so a caller that never
+        classifies geography (this file's own frozen-core tests) gets the
+        unchanged string.
         """
         district_descriptions = [
             f"{i}. {c.l2_district_name} ({c.l2_district_type})" for i, c in enumerate(candidates, 1)
         ]
         districts_text = "\n".join(district_descriptions)
+        if geography_block:
+            districts_text = f"{districts_text}\n\n{geography_block}"
         state = candidates[0].l2_state if candidates else "Unknown"
         num_districts = str(len(candidates))
 
@@ -674,17 +1028,63 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
 
     # -- Terminal-outcome contract: a match, an abstention, or a raise ---
 
-    async def match_office(self, br_database_id: int, br_name: str, state: str) -> MatchResult:
+    async def match_office(
+        self,
+        br_database_id: int,
+        br_name: str,
+        state: str,
+        mtfcc: str = "",
+        is_judicial: bool = False,
+        has_unknown_boundaries: bool = False,
+        geo_id: str | None = None,
+        sub_area_name: str | None = None,
+        sub_area_value: str | None = None,
+        school_whole_assertion_enabled: bool = SCHOOL_WHOLE_ASSERTION_ENABLED,
+    ) -> MatchResult:
         """Match one BR office to an L2 district, or abstain.
 
         Persists only matches and abstentions. Never converts an LLM or
         embedding failure into a result -- it propagates so the run fails
         instead of being recorded as a match (the old
         `selected_district_name == "LLM_ERROR"` bug this replaces).
-        """
-        candidates = await self._build_menu(br_name, state)
 
-        response = await self._select_candidate(br_name, candidates)
+        The geography parameters default to values that classify as
+        pass-through (not judicial, no sub_area), so an existing
+        caller that only cares about the terminal-outcome contract is
+        unaffected. A geography-driven abstain returns before any query
+        embedding or LLM call, with `confidence=None` -- no model judgment
+        happened.
+        """
+        state_universe = self._universe_by_state.get(state)
+        if state_universe is None:
+            raise ValueError(f"No district universe built for state {state!r}; cannot classify or match")
+
+        verdict = _classify_office_geography(
+            mtfcc=mtfcc,
+            is_judicial=is_judicial,
+            has_unknown_boundaries=has_unknown_boundaries,
+            geo_id=geo_id,
+            sub_area_name=sub_area_name,
+            sub_area_value=sub_area_value,
+            state_district_types=state_universe.district_types,
+            school_whole_assertion_enabled=school_whole_assertion_enabled,
+        )
+        if verdict.abstain:
+            return MatchResult(br_database_id, None, None, None, confidence=None)
+
+        candidates = await self._build_menu(br_name, state, verdict.eligible_indices)
+        # No block when no geography was supplied (mtfcc is 100% populated on
+        # the real worklist, so an empty one means a caller that never
+        # classified): fabricated blank context is worse than none.
+        geography_block = (
+            _build_geography_block(
+                mtfcc, sub_area_name, sub_area_value, has_unknown_boundaries, verdict.verdict_sentence
+            )
+            if mtfcc
+            else ""
+        )
+
+        response = await self._select_candidate(br_name, candidates, geography_block)
         selected_index, confidence = _selection_from_response(response, len(candidates))
 
         if selected_index == 0:
@@ -707,6 +1107,7 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
         limit: int | None = None,
         batch_size: int = 100,
         embedding_batch_size: int = 100,
+        school_whole_assertion_enabled: bool = SCHOOL_WHOLE_ASSERTION_ENABLED,
     ) -> list[MatchResult]:
         """Match the pending worklist. Writes nothing -- this returns
         terminal results for the caller to print or persist.
@@ -734,7 +1135,21 @@ Base decisions on semantic meaning, geography, and functional appropriateness.
             for batch_start in range(0, len(offices), batch_size):
                 batch = offices[batch_start : batch_start + batch_size]
                 batch_results = await asyncio.gather(
-                    *(self.match_office(office.br_database_id, office.name, office.state) for office in batch)
+                    *(
+                        self.match_office(
+                            br_database_id=office.br_database_id,
+                            br_name=office.name,
+                            state=office.state,
+                            mtfcc=office.mtfcc,
+                            is_judicial=office.is_judicial,
+                            has_unknown_boundaries=office.has_unknown_boundaries,
+                            geo_id=office.geo_id,
+                            sub_area_name=office.sub_area_name,
+                            sub_area_value=office.sub_area_value,
+                            school_whole_assertion_enabled=school_whole_assertion_enabled,
+                        )
+                        for office in batch
+                    )
                 )
                 results.extend(batch_results)
                 self.logger.info(f"Matched {len(results)}/{len(offices)} offices")
@@ -815,6 +1230,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=100,
         help="District texts embedded per call when building the universe (positive; default: 100)",
     )
+    parser.add_argument(
+        "--enable-school-whole-assertion",
+        action="store_true",
+        help=(
+            "Deny school SUB-level types for whole-asserted school offices. Off by default until "
+            "the holdout adjudicates residency zones vs zoned electorates; the holdout runs both arms"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -827,6 +1250,7 @@ async def main() -> None:
             limit=args.limit,
             batch_size=args.batch_size,
             embedding_batch_size=args.embedding_batch_size,
+            school_whole_assertion_enabled=args.enable_school_whole_assertion,
         )
         matcher.print_summary(results)
     finally:

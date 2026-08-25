@@ -315,6 +315,80 @@ describe('buildVoterFiltersSql', () => {
     })
   })
 
+  describe('homeowner filter (ENG-10947)', () => {
+    it('folds Probable Home Owner into the Homeowner selection', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Yes'] },
+        filterOperators: {
+          homeowner: { operator: 'eq', value: 'Yes' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Homeowner_Probability_Model')
+      expect(sqlStr).toContain('ANY(ARRAY[')
+      expect(flatValues(result)).toEqual(['Home Owner', 'Probable Home Owner'])
+    })
+
+    it('also folds Probable Home Owner in through the multi-select `in` path', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Yes', 'No'] },
+        filterOperators: {
+          homeowner: { operator: 'in', values: ['Yes', 'No'] },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+
+      expect(flatValues(result)).toEqual([
+        'Home Owner',
+        'Probable Home Owner',
+        'Renter',
+      ])
+    })
+
+    it('maps the Unknown selection to IS NULL', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Unknown'] },
+        filterOperators: {
+          homeowner: { operator: 'eq', value: 'Unknown' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Homeowner_Probability_Model')
+      expect(sqlStr).toContain('IS NULL')
+    })
+
+    // Saved filters persisted before the Homeowner/Renter/Unknown collapse
+    // can still carry the legacy `homeownerLikely` boolean, which resolves
+    // to this wire value — it must keep resolving to ONLY the probable
+    // bucket, not the folded Homeowner selection above.
+    it('keeps the legacy Likely wire value resolving to Probable Home Owner only', () => {
+      const filterData: FilterData = {
+        filters: ['homeowner'],
+        filterValues: { homeowner: ['Likely'] },
+        filterOperators: {
+          homeowner: { operator: 'eq', value: 'Likely' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Homeowner_Probability_Model')
+      expect(sqlStr).not.toContain('ANY(ARRAY[')
+      expect(flatValues(result)).toEqual(['Probable Home Owner'])
+    })
+  })
+
   describe('politicalParty filter (reconciled with display classifier)', () => {
     it('matches Democratic via an exact-value IN, not ILIKE', () => {
       const result = buildVoterFiltersSql(partyFilter(['Democratic']))

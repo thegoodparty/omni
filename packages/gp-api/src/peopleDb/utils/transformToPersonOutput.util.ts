@@ -52,9 +52,10 @@ export const mapHomeowner = (
 ): PersonOutputFormat['homeowner'] => {
   if (!value) return null
   const v = value.toLowerCase()
-  if (v === 'home owner') return 'Yes'
-  if (v === 'probable home owner') return 'Likely'
-  if (v === 'renter') return 'No'
+  // Probable homeowner folds into 'Homeowner' — display vocabulary matches
+  // the Homeowner/Renter/Unknown filter taxonomy (ENG-10947).
+  if (v === 'home owner' || v === 'probable home owner') return 'Homeowner'
+  if (v === 'renter') return 'Renter'
   return null
 }
 
