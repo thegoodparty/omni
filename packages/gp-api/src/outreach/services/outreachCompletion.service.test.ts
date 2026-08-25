@@ -1,5 +1,6 @@
 import { BadGatewayException } from '@nestjs/common'
-import { addDays, format, subDays } from 'date-fns'
+import { addDays, subDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { DateFormats } from '@/shared/util/date.util'
@@ -21,10 +22,16 @@ const DEFAULT_PROJECT_ID = 'peerly-job'
 
 // The completion predicate compares a job's `end_date` against the real
 // wall-clock date (`sweepOutreachCompletions` sources `now` itself), so these
-// fixtures are relative to today rather than fixed calendar dates.
-const PAST_END_DATE = format(subDays(new Date(), 1), DateFormats.isoDate)
-const TODAY_END_DATE = format(new Date(), DateFormats.isoDate)
-const FUTURE_END_DATE = format(addDays(new Date(), 1), DateFormats.isoDate)
+// fixtures are relative to today rather than fixed calendar dates. They must
+// be formatted in UTC to match the predicate, which reads both sides as UTC
+// (`parseIsoDateAsUTC` and `getMidnightForDate`) — a local `format` would put
+// "today" a day behind UTC for any developer west of Greenwich after 7pm.
+const utcDate = (date: Date) =>
+  formatInTimeZone(date, 'UTC', DateFormats.isoDate)
+
+const PAST_END_DATE = utcDate(subDays(new Date(), 1))
+const TODAY_END_DATE = utcDate(new Date())
+const FUTURE_END_DATE = utcDate(addDays(new Date(), 1))
 
 let campaign: Campaign
 let completionService: OutreachCompletionService
