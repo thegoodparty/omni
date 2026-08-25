@@ -174,12 +174,18 @@ export class DoorKnockingController {
     return this.serveService.serve(id, organization)
   }
 
+  // Returns the stream rather than awaiting the pack: awaiting it kept the
+  // socket idle for the whole build (12.7-43.5s, and the gateway cuts at
+  // ~120s with no status written). The stream writes its magic immediately
+  // and heartbeats until the pack is ready — see utils/packStream.util.ts.
+  // The corollary is that a build failure lands after this 200, as an error
+  // frame and a log line, not as a status code.
   @Get('pack')
   @UseOrganization()
   @Header('Content-Type', 'application/octet-stream')
   async pack(@ReqOrganization() organization: Organization) {
     await this.contacts.assertProAccess(organization)
-    return new StreamableFile(await this.packService.build(organization))
+    return new StreamableFile(this.packService.stream(organization))
   }
 
   // The draw step's address list (ADR 0010). A read of voter data, so it is

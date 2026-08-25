@@ -12,6 +12,7 @@ import {
   PackRow,
   statusesToBytes,
 } from '../utils/packEncoder.utils'
+import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
 
 const VOTER_TABLE = Prisma.raw('"green"."Voter"')
 const DV_TABLE = Prisma.raw('"green"."DistrictVoter"')
@@ -34,6 +35,9 @@ const EMPTY_FILTERS: FilterData = {
 
 const BATCH_SIZE = 50_000
 
+const BATCH_TIMEOUT_MESSAGE =
+  'The voter map took too long to build. Please try again.'
+
 @Injectable()
 export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   constructor(private readonly districtService: DistrictService) {
@@ -44,7 +48,14 @@ export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // SoA encoder in bounded batches, never materializing the whole district
   // as JS objects. The pack is a payload, not an artifact — built per
   // request, never stored.
-  async build(request: DoorKnockingPackRequest): Promise<Buffer> {
+  //
+  // `signal` is the caller's response stream. A build with nobody left to
+  // read it stops at the next batch boundary rather than scanning the rest of
+  // the district for a socket that is already closed.
+  async build(
+    request: DoorKnockingPackRequest,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
     const resolved = await resolveDistrict(this.districtService, request)
     const effectiveDistrictId = resolved.useVoterOnlyPath
       ? null
@@ -57,6 +68,9 @@ export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
 
     let cursor: string | null = null
     for (;;) {
+      if (signal?.aborted) {
+        throw new Error('pack build abandoned: the client is gone')
+      }
       const whereClause = buildVoterWhereSql({
         state: resolved.state,
         districtId: effectiveDistrictId,
@@ -66,7 +80,12 @@ export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
           ...(cursor !== null ? [Prisma.sql`v."id" > ${cursor}::uuid`] : []),
         ],
       })
-      const rows: PackRow[] = await this.client.$queryRaw<PackRow[]>(
+      // Guarded like every other people-db query (see peopleDb/AGENTS.md):
+      // unguarded, a pathological plan here rides the 60s socket timeout and
+      // keeps burning people-db CPU for another 35s after the request has been
+      // abandoned — the exact amplification a retry on a slow endpoint causes.
+      const rows: PackRow[] = await runUnderStatementTimeout<PackRow>(
+        this.client,
         Prisma.sql`
         SELECT v."id",
           v."Residence_Addresses_Latitude"::float8 AS "lat",
@@ -93,6 +112,8 @@ export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
         ${whereClause}
         ORDER BY v."id"
         LIMIT ${BATCH_SIZE}`,
+        this.logger,
+        BATCH_TIMEOUT_MESSAGE,
       )
       for (const row of rows) {
         encoder.add(row)

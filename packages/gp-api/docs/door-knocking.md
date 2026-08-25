@@ -459,15 +459,79 @@ whose correction someone will later want to trace.
 ## The pack (exploration map, step 2)
 
 `GET /v1/door-knocking/pack` (gp-api), served in-process by `src/peopleDb/`.
-Built per request from people_db, never stored: positions +
-person→household→dot index arrays + one byte per person per dimension
-(SoA). Dim buckets are derived by inverting `src/peopleDb`'s `VALUE_MAPPERS`,
-so pack filtering can't drift from list-filter semantics. The
-`canvassStatus` plane is encoded from the org-wide latest-per-person
-statuses gp-api ships with the request (`(personId, status)` only — no
-PII), so the proxy never patches bytes. Map-minimal SELECT: no
+Built per request from people_db, **still never stored** — see "Why it is
+still built per request" below: positions + person→household→dot index arrays
++ one byte per person per dimension (SoA). Dim buckets are derived by
+inverting `src/peopleDb`'s `VALUE_MAPPERS`, so pack filtering can't drift from
+list-filter semantics. The `canvassStatus` plane is encoded from the org-wide
+latest-per-person statuses gp-api ships with the request (`(personId, status)`
+only — no PII), so the proxy never patches bytes. Map-minimal SELECT: no
 AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
 `registered` computed as `(StateVoterID IS NOT NULL)`.
+
+### The response is a stream, and that is the whole point
+
+A district scan takes 12.7-43.5 seconds and the encoder produces nothing until
+the last row. The route used to await the finished `Buffer` and hand it to
+`StreamableFile`, so **the socket carried no bytes for the length of the
+build** — and the gateway drops an idle connection at ~120s without writing a
+status. Two of thirteen requests in the seven days to 2026-08-25 died exactly
+there, logging `responseTimeMs: 119999, statusCode: null`. Nobody saw an
+error, because React Query's retry eventually won; the candidate saw a spinner
+for 165 seconds.
+
+So the response now opens **before** the build starts and stays busy while it
+runs (`doorKnocking/utils/packStream.util.ts`, framing in
+`contracts/.../DoorKnockingPack.schema.ts`):
+
+```
+[8 bytes magic "GPPACKS1"]                     written before the first query
+[u32 kind][u32 length][payload, padded to 8]   heartbeat every 15s
+...
+[u32 kind=pack][u32 length][the pack]          the payload, unchanged
+```
+
+The guarantee is the heartbeat, not the streaming: partial delivery would
+still go quiet for however long one 50,000-row batch takes, while a timer
+bounds the idle gap at 15 seconds no matter what people_db does. **The pack
+itself is byte-identical** — the encoder is untouched, and only its start
+offset moved, which is why the frames are padded to 8 bytes (the manifest's
+4-byte-aligned offsets stay aligned, and the browser still mounts typed-array
+views without copying).
+
+Three consequences worth knowing before changing this:
+
+- **A failed build can no longer be an HTTP error.** The status line is 200
+  before the build begins. A failure is an `error` frame plus a
+  `DoorKnockingPackBuildFailed` log line, and that log line is what pages —
+  the per-route status alert sees a 200. A response that ends with no pack
+  frame makes the decoder throw rather than render an empty district.
+- **The client's disconnect now cancels the build.** Destroying the response
+  aborts the signal `VoterPackService.build` checks between batches. Killing
+  the connection never cancelled the Postgres scan, so a retry used to contend
+  with a build still running for nobody — which is also why the webapp query
+  is `retry: 0` with a 90s `AbortSignal.timeout` (under the gateway's ceiling,
+  so the client fails first and visibly).
+- **Every batch runs under the 25s statement timeout** like every other
+  people-db query (`peopleDb/AGENTS.md`). This query was the last one that
+  didn't.
+
+### Why it is still built per request
+
+Caching the pack behind an ETag keyed on `(districtId, knock revision)` is the
+larger win — a repeat load would be a 304 instead of a 43-second rebuild — and
+it is **deliberately not done here**, because getting the key wrong shows a
+canvasser yesterday's dots. The key has to invalidate on all three of its
+inputs and only two are in reach: the org's knock history (queryable) and
+`districtId` (trivial). The third is the L2-derived voter data itself, which
+has **no revision handle exposed to gp-api** — no mirror watermark, no refresh
+timestamp on the read path — so any cache built today would be pinned on a
+staleness window somebody has to choose rather than on a fact. That is a
+product call about how stale a map may be, not an implementation detail, and
+it wants answering before the flag widens past one district.
+
+Note also that `generatedAt` in the manifest changes on every build, so a
+cache has to stabilize it or no two responses ever share an ETag.
 
 ## The address preview (draw step)
 

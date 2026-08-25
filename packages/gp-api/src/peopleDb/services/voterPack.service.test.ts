@@ -32,7 +32,11 @@ const dbRow = (id: string, overrides: Record<string, unknown> = {}) => ({
 
 describe('VoterPackService', () => {
   let service: VoterPackService
-  let mockClient: { $queryRaw: ReturnType<typeof vi.fn> }
+  let mockClient: {
+    $queryRaw: ReturnType<typeof vi.fn>
+    $executeRaw: ReturnType<typeof vi.fn>
+    $transaction: ReturnType<typeof vi.fn>
+  }
   const mockDistrictService = {
     findDistrictById: vi.fn().mockResolvedValue({
       id: DISTRICT_ID,
@@ -43,7 +47,15 @@ describe('VoterPackService', () => {
   }
 
   beforeEach(() => {
-    mockClient = { $queryRaw: vi.fn() }
+    // Every batch now runs through runUnderStatementTimeout, which issues the
+    // SET LOCAL and the SELECT as one Prisma batch transaction.
+    mockClient = {
+      $queryRaw: vi.fn(),
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      $transaction: vi.fn((operations: Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
+    }
     service = new VoterPackService(mockDistrictService as never)
     ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
       get instance() {
@@ -100,6 +112,43 @@ describe('VoterPackService', () => {
 
     const query = mockClient.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql
     expect(query.strings.join('?')).toContain('GeoMatchRooftop')
+  })
+
+  // Unguarded, a pathological plan here runs past the client's socket timeout
+  // and keeps burning people-db CPU after the request is gone — the
+  // amplification peopleDb/AGENTS.md documents and this query was missing.
+  it('runs every batch under the statement timeout', async () => {
+    mockClient.$queryRaw.mockResolvedValueOnce([])
+
+    await service.build({ districtId: DISTRICT_ID })
+
+    expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+    const timeoutSql = mockClient.$executeRaw.mock.calls[0]?.[0] as Prisma.Sql
+    expect(timeoutSql.strings.join('')).toContain('statement_timeout')
+  })
+
+  // Killing the connection does not cancel the scan, so a build nobody is
+  // reading has to stop asking for more of the district.
+  it('stops paginating once the caller has abandoned the build', async () => {
+    const full = Array.from({ length: 50_000 }, (_, i) =>
+      dbRow(`${String(i).padStart(8, '0')}-1111-1111-1111-111111111111`),
+    )
+    // A short second page, so a build that ignored the signal would finish
+    // rather than spin: the assertions below are what catch it either way.
+    mockClient.$queryRaw.mockResolvedValueOnce(full).mockResolvedValue([])
+    const abort = new AbortController()
+    mockClient.$transaction.mockImplementation(
+      async (operations: Promise<unknown>[]) => {
+        const result = await Promise.all(operations)
+        abort.abort()
+        return result
+      },
+    )
+
+    await expect(
+      service.build({ districtId: DISTRICT_ID }, abort.signal),
+    ).rejects.toThrow('abandoned')
+    expect(mockClient.$queryRaw).toHaveBeenCalledTimes(1)
   })
 
   it('threads knock statuses into the canvassStatus plane', async () => {

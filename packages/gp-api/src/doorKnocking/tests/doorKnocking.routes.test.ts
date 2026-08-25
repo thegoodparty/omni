@@ -1,7 +1,13 @@
+import { Readable } from 'node:stream'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
   ROUTE_TARGET_ACTIVITY_LIMIT,
   ROUTE_TARGET_NOTE_LIMIT,
 } from '@goodparty_org/contracts'
@@ -3167,6 +3173,30 @@ describe('door-knocking routes', () => {
     })
   })
   describe('pack', () => {
+    const packBytes = Buffer.from([1, 2, 3, 4])
+
+    // Reads the streaming envelope: magic, then frames, and returns the
+    // payload of the pack frame. Mirrors the webapp's packDecoder.
+    const unwrapPack = (body: Buffer) => {
+      expect(body.subarray(0, PACK_STREAM_MAGIC_BYTES).toString('ascii')).toBe(
+        PACK_STREAM_MAGIC,
+      )
+      let offset = PACK_STREAM_MAGIC_BYTES
+      while (offset + PACK_STREAM_FRAME_HEADER_BYTES <= body.byteLength) {
+        const kind = body.readUInt32LE(offset)
+        const payloadBytes = body.readUInt32LE(offset + 4)
+        const start = offset + PACK_STREAM_FRAME_HEADER_BYTES
+        if (kind === PACK_STREAM_FRAME_KINDS.pack) {
+          return body.subarray(start, start + payloadBytes)
+        }
+        offset =
+          start +
+          Math.ceil(payloadBytes / PACK_STREAM_ALIGNMENT) *
+            PACK_STREAM_ALIGNMENT
+      }
+      throw new Error('no pack frame in the response')
+    }
+
     it('proxies the binary and threads org knock statuses', async () => {
       const personId = '77777777-1111-1111-1111-111111111111'
       await service.prisma.contactInteractionDoorKnock.create({
@@ -3178,7 +3208,6 @@ describe('door-knocking routes', () => {
           supportAnswer: 'supporter',
         },
       })
-      const packBytes = Buffer.from([1, 2, 3, 4])
       let packRequest: DoorKnockingPackRequest | undefined
       vi.spyOn(
         service.app.get(DoorKnockingPeopleApiService),
@@ -3196,11 +3225,89 @@ describe('door-knocking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toContain('application/octet-stream')
-      expect(Buffer.from(res.data as ArrayBuffer)).toEqual(packBytes)
+      expect(unwrapPack(Buffer.from(res.data as ArrayBuffer))).toEqual(
+        packBytes,
+      )
       expect(packRequest?.knockStatuses).toEqual([
         { personId, status: 'supporter' },
       ])
       expect(packRequest?.districtId).toBe(DISTRICT_ID)
+    })
+
+    // The production defect, at the wire: the route used to await the whole
+    // build before sending anything, so the socket stayed idle for the length
+    // of a district scan and the gateway killed it at 120s with no status
+    // written. With the build held open below, a route that still buffered
+    // would never send headers and this request would never resolve.
+    it('sends the response head before the build has finished', async () => {
+      let finishBuild: (pack: Buffer) => void = () => undefined
+      let buildSettled = false
+      const packSpy = vi
+        .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
+        .mockImplementation(
+          () =>
+            new Promise<Buffer>((resolve) => {
+              finishBuild = (pack) => {
+                buildSettled = true
+                resolve(pack)
+              }
+            }),
+        )
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'stream',
+        validateStatus: () => true,
+      })
+      const body = res.data as Readable
+      const chunks: Buffer[] = []
+      const firstChunk = new Promise<void>((resolve) =>
+        body.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+          resolve()
+        }),
+      )
+      const ended = new Promise<void>((resolve) =>
+        body.once('end', () => resolve()),
+      )
+
+      expect(res.status).toBe(200)
+      await firstChunk
+      expect(buildSettled).toBe(false)
+      expect(
+        chunks[0]?.subarray(0, PACK_STREAM_MAGIC_BYTES).toString('ascii'),
+      ).toBe(PACK_STREAM_MAGIC)
+
+      // The head lands ahead of the people-db call, not just ahead of its
+      // result, so wait for the build to actually be in flight before
+      // releasing it.
+      await vi.waitFor(() => expect(packSpy).toHaveBeenCalled())
+      finishBuild(packBytes)
+      await ended
+      expect(unwrapPack(Buffer.concat(chunks))).toEqual(packBytes)
+    })
+
+    // A build that dies after the head is out cannot be an HTTP error, so the
+    // envelope has to carry the failure instead — otherwise the browser reads
+    // a truncated 200 as an empty district.
+    it('carries a post-head build failure as an error frame', async () => {
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockRejectedValue(new Error('people-db is down'))
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(200)
+      const body = Buffer.from(res.data as ArrayBuffer)
+      expect(() => unwrapPack(body)).toThrow('no pack frame')
+      expect(body.readUInt32LE(PACK_STREAM_MAGIC_BYTES)).toBe(
+        PACK_STREAM_FRAME_KINDS.error,
+      )
     })
   })
 

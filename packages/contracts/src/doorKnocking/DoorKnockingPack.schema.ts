@@ -8,10 +8,13 @@ import { DoorKnockStatusSchema } from './DoorKnockingRoutePayload.schema'
 //   boundary][typed arrays]
 //
 // where each typed array sits at its manifest-declared byteOffset from the
-// START of the buffer (f32/u32 arrays are 4-byte aligned). Consumers must
+// START of the pack (f32/u32 arrays are 4-byte aligned). Consumers must
 // trust the manifest, not a fixed layout. The `canvassStatus` dim is joined
 // inside the encoder from the statuses gp-api sends with the request — the
 // binary is never patched after the fact.
+//
+// That pack rides inside the streaming envelope below, so its byteOffsets are
+// relative to the pack frame's payload rather than to byte 0 of the response.
 export const DoorKnockingPackRequestSchema = z
   .object({
     districtId: z.guid(),
@@ -35,6 +38,35 @@ export const DoorKnockingPackRequestSchema = z
 export type DoorKnockingPackRequest = z.infer<
   typeof DoorKnockingPackRequestSchema
 >
+
+// The pack takes tens of seconds to build and produces no bytes until the
+// last one, which left the socket idle long enough for the gateway to kill
+// the connection without writing a status (prod 2026-08-25). The envelope
+// exists so the response can be committed and kept alive from the first
+// millisecond: gp-api writes the magic before it issues a query, heartbeat
+// frames while the build runs, and the pack itself in a final frame.
+//
+//   [8 bytes: PACK_STREAM_MAGIC]
+//   repeated: [u32 LE kind][u32 LE payload byte length][payload, zero-padded
+//             to PACK_STREAM_ALIGNMENT]
+//
+// Payload padding keeps every frame — and therefore the pack frame's payload —
+// 8-byte aligned, so the manifest's 4-byte-aligned offsets stay aligned once
+// the pack's start offset is added and consumers can still mount typed-array
+// views without copying.
+//
+// A response that ends without a pack frame is a failed build, not an empty
+// map: the decoder must throw rather than render nothing.
+export const PACK_STREAM_MAGIC = 'GPPACKS1'
+export const PACK_STREAM_MAGIC_BYTES = 8
+export const PACK_STREAM_FRAME_HEADER_BYTES = 8
+export const PACK_STREAM_ALIGNMENT = 8
+
+export const PACK_STREAM_FRAME_KINDS = {
+  heartbeat: 1,
+  pack: 2,
+  error: 3,
+} as const
 
 export const PACK_ARRAY_TYPES = ['f32', 'u32', 'u16', 'u8'] as const
 
