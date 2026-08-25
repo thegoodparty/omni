@@ -60,7 +60,41 @@ describe('RecordPhoneBankingCallSchema', () => {
       personId: 'person-1',
     }
     expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
-      /personId is only valid when outcome is answered or refused/,
+      /personId is only valid when outcome is answered, refused, or hung_up/,
+    )
+  })
+
+  it('accepts a bare disconnected with no personId (number-level fan-out)', () => {
+    const call = { entryId: 1, outcome: 'disconnected' }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
+  })
+
+  it('rejects personId on disconnected', () => {
+    const call = { entryId: 1, outcome: 'disconnected', personId: 'person-1' }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
+      /personId is only valid when outcome is answered, refused, or hung_up/,
+    )
+  })
+
+  it('accepts a person-attributed hung_up', () => {
+    const call = { entryId: 1, outcome: 'hung_up', personId: 'person-1' }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
+  })
+
+  it('accepts a bare hung_up with no personId (number-level fan-out)', () => {
+    const call = { entryId: 1, outcome: 'hung_up' }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
+  })
+
+  it('rejects supportAnswer on hung_up', () => {
+    const call = {
+      entryId: 1,
+      outcome: 'hung_up',
+      personId: 'person-1',
+      supportAnswer: 'supporter',
+    }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
+      /supportAnswer is only valid when outcome is answered/,
     )
   })
 

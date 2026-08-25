@@ -104,6 +104,15 @@ const ELECTION_DATE_DISAMBIGUATION_RULE =
   'and a general), ground the call in whichever one is the next ' +
   'upcoming election — never combine or confuse the two.'
 
+// ENG-10936: instructions personalize the draft but never outrank the
+// grounding/compliance/token rules above — named explicitly so the model
+// treats them as a floor the candidate's ask cannot punch through.
+const INSTRUCTIONS_PRIORITY_RULE =
+  "If the candidate's own instructions are given below, follow them as " +
+  'long as they do not conflict with the rules above — never invent a ' +
+  'date, place, or fact even if instructed to, and never drop the ' +
+  `volunteer opener or the "[your name]"/"${VOTER_NAME_TOKEN}" tokens.`
+
 const DRAFT_SYSTEM_PROMPT = [
   'You are a campaign writing assistant helping an independent,',
   'non-partisan local candidate draft one phone-banking call script for',
@@ -119,6 +128,7 @@ const DRAFT_SYSTEM_PROMPT = [
   `- ${COMPLIANCE_BAN_RULE}`,
   `- ${NO_PLACEHOLDER_BRACKETS_RULE}`,
   `- ${ELECTION_DATE_DISAMBIGUATION_RULE}`,
+  `- ${INSTRUCTIONS_PRIORITY_RULE}`,
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone.',
   '- Keep the script roughly 60-150 words of spoken, conversational',
@@ -144,20 +154,54 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  fill it.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
-  '- Keep roughly the same length as the original. Do not add new',
-  '  sentences the original does not have.',
+  '- Keep roughly the same length as the original and do not add new',
+  "  sentences it does not have, UNLESS the candidate's own instructions",
+  '  below explicitly ask for additions — then make the instructed',
+  '  additions instead of holding to this length rule.',
   '- Never add policy positions, issue stances, endorsements,',
   '  statistics, dates, places, or events the original text does not',
   '  contain — campaign materials, when provided, are context for tone',
   '  and accuracy, not a source of new content in a polish.',
   `- ${COMPLIANCE_BAN_RULE} Remove any that appear in the original.`,
+  `- ${INSTRUCTIONS_PRIORITY_RULE}`,
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
+// No max() here: an instructions-driven or near-cap improve result can land
+// a few chars over PHONE_BANKING_SCRIPT_MAX_LENGTH, and a hard max would
+// fail Zod validation -> caught -> 502 (an unrecoverable error from a
+// recoverable output). Robocall hit this exact bug — see
+// outreachRobocallGeneration.service.ts. Truncate at the boundary below
+// instead; the response schema still enforces the cap at the wire.
 const DraftSchema = z.object({
-  draft: z.string().min(1).max(PHONE_BANKING_SCRIPT_MAX_LENGTH),
+  draft: z.string().min(1),
 })
+
+// Delimited the same way currentDraft is (a triple-quote fence) so the
+// model reads it as quoted candidate text, not further instructions to the
+// prompt itself.
+const buildInstructionsBlock = (instructions: string): string[] => [
+  "The candidate's own instructions for this draft — follow them as " +
+    'long as they do not conflict with the rules above:',
+  '"""',
+  instructions,
+  '"""',
+]
+
+const PREVIOUS_DRAFT_VARIATION_RULE =
+  'The candidate rejected this draft. Write a noticeably different ' +
+  'script: a different opening after the volunteer opener, different ' +
+  'sentence rhythm, and different supporting details from the campaign ' +
+  'materials. Do not reuse its distinctive phrases.'
+
+const buildPreviousDraftBlock = (previousDraft: string): string[] => [
+  'The script the candidate just rejected:',
+  '"""',
+  previousDraft,
+  '"""',
+  PREVIOUS_DRAFT_VARIATION_RULE,
+]
 
 // Mirrors filingInstructions.util's formatFilingDate: these date strings
 // come from the same details/BR writers, so an unparseable value must not
@@ -213,6 +257,9 @@ export class OutreachPhoneBankingGenerationService {
               input.currentDraft,
               '"""',
               'Polish the script.',
+              ...(input.instructions
+                ? buildInstructionsBlock(input.instructions)
+                : []),
             ].join('\n'),
           },
         ]
@@ -220,7 +267,16 @@ export class OutreachPhoneBankingGenerationService {
           { role: 'system', content: DRAFT_SYSTEM_PROMPT },
           {
             role: 'user',
-            content: [...context, 'Write the call script.'].join('\n'),
+            content: [
+              ...context,
+              ...(input.previousDraft
+                ? buildPreviousDraftBlock(input.previousDraft)
+                : []),
+              'Write the call script.',
+              ...(input.instructions
+                ? buildInstructionsBlock(input.instructions)
+                : []),
+            ].join('\n'),
           },
         ]
 
@@ -233,7 +289,8 @@ export class OutreachPhoneBankingGenerationService {
         maxTokens: 1024,
         userId,
       })
-      return object.draft
+      // Safety net for a slightly-over-limit result (see DraftSchema above).
+      return object.draft.slice(0, PHONE_BANKING_SCRIPT_MAX_LENGTH)
     } catch (err) {
       this.logger.error({ err }, 'Phone banking script generation failed')
       throw new BadGatewayException('Phone banking script generation failed')

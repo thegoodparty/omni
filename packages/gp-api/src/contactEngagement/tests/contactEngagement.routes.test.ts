@@ -191,6 +191,46 @@ describe('ContactEngagement routes', () => {
       })
     })
 
+    it('resolves the acting user as actorName; a legacy null-actor row renders authorless', async () => {
+      const personId = 'person-win-phone-banking-actor'
+
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: PhoneBankCallOutcome.answered,
+          actorUserId: service.user.id,
+        },
+      })
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          outcome: PhoneBankCallOutcome.no_answer,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': campaignOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      const [withActor, legacy] = result.data.results
+      expect(withActor.data).toMatchObject({
+        outcome: PhoneBankCallOutcome.answered,
+        actorName: `${service.user.firstName} ${service.user.lastName}`,
+        actorUserId: service.user.id,
+      })
+      expect(legacy.data).toMatchObject({
+        outcome: PhoneBankCallOutcome.no_answer,
+        actorName: null,
+        actorUserId: null,
+      })
+    })
+
     it('omits legacy outreach rows when lalVoterId is not given, without erroring', async () => {
       const personId = 'person-win-2'
 

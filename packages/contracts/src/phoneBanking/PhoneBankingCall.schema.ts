@@ -11,10 +11,12 @@ export const PHONE_BANKING_CALL_NOTE_MAX_LENGTH = 2_000
 // Logging a call: entryId identifies the dialed number, personId (when
 // present) is who picked up — server validates it against the entry's
 // persons. supportAnswer/willVote only carry meaning for an answered call
-// that reached the named person. `refused` WITH personId is "answered but
-// refused to engage" and logs on that person alone; a number-level outcome
-// (no_answer, voicemail, wrong_number, refused with no personId) fans out
-// to every person on the entry server-side.
+// that reached the named person. `refused`/`hung_up` WITH personId is
+// person-attributed (answered but refused to engage / hung up on the
+// caller) and logs on that person alone; a number-level outcome (no_answer,
+// voicemail, wrong_number, disconnected, refused/hung_up with no personId)
+// fans out to every person on the entry server-side. `disconnected` never
+// carries a personId — a dead line was never attributable to anyone.
 export const RecordPhoneBankingCallSchema = z
   .object({
     entryId: z.number().int().positive(),
@@ -32,9 +34,11 @@ export const RecordPhoneBankingCallSchema = z
     (v) =>
       v.personId === undefined ||
       v.outcome === PhoneBankCallOutcomeSchema.enum.answered ||
-      v.outcome === PhoneBankCallOutcomeSchema.enum.refused,
+      v.outcome === PhoneBankCallOutcomeSchema.enum.refused ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.hung_up,
     {
-      message: 'personId is only valid when outcome is answered or refused',
+      message:
+        'personId is only valid when outcome is answered, refused, or hung_up',
       path: ['personId'],
     },
   )

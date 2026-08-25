@@ -22,7 +22,6 @@ const EXTENSION_BY_TYPE: Record<
   'audio/mpeg': 'mp3',
   'audio/wav': 'wav',
   'audio/x-wav': 'wav',
-  'audio/aac': 'aac',
   'audio/x-m4a': 'm4a',
 }
 

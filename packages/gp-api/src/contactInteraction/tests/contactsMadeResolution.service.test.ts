@@ -1,5 +1,9 @@
 import { useTestService } from '@/test-service'
-import { DoorKnockOutcome, OutreachType } from '@/generated/prisma'
+import {
+  DoorKnockOutcome,
+  OutreachType,
+  PhoneBankCallOutcome,
+} from '@/generated/prisma'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ContactInteractionDoorKnockService } from '../services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '../services/contactInteractionRobocall.service'
@@ -8,9 +12,9 @@ import { ContactsMadeResolutionService } from '../services/contactsMadeResolutio
 
 const service = useTestService()
 
-// ENG-10839: "a contact" is every logged interaction ROW across
-// text/robocall/door-knock, regardless of outcome — a person with 1 text +
-// 1 door knock has 2 contacts, same as 2 texts.
+// ENG-10839/ENG-10944: "a contact" is every logged interaction ROW across
+// text/robocall/door-knock/phone-banking, regardless of outcome — a person
+// with 1 text + 1 door knock has 2 contacts, same as 2 texts.
 describe('ContactsMadeResolutionService', () => {
   let resolution: ContactsMadeResolutionService
   let texts: ContactInteractionTextService
@@ -57,6 +61,16 @@ describe('ContactsMadeResolutionService', () => {
       outcome: DoorKnockOutcome.answered,
     })
 
+  const seedPhoneBanking = (organizationSlug: string, personId: string) =>
+    service.prisma.contactInteractionPhoneBanking.create({
+      data: {
+        organizationSlug,
+        personId,
+        occurredAt: new Date(),
+        outcome: PhoneBankCallOutcome.answered,
+      },
+    })
+
   beforeEach(() => {
     resolution = service.app.get(ContactsMadeResolutionService)
     texts = service.app.get(ContactInteractionTextService)
@@ -99,6 +113,26 @@ describe('ContactsMadeResolutionService', () => {
       const inB = await resolution.personIdsByContactCount(orgB, [1])
       expect(inA.has('p-shared')).toBe(true)
       expect(inB.has('p-shared')).toBe(false)
+    })
+
+    // ENG-10944: phone banking was the one contact_interaction_* table
+    // missing from the UNION — a phone-banked voter matched bucket 0
+    // forever regardless of how many calls were logged.
+    it('counts a logged phone-banking call, moving the person from bucket 0 to bucket 1', async () => {
+      const org = await seedOrganization('org-phone-banking')
+      await seedPhoneBanking(org, 'p-phone-banked')
+
+      const bucket1 = await resolution.personIdsByContactCount(org, [1])
+      expect(bucket1.has('p-phone-banked')).toBe(true)
+
+      const selectedZero = await resolution.resolveContactsMade(
+        org,
+        new Set([0]),
+      )
+      expect(selectedZero).toEqual({
+        kind: 'filter',
+        idFilter: { notIn: ['p-phone-banked'] },
+      })
     })
 
     it('OR-composes multiple requested buckets in one query', async () => {

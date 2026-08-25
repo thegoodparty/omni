@@ -237,10 +237,10 @@ follow-up, not a one-line change.
 
 The wizard's "Prior contacts made" pill row (0/1/2/3/4/5+, Win-only — hidden for
 Serve like Political Party) counts every logged interaction ROW across
-`contact_interaction_text`/`_robocall`/`_door_knock`, regardless of outcome —
-a 3-attempt door-knock sync that logs 3 rows counts as 3. Six booleans on
-`VoterFileFilter` (`contactsMade0`…`contactsMade4`, `contactsMade5Plus`,
-5Plus meaning ≥5), added additively (migration
+`contact_interaction_text`/`_robocall`/`_door_knock`/`_phone_banking`,
+regardless of outcome — a 3-attempt door-knock sync that logs 3 rows counts
+as 3. Six booleans on `VoterFileFilter` (`contactsMade0`…`contactsMade4`,
+`contactsMade5Plus`, 5Plus meaning ≥5), added additively (migration
 `20260729042120_add_contacts_made_filter_columns`) and excluded from
 `convertVoterFileFilterToFilters`'s generic loop (`fieldsHandledSeparately`,
 same treatment as the `audience*` booleans) since they resolve through
@@ -249,7 +249,7 @@ same treatment as the `audience*` booleans) since they resolve through
 
 Resolution (`ContactsMadeResolutionService`, contactInteraction) runs one
 grouped SQL query per request — `SELECT person_id, COUNT(*) FROM (UNION ALL
-of the three tables) GROUP BY person_id HAVING <bucket predicate>` — never
+of the four tables) GROUP BY person_id HAVING <bucket predicate>` — never
 six per-bucket queries. Selection `S ⊆ {0,1,2,3,4,5}` maps to one of three
 shapes:
 

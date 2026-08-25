@@ -10,18 +10,23 @@ import type {
   WillVoteAnswer,
 } from '@goodparty_org/contracts'
 
-// The five outcomes are peers in the CONTRACT, but the form renders the
+// The seven outcomes are peers in the CONTRACT, but the form renders the
 // canvas's answered -> "Did they engage?" split on top of them: Engaged
 // continues to the support/will-vote cascade (saves `answered`), Refused is
-// "answered but refused to engage" (saves `refused` attributed to the
-// active person). The top-level Refused pill stays the number-level
-// refused-without-identifying that fans out to the household.
+// "answered but refused to engage" (saves `refused` attributed to the active
+// person), Hung up is the person ending the call mid-conversation (saves
+// `hung_up` attributed to the active person). The top-level Refused/Hung up
+// pills stay the number-level fan-out variants (no identified person);
+// Disconnected (a dead line) only ever exists at the top level — like Wrong
+// number, it never carries a personId.
 export const OUTCOME_ORDER: PhoneBankCallOutcome[] = [
   'answered',
   'no_answer',
   'voicemail',
   'wrong_number',
+  'disconnected',
   'refused',
+  'hung_up',
 ]
 
 export const OUTCOME_LABEL: Record<PhoneBankCallOutcome, string> = {
@@ -29,7 +34,9 @@ export const OUTCOME_LABEL: Record<PhoneBankCallOutcome, string> = {
   no_answer: 'No answer',
   voicemail: 'Voicemail left',
   wrong_number: 'Wrong number',
+  disconnected: 'Disconnected',
   refused: 'Refused',
+  hung_up: 'Hung up',
 }
 
 // Design tokens only (no raw hex / Tailwind default palette).
@@ -38,7 +45,9 @@ export const OUTCOME_DOT_CLASS: Record<PhoneBankCallOutcome, string> = {
   no_answer: 'bg-muted-foreground',
   voicemail: 'bg-info',
   wrong_number: 'bg-destructive',
+  disconnected: 'bg-destructive',
   refused: 'bg-warning',
+  hung_up: 'bg-warning',
 }
 
 export const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {
@@ -96,15 +105,21 @@ export const hasNoLiveEnrichment = (person: PhoneBankingListPerson): boolean =>
 
 // The backend fans a number-level outcome out to every person on the entry
 // (phoneBankingCall.service.ts's `applyOutcome`), so any one person carrying
-// `wrong_number` means the whole entry does.
+// `wrong_number` or `disconnected` (both dead-line, number-level outcomes)
+// means the whole entry does.
 export const isEntrySuppressed = (entry: PhoneBankingListEntry): boolean =>
-  entry.persons.some((person) => person.interaction?.outcome === 'wrong_number')
+  entry.persons.some(
+    (person) =>
+      person.interaction?.outcome === 'wrong_number' ||
+      person.interaction?.outcome === 'disconnected',
+  )
 
 export const engagementStatusFor = (
   outcome: PhoneBankCallOutcome,
-): 'engaged' | 'refused' | undefined => {
+): 'engaged' | 'refused' | 'hung_up' | undefined => {
   if (outcome === 'answered') return 'engaged'
   if (outcome === 'refused') return 'refused'
+  if (outcome === 'hung_up') return 'hung_up'
   return undefined
 }
 
@@ -114,7 +129,7 @@ export const engagementStatusFor = (
 // downstream — is one function, testable without rendering anything.
 // `engagement` is UI-only state; it never persists (the review dropped the
 // `engaged` column) — it selects which outcome the Save writes.
-export type PhoneBankingEngagement = 'engaged' | 'refused'
+export type PhoneBankingEngagement = 'engaged' | 'refused' | 'hung_up'
 
 export interface PhoneBankingOutcomeDraft {
   outcome?: PhoneBankCallOutcome
@@ -167,27 +182,32 @@ export const draftWithWillVote = (
 // Reading a persisted row back into the cascade: an answered row that
 // carries conversation answers must have come through the engaged path; a
 // bare answered row (a markHouseholdDone fill) leaves engagement unpicked
-// so an edit re-asks the question. A `refused` row can't distinguish
-// person-level from fan-out on read, so EVERY refused reopens through the
-// answered -> engage-Refused path: an unchanged re-save then emits the
-// person-attributed write (one upsert on this person) instead of the
-// number-level fan-out, which would silently overwrite every housemate's
-// row. An originally fan-out refused loses nothing — its housemates' rows
-// already exist and the re-save only refreshes the active person's.
+// so an edit re-asks the question. A `refused`/`hung_up` row can't
+// distinguish person-level from fan-out on read, so EVERY refused/hung_up
+// reopens through the answered -> engage path: an unchanged re-save then
+// emits the person-attributed write (one upsert on this person) instead of
+// the number-level fan-out, which would silently overwrite every
+// housemate's row. An originally fan-out refused/hung_up loses nothing —
+// its housemates' rows already exist and the re-save only refreshes the
+// active person's.
 export const draftFromInteraction = (
   interaction: PhoneBankingInteraction | null,
 ): PhoneBankingOutcomeDraft =>
   interaction
     ? {
         outcome:
-          interaction.outcome === 'refused' ? 'answered' : interaction.outcome,
+          interaction.outcome === 'refused' || interaction.outcome === 'hung_up'
+            ? 'answered'
+            : interaction.outcome,
         engagement:
           interaction.outcome === 'answered' &&
           (interaction.supportAnswer || interaction.willVote)
             ? 'engaged'
             : interaction.outcome === 'refused'
               ? 'refused'
-              : undefined,
+              : interaction.outcome === 'hung_up'
+                ? 'hung_up'
+                : undefined,
         supportAnswer: interaction.supportAnswer ?? undefined,
         willVote: interaction.willVote ?? undefined,
       }
@@ -199,7 +219,9 @@ export const draftFromInteraction = (
 export const isDraftComplete = (draft: PhoneBankingOutcomeDraft): boolean => {
   if (!draft.outcome) return false
   if (draft.outcome !== 'answered') return true
-  if (draft.engagement === 'refused') return true
+  if (draft.engagement === 'refused' || draft.engagement === 'hung_up') {
+    return true
+  }
   return (
     draft.engagement === 'engaged' &&
     draft.supportAnswer !== undefined &&
@@ -224,6 +246,9 @@ export const buildRecordCallRequest = (
   }
   if (draft.engagement === 'refused') {
     return { entryId, outcome: 'refused', personId: activePersonId }
+  }
+  if (draft.engagement === 'hung_up') {
+    return { entryId, outcome: 'hung_up', personId: activePersonId }
   }
   return {
     entryId,
