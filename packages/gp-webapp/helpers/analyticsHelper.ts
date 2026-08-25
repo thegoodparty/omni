@@ -483,48 +483,6 @@ export const EVENTS = {
     // { field, from, to } — never on a failed PATCH. Win-only surface (Opt In
     // Status is read-only, no event), so there is no ConstituentData variant.
     ContactStatusChanged: 'Voter Data - Contact Status Changed',
-    ClickNeedHelp: 'Voter Data: Click Need Help',
-    NeedHelp: {
-      Exit: 'Voter Data - Need Help: Exit modal',
-      SelectType: 'Voter Data - Need Help: Select Voter File type',
-      Submit: 'Voter Data - Need Help: Submit',
-    },
-    ClickCreateCustom: 'Voter Data: Click Create Custom Voter File',
-    CustomFile: {
-      Exit: 'Voter Data - Custom Voter File: Exit modal',
-      SelectChannel: 'Voter Data - Custom Voter File: Select Channel',
-      SelectPurpose: 'Voter Data - Custom Voter File: Select Purpose',
-      ClickNext: 'Voter Data - Custom Voter File: Click Next',
-      Audience: {
-        CheckAudience:
-          'Voter Data - Custom Voter File - Audience: Check Audience',
-        CheckPoliticalParty:
-          'Voter Data - Custom Voter File - Audience: Check Political Party',
-        CheckAge: 'Voter Data - Custom Voter File - Audience: Check Age',
-        CheckGender: 'Voter Data - Custom Voter File - Audience: Check Gender',
-        ClickBack: 'Voter Data - Custom Voter File - Audience: Click Back',
-      },
-      ClickCreate: 'Voter Data - Custom Voter File: Click Create',
-    },
-    ClickDetail: 'Voter Data: Click Detail View',
-    FileDetail: {
-      ClickBack: 'Voter Data - File Detail: Click Back',
-      ClickDownloadCSV: 'Voter Data - File Detail: Click Download CSV',
-      ClickViewFilters: 'Voter Data - File Detail: Click View Audience Filters',
-      ClickInfoIcon: 'Voter Data - File Detail: Click Custom File Info Icon',
-      LearnTakeAction: {
-        ClickWriteScript:
-          'Voter Data - File Detail - Learn & Take Action: Click Write Script',
-        ClickReadMore:
-          'Voter Data - File Detail - Learn & Take Action: Click Read More',
-        ClickSchedule:
-          'Voter Data - File Detail - Learn & Take Action: Click Schedule',
-      },
-      RecommendedPartners: {
-        ClickReadMore:
-          'Voter Data - File Detail - Recommended Partners: Click Read More',
-      },
-    },
   },
   ContentBuilder: {
     ClickContinueQuestions: 'Content Builder: Click Continue Questions',
