@@ -102,10 +102,15 @@ const residentNames = (address: RoutePayloadAddress): string[] =>
 
 interface ResidentRowProps {
   target: RoutePayloadTarget
-  // The stop number and the address are printed once per household and left
-  // blank for everyone else behind that door — the same merge the PDF does. A
-  // canvasser reads a filled stop cell as "walk here next", so repeating it per
-  // person would turn one door into three stops.
+  // Three different scopes, and mixing any two of them misreads the route. The
+  // **stop number** and the time from the last stop belong to the *stop*: a
+  // canvasser reads a filled stop cell as "walk here next", so printing it again
+  // for the second unit of one building turns one stop into two. The **address**
+  // belongs to the *household*, because a walkable multi-unit building is one
+  // stop with a door per unit and the unit is the only thing saying which to
+  // knock. Everything else belongs to the resident. Same split as the PDF's row
+  // model, which is where `firstInStop` and `firstInHousehold` come from.
+  firstInStop: boolean
   firstInHousehold: boolean
   seq: number | null
   address: string | null
@@ -115,6 +120,7 @@ interface ResidentRowProps {
 
 const ResidentRow = ({
   target,
+  firstInStop,
   firstInHousehold,
   seq,
   address,
@@ -130,7 +136,7 @@ const ResidentRow = ({
 
   return (
     <tr className={firstInHousehold ? undefined : 'ws-mate'}>
-      <td className="ws-seq">{firstInHousehold && seq !== null ? seq : ''}</td>
+      <td className="ws-seq">{firstInStop && seq !== null ? seq : ''}</td>
       <td className="ws-name">
         <span className="ws-line">{target.name ?? 'Name unavailable'}</span>
         {meta !== '' && <span className="ws-sub">{meta}</span>}
@@ -151,7 +157,11 @@ const ResidentRow = ({
         {firstInHousehold && (
           <>
             {address !== null && <span className="ws-line">{address}</span>}
-            {travel !== null && <span className="ws-sub">{travel}</span>}
+            {/* Time from the previous stop, so it prints on the stop's first row
+                and not again for a second unit in the same building. */}
+            {firstInStop && travel !== null && (
+              <span className="ws-sub">{travel}</span>
+            )}
             {alsoHere !== null && <span className="ws-sub">{alsoHere}</span>}
           </>
         )}
@@ -203,12 +213,17 @@ const ResidentRow = ({
 // residents. Flattened to rows here rather than nested, because the grid is one
 // row per resident: the household is drawn by which cells are blank and by the
 // dotted rule between them, not by nesting.
-const stopRows = (stop: RoutePayloadStop) =>
-  stop.addresses.flatMap((address) => {
+const stopRows = (stop: RoutePayloadStop) => {
+  // Counted across the whole stop rather than per address, because the stop
+  // number is the stop's and a stop can hold several doors.
+  let rowsSoFar = 0
+
+  return stop.addresses.flatMap((address) => {
     const others = residentNames(address)
     return address.targets.map((target, index) => ({
       key: target.stopTargetId,
       target,
+      firstInStop: rowsSoFar++ === 0,
       firstInHousehold: index === 0,
       seq: stop.seq,
       // With one address the stop's display address is the door; with several,
@@ -222,6 +237,7 @@ const stopRows = (stop: RoutePayloadStop) =>
       alsoHere: others.length > 0 ? `Also here: ${others.join(', ')}` : null,
     }))
   })
+}
 
 // The brand system's own horizontal logo, per the handoff's instruction to use
 // the one already in the codebase rather than the file it shipped. This is the

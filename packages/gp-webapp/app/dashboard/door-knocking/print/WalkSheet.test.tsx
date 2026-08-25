@@ -262,6 +262,24 @@ describe('WalkSheet', () => {
     expect(screen.getAllByText('105 Elm St')).toHaveLength(1)
   })
 
+  // How long the walk to this stop takes is a fact about the *stop*, so it rides
+  // in the address cell under the door it belongs to. Every other fixture here
+  // leaves `legSeconds` at 0, which is the same as a first stop — without this
+  // the `> 0` guard, `formatDuration` and the sub-line could all break silently.
+  it('prints the walk time from the previous stop', () => {
+    renderSheet([stop({ legSeconds: 300 })])
+
+    expect(
+      within(rowFor('Dorian Fen')).getByText('5 min from last'),
+    ).toBeInTheDocument()
+  })
+
+  it('leaves the walk time off the first stop of a route', () => {
+    renderSheet([stop({ legSeconds: 0 })])
+
+    expect(screen.queryByText(/from last/)).toBeNull()
+  })
+
   // The whole point of the sheet: somewhere to write the answers that the
   // in-app form will later ask for, in the same words.
   it('gives every unknocked person the same options the app offers', () => {
@@ -577,6 +595,7 @@ describe('WalkSheet', () => {
   it('names the unit when a stop covers more than one address', () => {
     renderSheet([
       stop({
+        legSeconds: 180,
         displayAddress: '400 Birch Ln',
         addresses: [
           {
@@ -633,6 +652,14 @@ describe('WalkSheet', () => {
     expect(
       within(rowFor('Priya Raman')).getByText('Also here: Anil Raman'),
     ).toBeInTheDocument()
+    // One stop, so one stop number and one walk time however many doors it
+    // holds: a second "1" against the second unit reads as a second stop, and
+    // the walk time is how long it took to reach the building.
+    const seq = (name: string) =>
+      rowFor(name).querySelectorAll('td')[0]?.textContent
+    expect(seq('Priya Raman')).toBe('1')
+    expect(seq('Walter Boone')).toBe('')
+    expect(screen.getAllByText('3 min from last')).toHaveLength(1)
   })
 
   it('flags a person who may have moved', () => {
