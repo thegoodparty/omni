@@ -10,7 +10,7 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { ChevronDownIcon, ChevronRightIcon, cn } from '@styleguide'
+import { ChevronDownIcon, ChevronRightIcon, cn, UsersIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
@@ -24,6 +24,7 @@ import {
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
+  readableInkOn,
   rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
@@ -40,26 +41,11 @@ const formatDuration = (seconds: number): string => {
 
 // The numeral sits ON the stop's status color, so it has to invert with it the
 // way the map's pin numerals do — white on `not_home` yellow is a number nobody
-// can read at arm's length in daylight. Whichever of white and black contrasts
-// better by relative luminance (WCAG's own formula); the crossover is 0.179,
-// and every one of the seven statuses clears 4.8:1 under this rule. Fixed hex
-// rather than `text-foreground`, because the fill it sits on is a fixed hex too
-// and does not follow the theme.
-const linearChannel = (value: number): number => {
-  const channel = value / 255
-  return channel <= 0.03928
-    ? channel / 12.92
-    : ((channel + 0.055) / 1.055) ** 2.4
-}
-
-export const stopNumeralColor = (status: DoorKnockStatus): string => {
-  const [red, green, blue] = STATUS_RGB[status]
-  const luminance =
-    0.2126 * linearChannel(red) +
-    0.7152 * linearChannel(green) +
-    0.0722 * linearChannel(blue)
-  return luminance > 0.179 ? '#000000' : '#ffffff'
-}
+// can read at arm's length in daylight. The rule is `readableInkOn`
+// (`statusPresentation.ts`), shared with the tick inside a selected list-colour
+// swatch, and every one of the seven statuses clears 4.8:1 under it.
+export const stopNumeralColor = (status: DoorKnockStatus): string =>
+  readableInkOn(STATUS_RGB[status])
 
 interface WalkViewProps {
   turfId: number
@@ -284,6 +270,16 @@ export default function WalkView({
   const sheetStop = sheet
     ? (stops.find((stop) => stop.id === sheet.stopId) ?? null)
     : null
+  // The doors either side of the open one, in route order — `stops` is sorted by
+  // `seq`, so this is the order the walk is planned in and the order the pins are
+  // numbered in. Null at the ends, which is what disables the sheet's chevron.
+  const sheetStopIndex = sheetStop
+    ? stops.findIndex((stop) => stop.id === sheetStop.id)
+    : -1
+  const previousStop =
+    sheetStopIndex > 0 ? (stops[sheetStopIndex - 1] ?? null) : null
+  const nextStop =
+    sheetStopIndex >= 0 ? (stops[sheetStopIndex + 1] ?? null) : null
 
   // Every target in walk order, flattened: the unit the canvasser actually
   // moves through is a person at a door, not a stop.
@@ -564,8 +560,28 @@ export default function WalkView({
                           </span>
                         ) : (
                           <>
+                            {/* The canvas puts a person glyph in front of this
+                                count (`icon('users',14), householdCount(v)`).
+                                Ours was a bare numeral sitting one gap away
+                                from the stop's own numeral in its circle, so
+                                "3" beside "12" named neither quantity — and to
+                                a screen reader the row read "Stop 12, 3". The
+                                glyph is the visual half and the sr-only noun
+                                the spoken one; the dots after it are per-person
+                                status, decorative here because the expanded row
+                                labels each one. */}
+                            <UsersIcon
+                              size={12}
+                              aria-hidden="true"
+                              className="shrink-0"
+                            />
                             <span className="tabular-nums">
                               {stopKnockable(stop).length}
+                              <span className="sr-only">
+                                {stopKnockable(stop).length === 1
+                                  ? ' person to knock'
+                                  : ' people to knock'}
+                              </span>
                             </span>
                             {stopKnockable(stop).map((target) => (
                               <span
@@ -661,6 +677,16 @@ export default function WalkView({
       {sheetStop && sheet && (
         <PersonSheet
           stop={sheetStop}
+          stopSeq={sheetStop.seq}
+          // Both go through `openStopFromMap`, which is the one entry that also
+          // brings the list to the stop it opens — without it the canvasser
+          // walks four doors from the sheet and closes it onto a list still
+          // showing where they started. It picks the first resident still worth
+          // knocking, the same choice a pin tap makes.
+          onOpenPreviousStop={
+            previousStop ? () => openStopFromMap(previousStop) : null
+          }
+          onOpenNextStop={nextStop ? () => openStopFromMap(nextStop) : null}
           selectedTargetId={sheet.targetId}
           onSelectTarget={(targetId) => {
             setSheet({ stopId: sheet.stopId, targetId })

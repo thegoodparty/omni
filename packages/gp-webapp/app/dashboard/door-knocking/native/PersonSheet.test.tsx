@@ -91,6 +91,9 @@ const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
   return (
     <PersonSheet
       stop={stop(residents)}
+      stopSeq={7}
+      onOpenPreviousStop={null}
+      onOpenNextStop={null}
       selectedTargetId={selectedTargetId}
       onSelectTarget={setSelectedTargetId}
       statusFor={(candidate) => candidate.knockStatus}
@@ -662,6 +665,9 @@ describe('PersonSheet demographic information', () => {
             },
           ],
         }}
+        stopSeq={7}
+        onOpenPreviousStop={null}
+        onOpenNextStop={null}
         selectedTargetId={21}
         onSelectTarget={vi.fn()}
         statusFor={() => 'unknown'}
