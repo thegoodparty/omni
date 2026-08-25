@@ -316,6 +316,98 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     )
   })
 
+  it('includes the candidate instructions in the prompt on a fresh generation, and never on an omitted request', async () => {
+    mockDraft('A script.')
+
+    const withInstructions = await postDraft({
+      purpose: 'introduce',
+      tone: 'warm',
+      instructions: 'mention the school levy',
+    })
+    expect(withInstructions.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      "The candidate's own instructions for this draft",
+    )
+    expect(userPrompt).toContain('mention the school levy')
+
+    const withoutInstructions = await postDraft({
+      purpose: 'introduce',
+      tone: 'warm',
+    })
+    expect(withoutInstructions.status).toBe(HttpStatus.CREATED)
+
+    const call2 = jsonCompletion.mock.calls[1]?.[0]
+    const userPrompt2 = call2.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt2).not.toContain('own instructions')
+  })
+
+  it('includes the candidate instructions in the prompt on the improve (currentDraft) path too', async () => {
+    mockDraft('A polished script.')
+
+    const res = await postDraft({
+      purpose: 'introduce',
+      tone: 'warm',
+      currentDraft: 'Hi, my name is Alex, a volunteer for Jane.',
+      instructions: 'keep it under a minute',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      "The candidate's own instructions for this draft",
+    )
+    expect(userPrompt).toContain('keep it under a minute')
+  })
+
+  it('feeds the rejected previousDraft and a variation instruction on a fresh generation only', async () => {
+    mockDraft('A different script.')
+
+    const res = await postDraft({
+      purpose: 'introduce',
+      tone: 'warm',
+      previousDraft: 'Hi, this is the script the candidate rejected.',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Hi, this is the script the candidate rejected.',
+    )
+    expect(userPrompt).toContain('The candidate rejected this draft')
+    expect(userPrompt).toContain('noticeably different')
+  })
+
+  it('near-cap improve returns 200 instead of 502 when the LLM result lands just over the cap', async () => {
+    const nearCapDraft = 'x'.repeat(1995)
+    // Simulates the LLM growing the text slightly beyond
+    // PHONE_BANKING_SCRIPT_MAX_LENGTH — exactly the case that 502'd before
+    // DraftSchema dropped its own max().
+    const overCapResult = 'y'.repeat(2010)
+    mockDraft(overCapResult)
+
+    const res = await postDraft({
+      purpose: 'introduce',
+      tone: 'warm',
+      currentDraft: nearCapDraft,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.draft).toHaveLength(2000)
+  })
+
   it('allows improve mode for the custom purpose', async () => {
     mockDraft('Polished custom words.')
 

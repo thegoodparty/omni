@@ -741,6 +741,7 @@ export {
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
   PhoneBankingScriptDraftRequestSchema,
   type PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponseSchema,

@@ -92,6 +92,7 @@ export const PhoneBankingFlow = ({
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
+  const [instructions, setInstructions] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
   // Whether the candidate has manually changed the sheet count — gates the
   // audience-derived default below so it never clobbers a deliberate choice.
@@ -168,6 +169,7 @@ export const PhoneBankingFlow = ({
     setPurpose(null)
     setTone('warm')
     setScript('')
+    setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
     setName('')
@@ -211,20 +213,30 @@ export const PhoneBankingFlow = ({
   // Requests an AI script draft for the given purpose/tone; with
   // currentDraft it polishes that text in place (Improve with AI) instead
   // of writing fresh — the one generated path allowed for the custom
-  // purpose, mirroring SocialFlow's requestDraft.
+  // purpose, mirroring SocialFlow's requestDraft. previousDraft rides only
+  // on a fresh generation (Regenerate / a tone change) — it tells the model
+  // what the candidate just rejected so a re-roll actually varies
+  // (ENG-10937). instructions is the candidate's own freeform steering and
+  // applies on either path (ENG-10936).
   const requestDraft = (
     nextPurpose: PhoneBankingPurpose | null,
     nextTone: SocialTone,
     currentDraft?: string,
+    previousDraft?: string,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    const trimmedInstructions = instructions.trim()
     draftMutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(previousDraft === undefined ? {} : { previousDraft }),
+        ...(trimmedInstructions === ''
+          ? {}
+          : { instructions: trimmedInstructions }),
       },
       {
         onSuccess: (generated) => {
@@ -253,7 +265,7 @@ export const PhoneBankingFlow = ({
     if (nextTone === tone) return
     setTone(nextTone)
     if (!purpose || purpose === 'custom') return
-    requestDraft(purpose, nextTone)
+    requestDraft(purpose, nextTone, undefined, script.trim() || undefined)
   }
 
   const handleScriptChange = (value: string) => {
@@ -442,7 +454,11 @@ export const PhoneBankingFlow = ({
           onToneChange={handleToneChange}
           script={script}
           onScriptChange={handleScriptChange}
-          onRegenerate={() => requestDraft(purpose, tone)}
+          instructions={instructions}
+          onInstructionsChange={setInstructions}
+          onRegenerate={() =>
+            requestDraft(purpose, tone, undefined, script.trim() || undefined)
+          }
           onImprove={() => requestDraft(purpose, tone, script.trim())}
           canImprove={script.trim().length > 0 && !draftMutation.isPending}
           isDrafting={draftMutation.isPending}
