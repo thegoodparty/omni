@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   DoorKnockingRoutePayload,
   DoorKnockingTurf,
+  RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -1068,9 +1069,12 @@ describe('TurfDetailsSheet audience', () => {
     // One knockable Democrat aged 40 — the 50+ do-not-knock resident is not in
     // the audience the People stat reports, so they are not in its breakdown.
     // Both dims report the same lone person, hence two identical figures.
-    expect(screen.getAllByText('1 · 100%')).toHaveLength(2)
-    expect(screen.getByText('Democratic')).toBeInTheDocument()
-    expect(screen.getByText('35–50')).toBeInTheDocument()
+    // Scoped to this section: the outcome table below is built over the same
+    // one knockable person, so it prints the same figure for its own reason.
+    const audience = screen.getByText('Audience').closest('section')!
+    expect(within(audience).getAllByText('1 · 100%')).toHaveLength(2)
+    expect(within(audience).getByText('Democratic')).toBeInTheDocument()
+    expect(within(audience).getByText('35–50')).toBeInTheDocument()
     expect(screen.queryByText('50+')).toBeNull()
     // The pack's own mix must not leak through once a route exists.
     expect(screen.queryByText('Republican')).toBeNull()
@@ -1132,6 +1136,235 @@ describe('TurfDetailsSheet audience', () => {
     renderSheet({ listStats: null, listStatsPending: false })
 
     expect(screen.getByText(/No breakdown to show/)).toBeInTheDocument()
+  })
+})
+
+// How the walk went, which the drawer refused to say until now. The refusal was
+// that the seven counts would reprint the landing rail's canvass-status chips;
+// what overturns it is that they are not the same quantity — the rail's chips
+// are the voter pack's superset over the polygon, hedged as "About", and Details
+// can be open on a list that is not the selected scope at all, while these come
+// off the frozen route and are exact.
+describe('TurfDetailsSheet outcomes', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  const routeWithTargets = (
+    targets: Partial<RoutePayloadTarget>[],
+  ): DoorKnockingRoutePayload => ({
+    ...routePayload,
+    stops: [
+      {
+        id: 10,
+        seq: 1,
+        lat: 36.16,
+        lng: -86.78,
+        displayAddress: '105 Elm St',
+        legSeconds: 0,
+        legMeters: 0,
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            otherResidents: [],
+            targets: targets.map((override, index) => ({
+              ...resident,
+              stopTargetId: 100 + index,
+              personId: `person-${100 + index}`,
+              ...override,
+            })),
+          },
+        ],
+      },
+    ],
+  })
+
+  const mockOutcomes = (targets: Partial<RoutePayloadTarget>[]) =>
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routeWithTargets(targets),
+    })
+
+  // Scoped, because Audience above reports over the same targets and both
+  // sections legitimately print figures like '1 · 100%'.
+  const outcomes = () =>
+    screen.getByText('How the walk went').closest('section') as HTMLElement
+  const row = (label: string) =>
+    within(outcomes()).getByText(label).closest('li') as HTMLElement
+  // The bar is the styled span with a width; the other one is the legend dot.
+  const bar = (label: string) =>
+    [...row(label).querySelectorAll<HTMLElement>('span[style]')].find(
+      (span) => span.style.width !== '',
+    ) as HTMLElement
+
+  // The table's denominator is the People stat and its non-unknown rows sum to
+  // the people-logged figure, which is the whole reason it can sit under them:
+  // one more reading of numbers already on the surface, not a second account.
+  it('reports each outcome as a share of the knockable people', async () => {
+    mockOutcomes([
+      { knockStatus: 'not_home' },
+      { knockStatus: 'not_home' },
+      { knockStatus: 'supporter' },
+      { knockStatus: 'unknown' },
+    ])
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText('3 of 4 · 75%')).toBeInTheDocument()
+    expect(row('Not home')).toHaveTextContent('2 · 50%')
+    expect(row('Supporter')).toHaveTextContent('1 · 25%')
+    expect(row('Support unknown')).toHaveTextContent('1 · 25%')
+    expect(
+      within(outcomes()).getByText(
+        'All 4 people this list targets, by what was logged at their door.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // The word this feature does not use, on the surface most tempted by it:
+  // not-home, inaccessible and refused are all outcomes and none is a
+  // conversation.
+  it('says logged rather than reached', async () => {
+    mockOutcomes([{ knockStatus: 'refused' }])
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText(/by what was logged/)).toBeInTheDocument()
+    expect(screen.queryByText(/reached/i)).toBeNull()
+  })
+
+  // A status nobody recorded is an answer, so the row renders at zero — and
+  // unlike the audience bars it is NOT floored to a visible sliver, which would
+  // draw an outcome that never happened.
+  it('prints an unrecorded outcome as zero, with no sliver of a bar', async () => {
+    mockOutcomes([{ knockStatus: 'supporter' }])
+    renderSheet({ prop: { locked: true } })
+
+    await waitFor(() => expect(row('Refused')).toHaveTextContent('0 · 0%'))
+    expect(bar('Refused')).toHaveStyle({ width: '0%' })
+    expect(bar('Supporter')).toHaveStyle({ width: '100%' })
+  })
+
+  // The audience bars' rule, for the case that DOES apply here: one refusal in
+  // 201 doors rounds to zero, and "1 · 0%" is a row contradicting itself.
+  it('floors a sub-one-percent outcome instead of printing zero', async () => {
+    mockOutcomes([
+      ...Array.from({ length: 200 }, () => ({
+        knockStatus: 'not_home' as const,
+      })),
+      { knockStatus: 'refused' as const },
+    ])
+    renderSheet({ prop: { locked: true } })
+
+    await waitFor(() => expect(row('Refused')).toHaveTextContent('1 · <1%'))
+    expect(bar('Refused')).toHaveStyle({ width: '1%' })
+  })
+
+  // One outcome is one colour everywhere in the feature — the map dots, the
+  // walk's strip, the landing chips and now this table all read
+  // `STATUS_DOT_COLORS`, which is why this is a sibling of the audience
+  // breakdown rather than that component with a colour passed in.
+  it('draws each row in the status palette', async () => {
+    mockOutcomes([{ knockStatus: 'not_home' }, { knockStatus: 'supporter' }])
+    renderSheet({ prop: { locked: true } })
+
+    await waitFor(() => expect(row('Not home')).toBeInTheDocument())
+    const notHome = row('Not home').querySelectorAll<HTMLElement>('span[style]')
+    expect(notHome).toHaveLength(2)
+    for (const span of notHome) {
+      expect(span).toHaveStyle({ backgroundColor: '#eab308' })
+    }
+    expect(bar('Supporter')).toHaveStyle({ backgroundColor: '#16a34a' })
+  })
+
+  // ADR 0008's follow-up is optional, so the status lands at Save and the
+  // reason — the thing that actually drops the resident from every people
+  // figure — may never be given. This bucket is therefore exactly the doors
+  // where that outcome was logged and nobody has answered "what happened?", and
+  // the line saying so appears only when there are any.
+  it('explains the not-a-voter bucket when it holds anyone', async () => {
+    mockOutcomes([{ knockStatus: 'not_a_voter' }, { knockStatus: 'supporter' }])
+    renderSheet({ prop: { locked: true } })
+
+    await waitFor(() => expect(row('Not a voter')).toHaveTextContent('1 · 50%'))
+    expect(
+      within(outcomes()).getByText(/nobody has said yet whether they moved/),
+    ).toBeInTheDocument()
+  })
+
+  it('says nothing about it when nobody was logged not a voter', async () => {
+    mockOutcomes([{ knockStatus: 'supporter' }])
+    renderSheet({ prop: { locked: true } })
+
+    await waitFor(() => expect(row('Not a voter')).toHaveTextContent('0 · 0%'))
+    expect(
+      screen.queryByText(/nobody has said yet whether they moved/),
+    ).toBeNull()
+  })
+
+  // Answering the follow-up removes the resident from the table altogether
+  // rather than moving them between rows, because it is the reason and not the
+  // status that ADR 0008 counts as "nobody to talk to".
+  it('drops a not-a-voter resident from the table once the reason is known', async () => {
+    mockOutcomes([
+      { knockStatus: 'not_a_voter', notAVoterReason: 'moved' },
+      { knockStatus: 'supporter' },
+    ])
+    renderSheet({ prop: { locked: true } })
+
+    await waitFor(() => expect(row('Supporter')).toHaveTextContent('1 · 100%'))
+    expect(row('Not a voter')).toHaveTextContent('0 · 0%')
+    expect(
+      screen.queryByText(/nobody has said yet whether they moved/),
+    ).toBeNull()
+  })
+
+  // The same three states the neighbouring stats branch on, off the same
+  // lockedness rather than off the fetch: a locked list HAS a route, so it is
+  // loading or broken and never "not knocked yet".
+  it('shows a skeleton while the route is loading', async () => {
+    api.mock(
+      'GET /v1/door-knocking/turfs/:id/route',
+      () => new Promise(() => undefined),
+    )
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    await waitFor(() =>
+      expect(within(outcomes()).getByText('Loading')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Not knocked yet')).toBeNull()
+  })
+
+  it('reports the outcomes unavailable when the route fails', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(
+      await within(outcomes()).findByText(/Unavailable/),
+    ).toBeInTheDocument()
+    expect(within(outcomes()).queryByText(/Not knocked yet/)).toBeNull()
+  })
+
+  it('says not knocked yet only on a list that really is unknocked', () => {
+    renderSheet({ listStats: listStats() })
+
+    expect(within(outcomes()).getByText(/Not knocked yet/)).toBeInTheDocument()
+    expect(within(outcomes()).queryByRole('listitem')).toBeNull()
+  })
+
+  // The table is built over knockable people, so a route with none of them is a
+  // fully flagged list rather than an empty one — the same distinction the
+  // audience section draws, in the same words.
+  it('says why a fully flagged route reports no outcomes', async () => {
+    mockOutcomes([{ knockStatus: 'supporter', doNotKnock: true }])
+    renderSheet({ prop: { locked: true } })
+
+    expect(
+      await within(outcomes()).findByText(/no outcomes to report/),
+    ).toBeInTheDocument()
+    expect(within(outcomes()).queryByRole('listitem')).toBeNull()
   })
 })
 
