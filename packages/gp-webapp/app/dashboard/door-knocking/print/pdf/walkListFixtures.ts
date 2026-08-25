@@ -52,7 +52,7 @@ export const target = (
   maritalStatus: 'Likely Married',
   hasChildrenUnder18: 'Yes',
   veteranStatus: 'Yes',
-  homeowner: 'Likely',
+  homeowner: 'Homeowner',
   businessOwner: 'Yes',
   levelOfEducation: 'Graduate Degree',
   estimatedIncomeAmount: 82000,

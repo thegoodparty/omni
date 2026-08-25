@@ -116,6 +116,6 @@ describe('demographicFacts', () => {
     expect(
       valueFor('Level of education', { levelOfEducation: 'Graduate Degree' }),
     ).toBe('Graduate Degree')
-    expect(valueFor('Homeowner', { homeowner: 'Likely' })).toBe('Likely')
+    expect(valueFor('Homeowner', { homeowner: 'Homeowner' })).toBe('Homeowner')
   })
 })

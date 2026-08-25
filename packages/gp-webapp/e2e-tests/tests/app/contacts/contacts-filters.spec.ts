@@ -290,8 +290,8 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
     await probeCount(page, wizard, unfiltered, [['Children', 'No']])
   })
 
-  await test.step('Filter: Homeowner (No)', async () => {
-    await probeCount(page, wizard, unfiltered, [['Homeowner', 'No']])
+  await test.step('Filter: Homeownership (Renter)', async () => {
+    await probeCount(page, wizard, unfiltered, [['Homeownership', 'Renter']])
   })
 
   await test.step('Filter: Education', async () => {
@@ -312,8 +312,8 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
     ])
   })
 
-  await test.step('Homeowner Yes: count + list detail + person record', async () => {
-    await selectWizardPill(wizard, 'Homeowner', 'Yes')
+  await test.step('Homeowner: count + list detail + person record', async () => {
+    await selectWizardPill(wizard, 'Homeownership', 'Homeowner')
     const homeownerCount = await readSettledWizardCount(page, {
       differentFrom: unfiltered,
     })
@@ -326,17 +326,17 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
       `E2E homeowner ${Date.now()}`,
     )
 
-    // homeownerYes maps to eq 'Yes' server-side (never 'Likely'), so every
-    // member must carry the exact value.
+    // homeownerYes now folds Probable Home Owner in server-side (ENG-10947),
+    // so every member displays the folded 'Homeowner' value, never 'Renter'.
     const members = await fetchListMembers(client, listId)
     expect(members.length).toBeGreaterThan(0)
     for (const member of members) {
-      expect(member.homeowner).toBe('Yes')
+      expect(member.homeowner).toBe('Homeowner')
     }
 
     const member = pickNamedMember(members)
     const panel = await openPersonViaTypeahead(page, member)
-    await expectPanelField(panel, 'Homeowner', /Yes/i)
+    await expectPanelField(panel, 'Homeowner', /Homeowner/i)
     await closePersonPanel(panel)
   })
 })
@@ -383,7 +383,7 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
       ['Gender', 'Male'],
       ['Marital Status', 'Married'],
       ['Marital Status', 'Likely Married'],
-      ['Homeowner', 'Yes'],
+      ['Homeownership', 'Homeowner'],
       ['Level of Education', 'College Degree'],
       ['Level of Education', 'Graduate Degree'],
     ])
