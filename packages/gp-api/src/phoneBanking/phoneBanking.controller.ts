@@ -26,8 +26,9 @@ import { UseOrganization } from '@/organizations/decorators/UseOrganization.deco
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
+import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { Campaign, Organization } from '../generated/prisma'
+import { Campaign, Organization, User } from '../generated/prisma'
 import { PhoneBankingCallService } from './services/phoneBankingCall.service'
 import { PhoneBankingListService } from './services/phoneBankingList.service'
 
@@ -74,11 +75,12 @@ export class PhoneBankingController {
   async recordCall(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
     @Body(new ZodValidationPipe(RecordPhoneBankingCallSchema))
     input: RecordPhoneBankingCall,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.callService.recordCall(id, organization.slug, input)
+    return this.callService.recordCall(id, organization.slug, input, user.id)
   }
 
   @Delete('lists/:id')

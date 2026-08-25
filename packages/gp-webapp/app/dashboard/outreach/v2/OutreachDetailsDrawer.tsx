@@ -65,23 +65,27 @@ import {
   MetricGrid,
 } from './listDetails/ListDetailsMetric'
 
-// Copy verified against the phone-banking design screenshots — deliberately
-// its own vocabulary rather than a reuse of the caller page's
-// phoneBankingOutcome.util.ts labels (that page says "Refused"; this drawer
-// says "Refused to engage").
+// Copy verified against the phone-banking design screenshots — its own
+// vocabulary rather than a reuse of the caller page's
+// phoneBankingOutcome.util.ts labels, though "Refused" was aligned to the
+// caller page's copy (ENG-10945; was "Refused to engage").
 const PHONE_BANKING_OUTCOME_ORDER: PhoneBankCallOutcome[] = [
   'answered',
   'no_answer',
   'voicemail',
   'wrong_number',
+  'disconnected',
   'refused',
+  'hung_up',
 ]
 const PHONE_BANKING_OUTCOME_LABEL: Record<PhoneBankCallOutcome, string> = {
   answered: 'Answered',
   no_answer: 'No answer',
   voicemail: 'Voicemail left',
   wrong_number: 'Wrong number',
-  refused: 'Refused to engage',
+  disconnected: 'Disconnected',
+  refused: 'Refused',
+  hung_up: 'Hung up',
 }
 
 const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {

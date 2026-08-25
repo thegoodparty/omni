@@ -2055,6 +2055,7 @@ describe('WalkView notes', () => {
         body: body.body,
         createdAt: '2026-08-24T18:00:00.000Z',
         updatedAt: '2026-08-24T18:00:00.000Z',
+        actorName: null,
       },
     }))
 
@@ -2064,6 +2065,7 @@ describe('WalkView notes', () => {
     body,
     createdAt: '2026-07-01T15:00:00.000Z',
     updatedAt: '2026-07-01T15:00:00.000Z',
+    actorName: null,
   })
 
   // The stop list is a list of listitems too, so a note row can only be counted

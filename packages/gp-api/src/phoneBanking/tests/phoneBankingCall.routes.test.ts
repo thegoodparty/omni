@@ -319,6 +319,130 @@ describe('phone banking call outcome routes', () => {
     })
   })
 
+  describe('disconnected (ENG-10945)', () => {
+    it('suppresses the phone like wrong_number and fans out with no personId', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }, { firstName: 'B' }],
+        '3075551020',
+      )
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'disconnected',
+      })
+      expect(res.status).toBe(201)
+
+      const rows = await service.prisma.contactInteractionPhoneBanking.findMany(
+        { where: { phoneBankingListId: listId } },
+      )
+      expect(rows).toHaveLength(2)
+      expect(rows.every((row) => row.outcome === 'disconnected')).toBe(true)
+
+      expect(
+        await service.prisma.phoneBankingSuppressedPhone.count({
+          where: { organizationSlug: orgSlug, phone: '3075551020' },
+        }),
+      ).toBe(1)
+    })
+
+    it('400s a disconnected call carrying a personId', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }],
+        '3075551021',
+      )
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'disconnected',
+        personId: entry.persons[0]!.personId,
+      })
+
+      expect(res.status).toBe(400)
+    })
+  })
+
+  describe('hung_up (ENG-10945)', () => {
+    it('logs person-attributed with no suppression when personId is given', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }, { firstName: 'B' }],
+        '3075551022',
+      )
+      const [personA, personB] = entry.persons
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'hung_up',
+        personId: personA!.personId,
+      })
+      expect(res.status).toBe(201)
+
+      const rows = await service.prisma.contactInteractionPhoneBanking.findMany(
+        { where: { phoneBankingListId: listId } },
+      )
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.personId).toBe(personA!.personId)
+      expect(rows[0]?.outcome).toBe('hung_up')
+
+      const rowB =
+        await service.prisma.contactInteractionPhoneBanking.findFirst({
+          where: { phoneBankingListId: listId, personId: personB!.personId },
+        })
+      expect(rowB).toBeNull()
+      expect(
+        await service.prisma.phoneBankingSuppressedPhone.count({
+          where: { organizationSlug: orgSlug, phone: '3075551022' },
+        }),
+      ).toBe(0)
+    })
+
+    it('fans out with no personId and stays callable (no suppression)', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }, { firstName: 'B' }],
+        '3075551023',
+      )
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'hung_up',
+      })
+      expect(res.status).toBe(201)
+
+      const rows = await service.prisma.contactInteractionPhoneBanking.findMany(
+        { where: { phoneBankingListId: listId } },
+      )
+      expect(rows).toHaveLength(2)
+      expect(rows.every((row) => row.outcome === 'hung_up')).toBe(true)
+      expect(
+        await service.prisma.phoneBankingSuppressedPhone.count({
+          where: { organizationSlug: orgSlug, phone: '3075551023' },
+        }),
+      ).toBe(0)
+    })
+  })
+
+  describe('call attribution (ENG-10946)', () => {
+    it('persists the acting user as actorUserId on the logged row', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }],
+        '3075551024',
+      )
+      const [personA] = entry.persons
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'answered',
+        personId: personA!.personId,
+      })
+      expect(res.status).toBe(201)
+
+      const row =
+        await service.prisma.contactInteractionPhoneBanking.findFirstOrThrow({
+          where: { phoneBankingListId: listId, personId: personA!.personId },
+        })
+      expect(row.actorUserId).toBe(service.user.id)
+    })
+  })
+
   describe('number-level outcomes', () => {
     it('no_answer on a 2-person entry creates two rows with the same occurredAt', async () => {
       const { listId, entry } = await buildList(
@@ -451,7 +575,7 @@ describe('phone banking call outcome routes', () => {
         field: 'voter_likelihood',
         toValue: 'likely',
         source: 'phone_banking',
-        actorUserId: null,
+        actorUserId: service.user.id,
       })
 
       const second = await postCall(listId, {
