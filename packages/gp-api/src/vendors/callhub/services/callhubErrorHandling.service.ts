@@ -39,11 +39,10 @@ export class CallhubErrorHandlingService {
         data?.detail ??
         (data ? JSON.stringify(data) : error.message)
       // Log the status + parsed body but never the request headers (they carry
-      // the Authorization: Token secret).
+      // the Authorization: Token secret). The client-facing message stays
+      // generic — the upstream body can carry account/number detail.
       logger?.error({ status, data }, `${generic}: ${parsed}`)
-      throw new BadGatewayException(customMessage ?? `${generic}: ${parsed}`, {
-        cause: error,
-      })
+      throw new BadGatewayException(customMessage ?? generic, { cause: error })
     }
 
     logger?.error({ err: error }, generic)

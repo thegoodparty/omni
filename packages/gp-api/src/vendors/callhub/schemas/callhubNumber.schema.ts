@@ -3,15 +3,8 @@ import { z } from 'zod'
 // campaign_type must be VOICE_BROADCAST for a robocall caller-ID number (the
 // API defaults to CALL_CENTER). phone_number_prefix is a 3-digit area code;
 // CallHub silently rents a random national number if that prefix is exhausted,
-// so callers must check the returned number's area code against what they asked.
+// so callers must check the returned area code against what they asked for.
 export const CALLHUB_VB_CAMPAIGN_TYPE = 'VOICE_BROADCAST' as const
-
-export const RentNumberRequestSchema = z.object({
-  country_iso: z.string(),
-  phone_number_prefix: z.string().optional(),
-  campaign_type: z.literal(CALLHUB_VB_CAMPAIGN_TYPE),
-})
-export type RentNumberRequest = z.infer<typeof RentNumberRequestSchema>
 
 // Response fields we consume; CallHub returns more (stripped by z.object).
 // `phone_number` is the caller ID we reuse, so it's the identifier here — no

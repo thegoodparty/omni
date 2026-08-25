@@ -22,8 +22,9 @@ interface UploadMediaParams {
   name?: string
 }
 
-// CallHub does not ingest a URL — the audio bytes must be POSTed as multipart.
-// Callers download the recording from our S3 bucket and hand the buffer here.
+// CallHub does not ingest a URL — the audio bytes must be POSTed as
+// multipart. Callers download the recording from our S3 bucket and hand the
+// buffer here.
 @Injectable()
 export class CallhubMediaService {
   constructor(

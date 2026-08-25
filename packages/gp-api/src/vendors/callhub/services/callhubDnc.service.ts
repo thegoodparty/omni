@@ -26,9 +26,9 @@ export interface DncPartition {
 
 // CallHub has no scrub endpoint, so we download the account DNC list and diff.
 // NOTE: federal DNC / litigator / cell-block scrubbing happens at CallHub dial
-// time, not here — this only removes account-level DNC entries, so the count is
-// an estimate the pre-charge reachable count leans on, not the final dialable
-// set (see the accepted-vs-billed reconciliation in the plan).
+// time, not here — this only removes account-level DNC entries, so the count
+// is an estimate the pre-charge reachable count leans on, not the final
+// dialable set.
 @Injectable()
 export class CallhubDncService {
   constructor(

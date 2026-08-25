@@ -10,9 +10,7 @@ import { CallhubPhonebookService } from './services/callhubPhonebook.service'
 
 // Vendor wrapper for CallHub (robocall / voice broadcast): the HTTP/auth
 // foundation plus the API surface a send needs — caller-ID number rental,
-// media upload, phonebook, and bulk contact import. Campaign create/lifecycle
-// and results export land in a follow-up once their live response shapes are
-// confirmed against a billable account. Consumed by the compliance/send slices.
+// media upload, phonebook, and bulk contact import.
 @Module({
   imports: [HttpModule],
   providers: [

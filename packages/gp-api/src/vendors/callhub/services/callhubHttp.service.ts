@@ -7,6 +7,10 @@ import { CallhubBaseConfig } from '../config/callhubBaseConfig'
 
 const MAX_RETRIES = 2
 const RETRY_BASE_DELAY_MS = 1000
+// Plain numbers, not HttpStatus: axios reports status as a number, and
+// comparing that to the HttpStatus enum trips no-unsafe-enum-comparison.
+const HTTP_TOO_MANY_REQUESTS = 429
+const HTTP_SERVER_ERROR_MIN = 500
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
@@ -35,14 +39,24 @@ export class CallhubHttpService extends CallhubBaseConfig {
     }
   }
 
-  private isRetryable(error: unknown): boolean {
+  // A 429 (throttle) is rejected before the request is processed, so retrying
+  // is always safe. A 5xx may have already executed the request, so it is only
+  // retried for idempotent GETs — retrying a POST (rent, import, upload)
+  // could double a billable side effect.
+  private isRetryable(error: unknown, retryServerErrors: boolean): boolean {
     if (!isAxiosError(error)) return false
     const status = error.response?.status
-    return status === 429 || (status !== undefined && status >= 500)
+    if (status === HTTP_TOO_MANY_REQUESTS) return true
+    return (
+      retryServerErrors &&
+      status !== undefined &&
+      status >= HTTP_SERVER_ERROR_MIN
+    )
   }
 
   private async withRetry<T>(
     send: () => Promise<AxiosResponse<T>>,
+    retryServerErrors: boolean,
   ): Promise<AxiosResponse<T>> {
     let lastError: unknown
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -50,7 +64,8 @@ export class CallhubHttpService extends CallhubBaseConfig {
         return await send()
       } catch (error) {
         lastError = error
-        if (attempt === MAX_RETRIES || !this.isRetryable(error)) throw error
+        const canRetry = this.isRetryable(error, retryServerErrors)
+        if (attempt === MAX_RETRIES || !canRetry) throw error
         await sleep(RETRY_BASE_DELAY_MS * (attempt + 1))
       }
     }
@@ -58,8 +73,10 @@ export class CallhubHttpService extends CallhubBaseConfig {
   }
 
   async get<T>(path: string, config?: AxiosRequestConfig): Promise<T> {
-    const res = await this.withRetry<T>(() =>
-      firstValueFrom(this.httpService.get<T>(path, this.baseConfig(config))),
+    const res = await this.withRetry<T>(
+      () =>
+        firstValueFrom(this.httpService.get<T>(path, this.baseConfig(config))),
+      true,
     )
     return res.data
   }
@@ -69,10 +86,12 @@ export class CallhubHttpService extends CallhubBaseConfig {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const res = await this.withRetry<T>(() =>
-      firstValueFrom(
-        this.httpService.post<T>(path, body, this.baseConfig(config)),
-      ),
+    const res = await this.withRetry<T>(
+      () =>
+        firstValueFrom(
+          this.httpService.post<T>(path, body, this.baseConfig(config)),
+        ),
+      false,
     )
     return res.data
   }
