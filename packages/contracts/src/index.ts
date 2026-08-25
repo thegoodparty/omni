@@ -747,6 +747,16 @@ export {
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
 export {
+  ROBOCALL_PURPOSE_VALUES,
+  RobocallPurposeSchema,
+  type RobocallPurpose,
+  ROBOCALL_SCRIPT_MAX_LENGTH,
+  RobocallScriptDraftRequestSchema,
+  type RobocallScriptDraftRequest,
+  RobocallScriptDraftResponseSchema,
+  type RobocallScriptDraftResponse,
+} from './outreach/RobocallScript.schema'
+export {
   ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
   ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequestSchema,
@@ -897,10 +907,7 @@ export {
   type PhoneBankingPurpose,
   PHONE_BANKING_NAME_MAX_LENGTH,
   PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
-  PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
   PHONE_BANKING_MAX_SHEET_COUNT,
-  PhoneBankingFiltersSchema,
-  type PhoneBankingFilters,
   PhoneBankingCreateSchema,
   type PhoneBankingCreate,
   PhoneBankingCreateResponseSchema,

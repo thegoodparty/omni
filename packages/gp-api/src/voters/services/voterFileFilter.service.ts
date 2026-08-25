@@ -59,15 +59,6 @@ export class VoterFileFilterService extends createPrismaBase(
         )
       }
 
-      if (condition.outreachType === OutreachType.phoneBanking) {
-        throw new BadRequestException(
-          'Phone-banking activity conditions cannot target a specific ' +
-            'outreachId — contact_interaction_phone_banking rows link via ' +
-            'phoneBankingListId, not Outreach.id, so phone-banking ' +
-            'conditions only support "any campaign" (omit outreachId).',
-        )
-      }
-
       const outreach = await this._prisma.outreach.findFirst({
         where: {
           id: condition.outreachId,
@@ -83,12 +74,35 @@ export class VoterFileFilterService extends createPrismaBase(
           `outreachId ${condition.outreachId} was not found for this organization`,
         )
       }
-      if (outreach.outreachType !== condition.outreachType) {
+
+      // Native phone-banking envelopes are written with outreachType
+      // nativePhoneBanking (phoneBankingList.service.ts), but a phoneBanking
+      // condition is the single CRM-facing channel for both — accept either.
+      const channelMatches =
+        outreach.outreachType === condition.outreachType ||
+        (condition.outreachType === OutreachType.phoneBanking &&
+          outreach.outreachType === OutreachType.nativePhoneBanking)
+      if (!channelMatches) {
         throw new BadRequestException(
           `outreachId ${condition.outreachId} is a ${outreach.outreachType} ` +
             `campaign, not ${condition.outreachType}`,
         )
       }
+
+      // Legacy phoneBanking TaskFlow rows carry no phoneBankingListId, so
+      // resolvePhoneBanking's subquery would scope to nobody — reject them
+      // outright rather than silently returning an empty result.
+      if (
+        condition.outreachType === OutreachType.phoneBanking &&
+        outreach.phoneBankingListId == null
+      ) {
+        throw new BadRequestException(
+          `outreachId ${condition.outreachId} has no linked phone banking ` +
+            'list (legacy phoneBanking campaigns cannot be resolved by ' +
+            'this filter) — pick a different campaign or omit outreachId.',
+        )
+      }
+
       if (outreach.status !== OutreachStatus.completed) {
         throw new BadRequestException(
           `outreachId ${condition.outreachId} has not completed (status: ` +

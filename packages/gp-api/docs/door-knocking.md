@@ -44,14 +44,39 @@ Three nullable timestamps on `door_knocking_turf`, driven by
 and the existing `DELETE turfs/:id`. All three apply only to a knocked list.
 
 **Why the turf and not the `Outreach` envelope.** The envelope already has a
-`status` enum that spells `in_progress` and `completed`, so it looks like the
-obvious home. It isn't: the envelope requires a `campaignId`, and a Serve org
-knocks without a campaign, so the knock transaction skips creating one
-entirely. A lifecycle stored there would be invisible to an org the Pro gate
-deliberately admits. The turf is the one row every knocker has. The envelope's
-`status` is written alongside `completedAt` as a **mirror** for the Win
-outreach history — `updateMany`, so the Serve case is a no-op rather than an
-error.
+`status` enum that spells `in_progress` and `completed`, and an `archivedAt` of
+its own, so it looks like the obvious home. It isn't: the envelope requires a
+`campaignId`, and a Serve org knocks without a campaign, so the knock
+transaction skips creating one entirely. A lifecycle stored there would be
+invisible to an org the Pro gate deliberately admits. The turf is the one row
+every knocker has.
+
+**The envelope is a mirror of it, written in the same transaction.** Both
+lifecycle writers do this, and neither is optional: `complete` sets
+`status: completed`, `setArchived` sets `archivedAt` to whatever the turf's
+became. `updateMany` matched on `doorKnockingRouteId`, so the Serve case — no
+envelope at all — is a no-op rather than an error. Doing it server-side rather
+than in the caller is the point: it is one commit instead of two round trips a
+phone can die between, and it holds for any caller, not just the webapp. The
+webapp did carry a best-effort client mirror for archive (#1396) while gp-api
+was frozen; that is gone.
+
+Two details in `setArchived` that are easy to undo by accident:
+
+- **The mirror runs ahead of the idempotence guard.** Lists archived before the
+  mirror existed have an envelope that never followed, and the guard
+  (`if (archived && locked.archivedAt) return locked`) would return early on
+  exactly those, leaving the drift permanent — pressing Archive again is the
+  only repair a candidate has.
+- **Both rows get the same timestamp, and it is the turf's existing one when
+  there is one.** That is what makes running the mirror unconditionally safe:
+  the guard exists so a double-tap can't walk "archived since" forward, and
+  writing `now` into the envelope on a repeat press would break that promise on
+  the other row.
+
+**Restore mirrors too.** `setArchived(false)` writes null to both. An archive
+that mirrors and a restore that does not puts the two rows back out of step one
+press later.
 
 **Why delete is two different operations.** Delete is now offered at every
 stage; the confirmation dialog is the guard, not the lock. Which delete runs

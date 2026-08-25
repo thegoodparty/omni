@@ -39,6 +39,25 @@ const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
 // used one-handed on a phone in the street, so the tap target has to clear the
 // ~44px a thumb needs rather than the ~24px the pin is drawn at.
 const PIN_TAP_RADIUS = 12
+// The selected stop's halo. This is `--primary` (#1e63ec) as a literal, because
+// it has to match the `ring-primary` the walk list draws on the same stop's
+// numeral and nothing on this canvas can read a CSS variable — the pin fills
+// and the numerals beside it are fixed hex for the same reason. Deliberately
+// NOT the draw blue two constants up, which is a different shade and belongs to
+// a mode this one can never be on screen with; one selection has one colour on
+// both halves, and a near-miss would read as two different marks.
+const SELECTION_BLUE: [number, number, number, number] = [30, 99, 236, 255]
+// Drawn as a ring OUTSIDE the pin rather than a change to the pin itself: the
+// fill already carries the stop's status and the stroke already carries whether
+// anyone there is knockable, so those are both spoken for. Same reasoning as the
+// list row, where selection is a ring on the numbered circle rather than a fill.
+const SELECTION_RING_PADDING = 6
+const SELECTION_RING_WIDTH = 3
+// How far the outlines of an archived list are pulled back. Not zero: an
+// archived list is context the candidate can still recognise, and the rail
+// keeps listing it. See the archived-dimming note in this directory's
+// AGENTS.md for why this is a strength change and not a filter.
+const ARCHIVED_RING_ALPHA = 0.28
 
 export type PolygonRing = Array<[number, number]>
 
@@ -64,6 +83,12 @@ interface VoterMapCanvasProps {
   turfs: DoorKnockingTurf[]
   // Numbered stop pins for the open route's walk view.
   routePins: RoutePin[]
+  // The stop the walk is currently on, ringed so the map and the list agree
+  // about where the canvasser is. Matched on `stopId`, which is the route
+  // payload's identity for a stop — `seq` is what both surfaces DRAW on it, and
+  // selecting on the label rather than the identity is how the two would come
+  // to disagree. Null off a walk, and on the landing map, which has no pins.
+  selectedStopId: number | null
   // Closed-loop routes draw the return leg back to stop 1.
   routeLoop: boolean
   // Road-following path frozen at knock; straight legs are the fallback.
@@ -91,6 +116,26 @@ interface VoterMapCanvasProps {
   // there, and the two are different modes.
   onRoutePinClick?: (pin: RoutePin) => void
 }
+
+// An archived list keeps its own colour and loses most of its strength. It is
+// still drawn, because archiving is a rail decision about which lists a
+// candidate is working through and not a claim that the streets stopped
+// existing — a ring that vanished on archive would leave the shelf looking
+// exactly like a delete, on the one surface where nothing else tells them
+// apart.
+//
+// This composes with the per-list eye rather than competing with it, and the
+// two are different kinds of answer: the eye REMOVES a ring from the map (the
+// orchestrator filters it out of `turfs` before this layer ever sees it), while
+// the archive only quiets one. So hiding an archived list still hides it, and
+// nothing here can put back an outline the eye took away — the strength is only
+// ever applied to what is already being drawn.
+//
+// Read off `archivedAt` directly, the same field `turfStage` reads: importing
+// the rail's lifecycle module would pull its mutations, its snackbars and its
+// fetch client into the maplibre/deck.gl chunk to answer a one-field question.
+const archivedAlpha = (turf: DoorKnockingTurf, alpha: number): number =>
+  turf.archivedAt ? Math.round(alpha * ARCHIVED_RING_ALPHA) : alpha
 
 const hexToRgba = (
   hex: string,
@@ -251,6 +296,7 @@ export default function VoterMapCanvas({
   filterResult,
   turfs,
   routePins,
+  selectedStopId,
   routeLoop,
   routeGeometry,
   focusTurf,
@@ -506,8 +552,15 @@ export default function VoterMapCanvas({
           id: 'saved-turfs',
           data: turfs,
           getPolygon: (turf) => turf.geoPoly.coordinates[0] ?? [],
-          getFillColor: (turf) => hexToRgba(turf.color, 40),
-          getLineColor: (turf) => hexToRgba(turf.color, 220),
+          // An archived list draws at a fraction of its own strength rather
+          // than in a colour of its own: the ring's colour is the rail card's
+          // accent bar, so recolouring it would break the one thing that ties
+          // an outline to a row. This is the same treatment the archived card
+          // gets in the rail (`dimmed`), on the other half of the screen.
+          getFillColor: (turf) =>
+            hexToRgba(turf.color, archivedAlpha(turf, 40)),
+          getLineColor: (turf) =>
+            hexToRgba(turf.color, archivedAlpha(turf, 220)),
           lineWidthMinPixels: 2,
           pickable: false,
         }),
@@ -576,6 +629,36 @@ export default function VoterMapCanvas({
           widthMinPixels: 3,
           capRounded: true,
           jointRounded: true,
+          pickable: false,
+        }),
+        // The stop the walk is on, as a halo the pin then sits inside. Drawn
+        // before `route-pins` so only the part that clears the pin is visible,
+        // and after `route-path` so the leg running through the stop cannot
+        // cover it — a ring the same blue as the path would otherwise read as
+        // a kink in the route.
+        //
+        // A layer of its own rather than another accessor on the pin: the pin's
+        // fill is the stop's status and its stroke is whether anyone there is
+        // knockable, so both of the pin's own channels are already saying
+        // something, and taking either back for selection would cost a fact the
+        // canvasser is standing in front of the house to read. It is the same
+        // decision the list row makes one surface over, where selection is a
+        // ring around the numbered circle rather than a change to its fill.
+        new ScatterplotLayer<RoutePin>({
+          id: 'route-pin-selection',
+          data: routePins.filter((pin) => pin.stopId === selectedStopId),
+          getPosition: (pin) => [pin.lng, pin.lat],
+          filled: false,
+          stroked: true,
+          getLineColor: SELECTION_BLUE,
+          getLineWidth: SELECTION_RING_WIDTH,
+          lineWidthUnits: 'pixels',
+          lineWidthMinPixels: SELECTION_RING_WIDTH,
+          radiusMinPixels: 11 + SELECTION_RING_PADDING,
+          radiusMaxPixels: 14 + SELECTION_RING_PADDING,
+          getRadius: 12 + SELECTION_RING_PADDING,
+          // Not pickable: a tap here has to reach the pin underneath, which is
+          // the thing that opens the door. The halo is a mark, not a control.
           pickable: false,
         }),
         new ScatterplotLayer<RoutePin>({
@@ -672,6 +755,7 @@ export default function VoterMapCanvas({
     filterResult,
     turfs,
     routePins,
+    selectedStopId,
     routeLoop,
     routeGeometry,
     drawPoints,

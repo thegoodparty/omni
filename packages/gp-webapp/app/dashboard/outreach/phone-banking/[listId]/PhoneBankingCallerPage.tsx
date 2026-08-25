@@ -28,14 +28,16 @@ import {
   DropdownMenuTrigger,
   EllipsisVerticalIcon,
   IconButton,
+  Loader2Icon,
+  StatusText,
   Trash2Icon,
   cn,
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
 import {
   NOT_CALLED_LABEL,
@@ -153,7 +155,12 @@ export default function PhoneBankingCallerPage({
               size="small"
               aria-label="Back to Voter Outreach"
             >
-              <Link href="/dashboard/outreach">
+              {/* The hub's outreach-detail cache is invalidated per-save
+                  (below), but its RSC-sourced row list and status can still
+                  come from Next's Router Cache on the way back — router.refresh()
+                  busts that so the hub re-renders with the real status
+                  instead of the in-progress snapshot it had on the way in. */}
+              <Link href="/dashboard/outreach" onClick={() => router.refresh()}>
                 <ArrowLeftIcon size={18} />
               </Link>
             </IconButton>
@@ -228,7 +235,9 @@ export default function PhoneBankingCallerPage({
         <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">
           {listQuery.isPending && (
             <div className="flex h-full items-center justify-center">
-              <LoadingAnimation />
+              <StatusText tone="muted" icon={<Loader2Icon />} spinning>
+                Loading call list…
+              </StatusText>
             </div>
           )}
           {listQuery.isError && (
@@ -459,6 +468,14 @@ export default function PhoneBankingCallerPage({
               (old: typeof list | undefined) =>
                 old && applyCallResults(old, results),
             )
+            // Nothing in this flow ever writes the hub's cached
+            // ['outreach-detail', id] entry, so its peopleCalled/supporters
+            // sit at their create-time 0 until this invalidates them. Free in
+            // practice: react-query only refetches keys with a mounted
+            // observer, and none is mounted while this page is open.
+            void queryClient.invalidateQueries({
+              queryKey: outreachDetailQueryPrefix,
+            })
           }}
         />
       )}
