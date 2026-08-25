@@ -24,6 +24,7 @@ import {
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
+  knockStatusCounts,
   readableInkOn,
   rollupStopStatus,
   STATUS_DOT_COLORS,
@@ -247,9 +248,10 @@ export default function WalkView({
     knockableTargets(stopList).filter(
       (target) => target.knockStatus !== 'unknown',
     ).length
-  const statusCount = (stopList: RoutePayloadStop[], status: DoorKnockStatus) =>
-    knockableTargets(stopList).filter((target) => target.knockStatus === status)
-      .length
+  // The strip's seven counts, from the helper the details drawer's outcome
+  // table also reads — one bucketing of one frozen route, so the walk and the
+  // planning surface cannot report the same list differently.
+  const statusCounts = useMemo(() => knockStatusCounts(stops), [stops])
   const stopStatus = rollupStopStatus
   const primaryTargetName = (stop: RoutePayloadStop): string | null =>
     stop.addresses[0]?.targets[0]?.name ?? null
@@ -452,9 +454,7 @@ export default function WalkView({
                     style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
                   />
                   {STATUS_LABELS[status]}{' '}
-                  <span className="tabular-nums">
-                    {statusCount(routeQuery.data?.stops ?? [], status)}
-                  </span>
+                  <span className="tabular-nums">{statusCounts[status]}</span>
                 </span>
               ))}
             </div>

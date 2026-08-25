@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DOOR_KNOCK_STATUSES,
   DoorKnockStatus,
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
+import { knockableTargets } from '../routeCounts'
 import {
+  knockStatusCounts,
   readableInkOn,
   readableInkOnHex,
   rollupStopStatus,
@@ -161,6 +164,85 @@ describe('stopIsKnockable', () => {
 
   it('reports an empty stop as nobody', () => {
     expect(stopIsKnockable(stop([]))).toBe(false)
+  })
+})
+
+// Two surfaces read this — the walk's seven-count strip and the details
+// drawer's outcome table — so the bucketing is asserted here once rather than
+// through either of them. The rules below are the reason it is shared at all: a
+// second local copy is how the walk and the planning surface would come to
+// report one frozen route differently.
+describe('knockStatusCounts', () => {
+  it('carries every status, including the ones nobody recorded', () => {
+    const counts = knockStatusCounts([stop([target('supporter')])])
+
+    expect(Object.keys(counts).sort()).toEqual([...DOOR_KNOCK_STATUSES].sort())
+    expect(counts.supporter).toBe(1)
+    // "Nobody refused" is an answer, so the bucket is present at zero rather
+    // than absent — a row that vanishes when it empties would make the table's
+    // own shape a fact about the list.
+    expect(counts.refused).toBe(0)
+  })
+
+  it('buckets a household by what was logged at each door', () => {
+    const counts = knockStatusCounts([
+      stop([target('supporter'), target('not_home'), target('not_home')]),
+    ])
+
+    expect(counts.not_home).toBe(2)
+    expect(counts.supporter).toBe(1)
+    expect(counts.unknown).toBe(0)
+  })
+
+  // The denominator is `knockableTargets`, like every people figure in this
+  // feature, so the counts sum to the People stat rather than to a wider
+  // population — the drawer prints them as percentages of exactly that.
+  it('sums to the knockable people and drops both flags', () => {
+    const stops = [
+      stop([
+        target('supporter'),
+        target('unknown'),
+        target('refused', true),
+        { ...target('non_supporter'), notAVoterReason: 'moved' as const },
+      ]),
+    ]
+    const counts = knockStatusCounts(stops)
+
+    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(
+      knockableTargets(stops).length,
+    )
+    expect(counts.refused).toBe(0)
+    expect(counts.non_supporter).toBe(0)
+  })
+
+  // The one bucket whose membership is partial, and the reason the drawer says
+  // so out loud. ADR 0008's follow-up is optional: the status lands at Save and
+  // the `notAVoterReason` only once someone answers "what happened?" — and it is
+  // the reason, not the status, that removes them from the count. So a door
+  // logged not-a-voter with nothing answered yet is still in the denominator and
+  // belongs in this bucket.
+  it('keeps a not-a-voter outcome whose follow-up is unanswered', () => {
+    const counts = knockStatusCounts([stop([target('not_a_voter')])])
+
+    expect(counts.not_a_voter).toBe(1)
+  })
+
+  // And loses them the moment it IS answered, which is the same person moving
+  // out of the whole table rather than into another row.
+  it('drops a not-a-voter resident once the reason is recorded', () => {
+    const counts = knockStatusCounts([
+      stop([
+        { ...target('not_a_voter'), notAVoterReason: 'deceased' as const },
+      ]),
+    ])
+
+    expect(counts.not_a_voter).toBe(0)
+  })
+
+  it('reports a route with nobody knockable as all zeroes', () => {
+    const counts = knockStatusCounts([stop([target('supporter', true)])])
+
+    expect(Object.values(counts).every((count) => count === 0)).toBe(true)
   })
 })
 
