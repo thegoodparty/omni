@@ -301,6 +301,8 @@ describe('buildVoterFiltersSql', () => {
     }
   })
 
+  // 'Yes' (the Homeowner pill's wire value) folds Probable Home Owner in
+  // (ENG-10947), so it maps to both L2 values rather than one.
   it('maps homeowner display values to their L2 values', () => {
     const bag = createBag()
     const sql = buildVoterFiltersSql(
@@ -308,9 +310,10 @@ describe('buildVoterFiltersSql', () => {
       parseFilters({ homeowner: { in: ['Yes'] } }),
     )
 
-    expect(sql).toBe('v.`Homeowner_Probability_Model` IN (:p0)')
+    expect(sql).toBe('v.`Homeowner_Probability_Model` IN (:p0, :p1)')
     expect(bag.params).toEqual([
       { name: 'p0', value: 'Home Owner', type: 'STRING' },
+      { name: 'p1', value: 'Probable Home Owner', type: 'STRING' },
     ])
   })
 

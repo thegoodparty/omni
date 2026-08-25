@@ -300,16 +300,18 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   },
   {
     key: 'homeowner',
-    label: 'Homeowner',
+    label: 'Homeownership',
     kind: 'boolean-group',
     modes: 'both',
-    // Column is Homeowner_Probability_Model; every value including 'Yes'
-    // comes out of that model, not a deed record.
+    // Column is Homeowner_Probability_Model; every value including
+    // 'Homeowner' comes out of that model, not a deed record. 'Homeowner'
+    // folds in the model's Probable Home Owner bucket (ENG-10947) —
+    // homeownerLikely is a legacy wire key still accepted from saved
+    // filters, but no longer offered as its own option.
     provenance: 'modeled',
     values: [
-      { key: 'homeownerYes', label: 'Yes' },
-      { key: 'homeownerLikely', label: 'Likely' },
-      { key: 'homeownerNo', label: 'No' },
+      { key: 'homeownerYes', label: 'Homeowner' },
+      { key: 'homeownerNo', label: 'Renter' },
       { key: 'homeownerUnknown', label: 'Unknown' },
     ],
   },

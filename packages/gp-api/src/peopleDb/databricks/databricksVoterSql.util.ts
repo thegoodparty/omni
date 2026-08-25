@@ -186,21 +186,26 @@ const buildMappedFieldFilter = (
   bag: Bag,
   field: string,
   op: FilterOperator | undefined,
-  mapValue: (value: string) => string | null,
+  mapValue: (value: string) => string | string[] | null,
 ): string | null => {
   if (!op) return null
   const target = col(field)
   if (op.operator === 'eq' && op.value) {
     const mapped = mapValue(String(op.value))
     if (mapped === null) return `${target} IS NULL`
-    return buildFieldFilter(bag, field, { ...op, value: mapped })
+    // A one-to-many mapping (homeowner's 'Yes' folding in Probable Home
+    // Owner) needs an `in` clause even though the caller asked `eq`.
+    return Array.isArray(mapped)
+      ? buildFieldFilter(bag, field, { operator: 'in', values: mapped })
+      : buildFieldFilter(bag, field, { ...op, value: mapped })
   }
   if (op.operator === 'in' && op.values && op.values.length > 0) {
     const original = op.values.map(String)
-    const mapped = original
-      .map(mapValue)
-      .filter((value): value is string => value !== null)
-    const hasNull = original.some((value) => mapValue(value) === null)
+    const mappedResults = original.map(mapValue)
+    const mapped = mappedResults.flatMap((value) =>
+      value === null ? [] : Array.isArray(value) ? value : [value],
+    )
+    const hasNull = mappedResults.some((value) => value === null)
     if (hasNull && mapped.length > 0) {
       const sql = buildFieldFilter(bag, field, { ...op, values: mapped })
       if (sql) return `(${sql} OR ${target} IS NULL)`
