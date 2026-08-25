@@ -41,7 +41,9 @@ export const DownloadStep = ({
     <div className="space-y-6">
       <Intro
         channel="phoneBanking"
-        title={isZip ? 'Your call lists are ready' : 'Your call list is ready'}
+        title={
+          isZip ? 'Your call sheets are ready' : 'Your call sheet is ready'
+        }
         body={`Download the ${isZip ? 'PDFs' : 'PDF'} for your volunteers, then go to the calling page to start making calls and marking outcomes.`}
       />
 
@@ -66,7 +68,7 @@ export const DownloadStep = ({
             </p>
             <p className="text-sm text-muted-foreground">
               {audienceLabel} · {response.personCount.toLocaleString()} contacts
-              {isZip ? ` split across ${response.sheetCount} lists` : ''}
+              {isZip ? ` split across ${response.sheetCount} sheets` : ''}
             </p>
           </div>
         </div>

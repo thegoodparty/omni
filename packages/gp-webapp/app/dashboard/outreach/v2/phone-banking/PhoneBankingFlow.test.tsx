@@ -138,8 +138,11 @@ const advanceToSheets = async () => {
   )
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   expect(
-    (await screen.findAllByText('How many lists would you like me to create?'))
-      .length,
+    (
+      await screen.findAllByText(
+        'How many call sheets would you like me to create?',
+      )
+    ).length,
   ).toBeGreaterThan(0)
 }
 
@@ -199,12 +202,14 @@ describe('PhoneBankingFlow', () => {
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many lists would you like me to create?')
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      (await screen.findAllByText('Your call list is ready')).length,
+      (await screen.findAllByText('Your call sheet is ready')).length,
     ).toBeGreaterThan(0)
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]).toMatchObject({
@@ -253,11 +258,11 @@ describe('PhoneBankingFlow', () => {
     openFlow()
     await advanceToSheets()
 
-    const sheetCountInput = screen.getByLabelText('Number of lists')
+    const sheetCountInput = screen.getByLabelText('Number of call sheets')
     await user.clear(sheetCountInput)
     await user.type(sheetCountInput, '3')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByText('Your call lists are ready')
+    await screen.findByText('Your call sheets are ready')
 
     const zipLink = screen.getByRole('link', {
       name: 'Download 3 call sheets (ZIP)',
@@ -279,7 +284,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     const sheetCountInput = screen.getByLabelText(
-      'Number of lists',
+      'Number of call sheets',
     ) as HTMLInputElement
     expect(sheetCountInput.value).toBe('1')
 
@@ -300,7 +305,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     const sheetCountInput = screen.getByLabelText(
-      'Number of lists',
+      'Number of call sheets',
     ) as HTMLInputElement
 
     await user.clear(sheetCountInput)
@@ -327,7 +332,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     const sheetCountInput = screen.getByLabelText(
-      'Number of lists',
+      'Number of call sheets',
     ) as HTMLInputElement
 
     await user.clear(sheetCountInput)
@@ -357,7 +362,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     const sheetCountInput = screen.getByLabelText(
-      'Number of lists',
+      'Number of call sheets',
     ) as HTMLInputElement
     await user.clear(sheetCountInput)
     expect(sheetCountInput.value).toBe('')
@@ -392,10 +397,12 @@ describe('PhoneBankingFlow', () => {
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many lists would you like me to create?')
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
 
     const sheetCountInput = screen.getByLabelText(
-      'Number of lists',
+      'Number of call sheets',
     ) as HTMLInputElement
     // ceil(2000 / 60) = 34, capped at PHONE_BANKING_MAX_SHEET_COUNT.
     expect(sheetCountInput.value).toBe('20')
@@ -427,7 +434,9 @@ describe('PhoneBankingFlow', () => {
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many lists would you like me to create?')
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
@@ -447,7 +456,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findAllByText('Your call list is ready')
+    await screen.findAllByText('Your call sheet is ready')
     expect(screen.queryByText(/contacts frozen from/)).not.toBeInTheDocument()
   })
 
@@ -471,7 +480,8 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
     // Stays on the sheets step — no ready screen.
     expect(
-      screen.getAllByText('How many lists would you like me to create?').length,
+      screen.getAllByText('How many call sheets would you like me to create?')
+        .length,
     ).toBeGreaterThan(0)
   })
 
@@ -662,7 +672,9 @@ describe('PhoneBankingFlow', () => {
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many lists would you like me to create?')
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await waitFor(() => expect(createCalls).toHaveLength(1))
@@ -687,7 +699,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('Your call list is ready')
+    await screen.findAllByText('Your call sheet is ready')
 
     expect(onSaved).toHaveBeenCalledWith(
       createResponse.outreachId,
@@ -706,7 +718,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('Your call list is ready')
+    await screen.findAllByText('Your call sheet is ready')
 
     expect(onSaved).not.toHaveBeenCalled()
   })

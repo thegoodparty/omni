@@ -63,11 +63,11 @@ export const SheetCountStep = ({
     <div className="space-y-6">
       <Intro
         channel="phoneBanking"
-        title="How many lists would you like me to create?"
-        body="Creating multiple lists makes it simpler to share with volunteers, friends, and family."
+        title="How many call sheets would you like me to create?"
+        body="Creating multiple call sheets makes it simpler to share with volunteers, friends, and family."
       />
       <div className="space-y-2">
-        <Label htmlFor="phone-banking-sheet-count">Number of lists</Label>
+        <Label htmlFor="phone-banking-sheet-count">Number of call sheets</Label>
         <Input
           id="phone-banking-sheet-count"
           type="number"
@@ -100,7 +100,7 @@ export const SheetCountStep = ({
           </p>
         )}
         <p className="text-sm text-muted-foreground">
-          Between 1 and {PHONE_BANKING_MAX_SHEET_COUNT} lists.
+          Between 1 and {PHONE_BANKING_MAX_SHEET_COUNT} call sheets.
         </p>
       </div>
       {overCapacity && reachableCount !== null && (
