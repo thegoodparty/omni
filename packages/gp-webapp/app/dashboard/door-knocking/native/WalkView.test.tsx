@@ -227,6 +227,20 @@ describe('WalkView', () => {
     })
   })
 
+  // The stop's numeral and its people count sit one gap apart on the row, so a
+  // bare "1" beside "Stop 1" named neither quantity — the canvas puts a person
+  // glyph in front of the count for exactly this reason, and a screen reader
+  // gets none of that layout at all.
+  it('says what the people count on a stop row counts', async () => {
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+
+    expect(within(stopRow(0)).getByText(/person to knock/)).toBeInTheDocument()
+  })
+
   // A row tap and a pin tap set one selection, so the numbered row and the
   // numbered pin are two views of where the canvasser is. It outlives the sheet
   // deliberately: the door just worked is the one worth keeping marked, and a
@@ -1821,6 +1835,142 @@ describe('WalkView map pin taps', () => {
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 
     expect(screen.queryByText('Log this door')).toBeNull()
+  })
+
+  // The canvas's panel header navigates the route door by door
+  // (`navBtn('chevron-left', ()=>this.openPanel(route[idx-1].id), hasPrev)`);
+  // ours had no equivalent, so the only way to the next house was to close the
+  // sheet and find the row. Both chevrons go through the same open path a pin
+  // tap does, so the list follows and the mark moves with them.
+  it('walks to the next and previous door from the sheet', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 11, token: 1 },
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Dorian Fen' }),
+      ).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next door' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Marisol Vega' }),
+      ).toBeInTheDocument(),
+    )
+    // The mark moved with it: the sheet and the list are showing one door.
+    expect(stopRow(1)).toHaveAttribute('aria-current', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous door' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Dorian Fen' }),
+      ).toBeInTheDocument(),
+    )
+    expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
+  })
+
+  // Disabled at the ends rather than absent: a chevron that disappears at the
+  // last door is indistinguishable from one that broke, and the pair keeps its
+  // place in the header instead of reflowing it as the canvasser walks.
+  it('disables the chevrons at the ends of the route', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 11, token: 1 },
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Dorian Fen' }),
+      ).toBeInTheDocument(),
+    )
+
+    expect(screen.getByRole('button', { name: 'Previous door' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Next door' })).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next door' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Next door' })).toBeDisabled(),
+    )
+    expect(
+      screen.getByRole('button', { name: 'Previous door' }),
+    ).not.toBeDisabled()
+  })
+
+  // Same numeral the row and the pin carry — `seq`, never a position in a list,
+  // so the sheet cannot become a third name for one stop. The seqs here are 3
+  // and 7 for exactly that reason: with 1 and 2 an off-by-nothing index bug
+  // would agree with the right answer and the test would pass on a wrong build.
+  it('names the stop by its route number in the sheet header', async () => {
+    await walkThenTap(
+      [
+        stop(11, 3, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 7, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 12, token: 1 },
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Marisol Vega' }),
+      ).toBeInTheDocument(),
+    )
+    // Every numbered badge on the page, read the way a screen reader gets it:
+    // the sr-only "Stop " prefix plus the numeral beside it. Two rows and then
+    // the sheet, which is the one under test — and the numbers are what a
+    // position-based bug would get wrong, printing 1, 2, 2 here.
+    expect(
+      screen
+        .getAllByText('Stop', { selector: 'span.sr-only' })
+        .map((label) => label.parentElement?.textContent?.trim()),
+    ).toEqual(['Stop 3', 'Stop 7', 'Stop 7'])
+  })
+
+  // The chevrons move the sheet between doors without unmounting it, so the
+  // scrolling body keeps its offset — a canvasser who read the activity feed at
+  // one house would arrive at the next already past the address and the phones.
+  it('returns the sheet to the top of the next door', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 11, token: 1 },
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Dorian Fen' }),
+      ).toBeInTheDocument(),
+    )
+    // The card headers are inside the scrolling body, so this finds it without
+    // reaching for a class name.
+    const body = screen
+      .getByText('Contact information')
+      .closest('div.overflow-y-auto') as HTMLElement
+    body.scrollTop = 420
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next door' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Marisol Vega' }),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      (
+        screen
+          .getByText('Contact information')
+          .closest('div.overflow-y-auto') as HTMLElement
+      ).scrollTop,
+    ).toBe(0)
   })
 })
 

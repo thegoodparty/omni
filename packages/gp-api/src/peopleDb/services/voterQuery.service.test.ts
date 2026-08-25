@@ -101,6 +101,10 @@ describe('VoterQueryService', () => {
     }
 
     service = new VoterQueryService(
+      {
+        enabled: false,
+        compare: (args: { primary: () => unknown }) => args.primary(),
+      } as never,
       mockSampleService as never,
       mockDistrictService as never,
       mockStatsService as never,
@@ -938,5 +942,30 @@ describe('VoterQueryService', () => {
       // Union of zero saved sets is the empty set (FALSE), not "unfiltered".
       expect(sql).toContain('AND FALSE')
     })
+  })
+
+  // A logging side-effect must not decide the caller's result: awaited, a
+  // failure inside the probe turned a legitimate empty district into an error.
+  it('still returns an empty result when the zero-count diagnostic probe throws', async () => {
+    mockDistrictService.findDistrictById.mockResolvedValue({
+      id: 'district-1',
+      type: 'City',
+      name: 'NOWHERE',
+      state: 'WY',
+    })
+    mockClient.$transaction.mockResolvedValue([0, [{ voter_count: 0n }]])
+    mockClient.$queryRaw.mockRejectedValue(new Error('statement timeout'))
+    mockStatsService.findTotalCounts.mockResolvedValue(null)
+
+    const result = await service.findPeople({
+      districtId: 'district-1',
+      filters: { filters: [], filterOperators: {} },
+      resultsPerPage: 25,
+      page: 1,
+    } as never)
+
+    // The point is that it RESOLVES: before this, a throw inside the probe
+    // propagated out of findPeople and became an error response.
+    expect(result.pagination.totalResults).toBe(0)
   })
 })

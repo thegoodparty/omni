@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  CheckCircleIcon,
   IconButton,
   Input,
   Label,
@@ -42,7 +43,12 @@ import { PurposeStep } from './PurposeStep'
 import { WhoStep } from './WhoStep'
 import { NameStep } from './NameStep'
 import type { SavedListOption } from './savedListOptions'
-import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
+import {
+  MAX_TURF_NAME_LENGTH,
+  TURF_COLORS,
+  turfColorLabel,
+  turfColorTick,
+} from '../turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
 import type { DoorKnockingAddressPreviewResponse } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
@@ -137,7 +143,8 @@ const STAGE_META: Record<CreateFlowStage, { title: string; caption: string }> =
     },
     confirm: {
       title: 'Confirm your list',
-      caption: 'Review the route, give it a name and color, then save it.',
+      caption:
+        'Review the route, give it a name and color, then save it to your team.',
     },
   }
 
@@ -862,16 +869,29 @@ export default function CreateListFlow({
                     <button
                       key={option}
                       type="button"
-                      aria-label={`Turf color ${option}`}
+                      aria-label={turfColorLabel(option)}
                       aria-pressed={color === option}
-                      className={`h-8 w-8 rounded-full border-2 ${
+                      className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
                         color === option
                           ? 'border-foreground'
                           : 'border-transparent'
                       }`}
                       style={{ backgroundColor: option }}
                       onClick={() => setColor(option)}
-                    />
+                    >
+                      {/* The canvas's tick inside the chosen swatch. The ring
+                          alone carries the choice in a second colour cue, on a
+                          control whose whole content is colour — and the tick
+                          inverts with the swatch it sits on, since a white one
+                          is invisible on half this palette. */}
+                      {color === option && (
+                        <CheckCircleIcon
+                          size={16}
+                          aria-hidden="true"
+                          style={{ color: turfColorTick(option) }}
+                        />
+                      )}
+                    </button>
                   ))}
                 </div>
               </div>

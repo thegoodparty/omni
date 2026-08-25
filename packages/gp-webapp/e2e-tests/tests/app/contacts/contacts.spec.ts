@@ -151,14 +151,22 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(listCard(page, renamedName)).toBeVisible({ timeout: 20_000 })
     await expect(listCard(page, listName)).toHaveCount(0)
 
-    // --- Duplicate: opens the copy's detail sheet and adds a card ---
+    // --- Duplicate: confirms first (ENG-10943), then opens the copy's
+    // detail sheet and adds a card ---
     await openListCardMenu(page, renamedName)
     await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+    const duplicateDialog = page.getByRole('alertdialog')
+    await expect(duplicateDialog).toBeVisible({ timeout: 10_000 })
+    await expect(
+      duplicateDialog.getByText(/re-runs this list's filters/i),
+    ).toBeVisible()
+    await duplicateDialog.getByRole('button', { name: 'Duplicate' }).click()
     const copyName = `${renamedName} (copy)`
     const copySheet = crmSheet(page)
     await expect(copySheet.getByText(copyName, { exact: true })).toBeVisible({
       timeout: 30_000,
     })
+    await expect(duplicateDialog).toBeHidden()
     await closeCrmSheet(page)
     await expect(listCard(page, copyName)).toBeVisible({ timeout: 20_000 })
 

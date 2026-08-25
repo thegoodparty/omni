@@ -272,7 +272,7 @@ function TurfRow({
             Details
           </Button>
           {/* The CTA states the canvas asks for: Knock while there is walking
-              left, Move to Archive once the list is done. An archived list gets
+              left, Move to archive once the list is done. An archived list gets
               Restore instead, because it is the only way back and the section
               it sits in is otherwise a dead end. */}
           {stage === 'archived' ? (
@@ -293,7 +293,7 @@ function TurfRow({
               onClick={lifecycle.moveToArchive}
             >
               <ArchiveIcon size={14} />
-              Move to Archive
+              Move to archive
             </Button>
           ) : (
             <Button size="small" onClick={() => onKnockTurf(turf)}>

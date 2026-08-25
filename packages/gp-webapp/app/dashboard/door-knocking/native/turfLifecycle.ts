@@ -13,6 +13,24 @@ export type TurfLifecycleStage = 'active' | 'done' | 'archived'
 export const turfStage = (turf: DoorKnockingTurf): TurfLifecycleStage =>
   turf.archivedAt ? 'archived' : turf.completedAt ? 'done' : 'active'
 
+// The canvas's own status indicator for a saved list, in the vocabulary the
+// outreach history drawer already renders through `HistoryStatusText`: the two
+// details drawers are one component family from two entry points, so one list
+// must not be "In progress" in one and unlabelled in the other.
+//
+// `renderDkDetails` derives it as
+// `list.completed?'done':(knocked>0?'in-progress':'scheduled')`, which is
+// lockedness here — a turf is locked iff its frozen route exists, and a route
+// exists iff someone started knocking it. Archived is ours: the canvas has no
+// shelf, and 'Done' would be a lie about a list the rail has taken off the
+// active section.
+export const turfStatusLabel = (turf: DoorKnockingTurf): string => {
+  const stage = turfStage(turf)
+  if (stage === 'archived') return 'Archived'
+  if (stage === 'done') return 'Done'
+  return turf.locked ? 'In progress' : 'Scheduled'
+}
+
 export type TurfLifecycleAction = 'complete' | 'archive' | 'restore'
 
 // gp-api applies all three transitions only to a KNOCKED list — a turf with no

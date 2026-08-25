@@ -1,7 +1,7 @@
 'use client'
 
 import type { PhoneBankingCreateResponse } from '@goodparty_org/contracts'
-import { Button, Card } from '@styleguide'
+import { Alert, AlertDescription, Button, Card } from '@styleguide'
 import { DownloadIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CHANNEL_META } from '../channelMeta'
@@ -10,6 +10,10 @@ import { Intro } from '../social/Intro'
 interface DownloadStepProps {
   response: PhoneBankingCreateResponse
   audienceLabel: string
+  // Pre-freeze reachable count the flow held from the audience step — the
+  // create response only carries the post-freeze personCount, so this is the
+  // only place left to compare against for the reconciliation copy below.
+  reachableCount: number | null
 }
 
 // The "ready" screen (step 5): replaces the old naming-only download step and
@@ -19,9 +23,12 @@ interface DownloadStepProps {
 export const DownloadStep = ({
   response,
   audienceLabel,
+  reachableCount,
 }: DownloadStepProps) => {
   const isZip = response.sheetCount > 1
   const href = `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
+  const truncated =
+    reachableCount !== null && reachableCount > response.personCount
 
   const handleDownloadClick = () => {
     trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
@@ -34,9 +41,19 @@ export const DownloadStep = ({
     <div className="space-y-6">
       <Intro
         channel="phoneBanking"
-        title={isZip ? 'Your call lists are ready' : 'Your call list is ready'}
+        title={
+          isZip ? 'Your call sheets are ready' : 'Your call sheet is ready'
+        }
         body={`Download the ${isZip ? 'PDFs' : 'PDF'} for your volunteers, then go to the calling page to start making calls and marking outcomes.`}
       />
+
+      {truncated && reachableCount !== null && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {`${response.personCount.toLocaleString()} contacts frozen from ${reachableCount.toLocaleString()} reachable.`}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card className="gap-3 p-4 text-sm">
         <div className="flex items-center gap-3">
@@ -51,7 +68,7 @@ export const DownloadStep = ({
             </p>
             <p className="text-sm text-muted-foreground">
               {audienceLabel} · {response.personCount.toLocaleString()} contacts
-              {isZip ? ` split across ${response.sheetCount} lists` : ''}
+              {isZip ? ` split across ${response.sheetCount} sheets` : ''}
             </p>
           </div>
         </div>

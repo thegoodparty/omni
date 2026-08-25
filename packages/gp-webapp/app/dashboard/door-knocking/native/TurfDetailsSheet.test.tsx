@@ -157,6 +157,42 @@ const renderSheet = ({
   return { onDeleted }
 }
 
+// The canvas draws a status indicator beside the name in BOTH details drawers,
+// and the outreach one has always rendered it while this one rendered nothing —
+// so a candidate could open Details on a finished list and find no statement of
+// that anywhere on the surface. Same component as the outreach drawer, so one
+// list cannot be described in two vocabularies from two entry points.
+describe('TurfDetailsSheet status', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+  })
+
+  it.each([
+    ['Scheduled', { locked: false }],
+    ['In progress', { locked: true }],
+    ['Done', { locked: true, completedAt: new Date('2026-08-20T00:00:00Z') }],
+    [
+      'Archived',
+      {
+        locked: true,
+        completedAt: new Date('2026-08-20T00:00:00Z'),
+        archivedAt: new Date('2026-08-22T00:00:00Z'),
+      },
+    ],
+  ])('names a %s list in the header', async (label, prop) => {
+    renderSheet({ prop })
+
+    expect(
+      await screen.findByRole('heading', { name: 'Elm St & 5th' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
+})
+
 // The archive seam. #1375 gave a list its own archivedAt while the outreach
 // envelope already had one, and nothing joined them — so a walk could be
 // shelved on one rail and still be live on the other. The join is gp-api's:
@@ -198,7 +234,7 @@ describe('TurfDetailsSheet archive', () => {
     expect(
       await screen.findByRole('heading', { name: 'Elm St & 5th' }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Move to Archive/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Move to archive/ })).toBeNull()
   })
 
   // One request, and the envelope moves with it inside gp-api's transaction.
@@ -219,7 +255,7 @@ describe('TurfDetailsSheet archive', () => {
     })
 
     doneSheet()
-    await clickArchive('Move to Archive')
+    await clickArchive('Move to archive')
 
     await waitFor(() =>
       expect(successSnackbar).toHaveBeenCalledWith('Moved to archive'),
@@ -266,7 +302,7 @@ describe('TurfDetailsSheet archive', () => {
     })
 
     doneSheet()
-    await clickArchive('Move to Archive')
+    await clickArchive('Move to archive')
 
     await waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith(
@@ -1260,7 +1296,10 @@ describe('TurfDetailsSheet edit', () => {
 
     const input = await openEditor()
     fireEvent.change(input, { target: { value: 'Oak Ave' } })
-    fireEvent.click(screen.getByLabelText('Turf color #16a34a'))
+    // The swatch is named for the colour, not the hex it paints with — the
+    // canvas labels its own swatches `opt.label`, and "two five six three e b"
+    // is not a colour anyone can choose by ear.
+    fireEvent.click(screen.getByRole('button', { name: 'Green' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(sent.id).toBe('1'))

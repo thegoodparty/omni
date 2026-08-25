@@ -9,6 +9,14 @@
 > rest still stand, and the reasoning throughout is still the reasoning: the
 > three-quantities problem in the last paragraph of this preamble is a property
 > of our data, not of any prototype, and it outlives both of them.
+>
+> **`VOTER-OUTREACH-2.0-AUDIT.md` is the current review**, written against the
+> canvas rather than against the Lovable prototype. Read it first. It re-checks
+> every deliberate departure listed below against the canvas and confirms them,
+> and it argues with exactly one of them — § 6, the audience breakdown — on the
+> ground that a knocked list's outcome split and the landing rail's chips are
+> two different quantities rather than one reported twice. That argument is
+> recorded there, not acted on.
 
 This compares the shipped door-knocking feature against the Lovable prototype
 (`Remix of Door Knocking - 1 Page Self-Serve`), screen by screen, and sorts every

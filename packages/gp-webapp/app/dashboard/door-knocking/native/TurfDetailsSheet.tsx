@@ -23,6 +23,7 @@ import {
   Metric,
   MetricGrid,
 } from 'app/dashboard/outreach/v2/listDetails/ListDetailsMetric'
+import { HistoryStatusText } from 'app/dashboard/outreach/v2/channelMeta'
 import { ListDetailsFooter } from 'app/dashboard/outreach/v2/listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from 'app/dashboard/outreach/v2/listDetails/ListDetailsSheetShell'
 import EditTurfDialog from './EditTurfDialog'
@@ -41,7 +42,12 @@ import { unpreviewableDisclosureLabels } from './createFlow/voterFilterPreview'
 import type { DimSlice, PolygonStats } from './filterEngine'
 import { ageBucketLabel, routeAudienceMix } from './audienceMix'
 import DeleteTurfControl, { LOCKED_TURF_MESSAGE } from './DeleteTurfControl'
-import { canArchiveTurf, turfStage, useTurfLifecycle } from './turfLifecycle'
+import {
+  canArchiveTurf,
+  turfStage,
+  turfStatusLabel,
+  useTurfLifecycle,
+} from './turfLifecycle'
 import { countDoors, knockableTargets } from '../routeCounts'
 
 // The age field's own options plus the retired overlapping ranges ENG-10752
@@ -400,9 +406,20 @@ export default function TurfDetailsSheet({
               style={{ backgroundColor: liveTurf.color }}
             />
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-[22px] font-semibold text-foreground">
-                {liveTurf.name}
-              </h2>
+              {/* The canvas draws a status indicator beside the name in BOTH
+                  details drawers, and the outreach one has always rendered it
+                  (`HistoryStatusText`) while this one rendered nothing — so a
+                  candidate could open Details on a finished list and find the
+                  footer's Move to archive the only thing on the surface that
+                  knew. Same component, so the two drawers cannot describe one
+                  list in two vocabularies. liveTurf, like everything else that
+                  moves: a list completed while the drawer is open. */}
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate text-[22px] font-semibold text-foreground">
+                  {liveTurf.name}
+                </h2>
+                <HistoryStatusText label={turfStatusLabel(liveTurf)} />
+              </div>
               <p className="text-sm text-muted-foreground">
                 Overview of this list, its route, and applied filters.
               </p>
@@ -509,7 +526,7 @@ export default function TurfDetailsSheet({
                     onClick={lifecycle.moveToArchive}
                   >
                     <ArchiveIcon className="size-4" />
-                    Move to Archive
+                    Move to archive
                   </Button>
                 )
               )

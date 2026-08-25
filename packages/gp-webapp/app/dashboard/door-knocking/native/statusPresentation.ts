@@ -46,6 +46,41 @@ export const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> =
     ]),
   ) as Record<DoorKnockStatus, string>
 
+// Whichever of white and black is legible ON a given fill, by WCAG's own
+// relative-luminance formula; the crossover is 0.179. Two things in this feature
+// print a mark on top of a fixed colour and must both invert with it — the stop
+// numeral on its status circle (`stopNumeralColor`, and the map's pin numerals
+// with it) and the tick inside a selected list-colour swatch. One rule, because
+// two copies of it is how one of them ends up white on amber. Fixed hex rather
+// than `text-foreground`: the fill underneath is a fixed hex too and does not
+// follow the theme.
+const linearChannel = (value: number): number => {
+  const channel = value / 255
+  return channel <= 0.03928
+    ? channel / 12.92
+    : ((channel + 0.055) / 1.055) ** 2.4
+}
+
+export const readableInkOn = (rgb: [number, number, number]): string => {
+  const [red, green, blue] = rgb
+  const luminance =
+    0.2126 * linearChannel(red) +
+    0.7152 * linearChannel(green) +
+    0.0722 * linearChannel(blue)
+  return luminance > 0.179 ? '#000000' : '#ffffff'
+}
+
+// The same question asked of a `#rrggbb` string, which is how the turf palette
+// stores its colours.
+export const readableInkOnHex = (hex: string): string => {
+  const value = hex.replace('#', '')
+  return readableInkOn([
+    parseInt(value.slice(0, 2), 16),
+    parseInt(value.slice(2, 4), 16),
+    parseInt(value.slice(4, 6), 16),
+  ])
+}
+
 // Most-actionable-first rollup, and the only one: an 'unknown' person keeps the
 // whole stop knockable, and an empty stop rolls up to 'unknown'. The ranking is
 // `DOOR_KNOCK_STATUSES`' own order rather than a second table beside it, so a

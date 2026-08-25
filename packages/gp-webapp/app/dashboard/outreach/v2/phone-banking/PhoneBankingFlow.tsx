@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import {
+  PHONE_BANKING_MAX_SHEET_COUNT,
+  PHONE_BANKING_SHEET_SIZE,
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
@@ -35,12 +37,16 @@ const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
   who: 'Who are you calling?',
   script: 'Write your call script',
-  sheets: 'How many lists would you like me to create?',
-  download: 'Your call list is ready',
+  sheets: 'How many call sheets would you like me to create?',
+  // Deliberately distinct from DownloadStep's own dynamic (singular/plural)
+  // "ready" title — this is only the sr-only shell title, and matching
+  // either variant exactly would make it collide with the visible one for
+  // that variant while staying non-unique text across the two states.
+  download: 'Download your call sheets',
 }
 
 const GENERIC_CREATE_ERROR_MESSAGE =
-  "We couldn't create this call list. Try again."
+  "We couldn't create your call sheets. Try again."
 
 // Phone banking is free (volunteers make the calls) — 0 tells the shared
 // audience step to omit the cost line entirely rather than show "for $0.00".
@@ -87,6 +93,9 @@ export const PhoneBankingFlow = ({
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
+  // Whether the candidate has manually changed the sheet count — gates the
+  // audience-derived default below so it never clobbers a deliberate choice.
+  const [sheetCountEdited, setSheetCountEdited] = useState(false)
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -160,6 +169,7 @@ export const PhoneBankingFlow = ({
     setTone('warm')
     setScript('')
     setSheetCount(1)
+    setSheetCountEdited(false)
     setName('')
     setNameEdited(false)
     setSaved(false)
@@ -168,6 +178,31 @@ export const PhoneBankingFlow = ({
     resetCreateMutation()
     resetAudience()
   }, [open, resetDraftMutation, resetCreateMutation, resetAudience])
+
+  // Sizes the default sheet count to the audience once it resolves, instead
+  // of leaving it at 1 (ENG-10941) — reachableCount counts PEOPLE while
+  // entries are distinct PHONES (households collapse), so this is an
+  // upper-bound heuristic, fine for a default. Skipped once the candidate has
+  // touched the field themselves.
+  useEffect(() => {
+    if (!open) return
+    if (sheetCountEdited) return
+    if (audience.reachableCount === null) return
+    setSheetCount(
+      Math.min(
+        PHONE_BANKING_MAX_SHEET_COUNT,
+        Math.max(
+          1,
+          Math.ceil(audience.reachableCount / PHONE_BANKING_SHEET_SIZE),
+        ),
+      ),
+    )
+  }, [open, sheetCountEdited, audience.reachableCount])
+
+  const handleSheetCountChange = (count: number) => {
+    setSheetCountEdited(true)
+    setSheetCount(count)
+  }
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -417,11 +452,16 @@ export const PhoneBankingFlow = ({
       ) : stepId === 'sheets' ? (
         <SheetCountStep
           sheetCount={sheetCount}
-          onSheetCountChange={setSheetCount}
+          onSheetCountChange={handleSheetCountChange}
           createErrorMessage={createErrorMessage}
+          reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+        <DownloadStep
+          response={createResponse}
+          audienceLabel={audienceLabel}
+          reachableCount={audience.reachableCount}
+        />
       ) : null}
     </OutreachFlowShell>
   )

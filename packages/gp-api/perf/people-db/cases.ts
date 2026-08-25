@@ -10,6 +10,8 @@ export type QueryType =
   | 'search'
   | 'csv'
   | 'stats'
+  | 'district-by-id'
+  | 'voter-by-id'
   | 'voterDensity'
 
 export type BenchCase = {
@@ -40,6 +42,14 @@ export const QUERY_DESCRIPTIONS: Record<QueryType, string> = {
   csv:
     'Full CSV export of the district, streamed to the client. The only path ' +
     'that sets statement_timeout = 0, so nothing stops a slow one.',
+  'district-by-id':
+    'Primary-key lookup of one District row. The cheapest query the product ' +
+    'issues, and the floor any store has to beat: it is a single indexed row ' +
+    'read, not a scan, so it measures per-query overhead rather than data size.',
+  'voter-by-id':
+    'Primary-key lookup of one Voter row, scoped to the district (the ' +
+    'contact drawer). Same shape as district-by-id but against the 218M-row ' +
+    'partitioned table, so it separates index-seek cost from table size.',
   stats:
     'Precomputed district totals. No live scan at all, so this is the floor ' +
     'that every other row should be read against.',
@@ -134,6 +144,10 @@ export const buildLatencyCases = (
       push('csv', cohort, NONE)
     }
     push('stats', cohort, NONE)
+    // Single-row primary-key reads, so a filter variant would not change what
+    // is measured; one cell per band is the whole axis.
+    push('district-by-id', cohort, NONE)
+    push('voter-by-id', cohort, NONE)
     // Precomputed, indexed (districtId, resolution) read — one cell per cohort.
     push('voterDensity', cohort, NONE)
   }

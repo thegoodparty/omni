@@ -60,6 +60,8 @@ const QUERY_ORDER: QueryType[] = [
   'overlap',
   'csv',
   'stats',
+  'district-by-id',
+  'voter-by-id',
 ]
 const VARIANT_ORDER = [
   'none',

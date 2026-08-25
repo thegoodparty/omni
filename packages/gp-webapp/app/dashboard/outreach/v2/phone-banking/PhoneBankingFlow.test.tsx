@@ -117,7 +117,7 @@ const pickSavedListAndContinue = async (listName: string) => {
   await user.click(screen.getByText('Choose a voter list'))
   await user.click(await screen.findByText(listName))
   await user.click(
-    await screen.findByRole('button', { name: /Continue \(\d+\)/ }),
+    await screen.findByRole('button', { name: /Continue \([\d,]+\)/ }),
   )
 }
 
@@ -138,8 +138,11 @@ const advanceToSheets = async () => {
   )
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   expect(
-    (await screen.findAllByText('How many lists would you like me to create?'))
-      .length,
+    (
+      await screen.findAllByText(
+        'How many call sheets would you like me to create?',
+      )
+    ).length,
   ).toBeGreaterThan(0)
 }
 
@@ -199,12 +202,14 @@ describe('PhoneBankingFlow', () => {
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many lists would you like me to create?')
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      (await screen.findAllByText('Your call list is ready')).length,
+      (await screen.findAllByText('Your call sheet is ready')).length,
     ).toBeGreaterThan(0)
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]).toMatchObject({
@@ -253,11 +258,11 @@ describe('PhoneBankingFlow', () => {
     openFlow()
     await advanceToSheets()
 
-    const sheetCountInput = screen.getByLabelText('Number of lists')
+    const sheetCountInput = screen.getByLabelText('Number of call sheets')
     await user.clear(sheetCountInput)
     await user.type(sheetCountInput, '3')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByText('Your call lists are ready')
+    await screen.findByText('Your call sheets are ready')
 
     const zipLink = screen.getByRole('link', {
       name: 'Download 3 call sheets (ZIP)',
@@ -266,6 +271,193 @@ describe('PhoneBankingFlow', () => {
       'href',
       `/dashboard/outreach/phone-banking/print/${multiSheetResponse.id}/pdf`,
     )
+  })
+
+  it('backspacing the sheet-count field to empty then typing a digit commits that digit, not the digit appended to a stale 1 (ENG-10940)', async () => {
+    mockDraft()
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: { ...createResponse, sheetCount: 5 } }
+    })
+    openFlow()
+    await advanceToSheets()
+
+    const sheetCountInput = screen.getByLabelText(
+      'Number of call sheets',
+    ) as HTMLInputElement
+    expect(sheetCountInput.value).toBe('1')
+
+    await user.clear(sheetCountInput)
+    expect(sheetCountInput.value).toBe('')
+
+    await user.type(sheetCountInput, '5')
+    expect(sheetCountInput.value).toBe('5')
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(createCalls[0]).toMatchObject({ sheetCount: 5 })
+  })
+
+  it('normalizes trailing junk immediately when it parses to the value already committed (no permanent display desync)', async () => {
+    mockDraft()
+    openFlow()
+    await advanceToSheets()
+
+    const sheetCountInput = screen.getByLabelText(
+      'Number of call sheets',
+    ) as HTMLInputElement
+
+    await user.clear(sheetCountInput)
+    await user.type(sheetCountInput, '5')
+    expect(sheetCountInput.value).toBe('5')
+
+    // "5.9" still parses (via parseInt) to the already-committed 5, and
+    // unlike a leading zero it's a well-formed float the number input won't
+    // silently re-sanitize on its own — a fix that only re-syncs off a
+    // sheetCount prop CHANGE would leave "5.9" on screen forever, since a
+    // same-value commit never fires that effect.
+    await user.type(sheetCountInput, '.9')
+    expect(sheetCountInput.value).toBe('5')
+  })
+
+  it('snaps an out-of-range typed value back to the last committed value on blur, and never commits it', async () => {
+    mockDraft()
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openFlow()
+    await advanceToSheets()
+
+    const sheetCountInput = screen.getByLabelText(
+      'Number of call sheets',
+    ) as HTMLInputElement
+
+    await user.clear(sheetCountInput)
+    await user.type(sheetCountInput, '0')
+    expect(sheetCountInput.value).toBe('0')
+    await user.tab()
+    expect(sheetCountInput.value).toBe('1')
+
+    // Typing "99" commits its valid "9" prefix along the way (each keystroke
+    // that parses in range propagates immediately), then the final
+    // out-of-range "99" is never committed — blur snaps back to that last
+    // valid prefix, not to whatever preceded this whole edit.
+    await user.clear(sheetCountInput)
+    await user.type(sheetCountInput, '99')
+    expect(sheetCountInput.value).toBe('99')
+    await user.tab()
+    expect(sheetCountInput.value).toBe('9')
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(createCalls[0]).toMatchObject({ sheetCount: 9 })
+  })
+
+  it('restores the last committed value when the field is left empty on blur', async () => {
+    mockDraft()
+    openFlow()
+    await advanceToSheets()
+
+    const sheetCountInput = screen.getByLabelText(
+      'Number of call sheets',
+    ) as HTMLInputElement
+    await user.clear(sheetCountInput)
+    expect(sheetCountInput.value).toBe('')
+    await user.tab()
+    expect(sheetCountInput.value).toBe('1')
+  })
+
+  it('shows the per-sheet capacity and computed coverage against the real reachable count', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(10)
+    openFlow()
+    await advanceToSheets()
+
+    expect(
+      screen.getByText('Each call sheet holds 60 numbers.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('1 sheet × 60 = up to 60 of your 10 reachable contacts'),
+    ).toBeInTheDocument()
+  })
+
+  it('defaults the sheet count to cover a large audience, capped at 20, and warns when even the cap will not cover it', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Huge list' }])
+    mockListDetail(2000)
+    openFlow()
+    await advanceToWho()
+    await pickSavedListAndContinue('Huge list')
+    await screen.findAllByText('Write your call script')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+
+    const sheetCountInput = screen.getByLabelText(
+      'Number of call sheets',
+    ) as HTMLInputElement
+    // ceil(2000 / 60) = 34, capped at PHONE_BANKING_MAX_SHEET_COUNT.
+    expect(sheetCountInput.value).toBe('20')
+    expect(
+      screen.getByText(
+        '20 sheets × 60 = up to 1,200 of your 2,000 reachable contacts',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Only the first ~1,200 contacts will be included; 800 won't be called.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('states both numbers on the download step when the audience was truncated', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Huge list' }])
+    mockListDetail(2000)
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: { ...createResponse, personCount: 1200 },
+    })
+    openFlow()
+    await advanceToWho()
+    await pickSavedListAndContinue('Huge list')
+    await screen.findAllByText('Write your call script')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText('1,200 contacts frozen from 2,000 reachable.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no reconciliation copy on the download step when the audience was not truncated', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(10)
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: { ...createResponse, personCount: 10 },
+    })
+    openFlow()
+    await advanceToSheets()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findAllByText('Your call sheet is ready')
+    expect(screen.queryByText(/contacts frozen from/)).not.toBeInTheDocument()
   })
 
   it('renders the API 400 empty-audience message inline on the sheets step', async () => {
@@ -288,7 +480,8 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
     // Stays on the sheets step — no ready screen.
     expect(
-      screen.getAllByText('How many lists would you like me to create?').length,
+      screen.getAllByText('How many call sheets would you like me to create?')
+        .length,
     ).toBeGreaterThan(0)
   })
 
@@ -479,7 +672,9 @@ describe('PhoneBankingFlow', () => {
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many lists would you like me to create?')
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await waitFor(() => expect(createCalls).toHaveLength(1))
@@ -504,7 +699,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('Your call list is ready')
+    await screen.findAllByText('Your call sheet is ready')
 
     expect(onSaved).toHaveBeenCalledWith(
       createResponse.outreachId,
@@ -523,7 +718,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToSheets()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('Your call list is ready')
+    await screen.findAllByText('Your call sheet is ready')
 
     expect(onSaved).not.toHaveBeenCalled()
   })
