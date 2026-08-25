@@ -255,7 +255,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-24: 603 -> 604 for useRobocallAudioUpload — the hook that presigns
 // and POSTs the recording to S3 holds upload/error/key state and calls
 // clientRequest, so it can't run on the server.
-const BASELINE = 604
+// 2026-08-24: merge reconciliation — main's 604 minus this branch's WhoStep.tsx
+// deletion (phone banking's inline audience builder, replaced by the shared
+// v2/audience/ step) = 603.
+const BASELINE = 603
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
