@@ -41,7 +41,9 @@ describe('PersonsService', () => {
     expect(args.include.OfficeHolders).toBe(true)
     expect(args.include.Candidacies).toEqual({
       omit: { email: true },
-      include: { Race: { select: { electionDate: true } } },
+      include: {
+        Race: { select: { electionDate: true, slug: true, positionLevel: true } },
+      },
     })
     expect(args.select).toBeUndefined()
   })
@@ -115,7 +117,9 @@ describe('PersonsService', () => {
         },
         Candidacies: {
           omit: { email: true },
-          include: { Race: { select: { electionDate: true } } },
+          include: {
+            Race: { select: { electionDate: true, slug: true, positionLevel: true } },
+          },
         },
       },
     })

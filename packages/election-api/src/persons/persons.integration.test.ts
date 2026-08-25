@@ -29,6 +29,11 @@ const OFFICE_HOLDER_ID = '44444444-4444-4444-4444-444444444444'
 const RACE_ID = '55555555-5555-5555-5555-555555555555'
 // The candidacy's race date — surfaced (non-PII) so consumers can date a run.
 const RACE_ELECTION_DATE = '2024-11-05'
+// The candidacy's own race slug and level. Surfaced alongside the date so each
+// run in "Recent Experience" can link to its position page, not just the one
+// candidacy the profile happens to fetch in full.
+const RACE_SLUG = 'ca/mayor'
+const RACE_POSITION_LEVEL = 'CITY'
 
 // A second office term with no position, so one payload covers both the
 // resolvable and the degraded (null positionId) branch.
@@ -111,9 +116,9 @@ const seedPerson = async () => {
     data: {
       id: RACE_ID,
       electionDate: new Date(RACE_ELECTION_DATE),
-      slug: 'ca/mayor',
+      slug: RACE_SLUG,
       state: 'CA',
-      positionLevel: 'CITY',
+      positionLevel: RACE_POSITION_LEVEL,
     },
   })
 
@@ -230,6 +235,9 @@ describe('GET /v1/persons (public list)', () => {
     expect(jane.Candidacies[0].email).toBeUndefined()
     // The race's election date is surfaced (non-PII) so consumers can date the run.
     expect(jane.Candidacies[0].Race.electionDate).toContain(RACE_ELECTION_DATE)
+    // ...and its slug + level, the pair the position link is built from.
+    expect(jane.Candidacies[0].Race.slug).toBe(RACE_SLUG)
+    expect(jane.Candidacies[0].Race.positionLevel).toBe(RACE_POSITION_LEVEL)
 
     // Nested office holder IS present with its public office contact.
     expect(jane.OfficeHolders).toHaveLength(2)
@@ -342,6 +350,10 @@ describe('GET /v1/persons/:personId (public profile)', () => {
     // Candidacy nested with email omitted.
     expect(res.data.Candidacies).toHaveLength(1)
     expect(res.data.Candidacies[0].email).toBeUndefined()
+    // This is the endpoint /people builds profiles from, so the race slug the
+    // "View Position" link needs has to survive the by-id path specifically.
+    expect(res.data.Candidacies[0].Race.slug).toBe(RACE_SLUG)
+    expect(res.data.Candidacies[0].Race.positionLevel).toBe(RACE_POSITION_LEVEL)
 
     // Office holder nested with public office contact intact.
     expect(res.data.OfficeHolders).toHaveLength(2)
@@ -406,6 +418,7 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
     // Same spine shape as by-id: relations present, PII stripped.
     expect(res.data.Candidacies).toHaveLength(1)
     expect(res.data.Candidacies[0].email).toBeUndefined()
+    expect(res.data.Candidacies[0].Race.slug).toBe(RACE_SLUG)
     expect(res.data.OfficeHolders).toHaveLength(2)
     expect(findOffice(res.data).officeEmail).toBe(OFFICE_EMAIL)
     // Same office position slug as the by-id path.
