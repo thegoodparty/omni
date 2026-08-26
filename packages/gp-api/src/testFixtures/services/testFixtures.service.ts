@@ -44,7 +44,7 @@ const DEFAULT_RACE = { zip: '82001', office: 'Cheyenne City Council - Ward 1' }
 const DEFAULT_CUSTOM_POSITION_NAME = 'Test City Council'
 
 type ProvisionedUser = { user: User; clerkUserId: string; password: string }
-type MintedSession = { jwt: string; expiresAt: string }
+type MintedSession = { jwt: string; signInToken: string; expiresAt: string }
 
 @Injectable()
 export class TestFixturesService {
@@ -100,6 +100,7 @@ export class TestFixturesService {
       orgSlug,
       campaignOrgSlug,
       sessionToken: session.jwt,
+      signInToken: session.signInToken,
       cookies: this.buildCookies(user, session.jwt, orgSlug),
       expiresAt: session.expiresAt,
     }
@@ -172,6 +173,7 @@ export class TestFixturesService {
       userId: user.id,
       email: user.email,
       sessionToken: session.jwt,
+      signInToken: session.signInToken,
       cookies: this.buildCookies(user, session.jwt, orgSlug),
       expiresAt: session.expiresAt,
     }
@@ -332,6 +334,16 @@ export class TestFixturesService {
   }
 
   private async mintSession(clerkUserId: string): Promise<MintedSession> {
+    // gp-webapp pages are gated by the Clerk session, so a browser consumer
+    // needs a sign-in ticket to redeem (strategy: 'ticket'); the session JWT
+    // below only authenticates direct gp-api calls. Single-use, so every
+    // /session re-mint issues a fresh one.
+    const { token: signInToken } = await clerkThrottle(() =>
+      this.clerkClient.signInTokens.createSignInToken({
+        userId: clerkUserId,
+        expiresInSeconds: FIXTURE_TOKEN_TTL_SECONDS,
+      }),
+    )
     // Browser-minted Clerk tokens die at 60s; a backend session token minted
     // with an explicit TTL survives a whole QA run (same pattern as the e2e
     // suite's mintApiToken).
@@ -347,6 +359,7 @@ export class TestFixturesService {
     )
     return {
       jwt,
+      signInToken,
       expiresAt: formatISO(addSeconds(new Date(), FIXTURE_TOKEN_TTL_SECONDS)),
     }
   }

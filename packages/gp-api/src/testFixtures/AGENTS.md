@@ -12,9 +12,15 @@ any script that needs a dev user in a known product state.
 | `POST /v1/test-fixtures/users/:id/session` | Re-mint the 1h session token for runs longer than an hour          |
 
 The create/session responses carry credentials by contract (password, session
-token, the exact `token`/`user`/`organization-slug` cookie triple gp-webapp
-authenticates with) — **never log a response object**. Response shapes live in
-`@goodparty_org/contracts` (`testFixtures/`).
+token, a single-use Clerk `signInToken`, and a cookie triple) — **never log a
+response object**. Response shapes live in `@goodparty_org/contracts`
+(`testFixtures/`). Consumer login recipe: gp-webapp pages are gated by the
+**Clerk session** (`clerkMiddleware` on `auth().userId`), so a browser must
+redeem `signInToken` on a public page
+(`window.Clerk.client.signIn.create({ strategy: 'ticket', ticket })` then
+`setActive`), then set the `organization-slug` cookie to select the org. The
+`sessionToken` / `token` cookie only authenticate direct gp-api calls — they
+do NOT log a browser into the webapp.
 
 ## Gotchas
 

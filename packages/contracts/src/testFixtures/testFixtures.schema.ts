@@ -9,8 +9,11 @@ export const TEST_FIXTURE_STATE_VALUES = [
 export type TestFixtureState = (typeof TEST_FIXTURE_STATE_VALUES)[number]
 export const TestFixtureStateSchema = z.enum(TEST_FIXTURE_STATE_VALUES)
 
-// The exact cookie triple gp-webapp authenticates with, ready to inject into a
-// browser context (same shape the e2e suite's api-registration helper sets).
+// Cookie values a browser-driving consumer sets alongside a Clerk login.
+// Only 'organization-slug' affects gp-webapp (it selects the active org);
+// 'token'/'user' are for calling gp-api directly, not for webapp page auth —
+// webapp routes are gated by the Clerk session, established by redeeming
+// signInToken (see below).
 export const TestFixtureCookiesSchema = z.object({
   token: z.string(),
   user: z.string(),
@@ -28,6 +31,10 @@ export const TestFixtureUserResponseSchema = z.object({
   orgSlug: z.string(),
   campaignOrgSlug: z.string().optional(),
   sessionToken: z.string(),
+  // Single-use Clerk sign-in ticket: redeem in the browser on a public page
+  // via window.Clerk.client.signIn.create({ strategy: 'ticket', ticket })
+  // to establish the real Clerk session gp-webapp's middleware gates on.
+  signInToken: z.string(),
   cookies: TestFixtureCookiesSchema,
   expiresAt: z.string(),
 })
@@ -39,6 +46,7 @@ export const TestFixtureSessionResponseSchema = z.object({
   userId: z.number(),
   email: z.string(),
   sessionToken: z.string(),
+  signInToken: z.string(),
   cookies: TestFixtureCookiesSchema,
   expiresAt: z.string(),
 })

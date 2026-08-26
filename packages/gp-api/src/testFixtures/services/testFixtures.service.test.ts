@@ -53,6 +53,11 @@ beforeEach(() => {
   } as unknown as Awaited<
     ReturnType<ClerkClient['sessions']['getToken']>
   >) as unknown as ReturnType<typeof vi.fn>
+  vi.spyOn(clerk.signInTokens, 'createSignInToken').mockResolvedValue({
+    token: 'fixture-ticket',
+  } as unknown as Awaited<
+    ReturnType<ClerkClient['signInTokens']['createSignInToken']>
+  >)
 
   vi.spyOn(service.app.get(RacesService), 'getRacesByZip').mockResolvedValue([
     RACE,
@@ -79,6 +84,7 @@ describe('createFixtureUser', () => {
     expect(result.campaignId).toBeDefined()
     expect(result.orgSlug).toBe(`campaign-${result.campaignId}`)
     expect(result.sessionToken).toBe('fixture-jwt')
+    expect(result.signInToken).toBe('fixture-ticket')
     expect(result.cookies).toEqual({
       token: 'fixture-jwt',
       user: expect.stringContaining(`"id":${result.userId}`),
@@ -236,6 +242,7 @@ describe('mintFixtureSession', () => {
     const session = await fixtures().mintFixtureSession(created.userId, {})
 
     expect(session.sessionToken).toBe('fixture-jwt')
+    expect(session.signInToken).toBe('fixture-ticket')
     expect(session.cookies['organization-slug']).toBe(created.orgSlug)
   })
 

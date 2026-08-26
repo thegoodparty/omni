@@ -26,7 +26,7 @@ Defaults if a `books/.env` value is unset: `$CLICKUP_PLANS_DIR=$HOME/.claude/pla
 - `--design <url>` — a Claude Design canvas URL to compare against. Without it, design comparison is skipped (functional validation still runs).
 - `--base-url <url>` — target deploy. Default `https://dev.goodparty.org`.
 - `--state <s>` — force the fixture state (`free-win` | `pro-win` | `serve` | `serve-won-race`) instead of inferring it from the spec.
-- `--creds <email>:<password>` — skip provisioning and validate as an existing user (login happens through the real sign-in UI; flakier than fixtures).
+- `--creds <email>` — skip provisioning and validate as an existing user (the agent prompts for the password interactively so it never lands in the transcript; login happens through the real sign-in UI; flakier than fixtures).
 - `--no-file` — report only; never offer to file tickets.
 
 **Never** echo, log, or write `CLICKUP_API_KEY`, `CLERK_SECRET_KEY_DEV`, minted tokens, or fixture passwords into any output file. The report and findings files under `$CLICKUP_PLANS_DIR/` must carry user *emails* at most.
@@ -48,7 +48,7 @@ Defaults if a `books/.env` value is unset: `$CLICKUP_PLANS_DIR=$HOME/.claude/pla
                                 ▼
                    ┌──────────────────────────┐
                    │   gp-feature-validator    │  read-only + Playwright MCP
-                   │   cookie-injected login   │  against --base-url
+                   │   Clerk ticket login      │  against --base-url
                    │   checklist + design pass │
                    └────────────┬─────────────┘
                                 ▼
@@ -60,7 +60,7 @@ Invariants:
 1. **Spec-anchored.** The unit of validation is the checklist derived from the epic AC + TDD + canvas — not a diff. Every checklist item carries its source (ticket id or artboard name), and every finding traces back to one.
 2. **Human owns the bug filing.** Findings become *drafted* tickets; nothing is created in ClickUp until the user explicitly approves each one. `--no-file` skips the offer entirely.
 3. **Environment gaps are not feature bugs.** App down, login failure, MCP missing → manual-verification items in the report, never tickets.
-4. **Always clean up.** Fixture users are deleted at the end, even on failure (the 24h server-side sweep is the safety net, not the plan).
+4. **Always clean up — before the approval gate.** Fixture users are deleted as soon as validation completes, even on failure; reporting and filing don't need them, and the approval wait can outlive the caller token's 1h TTL (the 24h server-side sweep is the safety net, not the plan).
 5. **Credentials stay out of artifacts.** Tokens and passwords live in memory for the run and in nothing that gets written or posted.
 
 ## Steps
@@ -112,25 +112,35 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
      -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
      -d '{"state": "<state>"}'
    ```
-   The response carries `userId`, `email`, `password`, `orgSlug`, `sessionToken`, the ready-to-set `cookies` triple, and `expiresAt`. Record every created `userId` in a cleanup list. A 404 means the deploy isn't dev/preview or the route isn't live yet; a 403 means the caller isn't admin — in either case fall back to `--creds` (ask the user for a test login) and note the fallback in the report.
-   For runs longer than ~50 minutes, re-mint the user's session with `POST /api/v1/test-fixtures/users/<id>/session` rather than re-creating the fixture.
+   The response carries `userId`, `email`, `password`, `orgSlug`, `sessionToken`, a single-use Clerk `signInToken` (the browser login credential — the app's pages are gated by the Clerk session, which the validator establishes by redeeming this ticket), and `expiresAt`. Record every created `userId` in a cleanup list. A 404 means the deploy isn't dev/preview or the route isn't live yet; a 403 means the caller isn't admin — in either case fall back to `--creds` (the user supplies the email; ask for the password interactively) and note the fallback in the report.
+   Sign-in tickets are single-use: if the validator needs to log in again (retry, expired ticket), fetch a fresh one with `POST /api/v1/test-fixtures/users/<id>/session` rather than re-creating the fixture.
 
 ### Phase 3: Validate
 
-9. **Dispatch `gp-feature-validator`** with: `TARGET_URL`, the login bundle(s) (cookie triples + email/password fallback), the validation checklist, the artboard screenshot paths + spec notes, the flag-override keys, and the output path `$CLICKUP_PLANS_DIR/<task_id>-findings-validate.json`. Don't coach it toward a pass — hand over the checklist and let it judge. If the subagent isn't installed, run the same procedure inline (its definition is `agents/gp-feature-validator.md`).
+9. **Dispatch `gp-feature-validator`** with: `TARGET_URL`, the login bundle(s) (`signInToken` + `orgSlug`, plus email/password fallback), the validation checklist, the artboard screenshot paths + spec notes, the flag-override keys, and the output path `$CLICKUP_PLANS_DIR/<task_id>-findings-validate.json`. Don't coach it toward a pass — hand over the checklist and let it judge. If the subagent isn't installed, run the same procedure inline (its definition is `agents/gp-feature-validator.md`).
 
 10. **Read the findings.** Partition into feature findings (`functional|design|console|network`) and `environment` gaps. Environment gaps become manual-verification items with repro steps.
 
-### Phase 4: Report, approve, file
+### Phase 4: Clean up (before the approval gate)
 
-11. **Write the validation report** to `$CLICKUP_PLANS_DIR/<task_id>-validation-report.md`:
+11. **Delete every fixture user you created — now, not after approval.** Reporting and filing don't need the fixtures, and the approval gate can sit for longer than the caller token's 1h TTL:
+    ```bash
+    curl -sf -X DELETE "$BASE_URL/api/v1/test-fixtures/users" \
+      -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
+      -d '{"userIds": [<ids>]}'
+    ```
+    Run this even after a failed validation. If cleanup fails, say so explicitly — the server sweeps `@test.goodparty.org` users after ~24h, but don't silently rely on it.
+
+### Phase 5: Report, approve, file
+
+12. **Write the validation report** to `$CLICKUP_PLANS_DIR/<task_id>-validation-report.md`:
     - Per checklist item: pass/fail + evidence (screenshot path).
     - Design comparison per artboard: matches / differs (bucketed: needs a fix / deliberate-and-arguably-right / needs a product answer / not built).
     - Console/network sweep result.
     - Environment gaps + manual steps.
     - Fixture users used (emails only).
 
-12. **Draft bug tickets** from `blocker` and `major` findings (one ticket per distinct defect, dedup by route + summary):
+13. **Draft bug tickets** from `blocker` and `major` findings (one ticket per distinct defect, dedup by route + summary):
     ```markdown
     # <one-line defect>
     ## Context
@@ -145,21 +155,11 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
     Severity: <blocker|major>. Finding id: <id>.
     ```
 
-13. **Show the user the report + drafted tickets and stop.** For each draft: file / edit / drop. Only on explicit approval (and never with `--no-file`):
+14. **Show the user the report + drafted tickets and stop.** For each draft: file / edit / drop. Only on explicit approval (and never with `--no-file`):
     - Create each approved bug as a **subtask of the epic**, tagged `qa-bot`, via `python3 -c '...' > /tmp/bug.json` then
       `cd scripts/python && uv run clickup_api.py POST list/$LIST_ID/task @/tmp/bug.json` with `"parent": "$EPIC_ID"` (JSON-safety: build payloads in Python, never template strings into JSON).
     - Attach the evidence screenshot(s) to each ticket via the ClickUp MCP (`clickup_attach_task_file`) when connected; otherwise note the local screenshot path in the ticket body's Notes.
     - Post the report as a comment on the epic (same payload discipline).
-
-### Phase 5: Clean up
-
-14. **Delete every fixture user you created** — always, even after a failed run:
-    ```bash
-    curl -sf -X DELETE "$BASE_URL/api/v1/test-fixtures/users" \
-      -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
-      -d '{"userIds": [<ids>]}'
-    ```
-    If cleanup fails, say so explicitly — the server sweeps `@test.goodparty.org` users after ~24h, but don't silently rely on it.
 
 15. **Final summary**: checklist pass/fail counts, design verdict, tickets filed (with links) or drafted-only, environment gaps, fixtures cleaned up, findings/report file paths.
 
@@ -177,7 +177,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
 |---------|-----|
 | Fixtures API 404s on dev | The gp-api deploy predates the endpoint, or you're pointing at prod. Check `--base-url`; fall back to `--creds`. |
 | Fixtures API 403s | Your dev account lacks the admin role. Ask an admin to grant it, or use `--creds`. |
-| Cookie injection lands on the login page | Token expired (1h TTL) — re-mint via `POST .../users/<id>/session`. Or the cookies were set on the wrong origin — navigate to `TARGET_URL` before setting them. |
+| Ticket redemption fails / lands on login | Sign-in tickets are single-use and expire after 1h — fetch a fresh one via `POST .../users/<id>/session`. Make sure `window.Clerk` finished loading on `/login` before calling `signIn.create`. |
 | Flags won't turn on | Overrides only apply to *authenticated* users and only off-prod. Set the `e2e-flag-overrides` cookie after login, then reload. |
 | `gp-feature-validator` not found | Re-run `./install.sh` and restart the session, or run the validation inline per `agents/gp-feature-validator.md`. |
 | Canvas URL won't read | It may not be shared with you. Ask the owner for access, or run without design comparison. |
