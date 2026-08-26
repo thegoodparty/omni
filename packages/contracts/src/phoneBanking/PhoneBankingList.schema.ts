@@ -25,6 +25,10 @@ export type PhoneBankingInteraction = z.infer<
 export const PhoneBankingListPersonSchema = z.object({
   personId: z.string(),
   name: z.string(),
+  // Nullable: lists frozen before ENG-10938 predate this field, and even a
+  // new build can carry a null firstName when the voter record itself has
+  // none — callers fall back to the first word of `name` for both.
+  firstName: z.string().nullable(),
   age: z.number().int().nullable(),
   party: z.string().nullable(),
   address: z.string().nullable(),

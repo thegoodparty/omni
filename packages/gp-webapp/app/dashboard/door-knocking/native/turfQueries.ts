@@ -2,6 +2,7 @@ import { queryOptions } from '@tanstack/react-query'
 import type { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import type { VoterFileBackendFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { readableInkOnHex } from './statusPresentation'
 
 export const savedListsQueryOptions = queryOptions({
   queryKey: ['door-knocking-saved-lists'],
@@ -58,6 +59,36 @@ export const TURF_COLORS = [
   '#db2777',
   '#65a30d',
 ] as const
+
+// The canvas labels each swatch with the colour's name (`'aria-label':opt.label`
+// over its `LIST_COLOR_OPTIONS`); both of our pickers labelled them with the hex
+// they paint with, so choosing a list colour by keyboard or screen reader meant
+// hearing "Turf color number two five six three e b" eight times. The name is
+// also what the two pickers have to agree on — the create flow and the edit
+// dialog draw the same eight swatches — so it lives beside the palette.
+const TURF_COLOR_NAMES: Record<string, string> = {
+  '#2563eb': 'Blue',
+  '#16a34a': 'Green',
+  '#d97706': 'Amber',
+  '#dc2626': 'Red',
+  '#7c3aed': 'Purple',
+  '#0d9488': 'Teal',
+  '#db2777': 'Pink',
+  '#65a30d': 'Lime',
+}
+
+// Falls back to the hex for a colour saved before this map existed, which is
+// still a worse label than a name and still better than nothing.
+export const turfColorLabel = (color: string): string =>
+  TURF_COLOR_NAMES[color] ?? color
+
+// The tick that marks the chosen swatch sits ON the swatch, so it inverts with
+// it — the same rule and the same crossover as the walk list's stop numeral on
+// its status circle, which is why the helper is shared rather than copied. A
+// fixed white tick failed on four of these eight (green, amber, teal and lime
+// all land above the crossover), which is the mark meant to make the choice
+// legible being the thing that isn't.
+export const turfColorTick = (color: string): string => readableInkOnHex(color)
 
 // Shared by WalkView (list rail) and the page (map pins): same key, so
 // React Query serves one fetch to both.

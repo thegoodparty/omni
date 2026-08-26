@@ -753,6 +753,7 @@ export const SmsFlow = ({
                 !hasAnyVoterFileSelection(
                   audience.builderFilters,
                   audience.builderSupportStatus,
+                  audience.builderPrecincts,
                 ) ||
                 audience.builderCounting ||
                 audience.builderZeroMatch ||
@@ -761,6 +762,7 @@ export const SmsFlow = ({
                 hasAnyVoterFileSelection(
                   audience.builderFilters,
                   audience.builderSupportStatus,
+                  audience.builderPrecincts,
                 ) && audience.builderCounting,
             }
           : stepId === 'audience' && audience.mode === 'name'
@@ -900,6 +902,9 @@ export const SmsFlow = ({
             builderFilters={audience.builderFilters}
             onBuilderFiltersChange={audience.setBuilderFilters}
             builderSupportStatus={audience.builderSupportStatus}
+            builderPrecincts={audience.builderPrecincts}
+            onBuilderPrecinctsChange={audience.setBuilderPrecincts}
+            precinctOptions={audience.precinctOptions}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}

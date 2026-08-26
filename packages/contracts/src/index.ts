@@ -741,11 +741,40 @@ export {
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
   PhoneBankingScriptDraftRequestSchema,
   type PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponseSchema,
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
+export {
+  ROBOCALL_PURPOSE_VALUES,
+  RobocallPurposeSchema,
+  type RobocallPurpose,
+  ROBOCALL_SCRIPT_MAX_LENGTH,
+  RobocallScriptDraftRequestSchema,
+  type RobocallScriptDraftRequest,
+  RobocallScriptDraftResponseSchema,
+  type RobocallScriptDraftResponse,
+} from './outreach/RobocallScript.schema'
+export {
+  RobocallNumberResponseSchema,
+  type RobocallNumberResponse,
+} from './outreach/RobocallNumber.schema'
+export {
+  ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
+  ROBOCALL_AUDIO_MAX_BYTES,
+  RobocallAudioPresignRequestSchema,
+  type RobocallAudioPresignRequest,
+  RobocallAudioPresignResponseSchema,
+  type RobocallAudioPresignResponse,
+} from './outreach/RobocallAudio.schema'
+export {
+  RobocallComplianceChecksSchema,
+  type RobocallComplianceChecks,
+  RobocallComplianceVerdictSchema,
+  type RobocallComplianceVerdict,
+} from './outreach/RobocallCompliance.schema'
 export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
@@ -782,11 +811,22 @@ export {
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
+  createPrecinctFilterSchema,
+  PRECINCT_PAIR_DELIMITER,
+  encodePrecinctPair,
+  decodePrecinctPair,
   PeopleFiltersSchema,
   type PeopleFilters,
   IdOverridesSchema,
   type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  PrecinctOptionSchema,
+  type PrecinctOption,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
+} from './people/PeoplePrecincts.schema'
 
 export {
   MAX_OVERLAP_SAVED_FILTER_SETS,
@@ -831,6 +871,11 @@ export {
   type DoorKnockingPackRequest,
   PACK_ARRAY_TYPES,
   PACK_CORE_ARRAYS,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
   DoorKnockingPackDimSchema,
   type DoorKnockingPackDim,
   DoorKnockingPackArraySchema,
@@ -867,6 +912,9 @@ export {
   RouteTargetActivitySchema,
   type RouteTargetActivity,
   ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
+  RoutePayloadTargetNotesSchema,
+  type RoutePayloadTargetNotes,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,
@@ -906,10 +954,8 @@ export {
   type PhoneBankingPurpose,
   PHONE_BANKING_NAME_MAX_LENGTH,
   PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
-  PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
   PHONE_BANKING_MAX_SHEET_COUNT,
-  PhoneBankingFiltersSchema,
-  type PhoneBankingFilters,
+  PHONE_BANKING_SHEET_SIZE,
   PhoneBankingCreateSchema,
   type PhoneBankingCreate,
   PhoneBankingCreateResponseSchema,
@@ -938,3 +984,5 @@ export {
   PhoneBankingOutreachDetailSchema,
   type PhoneBankingOutreachDetail,
 } from './phoneBanking/PhoneBankingList.schema'
+
+export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'

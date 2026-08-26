@@ -7,11 +7,22 @@ import {
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
   PhoneBankingScriptDraftRequest,
   PhoneBankingScriptPurpose,
+  type RaceTargetMetrics,
+  VOTER_NAME_TOKEN,
 } from '@goodparty_org/contracts'
+import { isValid } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
+import {
+  DateFormats,
+  formatDate,
+  isDateTodayOrFuture,
+  parseIsoDateString,
+} from '@/shared/util/date.util'
+import { Campaign } from '../../generated/prisma'
 import { TONE_STYLES } from '../util/messageTone.util'
 
 const PURPOSE_GOALS: Record<PhoneBankingScriptPurpose, string> = {
@@ -42,15 +53,19 @@ const PURPOSE_STRUCTURE: Record<PhoneBankingScriptPurpose, string> = {
     'attend.',
   'vote-early':
     'Structure: (1) the volunteer opener, (2) a reminder to vote early, ' +
-    '(3) voting logistics as bracketed placeholders for the volunteer ' +
-    'to fill in from local materials — "[early voting dates]", ' +
-    '"[early voting hours]", "[early voting location]" — never a ' +
-    'specific invented date, time, or address, (4) the ask to vote.',
+    'stating the early-voting window given below when one is provided, ' +
+    '(3) if no early-voting window is given, ask the voter to vote ' +
+    'early and point them to check their local election office for ' +
+    'dates, hours, and locations, instead of stating any, (4) the ask ' +
+    'to vote. Never invent a specific date, time, or address that is ' +
+    'not given below.',
   'election-day':
     'Structure: (1) the volunteer opener, (2) a reminder that today is ' +
-    'election day, (3) voting logistics as bracketed placeholders — ' +
-    '"[polling hours]", "[polling location]" — never a specific ' +
-    'invented time or address, (4) the ask to vote.',
+    'election day, stating the election date given below when one is ' +
+    'provided, (3) point the voter to check their polling place and ' +
+    'hours for their address, instead of stating any, since polling ' +
+    'hours and locations are never provided, (4) the ask to vote. ' +
+    'Never invent a specific time or address.',
   custom:
     "Structure: deliver the candidate's own message as written, " +
     'polished for a phone script read aloud by a volunteer.',
@@ -59,16 +74,44 @@ const PURPOSE_STRUCTURE: Record<PhoneBankingScriptPurpose, string> = {
 const VOLUNTEER_OPENER_RULE =
   'The volunteer opener is the first line of every script and is spoken ' +
   'by the VOLUNTEER, in their own first person, never the candidate: ' +
-  '"Hi, my name is [your name], and I am a volunteer for" followed by ' +
-  'the candidate name given below. Keep "[your name]" as a literal ' +
-  'bracketed placeholder for the volunteer to fill in — never invent a ' +
-  'volunteer name.'
+  `"Hi, is this ${VOTER_NAME_TOKEN}? My name is [your name], and I am a ` +
+  'volunteer for" followed by the candidate name given below. Keep ' +
+  `"[your name]" and "${VOTER_NAME_TOKEN}" as literal bracketed ` +
+  'placeholders — never invent a volunteer name or a voter name.'
 
 const COMPLIANCE_BAN_RULE =
   'NEVER include SMS or robocall compliance lines: no "Reply STOP", no ' +
   '"Paid for by", and no callback phone number. This is a live script a ' +
   'volunteer reads to a voter on the phone, not a text or recorded ' +
   'message.'
+
+// Product decision (ENG-10932): no bracket placeholders beyond
+// "[your name]" — ground real election/early-voting dates where we have
+// them (see the date context below) and write around the gap in plain
+// language where we don't, the same way the social drafts handle missing
+// specifics. Amended by ENG-10938: the voter-name token is also allowed
+// in the opener, interpolated with the active contact's first name on
+// the caller page.
+const NO_PLACEHOLDER_BRACKETS_RULE =
+  'Never emit a bracketed placeholder anywhere in the script other than ' +
+  `"[your name]" and "${VOTER_NAME_TOKEN}" in the volunteer opener. ` +
+  'Where a specific date, time, or place is not given below, write ' +
+  'around the gap in plain language instead of inventing one or ' +
+  'leaving a bracket for a volunteer to fill in.'
+
+const ELECTION_DATE_DISAMBIGUATION_RULE =
+  'If more than one election date is given below (for example a primary ' +
+  'and a general), ground the call in whichever one is the next ' +
+  'upcoming election — never combine or confuse the two.'
+
+// ENG-10936: instructions personalize the draft but never outrank the
+// grounding/compliance/token rules above — named explicitly so the model
+// treats them as a floor the candidate's ask cannot punch through.
+const INSTRUCTIONS_PRIORITY_RULE =
+  "If the candidate's own instructions are given below, follow them as " +
+  'long as they do not conflict with the rules above — never invent a ' +
+  'date, place, or fact even if instructed to, and never drop the ' +
+  `volunteer opener or the "[your name]"/"${VOTER_NAME_TOKEN}" tokens.`
 
 const DRAFT_SYSTEM_PROMPT = [
   'You are a campaign writing assistant helping an independent,',
@@ -83,6 +126,9 @@ const DRAFT_SYSTEM_PROMPT = [
   '  materials, stay issue-neutral.',
   '- Follow the structure given below for this call.',
   `- ${COMPLIANCE_BAN_RULE}`,
+  `- ${NO_PLACEHOLDER_BRACKETS_RULE}`,
+  `- ${ELECTION_DATE_DISAMBIGUATION_RULE}`,
+  `- ${INSTRUCTIONS_PRIORITY_RULE}`,
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone.',
   '- Keep the script roughly 60-150 words of spoken, conversational',
@@ -97,29 +143,79 @@ const IMPROVE_SYSTEM_PROMPT = [
   'This is a light edit, NOT a rewrite. Rules:',
   '- Every concrete detail in the original MUST appear in your output:',
   '  the volunteer opener, dates, deadlines, places, events, times,',
-  '  names, numbers, asks, and any bracketed placeholder. Dropping one',
-  '  is a failure. Do not paraphrase specifics away.',
+  '  names, numbers, and asks. Dropping one is a failure. Do not',
+  '  paraphrase specifics away.',
+  `- The literal "[your name]" and "${VOTER_NAME_TOKEN}" placeholders in`,
+  '  the volunteer opener MUST be preserved exactly.',
+  '- Strip any other bracketed placeholder the original contains (for',
+  '  example "[early voting dates]" or "[polling location]") and',
+  '  rewrite around the gap in plain language instead — never leave it',
+  '  as a bracket, and never invent a specific date, time, or place to',
+  '  fill it.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
-  '- Keep roughly the same length as the original. Do not add new',
-  '  sentences the original does not have.',
+  '- Keep roughly the same length as the original and do not add new',
+  "  sentences it does not have, UNLESS the candidate's own instructions",
+  '  below explicitly ask for additions — then make the instructed',
+  '  additions instead of holding to this length rule.',
   '- Never add policy positions, issue stances, endorsements,',
   '  statistics, dates, places, or events the original text does not',
   '  contain — campaign materials, when provided, are context for tone',
   '  and accuracy, not a source of new content in a polish.',
   `- ${COMPLIANCE_BAN_RULE} Remove any that appear in the original.`,
+  `- ${INSTRUCTIONS_PRIORITY_RULE}`,
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
+// No max() here: an instructions-driven or near-cap improve result can land
+// a few chars over PHONE_BANKING_SCRIPT_MAX_LENGTH, and a hard max would
+// fail Zod validation -> caught -> 502 (an unrecoverable error from a
+// recoverable output). Robocall hit this exact bug — see
+// outreachRobocallGeneration.service.ts. Truncate at the boundary below
+// instead; the response schema still enforces the cap at the wire.
 const DraftSchema = z.object({
-  draft: z.string().min(1).max(PHONE_BANKING_SCRIPT_MAX_LENGTH),
+  draft: z.string().min(1),
 })
+
+// Delimited the same way currentDraft is (a triple-quote fence) so the
+// model reads it as quoted candidate text, not further instructions to the
+// prompt itself.
+const buildInstructionsBlock = (instructions: string): string[] => [
+  "The candidate's own instructions for this draft — follow them as " +
+    'long as they do not conflict with the rules above:',
+  '"""',
+  instructions,
+  '"""',
+]
+
+const PREVIOUS_DRAFT_VARIATION_RULE =
+  'The candidate rejected this draft. Write a noticeably different ' +
+  'script: a different opening after the volunteer opener, different ' +
+  'sentence rhythm, and different supporting details from the campaign ' +
+  'materials. Do not reuse its distinctive phrases.'
+
+const buildPreviousDraftBlock = (previousDraft: string): string[] => [
+  'The script the candidate just rejected:',
+  '"""',
+  previousDraft,
+  '"""',
+  PREVIOUS_DRAFT_VARIATION_RULE,
+]
+
+// Mirrors filingInstructions.util's formatFilingDate: these date strings
+// come from the same details/BR writers, so an unparseable value must not
+// throw and 500 the draft request — fall back to the raw string instead.
+const formatElectionDate = (value: string): string => {
+  const parsed = parseIsoDateString(value)
+  return isValid(parsed) ? formatDate(parsed, DateFormats.usDate) : value
+}
 
 @Injectable()
 export class OutreachPhoneBankingGenerationService {
   constructor(
     private readonly llm: LlmService,
+    private readonly campaigns: CampaignsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachPhoneBankingGenerationService.name)
@@ -130,6 +226,7 @@ export class OutreachPhoneBankingGenerationService {
     candidateName: string,
     office: string,
     userId: string,
+    campaign: Campaign,
     campaignContext: string[] = [],
   ): Promise<string> {
     // Fresh generation only: improve mode polishes the candidate's own
@@ -145,6 +242,7 @@ export class OutreachPhoneBankingGenerationService {
       `Goal of this call: ${PURPOSE_GOALS[input.purpose]}.`,
       PURPOSE_STRUCTURE[input.purpose],
       `Tone: ${TONE_STYLES[input.tone]}`,
+      ...(await this.buildDateContext(input.purpose, campaign)),
       ...campaignContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
@@ -159,6 +257,9 @@ export class OutreachPhoneBankingGenerationService {
               input.currentDraft,
               '"""',
               'Polish the script.',
+              ...(input.instructions
+                ? buildInstructionsBlock(input.instructions)
+                : []),
             ].join('\n'),
           },
         ]
@@ -166,7 +267,16 @@ export class OutreachPhoneBankingGenerationService {
           { role: 'system', content: DRAFT_SYSTEM_PROMPT },
           {
             role: 'user',
-            content: [...context, 'Write the call script.'].join('\n'),
+            content: [
+              ...context,
+              ...(input.previousDraft
+                ? buildPreviousDraftBlock(input.previousDraft)
+                : []),
+              'Write the call script.',
+              ...(input.instructions
+                ? buildInstructionsBlock(input.instructions)
+                : []),
+            ].join('\n'),
           },
         ]
 
@@ -179,10 +289,57 @@ export class OutreachPhoneBankingGenerationService {
         maxTokens: 1024,
         userId,
       })
-      return object.draft
+      // Safety net for a slightly-over-limit result (see DraftSchema above).
+      return object.draft.slice(0, PHONE_BANKING_SCRIPT_MAX_LENGTH)
     } catch (err) {
       this.logger.error({ err }, 'Phone banking script generation failed')
       throw new BadGatewayException('Phone banking script generation failed')
     }
+  }
+
+  // Grounds the election date / early-voting window from real data only
+  // (ENG-10932) — never an estimate. The election date lives on the
+  // campaign row already; the early-voting window is a live BR fetch, so
+  // it's only worth making for the purpose that uses it.
+  private async buildDateContext(
+    purpose: PhoneBankingScriptPurpose,
+    campaign: Campaign,
+  ): Promise<string[]> {
+    const blocks: string[] = []
+    const { electionDate, primaryElectionDate } = campaign.details
+    // A date that has already passed is no longer a live date to call
+    // about — only ground either date while it's still upcoming.
+    if (electionDate && isDateTodayOrFuture(electionDate)) {
+      blocks.push(`Election day: ${formatElectionDate(electionDate)}.`)
+    }
+    if (primaryElectionDate && isDateTodayOrFuture(primaryElectionDate)) {
+      blocks.push(
+        `Primary election day: ${formatElectionDate(primaryElectionDate)}.`,
+      )
+    }
+
+    if (purpose !== 'vote-early') return blocks
+
+    // Milestones are grounding enrichment, same as office resolution in
+    // the controller — a fetch failure must not fail the draft.
+    let metrics: RaceTargetMetrics | null = null
+    try {
+      metrics = await this.campaigns.fetchLiveRaceTargetMetrics(campaign)
+    } catch (err) {
+      this.logger.warn({ err }, 'race milestones fetch failed for draft')
+    }
+    const earlyVoting = metrics?.milestones?.early_voting
+    const start = earlyVoting?.start
+      ? formatElectionDate(earlyVoting.start)
+      : null
+    const end = earlyVoting?.end ? formatElectionDate(earlyVoting.end) : null
+    if (start && end) {
+      blocks.push(`Early voting window: ${start} through ${end}.`)
+    } else if (start) {
+      blocks.push(`Early voting starts: ${start}.`)
+    } else if (end) {
+      blocks.push(`Early voting ends: ${end}.`)
+    }
+    return blocks
   }
 }

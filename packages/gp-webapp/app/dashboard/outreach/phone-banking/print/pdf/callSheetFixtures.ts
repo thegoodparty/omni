@@ -12,6 +12,7 @@ export const person = (
 ): PhoneBankingListPerson => ({
   personId: 'person-1',
   name: 'Dorian Fen',
+  firstName: 'Dorian',
   age: 31,
   party: 'Independent',
   address: '105 Elm St',

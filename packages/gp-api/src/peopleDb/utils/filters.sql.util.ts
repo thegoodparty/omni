@@ -1,4 +1,4 @@
-import { type IdOverrides } from '@goodparty_org/contracts'
+import { decodePrecinctPair, type IdOverrides } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/people-prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { FilterOperator } from '../schemas/filters.schema.utils'
@@ -144,6 +144,9 @@ export const buildVoterFiltersSql = (
       case 'ageInt':
         sql = buildNumericFilter('Age_Int', op)
         break
+      case 'precinct':
+        sql = buildPrecinctFilter(op)
+        break
     }
 
     if (sql) {
@@ -153,6 +156,49 @@ export const buildVoterFiltersSql = (
 
   if (andClauses.length === 0) return null
   return Prisma.sql`${Prisma.join(andClauses, ' AND ')}`
+}
+
+// Mirrors buildPrecinctFilter in the Databricks builder. Both stores need
+// this branch: PeopleFiltersSchema deliberately strips unknown keys rather
+// than rejecting them, so a Databricks-only implementation would let the
+// filter vanish whenever a read is served from Postgres — silently WIDENING
+// a saved audience rather than failing loudly.
+const buildPrecinctFilter = (op?: FilterOperator): Prisma.Sql | null => {
+  if (!op || op.operator !== 'in' || !op.values?.length) return null
+
+  const counties: string[] = []
+  const precincts: string[] = []
+  const unknownCounties: string[] = []
+
+  for (const value of op.values) {
+    const { county, precinct } = decodePrecinctPair(String(value))
+    if (precinct === '') {
+      unknownCounties.push(county)
+      continue
+    }
+    counties.push(county)
+    precincts.push(precinct)
+  }
+
+  const clauses: Prisma.Sql[] = []
+  // Paired arrays unnested into a tuple set rather than a per-pair OR chain:
+  // the pair list can reach the 5,000-value cap, and one bound array per side
+  // stays clear of PostgreSQL's 65,535 bind-parameter limit.
+  if (counties.length > 0) {
+    clauses.push(
+      Prisma.sql`(v."County", v."Precinct") IN (
+        SELECT * FROM unnest(${counties}::text[], ${precincts}::text[])
+      )`,
+    )
+  }
+  if (unknownCounties.length > 0) {
+    clauses.push(
+      Prisma.sql`(v."County" = ANY(${unknownCounties}::text[]) AND v."Precinct" IS NULL)`,
+    )
+  }
+  if (clauses.length === 0) return null
+  if (clauses.length === 1) return clauses[0]!
+  return Prisma.sql`(${Prisma.join(clauses, ' OR ')})`
 }
 
 export const VALUE_MAPPERS = {
@@ -186,10 +232,14 @@ export const VALUE_MAPPERS = {
         return value
     }
   },
-  homeowner: (value: string): string | null => {
+  // 'Yes' is the wire value behind the "Homeowner" pill (ENG-10947) and
+  // folds Probable Home Owner in, since the product taxonomy collapsed
+  // Yes/Likely into one Homeowner bucket. 'Likely' is kept, unfolded, only
+  // for saved filters persisted before the collapse (homeownerLikely).
+  homeowner: (value: string): string | string[] | null => {
     switch (value) {
       case 'Yes':
-        return 'Home Owner'
+        return ['Home Owner', 'Probable Home Owner']
       case 'Likely':
         return 'Probable Home Owner'
       case 'No':
@@ -554,7 +604,7 @@ const buildNumericFilter = (
 const buildMappedFieldFilter = (
   fieldName: string,
   op: FilterOperator | undefined,
-  mapValue: (value: string) => string | null,
+  mapValue: (value: string) => string | string[] | null,
 ): Prisma.Sql | null => {
   if (!op) return null
 
@@ -563,7 +613,11 @@ const buildMappedFieldFilter = (
     if (mappedValue === null) {
       return Prisma.sql`v."${Prisma.raw(fieldName)}" IS NULL`
     }
-    return buildFieldFilter(fieldName, { ...op, value: mappedValue })
+    // A one-to-many mapping (homeowner's 'Yes' folding in Probable Home
+    // Owner) needs an `in` clause even though the caller asked `eq`.
+    return Array.isArray(mappedValue)
+      ? buildFieldFilter(fieldName, { operator: 'in', values: mappedValue })
+      : buildFieldFilter(fieldName, { ...op, value: mappedValue })
   }
 
   if (op.operator === 'in' && op.values && op.values.length > 0) {
@@ -571,10 +625,11 @@ const buildMappedFieldFilter = (
     // is called for (gender, homeowner, etc.) is string-valued.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const originalValues = op.values as string[]
-    const mappedValues = originalValues
-      .map(mapValue)
-      .filter((v): v is string => v !== null)
-    const hasNull = originalValues.some((v) => mapValue(v) === null)
+    const mappedResults = originalValues.map(mapValue)
+    const mappedValues = mappedResults.flatMap((v) =>
+      v === null ? [] : Array.isArray(v) ? v : [v],
+    )
+    const hasNull = mappedResults.some((v) => v === null)
 
     if (hasNull && mappedValues.length > 0) {
       const sql = buildFieldFilter(fieldName, { ...op, values: mappedValues })

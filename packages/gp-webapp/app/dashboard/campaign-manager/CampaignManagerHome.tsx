@@ -55,6 +55,7 @@ export default function CampaignManagerHome({
         onMeetManager={() => chat?.openManager()}
         onSkipMeet={() => chat?.dismissMeetCard()}
         onPersonalize={() => chat?.startStory()}
+        onGetOnBallot={() => chat?.startBallotAccess()}
       />
     </div>
   )

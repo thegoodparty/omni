@@ -10,6 +10,9 @@ export type QueryType =
   | 'search'
   | 'csv'
   | 'stats'
+  | 'district-by-id'
+  | 'voter-by-id'
+  | 'voterDensity'
 
 export type BenchCase = {
   id: string
@@ -39,9 +42,22 @@ export const QUERY_DESCRIPTIONS: Record<QueryType, string> = {
   csv:
     'Full CSV export of the district, streamed to the client. The only path ' +
     'that sets statement_timeout = 0, so nothing stops a slow one.',
+  'district-by-id':
+    'Primary-key lookup of one District row. The cheapest query the product ' +
+    'issues, and the floor any store has to beat: it is a single indexed row ' +
+    'read, not a scan, so it measures per-query overhead rather than data size.',
+  'voter-by-id':
+    'Primary-key lookup of one Voter row, scoped to the district (the ' +
+    'contact drawer). Same shape as district-by-id but against the 218M-row ' +
+    'partitioned table, so it separates index-seek cost from table size.',
   stats:
     'Precomputed district totals. No live scan at all, so this is the floor ' +
     'that every other row should be read against.',
+  voterDensity:
+    'The public profile heat map: precomputed, k-anonymized H3 cells read by ' +
+    '(district_id, resolution). No aggregation and no geometry at request ' +
+    'time, so like stats it should sit near the floor — but it returns a row ' +
+    'per cell rather than one row, so watch the payload, not just the time.',
 }
 
 // 1 cold + 7 warm: enough warm samples that p50/p95 mean something (a 4-warm
@@ -52,13 +68,21 @@ export const DEFAULT_ITERATIONS = 8
 // 1 cold + 2 warm so every reported number is still an aggregate.
 const HEAVY_ITERATIONS = 3
 
-const NONE = FILTER_VARIANTS.find((v) => v.name === 'none') as FilterVariant
+// A cast would let a renamed variant reach the cases as `undefined` and only
+// fail deep in the harness; fail here instead, naming the variant.
+const requireVariant = (name: string): FilterVariant => {
+  const variant = FILTER_VARIANTS.find((v) => v.name === name)
+  if (!variant) {
+    throw new Error(`perf/people-db: missing the '${name}' filter variant`)
+  }
+  return variant
+}
+
+const NONE = requireVariant('none')
 // Every list-detail 504 in the week to 2026-08-16 was segment-scoped, so the
 // unfiltered universe cell alone would miss the shape that actually fails. A
 // party pick is the most common real saved-list filter.
-const SAVED_LIST = FILTER_VARIANTS.find(
-  (v) => v.name === 'single-multivalue',
-) as FilterVariant
+const SAVED_LIST = requireVariant('single-multivalue')
 
 // Heavy cells hold a connection for seconds; run them fewer times so a full
 // latency pass stays bounded. `large` qualifies as of 2026-08-16: its
@@ -120,6 +144,12 @@ export const buildLatencyCases = (
       push('csv', cohort, NONE)
     }
     push('stats', cohort, NONE)
+    // Single-row primary-key reads, so a filter variant would not change what
+    // is measured; one cell per band is the whole axis.
+    push('district-by-id', cohort, NONE)
+    push('voter-by-id', cohort, NONE)
+    // Precomputed, indexed (districtId, resolution) read — one cell per cohort.
+    push('voterDensity', cohort, NONE)
   }
   return cases
 }

@@ -107,6 +107,15 @@ export interface RunningAgainst {
   description: string
 }
 
+// Onboarding's "Are you already on the ballot?" answer. Persisted twice by
+// OnboardingFlow: on details.ballotStatus, and inside the whole-answers snapshot
+// under data.onboarding — so readers need both (see GetOnBallotCard).
+export type BallotStatus =
+  | 'on-ballot'
+  | 'qualified-not-filed'
+  | 'considering'
+  | 'testing'
+
 export interface CampaignDetails {
   state?: string
   ballotLevel?: string
@@ -115,6 +124,7 @@ export interface CampaignDetails {
   zip?: string
   knowRun?: 'yes' | null
   runForOffice?: 'yes' | 'no' | null
+  ballotStatus?: BallotStatus
   pledged?: boolean
   isProUpdatedAt?: number
   customIssues?: CustomIssue[]
@@ -213,6 +223,14 @@ export interface CampaignData {
   adminUserEmail?: string
   hubspotId?: string
   name?: string
+  onboarding?: OnboardingAnswersSnapshot
+}
+
+// The subset of the onboarding answers snapshot this app reads back off
+// data.onboarding. Not the full answers object — add fields as readers need
+// them.
+export interface OnboardingAnswersSnapshot {
+  ballotStatus?: BallotStatus
 }
 
 export interface HubSpotUpdates {

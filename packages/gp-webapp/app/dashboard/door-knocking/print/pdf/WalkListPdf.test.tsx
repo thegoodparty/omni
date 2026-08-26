@@ -96,26 +96,90 @@ describe('WalkListPdf', () => {
     )
   })
 
+  // The header states the route's total; this is the per-leg number, in the
+  // address column under the door it leads to. Both paper surfaces word it with
+  // `legTravelLine`, so a volunteer with the PDF and a canvasser with the
+  // printed page read one leg the same way.
+  it('prints the walk from the previous stop under the address', async () => {
+    const text = await renderText([
+      stop(),
+      stop({ id: 12, seq: 2, legSeconds: 300 }),
+    ])
+
+    expect(text).toContain('5 min from last')
+  })
+
+  it('leaves the walk time off the first stop of a route', async () => {
+    expect(await renderText([stop({ legSeconds: 0 })])).not.toContain(
+      'from last',
+    )
+  })
+
+  // Uppercase because the handoff tracks its column heads that way, and
+  // `textTransform` reaches the glyphs the renderer writes rather than only the
+  // style it writes them in.
   it('rules a grid with a heading for every column', () => {
     for (const heading of [
-      'Address',
-      'Resident',
-      'Answered?',
-      'Supports?',
-      'Will vote?',
-      'Notes',
+      '#',
+      'NAME',
+      'AGE',
+      'ADDRESS',
+      'ANSWERED',
+      'SUPPORT',
+      'WILL VOTE',
+      'NOTES',
     ]) {
       expect(blank).toContain(heading)
     }
   })
 
-  // Y/N for answered; the app's own three answers, in the app's own order, for
-  // the two follow-ups. Order is not cosmetic here: paper is transcribed back
-  // into the form these came from, and a reordered row is a mis-keyed answer.
-  it('pre-prints the tick options an unknocked door gets asked', () => {
+  // Yes/No for answered; the app's own three answers, in the app's own order,
+  // for the two follow-ups. Order is not cosmetic here: paper is transcribed
+  // back into the form these came from, and a reordered row is a mis-keyed
+  // answer. Spelled out rather than abbreviated to `Y N ?` — the handoff's mark
+  // box puts the label under the box instead of beside it, which is the room
+  // the old abbreviations were short for.
+  it('pre-prints the mark options an unknocked door gets asked', () => {
     expect(blank).toContain('Dorian Fen')
-    expect(blank).toContain('31 · Independent')
-    expect(blank).toContain('YN' + 'YN?' + 'YN?')
+    expect(blank).toContain('Independent')
+    expect(blank).toContain('YESNO' + 'YESNOUNSURE' + 'YESNOUNSURE')
+  })
+
+  // The handoff rules an 11% Phone column and the canvas has no walk sheet to
+  // set a precedent either way, so it is a new proposal rather than a settled
+  // decision — and it is open with the designer. Until it is settled the column
+  // is not implemented: paper stops being access-controlled the moment it leaves
+  // the building, and the row model is never handed a number to put in it.
+  it('rules no phone column, whatever the handoff asks for', () => {
+    expect(blank).not.toMatch(/Phone/i)
+  })
+
+  // The handoff's Support column offers Strong / Lean / Undec / No and its
+  // Answered column offers a "Moved". Both contradict the Voter Outreach 2.0
+  // canvas as well as our enum, so they are an error in the handoff rather than
+  // a decision to reconcile. What this pins is that the boxes stay generated
+  // from the form's own constants, because a box on paper the form cannot accept
+  // is an answer nobody can file.
+  it('offers no answer the app has no value for', () => {
+    for (const invented of [/strong/i, /\blean/i, /undec/i, /moved/i]) {
+      expect(blank).not.toMatch(invented)
+    }
+  })
+
+  // The handoff has no Will-vote column, and the canvas asks the question, so
+  // the handoff simply omitted it. A sheet that cannot record an answer the form
+  // wants is a sheet that has to be walked twice.
+  it('keeps the will-vote column the handoff drops', () => {
+    expect(blank).toContain('WILL VOTE')
+  })
+
+  // Age had led the meta line under the name and now has a column, so this is
+  // the assertion that stops it being printed in both. Named against the party
+  // it used to sit beside rather than counted, because the header's "31 min
+  // travel" is the same two digits.
+  it('prints the age in its column rather than under the name', () => {
+    expect(blank).toContain('Dorian Fen' + 'Independent')
+    expect(blank).not.toContain('31 · Independent')
   })
 
   // Paper leaves the building and stops being access-controlled when it does.
@@ -162,10 +226,28 @@ describe('WalkListPdf', () => {
     }
   })
 
+  // ADR 0011. The largest disclosure on the payload — free text a named person
+  // typed about a named voter — on the surface that stops being
+  // access-controlled the moment it prints. The fixture carries a note and a
+  // count of nine, and the count is asserted too: "9 notes on file" says how
+  // much has been written about this voter even with none of it printed.
+  //
+  // The page's own "Notes" column heading is why this names the body rather
+  // than the word: the blank column a canvasser writes in is the point of the
+  // sheet, and asserting /notes/i would fail on the feature working.
+  it('never prints a saved contact note', async () => {
+    const text = await renderText([oneDoor([target()])])
+
+    expect(text).not.toMatch(/Do not ring the bell/)
+    expect(text).not.toMatch(/9 notes/i)
+    expect(text).not.toMatch(/of 9/)
+  })
+
   // Node's clock is UTC, so any date this stamps itself is tomorrow's for an
   // evening download anywhere in the US. The canvasser writes it instead.
-  it('leaves the date to the canvasser rather than stamping one', () => {
-    expect(blank).toContain('Date walked')
+  it('leaves the date and the canvasser to be written in', () => {
+    expect(blank).toContain('Canvasser')
+    expect(blank).toContain('Date')
     expect(blank).not.toMatch(/\b20\d\d\b/)
   })
 
@@ -173,8 +255,8 @@ describe('WalkListPdf', () => {
     expect(blank).toContain('reaches your voter records on its own')
   })
 
-  it('leaves room for notes on the last page', () => {
-    expect(blank).toContain('Additional notes')
+  it('says how to fill the sheet in', () => {
+    expect(blank).toContain('Circle or tick a box, write short notes')
   })
 
   // A door already logged in the app must not come back as a blank form —
@@ -186,7 +268,7 @@ describe('WalkListPdf', () => {
 
     expect(text).toContain('Marisol Vega')
     expect(text).toContain('Already logged: Supporter')
-    expect(text).not.toContain('Y?N')
+    expect(text).not.toContain('UNSURE')
   })
 
   // ADR 0007. Paper freezes the moment it downloads, so the instruction has to
@@ -251,7 +333,7 @@ describe('WalkListPdf', () => {
     expect(text).toContain('Last contact: June 2026 · Door knock: Answered')
     expect(text).not.toMatch(/Dog in the yard/)
     // Still a form to fill in: the line is context, not a recorded answer.
-    expect(text).toContain('YN?')
+    expect(text).toContain('YESNOUNSURE')
   })
 
   // A household is one door however many people answer it, so the grid draws
@@ -267,10 +349,10 @@ describe('WalkListPdf', () => {
     expect(text.match(/105 Elm St/g)).toHaveLength(1)
     expect(text).toContain('Dorian Fen')
     expect(text).toContain('Ada One')
-    expect(text.match(/YN\?/g)).toHaveLength(4)
+    expect(text.match(/YESNOUNSURE/g)).toHaveLength(4)
   })
 
-  it('gives every page the footer, the tagline, a page number and the column headings', async () => {
+  it('repeats the header, the column headings and the footer on every page', async () => {
     const stops = Array.from({ length: 40 }, (_, index) =>
       stop({
         id: index + 1,
@@ -294,8 +376,11 @@ describe('WalkListPdf', () => {
       text.match(/Empowering people to run, win, and serve/g),
     ).toHaveLength(pages)
     // The column headings repeat, so a later page is still a table and not
-    // seven unlabelled columns of handwriting.
-    expect(text.match(/Will vote\?/g)).toHaveLength(pages)
+    // eight unlabelled columns of handwriting.
+    expect(text.match(/WILL VOTE/g)).toHaveLength(pages)
+    // And the route names itself on each one: sixteen sheets get separated, and
+    // a page that says only "Page 4 of 16" belongs to no turf.
+    expect(text.match(/Elm & Cedar/g)).toHaveLength(pages)
   }, 180_000)
 
   // The route can be empty — a turf whose targets were all filtered out still
@@ -308,8 +393,11 @@ describe('WalkListPdf', () => {
     expect(text).toContain('Elm & Cedar')
     expect(text).toContain('0 stops · 0 doors · 0 people')
     expect(text).toContain('This route has no stops.')
-    expect(text).toContain('Additional notes')
+    // Still signed and still numbered, because an empty sheet is still one
+    // someone was handed.
+    expect(text).toContain('Page 1 of 1')
+    expect(text).toContain('Empowering people to run, win, and serve')
     // No grid to head when there are no rows under it.
-    expect(text).not.toContain('Will vote?')
+    expect(text).not.toContain('WILL VOTE')
   })
 })

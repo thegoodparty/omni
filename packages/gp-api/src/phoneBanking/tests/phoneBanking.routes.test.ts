@@ -160,6 +160,10 @@ describe('phone banking routes', () => {
       expect(entries).toHaveLength(1)
       expect(entries[0]?.phone).toBe(sharedPhone)
       expect(entries[0]?.persons).toHaveLength(2)
+      expect(entries[0]?.persons.map((p) => p.firstName).sort()).toEqual([
+        'A',
+        'B',
+      ])
       expect(entries[0]?.seq).toBe(1)
       expect(entries[0]?.sheetIndex).toBe(1)
 
@@ -239,6 +243,31 @@ describe('phone banking routes', () => {
 
       expect(res.status).toBe(201)
       expect(res.data).toMatchObject({ entryCount: 1, personCount: 1 })
+    })
+
+    it('preserves an empty-string firstName rather than coercing it to null', async () => {
+      mockPeoplePage([
+        fakePerson({
+          id: randomUUID(),
+          firstName: '',
+          lastName: 'Legacy',
+          cellPhone: '3075554446',
+        }),
+      ])
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      const person = await service.prisma.phoneBankingListEntryPerson.findFirst(
+        {
+          where: { entry: { phoneBankingListId: res.data.id } },
+        },
+      )
+      expect(person?.firstName).toBe('')
     })
 
     it('excludes a not_a_voter (moved/deceased) person from the build', async () => {
@@ -336,9 +365,7 @@ describe('phone banking routes', () => {
       expect(get.data.purpose).toBe('election-day')
     })
 
-    it('persists a named VoterFileFilter for an inline filter build', async () => {
-      mockPeoplePage([fakePerson({ cellPhone: '3075559000' })])
-
+    it('400s an inline-filters body — the audience is always a saved filter', async () => {
       const res = await service.client.post(
         '/v1/phone-banking/lists',
         buildBody({
@@ -346,16 +373,11 @@ describe('phone banking routes', () => {
           filters: { hasCellPhone: true },
           filterName: 'Inline audience',
         }),
-        orgHeaders(),
+        { ...orgHeaders(), validateStatus: () => true },
       )
 
-      expect(res.status).toBe(201)
-      const created = await service.prisma.voterFileFilter.findFirst({
-        where: { organizationSlug: orgSlug, name: 'Inline audience' },
-      })
-      expect(created).not.toBeNull()
-      expect(created?.hasCellPhone).toBe(true)
-      expect(created?.firstUsedForOutreachAt).not.toBeNull()
+      expect(res.status).toBe(400)
+      expect(await service.prisma.phoneBankingList.count()).toBe(0)
     })
 
     it('404s a voterFileFilterId that belongs to another organization', async () => {
@@ -516,6 +538,7 @@ describe('phone banking routes', () => {
       ) as Array<Record<string, unknown>>
       const liveRow = persons.find((p) => p.personId === livePersonId)
       expect(liveRow).toMatchObject({
+        firstName: 'Live',
         age: 61,
         party: 'Democratic',
         cellPhone: '3075559991',
@@ -530,6 +553,9 @@ describe('phone banking routes', () => {
       const vanishedRow = persons.find((p) => p.personId === vanishedPersonId)
       expect(vanishedRow).toMatchObject({
         name: 'Gone Fromdb',
+        // Frozen at build time — must come from the persisted row, not a
+        // live lookup, since this person no longer resolves.
+        firstName: 'Gone',
         age: null,
         party: null,
         address: null,
@@ -537,6 +563,49 @@ describe('phone banking routes', () => {
         landline: null,
         interaction: null,
       })
+    })
+
+    it('serves a list frozen before firstName existed, falling back to null rather than 500ing', async () => {
+      const personId = randomUUID()
+      mockPeoplePage([
+        fakePerson({
+          id: personId,
+          firstName: 'Pat',
+          lastName: 'Legacy',
+          cellPhone: '3075559994',
+        }),
+      ])
+      const build = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      const listId = build.data.id
+
+      // Simulates a row persisted before the ENG-10938 migration added the
+      // column — every pre-existing production row is null the same way.
+      await service.prisma.phoneBankingListEntryPerson.updateMany({
+        where: { personId },
+        data: { firstName: null },
+      })
+
+      mockPeoplePage([
+        fakePerson({
+          id: personId,
+          firstName: 'Pat',
+          lastName: 'Legacy',
+          cellPhone: '3075559994',
+        }),
+      ])
+
+      const res = await service.client.get(
+        `/v1/phone-banking/lists/${listId}`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      const person = res.data.entries[0]?.persons[0]
+      expect(person).toMatchObject({ name: 'Pat Legacy', firstName: null })
     })
 
     it('404s for a list belonging to another organization', async () => {

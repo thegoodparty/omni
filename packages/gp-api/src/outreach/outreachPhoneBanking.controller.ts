@@ -73,6 +73,7 @@ export class OutreachPhoneBankingController {
         candidateName(user),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
+        campaign,
         await this.composeContext.buildCampaignContext(campaign),
       ),
     }

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { routeQueryOptions } from './turfQueries'
 import { rollupStopStatus, stopIsKnockable } from './statusPresentation'
+import type { LiveLocation } from './useLiveLocation'
 import type { RoutePin } from './VoterMapCanvas'
 import WalkView from './WalkView'
 
@@ -32,6 +33,19 @@ export const useWalkMapSession = (walkTurf: { id: number } | null) => {
   })
   const [openStopRequest, setOpenStopRequest] =
     useState<OpenStopRequest | null>(null)
+  // Which stop the walk is on. It lives here, beside the tapped pin, because
+  // the two are the same conversation in opposite directions — a pin tap
+  // becomes a door the list opens, and whatever the list opens becomes the pin
+  // the map rings — and because the canvas is what draws it, which is the
+  // orchestrator's rule for where state goes. It used to be `WalkView`'s own,
+  // which is why nothing was drawn on the map: the list could not tell the
+  // canvas anything without a prop on the frozen seam.
+  //
+  // The walk is still the only writer. `WalkView` reports the stop it just
+  // opened (a row tap, a pin tap, or auto-advance) and this holds it; nothing
+  // here decides which stop that should be, because only the list knows what
+  // the sheet is offering.
+  const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
   // The walk's first-run coach mark. It names the gesture the walk map exists
   // for, and it is dismissed by that gesture — nothing else on the map has
   // anything to teach here.
@@ -65,6 +79,17 @@ export const useWalkMapSession = (walkTurf: { id: number } | null) => {
     // What the session reports on the way out, for the funnel event.
     stopCount: routeQuery.data?.route.stopCount ?? 0,
     openStopRequest,
+    selectedStopId,
+    // Takes a stop and never null, so the only thing that can un-mark a stop is
+    // `reset()` on the way out of the walk. That is the list's rule made
+    // structural: the mark outlives the sheet, because the door just worked is
+    // the one worth keeping, and a mark that cleared on close would leave a
+    // fifty-pin map saying nothing about where in the street the walk had got.
+    selectStop: (stopId: number) => setSelectedStopId(stopId),
+    // A tap does NOT mark the pin here. It becomes a request the walk acts on,
+    // and the walk marks whatever it actually opened — a request for a stop the
+    // served payload doesn't carry is dropped there, and marking it here would
+    // ring a pin whose door never came up.
     onPinTap: (pin: { stopId: number }) => {
       setOpenStopRequest((current) => ({
         stopId: pin.stopId,
@@ -75,6 +100,7 @@ export const useWalkMapSession = (walkTurf: { id: number } | null) => {
     hintVisible: Boolean(walkTurf) && routePins.length > 0 && !hintDismissed,
     reset: () => {
       setOpenStopRequest(null)
+      setSelectedStopId(null)
       setHintDismissed(false)
     },
   }
@@ -115,6 +141,25 @@ export const WalkMapHint = ({ visible }: { visible: boolean }) => {
 export interface WalkSurfaceProps {
   turfId: number
   openStopRequest: OpenStopRequest | null
+  // Which stop is marked. Both directions of it cross this seam, because the
+  // list and the map each draw it and only one of them is behind here: the
+  // walk reports the stop it opened through `onSelectStop`, and reads the
+  // answer back off `selectedStopId` rather than keeping a copy — one value,
+  // so the ringed pin and the marked row cannot come apart.
+  selectedStopId: number | null
+  onSelectStop: (stopId: number) => void
+  // "My live location". The canvas keeps this switch in the walk's control row
+  // and nowhere else, so the control is behind this seam — but the dot it turns
+  // on is drawn by the map, which the orchestrator owns and which outlives the
+  // walk. So the watch is read up there and both halves cross: the reading, so
+  // the pill can say a permission was blocked, and the switch.
+  //
+  // A third direction across the seam rather than a second copy of the state,
+  // for the same reason `selectedStopId` is: the pill and the dot are one fact
+  // drawn twice, and two `useState`s would let them disagree.
+  liveLocation: LiveLocation
+  liveLocationEnabled: boolean
+  onToggleLiveLocation: (next: boolean) => void
   // Lets the page refetch the voter pack after the walk: the landing map's
   // statuses are baked into the cached pack, so new knocks are invisible there
   // until it reloads.
@@ -124,6 +169,11 @@ export interface WalkSurfaceProps {
 export default function WalkSurface({
   turfId,
   openStopRequest,
+  selectedStopId,
+  onSelectStop,
+  liveLocation,
+  liveLocationEnabled,
+  onToggleLiveLocation,
   onKnockRecorded,
 }: WalkSurfaceProps) {
   return (
@@ -131,6 +181,11 @@ export default function WalkSurface({
       turfId={turfId}
       onKnockRecorded={onKnockRecorded}
       openStopRequest={openStopRequest}
+      selectedStopId={selectedStopId}
+      onSelectStop={onSelectStop}
+      liveLocation={liveLocation}
+      liveLocationEnabled={liveLocationEnabled}
+      onToggleLiveLocation={onToggleLiveLocation}
     />
   )
 }

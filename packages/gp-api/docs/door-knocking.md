@@ -44,14 +44,39 @@ Three nullable timestamps on `door_knocking_turf`, driven by
 and the existing `DELETE turfs/:id`. All three apply only to a knocked list.
 
 **Why the turf and not the `Outreach` envelope.** The envelope already has a
-`status` enum that spells `in_progress` and `completed`, so it looks like the
-obvious home. It isn't: the envelope requires a `campaignId`, and a Serve org
-knocks without a campaign, so the knock transaction skips creating one
-entirely. A lifecycle stored there would be invisible to an org the Pro gate
-deliberately admits. The turf is the one row every knocker has. The envelope's
-`status` is written alongside `completedAt` as a **mirror** for the Win
-outreach history — `updateMany`, so the Serve case is a no-op rather than an
-error.
+`status` enum that spells `in_progress` and `completed`, and an `archivedAt` of
+its own, so it looks like the obvious home. It isn't: the envelope requires a
+`campaignId`, and a Serve org knocks without a campaign, so the knock
+transaction skips creating one entirely. A lifecycle stored there would be
+invisible to an org the Pro gate deliberately admits. The turf is the one row
+every knocker has.
+
+**The envelope is a mirror of it, written in the same transaction.** Both
+lifecycle writers do this, and neither is optional: `complete` sets
+`status: completed`, `setArchived` sets `archivedAt` to whatever the turf's
+became. `updateMany` matched on `doorKnockingRouteId`, so the Serve case — no
+envelope at all — is a no-op rather than an error. Doing it server-side rather
+than in the caller is the point: it is one commit instead of two round trips a
+phone can die between, and it holds for any caller, not just the webapp. The
+webapp did carry a best-effort client mirror for archive (#1396) while gp-api
+was frozen; that is gone.
+
+Two details in `setArchived` that are easy to undo by accident:
+
+- **The mirror runs ahead of the idempotence guard.** Lists archived before the
+  mirror existed have an envelope that never followed, and the guard
+  (`if (archived && locked.archivedAt) return locked`) would return early on
+  exactly those, leaving the drift permanent — pressing Archive again is the
+  only repair a candidate has.
+- **Both rows get the same timestamp, and it is the turf's existing one when
+  there is one.** That is what makes running the mirror unconditionally safe:
+  the guard exists so a double-tap can't walk "archived since" forward, and
+  writing `now` into the envelope on a repeat press would break that promise on
+  the other row.
+
+**Restore mirrors too.** `setArchived(false)` writes null to both. An archive
+that mirrors and a restore that does not puts the two rows back out of step one
+press later.
 
 **Why delete is two different operations.** Delete is now offered at every
 stage; the confirmation dialog is the guard, not the lock. Which delete runs
@@ -245,7 +270,7 @@ last-write-wins made the door and Contacts disagree about the same person, and
 made a hand correction invisible at the door. `undecided` has no map member and
 reads as unknown (still worth knocking). The route
 payload ships `stopTargetId` per target (the interaction write key), that
-target's own recent outreach history (see below), no
+target's own recent outreach history and saved contact notes (see below), no
 `navigate` block (phone builds deep links from lat/lng + a per-route
 locale), and is snapshotted offline on the phone.
 
@@ -310,6 +335,67 @@ paid for a serve and an ordinary door pays none, so this stays one serve per
 held-open sheet and does not become the per-door refetch ADR 0009 rejected the
 per-person endpoint to avoid.
 
+## Notes, at the door
+
+Each target also carries `notes`: that resident's saved `ContactNote` rows,
+newest first, capped at three, as `{ entries, total }` — see
+[ADR 0011](adr/0011-contact-notes-on-the-route-payload.md). It rides the
+payload for the reason `history` does, and this section is only the parts that
+differ.
+
+**The cap is three rather than five because free text is not priced like an
+activity row.** On ADR 0009's own rig, one 140-character note per target costs
+about what all five activity rows cost together (+14.3 KB gzip against
++24.1 KB), because an activity row is a handful of short fields gzip has
+already seen 142 times and a note is prose nobody has written before. Five
+notes per target would be +60 KB, more than double the feature ADR 0009 argued
+was worth 18 KB. At three, the worst case is +37 KB and realistic 25% coverage
+is +11 KB.
+
+**`total` is the resident's real note count, and it is on the wire on
+purpose.** A capped list that cannot say it is capped shows a subset as though
+it were the record. Inferring truncation from `entries.length` gets the
+three-note resident wrong forever; a boolean cannot tell three-of-four from
+three-of-forty. The count rides the same window that applies the cap, so it
+costs nothing. It is one object rather than sibling `notes`/`notesTotal` keys
+because rows and count are only meaningful together and nothing parses this
+payload at runtime to enforce that they both arrive.
+
+**Note _bodies_ are not clipped**, and the row cap alone therefore does not
+bound this the way it bounds the feed —
+`ContactNoteInputSchema` allows 10,000 characters. That tail is accepted rather
+than clipped because the two truncations fail differently: a missing note
+announces itself through `total`, and a clipped note looks like a complete note
+that ended oddly, with no way to fetch the rest from a porch.
+
+`DoorKnockingNotesService` reads every target on the route in **one** statement
+— `ROW_NUMBER()` for the cap, `COUNT(*) OVER` on the same partition for the
+count — served by `contact_note`'s
+`(organization_slug, person_id, created_at)` index. Ordering is
+`created_at DESC, id DESC`, matching `ContactNoteService.listForPerson`: a note
+sits where it was written, so editing a typo does not resurface a two-year-old
+note at the top.
+
+Keyed by `personId` like the feed, never rolled up to the address, and the
+block is always sent — `{ entries: [], total: 0 }` for a resident nobody has
+written about. An absent key means the payload predates the field, which is not
+a claim about the resident.
+
+**Neither paper surface carries notes** — not the printed walk sheet, not the
+downloadable PDF — for the reason that already keeps phone numbers and the
+demographic profile off them, and with more force: free text about a named
+voter on a page that stops being access-controlled the moment it leaves the
+building. `walkFacts.ts` already refuses to print the note on a `DOOR_KNOCK`
+feed row under the same rule.
+
+**Writes are not on this path.** The webapp posts to the CRM's own
+`contacts/:personId/notes` routes, so a canvasser out of signal can read notes
+and not add one. Deliberate: a failed write leaves the typed text in front of
+the person who wrote it, while a failed read is a blank card that looks exactly
+like a resident nobody has ever written about. Both halves are Pro-gated —
+`GET /turfs/:id/route` and every note route call `assertProAccess` — so unlike
+the two suppression writes below, this opens no ungated surface.
+
 ## Do-not-knock
 
 `POST /v1/door-knocking/do-not-knock` — see
@@ -373,15 +459,186 @@ whose correction someone will later want to trace.
 ## The pack (exploration map, step 2)
 
 `GET /v1/door-knocking/pack` (gp-api), served in-process by `src/peopleDb/`.
-Built per request from people_db, never stored: positions +
-person→household→dot index arrays + one byte per person per dimension
-(SoA). Dim buckets are derived by inverting `src/peopleDb`'s `VALUE_MAPPERS`,
-so pack filtering can't drift from list-filter semantics. The
-`canvassStatus` plane is encoded from the org-wide latest-per-person
-statuses gp-api ships with the request (`(personId, status)` only — no
-PII), so the proxy never patches bytes. Map-minimal SELECT: no
+Built per request from people_db, **still never stored** — see "Why it is
+still built per request" below: positions + person→household→dot index arrays
++ one byte per person per dimension (SoA). Dim buckets are derived by
+inverting `src/peopleDb`'s `VALUE_MAPPERS`, so pack filtering can't drift from
+list-filter semantics. The `canvassStatus` plane is encoded from the org-wide
+latest-per-person statuses gp-api ships with the request (`(personId, status)`
+only — no PII), so the proxy never patches bytes. Map-minimal SELECT: no
 AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
 `registered` computed as `(StateVoterID IS NOT NULL)`.
+
+### It was slow because the pagination was quadratic
+
+The build used to keyset-paginate the district in 50,000-row pages. Every page
+re-ran the whole joined statement, and `v."id" > cursor` reached the `Voter`
+side of the merge join and **not** the `DistrictVoter` side — so nothing
+restricted the inner scan and each page re-walked the district from the start
+to reach its merge position. 58k DV rows scanned on page 0; 407k on page 6.
+The pass was quadratic in district size, which is why widening the flag to a
+bigger district made it worse than proportionally worse.
+
+Measured (`docs/perf/voter-pack-profile.md`, 628k-row dataset reproducing the
+production pack size to within 0.9%):
+
+| | keyset, 13 statements | one statement, one cursor |
+| --- | ---: | ---: |
+| blocks touched | 14,058,235 | 120,976 |
+| read from storage | **11.5 GB** | 945 MB |
+| Postgres execution | 5,389 ms | 2,072 ms |
+
+**11.5 GB of storage reads to return a 16 MB response**, and 72% of the
+request's wall clock was the Node process sitting idle on the people-db socket.
+That also explains the 12.7-43.5s spread better than anything else: a warm
+buffer pool put you at the fast end and an evicted one put you through the
+gateway's ceiling.
+
+So the scan is now **one unordered statement read through a server-side
+cursor** (`peopleDb/utils/cursorScan.util.ts`), measured 2.4-2.8x end to end.
+The cursor is what keeps the memory bound that pagination was there for —
+without it, 628k row objects are live at once (416 MB of JS heap).
+
+Three things about that are load-bearing:
+
+- **`ORDER BY v."id"` is gone, and nothing can see it.** The pack carries no
+  person identity on the wire: the client walks person → household → dot
+  positionally and aggregates (`filterEngine.ts`), saved turfs persist a
+  polygon rather than pack indices, and no manifest field names a row. Sorting
+  a district existed only to make a keyset cursor work.
+- **`cursor_tuple_fraction = 1`.** A cursor normally means "show me a page", so
+  the planner optimises for a fast first row — which is how it would justify
+  the merge-join shape this change exists to escape. The scan always drains, so
+  it must be costed whole.
+- **The per-fetch statement timeout is 45s, not the usual 25s.** The clock is
+  armed per `FETCH`, and the first one pays for the whole plan's startup where
+  a keyset page only paid for its own slice. See `peopleDb/AGENTS.md`.
+
+The local plan is a hash join over sequential scans. Production's `Voter` is a
+218M-row partitioned table with different statistics, so **`EXPLAIN` this
+against production before trusting the 116x** — and `pg_stat_statements`'s
+`shared_blks_read` for this query text is the one number that confirms the
+model held.
+
+### The response is also a stream, and that is a separate guarantee
+
+Even at 2 seconds the encoder produces nothing until the last row, and the
+route used to await the finished `Buffer` and hand it to `StreamableFile` — so
+**the socket carried no bytes for the length of the build**, and the gateway
+drops an idle connection at ~120s without writing a status. Two of thirteen
+requests in the seven days to 2026-08-25 died exactly there, logging
+`responseTimeMs: 119999, statusCode: null`. Nobody saw an error, because React
+Query's retry eventually won; the candidate saw a spinner for 165 seconds.
+
+The cursor makes the build faster; it does not make it *bounded*. A slow
+people-db still produces a long quiet gap, and the streaming envelope is what
+removes the cliff rather than moving it.
+
+So the response now opens **before** the build starts and stays busy while it
+runs (`doorKnocking/utils/packStream.util.ts`, framing in
+`contracts/.../DoorKnockingPack.schema.ts`):
+
+```
+[8 bytes magic "GPPACKS1"]                     written before the first query
+[u32 kind][u32 length][payload, padded to 8]   heartbeat every 15s
+...
+[u32 kind=pack][u32 length][the pack]          the payload, unchanged
+```
+
+The guarantee is the heartbeat, not the streaming: delivering the encoder's
+output incrementally would still go quiet for however long one chunk takes,
+while a timer bounds the idle gap at 15 seconds no matter what people_db does.
+**The pack's own bytes are untouched** — only its start offset moved, which is
+why the frames are padded to 8 bytes (the manifest's 4-byte-aligned offsets
+stay aligned, and the browser still mounts typed-array views without copying).
+
+Three consequences worth knowing before changing this:
+
+- **A failed build can no longer be an HTTP error.** The status line is 200
+  before the build begins. A failure is an `error` frame plus a
+  `DoorKnockingPackBuildFailed` log line, and that log line is what pages —
+  the per-route status alert sees a 200. A response that ends with no pack
+  frame makes the decoder throw rather than render an empty district.
+- **The client's disconnect now cancels the build.** Destroying the response
+  aborts the signal the scan checks between chunks, which relies on Fastify
+  destroying the stream it is sending when the socket goes away. It does, and
+  `aborts the build when the client hangs up` in `doorKnocking.routes.test.ts`
+  pins that at the wire rather than trusting it. Killing the connection never
+  cancelled the Postgres scan, so a retry used to contend with a build still
+  running for nobody — which is also why the webapp query is `retry: 0` with a
+  90s `AbortSignal.timeout` (under the gateway's ceiling, so the client fails
+  first and visibly).
+- **Every fetch runs under a statement timeout** like every other people-db
+  query (`peopleDb/AGENTS.md`). This query was the last one that didn't.
+
+### Why it is still built per request
+
+Caching the pack behind an ETag keyed on `(districtId, knock revision)` would
+turn a repeat load into a 304 instead of a rebuild, and it is **deliberately
+not done here**, because getting the key wrong shows a canvasser yesterday's
+dots. It is also a much smaller prize than it looked before the query was
+fixed: the rebuild it avoids is no longer 43 seconds. The key has to
+invalidate on all three of its
+inputs and only two are in reach: the org's knock history (queryable) and
+`districtId` (trivial). The third is the L2-derived voter data itself, which
+has **no revision handle exposed to gp-api** — no mirror watermark, no refresh
+timestamp on the read path — so any cache built today would be pinned on a
+staleness window somebody has to choose rather than on a fact. That is a
+product call about how stale a map may be, not an implementation detail, and
+it wants answering before the flag widens past one district.
+
+Note also that `generatedAt` in the manifest changes on every build, so a
+cache has to stabilize it or no two responses ever share an ETag.
+
+### What is left on the table, and why
+
+Three measured candidates that are **not** in the change that fixed the hang.
+
+**The household key costs ~550ms of people-db CPU per request.**
+`buildHouseholdKeySql`'s `CONCAT_WS`/`UPPER`/`TRIM` is 38% of the single-pass
+execution — more than the `DistrictVoter` join — and it recomputes, on every
+request, a value that never changes. A stored generated column or an
+expression index would remove it. It is not done here because it is a
+migration on a 218M-row partitioned mirror and the expression is shared with
+the list and CSV paths, so the blast radius is a decision about lock behaviour
+and rollout rather than a line of SQL. Note the same table's existing warning
+about expression indexes in `peopleDb/AGENTS.md` before proposing one.
+
+**Compressing the response beats bit-packing the planes, and neither is
+done.** The profile recommends bit-packing the dim planes (37 bits per person
+instead of 136) for a 49% smaller payload at zero encode cost, gated on
+transfer being a real problem. Measured against the alternative on a 628k-row
+pack:
+
+| | payload | cost |
+| --- | ---: | ---: |
+| raw (today) | 15.88 MB | — |
+| bit-packed planes | 8.09 MB | 3 files in lockstep, client decode unmeasured |
+| gzip level 1 | 4.89 MB | 90 ms |
+| brotli quality 4 | **4.00 MB** | 95 ms |
+
+The planes are low-cardinality bytes, which is exactly what a general-purpose
+compressor eats: **transport compression is a bigger win than bit-packing, for
+none of the wire-format change**, and it makes bit-packing worth much less
+than 49% afterwards because the redundancy it removes is the redundancy gzip
+was already removing. This route sends no `Content-Encoding` today.
+
+It is still not a one-liner, which is why it is not folded in here: a
+compressor buffers, and the heartbeat frames above are load-bearing precisely
+because they reach the socket promptly. Compressing the envelope means
+flushing (`Z_SYNC_FLUSH`) on every heartbeat, and it needs a test that says so
+— otherwise the first thing compression does is silently undo the guarantee
+this endpoint just got. Worth doing next, on its own, with that test.
+
+**The encoder's remaining headroom is small.** Its dot index is now keyed on
+the coordinates as numbers rather than on a `${lat}|${lng}` string, which was
+261ms of a 628k-row build — the most expensive single thing it did. What is
+left is a numeric *household* key, which needs a real numeric household id
+from Postgres. `hashtext` is 32-bit and at ~293k households that
+is ~10 expected collisions per district — each one merging two unrelated
+families into one door — so it is not shippable, and `hashtextextended` comes
+back from the driver as a string, which reintroduces the allocation it was
+meant to remove.
 
 ## The address preview (draw step)
 

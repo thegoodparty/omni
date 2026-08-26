@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DOOR_KNOCK_STATUSES,
   DoorKnockStatus,
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
+import { knockableTargets } from '../routeCounts'
 import {
+  knockStatusCounts,
+  readableInkOn,
+  readableInkOnHex,
   rollupStopStatus,
   skipInstruction,
+  STATUS_RGB,
   stopIsKnockable,
   targetMarker,
 } from './statusPresentation'
+import { TURF_COLORS, turfColorTick } from './turfQueries'
 
 const target = (
   knockStatus: DoorKnockStatus,
@@ -160,6 +167,85 @@ describe('stopIsKnockable', () => {
   })
 })
 
+// Two surfaces read this — the walk's seven-count strip and the details
+// drawer's outcome table — so the bucketing is asserted here once rather than
+// through either of them. The rules below are the reason it is shared at all: a
+// second local copy is how the walk and the planning surface would come to
+// report one frozen route differently.
+describe('knockStatusCounts', () => {
+  it('carries every status, including the ones nobody recorded', () => {
+    const counts = knockStatusCounts([stop([target('supporter')])])
+
+    expect(Object.keys(counts).sort()).toEqual([...DOOR_KNOCK_STATUSES].sort())
+    expect(counts.supporter).toBe(1)
+    // "Nobody refused" is an answer, so the bucket is present at zero rather
+    // than absent — a row that vanishes when it empties would make the table's
+    // own shape a fact about the list.
+    expect(counts.refused).toBe(0)
+  })
+
+  it('buckets a household by what was logged at each door', () => {
+    const counts = knockStatusCounts([
+      stop([target('supporter'), target('not_home'), target('not_home')]),
+    ])
+
+    expect(counts.not_home).toBe(2)
+    expect(counts.supporter).toBe(1)
+    expect(counts.unknown).toBe(0)
+  })
+
+  // The denominator is `knockableTargets`, like every people figure in this
+  // feature, so the counts sum to the People stat rather than to a wider
+  // population — the drawer prints them as percentages of exactly that.
+  it('sums to the knockable people and drops both flags', () => {
+    const stops = [
+      stop([
+        target('supporter'),
+        target('unknown'),
+        target('refused', true),
+        { ...target('non_supporter'), notAVoterReason: 'moved' as const },
+      ]),
+    ]
+    const counts = knockStatusCounts(stops)
+
+    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(
+      knockableTargets(stops).length,
+    )
+    expect(counts.refused).toBe(0)
+    expect(counts.non_supporter).toBe(0)
+  })
+
+  // The one bucket whose membership is partial, and the reason the drawer says
+  // so out loud. ADR 0008's follow-up is optional: the status lands at Save and
+  // the `notAVoterReason` only once someone answers "what happened?" — and it is
+  // the reason, not the status, that removes them from the count. So a door
+  // logged not-a-voter with nothing answered yet is still in the denominator and
+  // belongs in this bucket.
+  it('keeps a not-a-voter outcome whose follow-up is unanswered', () => {
+    const counts = knockStatusCounts([stop([target('not_a_voter')])])
+
+    expect(counts.not_a_voter).toBe(1)
+  })
+
+  // And loses them the moment it IS answered, which is the same person moving
+  // out of the whole table rather than into another row.
+  it('drops a not-a-voter resident once the reason is recorded', () => {
+    const counts = knockStatusCounts([
+      stop([
+        { ...target('not_a_voter'), notAVoterReason: 'deceased' as const },
+      ]),
+    ])
+
+    expect(counts.not_a_voter).toBe(0)
+  })
+
+  it('reports a route with nobody knockable as all zeroes', () => {
+    const counts = knockStatusCounts([stop([target('supporter', true)])])
+
+    expect(Object.values(counts).every((count) => count === 0)).toBe(true)
+  })
+})
+
 // The short marker and the paper instruction are the same decision at two
 // densities, and four surfaces read them — so the precedence and the wording
 // are asserted here rather than through each one.
@@ -187,5 +273,59 @@ describe('flag markers', () => {
     }
     expect(targetMarker(both)).toBe('Do not knock')
     expect(skipInstruction(both)).toBe('Do not knock — skip this door')
+  })
+})
+
+// Two things in this feature print a mark on top of a fixed fill: the stop
+// numeral on its status circle and the tick inside a chosen list-colour swatch.
+// Both are read at arm's length, outdoors, in daylight — so the bar is WCAG AA
+// for normal text, and the assertion is the ratio itself rather than "returns
+// white for dark". Written as a sweep over both palettes, so a colour added to
+// either one without checking its ink fails here and not on a doorstep.
+describe('ink on a coloured fill', () => {
+  // WCAG 2.1's contrast ratio, written out here rather than imported from the
+  // module under test: the point is to check the module's answer against the
+  // spec, and a shared helper would let one wrong constant agree with itself.
+  const luminance = (hex: string): number => {
+    const value = hex.replace('#', '')
+    const channel = (offset: number) => {
+      const raw = parseInt(value.slice(offset, offset + 2), 16) / 255
+      return raw <= 0.03928 ? raw / 12.92 : ((raw + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+  }
+
+  const contrast = (foreground: string, background: string): number => {
+    const first = luminance(foreground)
+    const second = luminance(background)
+    const lighter = Math.max(first, second)
+    const darker = Math.min(first, second)
+    return (lighter + 0.05) / (darker + 0.05)
+  }
+
+  it('reads at AA on every knock status', () => {
+    for (const [status, rgb] of Object.entries(STATUS_RGB)) {
+      const fill = `#${rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`
+      expect(contrast(readableInkOn(rgb), fill), status).toBeGreaterThanOrEqual(
+        4.5,
+      )
+    }
+  })
+
+  // The regression this guards: a hardcoded white tick, which failed on four of
+  // these eight — the mark meant to make the choice legible being the one thing
+  // on the swatch that isn't.
+  it('reads at AA on every list colour', () => {
+    for (const color of TURF_COLORS) {
+      expect(
+        contrast(turfColorTick(color), color),
+        color,
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('answers the same question of a hex string and a triple', () => {
+    expect(readableInkOnHex('#ffffff')).toBe(readableInkOn([255, 255, 255]))
+    expect(readableInkOnHex('#000000')).toBe(readableInkOn([0, 0, 0]))
   })
 })

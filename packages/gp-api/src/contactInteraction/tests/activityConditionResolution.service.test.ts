@@ -457,7 +457,7 @@ describe('ActivityConditionResolutionService', () => {
       expect(no).toEqual({ kind: 'filter', idFilter: { in: ['p-no'] } })
     })
 
-    it('resolves phone-banking outcome actions (answered, no_answer, voicemail, wrong_number, refused)', async () => {
+    it('resolves phone-banking outcome actions (answered, no_answer, voicemail, wrong_number, refused, disconnected, hung_up)', async () => {
       const org = await seedOrganization('org-pb-outcomes')
       const seedPhoneBanking = (
         personId: string,
@@ -480,6 +480,11 @@ describe('ActivityConditionResolutionService', () => {
         PhoneBankCallOutcome.wrong_number,
       )
       await seedPhoneBanking('p-refused', PhoneBankCallOutcome.refused)
+      await seedPhoneBanking(
+        'p-disconnected',
+        PhoneBankCallOutcome.disconnected,
+      )
+      await seedPhoneBanking('p-hung-up', PhoneBankCallOutcome.hung_up)
 
       const resolveAction = (action: ActivityConditionAction) =>
         resolution.resolveIdFilter(org, {
@@ -511,6 +516,14 @@ describe('ActivityConditionResolutionService', () => {
       expect(await resolveAction('refused')).toEqual({
         kind: 'filter',
         idFilter: { in: ['p-refused'] },
+      })
+      expect(await resolveAction('disconnected')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-disconnected'] },
+      })
+      expect(await resolveAction('hung_up')).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-hung-up'] },
       })
     })
 
@@ -579,6 +592,81 @@ describe('ActivityConditionResolutionService', () => {
         ],
       })
       expect(no).toEqual({ kind: 'filter', idFilter: { in: ['p-no'] } })
+    })
+
+    it('scopes phone-banking to the pinned outreachId — a different list is excluded', async () => {
+      const org = await seedOrganization('org-pb-pinned-scope')
+      const campaign = await service.prisma.campaign.upsert({
+        where: { organizationSlug: org },
+        create: {
+          userId: service.user.id,
+          slug: `campaign-${org}`,
+          organizationSlug: org,
+        },
+        update: {},
+      })
+
+      const seedPhoneBankingOutreach = async (name: string) => {
+        const filter = await service.prisma.voterFileFilter.create({
+          data: { organizationSlug: org, name: `${name} audience` },
+        })
+        const list = await service.prisma.phoneBankingList.create({
+          data: {
+            organizationSlug: org,
+            voterFileFilterId: filter.id,
+            name,
+            script: 'Hi',
+            sheetCount: 1,
+            purpose: 'introduce',
+          },
+        })
+        const outreach = await service.prisma.outreach.create({
+          data: {
+            campaignId: campaign.id,
+            organizationSlug: org,
+            outreachType: OutreachType.nativePhoneBanking,
+            phoneBankingListId: list.id,
+          },
+        })
+        return { outreach, list }
+      }
+
+      const listA = await seedPhoneBankingOutreach('List A')
+      const listB = await seedPhoneBankingOutreach('List B')
+
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: org,
+          personId: 'p-list-a',
+          occurredAt: new Date(),
+          outcome: PhoneBankCallOutcome.answered,
+          phoneBankingListId: listA.list.id,
+        },
+      })
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: org,
+          personId: 'p-list-b',
+          occurredAt: new Date(),
+          outcome: PhoneBankCallOutcome.answered,
+          phoneBankingListId: listB.list.id,
+        },
+      })
+
+      const result = await resolution.resolveIdFilter(org, {
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: listA.outreach.id,
+            actions: ['answered'],
+          },
+        ],
+      })
+
+      expect(result).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-list-a'] },
+      })
     })
 
     it('empty actions = membership only (everyone with any row for that channel/outreach)', async () => {

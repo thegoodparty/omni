@@ -12,7 +12,19 @@ const UNLISTED_LIST = '/v1/public-person-profiles/unlisted'
 
 const seedRemoval = (personId: string, note?: string) =>
   service.prisma.personProfileRemoval.create({
-    data: { personId, note: note ?? null },
+    data: { personId, appliedBy: 'ops@goodparty.org', note: note ?? null },
+  })
+
+// A takedown that ops has since reverted. The row survives as the audit trail,
+// which is exactly why this feed cannot match on row existence.
+const seedClearedRemoval = (personId: string) =>
+  service.prisma.personProfileRemoval.create({
+    data: {
+      personId,
+      appliedBy: 'ops@goodparty.org',
+      clearedAt: new Date(),
+      clearedBy: 'ops@goodparty.org',
+    },
   })
 
 // PersonProfile is 1:1 with User, so every extra profile needs its own owner.
@@ -47,6 +59,28 @@ describe('GET /v1/public-person-profiles/unlisted', () => {
     expect(personIds(res.data)).toEqual(
       [REMOVED_PERSON_ID, SECOND_REMOVED_PERSON_ID].sort(),
     )
+  })
+
+  it('drops a person whose takedown was reverted', async () => {
+    // Soft-clearing keeps the row forever. If this feed ignored clearedAt the
+    // person would stay out of the sitemap permanently even though their page
+    // renders again — an un-undoable delisting.
+    await seedClearedRemoval(REMOVED_PERSON_ID)
+
+    const res = await service.client.get(UNLISTED_LIST)
+
+    expect(res.status).toBe(200)
+    expect(res.data).toEqual([])
+  })
+
+  it('keeps an active takedown while excluding a reverted one', async () => {
+    await seedRemoval(REMOVED_PERSON_ID)
+    await seedClearedRemoval(SECOND_REMOVED_PERSON_ID)
+
+    const res = await service.client.get(UNLISTED_LIST)
+
+    expect(res.status).toBe(200)
+    expect(personIds(res.data)).toEqual([REMOVED_PERSON_ID])
   })
 
   it('returns a person whose profile the owner deleted', async () => {

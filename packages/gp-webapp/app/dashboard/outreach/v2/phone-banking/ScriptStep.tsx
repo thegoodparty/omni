@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import {
+  PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
   PHONE_BANKING_NAME_MAX_LENGTH,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
   SOCIAL_TONE_VALUES,
@@ -33,6 +34,10 @@ import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationA
 import { ThinkingStream } from '../social/ThinkingStream'
 import { Intro } from '../social/Intro'
 
+const INSTRUCTIONS_PLACEHOLDER =
+  'Optional: tell the AI what to change (e.g. mention the school levy, ' +
+  'keep it under a minute)'
+
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
   direct: 'Direct',
@@ -55,6 +60,8 @@ interface ScriptStepProps {
   onToneChange: (tone: SocialTone) => void
   script: string
   onScriptChange: (script: string) => void
+  instructions: string
+  onInstructionsChange: (instructions: string) => void
   onRegenerate: () => void
   onImprove: () => void
   canImprove: boolean
@@ -71,6 +78,8 @@ export const ScriptStep = ({
   onToneChange,
   script,
   onScriptChange,
+  instructions,
+  onInstructionsChange,
   onRegenerate,
   onImprove,
   canImprove,
@@ -144,6 +153,14 @@ export const ScriptStep = ({
             </Button>
           )}
         </div>
+
+        <Input
+          value={instructions}
+          onChange={(e) => onInstructionsChange(e.target.value)}
+          maxLength={PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH}
+          placeholder={INSTRUCTIONS_PLACEHOLDER}
+          aria-label="Instructions for the AI"
+        />
 
         {isDraftError && (
           <Card className="items-start gap-3 border-destructive p-4">

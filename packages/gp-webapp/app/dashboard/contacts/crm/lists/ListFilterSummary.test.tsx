@@ -217,3 +217,48 @@ describe('buildFilterSummary — mixed filters', () => {
     )
   })
 })
+
+describe('buildFilterSummary — precinct clause', () => {
+  it('names the selected precincts with their county', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ precincts: ['ORANGE|711', 'DADE|2'] } as never),
+      false,
+    )
+    expect(summary).toContain('in precincts Orange 711 or Dade 2')
+  })
+
+  it('reads the unknown bucket as a county with no precinct', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ precincts: ['HILLSBOROUGH|'] } as never),
+      false,
+    )
+    expect(summary).toContain('in precinct Hillsborough (no precinct)')
+  })
+
+  it('collapses to a count past five so the sentence stays one line', () => {
+    const summary = buildFilterSummary(
+      baseSegment({
+        precincts: [
+          'ORANGE|1',
+          'ORANGE|2',
+          'ORANGE|3',
+          'ORANGE|4',
+          'ORANGE|5',
+          'ORANGE|6',
+        ],
+      } as never),
+      false,
+    )
+    expect(summary).toContain('in 6 precincts')
+  })
+
+  // Win-only on the write side, so it must not surface on the read side
+  // either — same rule political_party / contacts_made / voter_likely follow.
+  it('is stripped for an elected official', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ precincts: ['ORANGE|711'] } as never),
+      true,
+    )
+    expect(summary).not.toContain('precinct')
+  })
+})

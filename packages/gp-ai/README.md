@@ -129,7 +129,7 @@ gp-ai-projects/
 ├── infrastructure/               # Terraform modules
 │   ├── environments/            # dev/prod configs
 │   └── modules/                 # Reusable modules
-└── stitch_golden_data/          # Legacy data matching (archived)
+└── stitch_golden_data/          # BR-to-L2 district matcher (prod_gold_data/l2_br_matcher.py)
 ```
 
 ## Key Libraries

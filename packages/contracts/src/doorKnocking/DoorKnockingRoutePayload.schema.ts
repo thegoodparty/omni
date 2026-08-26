@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import {
   DoorKnockConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
   RobocallConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
   TextConstituentActivitySchema,
 } from '../people/ContactActivity.schema'
+import { ContactNoteSchema } from '../people/ContactNote.schema'
 import { NotAVoterReasonSchema } from '../people/ContactStatus.schema'
 import { DoorKnockingDemographicsShape } from './DoorKnockingResidents.schema'
 import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
@@ -17,7 +19,7 @@ import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
 // Contacts and at the door, and reusing the schemas means the webapp's
 // existing feed rows render this without a fork.
 //
-// Two of the CRM's six variants are deliberately absent. POLL_INTERACTIONS
+// Two of the CRM's seven variants are deliberately absent. POLL_INTERACTIONS
 // is elected-office only and door knocking is Win-only. OUTREACH (the
 // deprecated VoterOutreachActivity rows) is keyed on lalVoterId, and
 // door_knocking_stop_target stores a people-db personId precisely so no raw
@@ -26,6 +28,7 @@ export const RouteTargetActivitySchema = z.discriminatedUnion('type', [
   DoorKnockConstituentActivitySchema,
   TextConstituentActivitySchema,
   RobocallConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
 ])
 
@@ -58,6 +61,41 @@ const optionalDemographics = (): {
 // hundred rows costs the same bytes as one with five. Full history lives in
 // the CRM person view, which pages.
 export const ROUTE_TARGET_ACTIVITY_LIMIT = 5
+
+// ADR 0011. The same server-side cap as the activity feed above and for the
+// same reason, at a lower number: notes are several times more expensive per
+// row. An activity row is a fixed handful of short fields, while a note is
+// free text a human typed and `ContactNoteInputSchema` lets it run to 10,000
+// characters. On ADR 0009's own 100-stop rig, one 140-character note per
+// target costs roughly what all five activity rows cost together.
+//
+// Three is also close to product's "show them all": a resident with three or
+// fewer notes — nearly all of them — loses nothing.
+export const ROUTE_TARGET_NOTE_LIMIT = 3
+
+// Notes plus the resident's full note count, so a truncated list says so.
+//
+// The count is on the wire rather than inferred from
+// `entries.length === ROUTE_TARGET_NOTE_LIMIT`, which is wrong in exactly the
+// case that matters least dramatically and most often: a resident with
+// precisely three notes would render as truncated forever. With `total` the
+// sheet can say "3 of 7" and point at the CRM for the rest, instead of showing
+// a subset as though it were the whole record.
+//
+// One object rather than sibling `notes` / `notesTotal` keys on the target,
+// because the two halves are only meaningful together. Siblings make "rows
+// with no count" a representable state, and a renderer that reads the rows and
+// forgets the count drops the truncation silently. Nothing parses this schema
+// at runtime (see `notes` below), so nothing but the shape can enforce that
+// they arrive as a pair.
+export const RoutePayloadTargetNotesSchema = z.object({
+  entries: z.array(ContactNoteSchema),
+  total: z.number().int(),
+})
+
+export type RoutePayloadTargetNotes = z.infer<
+  typeof RoutePayloadTargetNotesSchema
+>
 
 // Knock statuses derived from the CRM door-knock vocabulary (outcome +
 // supportAnswer). 'unknown' covers never-knocked, answered-but-unsure, and
@@ -156,6 +194,38 @@ export const RoutePayloadTargetSchema = z.object({
   // worker's pre-ship snapshot would hand a `.map()` undefined with no type
   // error. Optional keeps that decision at the call site. See ADR 0009.
   history: z.array(RouteTargetActivitySchema).optional(),
+  // ADR 0011. This resident's saved contact notes, newest first, capped at
+  // ROUTE_TARGET_NOTE_LIMIT with their true count beside them. Riding the
+  // payload rather than fetched per resident for the reason ADR 0009 gave
+  // about `history`: the sheet is deliberately fetch-free, because the moment
+  // a canvasser needs it is the moment they are standing on a porch in the
+  // dead zone the whole feature is shaped around.
+  //
+  // Keyed by personId like `history`, never rolled up to the address. Two
+  // people behind one door are two records, and free text written about one of
+  // them read against the housemate who answered is the ADR 0009 failure with
+  // worse material than an outcome enum.
+  //
+  // The CRM's own `ContactNoteSchema`, not a door-knocking narrowing of it, so
+  // one note cannot be worded two ways — and so the webapp can drop the
+  // response of its own create/edit straight into `entries` without a
+  // translation step that would be a second idea of what a note is.
+  //
+  // The server always sends the block, `{ entries: [], total: 0 }` included:
+  // "nothing written down about this person yet" is a thing the sheet says out
+  // loud, and it has to stay distinguishable from a payload that predates this
+  // field, where the key is absent and absence is not a claim about anything.
+  //
+  // Optional and deliberately not `.default([])`, for the reason set out on
+  // `history` above: nothing parses this schema at runtime in either
+  // direction, so a default fills in nothing anywhere and only promises the
+  // compiler a value that a service worker's pre-ship snapshot does not carry.
+  //
+  // Screen only. Both paper surfaces omit it, for the reason they omit the
+  // phones and the demographic profile and with more force again — free text
+  // about a named voter, on a page that stops being access-controlled the
+  // moment it leaves the building.
+  notes: RoutePayloadTargetNotesSchema.optional(),
 })
 
 export type RoutePayloadTarget = z.infer<typeof RoutePayloadTargetSchema>

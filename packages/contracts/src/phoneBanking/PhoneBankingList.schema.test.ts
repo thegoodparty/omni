@@ -7,6 +7,7 @@ import {
 const person = {
   personId: 'person-1',
   name: 'Marisol Vega',
+  firstName: null,
   age: null,
   party: null,
   address: null,
@@ -83,6 +84,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
         voicemail: 1,
         wrong_number: 0,
         refused: 0,
+        disconnected: 0,
+        hung_up: 0,
       },
       supporters: 1,
       unsure: 0,

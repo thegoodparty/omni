@@ -358,6 +358,8 @@ describe('OutreachHistoryTable — unified history', () => {
             voicemail: 0,
             wrong_number: 0,
             refused: 0,
+            disconnected: 0,
+            hung_up: 0,
           },
           supporters: 2,
           unsure: 1,

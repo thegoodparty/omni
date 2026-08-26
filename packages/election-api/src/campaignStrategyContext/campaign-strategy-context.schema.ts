@@ -43,7 +43,6 @@ export type CampaignStrategyContextResponse = {
   projected_turnout: number | null
   projected_turnout_lower: number | null
   projected_turnout_upper: number | null
-  projected_voter_turnout: number | null
   registered_voters: number | null
   unique_cellphones: number | null
   unique_landlines: number | null

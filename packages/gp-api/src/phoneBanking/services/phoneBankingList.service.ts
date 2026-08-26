@@ -5,9 +5,9 @@ import {
 } from '@nestjs/common'
 import {
   IdOverrides,
+  PHONE_BANKING_SHEET_SIZE,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
-  PhoneBankingFilters,
   PhoneBankingInteraction,
   PhoneBankingList as PhoneBankingListResponse,
   PhoneBankingListEntry,
@@ -35,9 +35,6 @@ import {
   PhoneBankingPurpose as PrismaPhoneBankingPurpose,
 } from '../../generated/prisma'
 
-// The frozen artifact's household grouping: how many entries print per call
-// sheet. sheetCount (1-20, contracts) x this = the entry cap (max 1,200).
-const PHONE_BANKING_SHEET_SIZE = 60
 // Mirrors p2pPhoneListUpload.service.ts's SEGMENT_PAGE_SIZE — the page size
 // the resolved audience is paged through during a build.
 const BUILD_PAGE_SIZE = 1000
@@ -84,7 +81,7 @@ type ListWithEntries = Prisma.PhoneBankingListGetPayload<{
   include: typeof LIST_WITH_ENTRIES_INCLUDE
 }>
 
-type PersonName = { personId: string; name: string }
+type PersonName = { personId: string; name: string; firstName: string | null }
 
 const formatAddress = (address: Person['address']): string | null => {
   const cityState = [address.city, address.state].filter(Boolean).join(', ')
@@ -113,13 +110,10 @@ export class PhoneBankingListService extends createPrismaBase(
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 
-    const filterInput: ContactsFilterResolutionInput =
-      input.voterFileFilterId !== undefined
-        ? await this.loadPersistedFilter(
-            input.voterFileFilterId,
-            organization.slug,
-          )
-        : this.requireInlineFilters(input)
+    const filterInput = await this.loadPersistedFilter(
+      input.voterFileFilterId,
+      organization.slug,
+    )
 
     const resolved = await this.contacts.resolveSavedFilterForQuery(
       organization,
@@ -207,15 +201,6 @@ export class PhoneBankingListService extends createPrismaBase(
     return filter
   }
 
-  private requireInlineFilters(input: PhoneBankingCreate): PhoneBankingFilters {
-    if (!input.filters) {
-      throw new BadRequestException(
-        'Provide exactly one of voterFileFilterId or filters',
-      )
-    }
-    return input.filters
-  }
-
   private async pageAudience(args: {
     districtId: string
     search?: string
@@ -268,11 +253,12 @@ export class PhoneBankingListService extends createPrismaBase(
         const phone = this.pickDialNumber(person, suppressedPhones)
         if (!phone) continue
 
+        const firstName = person.firstName ?? null
         const existing = grouped.get(phone)
         if (existing) {
-          existing.push({ personId: person.id, name })
+          existing.push({ personId: person.id, name, firstName })
         } else if (grouped.size < maxEntries) {
-          grouped.set(phone, [{ personId: person.id, name }])
+          grouped.set(phone, [{ personId: person.id, name, firstName }])
         }
       }
 
@@ -314,6 +300,7 @@ export class PhoneBankingListService extends createPrismaBase(
             create: persons.map((person) => ({
               personId: person.personId,
               name: person.name,
+              firstName: person.firstName,
             })),
           },
         }
@@ -326,14 +313,10 @@ export class PhoneBankingListService extends createPrismaBase(
 
     return this.client.$transaction(
       async (tx) => {
-        const filterId =
-          input.voterFileFilterId ??
-          (await this.createInlineFilter(tx, organization.slug, input))
-
         const list = await tx.phoneBankingList.create({
           data: {
             organizationSlug: organization.slug,
-            voterFileFilterId: filterId,
+            voterFileFilterId: input.voterFileFilterId,
             name: input.name,
             script: input.script,
             sheetCount: input.sheetCount,
@@ -345,7 +328,10 @@ export class PhoneBankingListService extends createPrismaBase(
         // First outreach launch against this filter locks it from edits,
         // same as door-knocking's knock and the CRM's own launch path.
         await tx.voterFileFilter.updateMany({
-          where: { id: filterId, firstUsedForOutreachAt: null },
+          where: {
+            id: input.voterFileFilterId,
+            firstUsedForOutreachAt: null,
+          },
           data: { firstUsedForOutreachAt: new Date() },
         })
 
@@ -358,7 +344,7 @@ export class PhoneBankingListService extends createPrismaBase(
               outreachType: OutreachType.nativePhoneBanking,
               status: OutreachStatus.in_progress,
               name: input.name,
-              voterFileFilterId: filterId,
+              voterFileFilterId: input.voterFileFilterId,
               phoneBankingListId: list.id,
               date: new Date(),
             },
@@ -377,22 +363,6 @@ export class PhoneBankingListService extends createPrismaBase(
       },
       { timeout: BUILD_TX_TIMEOUT_MS },
     )
-  }
-
-  private async createInlineFilter(
-    tx: Prisma.TransactionClient,
-    organizationSlug: string,
-    input: PhoneBankingCreate,
-  ): Promise<number> {
-    const filters = this.requireInlineFilters(input)
-    const created = await tx.voterFileFilter.create({
-      data: {
-        organizationSlug,
-        name: input.filterName,
-        ...filters,
-      },
-    })
-    return created.id
   }
 
   private async toResponse(
@@ -422,6 +392,7 @@ export class PhoneBankingListService extends createPrismaBase(
         return {
           personId: person.personId,
           name: person.name,
+          firstName: person.firstName,
           age: live?.age ?? null,
           party: organization.slug.startsWith('eo-')
             ? null

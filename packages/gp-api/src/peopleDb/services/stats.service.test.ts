@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatsService } from './stats.service'
 import type { PeopleDbService } from '../peopleDb.service'
+import type { ShadowReadService } from '../shadowRead.service'
 
 describe('StatsService', () => {
   let service: StatsService
@@ -9,6 +10,7 @@ describe('StatsService', () => {
       findUnique: ReturnType<typeof vi.fn>
     }
   }
+  let databricksFindStats: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     mockPrisma = {
@@ -16,8 +18,18 @@ describe('StatsService', () => {
         findUnique: vi.fn(),
       },
     }
+    databricksFindStats = vi.fn()
 
     service = new StatsService()
+    // Shadow reader off, so these assertions describe the Postgres read and
+    // nothing else. compare() still mirrors the real signature -- keying it on
+    // anything else makes the enabled branch untestable rather than merely
+    // unused, since a wrong key only shows up as calling undefined.
+    ;(service as unknown as { shadow: ShadowReadService }).shadow = {
+      enabled: false,
+      databricks: { findStats: databricksFindStats },
+      compare: (args: { authoritative: () => unknown }) => args.authoritative(),
+    } as unknown as ShadowReadService
     ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
       get instance() {
         return mockPrisma
@@ -104,5 +116,21 @@ describe('StatsService', () => {
     await expect(
       service.findTotalCounts('missing-district-id'),
     ).resolves.toBeNull()
+  })
+
+  it('serves Databricks as authoritative once the shadow read is on', async () => {
+    const service2 = service as unknown as { shadow: { enabled: boolean } }
+    service2.shadow.enabled = true
+    databricksFindStats.mockResolvedValue({
+      districtId: 'district-1',
+      totalConstituents: 42,
+    })
+
+    const result = await service.findStats({
+      districtId: 'district-1',
+    } as never)
+
+    expect(databricksFindStats).toHaveBeenCalledWith('district-1')
+    expect(result?.totalConstituents).toBe(42)
   })
 })

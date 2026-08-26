@@ -46,6 +46,14 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
       dim: 'veteranStatus',
       candidates: ['Unknown', 'unknown'],
     },
+    // 'Homeowner' folds Probable Home Owner in server-side (ENG-10947), but
+    // the pack encodes one bucket per person (packEncoder.utils.ts's
+    // invertMapper), so it cannot represent an OR of two buckets under one
+    // filter key. The preview therefore only shades the exact-owner bucket
+    // here — a known, disclosed undercount (the map preview is a superset
+    // OR undercount approximation elsewhere too; knock-time evaluation
+    // stays canonical). homeownerLikely still previews its own bucket for a
+    // pre-collapse saved list (homeownerLikely=true, no homeownerYes).
     homeownerYes: { dim: 'homeowner', candidates: ['Home Owner', 'Yes'] },
     homeownerLikely: {
       dim: 'homeowner',

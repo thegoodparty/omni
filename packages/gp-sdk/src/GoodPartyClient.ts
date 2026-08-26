@@ -8,6 +8,7 @@ import { MeetingBriefingsResource } from './resources/MeetingBriefingsResource'
 import { ElectedOfficesResource } from './resources/ElectedOfficesResource'
 import { ElectionsResource } from './resources/ElectionsResource'
 import { OrganizationsResource } from './resources/OrganizationsResource'
+import { PersonProfilesResource } from './resources/PersonProfilesResource'
 import { UsersResource } from './resources/UsersResource'
 import { ClerkService } from './vendor/clerk/clerk.service'
 
@@ -25,6 +26,7 @@ export class GoodPartyClient {
   readonly electedOffices: ElectedOfficesResource
   readonly elections: ElectionsResource
   readonly organizations: OrganizationsResource
+  readonly personProfiles: PersonProfilesResource
   readonly meetingBriefings: MeetingBriefingsResource
   readonly communityIssues: CommunityIssuesResource
   private clerkService: ClerkService
@@ -40,6 +42,7 @@ export class GoodPartyClient {
     this.electedOffices = new ElectedOfficesResource(httpClient)
     this.elections = new ElectionsResource(httpClient)
     this.organizations = new OrganizationsResource(httpClient)
+    this.personProfiles = new PersonProfilesResource(httpClient)
     this.meetingBriefings = new MeetingBriefingsResource(httpClient)
     this.communityIssues = new CommunityIssuesResource(httpClient)
   }

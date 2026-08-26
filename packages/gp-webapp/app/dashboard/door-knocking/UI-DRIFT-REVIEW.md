@@ -1,5 +1,23 @@
 # Door knocking: where our build differs from the prototype
 
+> **Status: superseded in part, kept as the record of why.** This review was
+> written against the Lovable prototype. Door knocking has since been rebuilt
+> against the Voter Outreach 2.0 canvas (#1392 walk, #1394 create flow, #1395
+> manage view, #1396 details drawer), and the 2026-08-20 product call answered
+> several of the questions below — overturning two of them. Items that have been
+> decided since carry a **Resolved** note in place of their recommendation. The
+> rest still stand, and the reasoning throughout is still the reasoning: the
+> three-quantities problem in the last paragraph of this preamble is a property
+> of our data, not of any prototype, and it outlives both of them.
+>
+> **`VOTER-OUTREACH-2.0-AUDIT.md` is the current review**, written against the
+> canvas rather than against the Lovable prototype. Read it first. It re-checks
+> every deliberate departure listed below against the canvas and confirms them,
+> and it argues with exactly one of them — § 6, the audience breakdown — on the
+> ground that a knocked list's outcome split and the landing rail's chips are
+> two different quantities rather than one reported twice. That argument is
+> recorded there, not acted on.
+
 This compares the shipped door-knocking feature against the Lovable prototype
 (`Remix of Door Knocking - 1 Page Self-Serve`), screen by screen, and sorts every
 difference into one of three piles:
@@ -8,9 +26,8 @@ difference into one of three piles:
   why. These are listed below for product to confirm or overturn. Nothing here
   has been changed.
 - **Accidental** — the prototype had it, we lost it or never built it, and no
-  decision is recorded. These are fixed in PR #1346, which is open alongside this
-  document and has not been merged, so they are not live yet. They are listed
-  near the end so you can see what is about to move.
+  decision is recorded. These were fixed in PR #1346, which has since merged, so
+  they are live. They are listed near the end.
 - **Still open** — real differences that are nobody's decision yet, listed near
   the end with a recommendation each. Two of them cost more than a UI change and
   need a product answer before an engineering one.
@@ -79,6 +96,10 @@ card with a `12/40 logged` badge and a filled bar beneath it (`WalkView.tsx`
 lines 342–366). So the missing bar is only on the planning surface, not in the
 field.
 
+**Resolved:** product asked for the bar, and it was built the way this section
+recommended — over the knockable-people denominator the stat already used, with
+"logged" kept on it, rather than the prototype's fraction.
+
 ---
 
 ### 2. Nothing in our build says a voter was "reached"
@@ -129,6 +150,15 @@ prototype exactly.
 **Recommendation:** keep. It also closed a real defect — with the field on the
 engaged branch only, a note typed there and then corrected to a not-home outcome
 was saved invisibly.
+
+**Resolved, and then some.** The 2026-08-20 call confirmed the note field belongs
+on every outcome, naming No One Home specifically — so our departure was the
+right one and the prototype was the thing out of step. Product went further and
+asked for many notes per resident, each timestamped and editable, which is a
+different store from the knock's single `note`: reads now ride the route payload
+under [ADR 0011](../../../../gp-api/docs/adr/0011-contact-notes-on-the-route-payload.md)
+so the door still opens with no signal, and writes go to the CRM's existing
+contact-note endpoints.
 
 ---
 
@@ -265,7 +295,7 @@ server, not a UI change.
 **Recommendation:** keep for now; log as data-platform work if product cares.
 Worth knowing that lists built before the ranges changed still carry the old ones
 and are read correctly — that was a live gap in the filter pills, found during
-review of this work and will be fixed in PR #1346 (open, not yet merged).
+review of this work and fixed in PR #1346, since merged.
 
 ---
 
@@ -284,6 +314,15 @@ step's door list).
 > implied a step order nothing holds them to.
 
 **Recommendation:** keep — this came out of a walkthrough with users.
+
+**Overruled.** The 2026-08-20 call asked for numbered rows, and #1392 restored
+them in the walk list. The Aug 14 objection was answered rather than ignored: a
+row prints `seq`, the same frozen route order the map pin and the printed sheet
+already carry, never a DOM index — so the numeral names the stop rather than
+implying a top-to-bottom order `advanceFrom` doesn't hold anyone to. It rides the
+circle that carries the rollup status instead of taking a badge of its own, and
+its colour is picked white or black by relative luminance so it clears 4.5:1 on
+all seven statuses.
 
 ---
 
@@ -309,6 +348,15 @@ list name outlives the walk. Relaxing that is a backend change (the same endpoin
 also accepts the polygon, which must not move after a route is bought).
 
 **Recommendation:** keep. Flag the rename limitation if candidates complain.
+
+**Overruled, and the premise went with it.** Delete now works at every stage
+(#1375 on the server, #1395 in the UI): a list nobody has knocked is really
+deleted, and a knocked one is tombstoned so its route, frozen doors and outreach
+history survive. The disabled button and its sentence are gone — the confirmation
+dialog's wording now carries the difference between the two, which is where a
+consequence belongs. The rename limitation above still holds: `update` still
+asserts the lock, because the same endpoint accepts the polygon and that must not
+move after a route is bought.
 
 ---
 
@@ -403,7 +451,7 @@ since it is the only place a canvasser sees progress while walking.
 
 ---
 
-## What was accidental, and will be fixed in PR #1346 (open, not yet merged)
+## What was accidental, and was fixed in PR #1346 (merged)
 
 ### 1. The detail sheet's overview stats had lost their icons
 

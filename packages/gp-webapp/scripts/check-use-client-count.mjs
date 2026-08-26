@@ -240,6 +240,40 @@ import { dirname, join, relative } from 'node:path'
 // RobocallScheduleStep drawer surface owns the name/date/time inputs and their
 // selection handlers, so it's a client component. Its scheduleTimeZone.ts
 // helper is directive-free (pure date/tz functions, no JSX).
+// 2026-08-24: 600 -> 601 for app/dashboard/shared/ListCard.tsx — the saved-list
+// card the door-knocking rail is rebuilt on, and which voter data and campaign
+// manager reuse. It binds a click handler on its title, so a server-component
+// caller would fail at render; the directive is what makes it safe to import
+// from a surface that hasn't got a boundary yet. Its two door-knocking siblings
+// stay directive-free and inherit the boundary from their importers, the
+// savedListFilters.ts rule: turfLifecycle.ts is a hooks module with no JSX, and
+// TurfLegend.tsx holds no state and binds only handlers it is handed.
+// 2026-08-24: 601 -> 603 for the robocall compose step (phase 3):
+// RobocallComposeStep owns the tone pills, AI-draft display, and record-bar
+// interaction, and its useRobocallRecorder hook drives MediaRecorder state and
+// object-URL lifecycle — both hold browser-only state, so both are client.
+// 2026-08-24: 603 -> 604 for useRobocallAudioUpload — the hook that presigns
+// and POSTs the recording to S3 holds upload/error/key state and calls
+// clientRequest, so it can't run on the server.
+// 2026-08-24: merge reconciliation — main's 604 minus this branch's WhoStep.tsx
+// deletion (phone banking's inline audience builder, replaced by the shared
+// v2/audience/ step) = 603.
+// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
+// The door's Notes section owns a compose draft, an in-place editor, three
+// mutations and a dictation session, so it cannot render on the server — the
+// same shape and the same reason as DoNotKnockControl and NotAVoterControl
+// above it, inside the client-only PersonSheet. Its state module,
+// native/doorNotes.ts, stays directive-free and inherits the boundary from its
+// importers: it is a hooks-and-pure-functions module with no JSX, the
+// turfLifecycle.ts rule.
+// 2026-08-25: 604 -> 605 for
+// dashboard/contacts/crm/lists/DuplicateListDialog.tsx (ENG-10943). It owns
+// the confirm-then-mutate flow (useDuplicateList's mutation + its pending
+// state) for the duplicate-list AlertDialog — same shape as its siblings
+// RenameListDialog/DeleteListDialog, both already client components.
+// 2026-08-25: 605 -> 606 for campaign-manager/GetOnBallotCard.tsx — the
+// ballot-access prompt card reads the campaign from context and persists its
+// own skip in localStorage, so it can't render on the server.
 // 2026-08-24: 600 -> 606 for Voter Outreach 2.0 phase 2 (rebased onto main):
 // the SMS drawer flow (flow + five step components) — interactive wizard
 // surfaces (mutations, flow state, Stripe payment mount) that can't be server
@@ -247,7 +281,10 @@ import { dirname, join, relative } from 'node:path'
 // baseline (580 -> 586).
 // 2026-08-24: 606 -> 605 — SmsAudienceStep deleted in favor of the shared
 // OutreachAudienceStep (v2/audience/), which robocall already counts.
-const BASELINE = 605
+// 2026-08-26: merge reconciliation — main's 606 plus this branch's SMS
+// flow surfaces (+6 client files) minus its SmsAudienceStep deletion (-1)
+// = 611.
+const BASELINE = 611
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

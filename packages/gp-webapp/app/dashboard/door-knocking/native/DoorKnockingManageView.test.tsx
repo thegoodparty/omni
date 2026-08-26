@@ -21,6 +21,7 @@ vi.mock('./TurfList', () => ({
     onShowDetails,
     onKnockTurf,
     onDeletedTurf,
+    onCreateList,
   }: {
     selectedTurfId: number | null
     hiddenTurfIds: Set<number>
@@ -29,6 +30,7 @@ vi.mock('./TurfList', () => ({
     onShowDetails: (turf: DoorKnockingTurf) => void
     onKnockTurf: (turf: DoorKnockingTurf) => void
     onDeletedTurf: (turf: DoorKnockingTurf) => void
+    onCreateList?: () => void
   }) => (
     <div
       data-testid="turf-list"
@@ -48,6 +50,11 @@ vi.mock('./TurfList', () => ({
           {label}
         </button>
       ))}
+      {onCreateList && (
+        <button type="button" onClick={onCreateList}>
+          create
+        </button>
+      )}
     </div>
   ),
 }))
@@ -135,6 +142,22 @@ describe('DoorKnockingManageView seam', () => {
     expect(view.onDeletedTurf).toHaveBeenCalledWith(turf)
   })
 
+  // The empty rail's Create list button opens a flow that replaces this whole
+  // surface, so the surface can only report the press. It passes the handler
+  // through untouched, and offers the rail none when it has none — the rail
+  // then names the header's button instead of rendering a dead one.
+  it('passes the create-list gesture through, and only when it has one', () => {
+    const onCreateList = vi.fn()
+    const view = renderView({ onCreateList })
+
+    fireEvent.click(screen.getByRole('button', { name: 'create' }))
+    expect(onCreateList).toHaveBeenCalledTimes(1)
+
+    view.unmount()
+    renderView()
+    expect(screen.queryByRole('button', { name: 'create' })).toBeNull()
+  })
+
   // A chip reports the status and nothing else: whether it narrows, and what
   // that does to the dots, is the orchestrator's to decide.
   it('reports a chip press without deciding what it means', () => {
@@ -187,6 +210,48 @@ describe('DoorKnockingManageView seam', () => {
     const settledChip = screen.getByRole('button', { name: /Supporter/ })
     expect(settledChip.textContent).toContain('—')
     expect(screen.getByText(/filters could not be loaded/)).toBeInTheDocument()
+  })
+
+  // The rail used to be `w-96 shrink-0` in the page's flex row above `lg`,
+  // which took a fixed 384px column out of the map on the widest screens —
+  // where the map is most of what the tool is. It floats over a full-bleed map
+  // at every width now: a bottom sheet on a phone, an inset card on a desktop.
+  it('floats over the map at every width rather than taking a column', () => {
+    const { container } = renderView()
+
+    const rail = container.querySelector('aside')
+    expect(rail).toHaveClass('absolute')
+    expect(rail).not.toHaveClass('lg:static')
+    // Inset on all four sides above lg, which is what makes the map full-bleed
+    // underneath it rather than merely beside it.
+    expect(rail).toHaveClass('lg:inset-y-4', 'lg:right-4', 'lg:left-auto')
+  })
+
+  // The scope and its legend describe what the map is shading right now, so a
+  // long rail must not be able to scroll the reading of the dots off screen.
+  it('scrolls the lists and pins the legend under them', () => {
+    const { container } = renderView()
+
+    const legendSection = screen.getByRole('heading', {
+      name: 'District voters',
+    }).parentElement?.parentElement
+    expect(legendSection).toHaveClass('shrink-0', 'border-t')
+    expect(container.querySelector('.overflow-y-auto')).toContainElement(
+      screen.getByTestId('turf-list'),
+    )
+  })
+
+  // One row, scrolling. Wrapped, the seven chips stacked into three rows inside
+  // a 384px rail and pushed the saved lists off the first screen of the
+  // feature.
+  it('keeps the legend on a single scrolling row', () => {
+    const { container } = renderView()
+
+    const group = container.querySelector(
+      '[aria-label="Filter the map by canvass status"]',
+    )
+    expect(group).toHaveClass('flex-nowrap', 'w-max')
+    expect(group?.parentElement).toHaveClass('overflow-x-auto')
   })
 
   // The one piece of state this surface owns outright. It is safe to own

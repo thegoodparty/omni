@@ -95,6 +95,39 @@ const seedCompletedOutreach = (
     },
   })
 
+// A completed nativePhoneBanking envelope with a real linked
+// PhoneBankingList — the shape `phoneBankingList.service.ts` actually
+// writes at list creation (outreachType nativePhoneBanking,
+// phoneBankingListId set), which a phoneBanking activity condition must
+// accept via the channel equivalence.
+const seedCompletedNativePhoneBankingOutreach = async (
+  campaignId: number,
+  organizationSlug: string,
+) => {
+  const filter = await service.prisma.voterFileFilter.create({
+    data: { organizationSlug, name: 'PB seed audience' },
+  })
+  const list = await service.prisma.phoneBankingList.create({
+    data: {
+      organizationSlug,
+      voterFileFilterId: filter.id,
+      name: 'PB seed list',
+      script: 'Hi, this is a volunteer calling about the election.',
+      sheetCount: 1,
+      purpose: 'introduce',
+    },
+  })
+  return service.prisma.outreach.create({
+    data: {
+      campaignId,
+      organizationSlug,
+      outreachType: OutreachType.nativePhoneBanking,
+      status: OutreachStatus.completed,
+      phoneBankingListId: list.id,
+    },
+  })
+}
+
 // A Win segment that names a political party plus a couple of other criteria.
 const partySegmentBody = {
   name: 'Independent women',
@@ -461,12 +494,11 @@ describe('activity conditions and supportStatus on a segment', () => {
     expect(result.status).toBe(400)
   })
 
-  it('rejects a phoneBanking condition with any outreachId', async () => {
+  it('accepts a phoneBanking condition pinned to a completed campaign', async () => {
     const campaign = await seedWinCampaign()
-    const outreach = await seedCompletedOutreach(
+    const outreach = await seedCompletedNativePhoneBankingOutreach(
       campaign.id,
       WIN_SLUG,
-      OutreachType.text,
     )
 
     const result = await service.client.post(
@@ -477,6 +509,60 @@ describe('activity conditions and supportStatus on a segment', () => {
           {
             outreachType: 'phoneBanking',
             outreachId: outreach.id,
+            actions: ['answered'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data.activityConditions).toHaveLength(1)
+    expect(result.data.activityConditions[0].outreachId).toBe(outreach.id)
+  })
+
+  it('accepts a phoneBanking condition pinned to a nativePhoneBanking envelope', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedNativePhoneBankingOutreach(
+      campaign.id,
+      WIN_SLUG,
+    )
+    expect(outreach.outreachType).toBe(OutreachType.nativePhoneBanking)
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Native phone banked specific',
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: outreach.id,
+            actions: ['support_yes'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+  })
+
+  it('rejects a legacy phoneBanking outreach with no phoneBankingListId', async () => {
+    const campaign = await seedWinCampaign()
+    const legacyPhoneBankingOutreach = await seedCompletedOutreach(
+      campaign.id,
+      WIN_SLUG,
+      OutreachType.phoneBanking,
+    )
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Legacy phone banking specific',
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: legacyPhoneBankingOutreach.id,
             actions: ['answered'],
           },
         ],

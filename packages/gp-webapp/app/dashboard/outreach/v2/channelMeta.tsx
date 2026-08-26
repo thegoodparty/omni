@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Badge, StatusText } from '@styleguide'
 import {
+  ArchiveIcon,
   CalendarClockIcon,
   CheckCircleIcon,
   CircleDotIcon,
@@ -114,6 +115,13 @@ const STATUS_DISPLAY: Record<
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
   Canceled: { icon: <XCircleIcon />, tone: 'muted' },
+  // Shelved, not finished. No history row carries this label yet — the archive
+  // transition is reached from the door-knocking rail, whose details drawer
+  // renders this same component so one saved list is described the same way
+  // from both entry points — but gp-api stamps `archivedAt` on the outreach
+  // envelope in the same transaction as the turf, so the state is the table's
+  // too.
+  Archived: { icon: <ArchiveIcon />, tone: 'muted' },
 }
 
 // The display label for a scheduled SMS row whose CampaignVerify clearance

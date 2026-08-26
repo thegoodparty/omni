@@ -6,6 +6,7 @@ import { FetchError } from 'ofetch'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Button,
+  CheckCircleIcon,
   Dialog,
   DialogContent,
   DialogFooter,
@@ -20,6 +21,8 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import {
   MAX_TURF_NAME_LENGTH,
   TURF_COLORS,
+  turfColorLabel,
+  turfColorTick,
   turfsQueryOptions,
 } from './turfQueries'
 
@@ -121,16 +124,26 @@ export default function EditTurfDialog({
                 <button
                   key={option}
                   type="button"
-                  aria-label={`Turf color ${option}`}
+                  aria-label={turfColorLabel(option)}
                   aria-pressed={color === option}
-                  className={`h-8 w-8 rounded-full border-2 ${
+                  className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
                     color === option
                       ? 'border-foreground'
                       : 'border-transparent'
                   }`}
                   style={{ backgroundColor: option }}
                   onClick={() => setColor(option)}
-                />
+                >
+                  {/* Inverts with the swatch, same rule as the walk list's
+                      stop numeral — a white tick vanishes on green and amber. */}
+                  {color === option && (
+                    <CheckCircleIcon
+                      size={16}
+                      aria-hidden="true"
+                      style={{ color: turfColorTick(option) }}
+                    />
+                  )}
+                </button>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">

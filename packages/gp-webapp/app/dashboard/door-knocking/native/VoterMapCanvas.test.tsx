@@ -1,14 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render } from '@testing-library/react'
-import type { DoorKnockingPackManifest } from '@goodparty_org/contracts'
+import { act, render, screen } from '@testing-library/react'
+import type {
+  DoorKnockingPackManifest,
+  DoorKnockingTurf,
+} from '@goodparty_org/contracts'
 import VoterMapCanvas, {
   ringInsertIndex,
   type PolygonRing,
   type RoutePin,
 } from './VoterMapCanvas'
 import { STATUS_RGB } from './statusPresentation'
+import type { LiveLocation } from './useLiveLocation'
 import type { DecodedPack } from './packDecoder'
 import type { FilterResult } from './filterEngine'
+
+const LOCATION_OFF: LiveLocation = {
+  status: 'off',
+  fix: null,
+  approximate: false,
+}
 
 vi.mock('appEnv', () => ({ NEXT_PUBLIC_GEOAPIFY_TILES_KEY: 'test-tiles-key' }))
 
@@ -22,12 +32,13 @@ interface MockLayerProps {
   data: unknown
   pickable?: boolean
   radiusMinPixels?: number
-  // Accessors the pin layers derive per pin, so a test can ask what a given
-  // pin would actually be drawn as.
-  getFillColor?: (pin: RoutePin) => number[]
-  getLineColor?: (pin: RoutePin) => number[]
-  getLineWidth?: (pin: RoutePin) => number
-  getColor?: (pin: RoutePin) => number[]
+  // Accessors the layers derive per row, so a test can ask what a given pin or
+  // a given saved list would actually be drawn as. `unknown` because the mock
+  // stands in for every layer on the canvas and each one has its own datum.
+  getFillColor?: (datum: unknown) => number[]
+  getLineColor?: (datum: unknown) => number[]
+  getLineWidth?: (datum: unknown) => number
+  getColor?: (datum: unknown) => number[]
 }
 
 interface PickParams {
@@ -136,6 +147,34 @@ const filterResult: FilterResult = {
   statusPerDot: new Uint8Array([0, 0]),
 }
 
+// A saved list as the rail hands it over. Only the ring, the colour and the
+// archive stamp matter to the canvas; the rest is the row's own shape.
+const turfFixture: DoorKnockingTurf = {
+  id: 1,
+  voterFileFilterId: 7,
+  name: 'Elm St & 5th',
+  color: '#2563eb',
+  geoPoly: {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [-87.66, 41.92],
+        [-87.65, 41.92],
+        [-87.65, 41.93],
+        [-87.66, 41.92],
+      ],
+    ],
+  },
+  locked: true,
+  doorCount: null,
+  peopleCount: null,
+  loggedCount: null,
+  completedAt: null,
+  archivedAt: null,
+  createdAt: new Date('2026-07-21T00:00:00Z'),
+  updatedAt: new Date('2026-07-21T00:00:00Z'),
+}
+
 const POINTS: PolygonRing = [
   [-87.66, 41.92],
   [-87.65, 41.92],
@@ -202,13 +241,28 @@ describe('VoterMapCanvas drawing', () => {
     filterResult,
     turfs: [],
     routePins: [],
+    selectedStopId: null,
     routeLoop: false,
     routeGeometry: null,
     focusTurf: null,
     startDrawToken: 1,
     clearDrawToken: 0,
     undoDrawToken: 0,
+    drawColor: '#2563eb',
+    frameDrawToken: 0,
+    frameDrawBottomPct: 0,
+    // A reading handed down from the page, not a watch this canvas starts:
+    // "off" is what it gets on every surface until the walk's own pill is
+    // pressed.
+    location: LOCATION_OFF,
   }
+
+  // The draw layers take their colours as flat values rather than per-datum
+  // accessors, so they are read off the layer instead of called.
+  const staticColor = (
+    id: string,
+    channel: 'getFillColor' | 'getLineColor',
+  ): number[] => layer(id)?.[channel] as unknown as number[]
 
   beforeEach(() => {
     gl.handlers.clear()
@@ -562,6 +616,102 @@ describe('VoterMapCanvas drawing', () => {
     expect(numbers?.getColor?.(flagged)).toEqual([...status, 255])
   })
 
+  // The list has always marked the stop the walk is on; the map drew nothing
+  // for it, so the two surfaces described the same street in two vocabularies.
+  // The ring goes OUTSIDE the pin because the pin's own fill and stroke are
+  // already saying which status it is and whether anyone there is knockable.
+  it('rings the marked stop without taking a channel off its pin', () => {
+    const marked: RoutePin = {
+      stopId: 11,
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'unknown',
+      knockable: true,
+    }
+    const other: RoutePin = { ...marked, stopId: 12, seq: 2 }
+
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[marked, other]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    // Nothing marked: the halo layer exists but has nothing in it, so the walk
+    // map opens with no claim about where the canvasser is.
+    expect(layerData('route-pin-selection')).toEqual([])
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[marked, other]}
+        selectedStopId={11}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // Matched on the stop's identity, not on the numeral both surfaces draw.
+    expect(layerData('route-pin-selection')).toEqual([marked])
+    const halo = layer('route-pin-selection')
+    // Outside the pin, so the status fill and the hollow-pin ring survive it.
+    expect(halo?.radiusMinPixels ?? 0).toBeGreaterThan(
+      layer('route-pins')?.radiusMinPixels ?? 0,
+    )
+    // A mark and not a control: the tap has to reach the pin underneath, which
+    // is the thing that opens the door.
+    expect(halo?.pickable).toBe(false)
+    expect(layer('route-pins')?.getFillColor?.(marked)).toEqual([
+      ...STATUS_RGB.unknown,
+      235,
+    ])
+  })
+
+  // Archiving is a rail decision about which lists a candidate is working
+  // through, so the outline stays — quiet, in its own colour, because that
+  // colour is what ties a ring to the card that names it.
+  it('draws an archived list’s ring at a fraction of its own strength', () => {
+    const active = {
+      ...turfFixture,
+      id: 1,
+      color: '#2563eb',
+      archivedAt: null,
+    }
+    const archived = {
+      ...turfFixture,
+      id: 2,
+      color: '#2563eb',
+      archivedAt: new Date('2026-08-20T00:00:00Z'),
+    }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        turfs={[active, archived]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const turfLayer = layer('saved-turfs')
+    const activeLine = turfLayer?.getLineColor?.(active) ?? []
+    const archivedLine = turfLayer?.getLineColor?.(archived) ?? []
+    // Same hue, less of it — a recoloured ring would stop matching the card.
+    expect(archivedLine.slice(0, 3)).toEqual(activeLine.slice(0, 3))
+    expect(archivedLine[3]).toBeLessThan(activeLine[3] ?? 0)
+    // Still drawn: the shelf is not a delete, and on the map that is the only
+    // thing telling the two apart.
+    expect(archivedLine[3]).toBeGreaterThan(0)
+    expect(turfLayer?.getFillColor?.(archived)?.[3] ?? 0).toBeLessThan(
+      turfLayer?.getFillColor?.(active)?.[3] ?? 0,
+    )
+  })
+
   // A canvasser standing in front of a house taps its pin — that was inert,
   // because the layer was unpickable and had no handler at all.
   it('opens the tapped stop, with a target a thumb can hit', () => {
@@ -627,6 +777,197 @@ describe('VoterMapCanvas drawing', () => {
 
     expect(onRoutePinClick).not.toHaveBeenCalled()
     expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
+  })
+
+  // The confirm step asks a candidate to pick the colour their list will be
+  // drawn in. The ring was a fixed blue, so the pick was made against nothing
+  // that could show it — now the boundary wears it while it is being chosen.
+  it('draws the in-progress boundary in the colour being picked', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+    expect(staticColor('draw-preview', 'getLineColor')).toEqual([
+      37, 99, 235, 255,
+    ])
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        drawColor="#16a34a"
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const line = staticColor('draw-preview', 'getLineColor')
+    const fill = staticColor('draw-preview', 'getFillColor')
+    expect(line).toEqual([22, 163, 74, 255])
+    // Same hue behind the outline and much weaker, so the streets the shape is
+    // being cut around stay readable through it.
+    expect(fill.slice(0, 3)).toEqual(line.slice(0, 3))
+    expect(fill[3]).toBeLessThan(line[3] ?? 0)
+    // The corners belong to the same boundary, so they move with it — a blue
+    // handle on a green ring reads as two shapes.
+    expect(staticColor('draw-vertices', 'getFillColor')).toEqual(line)
+  })
+
+  // The map fills its container, so a step that covers the bottom of it and
+  // uncovers the top strip reveals empty streets while the shape stays centred
+  // behind the chrome. The covered band has to reach the camera as padding, or
+  // the reveal is a picture of somewhere else.
+  const framePadding = (): Record<string, number> =>
+    (
+      gl.map.fitBounds.mock.calls.at(-1) as
+        | [unknown, { padding: Record<string, number> }]
+        | undefined
+    )?.[1].padding ?? {}
+
+  it('frames the drawing into the band the chrome leaves uncovered', () => {
+    Object.defineProperty(gl.map.getCanvas(), 'clientHeight', {
+      value: 800,
+      configurable: true,
+    })
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.forEach(clickMap)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        frameDrawToken={1}
+        frameDrawBottomPct={70}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // The shape's own box, not the pack's — this is a fit around what was
+    // drawn.
+    expect(gl.map.fitBounds.mock.calls.at(-1)?.[0]).toEqual([
+      [-87.66, 41.92],
+      [-87.65, 41.93],
+    ])
+    const covered = framePadding()
+    expect(covered.bottom).toBeGreaterThan(covered.top ?? 0)
+    // What is left is the band above the sheet: roughly the 30% it uncovers,
+    // and never nothing.
+    const band = 800 - (covered.top ?? 0) - (covered.bottom ?? 0)
+    expect(band).toBeGreaterThan(0)
+    expect(band).toBeLessThan(800 * 0.31)
+
+    // Nothing covering the map pads it evenly, so the same request on a full
+    // -height map centres the shape rather than pushing it up.
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        frameDrawToken={2}
+        frameDrawBottomPct={0}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(framePadding().bottom).toBe(framePadding().top)
+  })
+
+  // The band the confirm step uncovers is a picture: it is shielded from taps,
+  // so every button standing in it is one that answers nothing when pressed.
+  it('takes the map controls down for a step showing the map as a picture', () => {
+    const { container, rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(container.firstElementChild?.className).not.toContain(
+      'maplibregl-ctrl-top-right',
+    )
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        controlsHidden
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // maplibre's navigation stack is maplibre's own DOM, so it goes away by CSS
+    // rather than by being removed and rebuilt on a step change. The rule sits
+    // on the wrapper, never on the container maplibre writes its own classes
+    // onto — a className React rewrites would take `maplibregl-map` with it.
+    const wrapper = container.firstElementChild
+    expect(wrapper?.className).toContain('maplibregl-ctrl-top-right')
+    expect(wrapper?.firstElementChild?.className).toBe('h-full w-full')
+  })
+
+  // The canvas draws the dot; it does not own the switch. "My live location"
+  // is a walk control in the prototype and is offered on no other surface, so
+  // this component must have no button of its own to take down — a second
+  // switch here would be a second answer to "am I being watched".
+  it('draws the fix it is handed and offers no control of its own', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(layer('live-location-dot')?.data).toEqual([])
+
+    const fix = { lng: -86.78, lat: 36.16, accuracyMeters: 9 }
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        location={{ status: 'tracking', fix, approximate: false }}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(layer('live-location-dot')?.data).toEqual([fix])
+    expect(layer('live-location-accuracy')?.data).toEqual([fix])
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  // A wifi or IP fix can sit a canvasser a block from the dot, so a coarse one
+  // is drawn as a guess rather than as a claim — and that judgement rides the
+  // reading from the page, not a boolean this component keeps.
+  it('mutes the dot when the fix is too coarse to trust', () => {
+    const fix = { lng: -86.78, lat: 36.16, accuracyMeters: 400 }
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        location={{ status: 'tracking', fix, approximate: false }}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    const confident = staticColor('live-location-dot', 'getFillColor')
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        location={{ status: 'tracking', fix, approximate: true }}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(staticColor('live-location-dot', 'getFillColor')).not.toEqual(
+      confident,
+    )
   })
 
   it('opens at street level when given an initial zoom', () => {

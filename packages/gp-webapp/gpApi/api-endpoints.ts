@@ -1,6 +1,7 @@
 import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
+  DoorKnockingArchiveRequest,
   DoorKnockingKnockRequest,
   DoorKnockingKnockResponse,
   DoorKnockingRoutePayload,
@@ -43,8 +44,14 @@ import type {
   RecordPhoneBankingCallResponse,
   PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponse,
+  RobocallScriptDraftRequest,
+  RobocallScriptDraftResponse,
+  RobocallAudioPresignRequest,
+  RobocallAudioPresignResponse,
+  RobocallNumberResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
+  PeoplePrecinctsResponse,
   SmsDraftRequest,
   SmsDraftResponse,
 } from '@goodparty_org/contracts'
@@ -342,6 +349,28 @@ export type APIEndpoints = {
   'POST /v1/outreach/phone-banking/draft': {
     Request: PhoneBankingScriptDraftRequest
     Response: PhoneBankingScriptDraftResponse
+  }
+  // Robocall AI script draft — stateless, same shape as social/phone-banking
+  // (purpose + tone; currentDraft polishes in place). Pro-gated. 502 on model
+  // failure.
+  'POST /v1/outreach/robocall/draft': {
+    Request: RobocallScriptDraftRequest
+    Response: RobocallScriptDraftResponse
+  }
+
+  // Presigned S3 POST for the recorded robocall audio. The browser submits the
+  // returned form fields + file to `url`, then holds `key` for the send.
+  'POST /v1/outreach/robocall/audio/presign': {
+    Request: RobocallAudioPresignRequest
+    Response: RobocallAudioPresignResponse
+  }
+
+  // Rents a fresh CallHub caller-ID number for this robocall. The candidate
+  // reads the returned number aloud as the callback number, so it's rented
+  // before the disclosure draft. Pro-gated. Empty request body.
+  'POST /v1/outreach/robocall/number': {
+    Request: Record<string, never>
+    Response: RobocallNumberResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of
@@ -871,6 +900,19 @@ export type APIEndpoints = {
     Request: {}
     Response: undefined
   }
+  // The list lifecycle. Both apply only to a knocked list, both answer with the
+  // whole row, and both are idempotent server-side in the direction that stamps
+  // a timestamp — so a retry cannot walk the date a card renders forward.
+  'POST /v1/door-knocking/turfs/:id/complete': {
+    Request: {}
+    Response: DoorKnockingTurf
+  }
+  // A body rather than an archive/unarchive pair, matching the route: restore
+  // is the same call with `archived: false`.
+  'POST /v1/door-knocking/turfs/:id/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf
+  }
   'POST /v1/door-knocking/turfs/:id/knock': {
     Request: DoorKnockingKnockRequest
     Response: DoorKnockingKnockResponse
@@ -914,6 +956,11 @@ export type APIEndpoints = {
     // unfiltered district.
     Request: { segment?: number }
     Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/precincts': {
+    Request: {}
+    Response: PeoplePrecinctsResponse
   }
 
   'GET /v1/contacts/:personId/notes': {

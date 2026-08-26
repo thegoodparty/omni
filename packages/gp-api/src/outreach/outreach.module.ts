@@ -8,6 +8,7 @@ import { EmailModule } from 'src/email/email.module'
 import { PurchaseType } from 'src/payments/purchase.types'
 import { PurchaseService } from 'src/payments/services/purchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
+import { CallhubModule } from 'src/vendors/callhub/callhub.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
@@ -20,6 +21,8 @@ import { OutreachController } from './outreach.controller'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
+import { OutreachRobocallController } from './outreachRobocall.controller'
+import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachCompletionService } from './services/outreachCompletion.service'
 import { OutreachInboundSweepService } from './services/outreachInboundSweep.service'
@@ -29,7 +32,11 @@ import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
+import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { RobocallTranscriptionService } from './services/robocallTranscription.service'
+import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
 
@@ -55,12 +62,15 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     forwardRef(() => ContactsModule),
     OrganizationsModule,
     ContactInteractionModule,
+    CallhubModule,
   ],
   controllers: [
     OutreachController,
     OutreachSocialController,
     OutreachPhoneBankingController,
     OutreachSmsController,
+    OutreachRobocallController,
+    OutreachRobocallAudioController,
   ],
   providers: [
     OutreachService,
@@ -68,7 +78,11 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,
     OutreachSmsGenerationService,
+    OutreachRobocallGenerationService,
+    RobocallTranscriptionService,
+    RobocallComplianceService,
     OutreachComposeContextService,
+    OutreachRobocallAudioService,
     OutreachCompletionService,
     OutreachInboundSweepService,
     OutreachNotificationService,

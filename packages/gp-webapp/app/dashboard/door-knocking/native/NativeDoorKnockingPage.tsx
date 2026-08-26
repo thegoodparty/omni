@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
-import { ArrowLeftIcon, Button, IconButton } from '@styleguide'
+import { ArrowLeftIcon, Button, DownloadIcon, IconButton } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
@@ -35,6 +35,8 @@ import DoorKnockingManageView from './DoorKnockingManageView'
 import TurfDetailsDrawer from './TurfDetailsDrawer'
 import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
+import { useLiveLocation } from './useLiveLocation'
+import { useWalkCompletion } from './walkCompletion'
 import type { PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
@@ -93,6 +95,14 @@ export default function NativeDoorKnockingPage({
   // The walk surface's half of the canvas: pins, the path, and a tapped pin as
   // a request to open that door.
   const walkMap = useWalkMapSession(walkTurf)
+  // "My live location": one watch, read by the map that draws the dot and by
+  // the walk control that switched it on. Opt-in and off by default — turning
+  // it on is what asks the browser for permission, so nobody gets an
+  // unsolicited prompt — and it lives here rather than in the canvas because
+  // the canvas is shared by all three modes while the control is the walk's
+  // alone, exactly as in the design canvas.
+  const [locationEnabled, setLocationEnabled] = useState(false)
+  const location = useLiveLocation(locationEnabled)
   // Landing-map legend filter: chip clicks narrow the dots to those statuses,
   // within the selected list when there is one. Deliberately inert while the
   // create flow is open — the flow's own filter draft drives the preview there.
@@ -121,13 +131,14 @@ export default function NativeDoorKnockingPage({
   // manage surface's own sheet-open state follows the same rule for free — it
   // lives inside a surface these modes unmount.)
   //
-  // `statusFilter` is the one piece that does NOT follow it: `closeFlow` clears
-  // the chips and `endWalk` deliberately does not, which is pre-existing and
-  // not this refactor's to change. Read it before assuming it's an oversight —
-  // the chips are display state, but they also feed `selections`, so a chip
-  // left pressed narrows the landing dots on the way back from a walk exactly
-  // as it did before the seams landed. Closing that gap is a behavior change
-  // and belongs to whoever rebuilds the manage surface.
+  // `statusFilter` is the one piece that does NOT follow it, and the asymmetry
+  // is deliberate: `closeFlow` clears the chips, `endWalk` keeps them. The
+  // stranding rule is for state whose reason you won't remember on return, and
+  // a walk is the one exit that CHANGES the statuses the chips filter on — a
+  // pressed "unknown" chip showing a smaller set is the point of coming back,
+  // not a leftover. Leaving the create flow changes no status, so a chip left
+  // pressed there would re-narrow the district for no reason. Don't make the
+  // two exits match; they differ because only one of them moves the data.
   const [hiddenTurfIds, setHiddenTurfIds] = useState<Set<number>>(new Set())
   // Renaming from the details drawer only invalidates the turfs query, and
   // `selectedTurf` is the snapshot captured when the row was clicked — read the
@@ -138,6 +149,18 @@ export default function NativeDoorKnockingPage({
     ? (turfsQuery.data?.find((candidate) => candidate.id === selectedTurf.id)
         ?.name ?? selectedTurf.name)
     : null
+  // The walk session carries an id and a name, which is all the walk needs; the
+  // lifecycle write needs the row itself, because `canCompleteTurf` gates on
+  // `locked` and on the two timestamps. Resolved off the rail's own query so
+  // the page and the card cannot disagree about which stage the list is in —
+  // the same rule `selectedTurfName` above follows for the same reason.
+  const walkTurfRow = walkTurf
+    ? (turfsQuery.data?.find((candidate) => candidate.id === walkTurf.id) ??
+      null)
+    : null
+  // Ending a FINISHED walk stamps the list Done. What "finished" means, and why
+  // it isn't every exit, is in `walkCompletion.ts`.
+  const completeFinishedWalk = useWalkCompletion(walkTurfRow)
   const savedListsQuery = useQuery(savedListsQueryOptions)
   // The knock dialog is the manage surface's handoff into the walk, so the
   // orchestrator owns it: it starts a walk session, and it is the one place
@@ -146,8 +169,8 @@ export default function NativeDoorKnockingPage({
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
 
   // Only the outlines the rail says are shown. Hiding is display-only: the dots
-  // are the pack's and are unaffected, and the rows keep their Details, PDF and
-  // Knock affordances — a quiet ring is not an archived list.
+  // are the pack's and are unaffected, and the rows keep every affordance they
+  // had — a quiet ring is not an archived list.
   const visibleTurfs = useMemo(
     () => (turfsQuery.data ?? []).filter((turf) => !hiddenTurfIds.has(turf.id)),
     [turfsQuery.data, hiddenTurfIds],
@@ -347,6 +370,10 @@ export default function NativeDoorKnockingPage({
   // Leaving the walk is the only way out of it. Doors logged along the way
   // mean the landing map's dots are stale.
   const endWalk = () => {
+    // Before `walk.end()` clears the session: the mutation reads the turf out
+    // of this render's closure, and the row it needs is resolved from the walk
+    // that is still open. A no-op unless the list has nothing left to knock.
+    completeFinishedWalk()
     const doorsLogged = walk.end({ stopCount: walkMap.stopCount })
     if (doorsLogged > 0) {
       void queryClient.invalidateQueries({
@@ -362,10 +389,18 @@ export default function NativeDoorKnockingPage({
     // out would reopen its sheet on the next walk, and the coach mark is
     // per-walk because each one starts on an unfamiliar route.
     walkMap.reset()
+    // And the GPS radio with it. The only control that can turn this on is in
+    // the walk's own row, so leaving it on would keep a watch running for a
+    // surface with no way to see it and no way to stop it.
+    setLocationEnabled(false)
   }
 
   const changeFlowStep = (next: CreateFlowStep) => {
     if (next === 'draw' && flowStep === 'filters') draw.startDrawing()
+    // Confirm covers most of the map, so the shape being confirmed has to be
+    // put back into the band it leaves — asked for on arrival, not on every
+    // change to the ring, which is the canvasser's own aim while they draw.
+    if (next === 'confirm') draw.frameDrawing()
     setFlowStep(next)
     setSelectedTurf(null)
   }
@@ -405,6 +440,11 @@ export default function NativeDoorKnockingPage({
           turfId={walkTurf.id}
           onKnockRecorded={walk.recordDoor}
           openStopRequest={walkMap.openStopRequest}
+          selectedStopId={walkMap.selectedStopId}
+          onSelectStop={walkMap.selectStop}
+          liveLocation={location}
+          liveLocationEnabled={locationEnabled}
+          onToggleLiveLocation={setLocationEnabled}
         />
       )
     }
@@ -478,6 +518,11 @@ export default function NativeDoorKnockingPage({
           }
         }}
         onShowDetails={setDetailsTurf}
+        // The last hop of the empty rail's Create list button. The same state
+        // setter the header's own Create list button calls, so the two buttons
+        // are one gesture with one implementation — and without it the rail
+        // falls back to naming a button it cannot press.
+        onCreateList={() => setFlowStep('filters')}
         onKnockTurf={(turf) => {
           // Knock is idempotent: a knocked turf opens its existing route,
           // an unknocked one confirms mode/loop and builds it.
@@ -508,6 +553,26 @@ export default function NativeDoorKnockingPage({
               {walkTurf ? walkTurf.name : 'Door knocking'}
             </h1>
           </div>
+          {/* The walk's paper, where the canvas keeps it: the header action
+              beside the list's name, not a chip in the control row below the
+              map. It is called PDF because that is what it is — the same file
+              the saved-list row and the details drawer already offer under
+              that name, so the product has one printable artefact with one
+              name rather than a "Print list" on the walk and a "PDF"
+              everywhere else. The offline story is unchanged: a canvasser
+              walking out of signal takes paper, and this is a plain link to a
+              route handler, so it costs this bundle nothing. */}
+          {walkTurf && (
+            <a
+              href={`/dashboard/door-knocking/print/${walkTurf.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted/50"
+            >
+              <DownloadIcon size={16} aria-hidden="true" />
+              PDF
+            </a>
+          )}
           {!flowStep && !walkTurf && (
             <Button
               size="small"
@@ -554,6 +619,9 @@ export default function NativeDoorKnockingPage({
                 filterResult={filterResult}
                 turfs={visibleTurfs}
                 routePins={walkMap.routePins}
+                // The other half of the walk's one selection: the list marks
+                // the row, the canvas rings the pin, and both read this.
+                selectedStopId={walkMap.selectedStopId}
                 routeLoop={walkMap.routeLoop}
                 routeGeometry={walkMap.routeGeometry}
                 focusTurf={focusTurf}
@@ -565,6 +633,15 @@ export default function NativeDoorKnockingPage({
                 startDrawToken={draw.startDrawToken}
                 clearDrawToken={draw.clearDrawToken}
                 undoDrawToken={draw.undoDrawToken}
+                // The confirm step's colour pick, on the boundary it is a pick
+                // about — state the map reads, so it lives up here.
+                drawColor={draw.drawColor}
+                frameDrawToken={draw.frameDrawToken}
+                frameDrawBottomPct={draw.frameDrawBottomPct}
+                // The confirm step shows a band of the map as a picture and
+                // shields it, so the buttons in that band would be dead ones.
+                controlsHidden={flowStep === 'confirm'}
+                location={location}
                 onPolygonChange={setRing}
                 onDrawPointCount={draw.onPointCount}
                 onRoutePinClick={walkMap.onPinTap}
@@ -590,6 +667,8 @@ export default function NativeDoorKnockingPage({
               drawPointCount={draw.pointCount}
               onUndoPoint={draw.undoPoint}
               onClearPoints={draw.clearPoints}
+              color={draw.drawColor}
+              onColorChange={draw.onDrawColorChange}
               onSaved={handleSaved}
               isElectedOfficial={isElectedOfficial}
               unpreviewableKeys={unpreviewableKeys}

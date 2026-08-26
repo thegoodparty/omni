@@ -2,14 +2,10 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  DOOR_KNOCK_STATUSES,
-  DoorKnockingTurf,
-  DoorKnockStatus,
-} from '@goodparty_org/contracts'
+import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import { turfsQueryOptions } from './turfQueries'
 import TurfList from './TurfList'
-import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
+import TurfLegend from './TurfLegend'
 
 // The audience the map is shading, resolved once by the orchestrator so the
 // heading, the count line, the legend chips and the dots cannot each guess at
@@ -38,11 +34,11 @@ export interface MapScope {
 // SEAM — the manage surface (Wave 1B).
 //
 // This surface owns: the saved-list rail, the district/list legend, and how
-// the two are laid out at every width (today a bottom sheet over the map below
-// `lg` and a column beside it above; the canvas moves this to a floating inset
-// card over a full-bleed map). It owns `railOpen` outright, because nothing
-// outside it can see that state — the orchestrator unmounts this whole surface
-// for a create flow and for a walk, which is what resets it.
+// the two are laid out at every width — a bottom sheet over a full-bleed map
+// below `lg`, and a floating inset card over the same full-bleed map above it.
+// It owns `railOpen` outright, because nothing outside it can see that state —
+// the orchestrator unmounts this whole surface for a create flow and for a
+// walk, which is what resets it.
 //
 // The orchestrator owns: every piece of state the MAP also reads. The
 // selection, the hidden set and the status filter all recolor or mask dots, so
@@ -71,6 +67,13 @@ export interface DoorKnockingManageViewProps {
   // an existing route and confirming a new one.
   onKnockTurf: (turf: DoorKnockingTurf) => void
   onDeletedTurf: (turf: DoorKnockingTurf) => void
+  // The empty rail's Create list button was pressed. The create flow is the
+  // orchestrator's — it replaces this whole surface — so this reports the
+  // gesture like every other callback here. Optional, and the rail falls back
+  // to pointing at the header's Create list button when it is absent: the
+  // orchestrator's own wiring is a separate change, and an empty state that
+  // names the button it cannot press is what this already did.
+  onCreateList?: () => void
 }
 
 export default function DoorKnockingManageView({
@@ -85,6 +88,7 @@ export default function DoorKnockingManageView({
   onShowDetails,
   onKnockTurf,
   onDeletedTurf,
+  onCreateList,
 }: DoorKnockingManageViewProps) {
   // Below lg the rail is a bottom sheet over a full-bleed map, and this is
   // whether it is pulled up. Purely a class switch, never a mount: the rail's
@@ -94,17 +98,28 @@ export default function DoorKnockingManageView({
   const [railOpen, setRailOpen] = useState(false)
   // Same query the rail's rows read, so React Query serves it from cache.
   const turfsQuery = useQuery(turfsQueryOptions)
-  const savedListCount = turfsQuery.data?.length ?? 0
+  // Active lists only, so the closed handle agrees with the `Saved lists (N)`
+  // heading it opens onto rather than counting the archive into it.
+  const savedListCount = (turfsQuery.data ?? []).filter(
+    (turf) => !turf.archivedAt,
+  ).length
 
   return (
-    // Below lg the rail is a bottom sheet over a full-bleed map, on the same
-    // breakpoint PersonSheet switches on. It can't simply be hidden there —
-    // it holds the saved lists, the legend and the scope the map is showing
-    // — but a 384px column beside a 390px viewport left the map about six
-    // pixels wide. Peeked it is one tap from open, and open it stops well
-    // short of the top so pressing a status chip still recolors dots the
-    // canvasser can see.
-    <aside className="absolute inset-x-0 bottom-0 z-20 flex max-h-[60dvh] flex-col rounded-t-xl border-t border-border bg-background shadow-lg lg:static lg:h-full lg:max-h-none lg:w-96 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+    // The map is full-bleed at every width and the rail floats over it — the
+    // canvas's desktop treatment, and the same shape the phone already had.
+    //
+    // Above `lg` it is an inset card: the rail used to be `w-96 shrink-0` in
+    // the page's flex row, which took a fixed 384px column out of the map on
+    // the widest screens, where the map is most of what the tool is. Inset, it
+    // costs the map only what it covers, and the map keeps its own edges.
+    //
+    // Below `lg` it stays the bottom sheet, on the same breakpoint PersonSheet
+    // switches on. It can't simply be hidden there — it holds the saved lists,
+    // the legend and the scope the map is showing — but a 384px column beside
+    // a 390px viewport left the map about six pixels wide. Peeked it is one tap
+    // from open, and open it stops well short of the top so pressing a status
+    // chip still recolors dots the canvasser can see.
+    <aside className="absolute inset-x-0 bottom-0 z-20 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-xl border-t border-border bg-background shadow-lg lg:inset-y-4 lg:left-auto lg:right-4 lg:max-h-none lg:w-96 lg:max-w-[40vw] lg:rounded-2xl lg:border lg:bg-card lg:shadow-md">
       <button
         type="button"
         aria-expanded={railOpen}
@@ -129,20 +144,27 @@ export default function DoorKnockingManageView({
       </button>
       <div
         id="door-knocking-rail"
-        className={`min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 pt-0 lg:flex lg:pt-4 ${
+        className={`min-h-0 flex-1 flex-col overflow-hidden lg:flex ${
           railOpen ? 'flex' : 'hidden'
         }`}
       >
-        <TurfList
-          selectedTurfId={scope.turf?.id ?? null}
-          hiddenTurfIds={hiddenTurfIds}
-          onFocusTurf={onSelectTurf}
-          onToggleTurfVisibility={onToggleTurfVisibility}
-          onShowDetails={onShowDetails}
-          onKnockTurf={onKnockTurf}
-          onDeletedTurf={onDeletedTurf}
-        />
-        <section className="flex flex-col gap-2">
+        {/* Only the lists scroll. The scope and its legend are pinned under
+            them, per the canvas: they describe what the map is currently
+            shading, so scrolling a long rail must not take the reading of the
+            dots off screen with it. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 pt-0 lg:pt-4">
+          <TurfList
+            selectedTurfId={scope.turf?.id ?? null}
+            hiddenTurfIds={hiddenTurfIds}
+            onFocusTurf={onSelectTurf}
+            onToggleTurfVisibility={onToggleTurfVisibility}
+            onShowDetails={onShowDetails}
+            onKnockTurf={onKnockTurf}
+            onDeletedTurf={onDeletedTurf}
+            onCreateList={onCreateList}
+          />
+        </div>
+        <section className="flex shrink-0 flex-col gap-2 border-t border-border p-4">
           <div>
             <h2 className="text-sm font-semibold">
               {scope.name ?? 'District voters'}
@@ -217,46 +239,13 @@ export default function DoorKnockingManageView({
                 </p>
               )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {DOOR_KNOCK_STATUSES.map((status) => (
-              <button
-                key={status}
-                type="button"
-                aria-pressed={statusFilter.has(status)}
-                // A chip narrows within the scope, so with no scope to narrow
-                // it can only flip its own pressed state and change nothing.
-                disabled={!scope.ready}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs disabled:opacity-60 ${
-                  statusFilter.has(status)
-                    ? 'border-tertiary-dark bg-tertiary-dark/10 font-medium'
-                    : 'border-border'
-                }`}
-                onClick={() => onToggleStatus(status)}
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
-                />
-                {STATUS_LABELS[status]}
-                {/* Seven zeroes under a list's name is the same confident
-                    wrong answer as one wrong total, so an unresolved scope
-                    prints no number: a skeleton while it can still arrive, an
-                    em dash once it can't. */}
-                {scope.ready ? (
-                  <span className="font-semibold tabular-nums">
-                    {(statusCounts[status] ?? 0).toLocaleString()}
-                  </span>
-                ) : scope.pending ? (
-                  <span
-                    aria-hidden="true"
-                    className="h-3 w-5 animate-pulse rounded bg-muted"
-                  />
-                ) : (
-                  <span className="font-semibold">&mdash;</span>
-                )}
-              </button>
-            ))}
-          </div>
+          <TurfLegend
+            statusCounts={statusCounts}
+            statusFilter={statusFilter}
+            onToggleStatus={onToggleStatus}
+            ready={scope.ready}
+            pending={scope.pending}
+          />
         </section>
       </div>
     </aside>

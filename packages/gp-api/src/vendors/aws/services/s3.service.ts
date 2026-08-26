@@ -7,6 +7,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { Injectable } from '@nestjs/common'
 import slugify from 'slugify'
@@ -35,6 +36,12 @@ export type UploadFileOptions = {
 export type GetSignedUrlOptions = {
   expiresIn?: number
   contentType?: string
+}
+
+export type PresignedUploadOptions = {
+  expiresIn?: number
+  contentType: string
+  maxBytes: number
 }
 
 export type BuildKeyOptions = {
@@ -126,6 +133,28 @@ export class S3Service extends AwsService {
         { expiresIn: options?.expiresIn || EXPIRES_IN_DEFAULT },
       )
     }, 'getSignedUrlForUpload')
+  }
+
+  // Presigned POST (not PUT): the policy's content-length-range lets S3 reject
+  // an oversize upload at upload time, which a presigned PUT URL can't express.
+  // Returns the form `url` + `fields` the browser submits alongside the file.
+  async createPresignedUpload(
+    bucket: string,
+    key: string,
+    options: PresignedUploadOptions,
+  ) {
+    return this.executeAwsOperation(async () => {
+      return await createPresignedPost(this.s3Client, {
+        Bucket: bucket,
+        Key: key,
+        Conditions: [
+          ['content-length-range', 1, options.maxBytes],
+          { 'Content-Type': options.contentType },
+        ],
+        Fields: { 'Content-Type': options.contentType },
+        Expires: options.expiresIn ?? EXPIRES_IN_DEFAULT,
+      })
+    }, 'createPresignedUpload')
   }
 
   async getSignedUrlForViewing(

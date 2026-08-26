@@ -44,6 +44,22 @@ const turf = (overrides: Partial<DoorKnockingTurf>): DoorKnockingTurf => ({
   ...overrides,
 })
 
+// Enough of a decoded pack for the rail to call it decoded — the empty card
+// only asks whether one is in the cache, never what is in it.
+const pack = {
+  manifest: {
+    version: 1,
+    generatedAt: '2026-08-20T12:00:00Z',
+    counts: { people: 4, households: 3, dots: 2 },
+    dims: [{ key: 'party', values: ['Unknown', 'Democratic', 'Republican'] }],
+    arrays: [],
+  },
+  positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
+  personToHousehold: new Uint32Array([0, 0, 1, 2]),
+  householdToDot: new Uint32Array([0, 0, 1]),
+  dimPlanes: new Map([['party', new Uint8Array([1, 1, 1, 2])]]),
+}
+
 const renderList = (props: Partial<ComponentProps<typeof TurfList>> = {}) =>
   render(
     <TurfList
@@ -78,7 +94,7 @@ describe('TurfList', () => {
     renderList({ onFocusTurf, onShowDetails, onKnockTurf })
 
     await waitFor(() =>
-      expect(screen.getByText('Saved lists · 2')).toBeInTheDocument(),
+      expect(screen.getByText('Saved lists (2)')).toBeInTheDocument(),
     )
     expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Knock' })).toHaveLength(2)
@@ -121,9 +137,13 @@ describe('TurfList', () => {
 
     // Two figures, not one ratio: doors and people are different
     // populations, and the logged pair is people over people — the same
-    // quantity the details sheet labels "People logged".
-    expect(await screen.findByText(/24 doors/)).toBeInTheDocument()
-    expect(screen.getByText(/8 of 31/)).toBeInTheDocument()
+    // quantity the details sheet labels "People logged". They are two meta
+    // items on the card rather than one sentence, each naming its own
+    // quantity for a screen reader.
+    expect(await screen.findByText('24')).toHaveTextContent('24 doors')
+    expect(screen.getByText('8 of 31')).toHaveTextContent(
+      '8 of 31 people logged',
+    )
     // Never the prototype's people-over-doors pairing.
     expect(screen.queryByText(/8 of 24/)).toBeNull()
     expect(screen.queryByText(/knocked/i)).toBeNull()
@@ -167,11 +187,11 @@ describe('TurfList', () => {
 
     renderList()
 
-    // The visible line reads "1 door · 2 of 3 logged"; the noun is only in
-    // the full text content, which is what a screen reader announces.
-    expect(await screen.findByText(/1 door ·/)).toHaveTextContent(
-      '1 door · 2 of 3 people logged',
-    )
+    // The visible figures are a numeral beside an icon; the noun is only in
+    // the full text content, which is what a screen reader announces. It is
+    // singular on one door, because "1 doors" reads as a bug in the count.
+    expect(await screen.findByText('1')).toHaveTextContent('1 door')
+    expect(screen.getByText('2 of 3')).toHaveTextContent('2 of 3 people logged')
   })
 
   // Tapping the name is what scopes the map, the count line and the legend to
@@ -211,6 +231,78 @@ describe('TurfList', () => {
 
     expect(await screen.findByText(/No lists yet/)).toBeInTheDocument()
     expect(screen.getByText('Saved lists')).toBeInTheDocument()
+  })
+
+  // The card describes the one thing there is to do on this screen, so the
+  // control belongs in it — pointing at a button elsewhere on the page was the
+  // next version of having no explanation at all.
+  it('offers Create list from inside the empty card', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+    const onCreateList = vi.fn()
+
+    renderList({ onCreateList })
+
+    const create = await screen.findByRole('button', { name: 'Create list' })
+    expect(create).toBeEnabled()
+    // The card no longer sends anyone looking for a button somewhere else.
+    expect(screen.queryByText(/Create list.*above/)).toBeNull()
+
+    fireEvent.click(create)
+    expect(onCreateList).toHaveBeenCalledTimes(1)
+  })
+
+  // The same expression the page header's Create list button is disabled on,
+  // read off the same query. The two open the same flow, and the flow's who
+  // step reports "No matching households" without a pack — so a card that let
+  // you in early would tell a brand-new candidate their district is empty.
+  it('keeps the empty card’s Create list disabled until the pack decodes', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    const onCreateList = vi.fn()
+
+    renderList({ onCreateList })
+
+    const create = await screen.findByRole('button', { name: 'Create list' })
+    expect(create).toBeDisabled()
+
+    fireEvent.click(create)
+    expect(onCreateList).not.toHaveBeenCalled()
+
+    // An observer, not a one-shot cache read: a pack that lands while the
+    // empty rail is on screen has to bring the button to life.
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create list' })).toBeEnabled(),
+    )
+  })
+
+  // The pack is the page's, and it is tens of megabytes. The rail reads it to
+  // agree with the header button, never to fetch it.
+  it('fetches no pack of its own to decide that', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+
+    renderList({ onCreateList: vi.fn() })
+
+    await screen.findByRole('button', { name: 'Create list' })
+    expect(
+      fetchSpy.mock.calls.filter(([input]) => String(input).includes('/pack')),
+    ).toHaveLength(0)
+    fetchSpy.mockRestore()
+  })
+
+  // Without a handler there is no flow to open, so the card keeps the pointer
+  // it had rather than rendering a button that does nothing.
+  it('points at the header button when there is no create handler', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    renderList()
+
+    expect(await screen.findByText(/No lists yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create list' })).toBeNull()
+    expect(screen.getByText(/above to make your first one/)).toBeInTheDocument()
   })
 
   it('shows a placeholder while the lists load', () => {
@@ -313,11 +405,11 @@ describe('TurfList', () => {
     ).toBeEnabled()
   })
 
-  // gp-api's assertNotLocked 409s a knocked turf, so this can't be pressable.
-  // It renders anyway: an affordance that deletes itself for the lists a
-  // candidate has actually walked is indistinguishable from one that was never
-  // built, which is exactly how it got reported.
-  it('shows delete disabled rather than absent on a knocked list', async () => {
+  // Delete now works at every stage — an unlocked list is hard-deleted, a
+  // knocked one tombstoned — so the confirmation dialog is the guard and the
+  // trigger stays live. It used to render disabled with the lock as the
+  // reason, which is no longer true of delete.
+  it('offers delete on a knocked list too, and warns that the route is kept', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [turf({ id: 2, name: 'Riverside loop', locked: true })],
@@ -325,9 +417,18 @@ describe('TurfList', () => {
 
     renderList()
 
+    const trigger = await screen.findByRole('button', {
+      name: 'Delete Riverside loop list',
+    })
+    expect(trigger).toBeEnabled()
+
+    fireEvent.click(trigger)
+
+    // The two deletes destroy very different amounts, so the confirmation
+    // says which one is about to run.
     expect(
-      await screen.findByRole('button', { name: 'Delete Riverside loop list' }),
-    ).toBeDisabled()
+      await screen.findByText(/The route you paid for/),
+    ).toBeInTheDocument()
   })
 
   it('deletes from the row after confirmation and tells the page', async () => {
@@ -374,5 +475,223 @@ describe('TurfList', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Knock' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'PDF' })).toBeInTheDocument()
+  })
+})
+
+describe('TurfList lifecycle', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    successSnackbar.mockClear()
+    errorSnackbar.mockClear()
+  })
+
+  // Ending the session is the one rail action with no undo beside it, so it is
+  // inside the expanded card rather than the always-visible footer — and the
+  // card expands on the same tap that scopes the map to the list.
+  it('hides the done control until the card is the selected one', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 2, name: 'Riverside loop', locked: true })],
+    })
+
+    const { rerender } = renderList()
+
+    expect(await screen.findByText('Riverside loop')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Mark this list done/ }),
+    ).toBeNull()
+
+    rerender(
+      <TurfList
+        selectedTurfId={2}
+        hiddenTurfIds={new Set()}
+        onFocusTurf={vi.fn()}
+        onToggleTurfVisibility={vi.fn()}
+        onShowDetails={vi.fn()}
+        onKnockTurf={vi.fn()}
+        onDeletedTurf={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /Mark this list done/ }),
+    ).toBeInTheDocument()
+  })
+
+  // All three transitions require a route server-side, so a list that was never
+  // knocked has nothing to end: offering it would render a control whose only
+  // possible outcome is a 409.
+  it('offers no done control on a list that was never knocked', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 1, name: 'Elm St & 5th' })],
+    })
+
+    renderList({ selectedTurfId: 1 })
+
+    expect(await screen.findByText('Elm St & 5th')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Mark this list done/ }),
+    ).toBeNull()
+  })
+
+  it('ends the knocking session from the expanded card', async () => {
+    let completedId: string | undefined
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 2, name: 'Riverside loop', locked: true })],
+    })
+    api.mock('POST /v1/door-knocking/turfs/:id/complete', ({ params }) => {
+      completedId = params.id
+      return {
+        status: 200,
+        data: turf({
+          id: 2,
+          name: 'Riverside loop',
+          locked: true,
+          completedAt: new Date('2026-08-24T00:00:00Z'),
+        }),
+      }
+    })
+
+    renderList({ selectedTurfId: 2 })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Mark this list done/ }),
+    )
+
+    await waitFor(() => expect(completedId).toBe('2'))
+    expect(successSnackbar).toHaveBeenCalledWith('List marked done')
+  })
+
+  // The CTA the canvas asks for: Knock while there is walking left, Move to
+  // Archive once the list is done.
+  it('swaps Knock for Move to archive on a done list', async () => {
+    let archivedBody: unknown
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({
+          id: 2,
+          name: 'Riverside loop',
+          locked: true,
+          completedAt: new Date('2026-08-20T00:00:00Z'),
+        }),
+      ],
+    })
+    api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ body }) => {
+      archivedBody = body
+      return {
+        status: 200,
+        data: turf({
+          id: 2,
+          name: 'Riverside loop',
+          locked: true,
+          completedAt: new Date('2026-08-20T00:00:00Z'),
+          archivedAt: new Date('2026-08-24T00:00:00Z'),
+        }),
+      }
+    })
+
+    renderList()
+
+    expect(await screen.findByText('Done')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Knock' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Move to archive/ }))
+
+    await waitFor(() => expect(archivedBody).toEqual({ archived: true }))
+    expect(successSnackbar).toHaveBeenCalledWith('Moved to archive')
+  })
+
+  // GET /turfs returns archived rows deliberately, carrying archivedAt, so the
+  // sectioning is the client's. They come off the active rail — that is what
+  // archiving is for — but they stay listed and restorable: a one-tap action
+  // with no way back is the trap this section exists to avoid.
+  it('sections archived lists out of the rail and offers Restore', async () => {
+    let archivedBody: unknown
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({ id: 1, name: 'Elm St & 5th' }),
+        turf({
+          id: 2,
+          name: 'Riverside loop',
+          locked: true,
+          completedAt: new Date('2026-08-20T00:00:00Z'),
+          archivedAt: new Date('2026-08-22T00:00:00Z'),
+        }),
+      ],
+    })
+    api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ body }) => {
+      archivedBody = body
+      return {
+        status: 200,
+        data: turf({ id: 2, name: 'Riverside loop', locked: true }),
+      }
+    })
+
+    renderList()
+
+    // The active count excludes the archived row, which has a heading and a
+    // count of its own.
+    expect(await screen.findByText('Saved lists (1)')).toBeInTheDocument()
+    expect(screen.getByText('Archived (1)')).toBeInTheDocument()
+    expect(screen.getByText('Riverside loop')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Restore/ }))
+
+    await waitFor(() => expect(archivedBody).toEqual({ archived: false }))
+    expect(successSnackbar).toHaveBeenCalledWith('Restored from archive')
+  })
+
+  // A failed transition has to name itself: three of them sit on one card, and
+  // "something went wrong" leaves a candidate who pressed two of them guessing.
+  it('says which transition failed', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 2, name: 'Riverside loop', locked: true })],
+    })
+    api.mock('POST /v1/door-knocking/turfs/:id/complete', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    renderList({ selectedTurfId: 2 })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Mark this list done/ }),
+    )
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'This list could not be marked done. Try again.',
+      ),
+    )
+  })
+
+  // Archiving every list empties the rail without emptying the account, so the
+  // "No lists yet" copy would be a lie and the archived section the only thing
+  // on screen with no explanation of how to get back.
+  it('explains an all-archived rail rather than reading as a new account', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({
+          id: 2,
+          name: 'Riverside loop',
+          locked: true,
+          completedAt: new Date('2026-08-20T00:00:00Z'),
+          archivedAt: new Date('2026-08-22T00:00:00Z'),
+        }),
+      ],
+    })
+
+    renderList()
+
+    expect(
+      await screen.findByText(/Every list is archived/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/No lists yet/)).toBeNull()
   })
 })

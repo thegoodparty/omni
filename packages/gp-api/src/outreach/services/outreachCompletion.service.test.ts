@@ -1,6 +1,5 @@
 import { BadGatewayException } from '@nestjs/common'
-import { addDays, subDays } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyJob, PeerlyJobStatus } from '@/vendors/peerly/peerly.types'
@@ -18,18 +17,20 @@ const getJob = vi.fn<(jobId: string) => Promise<PeerlyJob>>()
 
 const DEFAULT_PROJECT_ID = 'peerly-job'
 
-// The completion predicate compares a job's `end_date` against the real
-// wall-clock date (`sweepOutreachCompletions` sources `now` itself), so these
-// fixtures are relative to today rather than fixed calendar dates. The
-// service compares UTC calendar days, so the fixtures must be UTC-formatted
-// too — local formatting made "today" read as yesterday-UTC every evening
-// west of Greenwich and flipped the today-end_date case to completed.
-const isoDateUTC = (date: Date) => date.toISOString().slice(0, 10)
-const PAST_END_DATE = isoDateUTC(subDays(new Date(), 1))
-const TODAY_END_DATE = isoDateUTC(new Date())
-const FUTURE_END_DATE = isoDateUTC(addDays(new Date(), 1))
-const PAST_START_DATE = isoDateUTC(subDays(new Date(), 3))
-const FUTURE_START_DATE = isoDateUTC(addDays(new Date(), 14))
+// `sweepOutreachCompletions` samples its own `now`, and the completion
+// predicate reads both sides of the comparison as UTC (`parseIsoDateAsUTC`
+// against `getMidnightForDate`). Deriving these fixtures from a second,
+// separately-sampled `new Date()` gets that wrong twice: a local `format`
+// puts "today" a day behind UTC for anyone west of Greenwich after 7pm, and
+// even in UTC the two samples straddle midnight for the last second of any
+// day. Pinning the clock removes both — `end_date` is a bare calendar date,
+// so the fixtures can just BE calendar dates.
+const NOW = new Date('2026-06-15T12:00:00Z')
+const PAST_END_DATE = '2026-06-14'
+const TODAY_END_DATE = '2026-06-15'
+const FUTURE_END_DATE = '2026-06-16'
+const PAST_START_DATE = '2026-06-12'
+const FUTURE_START_DATE = '2026-06-29'
 
 let campaign: Campaign
 let completionService: OutreachCompletionService
@@ -63,6 +64,9 @@ const findOutreach = (id: number) =>
   service.prisma.outreach.findUniqueOrThrow({ where: { id } })
 
 beforeEach(async () => {
+  // `shouldAdvanceTime` so the real database I/O below still resolves.
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.setSystemTime(NOW)
   getJob.mockReset()
   const peerlySvc = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerlySvc, 'getJob').mockImplementation(getJob)
@@ -84,6 +88,10 @@ beforeEach(async () => {
       slug: 'jane-doe',
     },
   })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('OutreachCompletionService.sweepOutreachCompletions', () => {

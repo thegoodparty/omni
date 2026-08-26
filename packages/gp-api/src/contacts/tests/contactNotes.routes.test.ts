@@ -63,6 +63,7 @@ describe('Contact notes routes', () => {
         expect(created.data).toMatchObject({
           personId,
           body: 'first note',
+          actorName: `${service.user.firstName} ${service.user.lastName}`,
         })
         expect(created.data.createdAt).toBeDefined()
         expect(created.data.updatedAt).toBeDefined()
@@ -77,6 +78,7 @@ describe('Contact notes routes', () => {
         expect(listed.data.results[0]).toMatchObject({
           id: noteId,
           body: 'first note',
+          actorName: `${service.user.firstName} ${service.user.lastName}`,
         })
 
         const edited = await service.client.patch(
@@ -86,6 +88,9 @@ describe('Contact notes routes', () => {
         )
         expect(edited.status).toBe(200)
         expect(edited.data.body).toBe('edited note')
+        expect(edited.data.actorName).toBe(
+          `${service.user.firstName} ${service.user.lastName}`,
+        )
 
         const deleted = await service.client.delete(
           `/v1/contacts/notes/${noteId}`,
@@ -142,6 +147,27 @@ describe('Contact notes routes', () => {
       expect(note.createdAt).toEqual(expect.any(String))
       expect(note.updatedAt).toEqual(expect.any(String))
     }
+  })
+
+  it('renders a legacy null-actor note authorless', async () => {
+    const slug = `win-pro-legacy-${Date.now()}`
+    await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+    const headers = { [ORG_SLUG_HEADER]: slug }
+    const personId = 'person-legacy'
+
+    await service.prisma.contactNote.create({
+      data: { organizationSlug: slug, personId, body: 'no author' },
+    })
+
+    const result = await service.client.get(`/v1/contacts/${personId}/notes`, {
+      headers,
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.results[0]).toMatchObject({
+      body: 'no author',
+      actorName: null,
+    })
   })
 
   describe('non-pro Win campaign', () => {

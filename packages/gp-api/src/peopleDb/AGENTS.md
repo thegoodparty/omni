@@ -72,9 +72,9 @@ service pointed at a disconnected client after a URL swap.
 
 `peopleQuery.module.ts` provides and exports: `DistrictService`,
 `StatsService`, `VoterSampleService`, `VoterQueryService`,
-`VoterDownloadService`, `VoterDoorKnockingService`. Import this module to get
-the whole people-db surface; don't reach for individual services from other
-modules directly.
+`VoterDownloadService`, `VoterDoorKnockingService`, `VoterPackService`,
+`VoterDensityService`. Import this module to get the whole people-db surface;
+don't reach for individual services from other modules directly.
 
 ## `plan_cache_mode=force_custom_plan` — do not remove it
 
@@ -118,9 +118,11 @@ Two traps when touching this:
 `utils/statementTimeout.util.ts` wraps a query in
 `$transaction([SET LOCAL statement_timeout = '25000ms', <query>])` and maps
 SQLSTATE 57014 to a `GatewayTimeoutException`. **Any new `$queryRaw` that can
-touch a Voter partition goes through it.** The one deliberate exception is
-`voterDownload.service.ts`, which runs a minutes-long COPY on its own pool and
-sets `statement_timeout = 0` explicitly.
+touch a Voter partition goes through it.** Two deliberate exceptions, both of
+which set their own timeout rather than skipping the idea:
+`voterDownload.service.ts` runs a minutes-long COPY on its own pool with
+`statement_timeout = 0`, and `utils/cursorScan.util.ts` uses 45s per fetch
+(below).
 
 This is not belt-and-braces on top of `socket_timeout=60`. The two do
 materially different things, and the difference is the whole point:
@@ -152,6 +154,41 @@ path — `VoterDoorKnockingService.residents()` — rode the socket timeout to 6
 2026-07-27; the guard landed 2026-07-31 in `voterQuery.service.ts` only) and was
 simply never retrofitted. Note what the fix does and does not do: it makes that
 failure **faster, cheaper and attributable**. It does not make it less likely.
+
+## Never keyset-paginate a joined scan — `cursorScan.util.ts`
+
+A result set too large to hold in memory wants pagination, and for a **joined**
+scan that instinct is a trap. `voterPack.service.ts` read a district in
+50,000-row pages ordered by `v."id"`, and the page predicate reached only the
+`Voter` side of the merge join: nothing restricted `DistrictVoter`, so every
+page re-walked the district from the start to reach its merge position. 58k DV
+rows scanned on page 0, 407k on page 6 — quadratic in district size.
+
+Measured on a 628k-row reproduction (`docs/perf/voter-pack-profile.md`):
+
+| | keyset, 13 statements | one statement, one cursor |
+| --- | ---: | ---: |
+| blocks touched | 14,058,235 | 120,976 |
+| read from storage | **11.5 GB** | 945 MB |
+| Postgres execution | 5,389 ms | 2,072 ms |
+
+**11.5 GB read to return a 16 MB response.** Use `scanUnderCursor` instead: one
+statement, declared once, read `CURSOR_FETCH_SIZE` rows at a time. The plan
+runs once, memory stays bounded, and the caller's `AbortSignal` is checked
+between fetches so a scan nobody is reading stops.
+
+Three things about it are not tuning:
+
+- **`SET LOCAL cursor_tuple_fraction = 1`.** A cursor tells the planner a page
+  will do, which is how it justifies a fast-start plan — the shape this exists
+  to escape. These scans always drain.
+- **45s per fetch, not 25s.** The statement clock is armed per `FETCH`, not for
+  the cursor's lifetime (verified against Postgres 16), and the *first* fetch
+  pays for the whole plan's startup where a keyset page paid only for its own
+  slice. 45s still sits under the webapp's 90s deadline, so Postgres kills a
+  pathological plan before the browser gives up on it.
+- **Do not add `ORDER BY` back** unless a consumer genuinely needs order. For
+  the pack nothing can observe it, and sorting a district is not free.
 
 ## Door-knocking's address-key predicate is non-sargable (latent fragility)
 
@@ -275,8 +312,11 @@ Keep new tests in this module to that pattern — don't reach for
 | `services/district.service.ts`          | District resolution/scoping                                           |
 | `services/voterSample.service.ts`       | Sample rows (for preview/testing scenarios)                           |
 | `services/voterDoorKnocking.service.ts` | Door-knocking target resolution                                       |
+| `services/voterPack.service.ts`         | Encoded voter-pack build/read                                         |
+| `services/voterDensity.service.ts`      | Voter-density heat-map cells (read-only, precomputed H3 centroids)    |
 | `schemas/filters.schema.ts`             | Zod filter input schema                                               |
 | `utils/statementTimeout.util.ts`        | `runUnderStatementTimeout` — the 25s guard every query goes through   |
+| `utils/cursorScan.util.ts`              | `scanUnderCursor` — one statement, read in chunks (never keyset a join) |
 | `utils/filters.sql.util.ts`             | `buildVoterFiltersSql` — filter → SQL translation, incl. id-set cap   |
 | `utils/buildVoterWhereSql.util.ts`      | WHERE-clause SQL builders, incl. `stateEquals`                        |
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |

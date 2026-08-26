@@ -4,6 +4,7 @@ import { Prisma } from '../../generated/people-prisma'
 import { VoterQueryService } from './voterQuery.service'
 import type { PeopleDbService } from '../peopleDb.service'
 import { FilterData } from '../schemas/filters.schema'
+import { MAX_PRECINCT_OPTIONS } from '../databricks/databricksVoterSql.util'
 
 const makeDbPerson = (overrides: Record<string, unknown> = {}) =>
   ({
@@ -101,6 +102,10 @@ describe('VoterQueryService', () => {
     }
 
     service = new VoterQueryService(
+      {
+        enabled: false,
+        compare: (args: { primary: () => unknown }) => args.primary(),
+      } as never,
       mockSampleService as never,
       mockDistrictService as never,
       mockStatsService as never,
@@ -938,5 +943,185 @@ describe('VoterQueryService', () => {
       // Union of zero saved sets is the empty set (FALSE), not "unfiltered".
       expect(sql).toContain('AND FALSE')
     })
+  })
+
+  // A logging side-effect must not decide the caller's result: awaited, a
+  // failure inside the probe turned a legitimate empty district into an error.
+  it('still returns an empty result when the zero-count diagnostic probe throws', async () => {
+    mockDistrictService.findDistrictById.mockResolvedValue({
+      id: 'district-1',
+      type: 'City',
+      name: 'NOWHERE',
+      state: 'WY',
+    })
+    mockClient.$transaction.mockResolvedValue([0, [{ voter_count: 0n }]])
+    mockClient.$queryRaw.mockRejectedValue(new Error('statement timeout'))
+    mockStatsService.findTotalCounts.mockResolvedValue(null)
+
+    const result = await service.findPeople({
+      districtId: 'district-1',
+      filters: { filters: [], filterOperators: {} },
+      resultsPerPage: 25,
+      page: 1,
+    } as never)
+
+    // The point is that it RESOLVES: before this, a throw inside the probe
+    // propagated out of findPeople and became an error response.
+    expect(result.pagination.totalResults).toBe(0)
+  })
+})
+
+// The Postgres fallback for environments with no Databricks credential. The
+// Databricks path has its own SQL test; this one is otherwise unexercised, and
+// the truncation guard in particular is a fencepost that fails silently.
+describe('findPrecincts (Postgres fallback)', () => {
+  let service: VoterQueryService
+  let mockClient: {
+    $queryRaw: ReturnType<typeof vi.fn>
+    $executeRaw: ReturnType<typeof vi.fn>
+    $transaction: ReturnType<typeof vi.fn>
+  }
+  let mockDistrictService: { findDistrictById: ReturnType<typeof vi.fn> }
+
+  const CITY_DISTRICT = {
+    id: '0e5bafca-93a9-86a5-2522-f373979720df',
+    type: 'City_Ward',
+    name: 'CHEYENNE CITY WARD 1',
+    state: 'WY',
+  }
+
+  const lastSql = (): string =>
+    (mockClient.$queryRaw.mock.calls.at(-1)?.[0] as Prisma.Sql).strings.join(
+      '?',
+    )
+
+  const build = (district = CITY_DISTRICT) => {
+    // The read runs under runUnderStatementTimeout, which issues the SET
+    // LOCAL and the query as one $transaction — so the mock needs all three.
+    mockClient = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      $transaction: vi
+        .fn()
+        .mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
+    }
+    mockDistrictService = {
+      findDistrictById: vi.fn().mockResolvedValue(district),
+    }
+    const built = new VoterQueryService(
+      {
+        enabled: false,
+        compare: (args: { primary: () => unknown }) => args.primary(),
+      } as never,
+      { samplePeople: vi.fn() } as never,
+      mockDistrictService as never,
+      { findTotalCounts: vi.fn(), findTotalConstituents: vi.fn() } as never,
+    )
+    ;(built as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
+      get instance() {
+        return mockClient
+      },
+    } as unknown as PeopleDbService
+    service = built
+    return built
+  }
+
+  const rows = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      county: 'LARAMIE',
+      precinct: String(i + 1).padStart(4, '0'),
+      voters: BigInt(count - i),
+    }))
+
+  it('returns each county/precinct pair with a numeric voter count', async () => {
+    build()
+    mockClient.$queryRaw.mockResolvedValue([
+      { county: 'LARAMIE', precinct: '0001', voters: BigInt(927) },
+    ])
+
+    const result = await service.findPrecincts(CITY_DISTRICT.id)
+
+    expect(result.options).toEqual([
+      { county: 'LARAMIE', precinct: '0001', voters: 927 },
+    ])
+    expect(result.truncated).toBe(false)
+  })
+
+  // The Unknown bucket. A SQL NULL precinct has to survive as '' so the pair
+  // encodes to `COUNTY|` and round-trips through the filter; dropping it would
+  // hide every voter with no precinct on file.
+  it('coalesces a null precinct to the empty-string sentinel', async () => {
+    build()
+    mockClient.$queryRaw.mockResolvedValue([
+      { county: 'LARAMIE', precinct: null, voters: BigInt(10) },
+    ])
+
+    const { options } = await service.findPrecincts(CITY_DISTRICT.id)
+
+    expect(options).toEqual([{ county: 'LARAMIE', precinct: '', voters: 10 }])
+  })
+
+  it('coalesces a null county rather than dropping the row', async () => {
+    build()
+    mockClient.$queryRaw.mockResolvedValue([
+      { county: null, precinct: '0001', voters: BigInt(3) },
+    ])
+
+    const { options } = await service.findPrecincts(CITY_DISTRICT.id)
+
+    expect(options[0]?.county).toBe('')
+  })
+
+  it('reports the full list as untruncated at exactly the cap', async () => {
+    build()
+    mockClient.$queryRaw.mockResolvedValue(rows(MAX_PRECINCT_OPTIONS))
+
+    const result = await service.findPrecincts(CITY_DISTRICT.id)
+
+    expect(result.truncated).toBe(false)
+    expect(result.options).toHaveLength(MAX_PRECINCT_OPTIONS)
+  })
+
+  // The statement asks for cap + 1 purely so this comparison can distinguish a
+  // full list from a clipped one; the probe row must never reach the client.
+  it('drops the probe row and flags truncation one past the cap', async () => {
+    build()
+    mockClient.$queryRaw.mockResolvedValue(rows(MAX_PRECINCT_OPTIONS + 1))
+
+    const result = await service.findPrecincts(CITY_DISTRICT.id)
+
+    expect(result.truncated).toBe(true)
+    expect(result.options).toHaveLength(MAX_PRECINCT_OPTIONS)
+  })
+
+  it('joins DistrictVoter for a district-scoped read', async () => {
+    build()
+
+    await service.findPrecincts(CITY_DISTRICT.id)
+
+    expect(lastSql()).toContain('"green"."DistrictVoter"')
+    expect(lastSql()).toContain('GROUP BY v."County", v."Precinct"')
+  })
+
+  // resolveDistrict nulls the districtId when type === 'State' && name ===
+  // state, so a statewide read is a partition-pruned scan with no junction.
+  it('drops the junction join on the voter-only path', async () => {
+    build({ id: 'state-wy', type: 'State', name: 'WY', state: 'WY' })
+
+    await service.findPrecincts('state-wy')
+
+    expect(lastSql()).not.toContain('DistrictVoter')
+    expect(lastSql()).toContain('"green"."Voter" v')
+  })
+
+  // The option list is the dimension's vocabulary: if it narrowed with the
+  // other filters, a precinct already selected could vanish from the list.
+  it('applies no filter predicates', async () => {
+    build()
+
+    await service.findPrecincts(CITY_DISTRICT.id)
+
+    expect(lastSql()).not.toContain('Voter_Status')
+    expect(lastSql()).not.toContain('Parties_Description')
   })
 })

@@ -6,6 +6,7 @@ import {
 import { ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
@@ -21,10 +22,20 @@ import type {
 } from './campaignStoryIntake.service'
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import type { ElectionsService } from '@/elections/services/elections.service'
 import type { FeaturesService } from '@/features/services/features.service'
+import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
+
+// Native web search has no description; every other registered tool does.
+const descriptionOf = (tool: LlmTool | undefined): string => {
+  if (!tool || !('description' in tool)) {
+    throw new Error('expected a tool with a description')
+  }
+  return tool.description
+}
 
 const buildHandler = (provider?: DatabricksProvider): CampaignManagerHandler =>
   new CampaignManagerHandler(
@@ -42,14 +53,22 @@ const ctxWith = (
   candidateName: '',
   campaignId: null,
   officeName: null,
+  district: null,
+  officeLevel: null,
   location: null,
   weeksToElection: null,
+  ballotStatus: null,
+  filingPeriodStart: null,
+  filingPeriodEnd: null,
+  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
   organization: null,
   crmToolsEnabled: false,
   savedFilterToolsEnabled: false,
+  raceId: null,
+  webSearchEnabled: true,
   story: null,
   plan: null,
   ...over,
@@ -87,6 +106,16 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
   it('omits them when no Databricks provider is configured', () => {
     const tools = buildHandler(undefined).buildTools(ctxWith(ENABLED))
     expect(Object.keys(tools)).not.toContain('query_constituent_data')
+  })
+
+  it('registers mart tools whose descriptions carry the shared routing rules', () => {
+    const tools = buildHandler(fakeProvider).buildTools(ctxWith(ENABLED))
+    expect(descriptionOf(tools.query_constituent_data)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+    expect(descriptionOf(tools.describe_constituent_data)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
   })
 })
 
@@ -206,6 +235,16 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(Object.keys(tools)).toContain('count_contacts')
   })
 
+  it('registers CRM tools whose descriptions carry the shared routing rules', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
+    expect(descriptionOf(tools.describe_filter_dimensions)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+    expect(descriptionOf(tools.count_contacts)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+  })
+
   it('omits both when the win-crm flag is off', () => {
     const tools = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, crmToolsEnabled: false }),
@@ -249,6 +288,121 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
   })
 
+  const buildBallotHandler = (
+    elections?: ElectionsService,
+  ): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      elections,
+    )
+
+  const ELECTIONS = {
+    fetchFilingFeeByRaceHash: vi.fn(() => Promise.resolve(null)),
+  } as unknown as ElectionsService
+
+  // details is untyped JSON at the read site, so an unparseable date must not
+  // reach the prompt as NaN -- it would slip past every null-guard downstream.
+  it.each(['2025-Q1', 'not a date', ''])(
+    'returns null day/week counts for the unparseable date %o',
+    async (bad) => {
+      const store = {
+        findFirst: vi.fn(() =>
+          Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
+        ),
+      } as unknown as GeneralChatStoreService
+      const campaigns = {
+        client: {
+          campaign: {
+            findFirst: vi.fn(() =>
+              Promise.resolve({
+                id: 5,
+                details: { electionDate: bad, filingPeriodsEnd: bad },
+                data: {},
+                user: null,
+              }),
+            ),
+          },
+          campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+          organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+        },
+      } as unknown as CampaignsService
+      const handler = new CampaignManagerHandler(
+        store,
+        campaigns,
+        {} as ChatStoreService,
+        WIN_CONSTITUENT_TABLES,
+      )
+
+      const ctx = await handler.loadContext('c1', 7)
+
+      expect(ctx.daysToFilingDeadline).toBeNull()
+      expect(ctx.weeksToElection).toBeNull()
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('NaN')
+    },
+  )
+
+  it('keeps web search available when the campaign does not resolve', async () => {
+    const store = {
+      findFirst: vi.fn(() => Promise.resolve(null)),
+    } as unknown as GeneralChatStoreService
+    const handler = new CampaignManagerHandler(
+      store,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+    const previous = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = 'sk-test'
+    try {
+      const ctx = await handler.loadContext('missing', 1)
+      expect(ctx.webSearchEnabled).toBe(true)
+      expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previous
+    }
+  })
+
+  it('registers web_search from the context flag, not the env directly', () => {
+    const handler = buildBallotHandler(ELECTIONS)
+    expect(
+      Object.keys(handler.buildTools(ctxWith({ webSearchEnabled: true }))),
+    ).toContain('web_search')
+    expect(
+      Object.keys(handler.buildTools(ctxWith({ webSearchEnabled: false }))),
+    ).not.toContain('web_search')
+  })
+
+  it('registers get_ballot_requirements when the race resolved', () => {
+    const tools = buildBallotHandler(ELECTIONS).buildTools(
+      ctxWith({ raceId: 'br-hash-1' }),
+    )
+    expect(Object.keys(tools)).toContain('get_ballot_requirements')
+  })
+
+  it('leaves get_ballot_requirements dark without a race hash', () => {
+    const tools = buildBallotHandler(ELECTIONS).buildTools(
+      ctxWith({ raceId: null }),
+    )
+    expect(Object.keys(tools)).not.toContain('get_ballot_requirements')
+  })
+
+  it('leaves get_ballot_requirements dark without the elections service', () => {
+    const tools = buildBallotHandler(undefined).buildTools(
+      ctxWith({ raceId: 'br-hash-1' }),
+    )
+    expect(Object.keys(tools)).not.toContain('get_ballot_requirements')
+  })
+
   const buildLoadContextHandler = (enabledFlags: string[]) => {
     const store = {
       findFirst: vi.fn(() =>
@@ -259,7 +413,7 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
       client: {
         campaign: {
           findFirst: vi.fn(() =>
-            Promise.resolve({ id: 5, details: {}, user: null }),
+            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
           ),
         },
         campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },

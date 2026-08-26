@@ -28,6 +28,11 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * GEOAPIFY_API_KEY (502), a Route Planner outage or a plan that doesn't cover
  * every stop (502), and unhandled 500s.
  *
+ * And, since 2026-08-25, a completion with NO status — see `noStatusFilter` in
+ * alerting/controller-alerts.ts. That is a request gp-api never answered, so
+ * it is a fault on any controller and it carries none of the 4xx noise this
+ * list exists to suppress.
+ *
  * The cost is real — a genuine bug that surfaces as a 4xx on these
  * controllers no longer pages, and nothing here can tell a designed 400 from
  * an accidental one. So add a controller only when its 4xx vocabulary is
@@ -195,6 +200,37 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Door-knocking has burned more than 10,000 Geoapify Route Planner credits in the last 6 hours — two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
       'Click *View in Grafana* to see the DoorKnockingSpend lines, then group by organizationSlug (`sum by (organizationSlug) (sum_over_time(... | unwrap credits [24h]))`) to find which organizations are driving it. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
       'If the spend is legitimate growth, raise the threshold deliberately. If one org is looping, pull its flag — there is no global cap in the code, so this alert is the only thing standing between a runaway and the Geoapify bill.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
+    slug: 'door-knocking-pack-build-failed',
+    name: '[Win] Door-knocking pack build failed mid-response',
+    type: 'log',
+    // GET /v1/door-knocking/pack commits a 200 and starts writing before it
+    // begins building, so the connection is never idle long enough for the
+    // gateway to kill it. The cost of that trade is that a build which fails
+    // AFTER the first byte can no longer be an HTTP error — the route alert
+    // sees a 200 and the browser sees a truncated stream. This is the only
+    // signal for it.
+    //
+    // Not folded into the route alert: that one keys on response_statusCode,
+    // and by construction this failure has a successful one.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Cheap line filter before | json, as the sibling log alerts do.
+      '|= "DoorKnockingPackBuildFailed"',
+      '| json',
+      '| event = "DoorKnockingPackBuildFailed"',
+      '[10m]))',
+    ].join(' '),
+    threshold: 0,
+    for: '1m',
+    message: [
+      'A door-knocking voter-map build failed after gp-api had already started the response, in the last 10 minutes.',
+      'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
+      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug and the underlying error. A `Code: 57014` there is the 25s people-db statement timeout on one of the pack\'s batches; anything else is an unhandled build failure.',
     ].join('\n\n'),
     notify: 'win-bugs',
   },

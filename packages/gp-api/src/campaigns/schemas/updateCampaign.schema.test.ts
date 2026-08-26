@@ -45,6 +45,23 @@ describe('updateCampaignBodySchema', () => {
     })
   })
 
+  it.each(['on-ballot', 'qualified-not-filed', 'considering', 'testing'])(
+    'persists onboarding ballotStatus "%s"',
+    (ballotStatus) => {
+      const result = updateCampaignBodySchema.parse({
+        details: { ballotStatus },
+      })
+
+      expect(result.details).toHaveProperty('ballotStatus', ballotStatus)
+    },
+  )
+
+  it('rejects an unknown ballotStatus', () => {
+    expect(() =>
+      updateCampaignBodySchema.parse({ details: { ballotStatus: 'maybe' } }),
+    ).toThrow()
+  })
+
   it('rejects an einNumber that is not in XX-XXXXXXX format', () => {
     expect(() =>
       updateCampaignBodySchema.parse({

@@ -17,6 +17,8 @@ const flowProps: {
     previewPending: boolean
     previewFailed: boolean
     previewStale: boolean
+    savedLists: { id: number; name: string; households: number | null }[]
+    allContactsHouseholds: number | null
   } | null
 } = { current: null }
 vi.mock('./createFlow/CreateListFlow', () => ({
@@ -26,6 +28,8 @@ vi.mock('./createFlow/CreateListFlow', () => ({
     previewPending: boolean
     previewFailed: boolean
     previewStale: boolean
+    savedLists: { id: number; name: string; households: number | null }[]
+    allContactsHouseholds: number | null
     onShowAddresses: () => void
     onHideAddresses: () => void
     onStepChange: (step: CreateFlowStep) => void
@@ -63,6 +67,22 @@ const mockPreview = () => {
   })
 }
 
+// Three households on two dots, two of them Democratic — the same shape the
+// page's own pack fixture has, so the counts below are readable.
+const pack = {
+  manifest: {
+    version: 1,
+    generatedAt: '2026-08-20T12:00:00Z',
+    counts: { people: 4, households: 3, dots: 2 },
+    dims: [{ key: 'party', values: ['Unknown', 'Democratic', 'Republican'] }],
+    arrays: [],
+  },
+  positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
+  personToHousehold: new Uint32Array([0, 0, 1, 2]),
+  householdToDot: new Uint32Array([0, 0, 1]),
+  dimPlanes: new Map([['party', new Uint8Array([1, 1, 1, 2])]]),
+}
+
 const ringA: PolygonRing = [
   [-87.67, 41.885],
   [-87.63, 41.885],
@@ -85,6 +105,8 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     drawPointCount={3}
     onUndoPoint={vi.fn()}
     onClearPoints={vi.fn()}
+    color="#2563eb"
+    onColorChange={vi.fn()}
     onSaved={onSaved}
     isElectedOfficial={false}
     unpreviewableKeys={[]}
@@ -170,6 +192,52 @@ describe('CreateListSurface seam', () => {
     await waitFor(() => expect(flowProps.current?.addressPreview).toBeNull())
     expect(onSaved).toHaveBeenCalledWith(true)
   })
+
+  // The who step's picker, counted against the same pack the map is drawn
+  // from. Both reads are the page's own query keys, which is the point: the
+  // saved lists are already warm and the pack is emphatically not this
+  // surface's to fetch.
+  it('counts the saved lists off the pack the page already holds', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 4, name: 'Democrats', partyDemocrat: true }],
+    })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    render(surface())
+
+    await waitFor(() =>
+      expect(flowProps.current?.savedLists).toEqual([
+        {
+          id: 4,
+          name: 'Democrats',
+          households: 2,
+          filters: { partyDemocrat: true },
+        },
+      ]),
+    )
+    expect(flowProps.current?.allContactsHouseholds).toBe(3)
+  })
+
+  // A pack fetch here would be a second tens-of-MB download of what the page
+  // already gates the whole feature on, so the observer is read-only.
+  it('fetches no pack of its own, and offers the lists uncounted until one lands', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 4, name: 'Democrats', partyDemocrat: true }],
+    })
+
+    render(surface())
+
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+    expect(flowProps.current?.savedLists[0]?.households).toBeNull()
+    expect(flowProps.current?.allContactsHouseholds).toBeNull()
+    expect(
+      fetchSpy.mock.calls.filter(([input]) => String(input).includes('/pack')),
+    ).toHaveLength(0)
+    fetchSpy.mockRestore()
+  })
 })
 
 // The surface's other half: what the draw step asks of the canvas. It lives in
@@ -186,9 +254,18 @@ describe('useCreateListDraw', () => {
         data-undo={String(draw.undoDrawToken)}
         data-points={String(draw.pointCount)}
         data-hint={String(draw.hintVisible)}
+        data-color={draw.drawColor}
+        data-frame={String(draw.frameDrawToken)}
+        data-frame-bottom={String(draw.frameDrawBottomPct)}
       >
         <button type="button" onClick={draw.startDrawing}>
           start
+        </button>
+        <button type="button" onClick={draw.frameDrawing}>
+          frame
+        </button>
+        <button type="button" onClick={() => draw.onDrawColorChange('#16a34a')}>
+          pick green
         </button>
         <button type="button" onClick={draw.clearPoints}>
           clear points
@@ -244,6 +321,44 @@ describe('useCreateListDraw', () => {
 
     rerender(<Probe step="confirm" />)
     expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'false')
+  })
+
+  // The colour lives here rather than in the confirm step because the CANVAS
+  // draws the ring in it, and the canvas outlives the flow — the same rule the
+  // draw tokens follow. Leaving the flow has to put it back by hand, which is
+  // what the unmounted `useState` used to do for free.
+  it('holds the chosen colour, and resets it when the flow is left', () => {
+    render(<Probe step="confirm" />)
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#2563eb')
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick green' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#16a34a')
+
+    // Clear is a restarted drawing session, so the colour survives it — the
+    // candidate is still cutting the same list.
+    fireEvent.click(screen.getByRole('button', { name: 'clear points' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#16a34a')
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear drawing' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#2563eb')
+  })
+
+  // The framing is a request, not a reaction to the ring: the canvasser is the
+  // one aiming the camera while they draw, and only a step that has just covered
+  // the map needs the shape put back in view.
+  it('asks for a fit only when a step asks, and states what it covers', () => {
+    render(<Probe step="confirm" />)
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '0')
+    // The confirm sheet uncovers the top 30%, so 70% of the map is what the
+    // camera has to pad around. Derived from the sheet's own constant, so the
+    // two cannot drift.
+    expect(screen.getByTestId('draw')).toHaveAttribute(
+      'data-frame-bottom',
+      '70',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'frame' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '1')
   })
 
   it('bumps undo and clear-drawing on their own tokens', () => {

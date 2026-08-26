@@ -1,13 +1,21 @@
+import { Readable } from 'node:stream'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
   ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
+import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
 import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
 import {
@@ -364,15 +372,28 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(409)
     })
 
+    const envelopeFor = (routeId: number) =>
+      service.prisma.outreach.findFirstOrThrow({
+        where: { doorKnockingRouteId: routeId },
+      })
+
     // Archived is a shelf the client renders differently, not a hidden state:
     // the row keeps coming back so there is something to restore, and so the
     // print path can still resolve the list's name.
-    it('archives and restores, leaving the row in the list either way', async () => {
-      const { turf } = await knockedTurf()
+    //
+    // Both directions mirror onto the envelope, in the same transaction as the
+    // turf. Restore is the half that is easy to forget: an archive that mirrors
+    // and a restore that does not leaves the two rows disagreeing again, one
+    // press later.
+    it('archives and restores, moving the outreach envelope with the list', async () => {
+      const { turf, routeId } = await knockedTurf()
 
       const archived = await setArchived(turf.id, true)
       expect(archived.status).toBe(201)
       expect(archived.data.archivedAt).not.toBeNull()
+      expect((await envelopeFor(routeId)).archivedAt?.toISOString()).toBe(
+        archived.data.archivedAt,
+      )
 
       const list = await service.client.get(
         '/v1/door-knocking/turfs',
@@ -383,16 +404,90 @@ describe('door-knocking routes', () => {
 
       const restored = await setArchived(turf.id, false)
       expect(restored.data.archivedAt).toBeNull()
+      expect((await envelopeFor(routeId)).archivedAt).toBeNull()
     })
 
     // Same reasoning as completing twice: the card renders "archived since".
-    it('archiving twice keeps the original timestamp', async () => {
-      const { turf } = await knockedTurf()
+    // The envelope is held to it too — the mirror runs on every call, so it
+    // writes the turf's existing stamp rather than a fresh `now`.
+    it('archiving twice keeps the original timestamp on both rows', async () => {
+      const { turf, routeId } = await knockedTurf()
 
       const first = await setArchived(turf.id, true)
+      const mirrored = (await envelopeFor(routeId)).archivedAt
       const second = await setArchived(turf.id, true)
 
       expect(second.data.archivedAt).toBe(first.data.archivedAt)
+      expect((await envelopeFor(routeId)).archivedAt).toEqual(mirrored)
+    })
+
+    // The drift this mirror exists to end, in the state prod is already in:
+    // lists archived before the mirror shipped have an envelope that never
+    // followed. Pressing Archive again is the only repair a candidate has, so
+    // the mirror runs ahead of the idempotence guard rather than behind it.
+    it('mirrors a list archived before the envelope was ever joined to it', async () => {
+      const { turf, routeId } = await knockedTurf()
+      const archivedAt = new Date('2026-08-01T00:00:00.000Z')
+      await service.prisma.doorKnockingTurf.update({
+        where: { id: turf.id },
+        data: { archivedAt },
+      })
+
+      const res = await setArchived(turf.id, true)
+
+      expect(res.status).toBe(201)
+      // The repair must not cost the original date on the way through.
+      expect(res.data.archivedAt).toBe(archivedAt.toISOString())
+      expect((await envelopeFor(routeId)).archivedAt).toEqual(archivedAt)
+    })
+
+    // A Serve org knocks without a campaign, so the knock transaction never
+    // creates an envelope. Nothing to mirror is the normal outcome there, not
+    // an error — hence updateMany rather than update.
+    it('archives a list for an organization that has no outreach envelope', async () => {
+      const suffix = Date.now()
+      const eoSlug = `eo-dk-archive-${suffix}`
+      await service.prisma.organization.create({
+        data: {
+          slug: eoSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      const eoFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: eoSlug, name: 'EO archive audience' },
+      })
+      const eoHeaders = { headers: { 'x-organization-slug': eoSlug } }
+      const created = await service.client.post(
+        '/v1/door-knocking/turfs',
+        {
+          voterFileFilterId: eoFilter.id,
+          name: 'EO archive turf',
+          color: '#3355ff',
+          geoPoly: GEO_POLY,
+        },
+        eoHeaders,
+      )
+      stubVendors()
+      const knocked = await service.client.post(
+        `/v1/door-knocking/turfs/${created.data.id}/knock`,
+        { mode: 'walk', loop: false },
+        eoHeaders,
+      )
+      expect(
+        await service.prisma.outreach.count({
+          where: { doorKnockingRouteId: knocked.data.route.id },
+        }),
+      ).toBe(0)
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${created.data.id}/archive`,
+        { archived: true },
+        { ...eoHeaders, validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(201)
+      expect(res.data.archivedAt).not.toBeNull()
     })
 
     it('hard-deletes an unknocked list, because there is nothing to keep', async () => {
@@ -1136,7 +1231,7 @@ describe('door-knocking routes', () => {
               maritalStatus: 'Likely Married',
               hasChildrenUnder18: 'Yes',
               veteranStatus: 'Yes',
-              homeowner: 'Likely',
+              homeowner: 'Homeowner',
               businessOwner: null,
               levelOfEducation: 'Graduate Degree',
               estimatedIncomeAmount: 82000,
@@ -1238,7 +1333,7 @@ describe('door-knocking routes', () => {
         maritalStatus: 'Likely Married',
         hasChildrenUnder18: 'Yes',
         veteranStatus: 'Yes',
-        homeowner: 'Likely',
+        homeowner: 'Homeowner',
         // Presence-only: absent stays null, never 'No'.
         businessOwner: null,
         levelOfEducation: 'Graduate Degree',
@@ -1604,6 +1699,20 @@ describe('door-knocking routes', () => {
             voicemailLeftAt: new Date('2026-07-02T10:01:00Z'),
           },
         })
+        // ENG-10944: phone banking is a household-fanned-out channel like
+        // door knocking — this asserts a phone-banked household member's
+        // call shows up in their own history, in the same merged vocabulary
+        // as text/robocall/status-change.
+        await service.prisma.contactInteractionPhoneBanking.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+            actorUserId: service.user.id,
+          },
+        })
         await service.prisma.contactStatusEvent.create({
           data: {
             organizationSlug: orgSlug,
@@ -1624,11 +1733,20 @@ describe('door-knocking routes', () => {
           'STATUS_CHANGE',
           'TEXT',
           'ROBOCALL',
+          'PHONE_BANKING',
         ])
         // The labels are resolveContactStatusLabel's, the same ones the CRM
         // person view renders — not a door-knocking translation of the enum.
         expect(history?.[0]).toMatchObject({
           data: { fromLabel: 'Off', toLabel: 'On' },
+        })
+        expect(history?.[3]).toMatchObject({
+          data: {
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+            actorName: 'Johnny Goodparty',
+            actorUserId: service.user.id,
+          },
         })
       })
 
@@ -1677,6 +1795,226 @@ describe('door-knocking routes', () => {
         const { res } = await knockAndServe()
 
         expect(historyFor(res, PERSON_1)).toEqual([])
+      })
+    })
+
+    // ADR 0011. Notes ride the payload for the reason the feed does: the
+    // at-the-door sheet is fetch-free, so anything it cannot show from what
+    // the walk opened with is not there when a canvasser is out of signal.
+    describe('resident notes (ADR 0011)', () => {
+      const notesFor = (res: { data: { stops: unknown } }, personId: string) =>
+        (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{
+                personId: string
+                notes: {
+                  entries: Array<{
+                    id: string
+                    personId: string
+                    body: string
+                    createdAt: string
+                    updatedAt: string
+                  }>
+                  total: number
+                }
+              }>
+            }>
+          }>
+        )
+          .flatMap((stop) => stop.addresses)
+          .flatMap((address) => address.targets)
+          .find((target) => target.personId === personId)?.notes
+
+      const writeNotes = (
+        personId: string,
+        notes: Array<{ body: string; createdAt: string; updatedAt?: string }>,
+      ) =>
+        service.prisma.contactNote.createMany({
+          data: notes.map((note) => ({
+            organizationSlug: orgSlug,
+            personId,
+            body: note.body,
+            createdAt: new Date(note.createdAt),
+            updatedAt: new Date(note.updatedAt ?? note.createdAt),
+          })),
+        })
+
+      // Empty and absent are different claims, and this is the one that pins
+      // it: the server always sends the block, so a missing `notes` key means
+      // "this payload predates the field" rather than "nobody wrote anything".
+      it('serves an empty block for a resident with no notes', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(notesFor(res, PERSON_2)).toEqual({ entries: [], total: 0 })
+      })
+
+      it('orders notes newest first, with both timestamps', async () => {
+        await writeNotes(PERSON_1, [
+          {
+            body: 'Asked about the sidewalk repairs',
+            createdAt: '2026-06-01T10:00:00Z',
+          },
+          {
+            body: 'Dog in the front yard, use the side gate',
+            createdAt: '2026-07-01T10:00:00Z',
+            // An edited note keeps its place in the list — ordering is by when
+            // it was written, so fixing a typo does not resurface an old note.
+            updatedAt: '2026-07-20T09:30:00Z',
+          },
+          { body: 'Wants a yard sign', createdAt: '2026-06-15T10:00:00Z' },
+        ])
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)).toMatchObject({
+          total: 3,
+          entries: [
+            {
+              body: 'Dog in the front yard, use the side gate',
+              createdAt: '2026-07-01T10:00:00.000Z',
+              updatedAt: '2026-07-20T09:30:00.000Z',
+            },
+            {
+              body: 'Wants a yard sign',
+              createdAt: '2026-06-15T10:00:00.000Z',
+              updatedAt: '2026-06-15T10:00:00.000Z',
+            },
+            {
+              body: 'Asked about the sidewalk repairs',
+              createdAt: '2026-06-01T10:00:00.000Z',
+            },
+          ],
+        })
+      })
+
+      // The id is what makes the note editable and deletable from the door,
+      // and it is the CRM's own row id rather than anything derived here — the
+      // webapp posts it straight back to `PATCH/DELETE contacts/notes/:id`.
+      it('carries the CRM note id and personId through unchanged', async () => {
+        await writeNotes(PERSON_1, [
+          { body: 'Back door only', createdAt: '2026-07-01T10:00:00Z' },
+        ])
+        const saved = await service.prisma.contactNote.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: PERSON_1 },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)?.entries[0]).toMatchObject({
+          id: saved.id,
+          personId: PERSON_1,
+        })
+      })
+
+      // The same reason the feed is keyed by personId: two people behind one
+      // door are two records, and free text written about one of them read
+      // against the other is worse material to get wrong than an outcome.
+      it('scopes notes to the resident, not the household', async () => {
+        await writeNotes(PERSON_1, [
+          {
+            body: 'Supportive, wants a sign',
+            createdAt: '2026-07-01T10:00:00Z',
+          },
+        ])
+        await writeNotes(PERSON_2, [
+          {
+            body: 'Asked us not to come back',
+            createdAt: '2026-07-02T10:00:00Z',
+          },
+        ])
+
+        const { res } = await knockAndServe()
+
+        // PERSON_1 and PERSON_2 share PIPED_KEY — one address, one door.
+        expect(notesFor(res, PERSON_1)?.entries.map((n) => n.body)).toEqual([
+          'Supportive, wants a sign',
+        ])
+        expect(notesFor(res, PERSON_2)?.entries.map((n) => n.body)).toEqual([
+          'Asked us not to come back',
+        ])
+      })
+
+      // The cap bounds the payload; `total` is what stops the capped list
+      // reading as the whole record. Without it the sheet would show three
+      // notes out of nine and say nothing about the other six.
+      it(`caps at ${ROUTE_TARGET_NOTE_LIMIT} newest and reports the true total`, async () => {
+        await writeNotes(
+          PERSON_1,
+          Array.from({ length: 9 }, (_, index) => ({
+            body: `Note ${index + 1}`,
+            createdAt: `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00Z`,
+          })),
+        )
+
+        const { res } = await knockAndServe()
+
+        const notes = notesFor(res, PERSON_1)
+        expect(notes?.entries).toHaveLength(ROUTE_TARGET_NOTE_LIMIT)
+        expect(notes?.entries.map((n) => n.body)).toEqual([
+          'Note 9',
+          'Note 8',
+          'Note 7',
+        ])
+        expect(notes?.total).toBe(9)
+      })
+
+      // A resident sitting exactly on the cap is the case a renderer inferring
+      // truncation from `entries.length` gets wrong, so the payload has to be
+      // unambiguous about it.
+      it('reports no truncation for a resident sitting on the cap', async () => {
+        await writeNotes(
+          PERSON_1,
+          Array.from({ length: ROUTE_TARGET_NOTE_LIMIT }, (_, index) => ({
+            body: `Note ${index + 1}`,
+            createdAt: `2026-07-0${index + 1}T10:00:00Z`,
+          })),
+        )
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)?.total).toBe(ROUTE_TARGET_NOTE_LIMIT)
+      })
+
+      it("never leaks another organization's notes", async () => {
+        const otherSlug = `campaign-notes-elsewhere-${Date.now()}`
+        await service.prisma.organization.create({
+          data: {
+            slug: otherSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        await service.prisma.contactNote.create({
+          data: {
+            organizationSlug: otherSlug,
+            personId: PERSON_1,
+            body: 'Another campaign wrote this',
+          },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(notesFor(res, PERSON_1)).toEqual({ entries: [], total: 0 })
+      })
+
+      // The serve is this feature's heaviest read and runs on every walk open
+      // and every map open, so notes are fetched for the whole route at once.
+      // One call carrying every target's personId is what rules out the
+      // per-target fetch; the service turns that into a single windowed
+      // statement rather than a query per person.
+      it('reads every target in one call rather than one per target', async () => {
+        const notesService = service.app.get(DoorKnockingNotesService)
+        const spy = vi.spyOn(notesService, 'notesByPersonId')
+
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(spy).toHaveBeenCalledTimes(1)
+        expect(spy.mock.calls[0]?.[1]).toEqual(
+          expect.arrayContaining([PERSON_1, PERSON_2, PERSON_3, PERSON_4]),
+        )
       })
     })
 
@@ -2841,6 +3179,30 @@ describe('door-knocking routes', () => {
     })
   })
   describe('pack', () => {
+    const packBytes = Buffer.from([1, 2, 3, 4])
+
+    // Reads the streaming envelope: magic, then frames, and returns the
+    // payload of the pack frame. Mirrors the webapp's packDecoder.
+    const unwrapPack = (body: Buffer) => {
+      expect(body.subarray(0, PACK_STREAM_MAGIC_BYTES).toString('ascii')).toBe(
+        PACK_STREAM_MAGIC,
+      )
+      let offset = PACK_STREAM_MAGIC_BYTES
+      while (offset + PACK_STREAM_FRAME_HEADER_BYTES <= body.byteLength) {
+        const kind = body.readUInt32LE(offset)
+        const payloadBytes = body.readUInt32LE(offset + 4)
+        const start = offset + PACK_STREAM_FRAME_HEADER_BYTES
+        if (kind === PACK_STREAM_FRAME_KINDS.pack) {
+          return body.subarray(start, start + payloadBytes)
+        }
+        offset =
+          start +
+          Math.ceil(payloadBytes / PACK_STREAM_ALIGNMENT) *
+            PACK_STREAM_ALIGNMENT
+      }
+      throw new Error('no pack frame in the response')
+    }
+
     it('proxies the binary and threads org knock statuses', async () => {
       const personId = '77777777-1111-1111-1111-111111111111'
       await service.prisma.contactInteractionDoorKnock.create({
@@ -2852,7 +3214,6 @@ describe('door-knocking routes', () => {
           supportAnswer: 'supporter',
         },
       })
-      const packBytes = Buffer.from([1, 2, 3, 4])
       let packRequest: DoorKnockingPackRequest | undefined
       vi.spyOn(
         service.app.get(DoorKnockingPeopleApiService),
@@ -2870,11 +3231,123 @@ describe('door-knocking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toContain('application/octet-stream')
-      expect(Buffer.from(res.data as ArrayBuffer)).toEqual(packBytes)
+      expect(unwrapPack(Buffer.from(res.data as ArrayBuffer))).toEqual(
+        packBytes,
+      )
       expect(packRequest?.knockStatuses).toEqual([
         { personId, status: 'supporter' },
       ])
       expect(packRequest?.districtId).toBe(DISTRICT_ID)
+    })
+
+    // The production defect, at the wire: the route used to await the whole
+    // build before sending anything, so the socket stayed idle for the length
+    // of a district scan and the gateway killed it at 120s with no status
+    // written. With the build held open below, a route that still buffered
+    // would never send headers and this request would never resolve.
+    it('sends the response head before the build has finished', async () => {
+      let finishBuild: (pack: Buffer) => void = () => undefined
+      let buildSettled = false
+      const packSpy = vi
+        .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
+        .mockImplementation(
+          () =>
+            new Promise<Buffer>((resolve) => {
+              finishBuild = (pack) => {
+                buildSettled = true
+                resolve(pack)
+              }
+            }),
+        )
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'stream',
+        validateStatus: () => true,
+      })
+      const body = res.data as Readable
+      const chunks: Buffer[] = []
+      const firstChunk = new Promise<void>((resolve) =>
+        body.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+          resolve()
+        }),
+      )
+      const ended = new Promise<void>((resolve) =>
+        body.once('end', () => resolve()),
+      )
+
+      expect(res.status).toBe(200)
+      await firstChunk
+      expect(buildSettled).toBe(false)
+      expect(
+        chunks[0]?.subarray(0, PACK_STREAM_MAGIC_BYTES).toString('ascii'),
+      ).toBe(PACK_STREAM_MAGIC)
+
+      // The head lands ahead of the people-db call, not just ahead of its
+      // result, so wait for the build to actually be in flight before
+      // releasing it.
+      await vi.waitFor(() => expect(packSpy).toHaveBeenCalled())
+      finishBuild(packBytes)
+      await ended
+      expect(unwrapPack(Buffer.concat(chunks))).toEqual(packBytes)
+    })
+
+    // A build that dies after the head is out cannot be an HTTP error, so the
+    // envelope has to carry the failure instead — otherwise the browser reads
+    // a truncated 200 as an empty district.
+    it('carries a post-head build failure as an error frame', async () => {
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockRejectedValue(new Error('people-db is down'))
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(200)
+      const body = Buffer.from(res.data as ArrayBuffer)
+      expect(() => unwrapPack(body)).toThrow('no pack frame')
+      expect(body.readUInt32LE(PACK_STREAM_MAGIC_BYTES)).toBe(
+        PACK_STREAM_FRAME_KINDS.error,
+      )
+    })
+
+    // Cancellation is wired to the response stream's `close`, which assumes
+    // Fastify destroys the stream it is sending when the client goes away. It
+    // does, but that is a fact about the adapter rather than about this code,
+    // so it is pinned here: without it the district scan outlives the browser
+    // and the next attempt contends with a build nobody is waiting for.
+    it('aborts the build when the client hangs up', async () => {
+      let buildSignal: AbortSignal | undefined
+      // Restored at the end: this build never resolves, and a later test that
+      // walks every gated route would hang on it.
+      const packSpy = vi
+        .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
+        .mockImplementation((_request, signal) => {
+          buildSignal = signal
+          return new Promise<Buffer>(() => undefined)
+        })
+
+      const abort = new AbortController()
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'stream',
+        signal: abort.signal,
+        validateStatus: () => true,
+      })
+      await new Promise<void>((resolve) =>
+        (res.data as Readable).once('data', () => resolve()),
+      )
+      await vi.waitFor(() => expect(buildSignal).toBeDefined())
+
+      abort.abort()
+
+      await vi.waitFor(() => expect(buildSignal?.aborted).toBe(true))
+      packSpy.mockRestore()
     })
   })
 
