@@ -452,12 +452,13 @@ Nothing was changed.
    the canvas says it twice and we say it once. The states where the bar would
    be absent are exactly the states where the button is disabled and carrying a
    different message anyway (`Tap 3 points to continue`, `1 more point to
-   continue`, `No doors in this area`).
+continue`, `No doors in this area`).
 
    Logged rather than edited in place, because "the count was defended on the
    Filters-CTA precedent and the owner rejected the precedent" is the useful
    record; an entry saying only "bare Continue" would invite the next reviewer
    to re-derive the argument and put the number back.
+
 10. **"Continue" rather than "Save and continue"** on the name step, for the
     same reason and already recorded in the step's own comment: the voter list is
     written with the turf, by the one save path on the confirm step, so nothing
