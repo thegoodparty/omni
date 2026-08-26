@@ -36,6 +36,7 @@ import {
   SIGN_UP_MODE,
 } from '../schemas/CreateUserInput.schema'
 import { hashPassword } from '../util/passwords.util'
+import { TEST_USER_DOMAIN } from '../util/users.util'
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
@@ -47,7 +48,6 @@ export type ResolvedActorIdentity =
 
 const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
-const TEST_USER_DOMAIN = '@test.goodparty.org'
 const CLERK_PAGE_SIZE = 500
 
 // Refusal shown to sales when an EO magic link targets an email that already
