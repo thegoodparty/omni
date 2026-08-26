@@ -188,6 +188,11 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
 
     expect(systemContent()).toContain('END with the spoken disclosure')
+    // The improve path must also normalize a digit-by-digit number, not just
+    // preserve whatever the original draft had.
+    expect(systemContent()).toContain(
+      'rewrite a digit-by-digit number into that grouped form',
+    )
     expect(userContent()).toContain(
       'Callback number to read aloud: 202-555-0147',
     )
