@@ -5,7 +5,7 @@ import { useTestService } from '@/test-service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
 import { RaceListItem } from '@goodparty_org/contracts'
-import { ForbiddenException } from '@nestjs/common'
+import { BadGatewayException, ForbiddenException } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { format } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -53,6 +53,11 @@ beforeEach(() => {
   } as unknown as Awaited<
     ReturnType<ClerkClient['sessions']['getToken']>
   >) as unknown as ReturnType<typeof vi.fn>
+  vi.spyOn(clerk.signInTokens, 'createSignInToken').mockResolvedValue({
+    token: 'fixture-ticket',
+  } as unknown as Awaited<
+    ReturnType<ClerkClient['signInTokens']['createSignInToken']>
+  >)
 
   vi.spyOn(service.app.get(RacesService), 'getRacesByZip').mockResolvedValue([
     RACE,
@@ -79,6 +84,7 @@ describe('createFixtureUser', () => {
     expect(result.campaignId).toBeDefined()
     expect(result.orgSlug).toBe(`campaign-${result.campaignId}`)
     expect(result.sessionToken).toBe('fixture-jwt')
+    expect(result.signInToken).toBe('fixture-ticket')
     expect(result.cookies).toEqual({
       token: 'fixture-jwt',
       user: expect.stringContaining(`"id":${result.userId}`),
@@ -151,6 +157,19 @@ describe('createFixtureUser', () => {
     })
     expect(org.positionId).toBe('pos_serve_9')
     expect(org.customPositionName).toBeNull()
+  })
+
+  it('502s when Clerk returns no sign-in token', async () => {
+    const clerk = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    vi.spyOn(clerk.signInTokens, 'createSignInToken').mockResolvedValue({
+      token: undefined,
+    } as unknown as Awaited<
+      ReturnType<ClerkClient['signInTokens']['createSignInToken']>
+    >)
+
+    await expect(
+      fixtures().createFixtureUser({ state: 'serve' }),
+    ).rejects.toBeInstanceOf(BadGatewayException)
   })
 
   it('serve-won-race: links office to campaign and stamps the win last', async () => {
@@ -236,6 +255,7 @@ describe('mintFixtureSession', () => {
     const session = await fixtures().mintFixtureSession(created.userId, {})
 
     expect(session.sessionToken).toBe('fixture-jwt')
+    expect(session.signInToken).toBe('fixture-ticket')
     expect(session.cookies['organization-slug']).toBe(created.orgSlug)
   })
 
