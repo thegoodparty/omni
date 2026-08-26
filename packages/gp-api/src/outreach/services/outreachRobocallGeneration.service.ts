@@ -81,22 +81,38 @@ const DISCLOSURE_RULE =
   'End the script, on its own final line, with the required spoken ' +
   'disclosure in this exact shape: "Paid for by " then the "paid for by" ' +
   'name given below, then a comma, then the callback number given below, ' +
-  'spoken so a listener can write it down. Never add "Reply STOP" or any ' +
-  'text-message opt-out — this is a recorded voice call, not a text.'
+  'written exactly as given (do not spell it out digit by digit). Never ' +
+  'add "Reply STOP" or any text-message opt-out — this is a recorded voice ' +
+  'call, not a text.'
 
 // Improve mode preserves specifics, so the disclosure reads as keep/add rather
 // than write-fresh.
 const IMPROVE_DISCLOSURE_RULE =
   'The script must END with the spoken disclosure — who paid for the call ' +
   '(the "paid for by" name given below) and the callback number given ' +
-  'below. Keep it if the original has it, add it if missing. Never add ' +
-  '"Reply STOP" or any text-message opt-out — this is a recorded voice call.'
+  'below, written as given (do not spell it out digit by digit). Keep it ' +
+  'if the original has it, add it if missing, and rewrite a digit-by-digit ' +
+  'number into that grouped form. Never add "Reply STOP" or any ' +
+  'text-message opt-out — this is a recorded voice call.'
 
 const LENGTH_RULE =
   'Keep the whole script short: about 40 to 75 words, four or five short ' +
   'sentences of spoken, conversational prose. A recorded call is capped ' +
   'at 60 seconds, and a shorter call holds attention better (no hashtags, ' +
   'no links, no headings).'
+
+// Format the rented number as a plain grouped US number (XXX-XXX-XXXX,
+// dropping a country-code 1) so the drafted disclosure reads "414-485-8077"
+// instead of the model spelling out each digit. Falls back to the raw value
+// for anything that is not a 10- or 11-digit US number.
+const formatCallbackNumber = (raw: string): string => {
+  const digits = raw.replace(/\D/g, '')
+  const local =
+    digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+  return local.length === 10
+    ? `${local.slice(0, 3)}-${local.slice(3, 6)}-${local.slice(6)}`
+    : raw
+}
 
 const draftSystemPrompt = (complianceLine: string): string =>
   [
@@ -185,7 +201,9 @@ export class OutreachRobocallGenerationService {
       ...(input.callbackNumber
         ? [
             `"Paid for by" name: ${paidForBy}.`,
-            `Callback number to read aloud: ${input.callbackNumber}.`,
+            `Callback number to read aloud: ${formatCallbackNumber(
+              input.callbackNumber,
+            )}.`,
           ]
         : []),
       ...campaignContext,
