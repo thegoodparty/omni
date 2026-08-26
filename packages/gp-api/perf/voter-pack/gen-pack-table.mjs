@@ -10,7 +10,7 @@ import { Readable } from 'node:stream'
 
 const ROWS = Number(process.env.ROWS ?? 300_000)
 const URL =
-  process.env.PGURL ?? 'postgres://postgres:pw@localhost:55439/peopledb'
+  process.env.PGURL ?? 'postgres://postgres:pw@localhost:5599/peopledb'
 
 let seed = 0x9e3779b9
 const rnd = () => {

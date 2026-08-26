@@ -17,6 +17,9 @@ production".
 
 No VPN and no credentials — a throwaway local Postgres is the whole setup.
 
+Both scripts default to `postgres://postgres:pw@localhost:5599/peopledb` and
+take `PGURL` as an override, so the container can live anywhere.
+
 ```bash
 docker run -d --name dkhpg -e POSTGRES_PASSWORD=pw -p 5599:5432 postgres:16
 ROWS=700000 node perf/voter-pack/gen-pack-table.mjs   # → 601,820 mappable rows

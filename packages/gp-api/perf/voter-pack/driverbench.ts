@@ -23,7 +23,7 @@ import Cursor from 'pg-cursor'
 import { PerformanceObserver } from 'node:perf_hooks'
 
 const URL =
-  process.env.PGURL ?? 'postgres://postgres:pw@localhost:55439/peopledb'
+  process.env.PGURL ?? 'postgres://postgres:pw@localhost:5599/peopledb'
 const FETCH_SIZE = Number(process.env.FETCH_SIZE ?? 50_000)
 const DISTRICT = 'tx-collin-county'
 
