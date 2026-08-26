@@ -509,13 +509,63 @@ whose correction someone will later want to trace.
 
 `GET /v1/door-knocking/pack` (gp-api), served in-process by `src/peopleDb/`.
 Built per request from people_db, **still never stored** — see "Why it is
-still built per request" below: positions + person→household→dot index arrays
+still built per request" below. It carries positions, the person→household→dot
+index arrays, and one byte per person per dimension (SoA). Dim buckets are
+derived by inverting `src/peopleDb`'s `VALUE_MAPPERS`, so pack filtering can't
+drift from list-filter semantics. Map-minimal SELECT: no AddressLine, accuracy
+in WHERE only (v1 = `GeoMatchRooftop` only), `registered` computed as
+`(StateVoterID IS NOT NULL)`.
 
-- one byte per person per dimension (SoA). Dim buckets are derived by
-  inverting `src/peopleDb`'s `VALUE_MAPPERS`, so pack filtering can't drift from
-  list-filter semantics. Map-minimal SELECT: no AddressLine, accuracy in WHERE
-  only (v1 = `GeoMatchRooftop` only), `registered` computed as
-  `(StateVoterID IS NOT NULL)`.
+### Age is cut from the filter keys, not chosen
+
+Every other dim inverts a `VALUE_MAPPERS` entry. Age can't: **ENG-10752 re-cut
+the bands and both generations of key are live**, a list saved before it
+carries `age18_25` and one saved after carries `age18_24`, and
+`voterFileFilter.utils.ts` deliberately keeps each key's original bounds
+because reinterpreting one would silently change an existing list's
+membership. There is no single set of "the age bands" to invert.
+
+Nor can the pack approximate. The map shades from these buckets while knock
+time evaluates the real ranges, so a bucket that is a near-miss for a key gives
+a map whose count disagrees with the list it is previewing — the
+two-denominator failure [ADR 0010](adr/0010-draw-time-address-preview.md)
+forbids. The old buckets did this twice: `age50_64` shaded `50_plus` (every 65+
+door the list would skip) and `age65Plus` had nowhere to map at all, which is
+what the disclosure sentence used to name.
+
+So contracts' `PackAgeBuckets.ts` **cuts at every boundary either generation
+uses**, and derives the buckets from `AGE_FILTER_KEY_RANGES` rather than
+declaring them:
+
+```
+ 18_24   25   26_34   35   36_49   50   51_64   65_plus
+ |--------- age18_25 ---|
+       |--------- age25_35 ---|
+                   |--------- age35_50 ---|
+                                |--------- age50Plus ------------|
+ |18_24-|  |-age25_34--|  |-age35_49--|  |-age50_64--|  |age65Plus|
+```
+
+Nine keys produce eight intervals, three of them a single year wide, because
+the retired keys share their inclusive edges (25 is in both `age18_25` and
+`age25_35`) and the current keys do not. Every key is then an exact union, and
+`voterFileFilter.utils.ts` builds its `ageInt` ranges from the same table — one
+source, two derivations, with a test that walks every key against every age
+from both sides.
+
+**The cost is about twenty bytes, once.** The plane is one byte per person
+either way and nine values is nowhere near the 256 a byte holds; only the
+manifest's value list grew. **`PACK_FORMAT_REVISION` is now 2** because the
+meaning of the shared district build changed, while the manifest's `version`
+stays at 1 because its framing did not — see
+[ADR 0014](adr/0014-the-voter-pack-has-two-versions.md) for why those are two
+different numbers.
+
+Single-year buckets are a **filtering** vocabulary. gp-webapp's
+`groupAgeSlices` rolls them into the current generation's five bands before any
+breakdown renders, so nobody is shown a "25" slice beside a "36–49" one, and
+the frozen-route breakdown reads the same table so a list can't re-shape its
+own age mix by being walked.
 
 ### Two planes are the campaign's, and the line matters
 

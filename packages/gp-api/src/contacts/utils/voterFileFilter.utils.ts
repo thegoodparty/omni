@@ -1,5 +1,24 @@
-import { INCOME_RANGE_MAPPING } from '@goodparty_org/contracts'
+import {
+  AGE_FILTER_KEY_RANGES,
+  type AgeFilterKey,
+  INCOME_RANGE_MAPPING,
+} from '@goodparty_org/contracts'
 import { VoterFileFilter } from '../../generated/prisma'
+
+// Both generations of age key, listed once so a segment can be read for them
+// without indexing it by a computed string. The bounds are NOT here — see the
+// age block below, and contracts' PackAgeBuckets.ts, which owns them.
+const AGE_FILTER_KEYS = [
+  'age18_25',
+  'age25_35',
+  'age35_50',
+  'age50Plus',
+  'age18_24',
+  'age25_34',
+  'age35_49',
+  'age50_64',
+  'age65Plus',
+] as const satisfies readonly AgeFilterKey[]
 
 type RangeCondition = {
   gte?: number
@@ -153,15 +172,7 @@ export const convertVoterFileFilterToFilters = (
     'genderMale',
     'genderFemale',
     'genderUnknown',
-    'age18_25',
-    'age25_35',
-    'age35_50',
-    'age50Plus',
-    'age18_24',
-    'age25_34',
-    'age35_49',
-    'age50_64',
-    'age65Plus',
+    ...AGE_FILTER_KEYS,
     'ageUnknown',
     'likelyMarried',
     'likelySingle',
@@ -274,18 +285,16 @@ export const convertVoterFileFilterToFilters = (
       genderValues.length === 1 ? { eq: genderValues[0] } : { in: genderValues }
   }
 
-  const ageRanges: Array<{ min: number; max: number | null }> = []
   // Retired keys keep the exact bounds they were saved with (ENG-10752) —
   // reinterpreting them would silently change existing lists' membership.
-  if (segment.age18_25) ageRanges.push({ min: 18, max: 25 })
-  if (segment.age25_35) ageRanges.push({ min: 25, max: 35 })
-  if (segment.age35_50) ageRanges.push({ min: 35, max: 50 })
-  if (segment.age50Plus) ageRanges.push({ min: 50, max: null })
-  if (segment.age18_24) ageRanges.push({ min: 18, max: 24 })
-  if (segment.age25_34) ageRanges.push({ min: 25, max: 34 })
-  if (segment.age35_49) ageRanges.push({ min: 35, max: 49 })
-  if (segment.age50_64) ageRanges.push({ min: 50, max: 64 })
-  if (segment.age65Plus) ageRanges.push({ min: 65, max: null })
+  // The bounds themselves live in contracts because the door-knocking pack
+  // cuts its age buckets from these same numbers (PackAgeBuckets.ts): the map
+  // shades what the buckets say and knock time serves what this builds, so a
+  // second copy of them is a second answer waiting to happen.
+  // Order is irrelevant — processNumericRanges sorts.
+  const ageRanges: NumericRange[] = AGE_FILTER_KEYS.filter(
+    (key) => segment[key],
+  ).map((key) => ({ ...AGE_FILTER_KEY_RANGES[key] }))
 
   if (ageRanges.length > 0) {
     const ageFilter = processNumericRanges(ageRanges)

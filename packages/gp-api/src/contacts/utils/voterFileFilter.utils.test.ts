@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import {
+  AGE_FILTER_KEY_RANGES,
+  AGE_KEY_TO_PACK_BUCKETS,
+  PACK_AGE_BUCKETS,
+  encodeAgeBucket,
+} from '@goodparty_org/contracts'
 import { convertVoterFileFilterToFilters } from './voterFileFilter.utils'
 
 // ENG-10752: the wizard offers mutually exclusive ranges; rows saved before
@@ -99,6 +105,62 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
     expect(
       convertVoterFileFilterToFilters({ age65Plus: true, ageUnknown: true }),
     ).toEqual({ ageInt: { gte: 65, _includeNull: true } })
+  })
+})
+
+// ADR 0010, for age. The door-knocking map shades from the pack's age buckets
+// while knock time sends the `ageInt` bounds above to people-api, so the two
+// have to select the same people for every key and every age — otherwise the
+// count under the map and the list it previews are two answers to one
+// question, which is worse than the honest "the map can't shade this" the
+// disclosure used to give for 65+.
+//
+// Both sides now read one table (contracts' AGE_FILTER_KEY_RANGES): this
+// conversion builds its ranges from it and PackAgeBuckets cuts the buckets
+// from it. This is the test that the derivation on each side actually lands
+// on the same people rather than merely sharing a source.
+describe('the pack buckets and the ageInt bounds select the same people', () => {
+  const AGES = Array.from({ length: 120 }, (_, age) => age)
+
+  // Just enough of the people-api range grammar to evaluate what this
+  // conversion emits for a single age key: one bound pair, or an _or of them.
+  const servesAge = (filter: unknown, age: number): boolean => {
+    const value = filter as {
+      gte?: number
+      lte?: number
+      _or?: Array<{ gte?: number; lte?: number }>
+    }
+    const within = ({ gte, lte }: { gte?: number; lte?: number }) =>
+      (gte === undefined || age >= gte) && (lte === undefined || age <= lte)
+    return value._or ? value._or.some(within) : within(value)
+  }
+
+  const keys = Object.keys(AGE_FILTER_KEY_RANGES) as Array<
+    keyof typeof AGE_FILTER_KEY_RANGES
+  >
+
+  it.each(keys)('%s', (key) => {
+    const { ageInt } = convertVoterFileFilterToFilters({ [key]: true })
+    const shaded = new Set(AGE_KEY_TO_PACK_BUCKETS[key])
+    for (const age of AGES) {
+      expect(
+        shaded.has(PACK_AGE_BUCKETS[encodeAgeBucket(age)] as string),
+        `age ${age}`,
+      ).toBe(servesAge(ageInt, age))
+    }
+  })
+
+  // A pack byte the filter cannot ask for would be a bucket the map can shade
+  // and no list can serve. Under-18 rows are the exception BY DESIGN: no age
+  // key matches them, and they encode as Unknown for exactly that reason.
+  it('leaves no bucket that no key can select', () => {
+    const selectable = new Set(
+      keys.flatMap((key) => AGE_KEY_TO_PACK_BUCKETS[key]),
+    )
+    for (const bucket of PACK_AGE_BUCKETS) {
+      if (bucket === 'Unknown') continue
+      expect(selectable.has(bucket), bucket).toBe(true)
+    }
   })
 })
 

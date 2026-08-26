@@ -9,7 +9,9 @@ const PEOPLE = Number(process.env.PEOPLE ?? 620_000)
 const HOUSEHOLDS = Number(process.env.HOUSEHOLDS ?? 290_000)
 const DOTS = Number(process.env.DOTS ?? 220_000)
 
-// 17 planes, matching PackEncoder's dim list and its bucket counts.
+// 18 planes, matching PackEncoder's dim list and its bucket counts. The last
+// two are the campaign's rather than the district's and are present only when
+// the organization has the history to fill them — this benches the worst case.
 const DIMS = [
   ['party', 8],
   ['gender', 3],
@@ -19,7 +21,10 @@ const DIMS = [
   ['homeowner', 3],
   ['educationLevel', 5],
   ['ethnicity', 8],
-  ['age', 5],
+  // Nine since the age re-cut (contracts' PackAgeBuckets). Bucket COUNT is
+  // all this bench cares about — the plane is a byte per person either way,
+  // so this only moves the manifest by a few dozen bytes.
+  ['age', 9],
   ['voterStatus', 5],
   ['income', 9],
   ['language', 3],
@@ -28,6 +33,7 @@ const DIMS = [
   ['hasCellPhone', 2],
   ['hasLandline', 2],
   ['canvassStatus', 7],
+  ['contactsMade', 6],
 ]
 
 let seed = 0x2f6e2b1

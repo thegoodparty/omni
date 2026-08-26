@@ -856,6 +856,7 @@ export {
   PACK_CONTACTS_MADE_MAX,
   PACK_FORMAT_REVISION,
   PACK_ARRAY_TYPES,
+  AGE_DIM_KEY,
   PACK_CORE_ARRAYS,
   PACK_STREAM_ALIGNMENT,
   PACK_STREAM_FRAME_HEADER_BYTES,
@@ -869,6 +870,18 @@ export {
   DoorKnockingPackManifestSchema,
   type DoorKnockingPackManifest,
 } from './doorKnocking/DoorKnockingPack.schema'
+
+export {
+  AGE_FILTER_KEY_RANGES,
+  type AgeFilterKey,
+  CURRENT_AGE_FILTER_KEYS,
+  PACK_AGE_UNKNOWN,
+  PACK_AGE_BUCKETS,
+  PACK_AGE_BANDS,
+  PACK_AGE_BUCKET_TO_BAND,
+  AGE_KEY_TO_PACK_BUCKETS,
+  encodeAgeBucket,
+} from './doorKnocking/PackAgeBuckets'
 
 export {
   GeoJsonPolygonSchema,

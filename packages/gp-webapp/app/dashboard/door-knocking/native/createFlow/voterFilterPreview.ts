@@ -1,4 +1,6 @@
 import {
+  AGE_DIM_KEY,
+  AGE_KEY_TO_PACK_BUCKETS,
   CONTACTS_MADE_BUCKETS,
   CONTACTS_MADE_DIM_KEY,
   DoorKnockingPackManifest,
@@ -19,6 +21,22 @@ import {
 // reported by `unpreviewableFilterKeys`; the knock-time evaluation stays
 // canonical either way.
 //
+// What each age key matched against a pack built before the re-cut, kept so
+// the two vocabularies coexist through a deploy. Retired keys had an exact
+// legacy bucket; the current keys were approximations of one, except the two
+// with nothing to approximate — see the comment on the age entries below.
+const LEGACY_AGE_BUCKETS: Record<string, string[]> = {
+  age18_25: ['18_25'],
+  age25_35: ['25_35'],
+  age35_50: ['35_50'],
+  age50Plus: ['50_plus'],
+  age18_24: ['18_25'],
+  age25_34: ['25_35'],
+  age35_49: ['35_50'],
+  age50_64: [],
+  age65Plus: [],
+}
+
 // Most entries list alternative spellings of ONE bucket, of which a given
 // manifest can only ever have one (the pack's vocabularies are closed sets in
 // `packEncoder.utils.ts`). Age is the exception and lists real siblings: its
@@ -30,15 +48,31 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
   partyRepublican: { dim: 'party', buckets: ['Republican'] },
   partyIndependent: { dim: 'party', buckets: ['Independent'] },
   partyOther: { dim: 'party', buckets: ['Unknown', 'unknown', 'Other'] },
-  age18_24: { dim: 'age', buckets: ['18_25', '18-25'] },
-  age25_34: { dim: 'age', buckets: ['25_35', '25-35'] },
-  age35_49: { dim: 'age', buckets: ['35_50', '35-50'] },
-  age50_64: { dim: 'age', buckets: ['50_plus', '50+'] },
-  // The pack's legacy buckets can't distinguish 65+ from 50-64; mapping
-  // both to 50_plus would preview identical cohorts for different pills,
-  // so 65+ deliberately doesn't narrow (an unmapped pill previews a
-  // superset, which is the honest failure mode).
-  ageUnknown: { dim: 'age', buckets: ['Unknown', 'unknown'] },
+  // Age is derived, not written down. The pack cuts its buckets at every
+  // boundary BOTH generations of age key use (ENG-10752 re-cut the bands and
+  // both are live), so each key is an exact union of them — contracts'
+  // PackAgeBuckets.ts owns the derivation and gp-api's encoder reads the same
+  // table.
+  //
+  // The legacy spellings ride along because a pack built before the re-cut
+  // still ships them and a browser can hold one across a deploy. No pack has
+  // both vocabularies, so listing both never over-selects: on a new pack the
+  // legacy names match nothing, on an old one the new names do. `age50_64` and
+  // `age65Plus` deliberately have NO legacy fallback — the old buckets stop at
+  // 50, so the closest legacy match for either is `50_plus`, which shades 65+
+  // people a 50-64 list will not knock. Falling back to the disclosure is the
+  // honest answer; `age50_64 -> 50_plus` was the previous behavior and it was
+  // a silent superset.
+  ...Object.fromEntries(
+    Object.entries(AGE_KEY_TO_PACK_BUCKETS).map(([key, buckets]) => [
+      key,
+      {
+        dim: AGE_DIM_KEY,
+        buckets: [...buckets, ...(LEGACY_AGE_BUCKETS[key] ?? [])],
+      },
+    ]),
+  ),
+  ageUnknown: { dim: AGE_DIM_KEY, buckets: ['Unknown', 'unknown'] },
   genderMale: { dim: 'gender', buckets: ['M', 'Male'] },
   genderFemale: { dim: 'gender', buckets: ['F', 'Female'] },
   genderUnknown: { dim: 'gender', buckets: ['Unknown', 'unknown'] },

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
+import {
+  DoorKnockingPackManifest,
+  PACK_AGE_BUCKETS,
+} from '@goodparty_org/contracts'
 import {
   filtersToDimSelections,
   unpreviewableDisclosureSentence,
@@ -12,11 +15,36 @@ const manifest = {
   counts: { people: 4, households: 4, dots: 4 },
   dims: [
     { key: 'party', values: ['Democratic', 'Republican', 'Independent'] },
-    { key: 'age', values: ['18_25', '25_35', '35_50', '50_plus'] },
+    { key: 'age', values: [...PACK_AGE_BUCKETS] },
     { key: 'gender', values: ['M', 'F', 'unknown'] },
   ],
   arrays: [],
 } as unknown as DoorKnockingPackManifest
+
+// A pack built before the age re-cut, which a browser can hold across a
+// deploy. Both vocabularies are listed in the mapping and no pack has both.
+const legacyManifest = {
+  ...manifest,
+  dims: manifest.dims.map((dim) =>
+    dim.key === 'age'
+      ? {
+          key: 'age',
+          values: ['Unknown', '18_25', '25_35', '35_50', '50_plus'],
+        }
+      : dim,
+  ),
+} as typeof manifest
+
+const ageBuckets = (
+  filters: Record<string, boolean>,
+  from: typeof manifest = manifest,
+): string[] => {
+  const dim = from.dims.find((entry) => entry.key === 'age')
+  const selected = filtersToDimSelections(filters, from).get('age')
+  return selected
+    ? [...selected].sort((a, b) => a - b).map((index) => dim!.values[index]!)
+    : []
+}
 
 describe('filtersToDimSelections', () => {
   it('narrows only the dims the draft touches', () => {
@@ -29,35 +57,87 @@ describe('filtersToDimSelections', () => {
     expect(selections.has('age')).toBe(false)
   })
 
-  it('maps the exclusive age picker onto the pack legacy buckets', () => {
-    const selections = filtersToDimSelections(
-      { age18_24: true, age50_64: true },
-      manifest,
-    )
-    expect(selections.get('age')).toEqual(new Set([0, 3]))
+  // The pack's buckets are cut at every boundary both generations of age key
+  // use, so a key spans several — and the preview has to select ALL of them.
+  // Selecting the first would shade a fraction of the list; selecting a
+  // nearest single bucket is what made 65+ unshadeable before this.
+  describe('age', () => {
+    it.each([
+      ['age18_24', ['18_24']],
+      ['age25_34', ['25', '26_34']],
+      ['age35_49', ['35', '36_49']],
+      ['age50_64', ['50', '51_64']],
+      ['age65Plus', ['65_plus']],
+    ])('shades %s as %j', (key, buckets) => {
+      expect(ageBuckets({ [key]: true })).toEqual(buckets)
+    })
+
+    // The retired keys ENG-10752 replaced. A list saved with one of them
+    // targets its ORIGINAL bounds at knock time, so the map has to shade
+    // those — age50Plus is 50+, not 50-64.
+    it.each([
+      ['age18_25', ['18_24', '25']],
+      ['age25_35', ['25', '26_34', '35']],
+      ['age35_50', ['35', '36_49', '50']],
+      ['age50Plus', ['50', '51_64', '65_plus']],
+    ])('shades the retired %s as %j', (key, buckets) => {
+      expect(ageBuckets({ [key]: true })).toEqual(buckets)
+    })
+
+    // The bug this PR exists for, from both ends: the two keys must not shade
+    // the same people, and 65+ must shade somebody at all.
+    it('separates 50-64 from 65+', () => {
+      expect(ageBuckets({ age50_64: true })).not.toContain('65_plus')
+      expect(ageBuckets({ age65Plus: true })).toEqual(['65_plus'])
+      expect(unpreviewableFilterKeys({ age65Plus: true }, manifest)).toEqual([])
+    })
+
+    it('unions overlapping selections without double-counting', () => {
+      expect(ageBuckets({ age18_25: true, age25_34: true })).toEqual([
+        '18_24',
+        '25',
+        '26_34',
+      ])
+    })
+
+    describe('against a pack built before the re-cut', () => {
+      it.each([
+        ['age18_25', ['18_25']],
+        ['age50Plus', ['50_plus']],
+        ['age18_24', ['18_25']],
+      ])('still shades %s as %j', (key, buckets) => {
+        expect(ageBuckets({ [key]: true }, legacyManifest)).toEqual(buckets)
+      })
+
+      // The old buckets stop at 50, so the nearest match for either of these
+      // is `50_plus` — which shades 65+ people a 50-64 list will not knock.
+      // Disclosing beats over-shading; `age50_64 -> 50_plus` was the previous
+      // behavior and it was a silent superset.
+      it.each(['age50_64', 'age65Plus'])('discloses %s instead', (key) => {
+        expect(ageBuckets({ [key]: true }, legacyManifest)).toEqual([])
+        expect(
+          unpreviewableFilterKeys({ [key]: true }, legacyManifest),
+        ).toEqual([key])
+      })
+    })
   })
 
-  it('65+ does not narrow: the legacy buckets cannot express it', () => {
-    const selections = filtersToDimSelections({ age65Plus: true }, manifest)
-    expect(selections.has('age')).toBe(false)
-  })
-
-  // The other half of the 65+ case: silently previewing a superset is the bug,
-  // so the keys that can't narrow are reportable rather than just dropped.
+  // Silently previewing a superset is the bug, so the keys that can't narrow
+  // are reportable rather than just dropped.
   describe('unpreviewableFilterKeys', () => {
     it('reports selections the pack has no bucket for', () => {
       expect(
         unpreviewableFilterKeys(
-          { partyDemocrat: true, age65Plus: true },
+          { partyDemocrat: true, veteranYes: true },
           manifest,
         ),
-      ).toEqual(['age65Plus'])
+      ).toEqual(['veteranYes'])
     })
 
     it('ignores unselected options and reports nothing when all map', () => {
       expect(
         unpreviewableFilterKeys(
-          { partyDemocrat: true, age65Plus: false, genderFemale: true },
+          { partyDemocrat: true, age65Plus: true, genderFemale: true },
           manifest,
         ),
       ).toEqual([])
@@ -135,7 +215,10 @@ describe('filtersToDimSelections', () => {
   // empty set: an empty set allows nothing, which would shade an empty map
   // for a filter the pack simply cannot express.
   it('never leaves a dim with an empty allowed set', () => {
-    const selections = filtersToDimSelections({ age65Plus: true }, manifest)
+    const selections = filtersToDimSelections(
+      { age65Plus: true },
+      legacyManifest,
+    )
     for (const allowed of selections.values()) {
       expect(allowed.size).toBeGreaterThan(0)
     }

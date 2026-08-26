@@ -1,7 +1,10 @@
 import {
+  AGE_DIM_KEY,
   CONTACTS_MADE_BUCKETS,
   CONTACTS_MADE_DIM_KEY,
   DOOR_KNOCK_STATUSES,
+  PACK_AGE_BUCKETS,
+  encodeAgeBucket,
   DoorKnockingPackManifest,
   DoorKnockingPackRequest,
   INCOME_RANGE_MAPPING,
@@ -76,19 +79,6 @@ const MAPPED_DIMS = [
 ] as const satisfies ReadonlyArray<
   readonly [string, keyof typeof VALUE_MAPPERS, keyof PackRow]
 >
-
-const AGE_VALUES = [UNKNOWN, '18_25', '25_35', '35_50', '50_plus']
-const encodeAge = (age: number | null): number => {
-  // Bucket bounds mirror gp-api's saved-filter age ranges (18-25, 25-35,
-  // 35-50, 50+ — shared inclusive edges resolve to the younger bucket).
-  // Under-18 rows (pre-registrants, bad data) read unknown: no age filter
-  // matches them, so no pack bucket may either.
-  if (age === null || age < 18) return 0
-  if (age <= 25) return 1
-  if (age <= 35) return 2
-  if (age <= 50) return 3
-  return 4
-}
 
 const INCOME_VALUES = [UNKNOWN, ...Object.keys(INCOME_RANGE_MAPPING)]
 const INCOME_RANGES = Object.values(INCOME_RANGE_MAPPING)
@@ -234,9 +224,14 @@ export class PackEncoder {
       party,
       ...mapped,
       {
-        key: 'age',
-        values: AGE_VALUES,
-        encode: (row) => encodeAge(row.Age_Int),
+        // The one dim whose vocabulary is derived rather than declared: its
+        // buckets are cut at every boundary either generation of saved-list
+        // age key uses, so every key is an exact union of them and none is
+        // approximated. See contracts' PackAgeBuckets.ts — changing that
+        // table re-cuts these and is a PACK_FORMAT_REVISION bump.
+        key: AGE_DIM_KEY,
+        values: [...PACK_AGE_BUCKETS],
+        encode: (row) => encodeAgeBucket(row.Age_Int),
         bytes: new GrowableU8(),
       },
       {
