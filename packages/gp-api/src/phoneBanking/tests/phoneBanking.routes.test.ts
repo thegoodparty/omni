@@ -448,6 +448,59 @@ describe('phone banking routes', () => {
       expect(second.data.message).toContain('widen the filters')
     })
 
+    it('an at-capacity prior-batch person still signals hasMore, and never joins a fresh entry via a shared phone', async () => {
+      const sharedPhone = '3075809999'
+      const priorPerson = fakePerson({
+        id: randomUUID(),
+        firstName: 'Called',
+        lastName: 'Already',
+        cellPhone: sharedPhone,
+      })
+      mockPeoplePage([priorPerson])
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ name: 'Batch 1' }),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      // Batch 2's page: 60 fresh people fill the cap, then the prior-batch
+      // person appears at capacity — plus a fresh household member on the
+      // prior person's phone, who must get their own entry without the
+      // already-called person riding along.
+      const fresh = Array.from({ length: 60 }, (_, i) =>
+        fakePerson({
+          id: randomUUID(),
+          firstName: `F${i}`,
+          lastName: 'Voter',
+          cellPhone: `30758${String(i).padStart(5, '0')}`,
+        }),
+      )
+      const householdMate = fakePerson({
+        id: randomUUID(),
+        firstName: 'New',
+        lastName: 'Housemate',
+        cellPhone: sharedPhone,
+      })
+      mockPeoplePage([householdMate, ...fresh.slice(0, 59), priorPerson])
+
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(201)
+      expect(second.data).toMatchObject({ entryCount: 60, hasMore: true })
+
+      const sharedEntry = await service.prisma.phoneBankingListEntry.findFirst({
+        where: { phoneBankingListId: second.data.id, phone: sharedPhone },
+        include: { persons: true },
+      })
+      expect(sharedEntry?.persons.map((p) => p.personId)).toEqual([
+        householdMate.id,
+      ])
+    })
+
     it('a prior-batch person whose number got suppressed 400s as empty, not exhausted', async () => {
       const phone = '3075559333'
       mockPeoplePage([fakePerson({ cellPhone: phone })])

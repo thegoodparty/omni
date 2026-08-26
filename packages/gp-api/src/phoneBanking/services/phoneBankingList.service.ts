@@ -305,9 +305,14 @@ export class PhoneBankingListService extends createPrismaBase(
         // After the name/phone guards so the flag only fires for people the
         // CURRENT batch could actually have used — a prior-batch person whose
         // number has since been suppressed or dropped must read as
-        // unreachable, not as "already called".
+        // unreachable, not as "already called". Before the grouping chain so
+        // an already-called household member can never ride onto a fresh
+        // entry through a shared phone. At capacity they count toward
+        // droppedUsable like any usable person: the cap is about to break
+        // the loop, and unseen pages may still hold fresh people.
         if (priorBatchPersonIds.has(person.id)) {
           skippedPriorBatch = true
+          if (grouped.size >= maxEntries) droppedUsable = true
           continue
         }
 
