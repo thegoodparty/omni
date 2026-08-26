@@ -767,9 +767,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         ? paymentIntent.latest_charge
         : null
     const card = charge?.payment_method_details?.card
+    // A session without an amount is not a $0 receipt — the UI reads 0 as
+    // "Free". The documented contract is 502-or-real-receipt.
+    if (session.amount_total == null) {
+      throw new BadGatewayException(
+        'Stripe session has no amount; receipt unavailable',
+      )
+    }
     return {
       // DOLLARS, matching the checkout-session endpoint convention.
-      amount: (session.amount_total ?? 0) / 100,
+      amount: session.amount_total / 100,
       cardBrand: card?.brand ?? null,
       cardLast4: card?.last4 ?? null,
       receiptUrl: charge?.receipt_url ?? null,
