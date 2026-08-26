@@ -156,6 +156,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         name,
         didState,
         didNpaSubset,
+        // The payload's offset-annotated datetime starts with the user's
+        // local calendar day; the DateTime column loses that offset, and
+        // finalize needs the local day for Peerly's start/end dates.
+        scheduledLocalDate: createOutreachDto.date?.slice(0, 10),
       },
       imageUrl,
       peerlyIdentityId,
@@ -482,7 +486,8 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         name: outreach.name ?? undefined,
         didState: outreach.didState ?? undefined,
         didNpaSubset: outreach.didNpaSubset,
-        scheduledDate: outreach.date?.toISOString(),
+        scheduledDate:
+          outreach.scheduledLocalDate ?? outreach.date?.toISOString(),
       })
     } catch (err) {
       throw new OutreachStepError('peerlyJobCreation', err)
@@ -544,7 +549,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   /** Persists a single outreach record. Used by both non-P2P and P2P flows. */
   private async createRecord(
     campaign: Campaign,
-    createOutreachDto: CreateOutreachSchema,
+    // scheduledLocalDate is server-derived at draft creation, never client
+    // input — hence the widening rather than a schema field.
+    createOutreachDto: CreateOutreachSchema & { scheduledLocalDate?: string },
     imageUrl?: string,
     identityId?: string,
   ) {

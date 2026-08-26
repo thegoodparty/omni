@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Injectable,
 } from '@nestjs/common'
+import { isAxiosError } from 'axios'
 import { formatISO } from 'date-fns'
 import { Headers } from 'http-constants-ts'
 import { Readable } from 'stream'
@@ -165,6 +166,13 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       this.logger.debug(`Deleting P2P job ${jobId}`)
       await this.peerlyHttpService.delete(`/1to1/jobs/${jobId}`)
     } catch (error) {
+      // Already-deleted is the desired state, not a failure: cancel retries
+      // after a refund failure re-run this delete, and treating the 404 as
+      // fatal would strand the row pending with the vendor job already gone.
+      if (isAxiosError(error) && error.response?.status === 404) {
+        this.logger.debug(`P2P job ${jobId} already deleted; treating as done`)
+        return
+      }
       this.logger.error({ error }, P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
     }

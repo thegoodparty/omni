@@ -20,3 +20,18 @@ describe('getHistoryStatusLabel', () => {
     expect(getHistoryStatusLabel(p2pRow({ status: 'pending' }))).toBeNull()
   })
 })
+
+describe('getHistoryStatusLabel — scheduled paid rows', () => {
+  it('labels a pending p2p row with a live vendor job Scheduled, not Draft', () => {
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({ status: 'pending', p2pJob: { status: 'paused' } }),
+      ),
+    ).toBe('Scheduled')
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({ status: 'pending', p2pJob: { status: 'pending' } }),
+      ),
+    ).toBe('Scheduled')
+  })
+})

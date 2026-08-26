@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -14,6 +15,14 @@ import {
   Alert,
   AlertAction,
   AlertDescription,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   AlertTitle,
   Badge,
   Button,
@@ -360,6 +369,10 @@ export const SmsFlow = ({
   const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
   const [draftCreateError, setDraftCreateError] = useState(false)
   const isDraftCreatingRef = useRef(false)
+  // Bumped whenever the current draft is discarded (Back off review): an
+  // in-flight create started before the bump must not resurrect its id —
+  // checkout would then charge for the pre-edit message and date.
+  const draftGenerationRef = useRef(0)
   const [scheduled, setScheduled] = useState(false)
   const [paidSend, setPaidSend] = useState(false)
   const [showVerify, setShowVerify] = useState(false)
@@ -643,6 +656,7 @@ export const SmsFlow = ({
     if (!campaign?.id || !phoneList?.phoneListId || !scheduledAt) return
     isDraftCreatingRef.current = true
     setDraftCreateError(false)
+    const generation = draftGenerationRef.current
     const discount = campaign?.hasFreeTextsOffer
       ? Math.min(phoneList.leadsLoaded, FREE_TEXTS_OFFER.COUNT)
       : 0
@@ -656,7 +670,10 @@ export const SmsFlow = ({
             message: composedMessage,
             script: composedMessage,
             title: `P2P Outreach - Campaign ${campaign.id}`,
-            date: scheduledAt.toISOString(),
+            // Offset-annotated local time, not toISOString(): the server
+            // slices the first 10 chars as the user's send DAY for Peerly,
+            // and the UTC rendering puts evening sends on the next day.
+            date: format(scheduledAt, "yyyy-MM-dd'T'HH:mm:ssXXX"),
             ...(audience.selectedListId
               ? { voterFileFilterId: audience.selectedListId }
               : {}),
@@ -667,13 +684,16 @@ export const SmsFlow = ({
           },
           image,
         )
+        if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
           setDraftOutreachId(outreach.id)
         } else {
           setDraftCreateError(true)
         }
       } finally {
-        isDraftCreatingRef.current = false
+        if (generation === draftGenerationRef.current) {
+          isDraftCreatingRef.current = false
+        }
       }
     })()
   }, [
@@ -708,6 +728,18 @@ export const SmsFlow = ({
     onClose()
   }
 
+  // The banner's Start compliance leaves the wizard, and onClose bypasses
+  // the shell's dirty-close confirm — so it gets its own when the flow has
+  // unsaved selections. The interstitial path is post-save and never dirty.
+  const [verifyConfirmOpen, setVerifyConfirmOpen] = useState(false)
+  const requestStartCompliance = () => {
+    if (!scheduled && purpose !== null) {
+      setVerifyConfirmOpen(true)
+      return
+    }
+    startVerification()
+  }
+
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
   const handleBack = () => {
@@ -725,6 +757,8 @@ export const SmsFlow = ({
     if (stepId === 'review') {
       // Back off the pay step discards the draft (stale drafts stay hidden
       // server-side); re-entry creates a fresh one.
+      draftGenerationRef.current += 1
+      isDraftCreatingRef.current = false
       setDraftOutreachId(null)
       setDraftCreateError(false)
     }
@@ -854,7 +888,7 @@ export const SmsFlow = ({
             <Button
               type="button"
               variant="alertOutline"
-              onClick={startVerification}
+              onClick={requestStartCompliance}
             >
               <ShieldCheckIcon />
               Start compliance
@@ -1003,6 +1037,23 @@ export const SmsFlow = ({
           />
         </CheckoutSessionProvider>
       )}
+      <AlertDialog open={verifyConfirmOpen} onOpenChange={setVerifyConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave and start compliance?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your draft and selections will be lost. Compliance runs in the
+              background, so you can come back and schedule after starting it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={startVerification}>
+              Start compliance
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </OutreachFlowShell>
   )
 }

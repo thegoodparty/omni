@@ -20,6 +20,7 @@ describe('PeerlyP2pJobService', () => {
   let mockHttpService: {
     post: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
+    delete: ReturnType<typeof vi.fn>
     validateResponse: ReturnType<typeof vi.fn>
   }
   let mockErrorHandling: {
@@ -50,6 +51,7 @@ describe('PeerlyP2pJobService', () => {
     mockHttpService = {
       post: vi.fn(),
       get: vi.fn(),
+      delete: vi.fn(),
       validateResponse: vi
         .fn()
         .mockImplementation((_data, _dto, _ctx) => _data),
@@ -326,6 +328,37 @@ describe('PeerlyP2pJobService', () => {
       mockHttpService.get.mockRejectedValue(new Error('API error'))
 
       await expect(service.getJobsByIdentityId('identity-123')).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+  })
+
+  describe('deleteJob', () => {
+    it('deletes the job through the HTTP service', async () => {
+      mockHttpService.delete.mockResolvedValue(undefined)
+
+      await service.deleteJob('job-1')
+
+      expect(mockHttpService.delete).toHaveBeenCalledWith('/1to1/jobs/job-1')
+    })
+
+    // Cancel retries after a refund failure re-run the delete; the job being
+    // gone already is the desired state, not a vendor failure.
+    it('treats an already-deleted job (404) as success', async () => {
+      mockHttpService.delete.mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 404'), {
+          isAxiosError: true,
+          response: { status: 404 },
+        }),
+      )
+
+      await expect(service.deleteJob('job-1')).resolves.toBeUndefined()
+    })
+
+    it('throws BadGatewayException on any other vendor failure', async () => {
+      mockHttpService.delete.mockRejectedValue(new Error('boom'))
+
+      await expect(service.deleteJob('job-1')).rejects.toThrow(
         BadGatewayException,
       )
     })

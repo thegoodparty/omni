@@ -22,12 +22,13 @@ describe('OutreachHistoryTable — unified history', () => {
         p2pJob: { status: 'active' },
         textCount: 1204,
       },
-      // P2P pending is a real unfinished draft.
+      // P2P pending with a vendor job is a scheduled send awaiting its
+      // start day (draft-first finalize leaves the spine at pending).
       {
         id: 2,
         date: '2026-07-01',
         outreachType: 'text',
-        name: 'Draft blast',
+        name: 'Scheduled blast',
         status: 'pending',
         phoneListId: 43,
         p2pJob: { status: 'building' },
@@ -46,7 +47,7 @@ describe('OutreachHistoryTable — unified history', () => {
 
     const table = within(desktopTable())
     expect(table.getByText('Done')).toBeInTheDocument()
-    expect(table.getByText('Draft')).toBeInTheDocument()
+    expect(table.getByText('Scheduled')).toBeInTheDocument()
     expect(table.getByText('In review')).toBeInTheDocument()
     expect(table.getAllByText('SMS')).toHaveLength(2)
     expect(table.getByText('Robocall')).toBeInTheDocument()

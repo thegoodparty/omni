@@ -22,7 +22,9 @@ type StatusKey =
   | 'pending_payment'
   | 'canceled'
 
-// P2P rows (phoneListId != null): `pending` is a real unfinished draft.
+// P2P rows (phoneListId != null): `pending` only ever reaches the map for
+// rows without a vendor job (getP2pStatusLabel remaps pending-with-a-job to
+// `paid`, i.e. Scheduled).
 const p2pStatusLabels: { [K in StatusKey]: string } = {
   pending: 'Draft',
   approved: 'In review',
@@ -65,9 +67,17 @@ const getP2pStatusLabel = (row: HistoryRow): string | null => {
     return null
   }
   // An active Peerly job displays as sent regardless of the spine status
-  // (canceled rows returned above — their vendor job is gone).
+  // (canceled rows returned above — their vendor job is gone). A pending
+  // row WITH a vendor job is a scheduled send awaiting its start day, not
+  // an unfinished draft — draft-first finalize leaves the spine at
+  // `pending` until the completion sweep advances it, so 'Draft' would be
+  // a lie the moment verification cleared.
   const displayStatus: StatusKey =
-    p2pJob.status === 'active' ? 'completed' : status
+    p2pJob.status === 'active'
+      ? 'completed'
+      : status === 'pending'
+        ? 'paid'
+        : status
   return p2pStatusLabels[displayStatus]
 }
 

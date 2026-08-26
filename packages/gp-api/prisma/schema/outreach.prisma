@@ -40,6 +40,11 @@ model Outreach {
   script                            String?                            @db.Text
   message                           String?
   date                              DateTime?
+  // The user's local calendar day for the send ("YYYY-MM-DD"), captured
+  // from the offset-annotated create payload. `date` is a UTC instant, so
+  // deriving the day from it at finalize time shifts evening sends onto
+  // the next day for US timezones — Peerly needs the local day.
+  scheduledLocalDate                String?                            @map("scheduled_local_date")
   imageUrl                          String?                            @map("image_url")
   voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")

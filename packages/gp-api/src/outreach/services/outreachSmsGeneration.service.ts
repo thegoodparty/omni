@@ -81,8 +81,21 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
-const DraftSchema = z.object({
-  draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
+// The 480-char composed cap covers greeting + identification intro + body +
+// opt-out footer, and the model only writes the body — capping the schema at
+// the full 480 let a legal response compose past the Continue limit. Fresh
+// drafts get the intro prepended client-side, so they reserve headroom for
+// it plus the fixed chrome; improve outputs already contain the intro and
+// reserve only the chrome (greeting, blank line, footer ≈ 50 chars). The
+// schema is what makes the limit real: jsonCompletion retries on mismatch.
+const FRESH_DRAFT_MAX_LENGTH = 340
+const IMPROVE_DRAFT_MAX_LENGTH = SMS_COMPOSED_MAX_LENGTH - 50
+
+const FreshDraftSchema = z.object({
+  draft: z.string().min(1).max(FRESH_DRAFT_MAX_LENGTH),
+})
+const ImproveDraftSchema = z.object({
+  draft: z.string().min(1).max(IMPROVE_DRAFT_MAX_LENGTH),
 })
 
 @Injectable()
@@ -141,7 +154,7 @@ export class OutreachSmsGenerationService {
     try {
       const { object } = await this.llm.jsonCompletion({
         messages,
-        schema: DraftSchema,
+        schema: input.currentDraft ? ImproveDraftSchema : FreshDraftSchema,
         // High enough that Regenerate re-rolls produce a different draft.
         temperature: 0.8,
         maxTokens: 512,
