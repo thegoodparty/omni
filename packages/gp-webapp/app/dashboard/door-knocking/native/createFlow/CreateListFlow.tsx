@@ -131,6 +131,10 @@ interface CreateListFlowProps {
   // A saved list the candidate arrived on `?listId=` with, from the outreach
   // hub's door-knocking tile. Undefined is the ordinary flow.
   preselectedListId?: number
+  // Reported once the arrival has actually been applied, so the page above can
+  // spend it. This flow is unmounted every time the create surface closes, so
+  // it cannot remember on its own that the id has already been used.
+  onPreselectApplied?: () => void
 }
 
 const STAGE_META: Record<CreateFlowStage, { title: string; caption: string }> =
@@ -231,6 +235,7 @@ export default function CreateListFlow({
   isElectedOfficial,
   unpreviewableKeys,
   preselectedListId,
+  onPreselectApplied,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -274,13 +279,20 @@ export default function CreateListFlow({
   // rows come from this org's `GET /v1/voters/voter-file/filters`. The ref
   // makes it a seed and not a binding — pick something else and the arrival
   // is spent, not re-applied when the lists refetch.
+  //
+  // The ref only covers this mount, and closing the flow unmounts it while
+  // `?listId=` stays in the address bar, so the page above is told the moment
+  // the id is used. Without that, dismissing and pressing Create list again
+  // would keep snapping back to the carried list, and a candidate who arrived
+  // from the hub could never start a clean flow without leaving the page.
   const preselectApplied = useRef(false)
   useEffect(() => {
     if (preselectApplied.current || preselectedListId === undefined) return
     if (!savedLists.some((list) => list.id === preselectedListId)) return
     preselectApplied.current = true
     selectList(preselectedListId)
-  }, [preselectedListId, savedLists, selectList])
+    onPreselectApplied?.()
+  }, [preselectedListId, savedLists, selectList, onPreselectApplied])
 
   const stage = flowStage(step, preDrawStage)
 

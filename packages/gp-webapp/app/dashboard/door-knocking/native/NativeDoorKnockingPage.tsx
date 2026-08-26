@@ -93,6 +93,15 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
+  // Which carried list has already been handed to the create flow. Kept here
+  // because the flow itself is unmounted between opens while `?listId=` stays
+  // in the address bar, so this is the only place that can remember. Compared
+  // by id rather than a boolean so a SECOND arrival still counts: coming back
+  // to the hub and pressing the tile again with a different list re-renders
+  // this page with the new id, which is not the spent one.
+  const [spentPreselectId, setSpentPreselectId] = useState<number>()
+  const carriedListId =
+    preselectedListId === spentPreselectId ? undefined : preselectedListId
   const [filters, setFilters] = useState<VoterFileFilters>({})
   const [ring, setRing] = useState<PolygonRing | null>(null)
   // The create-list surface's half of the canvas: draw tokens, the point count
@@ -678,7 +687,8 @@ export default function NativeDoorKnockingPage({
               onSaved={handleSaved}
               isElectedOfficial={isElectedOfficial}
               unpreviewableKeys={unpreviewableKeys}
-              preselectedListId={preselectedListId}
+              preselectedListId={carriedListId}
+              onPreselectApplied={() => setSpentPreselectId(preselectedListId)}
             />
           )}
         </div>

@@ -1587,6 +1587,25 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).not.toHaveBeenCalled()
   })
 
+  // This flow is unmounted every time the create surface closes, so it cannot
+  // remember that the arrival is spent. Reporting the moment it lands is what
+  // lets the page above stop offering it back — and it is reported only when
+  // the id really was applied, so a bad one leaves the page still holding it
+  // for the rows that may yet arrive.
+  it('reports the carried list the moment it is applied, and not before', () => {
+    const onPreselectApplied = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 9, onPreselectApplied })
+
+    expect(onPreselectApplied).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports nothing when the carried list names no list of yours', () => {
+    const onPreselectApplied = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 12_345, onPreselectApplied })
+
+    expect(onPreselectApplied).not.toHaveBeenCalled()
+  })
+
   // The picker is populated by a query, so an empty first render is the
   // ordinary case rather than a refusal — the preselect has to wait for it
   // instead of deciding the id is bad.

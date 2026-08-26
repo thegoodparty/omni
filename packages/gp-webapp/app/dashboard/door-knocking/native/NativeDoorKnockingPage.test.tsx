@@ -613,6 +613,64 @@ describe('NativeDoorKnockingPage landing rail', () => {
     )
   })
 
+  // The arrival is a seed, not a setting. `?listId=` stays in the address bar
+  // and the flow is unmounted between opens, so without spending the id here a
+  // candidate who dismissed the carried list would have it snap back on every
+  // reopen and could never cut a different audience without leaving the page.
+  it('does not carry the list back into a second open of the flow', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        { id: 7, name: 'Precinct 2 homeowners' },
+        { id: 8, name: 'Super voters', partyDemocrat: true },
+      ],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+        preselectedListId={8}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    // Looked up per open: the flow replaces the rail outright, so the node
+    // holding the button after a close is not the one that held it before.
+    const openFlow = async () => {
+      const button = await waitFor(() => {
+        const rail = document.getElementById(
+          'door-knocking-rail',
+        ) as HTMLElement
+        const found = within(rail).getByRole('button', { name: 'Create list' })
+        expect(found).toBeEnabled()
+        return found
+      })
+      fireEvent.click(button)
+      fireEvent.click(
+        await screen.findByRole('button', { name: /Introduce myself/ }),
+      )
+    }
+
+    await openFlow()
+    expect(
+      await screen.findByRole('radio', { name: /^Super voters/ }),
+    ).toBeChecked()
+
+    // A picked list makes the session dirty, so leaving goes through the
+    // discard prompt — the same door a candidate takes to start over.
+    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }))
+
+    await openFlow()
+    expect(
+      await screen.findByRole('radio', { name: /^All contacts/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /^Super voters/ }),
+    ).not.toBeChecked()
+  })
+
   // A stale bookmark, a list deleted in the CRM since, or another org's id:
   // the param is not trusted, so all of them are a missed preselection and
   // nothing else.
