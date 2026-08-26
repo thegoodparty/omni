@@ -5,7 +5,7 @@ import { useTestService } from '@/test-service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
 import { RaceListItem } from '@goodparty_org/contracts'
-import { ForbiddenException } from '@nestjs/common'
+import { BadGatewayException, ForbiddenException } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { format } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -157,6 +157,19 @@ describe('createFixtureUser', () => {
     })
     expect(org.positionId).toBe('pos_serve_9')
     expect(org.customPositionName).toBeNull()
+  })
+
+  it('502s when Clerk returns no sign-in token', async () => {
+    const clerk = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    vi.spyOn(clerk.signInTokens, 'createSignInToken').mockResolvedValue({
+      token: undefined,
+    } as unknown as Awaited<
+      ReturnType<ClerkClient['signInTokens']['createSignInToken']>
+    >)
+
+    await expect(
+      fixtures().createFixtureUser({ state: 'serve' }),
+    ).rejects.toBeInstanceOf(BadGatewayException)
   })
 
   it('serve-won-race: links office to campaign and stamps the win last', async () => {

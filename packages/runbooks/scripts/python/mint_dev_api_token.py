@@ -54,6 +54,17 @@ def main() -> None:
         die(f'No Clerk user found for {args.email}', 3)
     user_id = found[0]['id']
 
+    # Confused-deputy guard: this mints a 1h token for ANY dev account, so an
+    # interactive caller must confirm the identity before it is issued.
+    if sys.stdin.isatty():
+        confirm = (
+            input(f'Mint a 1h dev API token for {args.email}? [y/N] ')
+            .strip()
+            .lower()
+        )
+        if confirm != 'y':
+            die('Aborted.', 4)
+
     session = requests.post(
         f'{CLERK_API}/sessions',
         headers=headers,

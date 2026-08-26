@@ -14,6 +14,7 @@ import {
   TestFixtureUserResponse,
 } from '@goodparty_org/contracts'
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -338,12 +339,16 @@ export class TestFixturesService {
     // needs a sign-in ticket to redeem (strategy: 'ticket'); the session JWT
     // below only authenticates direct gp-api calls. Single-use, so every
     // /session re-mint issues a fresh one.
-    const { token: signInToken } = await clerkThrottle(() =>
+    const signInTokenResponse = await clerkThrottle(() =>
       this.clerkClient.signInTokens.createSignInToken({
         userId: clerkUserId,
         expiresInSeconds: FIXTURE_TOKEN_TTL_SECONDS,
       }),
     )
+    if (!signInTokenResponse.token) {
+      throw new BadGatewayException('Clerk did not return a sign-in token')
+    }
+    const signInToken = signInTokenResponse.token
     // Browser-minted Clerk tokens die at 60s; a backend session token minted
     // with an explicit TTL survives a whole QA run (same pattern as the e2e
     // suite's mintApiToken).
