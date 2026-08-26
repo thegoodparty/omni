@@ -1,5 +1,5 @@
 import { DecodedPack } from './packDecoder'
-import { groupAgeSlices } from './audienceMix'
+import { groupAgeSlices, type DimSlice } from './audienceMix'
 
 // Per-dim selections: dim key -> set of ALLOWED byte values. A dim absent
 // from the map (or with every value selected) doesn't constrain.
@@ -85,15 +85,10 @@ export const runFilter = (
   return { people, households, matchedPerDot, statusPerDot }
 }
 
-export interface DimSlice {
-  // The pack's own bucket name for the value ('Democratic', '35_50',
-  // 'Unknown', …), so a district whose buckets differ still reads correctly.
-  // Presentation maps these onto display labels; the pack's vocabulary is
-  // deliberately what crosses this boundary, since it is what the manifest
-  // and the saved-list preview both speak.
-  label: string
-  people: number
-}
+// Defined in audienceMix and re-exported here, where its consumers already
+// look for it: this module needs audienceMix's age grouping, and importing the
+// type back the other way would make the pair circular.
+export type { DimSlice }
 
 export interface PolygonStats {
   stops: number

@@ -4,7 +4,6 @@ import {
   encodeAgeBucket,
   type RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import type { DimSlice } from './filterEngine'
 
 // Party and age are the only two dimensions BOTH of this sheet's sources can
 // answer. The pack carries fourteen more (education, income, ethnicity,
@@ -21,6 +20,21 @@ import type { DimSlice } from './filterEngine'
 // `canvassStatusCounts`; reporting the same seven numbers again in a second
 // visual form on a surface opened from that rail is how two presentations of
 // one quantity start disagreeing.
+
+// One slice of a breakdown. It lives here rather than in `filterEngine`, which
+// re-exports it for the callers that already look there, because both
+// producers of a breakdown are in this file's world: the pack pass builds
+// slices and this module regroups them, so pointing the type the other way
+// would only make the two modules circular.
+export interface DimSlice {
+  // The pack's own bucket name for the value ('Democratic', '36_49',
+  // 'Unknown', …), so a district whose buckets differ still reads correctly.
+  // Presentation maps these onto display labels; the pack's vocabulary is
+  // deliberately what crosses this boundary, since it is what the manifest
+  // and the saved-list preview both speak.
+  label: string
+  people: number
+}
 
 // The pack ships raw bucket keys and both branches below speak them, so only
 // presentation turns them into prose. The current generation's five bands
