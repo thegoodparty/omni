@@ -53,6 +53,11 @@ const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
 interface NativeDoorKnockingPageProps {
   pathname: string
   campaign: Campaign | null
+  // A saved list carried in on `?listId=`, handed straight to the create
+  // flow. Deliberately NOT read by anything on the landing map: it names the
+  // audience a walk will be cut from, and the map's own scope is the rail's
+  // `selectedTurf`, which is a turf and not a list.
+  preselectedListId?: number
 }
 
 // The orchestrator for the four door-knocking surfaces (Wave 1B). What stays
@@ -64,6 +69,7 @@ interface NativeDoorKnockingPageProps {
 export default function NativeDoorKnockingPage({
   pathname,
   campaign,
+  preselectedListId,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   // Win-only filters are hidden for an elected-office org, matching the CRM
@@ -672,6 +678,7 @@ export default function NativeDoorKnockingPage({
               onSaved={handleSaved}
               isElectedOfficial={isElectedOfficial}
               unpreviewableKeys={unpreviewableKeys}
+              preselectedListId={preselectedListId}
             />
           )}
         </div>

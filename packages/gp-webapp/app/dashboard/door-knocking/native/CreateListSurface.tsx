@@ -185,6 +185,11 @@ export interface CreateListSurfaceProps {
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
   unpreviewableKeys: string[]
+  // A saved list the candidate arrived with (`?listId=`), for the who step's
+  // picker to open on. Passed through rather than resolved here: the picker's
+  // rows are the only honest test of whether the id still names one of this
+  // org's lists, and they are built one component down.
+  preselectedListId?: number
 }
 
 export default function CreateListSurface({
@@ -204,6 +209,7 @@ export default function CreateListSurface({
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
+  preselectedListId,
 }: CreateListSurfaceProps) {
   // The shape the candidate asked for addresses about (ADR 0010). Not a
   // boolean, because it is what makes an answer belong to one ring: a preview
@@ -310,6 +316,7 @@ export default function CreateListSurface({
       }}
       isElectedOfficial={isElectedOfficial}
       unpreviewableKeys={unpreviewableKeys}
+      preselectedListId={preselectedListId}
     />
   )
 }

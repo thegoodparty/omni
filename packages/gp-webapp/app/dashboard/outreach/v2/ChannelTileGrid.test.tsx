@@ -58,10 +58,12 @@ const renderGrid = (
     onCreateSocial: () => void
     onCreateRobocall: () => void
     onCreatePhoneBanking: () => void
+    preselectedListId: number
   }> = {},
 ) =>
   render(
     <ChannelTileGrid
+      preselectedListId={overrides.preselectedListId}
       onCreateSocial={overrides.onCreateSocial ?? vi.fn()}
       onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
       onCreatePhoneBanking={overrides.onCreatePhoneBanking ?? vi.fn()}
@@ -284,5 +286,48 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     expect(onCreatePhoneBanking).not.toHaveBeenCalled()
     expect(mockRouterPush).not.toHaveBeenCalled()
     expect(screen.getByTestId('task-flow')).toHaveTextContent('phoneBanking')
+  })
+})
+
+// Door knocking is the one tile that navigates rather than opening a flow in
+// place, so the selected list has to survive the navigation or "start a walk
+// from this list" lands the candidate back on the picker they came from.
+describe('ChannelTileGrid — door-knocking tile carries the selected list', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+  })
+
+  it('carries the preselected list as ?listId=', async () => {
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?listId=42',
+    )
+  })
+
+  it('navigates bare when no list is selected', async () => {
+    renderGrid()
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/door-knocking')
+  })
+
+  // The tile is Pro-locked, and carrying a list must not become a way past
+  // that: a non-Pro click still gets the upgrade modal and goes nowhere.
+  it('shows the Pro modal instead of navigating for a non-Pro campaign', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText('Get Pro voter data and tools'),
+    ).toBeInTheDocument()
   })
 })

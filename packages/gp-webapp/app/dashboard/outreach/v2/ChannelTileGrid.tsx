@@ -146,7 +146,17 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.doorKnocking) {
-      router.push('/dashboard/door-knocking')
+      // The one tile that navigates instead of opening a flow here, so the
+      // preselected list travels as `?listId=` — the same param the CRM's
+      // "Send outreach" links already use to reach this hub. The
+      // door-knocking page parses it with the same positive-integer rule and
+      // ignores anything else, so a stale id costs the preselection and
+      // nothing more.
+      router.push(
+        pendingPreselectedListId === undefined
+          ? '/dashboard/door-knocking'
+          : `/dashboard/door-knocking?listId=${pendingPreselectedListId}`,
+      )
       return
     }
     setFlowType(type)
@@ -203,7 +213,7 @@ export const ChannelTileGrid = ({
           onClose={() => {
             // Only flows whose audience step applies the preselect consume
             // it on close (text/robocall/phoneBanking — door knocking
-            // navigates away instead of opening TaskFlow here).
+            // carries it away in the URL instead of opening TaskFlow here).
             const isConsumingFlow =
               flowType === OUTREACH_TYPES.text ||
               flowType === OUTREACH_TYPES.robocall ||

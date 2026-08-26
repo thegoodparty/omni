@@ -563,6 +563,93 @@ describe('NativeDoorKnockingPage landing rail', () => {
     expect(screen.queryByText(/Use Create list above/)).toBeNull()
   })
 
+  // The far end of the outreach hub's door-knocking tile. The whole chain is
+  // asserted here — page prop through the surface into the flow's own picker
+  // — because every link in it is a plain pass-through and a pass-through is
+  // exactly what a refactor drops without failing a unit test.
+  it('opens the create flow on the list carried in on ?listId=', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        { id: 7, name: 'Precinct 2 homeowners' },
+        { id: 8, name: 'Super voters', partyDemocrat: true },
+      ],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+        preselectedListId={8}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    const rail = document.getElementById('door-knocking-rail') as HTMLElement
+    const create = await waitFor(() => {
+      const button = within(rail).getByRole('button', { name: 'Create list' })
+      expect(button).toBeEnabled()
+      return button
+    })
+    fireEvent.click(create)
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+
+    expect(
+      await screen.findByRole('radio', { name: /^Super voters/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /^Precinct 2 homeowners/ }),
+    ).not.toBeChecked()
+    // The list's own filters reached the draft, so the map under the step is
+    // shading the audience the walk will actually be cut from: one of the
+    // fixture's four people is Democratic.
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-people',
+        '1',
+      ),
+    )
+  })
+
+  // A stale bookmark, a list deleted in the CRM since, or another org's id:
+  // the param is not trusted, so all of them are a missed preselection and
+  // nothing else.
+  it('opens the ordinary create flow when the carried list is not one of yours', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 7, name: 'Precinct 2 homeowners' }],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+        preselectedListId={12_345}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    const rail = document.getElementById('door-knocking-rail') as HTMLElement
+    const create = await waitFor(() => {
+      const button = within(rail).getByRole('button', { name: 'Create list' })
+      expect(button).toBeEnabled()
+      return button
+    })
+    fireEvent.click(create)
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+
+    expect(
+      await screen.findByRole('radio', { name: /^All contacts/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /^Precinct 2 homeowners/ }),
+    ).not.toBeChecked()
+  })
+
   // A legend that narrowed with its own chip would zero the other six counts
   // and leave nothing to press back.
   it('keeps the legend counts describing the list, not the pressed chip', async () => {
