@@ -46,6 +46,34 @@ export const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> =
     ]),
   ) as Record<DoorKnockStatus, string>
 
+// The order the walk states its outcomes in — the canvas's `PROGRESS_ORDER`
+// (line 681 of `Voter Outreach.dc.html`): the two answers a door can give
+// first, then still-to-knock, then the ways a door can fail to answer.
+// `not_a_voter` is ours (ADR 0008) and has no canvas position, so it goes last,
+// beside the other outcomes that are not a stance.
+export const PROGRESS_LEGEND_ORDER: DoorKnockStatus[] = [
+  'supporter',
+  'non_supporter',
+  'not_home',
+  'unknown',
+  'inaccessible',
+  'refused',
+  'not_a_voter',
+]
+
+// The same order, for the segments of the bar those words sit under — derived
+// and not written out again, because a bar whose segments ran in a different
+// order from the legend below it would be two accounts of one walk.
+//
+// `unknown` is the one status with no segment. It is the bar's own track
+// showing through, which is what makes the bar readable as progress rather
+// than as a stacked chart: what is coloured is what has been logged, what is
+// grey is what is left, and the two always add up to the list. Drawn as a
+// seventh segment it would fill the bar on a walk where nothing had happened
+// yet — the canvas leaves it out for the same reason.
+export const PROGRESS_STATUS_ORDER: DoorKnockStatus[] =
+  PROGRESS_LEGEND_ORDER.filter((status) => status !== 'unknown')
+
 // Whichever of white and black is legible ON a given fill, by WCAG's own
 // relative-luminance formula; the crossover is 0.179. Two things in this feature
 // print a mark on top of a fixed colour and must both invert with it — the stop

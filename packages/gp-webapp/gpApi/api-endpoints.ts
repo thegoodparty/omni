@@ -46,8 +46,10 @@ import type {
   RobocallScriptDraftResponse,
   RobocallAudioPresignRequest,
   RobocallAudioPresignResponse,
+  RobocallNumberResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
+  PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -326,6 +328,14 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/audio/presign': {
     Request: RobocallAudioPresignRequest
     Response: RobocallAudioPresignResponse
+  }
+
+  // Rents a fresh CallHub caller-ID number for this robocall. The candidate
+  // reads the returned number aloud as the callback number, so it's rented
+  // before the disclosure draft. Pro-gated. Empty request body.
+  'POST /v1/outreach/robocall/number': {
+    Request: Record<string, never>
+    Response: RobocallNumberResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of
@@ -911,6 +921,11 @@ export type APIEndpoints = {
     // unfiltered district.
     Request: { segment?: number }
     Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/precincts': {
+    Request: {}
+    Response: PeoplePrecinctsResponse
   }
 
   'GET /v1/contacts/:personId/notes': {

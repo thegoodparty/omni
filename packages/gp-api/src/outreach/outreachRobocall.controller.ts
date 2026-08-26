@@ -1,5 +1,7 @@
 import { Body, Controller, Post, UseInterceptors } from '@nestjs/common'
 import {
+  RobocallNumberResponse,
+  RobocallNumberResponseSchema,
   RobocallScriptDraftRequest,
   RobocallScriptDraftRequestSchema,
   RobocallScriptDraftResponse,
@@ -16,6 +18,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
@@ -36,9 +39,24 @@ export class OutreachRobocallController {
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
+    private readonly callhubNumbers: CallhubNumbersService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallController.name)
+  }
+
+  // Rents a fresh CallHub caller-ID number for this robocall. The candidate
+  // reads it aloud as the callback number, so it must exist before the script
+  // is drafted with its disclosure. A number is rented per robocall (numbers
+  // get spam-flagged); the account auto-un-rents idle ones.
+  @Post('robocall/number')
+  @ResponseSchema(RobocallNumberResponseSchema)
+  async rentNumber(
+    @ReqOrganization() organization: Organization,
+  ): Promise<RobocallNumberResponse> {
+    await this.contacts.assertProAccess(organization)
+    const rented = await this.callhubNumbers.rentNumber({ countryIso: 'US' })
+    return { phoneNumber: rented.phone_number, region: rented.region }
   }
 
   @Post('robocall/draft')

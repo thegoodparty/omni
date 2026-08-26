@@ -761,6 +761,10 @@ export {
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
 export {
+  RobocallNumberResponseSchema,
+  type RobocallNumberResponse,
+} from './outreach/RobocallNumber.schema'
+export {
   ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
   ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequestSchema,
@@ -790,11 +794,22 @@ export {
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
+  createPrecinctFilterSchema,
+  PRECINCT_PAIR_DELIMITER,
+  encodePrecinctPair,
+  decodePrecinctPair,
   PeopleFiltersSchema,
   type PeopleFilters,
   IdOverridesSchema,
   type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  PrecinctOptionSchema,
+  type PrecinctOption,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
+} from './people/PeoplePrecincts.schema'
 
 export {
   MAX_OVERLAP_SAVED_FILTER_SETS,
@@ -839,6 +854,11 @@ export {
   type DoorKnockingPackRequest,
   PACK_ARRAY_TYPES,
   PACK_CORE_ARRAYS,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
   DoorKnockingPackDimSchema,
   type DoorKnockingPackDim,
   DoorKnockingPackArraySchema,

@@ -65,4 +65,31 @@ describe('controllerAlerts', () => {
       expect(alert.expr).not.toContain('response_statusCode >= 400')
     }
   })
+
+  // The blind spot this closes: a request the gateway kills mid-flight logs
+  // `statusCode: null`, which is neither 4xx nor 5xx, so no status-range
+  // filter matched it. Two door-knocking pack timeouts in seven days paged
+  // nobody. Loki drops a null field and reads a missing label as empty, so
+  // the empty-string comparison is what catches it either way.
+  it('pages when a request completes with no status at all', () => {
+    for (const alert of alerts) {
+      expect(alert.expr).toContain('response_statusCode = ""')
+      expect(alert.message).toContain('null')
+    }
+  })
+
+  // It has to catch the timeout without dragging the 4xx vocabulary back in —
+  // a null status is the absence of one, so it can't overlap with 429 or 400.
+  it('admits no 4xx alongside the null-status clause', () => {
+    for (const alert of alerts) {
+      expect(alert.expr).not.toMatch(/response_statusCode\s*[<>=!]+\s*4\d\d/)
+    }
+  })
+
+  // `A and B or C` is one precedence misread away from paging on every 401.
+  it('parenthesizes the status clauses', () => {
+    for (const alert of alerts) {
+      expect(alert.expr).toContain('( response_statusCode >= 500 ) or (')
+    }
+  })
 })

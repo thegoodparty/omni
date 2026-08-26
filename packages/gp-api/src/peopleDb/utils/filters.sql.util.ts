@@ -1,4 +1,4 @@
-import { type IdOverrides } from '@goodparty_org/contracts'
+import { decodePrecinctPair, type IdOverrides } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/people-prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { FilterOperator } from '../schemas/filters.schema.utils'
@@ -144,6 +144,9 @@ export const buildVoterFiltersSql = (
       case 'ageInt':
         sql = buildNumericFilter('Age_Int', op)
         break
+      case 'precinct':
+        sql = buildPrecinctFilter(op)
+        break
     }
 
     if (sql) {
@@ -153,6 +156,49 @@ export const buildVoterFiltersSql = (
 
   if (andClauses.length === 0) return null
   return Prisma.sql`${Prisma.join(andClauses, ' AND ')}`
+}
+
+// Mirrors buildPrecinctFilter in the Databricks builder. Both stores need
+// this branch: PeopleFiltersSchema deliberately strips unknown keys rather
+// than rejecting them, so a Databricks-only implementation would let the
+// filter vanish whenever a read is served from Postgres — silently WIDENING
+// a saved audience rather than failing loudly.
+const buildPrecinctFilter = (op?: FilterOperator): Prisma.Sql | null => {
+  if (!op || op.operator !== 'in' || !op.values?.length) return null
+
+  const counties: string[] = []
+  const precincts: string[] = []
+  const unknownCounties: string[] = []
+
+  for (const value of op.values) {
+    const { county, precinct } = decodePrecinctPair(String(value))
+    if (precinct === '') {
+      unknownCounties.push(county)
+      continue
+    }
+    counties.push(county)
+    precincts.push(precinct)
+  }
+
+  const clauses: Prisma.Sql[] = []
+  // Paired arrays unnested into a tuple set rather than a per-pair OR chain:
+  // the pair list can reach the 5,000-value cap, and one bound array per side
+  // stays clear of PostgreSQL's 65,535 bind-parameter limit.
+  if (counties.length > 0) {
+    clauses.push(
+      Prisma.sql`(v."County", v."Precinct") IN (
+        SELECT * FROM unnest(${counties}::text[], ${precincts}::text[])
+      )`,
+    )
+  }
+  if (unknownCounties.length > 0) {
+    clauses.push(
+      Prisma.sql`(v."County" = ANY(${unknownCounties}::text[]) AND v."Precinct" IS NULL)`,
+    )
+  }
+  if (clauses.length === 0) return null
+  if (clauses.length === 1) return clauses[0]!
+  return Prisma.sql`(${Prisma.join(clauses, ' OR ')})`
 }
 
 export const VALUE_MAPPERS = {

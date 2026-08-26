@@ -67,11 +67,18 @@ export const hasPartyFilterSelection = (filters: VoterFileFilters): boolean =>
 
 // ENG-10751: the wizard's build-CTA gate (CreateListWizard) and the "Clear
 // filters" affordance (VoterFileStep) must agree on what counts as a
-// selection — one formula so the two can't drift.
+// selection — one formula so the two can't drift. The outreach v2 builder
+// gate reads it too. Precinct is part of it: a precinct-only selection is a
+// real list, so it has to enable the CTA and the Clear affordance like any
+// other filter.
 export const hasAnyVoterFileSelection = (
   filters: VoterFileFilters,
   supportStatus: SupportStatusRollup[],
-): boolean => Object.values(filters).some(Boolean) || supportStatus.length > 0
+  precincts: string[] = [],
+): boolean =>
+  Object.values(filters).some(Boolean) ||
+  supportStatus.length > 0 ||
+  precincts.length > 0
 
 export const transformVoterFileFiltersForBackend = (
   filters: VoterFileFilters,

@@ -106,9 +106,9 @@ export interface RunningAgainst {
   description: string
 }
 
-// Onboarding's "Are you already on the ballot?" answer. Persisted twice by
-// OnboardingFlow: on details.ballotStatus, and inside the whole-answers snapshot
-// under data.onboarding — so readers need both (see GetOnBallotCard).
+// Onboarding's "Are you already on the ballot?" answer. Persisted on the
+// campaign.ballotStatus column; data.onboarding keeps a copy as part of the
+// whole-answers snapshot, but that is an archive, not a read path.
 export type BallotStatus =
   | 'on-ballot'
   | 'qualified-not-filed'
@@ -123,7 +123,6 @@ export interface CampaignDetails {
   zip?: string
   knowRun?: 'yes' | null
   runForOffice?: 'yes' | 'no' | null
-  ballotStatus?: BallotStatus
   pledged?: boolean
   isProUpdatedAt?: number
   customIssues?: CustomIssue[]
@@ -478,6 +477,7 @@ export interface Campaign {
   isDemo: boolean
   didWin?: boolean | null
   primaryResult?: 'won' | 'lost' | null
+  ballotStatus?: BallotStatus | null
   dateVerified?: Date | string | null
   tier?: CampaignTier | null
   formattedAddress?: string | null

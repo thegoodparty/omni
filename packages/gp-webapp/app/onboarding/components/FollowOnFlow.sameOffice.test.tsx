@@ -122,9 +122,7 @@ describe('FollowOnFlow — same office', () => {
     await waitFor(() =>
       expect(mockClientFetch).toHaveBeenCalledWith(
         expect.objectContaining({ path: '/campaigns/mine' }),
-        expect.objectContaining({
-          details: expect.objectContaining({ ballotStatus: 'on-ballot' }),
-        }),
+        expect.objectContaining({ ballotStatus: 'on-ballot' }),
       ),
     )
     await waitFor(() =>

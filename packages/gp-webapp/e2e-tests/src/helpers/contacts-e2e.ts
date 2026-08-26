@@ -28,7 +28,32 @@ export function personContactPanel(page: Page): Locator {
 // The contacts list endpoint (GET /v1/contacts), not the per-person detail
 // (/v1/contacts/:id), the stats (/v1/contacts/stats) or download
 // (/v1/contacts/download) — those carry a trailing path segment.
-const CONTACTS_LIST_RESPONSE = /\/v1\/contacts(\?|$)/
+const CONTACTS_LIST_PATH = /\/v1\/contacts$/
+
+// Matches a contacts-list response, optionally pinned to one segment.
+//
+// `page=1` is always required. ContactsTableProvider runs TWO list queries: the
+// one the table and the stat card render, and a page+1 prefetch it fires as
+// soon as the current page reports hasNextPage. Both hit /v1/contacts, so an
+// unqualified matcher resolves on whichever lands first — routinely the
+// prefetch for the segment being navigated AWAY from, which is still in flight
+// when the next action is taken. Every action these helpers wrap resets to page
+// 1 (`selectSegment` / `searchContacts` pass `page: 1`), so requiring it
+// excludes the prefetch without excluding anything a caller waits for.
+//
+// `segment` pins the wait to the query whose data the assertions will read.
+// Without it the waiter is still satisfied by an in-flight page-1 request for
+// the PREVIOUS segment, which resolves before the click has even re-keyed the
+// query — see applyContactsQuery.
+const isContactsListResponse =
+  (segment?: string) =>
+  (res: Response): boolean => {
+    if (res.request().method() !== 'GET' || !res.ok()) return false
+    const url = new URL(res.url())
+    if (!CONTACTS_LIST_PATH.test(url.pathname)) return false
+    if (url.searchParams.get('page') !== '1') return false
+    return segment === undefined || url.searchParams.get('segment') === segment
+  }
 
 // The per-person detail endpoint (GET /v1/contacts/:id). The id segment has no
 // further slash, so this excludes /v1/contacts/:id/issues and /activities; the
@@ -68,17 +93,39 @@ export async function waitForContactsTableReady(page: Page): Promise<void> {
 // response landing AND the skeleton clearing so assertions see the new rows, not
 // stale ones. The response waiter is armed before the action so a fast refetch
 // can't resolve before we start listening.
+//
+// Pass `segment` whenever the caller knows which segment the action selects.
+// Without it the two gates can BOTH be satisfied by the pre-action state: the
+// waiter resolves on some other in-flight /v1/contacts response, and the
+// skeleton check then passes because the router navigation hasn't committed
+// yet, so the query hasn't re-keyed and no skeleton has gone up. The helper
+// returns having observed the OLD segment throughout. Auto-retrying assertions
+// absorb that; a one-shot read of rendered text (a stat card into a number)
+// does not — it silently captures the previous segment's figure.
+//
+// With `segment`, the response can only land after the query re-keyed and
+// started fetching, which is after the skeleton went up — so the skeleton
+// clearing is genuinely the commit of the new data.
 export async function applyContactsQuery(
   page: Page,
   action: () => Promise<void>,
+  { segment }: { segment?: string } = {},
 ): Promise<void> {
-  const responseLanded = page.waitForResponse(
-    isGetResponse(CONTACTS_LIST_RESPONSE),
-    {
-      timeout: 30_000,
-    },
-  )
+  const responseLanded = page.waitForResponse(isContactsListResponse(segment), {
+    timeout: 30_000,
+  })
   await action()
+  if (segment !== undefined) {
+    // Exact param comparison rather than a URL regex, so `all` can't match a
+    // segment named `all-something`. Fails fast and legibly when the click
+    // didn't take, instead of as an opaque 30s response timeout.
+    await page.waitForURL(
+      (url) => url.searchParams.get('segment') === segment,
+      {
+        timeout: 30_000,
+      },
+    )
+  }
   await responseLanded
   await waitForContactsTableReady(page)
 }

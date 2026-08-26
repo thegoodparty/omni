@@ -14,6 +14,7 @@ import {
   type SupportStatusRollup,
   type UpdateContactStatusInput,
   type VoterLikelihood,
+  type PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import {
   ContactStatusField,
@@ -712,6 +713,26 @@ export class ContactsService {
   // saved segment would and reads only the people-api total — resultsPerPage: 1
   // so no real rows are loaded. Pro-gated like search/named segments: a non-pro
   // requester only ever sees the base-list preview, never an arbitrary count.
+  // Win-only, like political party and contacts-made: precinct is an
+  // electoral subdivision of a race, and an elected official serves the whole
+  // district regardless of which precinct someone votes in. Rejected before
+  // the pro gate so a non-pro Serve org gets the "not available" reason
+  // rather than the upsell one, matching updateContactStatus.
+  async getPrecincts(
+    organization: Organization,
+  ): Promise<PeoplePrecinctsResponse> {
+    if (this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        'Precinct filtering is not available for this organization',
+      )
+    }
+    await this.assertProAccess(organization)
+
+    return this.withOrgDistrictResolution(organization, ({ districtId }) =>
+      this.voterQueryService.findPrecincts(districtId),
+    )
+  }
+
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,

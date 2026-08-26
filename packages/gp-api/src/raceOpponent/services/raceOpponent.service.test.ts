@@ -343,6 +343,7 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
   const setup = ({
     rows,
     rosterOpponents,
+    runStatus = ExperimentRunStatus.COMPLETED,
   }: {
     rows: (typeof collectedRow)[]
     rosterOpponents: Array<{
@@ -351,6 +352,7 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
       incumbent: boolean | null
       websiteUrl?: string | null
     }>
+    runStatus?: ExperimentRunStatus
   }): RaceOpponentService => {
     const service = new RaceOpponentService(
       {} as never,
@@ -377,7 +379,7 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
         experimentRun: {
           findFirst: vi.fn().mockResolvedValue({
             runId: 'collection-run',
-            status: ExperimentRunStatus.COMPLETED,
+            status: runStatus,
             createdAt: COLLECTED_AT,
           }),
           findUnique: vi.fn().mockResolvedValue({
@@ -474,6 +476,50 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
       'Jane Doe',
       'Michael Foster',
     ])
+  })
+
+  // RaceOpponentList shows its "Collection failed / Try again" card only when
+  // opponents[] is empty. Seeding the roster into a failed response therefore
+  // paints a report of names with no research and strips the retry button, so
+  // the candidate has no way back. Roster inclusion waits for a run that
+  // actually produced something.
+  it('does not seed the roster when the collection failed', async () => {
+    const service = setup({
+      rows: [],
+      runStatus: ExperimentRunStatus.FAILED,
+      rosterOpponents: [
+        {
+          fullName: 'Michael Foster',
+          partyAffiliation: 'Republican',
+          incumbent: true,
+        },
+      ],
+    })
+
+    const { opponents, collectionStatus } = await service.get(campaign)
+
+    expect(collectionStatus).toBe('failed')
+    expect(opponents).toEqual([])
+  })
+
+  // The exemption is narrow: a failed run that still landed rows keeps showing
+  // them, exactly as it did before roster seeding existed.
+  it('keeps collected rows on a failed collection', async () => {
+    const service = setup({
+      rows: [collectedRow],
+      runStatus: ExperimentRunStatus.FAILED,
+      rosterOpponents: [
+        {
+          fullName: 'Michael Foster',
+          partyAffiliation: 'Republican',
+          incumbent: true,
+        },
+      ],
+    })
+
+    const { opponents } = await service.get(campaign)
+
+    expect(opponents.map((o) => o.opponentName)).toEqual(['Jane Doe'])
   })
 })
 

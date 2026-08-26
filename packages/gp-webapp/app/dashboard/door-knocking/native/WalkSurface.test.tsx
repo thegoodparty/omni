@@ -7,6 +7,7 @@ import WalkSurface, {
   WalkMapHint,
   type OpenStopRequest,
 } from './WalkSurface'
+import type { LiveLocation } from './useLiveLocation'
 
 // The walk's own rendering has its own suite. Stubbed so this file asserts only
 // the seam: what the orchestrator hands in, and what the walk asks of the map.
@@ -15,6 +16,8 @@ const walkViewProps: {
     turfId: number
     openStopRequest: OpenStopRequest | null
     selectedStopId: number | null
+    liveLocation: LiveLocation
+    liveLocationEnabled: boolean
   } | null
 } = { current: null }
 vi.mock('./WalkView', () => ({
@@ -25,11 +28,16 @@ vi.mock('./WalkView', () => ({
     selectedStopId: number | null
     onSelectStop: (stopId: number) => void
     onKnockRecorded?: () => void
+    liveLocation: LiveLocation
+    liveLocationEnabled: boolean
+    onToggleLiveLocation: (next: boolean) => void
   }) => {
     walkViewProps.current = {
       turfId: props.turfId,
       openStopRequest: props.openStopRequest ?? null,
       selectedStopId: props.selectedStopId,
+      liveLocation: props.liveLocation,
+      liveLocationEnabled: props.liveLocationEnabled,
     }
     return (
       <div data-testid="walk-view">
@@ -38,6 +46,9 @@ vi.mock('./WalkView', () => ({
         </button>
         <button type="button" onClick={() => props.onSelectStop(12)}>
           mark stop 12
+        </button>
+        <button type="button" onClick={() => props.onToggleLiveLocation(true)}>
+          show my location
         </button>
       </div>
     )
@@ -289,6 +300,7 @@ describe('WalkSurface seam', () => {
   it('passes the walk its turf, the map’s open request and the marked stop', () => {
     const onKnockRecorded = vi.fn()
     const onSelectStop = vi.fn()
+    const onToggleLiveLocation = vi.fn()
     render(
       <WalkSurface
         turfId={3}
@@ -296,6 +308,13 @@ describe('WalkSurface seam', () => {
         selectedStopId={11}
         onSelectStop={onSelectStop}
         onKnockRecorded={onKnockRecorded}
+        liveLocation={{
+          status: 'tracking',
+          fix: { lng: -86.78, lat: 36.16, accuracyMeters: 9 },
+          approximate: false,
+        }}
+        liveLocationEnabled
+        onToggleLiveLocation={onToggleLiveLocation}
       />,
     )
 
@@ -303,6 +322,15 @@ describe('WalkSurface seam', () => {
       turfId: 3,
       openStopRequest: { stopId: 11, token: 2 },
       selectedStopId: 11,
+      // The page owns the watch, because the map draws the dot and outlives
+      // the walk; the control that turns it on is the walk's, so the reading
+      // and the switch both cross the seam unchanged.
+      liveLocation: {
+        status: 'tracking',
+        fix: { lng: -86.78, lat: 36.16, accuracyMeters: 9 },
+        approximate: false,
+      },
+      liveLocationEnabled: true,
     })
 
     // The other direction of the same value: the walk decides where the mark
@@ -312,5 +340,9 @@ describe('WalkSurface seam', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'record a knock' }))
     expect(onKnockRecorded).toHaveBeenCalled()
+
+    // And the third direction: the pill is behind the seam, the watch is not.
+    fireEvent.click(screen.getByRole('button', { name: 'show my location' }))
+    expect(onToggleLiveLocation).toHaveBeenCalledWith(true)
   })
 })

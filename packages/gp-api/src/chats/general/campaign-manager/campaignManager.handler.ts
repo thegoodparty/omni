@@ -45,6 +45,7 @@ import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
@@ -329,12 +330,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
-    // Onboarding writes this answer to both details.ballotStatus and
-    // data.onboarding.ballotStatus. Fall back to the onboarding copy for
-    // candidates who answered before details.ballotStatus was allowed through
-    // the update schema, since those rows only have the second one.
-    const ballotStatus =
-      details.ballotStatus ?? campaign.data.onboarding?.ballotStatus ?? null
+    const ballotStatus = parseBallotStatus(campaign.ballotStatus)
 
     // Scope constituent queries to the campaign's district (from its org's
     // position), same shape Chief of Staff uses. Resolving the flag only when

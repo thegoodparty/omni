@@ -8,6 +8,7 @@ import { EmailModule } from 'src/email/email.module'
 import { PurchaseType } from 'src/payments/purchase.types'
 import { PurchaseService } from 'src/payments/services/purchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
+import { CallhubModule } from 'src/vendors/callhub/callhub.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { ContactsModule } from '../contacts/contacts.module'
@@ -57,6 +58,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     forwardRef(() => ContactsModule),
     OrganizationsModule,
     ContactInteractionModule,
+    CallhubModule,
   ],
   controllers: [
     OutreachController,

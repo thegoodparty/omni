@@ -15,6 +15,7 @@ import type {
   SupportStatusRollup,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
@@ -31,6 +32,12 @@ export interface OutreachAudienceCopy {
   pickerBody: string
   filtersTitle: string
   filtersBody: string
+  // Optional clarifying copy rendered above the filter groups, for a channel
+  // whose dial/send logic needs explaining beyond the filter labels
+  // themselves (e.g. phone banking calls whichever number a voter has, so
+  // the cell/landline filters read as narrowing, not a reachability
+  // requirement). Omitted entirely for channels with nothing to add.
+  filtersHint?: string
   nameTitle: string
   nameBody: string
   // Verb + noun for the reachable-count line, so the channel controls the whole
@@ -63,6 +70,9 @@ interface OutreachAudienceStepProps {
   builderFilters: VoterFileFilters
   onBuilderFiltersChange: (filters: VoterFileFilters) => void
   builderSupportStatus: SupportStatusRollup[]
+  builderPrecincts: string[]
+  onBuilderPrecinctsChange: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   onBuilderSupportStatusChange: (value: SupportStatusRollup[]) => void
   builderName: string
   onBuilderNameChange: (name: string) => void
@@ -96,6 +106,9 @@ export const OutreachAudienceStep = ({
   builderFilters,
   onBuilderFiltersChange,
   builderSupportStatus,
+  builderPrecincts,
+  onBuilderPrecinctsChange,
+  precinctOptions,
   onBuilderSupportStatusChange,
   builderName,
   onBuilderNameChange,
@@ -133,11 +146,17 @@ export const OutreachAudienceStep = ({
           title={copy.filtersTitle}
           body={copy.filtersBody}
         />
+        {copy.filtersHint && (
+          <p className="text-sm text-muted-foreground">{copy.filtersHint}</p>
+        )}
         <VoterFileStep
           filters={builderFilters}
           onFiltersChange={onBuilderFiltersChange}
           supportStatus={builderSupportStatus}
           onSupportStatusChange={onBuilderSupportStatusChange}
+          precincts={builderPrecincts}
+          onPrecinctsChange={onBuilderPrecinctsChange}
+          precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
         />
       </div>

@@ -63,6 +63,85 @@ describe('PUT /v1/campaigns/mine (updateJsonFields)', () => {
   })
 })
 
+describe('PUT /v1/campaigns/mine — ballotStatus column', () => {
+  it('persists the top-level ballotStatus to the column', async () => {
+    const { org, campaign } = await seedCampaign()
+    const crm = service.app.get(CrmCampaignsService)
+    vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
+
+    const result = await service.client.put(
+      '/v1/campaigns/mine',
+      { ballotStatus: 'qualified-not-filed' },
+      { headers: { 'x-organization-slug': org.slug } },
+    )
+
+    expect(result.status).toBe(200)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.ballotStatus).toBe('qualified-not-filed')
+  })
+
+  // The deprecated details key is what a frontend from before the cutover
+  // sends. It has to land on the column, not be silently stripped the way the
+  // details allowlist stripped it between 2026-05-20 and this change.
+  it('forwards the deprecated details.ballotStatus to the column', async () => {
+    const { org, campaign } = await seedCampaign()
+    const crm = service.app.get(CrmCampaignsService)
+    vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
+
+    const result = await service.client.put(
+      '/v1/campaigns/mine',
+      { details: { ballotStatus: 'considering' } },
+      { headers: { 'x-organization-slug': org.slug } },
+    )
+
+    expect(result.status).toBe(200)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.ballotStatus).toBe('considering')
+    expect(row.details).not.toHaveProperty('ballotStatus')
+  })
+
+  it('drops a stale details copy on the next unrelated update', async () => {
+    const { org, campaign } = await seedCampaign()
+    // ballotStatus is no longer part of CampaignDetails, which is the whole
+    // point — this seeds the legacy shape rows still carry.
+    const legacyDetails: PrismaJson.CampaignDetails = { state: 'CA' }
+    Reflect.set(legacyDetails, 'ballotStatus', 'on-ballot')
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: legacyDetails },
+    })
+    const crm = service.app.get(CrmCampaignsService)
+    vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
+
+    await service.client.put(
+      '/v1/campaigns/mine',
+      { details: { city: 'Oakland' } },
+      { headers: { 'x-organization-slug': org.slug } },
+    )
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.details).not.toHaveProperty('ballotStatus')
+  })
+
+  it('rejects an unknown ballotStatus rather than dropping it', async () => {
+    const { org } = await seedCampaign()
+
+    const result = await service.client.put(
+      '/v1/campaigns/mine',
+      { ballotStatus: 'maybe' },
+      { headers: { 'x-organization-slug': org.slug } },
+    )
+
+    expect(result.status).toBe(400)
+  })
+})
+
 describe('PUT /v1/campaigns/mine — stale election-result reset (ENG-10954)', () => {
   // A re-running candidate reuses their campaign: didWin / primaryResult /
   // details.wonGeneral recorded for the prior race permanently fail

@@ -621,17 +621,20 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       orderBy: { createdAt: Prisma.SortOrder.asc },
     })
 
+    const collectionStatus = await this.collectionStatus(
+      campaign.id,
+      campaign.organizationSlug,
+    )
+
     return {
       opponents: this.groupByOpponent(
         rows,
         await this.loadRoster(campaign.id),
         await this.loadSummaries(campaign.id),
+        collectionStatus,
       ),
       lastCollectedAt: this.lastCollectedAt(rows),
-      collectionStatus: await this.collectionStatus(
-        campaign.id,
-        campaign.organizationSlug,
-      ),
+      collectionStatus,
       fieldAnalysis: await this.loadFieldAnalysis(campaign.id),
       standoutActions: await this.loadStandoutActions(campaign.id),
     }
@@ -836,6 +839,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       }
     >,
     summaries: Map<string, RaceOpponentSummary>,
+    collectionStatus: RaceOpponentCollectionStatus,
   ): RaceOpponentResponse['opponents'] {
     const byName = new Map<string, RaceOpponent[]>()
     // Collected opponent_website rows are the primary websiteUrl source (the
@@ -869,13 +873,20 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     // normalized (trim+lowercase) key groupByOpponent uses to enrich, so an
     // opponent whose collected rows just differ in casing/whitespace from the
     // roster still deduplicates onto their collected entry.
-    const collectedNormalized = new Set<string>()
-    for (const opponentName of byName.keys()) {
-      collectedNormalized.add(opponentName.trim().toLowerCase())
-    }
-    for (const [normalized, rosterEntry] of roster.entries()) {
-      if (collectedNormalized.has(normalized)) continue
-      byName.set(rosterEntry.displayName, [])
+    //
+    // A 'failed' collection is exempt. RaceOpponentList gates its "Collection
+    // failed / Try again" card on an empty opponents[], so seeding roster names
+    // into a failed response replaces the candidate's only retry path with a
+    // report of names carrying no research (ENG-10893 review follow-up).
+    if (collectionStatus !== 'failed') {
+      const collectedNormalized = new Set<string>()
+      for (const opponentName of byName.keys()) {
+        collectedNormalized.add(opponentName.trim().toLowerCase())
+      }
+      for (const [normalized, rosterEntry] of roster.entries()) {
+        if (collectedNormalized.has(normalized)) continue
+        byName.set(rosterEntry.displayName, [])
+      }
     }
     const grouped = [...byName.entries()].map(([opponentName, items]) => {
       // Conservative name match against the roster: trim + lowercase only

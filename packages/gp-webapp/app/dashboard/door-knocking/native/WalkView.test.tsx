@@ -12,20 +12,42 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import WalkView, { stopNumeralColor } from './WalkView'
-import { STATUS_DOT_COLORS, STATUS_RGB } from './statusPresentation'
+import type { LiveLocation } from './useLiveLocation'
+import {
+  PROGRESS_LEGEND_ORDER,
+  PROGRESS_STATUS_ORDER,
+  STATUS_DOT_COLORS,
+  STATUS_LABELS,
+  STATUS_RGB,
+} from './statusPresentation'
 
 // The marked stop now lives on the page, because the map rings the same stop
 // the list marks and the canvas can only be handed a prop. This is the
 // orchestrator's half of that — `useWalkMapSession` in production — so the
 // suite can go on asserting the list's own behaviour: the view still decides
 // where the mark goes and reports it, and reads back what it reported.
+// The live-location half of the same orchestrator. The watch belongs to the
+// page (the map draws the dot and outlives the walk), so the harness plays it:
+// off until the pill is pressed, then whatever `liveLocation` says. Defaulting
+// to `off` rather than making every test supply one keeps the suite about the
+// list, and lets the few tests that are about the pill hand it a reading.
 const WalkHarness = ({
   onSelectStop,
+  liveLocation,
   ...props
-}: Omit<ComponentProps<typeof WalkView>, 'selectedStopId' | 'onSelectStop'> & {
+}: Omit<
+  ComponentProps<typeof WalkView>,
+  | 'selectedStopId'
+  | 'onSelectStop'
+  | 'liveLocation'
+  | 'liveLocationEnabled'
+  | 'onToggleLiveLocation'
+> & {
   onSelectStop?: (stopId: number) => void
+  liveLocation?: LiveLocation
 }) => {
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
+  const [liveLocationEnabled, setLiveLocationEnabled] = useState(false)
   return (
     <WalkView
       {...props}
@@ -34,6 +56,14 @@ const WalkHarness = ({
         setSelectedStopId(stopId)
         onSelectStop?.(stopId)
       }}
+      liveLocation={
+        liveLocation ??
+        (liveLocationEnabled
+          ? { status: 'locating', fix: null, approximate: false }
+          : { status: 'off', fix: null, approximate: false })
+      }
+      liveLocationEnabled={liveLocationEnabled}
+      onToggleLiveLocation={setLiveLocationEnabled}
     />
   )
 }
@@ -164,6 +194,33 @@ const closePersonSheet = async () => {
   await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 }
 
+// A second resident behind the first stop's door, so the collapsed row has a
+// household to count rather than a single person to name.
+const withHousehold = (
+  payload: DoorKnockingRoutePayload,
+): DoorKnockingRoutePayload => ({
+  ...payload,
+  stops: payload.stops.map((stop) =>
+    stop.id === 11
+      ? {
+          ...stop,
+          addresses: stop.addresses.map((address) => ({
+            ...address,
+            targets: [
+              ...address.targets,
+              {
+                ...(address.targets[0] as RoutePayloadTarget),
+                stopTargetId: 23,
+                personId: 'person-3',
+                name: 'Winnie Fen',
+              },
+            ],
+          })),
+        }
+      : stop,
+  ),
+})
+
 // The stop rows are the only list items on this surface, and their button is
 // what carries `aria-current` — the row saying it is the stop the walk is on.
 const stopRow = (index: number): HTMLElement =>
@@ -202,6 +259,67 @@ describe('WalkView', () => {
     ).toBeTruthy()
   })
 
+  // The canvas segments its bar by outcome. Ours was one blue bar with the
+  // counts underneath, recorded as a deliberate departure — overturned by the
+  // product owner on 2026-08-25 (audit item 14). `unknown` is deliberately not
+  // a segment: the track showing through for it is what keeps the bar a
+  // reading of progress rather than a stacked chart that is full on a walk
+  // where nothing has happened.
+  it('colours the progress bar by outcome, leaving the unlogged as track', async () => {
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
+    )
+
+    const segments = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-status]'),
+    )
+    expect(segments.map((segment) => segment.dataset.status)).toEqual([
+      ...PROGRESS_STATUS_ORDER,
+    ])
+    expect(segments).toHaveLength(PROGRESS_LEGEND_ORDER.length - 1)
+    expect(segments.some((s) => s.dataset.status === 'unknown')).toBe(false)
+
+    // The words under the bar run the same way the segments do, with the one
+    // status that has no segment in the canvas's place among them.
+    const legend = within(
+      screen.getByRole('group', { name: 'Outcomes so far' }),
+    ).getAllByText(/\w/, { selector: 'span.inline-flex' })
+    expect(
+      legend.map((entry) =>
+        entry.textContent?.split(' ').slice(0, -1).join(' '),
+      ),
+    ).toEqual(PROGRESS_LEGEND_ORDER.map((status) => STATUS_LABELS[status]))
+
+    // Marisol is the one logged door of two, and she is a supporter.
+    const supporter = segments.find((s) => s.dataset.status === 'supporter')!
+    expect(supporter).toHaveStyle({
+      width: '50%',
+      backgroundColor: STATUS_DOT_COLORS.supporter,
+    })
+    // Everything unlogged leaves the bar alone.
+    expect(
+      segments
+        .filter((s) => s.dataset.status !== 'supporter')
+        .every((s) => s.style.width === '0%'),
+    ).toBe(true)
+  })
+
+  // The canvas's bubble is `secondary-light` on `secondary-dark`. Ours had
+  // drifted to the near-black `tertiary-dark`, which reads as a filled control
+  // rather than as a count. The WORD is a separate, still-correct decision:
+  // "logged" and never the canvas's "reached", because not-home, inaccessible
+  // and refused all satisfy this predicate.
+  it('keeps our word for the counter and the canvas’s colour', async () => {
+    render(<WalkHarness turfId={3} />)
+
+    const bubble = await screen.findByText('1/2 logged')
+    expect(bubble.className).toContain('bg-secondary-light')
+    expect(bubble.className).toContain('text-secondary-dark')
+    expect(bubble.className).not.toContain('tertiary')
+  })
+
   // The Aug 14 walkthrough took these numerals out; the 2026-08-20 product call
   // put them back, and this test was written to encode their absence. The map
   // draws `seq` on every pin, so a list with no numerals gives a canvasser no
@@ -229,16 +347,80 @@ describe('WalkView', () => {
 
   // The stop's numeral and its people count sit one gap apart on the row, so a
   // bare "1" beside "Stop 1" named neither quantity — the canvas puts a person
-  // glyph in front of the count for exactly this reason, and a screen reader
-  // gets none of that layout at all.
+  // glyph in front of the count AND the noun after it for exactly this reason,
+  // and a screen reader gets none of that layout at all.
   it('says what the people count on a stop row counts', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: withHousehold(routePayload),
+    })
     render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
 
-    expect(within(stopRow(0)).getByText(/person to knock/)).toBeInTheDocument()
+    expect(within(stopRow(0)).getByText(/2 people/)).toBeInTheDocument()
+    expect(within(stopRow(0)).getByText(/to knock/)).toBeInTheDocument()
+  })
+
+  // The canvas's expanded door: a tinted well under the stop, one row per
+  // resident, each led by a person glyph sitting where the stop's own name
+  // begins and closed by a bordered status pill. Ours had the indent and
+  // nothing else — no glyph, no rules, and a bare dot and label floating where
+  // the pill goes, which ran together into one block of grey at three or four
+  // residents.
+  it('expands a household into the canvas’s resident rows', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: withHousehold(routePayload),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByText('105 Elm St'))
+
+    // The row expands rather than opening a sheet: the canvasser picks.
+    await waitFor(() =>
+      expect(screen.getAllByText('Dorian Fen')).toHaveLength(2),
+    )
+    expect(screen.queryByText('Log this door')).toBeNull()
+
+    const residentRow = screen
+      .getAllByText('Winnie Fen')
+      .pop()!
+      .closest('button') as HTMLElement
+    // The glyph starts where the stop's name does, so the residents read as
+    // belonging to the address above them rather than as more stops.
+    expect(residentRow.className).toContain('pl-14')
+    expect(residentRow.querySelector('svg.lucide-user')).toBeTruthy()
+    // A rule between every row, so four residents are four rows.
+    expect(residentRow.className).toContain('border-t')
+    // The status is a bordered pill, as in the canvas.
+    const pill = within(residentRow).getByText('Support unknown')
+    expect(pill.className).toContain('rounded-full')
+    expect(pill.className).toContain('border')
+  })
+
+  // A one-resident stop opens its sheet instead of expanding, so it is the one
+  // stop whose status never gets labelled anywhere else. It used to close on a
+  // bare coloured dot, leaving a canvasser to match a 6px circle against a
+  // legend two cards up — the canvas spells this row's status out, and so does
+  // ours now.
+  it('names the outcome in words on a stop with a single resident', async () => {
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+
+    // Dorian is unreached; Marisol is already a supporter.
+    expect(within(stopRow(0)).getByText('Support unknown')).toBeInTheDocument()
+    expect(within(stopRow(1)).getByText('Supporter')).toBeInTheDocument()
+    // And no head count at all: "1 person" is a quantity nobody asked for.
+    expect(within(stopRow(0)).queryByText(/person/)).toBeNull()
   })
 
   // A row tap and a pin tap set one selection, so the numbered row and the
@@ -258,14 +440,42 @@ describe('WalkView', () => {
     expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
   })
 
-  // The offline story: paper is reached from the walk, and the sheet has to
-  // open in its own tab so the walk in progress isn't navigated away from.
-  it('links out to the printable list for this turf', async () => {
+  // The canvas keeps the walk's paper in the page header, not in the control
+  // row under the map, and calls it PDF. The link itself is asserted where it
+  // now lives (`NativeDoorKnockingPage.test.tsx`); what this file has to keep
+  // proving is that the row below the map does not grow a second one.
+  it('leaves the walk’s paper to the page header', async () => {
     render(<WalkHarness turfId={3} />)
 
-    const link = await screen.findByRole('link', { name: 'Print list' })
-    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/3')
-    expect(link).toHaveAttribute('target', '_blank')
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('link', { name: 'Print list' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'PDF' })).toBeNull()
+  })
+
+  // The canvas's walk control row, in the canvas's order: the live-location
+  // switch first, then the facts about the route being walked. The mode and
+  // loop chips are read-only on purpose — a route is bought for one mode and
+  // cannot be re-bought from inside itself — so the row has exactly one button.
+  it('leads the control row with the live-location switch', async () => {
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+
+    const pill = screen.getByRole('button', { name: 'My live location' })
+    expect(pill).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(pill)
+
+    expect(
+      screen.getByRole('button', { name: 'My live location' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    // The route facts beside it stay facts.
+    expect(screen.getByText('Walking').tagName).toBe('SPAN')
+    expect(screen.getByText('Loop').tagName).toBe('SPAN')
   })
 
   // ADR 0007. The marker has to survive walking on to the next stop, so it
@@ -306,10 +516,13 @@ describe('WalkView', () => {
       data: { personId: 'person-1', doNotKnock: true },
     })
 
-    // The label is a bare text node beside its count, so the chip itself is the
-    // only span whose text carries both.
+    // Scoped to the legend by name: the same seven words also label a
+    // one-resident stop row now, and an unscoped lookup would find both.
     const unknownChip = () =>
-      screen.getByText(/Support unknown/, { selector: 'span' })
+      within(screen.getByRole('group', { name: 'Outcomes so far' })).getByText(
+        /Support unknown/,
+        { selector: 'span' },
+      )
 
     render(<WalkHarness turfId={3} />)
     // Dorian is the unreached door of the two; Marisol is already a supporter.
@@ -849,7 +1062,10 @@ describe('WalkView not-a-voter reason', () => {
     expect(row.querySelectorAll('span.h-1\\.5')).toHaveLength(0)
     expect(screen.getByText('0/0 logged')).toBeInTheDocument()
     expect(
-      screen.getByText(/Support unknown/, { selector: 'span' }),
+      within(screen.getByRole('group', { name: 'Outcomes so far' })).getByText(
+        /Support unknown/,
+        { selector: 'span' },
+      ),
     ).toHaveTextContent('Support unknown 0')
   })
 
@@ -1903,6 +2119,33 @@ describe('WalkView map pin taps', () => {
     expect(
       screen.getByRole('button', { name: 'Previous door' }),
     ).not.toBeDisabled()
+  })
+
+  // The canvas draws all three header controls as plain glyphs. Ours took the
+  // IconButton default, which is a filled primary circle — so a panel about a
+  // person led with three blue discs around their name. The hit target is the
+  // same either way, which is the half that matters at a doorstep.
+  it('draws the panel’s header controls as glyphs, not filled circles', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 11, token: 1 },
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Dorian Fen' }),
+      ).toBeInTheDocument(),
+    )
+
+    for (const name of ['Previous door', 'Next door', 'Close person details']) {
+      const control = screen.getAllByRole('button', { name }).pop()!
+      expect(control.className).not.toContain('bg-primary')
+      expect(control.className).toContain('bg-transparent')
+      // Still a target and not a text link: the size class is the button's.
+      expect(control.className).toMatch(/size-\d+/)
+    }
   })
 
   // Same numeral the row and the pin carry — `seq`, never a position in a list,

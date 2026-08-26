@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { RobocallScriptDraftRequest } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { RobocallFlow } from './RobocallFlow'
@@ -174,6 +175,20 @@ const mockDraftError = () =>
     data: { message: 'boom' },
   })
 
+// Entering compose rents a caller-ID number (the candidate reads it aloud);
+// the draft fires only after the rent resolves.
+const mockRentNumber = (phoneNumber = '+12025550147') =>
+  api.mock('POST /v1/outreach/robocall/number', {
+    status: 200,
+    data: { phoneNumber, region: 'DC' },
+  })
+
+const mockRentNumberError = () =>
+  api.mock('POST /v1/outreach/robocall/number', {
+    status: 500,
+    data: { message: 'boom' },
+  })
+
 // Purpose -> audience -> schedule, then set a valid date+time and Continue into
 // compose WITHOUT pre-mocking a successful draft, so the caller controls
 // whether the on-entry draft succeeds or fails.
@@ -256,6 +271,7 @@ describe('RobocallFlow', () => {
       status: 404,
       data: { message: 'No elected office' },
     })
+    mockRentNumber()
   })
 
   it('opens on the purpose step with the robocall purposes', () => {
@@ -375,6 +391,21 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Create a new list'))
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
+  })
+
+  // ENG-10948: the any-phone dialing hint is phone-banking-specific copy —
+  // robocall dials landlines only and passes no filtersHint, so it must not
+  // appear here.
+  it('does not show the phone-banking any-phone-dialing hint', async () => {
+    mockSavedLists()
+    await gotoAudience()
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Create a new list'))
+    expect(screen.getByText('Build a voter list')).toBeInTheDocument()
+
+    expect(
+      screen.queryByText(/Phone banking calls whichever number/),
+    ).not.toBeInTheDocument()
   })
 
   it('builds a list, creates it, and advances to the schedule step', async () => {
@@ -815,5 +846,98 @@ describe('RobocallFlow', () => {
     const textarea = screen.getByRole('textbox', { name: 'Robocall script' })
     await userEvent.type(textarea, 'Hi, this is my own script.')
     expect(textarea).toHaveValue('Hi, this is my own script.')
+  })
+
+  it('rents and shows the callback number on entering compose', async () => {
+    await gotoCompose()
+    // The rented number and the read-aloud reminder render above the script.
+    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Read your callback number aloud/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a retry when renting the callback number fails', async () => {
+    mockRentNumberError()
+    await gotoComposeRaw()
+
+    // Renting failed: the error + retry render (no number yet).
+    expect(
+      await screen.findByText(/We couldn't get a callback number just now/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('+12025550147')).not.toBeInTheDocument()
+
+    // Retry succeeds -> the number appears.
+    mockRentNumber()
+    mockDraft()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+  })
+
+  it('threads the rented callback number into the draft request', async () => {
+    let draftBody: RobocallScriptDraftRequest | null = null
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      draftBody = body
+      return { status: 200, data: { draft: 'A grounded script.' } }
+    })
+
+    await gotoComposeRaw()
+    await screen.findByText(/A grounded script/)
+
+    // The on-entry draft carries the rented number so the server can require
+    // the spoken disclosure.
+    expect(draftBody).toMatchObject({ callbackNumber: '+12025550147' })
+  })
+
+  it('does not draft the old purpose if it changes while renting', async () => {
+    // Hold the rent open so a purpose change can land mid-flight.
+    let releaseRent!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseRent = resolve
+    })
+    api.mock('POST /v1/outreach/robocall/number', async () => {
+      await gate
+      return {
+        status: 200,
+        data: { phoneNumber: '+12025550147', region: 'DC' },
+      }
+    })
+    const draftPurposes: string[] = []
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      draftPurposes.push(body.purpose)
+      return { status: 200, data: { draft: 'a draft' } }
+    })
+
+    // Enter compose on "Persuade": the rent is in flight (body shows spinner).
+    await gotoComposeRaw('Persuade likely voters')
+    expect(
+      await screen.findByText('Getting your callback number…'),
+    ).toBeInTheDocument()
+
+    // Back out to the purpose step and switch to "Introduce".
+    await userEvent.click(screen.getByLabelText('Back')) // -> schedule
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByLabelText('Back')) // -> audience
+    await userEvent.click(screen.getByLabelText('Back')) // -> purpose
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+
+    // The gated rent resolves after the purpose changed; the guard must skip
+    // the stale persuade draft.
+    releaseRent()
+
+    // Navigate forward into compose for Introduce and wait for ITS draft to
+    // render. That synchronizes on the resolved rent, so the assertion runs
+    // only after any (buggy) stale persuade draft would already have fired.
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+    )
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('a draft')
+
+    // Only the current purpose was ever drafted — never the stale persuade one.
+    expect(draftPurposes).toEqual(['introduce_myself'])
   })
 })

@@ -17,6 +17,10 @@ model Campaign {
   isDemo                   Boolean                 @default(false) @map("is_demo")
   didWin                   Boolean?                @map("did_win")
   primaryResult            String?                 @map("primary_result")
+  // Onboarding's "Are you already on the ballot?" answer. A column, not a
+  // details key: the details allowlist strips anything it does not name, so a
+  // JSONB write fails silently while a missing column fails loudly.
+  ballotStatus             String?                 @map("ballot_status")
   dateVerified             DateTime?               @map("date_verified")
   tier                     CampaignTier?
   formattedAddress         String?                 @map("formatted_address")
