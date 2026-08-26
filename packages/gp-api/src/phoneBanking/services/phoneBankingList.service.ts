@@ -166,7 +166,7 @@ export class PhoneBankingListService extends createPrismaBase(
     )
 
     const maxEntries = input.sheetCount * PHONE_BANKING_SHEET_SIZE
-    const { grouped, hasMore } = await this.pageAudience({
+    const { grouped, hasMore, skippedPriorBatch } = await this.pageAudience({
       districtId,
       search: filterInput.search || undefined,
       filters: resolved.filters,
@@ -177,11 +177,13 @@ export class PhoneBankingListService extends createPrismaBase(
       priorBatchPersonIds,
       maxEntries,
     })
+    // Exhausted only when someone was actually skipped FOR being in a prior
+    // batch — a prior batch merely existing proves nothing (the filter may
+    // now match zero voters, or only phone-less ones, and "already in a
+    // previous campaign" would misdirect the user away from widening it).
     if (grouped.size === 0) {
       throw new BadRequestException(
-        priorBatchPersonIds.size > 0
-          ? EXHAUSTED_AUDIENCE_MESSAGE
-          : EMPTY_AUDIENCE_MESSAGE,
+        skippedPriorBatch ? EXHAUSTED_AUDIENCE_MESSAGE : EMPTY_AUDIENCE_MESSAGE,
       )
     }
 
@@ -242,7 +244,11 @@ export class PhoneBankingListService extends createPrismaBase(
     suppressedPhones: Set<string>
     priorBatchPersonIds: Set<string>
     maxEntries: number
-  }): Promise<{ grouped: Map<string, PersonName[]>; hasMore: boolean }> {
+  }): Promise<{
+    grouped: Map<string, PersonName[]>
+    hasMore: boolean
+    skippedPriorBatch: boolean
+  }> {
     const {
       districtId,
       search,
@@ -261,6 +267,7 @@ export class PhoneBankingListService extends createPrismaBase(
     // exactly at the cap reports hasMore: false.
     let droppedUsable = false
     let audienceExhausted = false
+    let skippedPriorBatch = false
 
     let page = 1
     while (true) {
@@ -285,7 +292,10 @@ export class PhoneBankingListService extends createPrismaBase(
 
       for (const person of people) {
         if (notAVoterIds.has(person.id)) continue
-        if (priorBatchPersonIds.has(person.id)) continue
+        if (priorBatchPersonIds.has(person.id)) {
+          skippedPriorBatch = true
+          continue
+        }
         const name = [person.firstName, person.lastName]
           .filter(Boolean)
           .join(' ')
@@ -312,7 +322,11 @@ export class PhoneBankingListService extends createPrismaBase(
       page += 1
     }
 
-    return { grouped, hasMore: droppedUsable || !audienceExhausted }
+    return {
+      grouped,
+      hasMore: droppedUsable || !audienceExhausted,
+      skippedPriorBatch,
+    }
   }
 
   private pickDialNumber(

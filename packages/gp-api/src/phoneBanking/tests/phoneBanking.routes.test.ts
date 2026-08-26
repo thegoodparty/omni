@@ -429,6 +429,25 @@ describe('phone banking routes', () => {
       })
     })
 
+    it('a filter that stopped matching anyone 400s as empty, not exhausted, despite a prior batch', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075559222' })])
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      mockPeoplePage([])
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(400)
+      expect(second.data.message).toContain('widen the filters')
+    })
+
     it('round-trips a hyphenated purpose through the snake_case DB enum', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075558999' })])
 
