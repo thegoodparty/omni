@@ -403,9 +403,13 @@ export class CampaignTasksService extends createPrismaBase(
     try {
       const campaign = await this.client.campaign.findUnique({
         where: { id: campaignId },
-        select: { details: true },
+        select: { details: true, user: { select: { email: true } } },
       })
       if (!campaign?.details) return
+
+      if (isTestCampaign({ user: campaign.user })) {
+        return
+      }
 
       if (campaign.details.proUpgradeSlackNotifiedAt) {
         return
