@@ -10,7 +10,6 @@ const params = {
   contentType: 'audio/webm',
   candidateName: 'Alex Rivera',
   organizationName: 'Rivera for City Council',
-  callbackNumber: '18557492163',
   userId: '1',
 }
 
@@ -57,6 +56,9 @@ describe('RobocallComplianceService', () => {
     )?.content
     expect(userPrompt).toContain('Rivera for City Council')
     expect(userPrompt).toContain('Alex Rivera')
+    // No client-supplied number is fed as the expected value — the check only
+    // confirms a callback number is spoken, so nothing is there to spoof.
+    expect(userPrompt).not.toMatch(/expected callback number/i)
   })
 
   it('fails with one issue per missing element', async () => {
