@@ -24,11 +24,32 @@ export const turfStage = (turf: DoorKnockingTurf): TurfLifecycleStage =>
 // exists iff someone started knocking it. Archived is ours: the canvas has no
 // shelf, and 'Done' would be a lie about a list the rail has taken off the
 // active section.
+//
+// The unknocked state reads **"Not started" and not the canvas's "Scheduled"**,
+// which is the one place this map departs from `renderDkDetails` on purpose. The
+// canvas's six-state vocabulary has no "hasn't begun yet" bucket, so its door
+// knocking screen borrows `scheduled` — a word that is literally true of the
+// sending channels it was written for, where the flow ends on a date picker and
+// the row genuinely carries a `scheduledAt`. Door knocking has no send time and
+// no date picker: a list is drawn on a map and walked whenever somebody walks
+// it. A domain reviewer read the label and asked when it had been scheduled,
+// which is the correct question and has no answer. "Not started" says the same
+// thing the canvas meant (`knocked === 0`) in the words this vocabulary already
+// uses for the other two positions of the same axis — Not started, In progress,
+// Done.
+//
+// It cannot collide with the sending channels' "Scheduled", which stays exactly
+// as it was for a paid text or robocall: this label never reaches those rows,
+// and no door-knocking row ever reaches theirs. Nor can the two details drawers
+// disagree about one list — the `Outreach` envelope that would let the history
+// table describe a walk is written by the knock transaction, so a list in this
+// state has no envelope and appears in no history at all. Once it does, the
+// envelope reads `in_progress` and both surfaces say "In progress".
 export const turfStatusLabel = (turf: DoorKnockingTurf): string => {
   const stage = turfStage(turf)
   if (stage === 'archived') return 'Archived'
   if (stage === 'done') return 'Done'
-  return turf.locked ? 'In progress' : 'Scheduled'
+  return turf.locked ? 'In progress' : 'Not started'
 }
 
 export type TurfLifecycleAction = 'complete' | 'archive' | 'restore'

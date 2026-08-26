@@ -740,6 +740,64 @@ def test_load_watchlist_missing_file_returns_empty_okr(tmp_path):
     assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [], {})
 
 
+# --- load_monitored_events ---------------------------------------------------
+
+BEHAVIOR_YAML = (
+    "watched_families: [win_dashboard]\n"
+    "events:\n"
+    '  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
+    "behaviors:\n"
+    "  - id: voter_file_exported\n"
+    "    product: win\n"
+    "    surfaces:\n"
+    '      - {path: a.tsx, label: crm, instrumented_by: "Voter Data - List Exported"}\n'
+    "      - {path: b.tsx, label: wizard, instrumented_by: null}\n"
+    "  - id: voter_outreach_scheduled\n"
+    "    product: win\n"
+    '    okr: ["Activated Candidates", "Outreach Intensity"]\n'
+    "    surfaces:\n"
+    '      - {path: c.tsx, label: campaign, '
+    'instrumented_by: "Voter Outreach - Campaign Completed"}\n'
+    '      - {path: d.tsx, label: doors, instrumented_by: "Door Knocking - List Created"}\n'
+)
+
+
+def test_load_monitored_events_adds_behavior_instruments(tmp_path):
+    y = tmp_path / "w.yaml"
+    y.write_text(BEHAVIOR_YAML)
+    _, events, _, _ = eh.load_monitored_events(y)
+    assert events == [
+        "Sign Up Clicked",
+        "Voter Data - List Exported",
+        "Voter Outreach - Campaign Completed",
+        "Door Knocking - List Created",
+    ]
+
+
+def test_load_monitored_events_anchors_the_behavior_okr_on_every_instrument(tmp_path):
+    y = tmp_path / "w.yaml"
+    y.write_text(BEHAVIOR_YAML)
+    _, _, _, okr = eh.load_monitored_events(y)
+    assert okr == {
+        "Voter Outreach - Campaign Completed": "Activated Candidates, Outreach Intensity",
+        "Door Knocking - List Created": "Activated Candidates, Outreach Intensity",
+    }
+
+
+def test_load_watchlist_stays_blind_to_behaviors(tmp_path):
+    """Rule 8 compares instrumented_by against this list, so widening it in place would
+    turn every migrated behavior into a duplicate-anchor error."""
+    y = tmp_path / "w.yaml"
+    y.write_text(BEHAVIOR_YAML)
+    _, events, _, okr = eh.load_watchlist(y)
+    assert events == ["Sign Up Clicked"]
+    assert okr == {}
+
+
+def test_load_monitored_events_missing_file_returns_empty(tmp_path):
+    assert eh.load_monitored_events(tmp_path / "absent.yaml") == ([], [], [], {})
+
+
 def test_reconcile_stamps_okr_on_records():
     catalog = [{
         "event_type": "Dashboard - Candidate Dashboard Viewed", "family": "win_dashboard",

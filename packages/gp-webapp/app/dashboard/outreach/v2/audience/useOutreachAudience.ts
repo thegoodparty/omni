@@ -110,7 +110,13 @@ export const useOutreachAudience = ({
 
   const { data: electedOffice } = useElectedOffice()
   const isElectedOfficial = !!electedOffice
-  const precinctOptions = usePrecinctOptions(!isElectedOfficial)
+  // Same gating as the builder's count below: the flow host stays mounted, so
+  // an ungated fetch would run for every outreach page view. 'picker' mode
+  // shows saved lists only — the precinct control cannot render until the
+  // builder is open on its filters step.
+  const precinctOptions = usePrecinctOptions(
+    open && active && mode !== 'picker' && !isElectedOfficial,
+  )
 
   // Scope the saved-lists cache by org: with staleTime 0 the cached entry is
   // still served during an in-flight refetch, so an unscoped key would briefly

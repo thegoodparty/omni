@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
   type SocialTone,
 } from '@goodparty_org/contracts'
@@ -126,20 +127,36 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const { reset: resetAudioUpload } = audioUpload
   const isCustomPurpose = purpose === 'custom'
 
+  // The fail-closed compliance gate: once a recording is uploaded, transcribe
+  // it and verify the spoken disclosures. Continue is blocked until it passes.
+  const complianceMutation = useMutation({
+    mutationFn: async (input: RobocallComplianceRequest) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/robocall/compliance',
+        input,
+      )
+      return data
+    },
+  })
+  const { mutate: runCompliance, reset: resetCompliance } = complianceMutation
+
   // Save commits the recording: upload it to S3 first, and only mark it saved
-  // (which unlocks Continue) once the upload succeeds. The stored key rides in
-  // audioUpload.key for the send-creation step.
+  // once the upload succeeds; the compliance check then runs off that saved
+  // status (see the effect below).
   const handleSaveRecording = async () => {
     const rec = recorder.recording
     if (!rec) return
-    const key = await audioUpload.uploadAudio(rec.blob)
-    if (key) recorder.save()
+    const uploaded = await audioUpload.uploadAudio(rec.blob)
+    if (uploaded) recorder.save()
   }
 
-  // Re-recording (status back to idle) drops any prior upload key/error.
+  // Re-recording (status back to idle) drops any prior upload + verdict.
   useEffect(() => {
-    if (recorder.status === 'idle') resetAudioUpload()
-  }, [recorder.status, resetAudioUpload])
+    if (recorder.status === 'idle') {
+      resetAudioUpload()
+      resetCompliance()
+    }
+  }, [recorder.status, resetAudioUpload, resetCompliance])
 
   const draftMutation = useMutation({
     mutationFn: async (input: RobocallScriptDraftRequest) => {
@@ -220,11 +237,36 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setScript('')
     setCallbackNumber(null)
     resetRent()
+    resetCompliance()
     draftRequestRef.current = 0
     resetRecorder()
     resetAudioUpload()
     resetAudience()
-  }, [open, resetAudience, resetRecorder, resetAudioUpload, resetRent])
+  }, [
+    open,
+    resetAudience,
+    resetRecorder,
+    resetAudioUpload,
+    resetRent,
+    resetCompliance,
+  ])
+
+  // Run the compliance check once a recording is saved (uploaded). Keyed on the
+  // saved object key, so a fresh re-record re-checks and nothing else re-fires.
+  // The check is an audio-content gate (name/org/callback derived or verified
+  // server-side), so it needs only the recording — never the rented number.
+  useEffect(() => {
+    if (
+      recorder.status === 'saved' &&
+      audioUpload.key &&
+      audioUpload.contentType
+    ) {
+      runCompliance({
+        audioKey: audioUpload.key,
+        contentType: audioUpload.contentType,
+      })
+    }
+  }, [recorder.status, audioUpload.key, audioUpload.contentType, runCompliance])
 
   // Validate against the combined UTC instant so it's tz-correct: the send must
   // be at least 48h out. `earliest` (now + lead) drives both the "earliest
@@ -244,6 +286,18 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const invalidateRecording = () => {
     resetRecorder()
     resetAudioUpload()
+    resetCompliance()
+  }
+
+  // Re-run the check after a transient (transcription/LLM) failure, reusing the
+  // already-uploaded recording.
+  const retryCompliance = () => {
+    if (audioUpload.key && audioUpload.contentType) {
+      runCompliance({
+        audioKey: audioUpload.key,
+        contentType: audioUpload.contentType,
+      })
+    }
   }
 
   const handleSelectPurpose = (selected: RobocallPurpose) => {
@@ -427,9 +481,12 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           ? {
               label: 'Continue',
               onClick: () => setStepId('placeholder'),
-              // Advancing requires a saved recording — the script alone
-              // isn't the deliverable; the audio is.
-              disabled: recorder.status !== 'saved',
+              // Advancing requires a saved recording that also passed the
+              // compliance check — the audio is the deliverable, and it must
+              // carry the spoken disclosures.
+              disabled:
+                recorder.status !== 'saved' ||
+                complianceMutation.data?.passed !== true,
             }
           : null
 
@@ -517,6 +574,10 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           onSaveRecording={handleSaveRecording}
           isUploading={audioUpload.isUploading}
           uploadError={audioUpload.error}
+          complianceChecking={complianceMutation.isPending}
+          complianceVerdict={complianceMutation.data ?? null}
+          complianceError={complianceMutation.isError}
+          onRetryCompliance={retryCompliance}
         />
       ) : (
         <div className="space-y-2 py-8 text-center">

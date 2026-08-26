@@ -89,7 +89,13 @@ export default function InstructionsStep({
       <H1 className="text-center">How this works</H1>
       <ol className="mt-6 mb-8 list-decimal list-inside leading-6">
         {(instructions || []).map((instruction, index) => (
-          <li key={index}>{instruction}</li>
+          // `list-item` because globals.css gives every `<li>` inside a
+          // `data-slot` element `display: flex`, and this step renders inside
+          // `Modal`'s `DialogContent`, which emits one — only `display:
+          // list-item` generates the marker this `list-decimal` list wants.
+          <li key={index} className="list-item">
+            {instruction}
+          </li>
         ))}
       </ol>
       <div className="flex justify-between">

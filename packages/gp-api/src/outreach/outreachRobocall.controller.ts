@@ -1,5 +1,15 @@
-import { Body, Controller, Post, UseInterceptors } from '@nestjs/common'
 import {
+  BadRequestException,
+  Body,
+  Controller,
+  Post,
+  UseInterceptors,
+} from '@nestjs/common'
+import {
+  RobocallComplianceRequest,
+  RobocallComplianceRequestSchema,
+  RobocallComplianceVerdict,
+  RobocallComplianceVerdictSchema,
   RobocallNumberResponse,
   RobocallNumberResponseSchema,
   RobocallScriptDraftRequest,
@@ -21,14 +31,15 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
 const candidateName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
 
-// Stateless, like the social and phone-banking draft endpoints: nothing
-// persists here. The robocall flow holds the script client-side; the recorded
-// audio (and its compliance verdict) is a separate, later step.
+// Stateless robocall compose endpoints: draft, number rental, and the
+// compliance check. Nothing persists here — the flow holds everything client-
+// side until the send is created (and paid for) in a later slice.
 @Controller('outreach')
 @UseCampaign()
 @UseOrganization()
@@ -36,6 +47,7 @@ const candidateName = (user: User): string =>
 export class OutreachRobocallController {
   constructor(
     private readonly generationService: OutreachRobocallGenerationService,
+    private readonly compliance: RobocallComplianceService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
@@ -43,6 +55,23 @@ export class OutreachRobocallController {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallController.name)
+  }
+
+  // Office is prompt/verification enrichment: an election-api failure degrades
+  // to the campaign's normalized office rather than failing the request.
+  private async resolveOffice(campaign: Campaign): Promise<string> {
+    const fallback = campaign.details.normalizedOffice ?? ''
+    if (!campaign.organizationSlug) return fallback
+    try {
+      const positionName =
+        await this.organizations.resolvePositionNameByOrganizationSlug(
+          campaign.organizationSlug,
+        )
+      return positionName ?? fallback
+    } catch (err) {
+      this.logger.warn({ err }, 'position resolution failed')
+      return fallback
+    }
   }
 
   // Rents a fresh CallHub caller-ID number for this robocall. The candidate
@@ -70,29 +99,54 @@ export class OutreachRobocallController {
   ): Promise<RobocallScriptDraftResponse> {
     await this.contacts.assertProAccess(organization)
 
-    // Office is prompt enrichment (see outreachSocial.controller): an
-    // election-api failure degrades to the fallback chain instead of
-    // failing the draft.
-    let positionName: string | null = null
-    if (campaign.organizationSlug) {
-      try {
-        positionName =
-          await this.organizations.resolvePositionNameByOrganizationSlug(
-            campaign.organizationSlug,
-          )
-      } catch (err) {
-        this.logger.warn({ err }, 'position resolution failed for draft')
-      }
-    }
-
     return {
       draft: await this.generationService.generateDraft(
         input,
         candidateName(user),
-        positionName ?? campaign.details.normalizedOffice ?? '',
+        await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
       ),
     }
+  }
+
+  // Fail-closed compliance gate for the recorded audio: transcribe and verify
+  // the candidate self-ID, organization, and callback number are spoken. The
+  // audio key is client-held, so confirm it belongs to THIS campaign first, so
+  // a caller can't check another campaign's recording.
+  @Post('robocall/compliance')
+  @ResponseSchema(RobocallComplianceVerdictSchema)
+  async checkCompliance(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(RobocallComplianceRequestSchema))
+    input: RobocallComplianceRequest,
+  ): Promise<RobocallComplianceVerdict> {
+    await this.contacts.assertProAccess(organization)
+
+    if (!input.audioKey.startsWith(`robocall/${campaign.id}/`)) {
+      throw new BadRequestException('Audio does not belong to this campaign')
+    }
+
+    const name = candidateName(user)
+    // Without a name the self-ID check can never pass and the audio can't say
+    // it either — fail fast with a fixable error, not a misleading verdict the
+    // user is stuck behind.
+    if (!name) {
+      throw new BadRequestException(
+        'Add your name to your campaign profile before recording a robocall.',
+      )
+    }
+    const office = await this.resolveOffice(campaign)
+    const organizationName = office ? `${name} for ${office}` : name
+
+    return this.compliance.checkRecording({
+      audioKey: input.audioKey,
+      contentType: input.contentType,
+      candidateName: name,
+      organizationName,
+      userId: String(user.id),
+    })
   }
 }

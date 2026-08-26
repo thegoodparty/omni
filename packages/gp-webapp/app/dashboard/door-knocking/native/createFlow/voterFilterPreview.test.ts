@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
 import {
   filtersToDimSelections,
+  unpreviewableDisclosureSentence,
   unpreviewableFilterKeys,
 } from './voterFilterPreview'
 
@@ -91,5 +92,55 @@ describe('filtersToDimSelections', () => {
       manifest, // has no educationLevel dim
     )
     expect(selections.size).toBe(0)
+  })
+})
+
+// The sentence was written for exactly one filter and then had a
+// `labels.join(', ')` dropped into it, so a second selection produced "shade
+// by 65+, Prior contacts made yet, so these counts include people that filter
+// will exclude" — a comma list that reads as a typo, a "yet" that attaches
+// itself to the last label, and a singular pronoun for a plural subject.
+describe('unpreviewableDisclosureSentence', () => {
+  // The whole sentence, once, so the wording the three surfaces share is
+  // pinned somewhere: it must name the MAP as the limitation and say the list
+  // still applies the filter (AGENTS.md, ADR 0010). Phrased as the filter not
+  // being applied, it reads as targeting silently failing.
+  it('keeps the singular sentence for one filter', () => {
+    expect(unpreviewableDisclosureSentence(['65+'])).toBe(
+      'The map can’t yet shade by 65+, so these counts include people that ' +
+        'filter will exclude. Your saved list still applies it when you knock.',
+    )
+  })
+
+  it('joins two with or, with no comma to read as a typo', () => {
+    expect(
+      unpreviewableDisclosureSentence(['65+', 'Prior contacts made']),
+    ).toBe(
+      'The map can’t yet shade by 65+ or Prior contacts made, so these ' +
+        'counts include people those filters will exclude. Your saved list ' +
+        'still applies them when you knock.',
+    )
+  })
+
+  // Three or more keeps the serial comma: without it the last two labels run
+  // together into something that reads as one filter name.
+  it('joins three or more with commas and a final or', () => {
+    expect(
+      unpreviewableDisclosureSentence(['65+', 'Renter', 'Prior contacts made']),
+    ).toBe(
+      'The map can’t yet shade by 65+, Renter, or Prior contacts made, so ' +
+        'these counts include people those filters will exclude. Your saved ' +
+        'list still applies them when you knock.',
+    )
+
+    expect(
+      unpreviewableDisclosureSentence(['65+', 'Renter', 'Veteran', 'Married']),
+    ).toContain('shade by 65+, Renter, Veteran, or Married,')
+  })
+
+  // Not an empty paragraph: the callers render nothing rather than a hedge
+  // about no filters.
+  it('has nothing to say when every filter shades', () => {
+    expect(unpreviewableDisclosureSentence([])).toBeNull()
   })
 })

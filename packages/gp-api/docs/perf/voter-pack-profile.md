@@ -18,6 +18,14 @@ about](#confidence-and-what-would-change-these-numbers) are stated explicitly,
 because every number here is conditional on that dataset resembling the live
 district.
 
+> **This fix shipped, and the endpoint is now ~23 s for its worst district.**
+> [`voter-pack-headroom.md`](./voter-pack-headroom.md) decomposes that 23 s
+> against a real production trace rather than a synthetic one, and finds the
+> remaining time split roughly half Postgres, half Prisma object construction,
+> with the client at 38 ms. It supersedes this document's *ranked
+> recommendations*; the method, dataset and wire-format analysis here still
+> stand.
+
 ---
 
 ## Contents
@@ -671,22 +679,15 @@ model behind this report's ranking is wrong and it should be rerun.
 
 ## Reproducing this
 
-The harnesses live in `packages/gp-api/.perf/` on the branch this document came
-from and are **deliberately not committed** — they are throwaway measurement
-code, not something to maintain. They are:
+The committed benchmark harness lives in
+[`packages/gp-api/perf/voter-pack/`](../../perf/voter-pack/); its `AGENTS.md`
+covers generating the synthetic dataset and running the driver and client
+benchmarks.
 
-| file | what it does |
-| --- | --- |
-| `gen.mjs` | generates the synthetic dataset (deterministic, seeded) and its DDL |
-| `harness2.ts` | phase split and server-side ablation across query variants |
-| `harness3.ts` | keyset vs single pass, buffer traffic, plan shapes |
-| `harness4.ts` | the end-to-end candidate matrix (A–F), warm and cold |
-| `encbench.ts` | the encoder in isolation, all variants |
-| `cold-io.mjs` | cold-buffer-pool IO characterisation |
-| `keyset-probe.mjs` | per-batch plans and block counts for the keyset loop |
-| `proj-ablate.mjs` | repeated server-side projection ablation |
-| `profile-run.ts` | one build, isolated for `--cpu-prof` / `--heap-prof` |
-
-Each imports the production `PackEncoder` and SQL builders directly, and each
-bundles through `esbuild` before running so profiles are not polluted by a
-TypeScript loader.
+The extra one-off scripts behind this document's ablations — keyset versus
+single pass, plan shapes, cold-buffer-pool IO, per-batch block counts, and the
+isolated `--cpu-prof` run — were throwaway measurement code and were not kept.
+If you rebuild them, note what made the originals trustworthy: each imported the
+production `PackEncoder` and SQL builders directly rather than reimplementing
+them, and each bundled through `esbuild` before running so the profiles were not
+polluted by a TypeScript loader.

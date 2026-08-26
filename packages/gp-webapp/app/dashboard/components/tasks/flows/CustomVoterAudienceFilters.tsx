@@ -109,7 +109,6 @@ export interface AudienceFiltersState {
 
 export const TRACKING_KEYS = {
   scheduleCampaign: 'scheduleCampaign',
-  customVoterFile: 'customVoterFile',
 }
 
 interface TrackingEventMapEntry {
@@ -122,7 +121,6 @@ interface TrackingEventMapEntry {
 
 type TrackingEventMapType = {
   scheduleCampaign: TrackingEventMapEntry
-  customVoterFile: TrackingEventMapEntry
 }
 
 const TRACKING_EVENT_MAP: TrackingEventMapType = {
@@ -141,13 +139,6 @@ const TRACKING_EVENT_MAP: TrackingEventMapType = {
     checkGender:
       EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience
         .CheckGender,
-  },
-  customVoterFile: {
-    checkAudience: EVENTS.VoterData.CustomFile.Audience.CheckAudience,
-    checkPoliticalParty:
-      EVENTS.VoterData.CustomFile.Audience.CheckPoliticalParty,
-    checkAge: EVENTS.VoterData.CustomFile.Audience.CheckAge,
-    checkGender: EVENTS.VoterData.CustomFile.Audience.CheckGender,
   },
 }
 
@@ -186,10 +177,7 @@ const CustomVoterAudienceFilters = ({
   const handleChangeAudience = (option: string, val: boolean | string) => {
     if (readOnly) return
 
-    if (
-      trackingKey &&
-      (trackingKey === 'scheduleCampaign' || trackingKey === 'customVoterFile')
-    ) {
+    if (trackingKey === 'scheduleCampaign') {
       const trackingEvents = TRACKING_EVENT_MAP[trackingKey]
       if (option.startsWith('audience_')) {
         if (option === 'audience_request') {

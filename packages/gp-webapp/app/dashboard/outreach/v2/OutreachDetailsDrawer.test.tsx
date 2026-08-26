@@ -436,17 +436,37 @@ describe('OutreachDetailsDrawer — phone banking', () => {
   })
 })
 
-// Door knocking arrived in this table as its own channel in #1374, and until
-// now its rows opened a drawer built for envelopes that carry their own
-// figures. These are the three things that had to be true for a walk to read
-// correctly in a campaign-reporting surface.
+// Door knocking arrived in this table as its own channel in #1374, and its
+// rows opened a drawer built for envelopes that carry their own figures — a
+// walk's live on the turf the other side of its route. The detail's
+// `doorKnocking` block is that hop, and these are the things that had to be
+// true for a walk to read like its peers on a campaign-reporting surface.
 describe('OutreachDetailsDrawer — door knocking', () => {
-  const doorKnockingDetail = (status: 'in_progress' | 'completed') => ({
+  // Doors and people are two numbers, and both come from the rail's own counts
+  // aggregate: 4 doors holding 9 knockable people, 6 of them logged.
+  const doorKnockingBlock = {
+    turfId: 12,
+    routeId: 7,
+    turfName: 'Elm St & 5th',
+    doorCount: 4,
+    peopleCount: 9,
+    loggedCount: 6,
+    completedAt: null,
+    archivedAt: null,
+  }
+
+  // `null` rather than `undefined` for "no block": an explicit `undefined`
+  // argument takes the default, which would silently send the block anyway.
+  const doorKnockingDetail = (
+    status: 'in_progress' | 'completed',
+    doorKnocking: typeof doorKnockingBlock | null = doorKnockingBlock,
+  ) => ({
     ...baseDetail,
     outreachType: 'nativeDoorKnocking' as const,
     name: 'Elm St & 5th',
     status,
     doorKnockingRouteId: 7,
+    doorKnocking: doorKnocking ?? undefined,
   })
 
   const doorKnockingRow = (
@@ -459,9 +479,10 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     status,
   })
 
-  // The phone-banking precedent, in door knocking's verb. The link is the
-  // surface rather than the list, because this row knows its route id and
-  // nothing maps that back to the turf a deeper link would need.
+  // The phone-banking precedent, in door knocking's verb. Still the surface
+  // rather than the list: the turf id is on the detail now, but the
+  // door-knocking page reads no such param, so a deeper link would land here
+  // anyway.
   it('offers Continue knocking on an in-progress walk', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -482,35 +503,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     ).not.toBeInTheDocument()
   })
 
-  // The archive seam. Two rows carry an archivedAt for one walk, and only the
-  // door-knocking surface can write both — a button here could reach the
-  // envelope alone, which is precisely how they come apart. So the drawer says
-  // where the action lives instead of offering half of it.
-  it('sends archive back to the door-knocking surface on a finished walk', async () => {
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: doorKnockingDetail('completed'),
-    })
-
-    render(
-      <OutreachDetailsDrawer
-        row={doorKnockingRow('completed')}
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    expect(
-      await screen.findByText(/Archive this from Door knocking/),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Move to archive' }),
-    ).not.toBeInTheDocument()
-  })
-
-  // The envelope holds the route's id and nothing else about the walk, so a
-  // People cell here could only ever say "—". Naming where the figures live
-  // beats printing an empty one.
-  it('points at the list for the figures it does not hold', async () => {
+  it('renders doors, people and logged progress from the block', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('in_progress'),
@@ -523,13 +516,143 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       />,
     )
 
-    expect(await screen.findByText('Overview')).toBeInTheDocument()
-    expect(screen.queryByText('People')).not.toBeInTheDocument()
+    // The Doors/People labels render while the detail is still in flight, so
+    // waiting on one of them would assert against the skeleton. The progress
+    // line only exists once the block has landed.
+    // "Logged", never "reached": three of the outcomes behind this number are
+    // doors where nobody spoke to anybody.
+    expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
+    expect(screen.getByText('Doors')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
+    expect(screen.getByText('67%')).toBeInTheDocument()
+    expect(screen.getByText('Remaining')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+  })
+
+  // A finished walk keeps its progress rather than swapping it for a Results
+  // table, because door knocking has no outcomes surface here (ADR 0012) and a
+  // walk is routinely ended with doors left unlogged.
+  it('keeps the progress section on a finished walk', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('completed'),
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('completed')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
+  })
+
+  // The archive seam. Two rows carry an archivedAt for one walk, and only the
+  // TURF's endpoint writes both — so the drawer gets the same button every
+  // other finished row has, pointed at the one writer rather than at this
+  // envelope's own archive route.
+  it('archives a finished walk through the turf endpoint, not the envelope', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('completed'),
+    })
+    let turfArchiveBody: unknown
+    let turfArchiveId: string | undefined
+    api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ params, body }) => {
+      turfArchiveId = params.id
+      turfArchiveBody = body
+      return {
+        status: 200,
+        data: {
+          ...doorKnockingBlock,
+          archivedAt: new Date('2026-08-20T00:00:00Z'),
+        } as never,
+      }
+    })
+    let envelopeArchiveCalled = false
+    api.mock('PATCH /v1/outreach/:id/archive', () => {
+      envelopeArchiveCalled = true
+      return { status: 200, data: { id: 30, archivedAt: null } }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('completed')}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    )
+
+    // The TURF's id, not the envelope's — the two are different numbers here
+    // precisely so a mix-up cannot pass.
+    expect(turfArchiveId).toBe('12')
+    expect(turfArchiveBody).toEqual({ archived: true })
+    expect(envelopeArchiveCalled).toBe(false)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(
-      screen.getByText(
-        /knocking progress for this walk are on the list itself/,
-      ),
+      screen.getByText(/This archives the saved list too/),
     ).toBeInTheDocument()
+  })
+
+  // The drift this block exists to read past: the turf was archived before the
+  // envelope mirror shipped, so the envelope still reads active. The source is
+  // the turf, so the button must offer Restore rather than a second archive.
+  it('reads archived state off the turf, not the envelope mirror', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('completed', {
+        ...doorKnockingBlock,
+        archivedAt: new Date('2026-08-15T00:00:00Z') as never,
+      }),
+    })
+    let turfArchiveBody: unknown
+    api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ body }) => {
+      turfArchiveBody = body
+      return { status: 200, data: { ...doorKnockingBlock } as never }
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('completed')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Restore from archive' }),
+    )
+    expect(turfArchiveBody).toEqual({ archived: false })
+  })
+
+  // A tombstoned list leaves the envelope and its paid route standing with
+  // nothing to describe. That is the one case the old id-only rendering was
+  // right about, and it keeps it — including no archive button, since there is
+  // no turf left to write.
+  it('says so when the walk has no list left to report on', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('completed', null),
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('completed')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByText(/saved list is no longer available/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Move to archive' }),
+    ).not.toBeInTheDocument()
   })
 })
 
