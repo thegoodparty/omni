@@ -47,10 +47,15 @@ export const DownloadStep = ({
         body={`Download the ${isZip ? 'PDFs' : 'PDF'} for your volunteers, then go to the calling page to start making calls and marking outcomes.`}
       />
 
+      {/* The "frozen from M" arithmetic is suppressed whenever hasMore is
+          true: reachableCount is the full list's phone-reachable figure,
+          including people already consumed by prior batches, so on a
+          continuation batch it overstates the pool this batch drew from
+          (same reasoning as SheetCountStep's over-capacity copy). */}
       {(truncated || response.hasMore) && (
         <Alert variant="destructive">
           <AlertDescription>
-            {truncated && reachableCount !== null
+            {truncated && reachableCount !== null && !response.hasMore
               ? `${response.personCount.toLocaleString()} contacts frozen from ${reachableCount.toLocaleString()} reachable.`
               : 'More reachable contacts remain in this list.'}
             {response.hasMore &&
