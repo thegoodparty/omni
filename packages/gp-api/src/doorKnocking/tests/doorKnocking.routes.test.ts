@@ -58,12 +58,18 @@ const person = (
   displayAddress: `${index} W Elm St`,
 })
 
-// Production addressKey format — the serve payload's frozen address is the
-// key's first segment.
-// Production unit-key format: HOUSE|PREFIXDIR|STREET|DESIGNATOR|SUFFIXDIR|
-// APT|ZIP (DOOR_KNOCKING_UNIT_KEY_COLUMNS order) — exercises the 7-segment
-// address rendering, apartment suffix included.
+// A key in the format routes froze under before the unit key moved to the
+// file's AddressLine: HOUSE|PREFIXDIR|STREET|DESIGNATOR|SUFFIXDIR|APT|ZIP
+// (DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS order). Lists knocked under it are
+// still being walked, so serve still has to render one.
 const PIPED_KEY = '1200|W|ELM|ST||3B|62704'
+
+// Current production unit-key format: ADDRESSLINE|APT|ZIP
+// (DOOR_KNOCKING_UNIT_KEY_COLUMNS order). Deliberately a Salt Lake City grid
+// address — on a grid the cardinal directions carry most of the address, so
+// this is the case where losing them turns a findable corner into two bare
+// numbers a canvasser cannot navigate to.
+const GRID_KEY = '1234 S 5678 W|3B|84116'
 
 // Three distinct coordinates inside the polygon, two people sharing one of
 // them (dedupes to one stop), plus one person inside the bbox but OUTSIDE
@@ -1316,6 +1322,38 @@ describe('door-knocking routes', () => {
         mayHaveMoved: false,
       })
       expect(dedupedAddress?.otherResidents).toEqual([{ name: 'Teo Vega' }])
+    })
+
+    // The reported bug, at the boundary the walk-list PDF reads. Every printed
+    // surface renders the address off this payload field, so a direction lost
+    // here is a direction lost on paper — and on a grid that is the difference
+    // between a specific corner of Salt Lake City and the unfindable "1234
+    // 5678". The apartment still has to survive alongside it.
+    it('keeps the cardinal directions in a served address', async () => {
+      const turf = await createTurf()
+      stubVendors({
+        people: [
+          person(1, 41.9, -87.65, GRID_KEY),
+          person(3, 41.901, -87.651),
+          person(4, 41.902, -87.652),
+        ],
+        residents: { addresses: [] },
+      })
+      expect((await knock(turf.id)).status).toBe(201)
+
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      const address = (
+        res.data.stops as Array<{
+          addresses: Array<{ addressKey: string; address: string }>
+        }>
+      )
+        .flatMap((stop) => stop.addresses)
+        .find((entry) => entry.addressKey === GRID_KEY)
+      expect(address?.address).toBe('1234 S 5678 W Apt 3B')
     })
 
     it('carries the demographic profile onto a live target', async () => {
