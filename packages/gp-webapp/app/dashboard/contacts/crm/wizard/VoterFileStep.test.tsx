@@ -430,6 +430,15 @@ describe('VoterFileStep — per-group Select all', () => {
         onFiltersChange={onFiltersChange}
         supportStatus={[]}
         onSupportStatusChange={noop}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         isElectedOfficial={false}
       />,
     )
@@ -469,6 +478,15 @@ describe('VoterFileStep — per-group Select all', () => {
         onFiltersChange={onFiltersChange}
         supportStatus={[]}
         onSupportStatusChange={noop}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         isElectedOfficial={false}
       />,
     )
@@ -497,6 +515,15 @@ describe('VoterFileStep — per-group Select all', () => {
         onFiltersChange={noop}
         supportStatus={[]}
         onSupportStatusChange={noop}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         isElectedOfficial={false}
       />,
     )
@@ -523,6 +550,15 @@ describe('VoterFileStep — per-group Select all', () => {
         onFiltersChange={noop}
         supportStatus={[]}
         onSupportStatusChange={onSupportStatusChange}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         isElectedOfficial={false}
       />,
     )
@@ -560,6 +596,15 @@ describe('VoterFileStep — per-group Select all', () => {
           ] as SupportStatusRollup[]
         }
         onSupportStatusChange={onSupportStatusChange}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         isElectedOfficial={false}
       />,
     )
