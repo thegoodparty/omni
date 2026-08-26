@@ -707,6 +707,14 @@ describe('CreateListFlow', () => {
     expect(screen.getByText('1200 W Elm St Apt 1')).toBeInTheDocument()
     expect(screen.getByText('1200 W Elm St Apt 2')).toBeInTheDocument()
     expect(screen.getByText('14 N Oak Ave')).toBeInTheDocument()
+    // globals.css gives every `<li>` inside a `data-slot` element `display:
+    // flex`, which ran the "N doors at one location" heading into the first
+    // address. jsdom has no layout, so this asserts the override is present
+    // rather than its effect; the rendered proof is in the PR's screenshots.
+    const location = screen
+      .getByText('2 doors at one location')
+      .closest('li') as HTMLElement
+    expect(location.className.split(/\s+/)).toContain('block')
   })
 
   // The rule this feature has already broken once: one quantity gets one

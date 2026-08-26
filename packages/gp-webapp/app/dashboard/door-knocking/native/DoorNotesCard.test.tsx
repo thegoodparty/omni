@@ -66,6 +66,18 @@ describe('DoorNotesCard reads', () => {
     expect(notes.getByText('Works nights, try weekends')).toBeInTheDocument()
   })
 
+  // globals.css gives every `<li>` inside a `data-slot` element `display:
+  // flex`, which shrank each note row's single child to its content width and
+  // pulled the edit and delete buttons in from the card's right edge. jsdom
+  // has no layout, so this asserts the override is present rather than its
+  // effect — the rendered proof is in the PR's screenshots.
+  it('lets a note row fill the card so its actions sit at the edge', () => {
+    renderCard({ entries: [note()], total: 1 })
+
+    const row = within(card()).getByRole('listitem')
+    expect(row.className.split(/\s+/)).toContain('block')
+  })
+
   // Product asked for the date and time a note was created, and that is also
   // the key ADR 0011 orders the list by — showing `updatedAt` instead would
   // give a card whose visible dates run out of order the first time anybody
