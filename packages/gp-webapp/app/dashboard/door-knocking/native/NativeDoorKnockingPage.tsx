@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
-import { ArrowLeftIcon, Button, IconButton } from '@styleguide'
+import { ArrowLeftIcon, Button, DownloadIcon, IconButton } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
@@ -35,6 +35,7 @@ import DoorKnockingManageView from './DoorKnockingManageView'
 import TurfDetailsDrawer from './TurfDetailsDrawer'
 import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
+import { useLiveLocation } from './useLiveLocation'
 import { useWalkCompletion } from './walkCompletion'
 import type { PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
@@ -94,6 +95,14 @@ export default function NativeDoorKnockingPage({
   // The walk surface's half of the canvas: pins, the path, and a tapped pin as
   // a request to open that door.
   const walkMap = useWalkMapSession(walkTurf)
+  // "My live location": one watch, read by the map that draws the dot and by
+  // the walk control that switched it on. Opt-in and off by default — turning
+  // it on is what asks the browser for permission, so nobody gets an
+  // unsolicited prompt — and it lives here rather than in the canvas because
+  // the canvas is shared by all three modes while the control is the walk's
+  // alone, exactly as in the design canvas.
+  const [locationEnabled, setLocationEnabled] = useState(false)
+  const location = useLiveLocation(locationEnabled)
   // Landing-map legend filter: chip clicks narrow the dots to those statuses,
   // within the selected list when there is one. Deliberately inert while the
   // create flow is open — the flow's own filter draft drives the preview there.
@@ -160,8 +169,8 @@ export default function NativeDoorKnockingPage({
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
 
   // Only the outlines the rail says are shown. Hiding is display-only: the dots
-  // are the pack's and are unaffected, and the rows keep their Details, PDF and
-  // Knock affordances — a quiet ring is not an archived list.
+  // are the pack's and are unaffected, and the rows keep every affordance they
+  // had — a quiet ring is not an archived list.
   const visibleTurfs = useMemo(
     () => (turfsQuery.data ?? []).filter((turf) => !hiddenTurfIds.has(turf.id)),
     [turfsQuery.data, hiddenTurfIds],
@@ -380,6 +389,10 @@ export default function NativeDoorKnockingPage({
     // out would reopen its sheet on the next walk, and the coach mark is
     // per-walk because each one starts on an unfamiliar route.
     walkMap.reset()
+    // And the GPS radio with it. The only control that can turn this on is in
+    // the walk's own row, so leaving it on would keep a watch running for a
+    // surface with no way to see it and no way to stop it.
+    setLocationEnabled(false)
   }
 
   const changeFlowStep = (next: CreateFlowStep) => {
@@ -429,6 +442,9 @@ export default function NativeDoorKnockingPage({
           openStopRequest={walkMap.openStopRequest}
           selectedStopId={walkMap.selectedStopId}
           onSelectStop={walkMap.selectStop}
+          liveLocation={location}
+          liveLocationEnabled={locationEnabled}
+          onToggleLiveLocation={setLocationEnabled}
         />
       )
     }
@@ -502,6 +518,11 @@ export default function NativeDoorKnockingPage({
           }
         }}
         onShowDetails={setDetailsTurf}
+        // The last hop of the empty rail's Create list button. The same state
+        // setter the header's own Create list button calls, so the two buttons
+        // are one gesture with one implementation — and without it the rail
+        // falls back to naming a button it cannot press.
+        onCreateList={() => setFlowStep('filters')}
         onKnockTurf={(turf) => {
           // Knock is idempotent: a knocked turf opens its existing route,
           // an unknocked one confirms mode/loop and builds it.
@@ -532,6 +553,26 @@ export default function NativeDoorKnockingPage({
               {walkTurf ? walkTurf.name : 'Door knocking'}
             </h1>
           </div>
+          {/* The walk's paper, where the canvas keeps it: the header action
+              beside the list's name, not a chip in the control row below the
+              map. It is called PDF because that is what it is — the same file
+              the saved-list row and the details drawer already offer under
+              that name, so the product has one printable artefact with one
+              name rather than a "Print list" on the walk and a "PDF"
+              everywhere else. The offline story is unchanged: a canvasser
+              walking out of signal takes paper, and this is a plain link to a
+              route handler, so it costs this bundle nothing. */}
+          {walkTurf && (
+            <a
+              href={`/dashboard/door-knocking/print/${walkTurf.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted/50"
+            >
+              <DownloadIcon size={16} aria-hidden="true" />
+              PDF
+            </a>
+          )}
           {!flowStep && !walkTurf && (
             <Button
               size="small"
@@ -600,6 +641,7 @@ export default function NativeDoorKnockingPage({
                 // The confirm step shows a band of the map as a picture and
                 // shields it, so the buttons in that band would be dead ones.
                 controlsHidden={flowStep === 'confirm'}
+                location={location}
                 onPolygonChange={setRing}
                 onDrawPointCount={draw.onPointCount}
                 onRoutePinClick={walkMap.onPinTap}

@@ -14,6 +14,10 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import {
+  usePrecinctOptions,
+  type PrecinctOptionsResult,
+} from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useListWizardCount } from 'app/dashboard/contacts/crm/wizard/useListWizardCount'
 import type { OutreachAudienceMode } from './OutreachAudienceStep'
 
@@ -59,6 +63,9 @@ export interface OutreachAudience {
   setBuilderFilters: (filters: VoterFileFilters) => void
   builderSupportStatus: SupportStatusRollup[]
   setBuilderSupportStatus: (value: SupportStatusRollup[]) => void
+  builderPrecincts: string[]
+  setBuilderPrecincts: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   builderName: string
   setBuilderName: (name: string) => void
   // Whether the campaign is an elected official: gates party/voter-likely
@@ -98,10 +105,12 @@ export const useOutreachAudience = ({
   const [builderSupportStatus, setBuilderSupportStatus] = useState<
     SupportStatusRollup[]
   >([])
+  const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
   const [builderName, setBuilderName] = useState('')
 
   const { data: electedOffice } = useElectedOffice()
   const isElectedOfficial = !!electedOffice
+  const precinctOptions = usePrecinctOptions(!isElectedOfficial)
 
   // Scope the saved-lists cache by org: with staleTime 0 the cached entry is
   // still served during an in-flight refetch, so an unscoped key would briefly
@@ -166,8 +175,9 @@ export const useOutreachAudience = ({
       ...(builderSupportStatus.length
         ? { supportStatus: builderSupportStatus }
         : {}),
+      ...(builderPrecincts.length ? { precincts: builderPrecincts } : {}),
     }),
-    [builderFilters, builderSupportStatus],
+    [builderFilters, builderSupportStatus, builderPrecincts],
   )
   // Key the memo on the overlay's VALUE, not its identity, so a caller passing
   // an inline `{ hasLandline: true }` each render can't churn the payload and
@@ -221,6 +231,7 @@ export const useOutreachAudience = ({
     setMode('picker')
     setBuilderFilters({})
     setBuilderSupportStatus([])
+    setBuilderPrecincts([])
     setBuilderName('')
     resetCreateMutation()
   }, [resetCreateMutation])
@@ -230,6 +241,7 @@ export const useOutreachAudience = ({
     setSelectedListId(null)
     setBuilderFilters({})
     setBuilderSupportStatus([])
+    setBuilderPrecincts([])
     setBuilderName('')
     resetCreateMutation()
   }, [resetCreateMutation])
@@ -270,6 +282,9 @@ export const useOutreachAudience = ({
     setBuilderFilters,
     builderSupportStatus,
     setBuilderSupportStatus,
+    builderPrecincts,
+    setBuilderPrecincts,
+    precinctOptions,
     builderName,
     setBuilderName,
     isElectedOfficial,

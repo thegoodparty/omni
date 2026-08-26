@@ -45,6 +45,9 @@ model VoterFileFilter {
   educationGraduateDegree    Boolean?                           @default(false) @map("education_graduate_degree")
   educationUnknown           Boolean?                           @default(false) @map("education_unknown")
   incomeRanges               String[]                           @default([]) @map("income_ranges")
+  /// Encoded `county|precinct` pairs; an empty precinct side is the "no
+  /// precinct on file" bucket. Per-district vocabulary, so there is no enum.
+  precincts                  String[]                           @default([]) @map("precincts")
   incomeUnknown              Boolean?                           @default(false) @map("income_unknown")
   ethnicityAsian             Boolean?                           @default(false) @map("ethnicity_asian")
   ethnicityEuropean          Boolean?                           @default(false) @map("ethnicity_european")

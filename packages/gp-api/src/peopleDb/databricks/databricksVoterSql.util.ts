@@ -1,4 +1,5 @@
 import {
+  decodePrecinctPair,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
   type IdOverrides,
 } from '@goodparty_org/contracts'
@@ -216,6 +217,39 @@ const buildMappedFieldFilter = (
     }
   }
   return buildFieldFilter(bag, field, op)
+}
+
+// (County, Precinct) tuples, because a precinct number is only unique inside
+// its county. An empty precinct side is the "Unknown" bucket the picker
+// offers for voters with no precinct on file, and has to become IS NULL — a
+// tuple comparison against '' would match nothing and silently drop those
+// voters from a filter that explicitly asked for them.
+const buildPrecinctFilter = (bag: Bag, op?: FilterOperator): string | null => {
+  if (!op || op.operator !== 'in' || !op.values?.length) return null
+
+  const county = col('County')
+  const precinct = col('Precinct')
+  const pairs: string[] = []
+  const unknownCounties: string[] = []
+
+  for (const value of op.values) {
+    const { county: c, precinct: p } = decodePrecinctPair(String(value))
+    if (p === '') {
+      unknownCounties.push(`${county} = ${bag.bind(c)}`)
+      continue
+    }
+    pairs.push(`(${bag.bind(c)}, ${bag.bind(p)})`)
+  }
+
+  const clauses: string[] = []
+  if (pairs.length > 0) {
+    clauses.push(`(${county}, ${precinct}) IN (${pairs.join(', ')})`)
+  }
+  for (const clause of unknownCounties) {
+    clauses.push(`(${clause} AND ${precinct} IS NULL)`)
+  }
+  if (clauses.length === 0) return null
+  return clauses.length === 1 ? clauses[0]! : `(${clauses.join(' OR ')})`
 }
 
 const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
@@ -521,6 +555,9 @@ export const buildVoterFiltersSql = (
       case 'ageInt':
         sql = buildNumericFilter(bag, 'Age_Int', op)
         break
+      case 'precinct':
+        sql = buildPrecinctFilter(bag, op)
+        break
     }
     if (sql) andClauses.push(sql)
   }
@@ -692,6 +729,35 @@ export const buildPersonSql = (
     // without this a bookmarked upper-case URL 404s a person who exists.
     ` AND ${col('id')} = ${bag.bind(args.id.toLowerCase())}` +
     ` LIMIT 1`
+  return { sql, params: bag.params }
+}
+
+// The picker's option list: every distinct (County, Precinct) in the district
+// with its voter count, no filters applied. Deliberately unfiltered — the list
+// is the vocabulary of the dimension, so it must not shrink as the user
+// narrows other filters and strand a precinct they already picked.
+//
+// Ordered by voter count so a truncated response keeps the precincts that
+// matter, then by name for a stable tie-break. The cap is a safety valve
+// rather than a working limit: the largest ICP district in the country is
+// Kings County CA at 579 precincts, and p75 is 13-15.
+export const MAX_PRECINCT_OPTIONS = 1_000
+
+export const buildPrecinctsSql = (args: {
+  district: DbxDistrict
+}): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: { filters: [], filterValues: {}, filterOperators: {} },
+  })
+  const sql =
+    `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
+    ` COUNT(*) AS voters` +
+    ` FROM ${VOTER_TABLE} v ${scope}` +
+    ` GROUP BY ${col('County')}, ${col('Precinct')}` +
+    ` ORDER BY voters DESC, county ASC, precinct ASC` +
+    ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
   return { sql, params: bag.params }
 }
 

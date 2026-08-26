@@ -15,6 +15,7 @@ import type {
   SupportStatusRollup,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
@@ -69,6 +70,9 @@ interface OutreachAudienceStepProps {
   builderFilters: VoterFileFilters
   onBuilderFiltersChange: (filters: VoterFileFilters) => void
   builderSupportStatus: SupportStatusRollup[]
+  builderPrecincts: string[]
+  onBuilderPrecinctsChange: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   onBuilderSupportStatusChange: (value: SupportStatusRollup[]) => void
   builderName: string
   onBuilderNameChange: (name: string) => void
@@ -102,6 +106,9 @@ export const OutreachAudienceStep = ({
   builderFilters,
   onBuilderFiltersChange,
   builderSupportStatus,
+  builderPrecincts,
+  onBuilderPrecinctsChange,
+  precinctOptions,
   onBuilderSupportStatusChange,
   builderName,
   onBuilderNameChange,
@@ -147,6 +154,9 @@ export const OutreachAudienceStep = ({
           onFiltersChange={onBuilderFiltersChange}
           supportStatus={builderSupportStatus}
           onSupportStatusChange={onBuilderSupportStatusChange}
+          precincts={builderPrecincts}
+          onPrecinctsChange={onBuilderPrecinctsChange}
+          precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
         />
       </div>
