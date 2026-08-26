@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import type { BallotStatus } from 'helpers/types'
 import ManagerPromptCard from './ManagerPromptCard'
 
 // Persisted skip, matching the meet and personalize cards. Keyed per browser,
@@ -65,14 +64,7 @@ export default function GetOnBallotCard({
     setDismissed(true)
   }
 
-  // Onboarding persists this answer twice, and older campaigns only have the
-  // second copy: details.ballotStatus was stripped by the update schema's
-  // allowlist until it was added there, while the whole-answers snapshot under
-  // data.onboarding always passed through. Read both so already-onboarded
-  // candidates get the card, matching the fallback gp-api's campaign manager
-  // uses to build its ballot-access guidance.
-  const ballotStatus: BallotStatus | undefined =
-    campaign?.details?.ballotStatus ?? campaign?.data?.onboarding?.ballotStatus
+  const ballotStatus = campaign?.ballotStatus
   const copy =
     ballotStatus === 'qualified-not-filed' || ballotStatus === 'considering'
       ? BALLOT_CARD_COPY[ballotStatus]

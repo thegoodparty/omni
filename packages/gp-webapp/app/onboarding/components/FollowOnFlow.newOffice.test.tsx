@@ -188,10 +188,8 @@ describe('FollowOnFlow — new office', () => {
       expect(mockClientFetch).toHaveBeenCalledWith(
         expect.objectContaining({ path: '/campaigns/mine' }),
         expect.objectContaining({
-          details: expect.objectContaining({
-            party: 'nonpartisan',
-            ballotStatus: 'on-ballot',
-          }),
+          ballotStatus: 'on-ballot',
+          details: expect.objectContaining({ party: 'nonpartisan' }),
         }),
       ),
     )
