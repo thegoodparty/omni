@@ -173,6 +173,32 @@ describe('NotAVoterControl marker', () => {
     expect(screen.getByText(/do not ask for them by name/)).toBeInTheDocument()
   })
 
+  // Neither marker asserts what happened, because neither is known: one is what
+  // somebody said at a door, the other is a flag on a record. The deceased one
+  // is read in front of the household, which is the worst place to be told a
+  // relative is dead by a phone that only knows a checkbox.
+  it('reports both flags as flags, never as facts', () => {
+    const { unmount } = render(
+      <NotAVoterControl
+        target={target({ notAVoterReason: 'deceased' })}
+        onChanged={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/is marked as deceased/)).toBeInTheDocument()
+    expect(screen.queryByText(/has died/)).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <NotAVoterControl
+        target={target({ notAVoterReason: 'moved' })}
+        onChanged={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/^Someone here said/)).toBeInTheDocument()
+  })
+
   // A mis-tapped Deceased sits one button away from Moved, so the correction
   // costs the same one tap the mistake did.
   it('lifts a flag in one tap and reflects the cleared echo', async () => {

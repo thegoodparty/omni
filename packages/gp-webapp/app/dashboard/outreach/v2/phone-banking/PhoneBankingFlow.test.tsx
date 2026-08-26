@@ -775,6 +775,75 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('applies the any-phone overlay to the builder count but never to the saved list', async () => {
+    mockDraft()
+    const countBodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/contacts/count', ({ body }) => {
+      countBodies.push(body)
+      return { status: 200, data: { count: 50 } }
+    })
+    const createListCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      createListCalls.push(body)
+      return { status: 200, data: { id: 99, name: 'My audience' } }
+    })
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
+      ).toBeEnabled(),
+    )
+    expect(countBodies.at(-1)).toMatchObject({
+      partyDemocrat: true,
+      hasAnyPhone: true,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+    await screen.findAllByText('Name your list')
+    await user.type(screen.getByLabelText('List name'), 'My audience')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
+    await screen.findAllByText('Write your call script')
+
+    expect(createListCalls[0]).toMatchObject({ partyDemocrat: true })
+    expect(createListCalls[0]).not.toHaveProperty('hasAnyPhone')
+  })
+
+  it("shows how many of the list's contacts have a phone number when some don't", async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'All voters' }])
+    mockListDetail(10)
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('All voters'))
+
+    expect(
+      await screen.findByText(
+        "10 of this list's 20 contacts have a phone number and will be included.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('omits the phone-number delta when every contact has a phone', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'All voters' }])
+    mockListDetail(20)
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('All voters'))
+    await screen.findByRole('button', { name: /Continue \(20\)/ })
+
+    expect(screen.queryByText(/have a phone number/)).not.toBeInTheDocument()
+  })
+
   it('builds a custom audience via the builder → naming sub-states, persists it, and sends its id', async () => {
     mockDraft()
     mockCount(50)

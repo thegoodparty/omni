@@ -813,7 +813,14 @@ export default function CreateListFlow({
                       view. */}
                     <ul className="mt-2 divide-y divide-border">
                       {addressPreview.locations.map((location, index) => (
-                        <li key={index} className="py-2">
+                        <li
+                          key={index}
+                          // `block` because globals.css gives every `<li>`
+                          // inside a `data-slot` element `display: flex`, which
+                          // would put the "N doors at one location" heading and
+                          // the doors it introduces on one line.
+                          className="block py-2"
+                        >
                           {location.doors.length > 1 && (
                             <p className="text-xs font-medium">
                               {location.doors.length} doors at one location
