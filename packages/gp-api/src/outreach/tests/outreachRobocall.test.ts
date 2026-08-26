@@ -397,6 +397,21 @@ describe('POST /v1/outreach/robocall/compliance', () => {
     expect(checkRecording).not.toHaveBeenCalled()
   })
 
+  it('rejects a nameless candidate with an actionable 400, not a check', async () => {
+    // With no name the self-ID check can never pass; fail fast with a fixable
+    // error instead of a misleading verdict the user is stuck behind.
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { firstName: '', lastName: '' },
+    })
+
+    const res = await postCompliance(validCompliancePayload)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toContain('name')
+    expect(checkRecording).not.toHaveBeenCalled()
+  })
+
   it('propagates a fail-closed compliance failure as a 502', async () => {
     // A transcription/LLM failure surfaces from the service as BadGateway; the
     // controller must not swallow it into a silent pass.

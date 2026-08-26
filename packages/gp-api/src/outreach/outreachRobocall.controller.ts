@@ -130,9 +130,16 @@ export class OutreachRobocallController {
     }
 
     const name = candidateName(user)
+    // Without a name the self-ID check can never pass and the audio can't say
+    // it either — fail fast with a fixable error, not a misleading verdict the
+    // user is stuck behind.
+    if (!name) {
+      throw new BadRequestException(
+        'Add your name to your campaign profile before recording a robocall.',
+      )
+    }
     const office = await this.resolveOffice(campaign)
-    const organizationName =
-      name && office ? `${name} for ${office}` : name || 'the campaign'
+    const organizationName = office ? `${name} for ${office}` : name
 
     return this.compliance.checkRecording({
       audioKey: input.audioKey,
