@@ -563,6 +563,13 @@ export default function WalkView({
               {stops.map((stop) => (
                 <li
                   key={stop.id}
+                  // `block` because globals.css gives every `<li>` inside a
+                  // `data-slot` element `display: flex`, and the dashboard's
+                  // sidebar wrapper puts this list in that scope: without it
+                  // the row and its expanded door become sibling flex items in
+                  // a row, and the residents' names truncate beside the stop
+                  // rather than stacking under it.
+                  className="block"
                   ref={(element) => {
                     stopRowRefs.current.set(stop.id, element)
                   }}
