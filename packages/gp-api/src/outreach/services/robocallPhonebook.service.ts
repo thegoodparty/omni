@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Campaign } from '@/generated/prisma'
 import {
@@ -185,20 +189,28 @@ export class RobocallPhonebookService {
     let count = 0
     for (let attempt = 0; attempt < IMPORT_POLL_ATTEMPTS; attempt++) {
       await sleep(IMPORT_POLL_DELAY_MS)
-      count = await this.phonebooks.getContactCount(phonebookPkStr)
-      // CallHub drops duplicates/invalid rows, so the loaded count can settle
-      // below the number of rows sent — stop as soon as it reaches expected.
-      if (count >= expected) break
+      try {
+        count = await this.phonebooks.getContactCount(phonebookPkStr)
+      } catch (err) {
+        // A transient CallHub throttle/5xx mid-poll must not abort the load —
+        // the async import may still be settling. Log and retry next tick.
+        this.logger.warn(
+          { phonebookPkStr, attempt, err },
+          'Transient error polling phonebook contact count; retrying',
+        )
+        continue
+      }
+      if (count >= expected) return count
     }
 
-    if (count < expected) {
-      this.logger.warn(
-        { phonebookPkStr, expected, count },
-        'Robocall phonebook import did not reach the expected count within ' +
-          'the poll window',
-      )
-    }
-
-    return count
+    // The numbers are deduped and normalized to well-formed US digits before
+    // upload, so CallHub should accept every one — a count still short of the
+    // audience after the whole window means the import stalled, not that rows
+    // were legitimately rejected. Fail loudly (like the empty-list path)
+    // rather than hand a later send step a stuck or partial phonebook.
+    throw new BadGatewayException(
+      `CallHub phonebook import loaded ${count}/${expected} numbers within ` +
+        'the poll window',
+    )
   }
 }

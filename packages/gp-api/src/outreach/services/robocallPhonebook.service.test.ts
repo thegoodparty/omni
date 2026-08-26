@@ -146,6 +146,32 @@ describe('RobocallPhonebookService', () => {
     expect(result.importedCount).toBe(2)
   })
 
+  it('tolerates a transient poll error and keeps polling', async () => {
+    contacts.findContactsForFilter.mockResolvedValue(peoplePage(['2025550001']))
+    phonebooks.getContactCount
+      .mockRejectedValueOnce(new BadGatewayException('throttled'))
+      .mockResolvedValue(1)
+
+    const result = await run()
+
+    expect(phonebooks.getContactCount).toHaveBeenCalledTimes(2)
+    expect(result.importedCount).toBe(1)
+  })
+
+  it('throws when the import never reaches the expected count', async () => {
+    contacts.findContactsForFilter.mockResolvedValue(
+      peoplePage(['2025550001', '2025550002']),
+    )
+    phonebooks.getContactCount.mockResolvedValue(1)
+
+    vi.useFakeTimers()
+    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
+    const assertion =
+      expect(promise).rejects.toBeInstanceOf(BadGatewayException)
+    await vi.runAllTimersAsync()
+    await assertion
+  })
+
   it('rejects when the list resolves to no landlines', async () => {
     contacts.findContactsForFilter.mockResolvedValue(peoplePage([null, '']))
 
