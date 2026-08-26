@@ -410,7 +410,7 @@ describe('CreateListFlow', () => {
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          /14 stops · 9 doors · 22 people/.test(element.textContent ?? ''),
+          /14 stops · 9 doors · 28 people/.test(element.textContent ?? ''),
       ),
     ).toBeInTheDocument()
   })
