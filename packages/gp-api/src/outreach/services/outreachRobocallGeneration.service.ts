@@ -90,8 +90,10 @@ const DISCLOSURE_RULE =
 const IMPROVE_DISCLOSURE_RULE =
   'The script must END with the spoken disclosure — who paid for the call ' +
   '(the "paid for by" name given below) and the callback number given ' +
-  'below. Keep it if the original has it, add it if missing. Never add ' +
-  '"Reply STOP" or any text-message opt-out — this is a recorded voice call.'
+  'below, written as given (do not spell it out digit by digit). Keep it ' +
+  'if the original has it, add it if missing, and rewrite a digit-by-digit ' +
+  'number into that grouped form. Never add "Reply STOP" or any ' +
+  'text-message opt-out — this is a recorded voice call.'
 
 const LENGTH_RULE =
   'Keep the whole script short: about 40 to 75 words, four or five short ' +
