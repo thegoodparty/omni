@@ -110,7 +110,13 @@ test.beforeEach(async ({ page }) => {
   await enableCrmFlags(page)
 })
 
-test('precinct filter: counts agree with the enumerated option list', async ({
+// Four Win assertions in ONE test, not four. Each `setupProCampaignUser` mints
+// an isolated Clerk user and provisions Pro through test-set-pro, and that
+// path is the suite's most fragile shared resource — a sibling spec's setup
+// 400'd on this PR's first CI run precisely because five more provisions
+// landed in one shard. The neighbouring contacts-filters.spec.ts amortises
+// setup the same way, with test.step.
+test('precinct filter: option list, counts and the View all sheet', async ({
   page,
 }) => {
   test.setTimeout(TEST_TIMEOUT)
@@ -124,12 +130,24 @@ test('precinct filter: counts agree with the enumerated option list', async ({
   expect(options.length, 'district should enumerate precincts').toBeGreaterThan(
     0,
   )
-  // This district is far inside the 1,000-row cap; a truncated response here
-  // would mean the cap or the district pin changed.
+  // Far inside the 1,000-row cap; a truncated response would mean the cap or
+  // the pinned district changed.
   expect(truncated).toBe(false)
 
   const named = namedOptions(options)
-  expect(named.length).toBeGreaterThanOrEqual(2)
+  const unknown = options.find((option) => option.precinct === '')
+  const hasUnknown = Boolean(unknown)
+  // The inline row holds 8 pills, one of which Unknown claims when it exists.
+  const inlineNamedSlots = hasUnknown ? 7 : 8
+
+  // One precondition for the whole test rather than a skip per assertion: if
+  // the pinned district stops having an unassigned bucket or enough precincts
+  // to overflow the inline row, the fixture has drifted far enough that the
+  // rest of these assertions are not describing what they claim to.
+  test.skip(
+    !hasUnknown || named.length <= inlineNamedSlots,
+    'pinned district no longer has both an unassigned bucket and more precincts than fit inline',
+  )
 
   const wizard = await openWinVoterFileStep(page)
   await expect(wizardPillGroup(wizard, 'Precinct')).toBeVisible({
@@ -138,9 +156,15 @@ test('precinct filter: counts agree with the enumerated option list', async ({
   const unfiltered = await readSettledWizardCount(page)
   expect(unfiltered).toBeGreaterThan(0)
 
-  // The two largest precincts are the two the inline row is guaranteed to
-  // show, so neither of these steps depends on the sheet.
   const [biggest, second] = [...named].sort((a, b) => b.voters - a.voters)
+
+  await test.step('the enumerated voters partition the district', () => {
+    // Every voter is in exactly one (county, precinct) bucket including the
+    // unassigned one, so the option list must sum to the universe. A mismatch
+    // means enumeration and the universe query disagree on scope.
+    const total = options.reduce((sum, option) => sum + option.voters, 0)
+    expect(total).toBe(unfiltered)
+  })
 
   await test.step('one precinct counts exactly its enumerated voters', async () => {
     await selectWizardPill(wizard, 'Precinct', precinctLabel(biggest!))
@@ -155,126 +179,83 @@ test('precinct filter: counts agree with the enumerated option list', async ({
     const count = await readSettledWizardCount(page, {
       differentFrom: biggest!.voters,
     })
-    // OR within a category — precincts are disjoint populations, so the
-    // selection is exactly the sum. An AND would collapse this to zero.
+    // Precincts are disjoint populations, so OR is exactly the sum; an AND
+    // would collapse this to zero.
     expect(count).toBe(biggest!.voters + second!.voters)
     await clearFilters(page, wizard, unfiltered)
   })
 
-  await test.step('the enumerated voters sum to the district universe', async () => {
-    // Every voter belongs to exactly one (county, precinct) bucket including
-    // the unassigned one, so the option list has to partition the district. A
-    // mismatch means the enumeration and the universe query disagree on scope.
-    const total = options.reduce((sum, option) => sum + option.voters, 0)
-    expect(total).toBe(unfiltered)
+  await test.step('the unassigned bucket resolves to IS NULL, not to an empty string', async () => {
+    // A tuple comparison against '' matches nobody, and an empty audience
+    // looks like a narrow filter rather than a bug — so zero here is the
+    // silent regression this guards.
+    await selectWizardPill(wizard, 'Precinct', 'Unknown')
+    const count = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
+    })
+    expect(count).toBe(unknown!.voters)
+    expect(count).toBeGreaterThan(0)
+    await clearFilters(page, wizard, unfiltered)
   })
-})
 
-test('precinct filter: the unassigned bucket is selectable and real', async ({
-  page,
-}) => {
-  test.setTimeout(TEST_TIMEOUT)
-  const { client } = await setupProCampaignUser(page)
-  await gotoCrmContacts(page)
+  await test.step('the View all sheet reaches a precinct the inline row hides', async () => {
+    // Sorted last by the control's own ordering, so guaranteed hidden.
+    const hidden = named[named.length - 1]!
 
-  const { options } = await fetchPrecincts(client)
-  const unknown = options.find((option) => option.precinct === '')
-  // Guarded rather than assumed: the bucket only exists where the voter file
-  // has rows with no precinct. This district has one today; if the pinned
-  // district or the data changes, skip rather than fail on an unrelated shift.
-  test.skip(
-    !unknown,
-    'pinned district has no unassigned-precinct voters to exercise',
-  )
+    await expect(
+      wizardPillGroup(wizard, 'Precinct').getByRole('button', {
+        name: precinctLabel(hidden),
+        exact: true,
+      }),
+      'the last precinct should not be inline',
+    ).toHaveCount(0)
 
-  const wizard = await openWinVoterFileStep(page)
-  const unfiltered = await readSettledWizardCount(page)
+    // Matched on the prefix, not the count: the label carries the precinct
+    // total, which is live data.
+    await wizard.getByRole('button', { name: /^View all \d/ }).click()
 
-  // Selecting Unknown must resolve to IS NULL. A tuple comparison against ''
-  // would match nobody, so a zero count here is the regression this guards —
-  // and it is silent, since an empty audience looks like a narrow filter.
-  await selectWizardPill(wizard, 'Precinct', 'Unknown')
-  const count = await readSettledWizardCount(page, {
-    differentFrom: unfiltered,
-  })
-  expect(count).toBe(unknown!.voters)
-  expect(count).toBeGreaterThan(0)
-})
+    const sheet = crmSheet(page)
+    const allPrecincts = sheet.getByRole('toolbar', {
+      name: 'All precincts',
+      exact: true,
+    })
+    await expect(allPrecincts).toBeVisible({ timeout: 15_000 })
 
-test('precinct filter: the View all sheet reaches a hidden precinct', async ({
-  page,
-}) => {
-  test.setTimeout(TEST_TIMEOUT)
-  const { client } = await setupProCampaignUser(page)
-  await gotoCrmContacts(page)
-
-  const { options } = await fetchPrecincts(client)
-  const named = namedOptions(options)
-  const hasUnknown = options.some((option) => option.precinct === '')
-  // The inline row holds 8 pills; Unknown claims one whenever it exists.
-  const inlineNamedSlots = hasUnknown ? 7 : 8
-  test.skip(
-    named.length <= inlineNamedSlots,
-    'every precinct fits inline, so there is no sheet to open',
-  )
-
-  // Sorted last by the control's own ordering, so guaranteed to be hidden.
-  const hidden = named[named.length - 1]!
-
-  const wizard = await openWinVoterFileStep(page)
-  const unfiltered = await readSettledWizardCount(page)
-
-  await expect(
-    wizardPillGroup(wizard, 'Precinct').getByRole('button', {
+    const hiddenPill = allPrecincts.getByRole('button', {
       name: precinctLabel(hidden),
       exact: true,
-    }),
-    'the last precinct should not be inline',
-  ).toHaveCount(0)
+    })
+    await expect(hiddenPill).toBeVisible({ timeout: 10_000 })
+    await hiddenPill.click()
 
-  // Matched on the prefix, not the count: the label carries the precinct total,
-  // which is live data — pinning it would make this a data-drift failure
-  // rather than a behavior one.
-  await wizard.getByRole('button', { name: /^View all \d/ }).click()
+    // Closed by asserting THIS sheet's content is gone rather than via
+    // closeCrmSheet: that helper re-resolves drawer-content.last() and waits
+    // for it to hide, but the precinct sheet is nested inside the wizard
+    // drawer — so the moment it closes, .last() falls back to the wizard,
+    // which is correctly still open, and the helper fails on the wrong node.
+    await sheet.getByRole('button', { name: 'Close' }).first().click()
+    await expect(allPrecincts).toBeHidden({ timeout: 10_000 })
 
-  const sheet = crmSheet(page)
-  const allPrecincts = sheet.getByRole('toolbar', {
-    name: 'All precincts',
-    exact: true,
+    // A sheet selection must survive the sheet closing, or the user cannot
+    // see or clear what they picked.
+    await expect(
+      wizardPillGroup(wizard, 'Precinct').getByRole('button', {
+        name: precinctLabel(hidden),
+        exact: true,
+      }),
+      'a sheet selection should be promoted into the inline row',
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    const count = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
+    })
+    expect(count).toBe(hidden.voters)
   })
-  await expect(allPrecincts).toBeVisible({ timeout: 15_000 })
-
-  const hiddenPill = allPrecincts.getByRole('button', {
-    name: precinctLabel(hidden),
-    exact: true,
-  })
-  await expect(hiddenPill).toBeVisible({ timeout: 10_000 })
-  await hiddenPill.click()
-
-  // Closed by asserting THIS sheet's content is gone, not via closeCrmSheet:
-  // that helper re-resolves `[data-slot="drawer-content"]`.last() and waits for
-  // it to hide, but the precinct sheet is nested inside the wizard drawer — so
-  // the moment it closes, `.last()` falls back to the wizard, which is
-  // correctly still open, and the helper fails against the wrong element.
-  await sheet.getByRole('button', { name: 'Close' }).first().click()
-  await expect(allPrecincts).toBeHidden({ timeout: 10_000 })
-
-  // A selection made in the sheet has to survive it closing — otherwise the
-  // user cannot see or clear what they picked.
-  await expect(
-    wizardPillGroup(wizard, 'Precinct').getByRole('button', {
-      name: precinctLabel(hidden),
-      exact: true,
-    }),
-    'a sheet selection should be promoted into the inline row',
-  ).toHaveAttribute('aria-pressed', 'true')
-
-  const count = await readSettledWizardCount(page, {
-    differentFrom: unfiltered,
-  })
-  expect(count).toBe(hidden.voters)
 })
 
+// Kept as its own test: it is the only one that WRITES, and folding a
+// persistence round trip into the read-only assertions above would leave a
+// saved list behind whenever an earlier step failed.
 test('precinct filter: a saved list keeps the precinct scope', async ({
   page,
 }) => {
@@ -294,11 +275,11 @@ test('precinct filter: a saved list keeps the precinct scope', async ({
   const count = await readSettledWizardCount(page)
   expect(count).toBe(biggest.voters)
 
-  // The round trip that matters: the precinct selection has to survive being
-  // persisted as VoterFileFilter.precincts and re-resolved on read. The
-  // filter key is `precinct` while the column is `precincts`, and the schema
-  // strips a malformed key silently — so a broken round trip shows up here as
-  // the People tile reporting the whole district instead of one precinct.
+  // The round trip that matters: the selection has to survive being persisted
+  // as VoterFileFilter.precincts and re-resolved on read. The filter key is
+  // `precinct` while the column is `precincts`, and the schema strips a
+  // malformed key silently — so a broken round trip surfaces here as the
+  // People tile reporting the whole district instead of one precinct.
   await wizardBuildButton(page).click()
   const listId = await saveWizardList(page, `E2E precinct ${Date.now()}`)
   const detailSheet = crmSheet(page)
