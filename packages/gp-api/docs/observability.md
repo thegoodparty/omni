@@ -10,7 +10,7 @@ There are two categories of alerts:
 
 Every controller endpoint automatically gets one alert:
 
-- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers).
+- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) **or no status at all** within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
 
 These are generated automatically from the controllers in the codebase -- you don't write them by hand. **All controller alerts are disabled by default** and require explicit opt-in via the ownership mapping (see [Ownership](#ownership) below).
 
@@ -24,6 +24,7 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **Slow Prisma connection acquisitions** (10+ connections exceeding 150ms in a 2-minute window)
 - **Door-knocking route planner spend ceiling** (>10,000 Geoapify credits across all organizations in 6h) -- the global view the per-org waypoint quota can't give. See gp-api `docs/door-knocking.md` § Spend visibility.
 - **Public campaign lookup failing** (>10% of resolvable `GET /v1/public-campaigns` lookups returning 5xx over 10 min) -- a rate-based rule for a route the generated one can't serve. See [High-volume routes](#high-volume-routes-prefer-a-ratio).
+- **Door-knocking pack build failed mid-response** -- `GET /v1/door-knocking/pack` streams, so it commits a 200 before it starts building and a later failure cannot be a status code. The generated route alert is structurally blind to it; this log-line rule is the only signal. See gp-api `docs/door-knocking.md` § The pack.
 
 ## Where do alerts show up?
 
@@ -110,6 +111,17 @@ The default filter assumes a 4xx on your controller is a bug. That holds for mos
 The cost: a genuine bug that surfaces as a 4xx on a listed controller no longer pages, and nothing in the generated rule can tell a designed 400 from an accidental one. Add a controller only when its 4xx vocabulary is deliberate and documented. Everything else keeps the `≥ 400` rule.
 
 Per-route granularity, ownership, Slack routing, and the rest of the generated machinery are unchanged -- this only swaps the status filter and the wording of the Slack message.
+
+## No status is also a fault
+
+Both filters above carry an `or response_statusCode = ""` clause, and it is not a rounding error in the range. **A request the gateway kills in flight logs `statusCode: null`** -- gp-api never wrote one -- so it is neither 4xx nor 5xx and every status-range filter missed it. That made a route's worst failure mode, *no answer at all*, structurally invisible to its own alert: two `GET /v1/door-knocking/pack` timeouts in the seven days to 2026-08-25 paged nobody, and both were 120-second hangs a candidate sat through.
+
+Two details:
+
+- **Empty string, not `null`.** Loki's `| json` drops a null field, and a label filter reads a missing label as empty, so the empty-string comparison matches whether the label is absent or present-and-blank. A numeric comparison can only ever miss it.
+- **It re-admits no 4xx.** A null status is the *absence* of one, so the clause cannot overlap with the 429 and 400 vocabulary `SERVER_ERRORS_ONLY` exists to suppress. It is safe on the default filter for the same reason.
+
+When one of these fires, check `responseTimeMs` on the matching lines: a cluster at ~120,000ms is the gateway's idle timeout rather than anything the handler did. The fix for that is to make the endpoint write bytes while it works -- see gp-api `docs/door-knocking.md` § The pack for a worked example.
 
 ## How to add a new global alert
 

@@ -755,6 +755,26 @@ describe('PhoneBankingFlow', () => {
     expect(screen.getByText('Political party')).toBeInTheDocument()
   })
 
+  // ENG-10948: phone banking dials whichever number a voter has (cell first),
+  // so the cell phone/landline filter groups need to read as optional
+  // narrowing rather than a reachability requirement.
+  it('explains any-phone dialing above the filter builder', async () => {
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    expect(
+      (await screen.findAllByText('Build a voter list')).length,
+    ).toBeGreaterThan(0)
+
+    expect(
+      screen.getByText(
+        'Phone banking calls whichever number a voter has, cell first. The cell phone and landline filters are optional narrowing.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('builds a custom audience via the builder → naming sub-states, persists it, and sends its id', async () => {
     mockDraft()
     mockCount(50)

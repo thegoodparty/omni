@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { routeQueryOptions } from './turfQueries'
 import { rollupStopStatus, stopIsKnockable } from './statusPresentation'
+import type { LiveLocation } from './useLiveLocation'
 import type { RoutePin } from './VoterMapCanvas'
 import WalkView from './WalkView'
 
@@ -147,6 +148,18 @@ export interface WalkSurfaceProps {
   // so the ringed pin and the marked row cannot come apart.
   selectedStopId: number | null
   onSelectStop: (stopId: number) => void
+  // "My live location". The canvas keeps this switch in the walk's control row
+  // and nowhere else, so the control is behind this seam — but the dot it turns
+  // on is drawn by the map, which the orchestrator owns and which outlives the
+  // walk. So the watch is read up there and both halves cross: the reading, so
+  // the pill can say a permission was blocked, and the switch.
+  //
+  // A third direction across the seam rather than a second copy of the state,
+  // for the same reason `selectedStopId` is: the pill and the dot are one fact
+  // drawn twice, and two `useState`s would let them disagree.
+  liveLocation: LiveLocation
+  liveLocationEnabled: boolean
+  onToggleLiveLocation: (next: boolean) => void
   // Lets the page refetch the voter pack after the walk: the landing map's
   // statuses are baked into the cached pack, so new knocks are invisible there
   // until it reloads.
@@ -158,6 +171,9 @@ export default function WalkSurface({
   openStopRequest,
   selectedStopId,
   onSelectStop,
+  liveLocation,
+  liveLocationEnabled,
+  onToggleLiveLocation,
   onKnockRecorded,
 }: WalkSurfaceProps) {
   return (
@@ -167,6 +183,9 @@ export default function WalkSurface({
       openStopRequest={openStopRequest}
       selectedStopId={selectedStopId}
       onSelectStop={onSelectStop}
+      liveLocation={liveLocation}
+      liveLocationEnabled={liveLocationEnabled}
+      onToggleLiveLocation={onToggleLiveLocation}
     />
   )
 }

@@ -64,6 +64,12 @@ const PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   pickerBody: 'We recommend reaching all voters to increase awareness.',
   filtersTitle: 'Build a voter list',
   filtersBody: 'Pick filters to define who this campaign reaches.',
+  // ENG-10948: phone banking dials whichever number a voter has (cell first,
+  // see phoneBankingList.service.ts's pickDialNumber) rather than requiring
+  // one — without this, the Cell phone/Landline filter groups read as a
+  // reachability requirement instead of the optional narrowing they are.
+  filtersHint:
+    'Phone banking calls whichever number a voter has, cell first. The cell phone and landline filters are optional narrowing.',
   nameTitle: 'Name your list',
   nameBody: 'You can rename it any time.',
   reachVerb: 'Reach',
