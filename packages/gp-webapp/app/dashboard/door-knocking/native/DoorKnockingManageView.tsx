@@ -123,7 +123,24 @@ export default function DoorKnockingManageView({
     // a 390px viewport left the map about six pixels wide. Peeked it is one tap
     // from open, and open it stops well short of the top so pressing a status
     // chip still recolors dots the canvasser can see.
-    <aside className="absolute inset-x-0 bottom-0 z-20 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-xl border-t border-border bg-background shadow-lg lg:inset-y-4 lg:left-auto lg:right-4 lg:max-h-none lg:w-96 lg:max-w-[40vw] lg:rounded-2xl lg:border lg:bg-card lg:shadow-md">
+    // The open sheet is `h-[60dvh]` and not `max-h-[60dvh]`, and the
+    // difference is not cosmetic: a box sized by `bottom-0` plus a max-height
+    // has an INDEFINITE height, and percentages inside it quietly degrade.
+    // That is what broke the wrapped legend below — the list region's
+    // `flex-1` (`flex-basis: 0%`) resolved as `content` instead of `0`, so a
+    // long list of turfs started competing with the legend for room and
+    // shrank it, and `max-height: 100%` on the legend box resolved to `none`
+    // so nothing caught the overflow. Both work once the height is definite.
+    // Only while OPEN: closed, the sheet is just its handle, and a fixed
+    // height would leave 60% of the map under an empty panel. Above `lg` this
+    // has always been definite (`lg:inset-y-4` sets both edges), which is why
+    // only the phone showed the symptom — hence `lg:h-auto` to leave the
+    // desktop card exactly as it was.
+    <aside
+      className={`absolute inset-x-0 bottom-0 z-20 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-xl border-t border-border bg-background shadow-lg lg:inset-y-4 lg:left-auto lg:right-4 lg:h-auto lg:max-h-none lg:w-96 lg:max-w-[40vw] lg:rounded-2xl lg:border lg:bg-card lg:shadow-md ${
+        railOpen ? 'h-[60dvh]' : ''
+      }`}
+    >
       <button
         type="button"
         aria-expanded={railOpen}
@@ -168,7 +185,36 @@ export default function DoorKnockingManageView({
             onCreateList={onCreateList}
           />
         </div>
-        <section className="flex shrink-0 flex-col gap-2 border-t border-border p-4">
+        {/* Pinned under the lists, and it still wins every contest with them —
+            but it is no longer `shrink-0`, because inside the sheet's
+            `max-h-[60dvh]` and the rail's `overflow-hidden` "never shrink"
+            means "get cut off", not "stay whole".
+
+            That became reachable with this PR. The wrapped legend is 122px
+            against the old scrolling row's 26px, and a SELECTED list adds both
+            the "About, because…" paragraph and the unshadeable-filters
+            sentence above it; on a 320×568 phone the last three chips fell off
+            the bottom of the sheet with no way to scroll to them — the
+            unreachable filter this legend is laid out to avoid, arrived at
+            from the other direction.
+
+            The pinning survives because of how flex distributes a shortfall,
+            not because of `shrink-0`. The list region above is `flex-1`, so
+            its basis is 0 and its shrink weight is 0×1 = 0: it can never take
+            space from this box, and when there is room to spare it grows into
+            it instead. So this box keeps its natural height in every ordinary
+            case, and only gives ground when it ALONE is taller than the whole
+            sheet — at which point `min-h-0` lets it shrink and
+            `overflow-y-auto` scrolls the remainder into reach rather than
+            losing it.
+
+            A legend a candidate has to scroll is a worse legend, and not
+            needing to is the point of this PR. It beats a legend with three
+            filters missing. At 390×844 the same content still fits whole; only
+            a phone that short with a list selected reaches the fallback, and
+            "Show all" in the count line above is inside the scrolled box, so
+            the way back out of it is never the part that got cut. */}
+        <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-t border-border p-4">
           <div>
             <h2 className="text-sm font-semibold">
               {scope.name ?? 'District voters'}

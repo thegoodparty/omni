@@ -229,16 +229,57 @@ describe('DoorKnockingManageView seam', () => {
 
   // The scope and its legend describe what the map is shading right now, so a
   // long rail must not be able to scroll the reading of the dots off screen.
+  //
+  // The pinning is the LIST region's `flex-1` and not a `shrink-0` on the
+  // legend: `flex-basis: 0%` gives the lists a shrink weight of zero, so they
+  // can never take room from the legend and grow into any spare room instead.
+  // That is what a `shrink-0` bought, minus its failure mode — see the next
+  // test.
   it('scrolls the lists and pins the legend under them', () => {
     const { container } = renderView()
 
     const legendSection = screen.getByRole('heading', {
       name: 'District voters',
     }).parentElement?.parentElement
-    expect(legendSection).toHaveClass('shrink-0', 'border-t')
-    expect(container.querySelector('.overflow-y-auto')).toContainElement(
-      screen.getByTestId('turf-list'),
-    )
+    expect(legendSection).toHaveClass('border-t')
+    const listRegion = container.querySelector('.overflow-y-auto')
+    expect(listRegion).toContainElement(screen.getByTestId('turf-list'))
+    expect(listRegion).toHaveClass('flex-1', 'min-h-0')
+  })
+
+  // The legend box has to be able to scroll as a last resort, or "pinned"
+  // means "clipped": a wrapped legend plus a selected list's two disclosure
+  // paragraphs overran a 320x568 sheet, and the rail's `overflow-hidden` cut
+  // the last three chips off with no way to reach them. It only engages when
+  // the box alone is taller than the whole sheet; the rendered check at four
+  // viewports is in the PR.
+  it('lets the legend box scroll rather than be cut off by the rail', () => {
+    renderView()
+
+    const legendSection = screen.getByRole('heading', {
+      name: 'District voters',
+    }).parentElement?.parentElement
+    expect(legendSection).toHaveClass('overflow-y-auto', 'min-h-0')
+    expect(legendSection).not.toHaveClass('shrink-0')
+  })
+
+  // A sheet sized by `bottom-0` + `max-height` has an INDEFINITE height, and
+  // percentages inside it silently degrade — `flex-basis: 0%` resolves as
+  // `content`, so a long list of turfs starts competing with the legend for
+  // room. Definite while open is what makes the two rules above hold. Closed
+  // it must NOT be, or an empty panel covers 60% of the map.
+  it('gives the open sheet a definite height, and the closed one none', () => {
+    const { container } = renderView()
+
+    const rail = container.querySelector('aside')
+    expect(rail).not.toHaveClass('h-[60dvh]')
+
+    fireEvent.click(screen.getByRole('button', { name: /Lists and legend/ }))
+
+    expect(container.querySelector('aside')).toHaveClass('h-[60dvh]')
+    // The desktop card has always been definite via `lg:inset-y-4`, so the
+    // phone's height must not follow it up there.
+    expect(container.querySelector('aside')).toHaveClass('lg:h-auto')
   })
 
   // The whole legend is on screen at once. It was one horizontally scrolling
