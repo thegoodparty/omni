@@ -32,6 +32,10 @@ interface MockLayerProps {
   data: unknown
   pickable?: boolean
   radiusMinPixels?: number
+  // Which basemap layer this one is drawn beneath, in interleaved mode.
+  // Undefined means "on top of the basemap", which is where every layer was
+  // before the labels were lifted over the dots.
+  beforeId?: string
   // Accessors the layers derive per row, so a test can ask what a given pin or
   // a given saved list would actually be drawn as. `unknown` because the mock
   // stands in for every layer on the canvas and each one has its own datum.
@@ -49,14 +53,18 @@ interface PickParams {
 }
 
 const gl = vi.hoisted(() => {
-  const handlers = new Map<string, (event: MapEvent) => void>()
+  const handlers = new Map<string, (event?: MapEvent) => void>()
   let canvas: HTMLCanvasElement | null = null
+  // The basemap's own layers, as `style.load` finds them. Empty by default so
+  // the existing tests exercise the no-symbol-layer fallback; a test that
+  // cares about label ordering sets its own.
+  const style = { layers: [] as Array<{ id: string; type: string }> }
   const map = {
     addControl: vi.fn(),
-    on: vi.fn((event: string, handler: (event: MapEvent) => void) => {
+    on: vi.fn((event: string, handler: (event?: MapEvent) => void) => {
       handlers.set(event, handler)
     }),
-    getStyle: () => ({ layers: [] }),
+    getStyle: () => style,
     setPaintProperty: vi.fn(),
     setLayoutProperty: vi.fn(),
     getCanvas: () => (canvas ??= document.createElement('canvas')),
@@ -69,6 +77,10 @@ const gl = vi.hoisted(() => {
   }
   const overlay = {
     layers: [] as MockLayerProps[],
+    // How the overlay was constructed. `interleaved` is what decides whether
+    // deck draws into the basemap's layer stack or as one canvas over all of
+    // it, and it is a constructor-only option.
+    options: null as { interleaved?: boolean } | null,
     // Stands a pin under the tap, so a test can knock on a door the way a
     // canvasser does. Keyed by layer so the vertex picking the drag handlers
     // do is unaffected.
@@ -82,7 +94,7 @@ const gl = vi.hoisted(() => {
       return params.layerIds.includes('route-pins') ? overlay.pickedPin : null
     },
   }
-  return { handlers, map, overlay }
+  return { handlers, map, overlay, style }
 })
 
 vi.mock('maplibre-gl', () => ({
@@ -98,7 +110,8 @@ vi.mock('maplibre-gl', () => ({
 
 vi.mock('@deck.gl/mapbox', () => ({
   MapboxOverlay: class {
-    constructor() {
+    constructor(options: { interleaved?: boolean }) {
+      gl.overlay.options = options
       return gl.overlay
     }
   },
@@ -269,6 +282,8 @@ describe('VoterMapCanvas drawing', () => {
     gl.overlay.layers = []
     gl.overlay.pickedPin = null
     gl.overlay.lastPick = null
+    gl.overlay.options = null
+    gl.style.layers = []
     vi.clearAllMocks()
   })
 
@@ -1065,5 +1080,125 @@ describe('VoterMapCanvas drawing', () => {
     const center = openingCenterOf([...neighborhood, ...strays])
 
     expectIsOneOf(center, neighborhood)
+  })
+})
+
+// Which layers sit under the basemap's labels and which stay over them. The
+// dots used to cover every city and street name on the map, because an
+// overlaid deck.gl canvas composites above the WHOLE basemap.
+describe('VoterMapCanvas label ordering', () => {
+  // A basemap in osm-liberty's shape: fills and lines, then the symbol plane
+  // that carries the one-way arrows, the road names and the place names.
+  const BASEMAP = [
+    { id: 'background', type: 'background' },
+    { id: 'water', type: 'fill' },
+    { id: 'building', type: 'fill-extrusion' },
+    { id: 'highway-motorway', type: 'line' },
+    { id: 'road_one_way_arrow', type: 'symbol' },
+    { id: 'highway-name-major', type: 'symbol' },
+    { id: 'label_city', type: 'symbol' },
+  ]
+
+  const baseProps = {
+    pack,
+    filterResult,
+    turfs: [turfFixture],
+    routePins: [],
+    selectedStopId: null,
+    routeLoop: false,
+    routeGeometry: null,
+    focusTurf: null,
+    startDrawToken: 0,
+    clearDrawToken: 0,
+    undoDrawToken: 0,
+    drawColor: '#2563eb',
+    frameDrawToken: 0,
+    frameDrawBottomPct: 0,
+    location: LOCATION_OFF,
+    onPolygonChange: vi.fn(),
+  }
+
+  beforeEach(() => {
+    gl.handlers.clear()
+    gl.overlay.layers = []
+    gl.overlay.options = null
+    gl.style.layers = []
+    vi.clearAllMocks()
+  })
+
+  const renderWithStyle = (layers: Array<{ id: string; type: string }>) => {
+    gl.style.layers = layers
+    render(<VoterMapCanvas {...baseProps} />)
+    act(() => {
+      gl.handlers.get('style.load')?.()
+    })
+  }
+
+  const beforeIdOf = (id: string) => layer(id)?.beforeId
+
+  it('draws into the basemap stack rather than over all of it', () => {
+    renderWithStyle(BASEMAP)
+
+    expect(gl.overlay.options?.interleaved).toBe(true)
+  })
+
+  it('puts the dots and the saved rings under the basemap symbol plane', () => {
+    renderWithStyle(BASEMAP)
+
+    // The FIRST symbol layer, so the dots land under every label the basemap
+    // draws and not merely under the place names.
+    expect(beforeIdOf('voter-dots')).toBe('road_one_way_arrow')
+    expect(beforeIdOf('saved-turfs')).toBe('road_one_way_arrow')
+  })
+
+  // Everything a canvasser is manipulating or navigating by. A place name is
+  // never worth covering the ring being cut or the stop being walked to.
+  it.each([
+    'draw-preview',
+    'draw-vertices',
+    'route-path',
+    'route-pin-selection',
+    'route-pins',
+    'route-pin-numbers',
+    'live-location-accuracy',
+    'live-location-dot',
+  ])('keeps %s above the labels', (id) => {
+    renderWithStyle(BASEMAP)
+
+    expect(beforeIdOf(id)).toBeUndefined()
+  })
+
+  // The two that go under the labels have to stay adjacent in the array:
+  // deck.gl buckets CONSECUTIVE layers sharing a beforeId into one basemap
+  // layer, so a third layer spliced between them would split the bucket and
+  // put the turf fill over the dots.
+  it('keeps the two under-label layers adjacent, rings under dots', () => {
+    renderWithStyle(BASEMAP)
+
+    const ids = gl.overlay.layers.map((entry) => entry.id)
+
+    expect(ids.indexOf('voter-dots')).toBe(ids.indexOf('saved-turfs') + 1)
+  })
+
+  // A basemap that ships no symbol layer at all, or a style that renames
+  // every one of them: the dots go back on top of everything, which is where
+  // they were. Naming a layer id that does not exist would drop them from the
+  // map entirely.
+  it('falls back to drawing on top when the style has no symbol layer', () => {
+    renderWithStyle([
+      { id: 'background', type: 'background' },
+      { id: 'water', type: 'fill' },
+    ])
+
+    expect(beforeIdOf('voter-dots')).toBeUndefined()
+    expect(beforeIdOf('saved-turfs')).toBeUndefined()
+  })
+
+  // Before the style resolves there is no symbol layer to name yet.
+  it('draws on top until the style has loaded', () => {
+    gl.style.layers = BASEMAP
+    render(<VoterMapCanvas {...baseProps} />)
+
+    expect(beforeIdOf('voter-dots')).toBeUndefined()
   })
 })
