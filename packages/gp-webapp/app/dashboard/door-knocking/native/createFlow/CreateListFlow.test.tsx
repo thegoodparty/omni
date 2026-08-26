@@ -6,6 +6,7 @@ import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CreateListFlow from './CreateListFlow'
+import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -570,7 +571,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="draw" unpreviewableKeys={[]} />,
     )
-    expect(screen.queryByText(/can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
 
     rerender(
       <CreateListFlow
@@ -588,7 +589,9 @@ describe('CreateListFlow', () => {
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          new RegExp(`can’t shade by ${label}`).test(element.textContent ?? ''),
+          new RegExp(`can’t yet shade by ${label}`).test(
+            element.textContent ?? '',
+          ),
       ),
     ).toBeInTheDocument()
   })
@@ -607,11 +610,37 @@ describe('CreateListFlow', () => {
     const disclosure = screen.getByText(
       (_, element) =>
         element?.tagName === 'P' &&
-        /can’t shade by/.test(element.textContent ?? ''),
+        /can’t yet shade by/.test(element.textContent ?? ''),
     )
     // Named once, however many of its buckets are selected.
     expect(disclosure.textContent).toContain(
-      'can’t shade by Prior contacts made yet',
+      'can’t yet shade by Prior contacts made,',
+    )
+  })
+
+  // Two unshadeable filters used to be comma-joined into a sentence written
+  // for one — "shade by 65+, Prior contacts made yet, so these counts include
+  // people that filter will exclude" — which reads as a typo rather than as a
+  // list. The wiring, not the joining, is what this asserts; the joins
+  // themselves are covered in voterFilterPreview.test.ts.
+  it('joins two unshadeable filters with or, and pluralises around them', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        unpreviewableKeys={['age65Plus', 'contactsMade0']}
+      />,
+    )
+
+    const disclosure = screen.getByText(
+      (_, element) =>
+        element?.tagName === 'P' &&
+        /can’t yet shade by/.test(element.textContent ?? ''),
+    )
+    expect(disclosure.textContent).toBe(
+      'The map can’t yet shade by 65+ or Prior contacts made, so these counts ' +
+        'include people those filters will exclude. Your saved list still ' +
+        'applies them when you knock.',
     )
   })
 
@@ -706,6 +735,14 @@ describe('CreateListFlow', () => {
     expect(screen.getByText('1200 W Elm St Apt 1')).toBeInTheDocument()
     expect(screen.getByText('1200 W Elm St Apt 2')).toBeInTheDocument()
     expect(screen.getByText('14 N Oak Ave')).toBeInTheDocument()
+    // globals.css gives every `<li>` inside a `data-slot` element `display:
+    // flex`, which ran the "N doors at one location" heading into the first
+    // address. jsdom has no layout, so this asserts the override is present
+    // rather than its effect; the rendered proof is in the PR's screenshots.
+    const location = screen
+      .getByText('2 doors at one location')
+      .closest('li') as HTMLElement
+    expect(location.className.split(/\s+/)).toContain('block')
   })
 
   // The rule this feature has already broken once: one quantity gets one
@@ -729,7 +766,7 @@ describe('CreateListFlow', () => {
     )
 
     expect(screen.getByText('9')).toBeInTheDocument()
-    expect(screen.getByText(/The map can’t shade by/)).toBeInTheDocument()
+    expect(screen.getByText(/The map can’t yet shade by/)).toBeInTheDocument()
 
     rerender(
       <CreateListFlow
@@ -758,7 +795,7 @@ describe('CreateListFlow', () => {
     expect(screen.queryByText('9')).toBeNull()
     expect(screen.queryByText('14')).toBeNull()
     expect(screen.queryByText('22')).toBeNull()
-    expect(screen.queryByText(/The map can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
     // What the preview does still owe the reader: these are suppressed
     // already, so a shorter walk than this is not the expectation.
     expect(screen.getByText(/already out/)).toBeInTheDocument()
@@ -1517,5 +1554,173 @@ describe('CreateListFlow steps', () => {
       />,
     )
     expect(screen.getByLabelText('List name')).toHaveValue('Homeowners')
+  })
+})
+
+// The other end of the outreach hub's door-knocking tile: a candidate who
+// pressed "Door knocking" with a list selected arrives on `?listId=` and must
+// not be asked for that list a second time. The param is never trusted — the
+// picker's own rows are, because they are the only thing that knows which
+// lists this org still has.
+describe('CreateListFlow preselected list', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  const savedLists: SavedListOption[] = [
+    { id: 4, name: 'Precinct 2 homeowners', households: 820, filters: {} },
+    {
+      id: 9,
+      name: 'Super voters',
+      households: 1_240,
+      filters: { partyDemocrat: true },
+    },
+  ]
+
+  it('opens the who step on the carried list, with its filters in the draft', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 9, onFiltersChange })
+
+    expect(
+      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /All contacts/ }),
+    ).not.toBeChecked()
+    // Seeded exactly as a click on the row seeds it — the pills and the map
+    // say what the list says, not what the draft happened to hold.
+    expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
+    // And starting from a named list is the alternative to naming one, so the
+    // conditional name step is gone for the same reason it is after a click.
+    expect(screen.getByText('Step 2 of 4')).toBeInTheDocument()
+  })
+
+  // The four ways a query param can be wrong that survive the parser — an id
+  // that is simply not one of this org's lists (deleted, archived, another
+  // org's, or invented) — all land here, and all of them must be nothing more
+  // than a missed preselection.
+  it('falls back to the ordinary flow when the id names no list of yours', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists,
+      preselectedListId: 12_345,
+      filters: { partyDemocrat: true },
+      onFiltersChange,
+    })
+
+    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+    expect(onFiltersChange).not.toHaveBeenCalled()
+    // Unfiltered by a list, so the flow still offers to save the draft as one.
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+  })
+
+  it('leaves the flow untouched with no list carried in', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({ savedLists, onFiltersChange })
+
+    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+    expect(onFiltersChange).not.toHaveBeenCalled()
+  })
+
+  // This flow is unmounted every time the create surface closes, so it cannot
+  // remember that the arrival is spent. Reporting the moment it lands is what
+  // lets the page above stop offering it back — and it is reported only when
+  // the id really was applied, so a bad one leaves the page still holding it
+  // for the rows that may yet arrive.
+  it('reports the carried list the moment it is applied, and not before', () => {
+    const onPreselectApplied = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 9, onPreselectApplied })
+
+    expect(onPreselectApplied).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports nothing when the carried list names no list of yours', () => {
+    const onPreselectApplied = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 12_345, onPreselectApplied })
+
+    expect(onPreselectApplied).not.toHaveBeenCalled()
+  })
+
+  // The picker is populated by a query, so an empty first render is the
+  // ordinary case rather than a refusal — the preselect has to wait for it
+  // instead of deciding the id is bad.
+  it('applies the carried list once the picker’s rows arrive', () => {
+    const onFiltersChange = vi.fn()
+    const props = { ...baseProps, preselectedListId: 9, onFiltersChange }
+
+    const { rerender } = render(
+      <CreateListFlow {...props} step="filters" savedLists={[]} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+
+    rerender(
+      <CreateListFlow {...props} step="filters" savedLists={savedLists} />,
+    )
+
+    expect(
+      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
+    ).toBeChecked()
+    expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
+  })
+
+  // A seed, not a binding: the arrival is spent once applied, so a refetch
+  // that hands back a fresh array cannot put the candidate's own pick back.
+  it('does not re-apply over a list the candidate picked instead', () => {
+    const props = { ...baseProps, savedLists, preselectedListId: 9 }
+    const { rerender } = render(<CreateListFlow {...props} step="filters" />)
+    fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
+    )
+    expect(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
+    ).toBeChecked()
+
+    rerender(
+      <CreateListFlow
+        {...props}
+        step="filters"
+        savedLists={savedLists.map((list) => ({ ...list }))}
+      />,
+    )
+
+    expect(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
+    ).toBeChecked()
+  })
+
+  // The whole point of carrying it: the turf attaches to the list the
+  // candidate arrived with, rather than to a near-identical copy of it.
+  it('attaches the turf to the carried list without copying it', async () => {
+    let filterPosts = 0
+    let turfBody: unknown = null
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      filterPosts += 1
+      return { status: 200, data: { id: 999 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    const onSaved = vi.fn()
+    const props = { ...baseProps, savedLists, preselectedListId: 9, onSaved }
+
+    const { rerender } = renderAtWho(props)
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
+    )
+
+    rerender(<CreateListFlow {...props} step="confirm" />)
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    expect(filterPosts).toBe(0)
+    expect(turfBody).toMatchObject({ voterFileFilterId: 9 })
   })
 })

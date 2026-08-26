@@ -58,6 +58,10 @@ export interface OutreachAudience {
   listsLoading: boolean
   selectedList: SegmentResponse | null
   reachableCount: number | null
+  // The selected list's TOTAL people count (list-detail demographics), so a
+  // channel can render the reachable-of-total delta (ENG-10957). Null on the
+  // same terms as reachableCount.
+  selectedListTotal: number | null
   reachableLoading: boolean
   builderFilters: VoterFileFilters
   setBuilderFilters: (filters: VoterFileFilters) => void
@@ -110,7 +114,13 @@ export const useOutreachAudience = ({
 
   const { data: electedOffice } = useElectedOffice()
   const isElectedOfficial = !!electedOffice
-  const precinctOptions = usePrecinctOptions(!isElectedOfficial)
+  // Same gating as the builder's count below: the flow host stays mounted, so
+  // an ungated fetch would run for every outreach page view. 'picker' mode
+  // shows saved lists only — the precinct control cannot render until the
+  // builder is open on its filters step.
+  const precinctOptions = usePrecinctOptions(
+    open && active && mode !== 'picker' && !isElectedOfficial,
+  )
 
   // Scope the saved-lists cache by org: with staleTime 0 the cached entry is
   // still served during an in-flight refetch, so an unscoped key would briefly
@@ -153,7 +163,10 @@ export const useOutreachAudience = ({
       // to the enable condition can't silently pass null through.
       if (selectedListId === null) throw new Error('No list selected')
       const detail = await fetchListDetailThrottled(selectedListId, signal)
-      return detail.reachability[reachabilityKey]
+      return {
+        reachable: detail.reachability[reachabilityKey],
+        total: detail.demographics.people,
+      }
     },
     // Gate on `active` (like the builder count): selectedListId persists onto
     // later steps, so without it every window-focus on a post-audience step
@@ -165,7 +178,8 @@ export const useOutreachAudience = ({
     // a stale count would render with no loading state (matches listsQuery).
     staleTime: 0,
   })
-  const reachableCount = reachabilityQuery.data ?? null
+  const reachableCount = reachabilityQuery.data?.reachable ?? null
+  const selectedListTotal = reachabilityQuery.data?.total ?? null
 
   // Filters the user built, translated for the backend. The saved list is
   // created from THIS (overlay-free); the count adds the overlay on top.
@@ -273,6 +287,7 @@ export const useOutreachAudience = ({
     listsLoading: listsQuery.isLoading,
     selectedList,
     reachableCount,
+    selectedListTotal,
     // isFetching (not isLoading) so a re-selected, already-cached list still
     // shows the spinner during its background refetch — isLoading is true only
     // on the first-ever fetch, so under the 5-min default staleTime a stale

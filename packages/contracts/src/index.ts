@@ -970,3 +970,16 @@ export {
 } from './phoneBanking/PhoneBankingList.schema'
 
 export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'
+
+export {
+  TEST_FIXTURE_STATE_VALUES,
+  TestFixtureStateSchema,
+  type TestFixtureState,
+  TestFixtureCookiesSchema,
+  TestFixtureUserResponseSchema,
+  type TestFixtureUserResponse,
+  TestFixtureSessionResponseSchema,
+  type TestFixtureSessionResponse,
+  DeleteTestFixtureUsersResponseSchema,
+  type DeleteTestFixtureUsersResponse,
+} from './testFixtures/testFixtures.schema'

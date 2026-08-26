@@ -147,8 +147,8 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const systemPrompt = systemContent()
-    expect(systemPrompt).toContain('Hi, this is')
-    expect(systemPrompt).toContain('and I am running for')
+    expect(systemPrompt).toContain('"This is"')
+    expect(systemPrompt).toContain('"candidate for"')
     expect(systemPrompt).toContain('"Paid for by"')
     expect(systemPrompt).toContain('callback phone number')
     expect(systemPrompt).toContain('"Reply STOP"')
@@ -165,7 +165,7 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const systemPrompt = systemContent()
-    expect(systemPrompt).toContain('say the callback number given below')
+    expect(systemPrompt).toContain('callback number given below')
     // The ban rule must NOT apply once a number is provided.
     expect(systemPrompt).not.toContain('Do NOT include a "Paid for by" line')
 

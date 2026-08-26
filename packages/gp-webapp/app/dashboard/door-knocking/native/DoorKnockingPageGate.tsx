@@ -30,6 +30,9 @@ interface DoorKnockingPageGateProps {
   pathname: string
   campaign: Campaign | null
   summary?: EcanvasserSummary
+  // `?listId=` off the page. Only the native arm has a create flow to open on
+  // it; the eCanvasser dashboard has no audience step to preselect.
+  preselectedListId?: number
 }
 
 // Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
@@ -91,6 +94,7 @@ export default function DoorKnockingPageGate({
   pathname,
   campaign,
   summary,
+  preselectedListId,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
   const { data: electedOffice, isPending: isElectedOfficePending } =
@@ -125,7 +129,13 @@ export default function DoorKnockingPageGate({
         )
       }
     }
-    return <NativeDoorKnockingPage pathname={pathname} campaign={campaign} />
+    return (
+      <NativeDoorKnockingPage
+        pathname={pathname}
+        campaign={campaign}
+        preselectedListId={preselectedListId}
+      />
+    )
   }
   return (
     <DoorKnockingPage

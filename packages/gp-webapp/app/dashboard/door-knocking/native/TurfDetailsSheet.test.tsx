@@ -173,7 +173,7 @@ describe('TurfDetailsSheet status', () => {
   })
 
   it.each([
-    ['Scheduled', { locked: false }],
+    ['Not started', { locked: false }],
     ['In progress', { locked: true }],
     ['Done', { locked: true, completedAt: new Date('2026-08-20T00:00:00Z') }],
     [
@@ -805,7 +805,7 @@ describe('TurfDetailsSheet overview', () => {
     expect(screen.queryByText('Doors in this area')).toBeNull()
     expect(screen.queryByText('People in this area')).toBeNull()
     expect(
-      screen.getByText(/About, because the map can.t show every filter/),
+      screen.getByText(/“About,” because the map can.t show every filter/),
     ).toBeInTheDocument()
   })
 
@@ -822,7 +822,7 @@ describe('TurfDetailsSheet overview', () => {
     expect(await screen.findByText('31m')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
     expect(screen.queryByText('About 2')).toBeNull()
-    expect(screen.queryByText(/About, because the map/)).toBeNull()
+    expect(screen.queryByText(/“About,” because the map/)).toBeNull()
   })
 
   // The rail's sentence verbatim, from the shared helper, on the surface that
@@ -832,16 +832,29 @@ describe('TurfDetailsSheet overview', () => {
   it('names a filter the map cannot shade without impugning the filter', () => {
     renderSheet({ listStats: listStats(), unpreviewableKeys: ['age65Plus'] })
 
-    const disclosure = screen.getByText(/The map can.t shade by/)
+    const disclosure = screen.getByText(/The map can.t yet shade by/)
     expect(disclosure).toHaveTextContent(
-      'The map can’t shade by 65+ yet, so these counts include people that filter will exclude. Your saved list still applies it when you knock.',
+      'The map can’t yet shade by 65+, so these counts include people that filter will exclude. Your saved list still applies it when you knock.',
+    )
+  })
+
+  // Two of them, on the surface that has always been able to have two: a saved
+  // list carries a whole filter draft, and the sentence was written for one.
+  it('reads as a list, not as a typo, when two filters cannot be shaded', () => {
+    renderSheet({
+      listStats: listStats(),
+      unpreviewableKeys: ['age65Plus', 'contactsMade0'],
+    })
+
+    expect(screen.getByText(/The map can.t yet shade by/)).toHaveTextContent(
+      'The map can’t yet shade by 65+ or Prior contacts made, so these counts include people those filters will exclude. Your saved list still applies them when you knock.',
     )
   })
 
   it('says nothing about unshadeable filters when there are none', () => {
     renderSheet({ listStats: listStats() })
 
-    expect(screen.queryByText(/can.t shade by/)).toBeNull()
+    expect(screen.queryByText(/can.t yet shade by/)).toBeNull()
   })
 
   // Same rule as the TurfList row: only a locked list has a route to print,

@@ -26,8 +26,10 @@ export function isAdmin(user: User) {
   return userHasRole(user, UserRole.admin)
 }
 
+export const TEST_USER_DOMAIN = '@test.goodparty.org'
+
 export const isTestUser = (params: { email: string }) =>
-  params.email.endsWith('@test.goodparty.org')
+  params.email.endsWith(TEST_USER_DOMAIN)
 
 // Distinct from isTestUser on purpose: isTestUser gates behavior for seeded
 // e2e accounts only (stubbed vendor calls, skipped dispatches) and must NOT
