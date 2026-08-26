@@ -10,10 +10,6 @@ import { Intro } from '../social/Intro'
 interface DownloadStepProps {
   response: PhoneBankingCreateResponse
   audienceLabel: string
-  // Pre-freeze reachable count the flow held from the audience step — the
-  // create response only carries the post-freeze personCount, so this is the
-  // only place left to compare against for the reconciliation copy below.
-  reachableCount: number | null
 }
 
 // The "ready" screen (step 5): replaces the old naming-only download step and
@@ -23,12 +19,9 @@ interface DownloadStepProps {
 export const DownloadStep = ({
   response,
   audienceLabel,
-  reachableCount,
 }: DownloadStepProps) => {
   const isZip = response.sheetCount > 1
   const href = `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
-  const truncated =
-    reachableCount !== null && reachableCount > response.personCount
 
   const handleDownloadClick = () => {
     trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
@@ -47,19 +40,18 @@ export const DownloadStep = ({
         body={`Download the ${isZip ? 'PDFs' : 'PDF'} for your volunteers, then go to the calling page to start making calls and marking outcomes.`}
       />
 
-      {/* The "frozen from M" arithmetic is suppressed whenever hasMore is
-          true: reachableCount is the full list's phone-reachable figure,
-          including people already consumed by prior batches, so on a
-          continuation batch it overstates the pool this batch drew from
-          (same reasoning as SheetCountStep's over-capacity copy). */}
-      {(truncated || response.hasMore) && (
+      {/* hasMore is the server's post-freeze truth; no client arithmetic
+          against the audience step's reachableCount here — that figure
+          counts the whole saved list, including people already consumed by
+          prior batches, so any "frozen from M" comparison lies on a
+          continuation batch (same reasoning as SheetCountStep's
+          over-capacity copy). */}
+      {response.hasMore && (
         <Alert variant="destructive">
           <AlertDescription>
-            {truncated && reachableCount !== null && !response.hasMore
-              ? `${response.personCount.toLocaleString()} contacts frozen from ${reachableCount.toLocaleString()} reachable.`
-              : 'More reachable contacts remain in this list.'}
-            {response.hasMore &&
-              ' Create another phone banking campaign with this same list to call the rest — it picks up where this one left off.'}
+            More reachable contacts remain in this list. Create another phone
+            banking campaign with this same list to call the rest — it picks up
+            where this one left off.
           </AlertDescription>
         </Alert>
       )}

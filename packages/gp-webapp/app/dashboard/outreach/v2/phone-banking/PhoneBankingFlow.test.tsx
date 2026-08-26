@@ -419,7 +419,7 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('states both numbers on the download step when the audience was truncated', async () => {
+  it('shows no reconciliation numbers on a batch that exhausts the audience, even when the list-level count is larger', async () => {
     mockDraft()
     mockSavedLists([{ id: 3, name: 'Huge list' }])
     mockListDetail(2000)
@@ -440,9 +440,14 @@ describe('PhoneBankingFlow', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
+    await screen.findAllByText('Your call sheet is ready')
+    // reachableCount (2,000) counts the whole saved list including prior
+    // batches, so with hasMore: false the server says nothing remains — no
+    // frozen-from arithmetic and no next-batch prompt.
+    expect(screen.queryByText(/contacts frozen from/)).not.toBeInTheDocument()
     expect(
-      await screen.findByText('1,200 contacts frozen from 2,000 reachable.'),
-    ).toBeInTheDocument()
+      screen.queryByText(/More reachable contacts remain/),
+    ).not.toBeInTheDocument()
   })
 
   it('offers the next-batch path on the download step when contacts remain', async () => {
