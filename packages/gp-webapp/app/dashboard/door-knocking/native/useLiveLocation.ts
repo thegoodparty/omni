@@ -1,7 +1,8 @@
-// Deliberately no 'use client': this module is only imported by
-// VoterMapCanvas, which is already a client component behind next/dynamic
-// (ssr:false). Adding the directive here would push the 'use client' ratchet
-// (scripts/check-use-client-count.mjs) up for nothing.
+// Deliberately no 'use client': every importer is already a client component
+// — NativeDoorKnockingPage, which calls this, carries the directive itself,
+// and VoterMapCanvas sits behind next/dynamic (ssr:false). Adding it here
+// would push the 'use client' ratchet (scripts/check-use-client-count.mjs) up
+// for nothing.
 import { useEffect, useState } from 'react'
 
 // A GPS fix worse than this can sit a canvasser several houses — often a
