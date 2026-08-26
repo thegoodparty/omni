@@ -717,16 +717,24 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     campaignId: number,
   ): Promise<void> {
-    const outreach = await this.model.findFirst({
-      where: { id: outreachId, campaignId },
+    // Atomic like cancel's claim: a second concurrent delete must read as
+    // not-found, not surface Prisma's P2025 as a 500.
+    const deleted = await this.model.deleteMany({
+      where: {
+        id: outreachId,
+        campaignId,
+        status: OutreachStatus.canceled,
+      },
     })
-    if (!outreach) {
-      throw new NotFoundException('Outreach not found')
-    }
-    if (outreach.status !== OutreachStatus.canceled) {
+    if (deleted.count === 0) {
+      const existing = await this.model.findFirst({
+        where: { id: outreachId, campaignId },
+      })
+      if (!existing) {
+        throw new NotFoundException('Outreach not found')
+      }
       throw new BadRequestException('Only canceled campaigns can be deleted')
     }
-    await this.model.delete({ where: { id: outreachId } })
   }
 
   /**

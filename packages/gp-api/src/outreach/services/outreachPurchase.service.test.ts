@@ -23,6 +23,7 @@ const mockCampaignsService = {
 
 const mockOutreachService = {
   finalizeOutreachPurchase: vi.fn(),
+  recordCheckoutSession: vi.fn(),
 } as unknown as OutreachService
 
 const mockPeerlyPhoneListService = {
@@ -675,6 +676,42 @@ describe('OutreachPurchaseHandlerService', () => {
       ...baseMetadata,
       campaignId: 111,
     }
+
+    it('records a real checkout session on the row after finalize', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      await service.executePostPurchase('cs_test_session_1', {
+        ...purchaseMetadata,
+        outreachId: '123',
+      })
+
+      expect(mockOutreachService.recordCheckoutSession).toHaveBeenCalledWith(
+        123,
+        111,
+        'cs_test_session_1',
+      )
+    })
+
+    it('never records the zero-amount synthetic marker as a session', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      await service.executePostPurchase('free_confirmed_abc', {
+        ...purchaseMetadata,
+        outreachId: '123',
+      })
+
+      expect(mockOutreachService.recordCheckoutSession).not.toHaveBeenCalled()
+    })
 
     it('finalizes a string outreachId before redeeming free texts', async () => {
       vi.mocked(
