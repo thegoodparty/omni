@@ -143,8 +143,17 @@ export class RobocallPhonebookService {
       if (people.length === 0) break
 
       for (const person of people) {
+        // hasLandline only guarantees non-null, not a dialable format. Drop a
+        // leading US country code and keep only genuine 10-digit numbers, so
+        // `expected` counts what CallHub can actually load — CallHub silently
+        // drops malformed rows, which would otherwise look like a stalled
+        // import when the poll never reaches the total.
         const digits = person.landline?.replace(/\D/g, '') ?? ''
-        if (digits) seen.add(digits)
+        const normalized =
+          digits.length === 11 && digits.startsWith('1')
+            ? digits.slice(1)
+            : digits
+        if (normalized.length === 10) seen.add(normalized)
         if (seen.size >= MAX_PHONEBOOK_NUMBERS) break
       }
 

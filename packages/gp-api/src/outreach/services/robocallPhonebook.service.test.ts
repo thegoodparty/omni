@@ -77,11 +77,18 @@ describe('RobocallPhonebookService', () => {
     return promise
   }
 
-  it('loads the deduped, digits-only landlines into a fresh phonebook', async () => {
+  it('loads the deduped, normalized 10-digit landlines into a fresh phonebook', async () => {
     contacts.findContactsForFilter.mockResolvedValue(
-      peoplePage(['(202) 555-0100', '202-555-0101', '(202) 555-0100', null]),
+      peoplePage([
+        '(202) 555-0100', // 10 digits
+        '202-555-0101', // 10 digits
+        '1-202-555-0102', // 11 digits, leading US 1 -> normalized to 10
+        '(202) 555-0100', // duplicate of the first
+        '555-1234', // 7 digits, malformed -> dropped
+        null,
+      ]),
     )
-    phonebooks.getContactCount.mockResolvedValue(2)
+    phonebooks.getContactCount.mockResolvedValue(3)
 
     const result = await run()
 
@@ -92,10 +99,11 @@ describe('RobocallPhonebookService', () => {
       { id: 1 },
     )
 
-    // CSV holds the extracted numbers behind a header row, deduped, digits-only.
+    // CSV holds the extracted numbers behind a header row, deduped,
+    // digits-only, leading-1 stripped, malformed rows dropped.
     expect(s3.uploadFile).toHaveBeenCalledWith(
       'robocall-audio-test',
-      'phone\n2025550100\n2025550101\n',
+      'phone\n2025550100\n2025550101\n2025550102\n',
       expect.stringMatching(/^robocall-phonebook\/7\//),
       { contentType: 'text/csv' },
     )
@@ -110,7 +118,7 @@ describe('RobocallPhonebookService', () => {
       countryIso: 'US',
     })
 
-    expect(result).toEqual({ phonebookPkStr: 'pb-1', importedCount: 2 })
+    expect(result).toEqual({ phonebookPkStr: 'pb-1', importedCount: 3 })
   })
 
   it('pages until hasNextPage is false', async () => {
