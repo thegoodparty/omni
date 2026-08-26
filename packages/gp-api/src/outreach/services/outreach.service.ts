@@ -617,13 +617,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
    * `in_progress`/`completed` rows have sent messages and are not
    * refundable here.
    *
-   * Ordering is the failure policy. The vendor delete runs first — if it
-   * fails, nothing changed and the user keeps their campaign. The refund
-   * runs second — if IT fails, the row deliberately stays `pending`: the
-   * cancel CTA stays live, and a retry re-runs both steps safely (the
-   * vendor status write is idempotent, and the refund's idempotency key is
-   * stable per outreach, so it can neither be lost nor doubled). Only after
-   * both succeed does the status flip.
+   * Ordering is the failure policy. The row is CLAIMED first (finalize's
+   * updateMany-as-CAS pattern, `pending` → `canceled`), so the hourly
+   * completion sweep can never advance it mid-cancel — canceled rows are
+   * outside the sweep's candidate set. The vendor delete runs second — if
+   * it fails, the claim is reverted and the user keeps their campaign. The
+   * refund runs third — if IT fails, the claim is reverted too, so the row
+   * deliberately reads `pending`: the cancel CTA stays live, and a retry
+   * re-runs every step safely (the claim is atomic, the vendor delete
+   * treats already-deleted as done, and the refund's idempotency key is
+   * stable per outreach, so it can neither be lost nor doubled).
    */
   async cancelOutreach(
     outreachId: number,
@@ -642,8 +645,33 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       throw new BadRequestException('Only scheduled campaigns can be canceled')
     }
 
+    const claimed = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending },
+      data: { status: OutreachStatus.canceled },
+    })
+    if (claimed.count === 0) {
+      const current = await this.model.findFirstOrThrow({
+        where: { id: outreachId, campaignId },
+      })
+      if (current.status === OutreachStatus.canceled) {
+        return { outreach: current, refunded: false }
+      }
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
+
+    const revertClaim = () =>
+      this.model.update({
+        where: { id: outreachId },
+        data: { status: OutreachStatus.pending },
+      })
+
     if (outreach.projectId) {
-      await this.peerlyP2pJobService.deleteJob(outreach.projectId)
+      try {
+        await this.peerlyP2pJobService.deleteJob(outreach.projectId)
+      } catch (error) {
+        await revertClaim()
+        throw error
+      }
     }
 
     let refunded = false
@@ -666,17 +694,17 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       } catch (error) {
         this.logger.error(
           { err: error },
-          `Refund failed canceling outreach ${outreachId}; row left pending for retry`,
+          `Refund failed canceling outreach ${outreachId}; claim reverted so cancel can retry`,
         )
+        await revertClaim()
         throw new BadGatewayException(
           'The refund could not be processed. Try canceling again.',
         )
       }
     }
 
-    const updated = await this.model.update({
-      where: { id: outreachId },
-      data: { status: OutreachStatus.canceled },
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId, campaignId },
     })
     return { outreach: updated, refunded }
   }
