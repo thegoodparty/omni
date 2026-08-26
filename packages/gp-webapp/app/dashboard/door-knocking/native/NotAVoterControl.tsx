@@ -25,11 +25,16 @@ const REASON_OPTIONS: Array<[NotAVoterReason, string]> = [
 // get different words rather than one flag's worth. "Moved" only has to explain
 // why the door is dropped; "deceased" has to survive being skimmed in the rain
 // by someone about to ask for a name.
+//
+// Both report a flag rather than assert a fact, because a flag is all either one
+// is: somebody said it at a door, or the voter file carries it. "Marked as
+// deceased" is also what a canvasser standing in front of the household needs it
+// to say — the app is not in a position to tell them their relative is dead.
 const MARKER_DETAIL: Record<NotAVoterReason, string> = {
   moved:
     'Someone here said this person no longer lives at this address. They stay off new lists.',
   deceased:
-    'This person has died. Someone else in the household may answer — do not ask for them by name. They stay off new lists.',
+    'This person is marked as deceased. Someone else in the household may answer — do not ask for them by name. They stay off new lists.',
 }
 
 // ADR 0008. Two states, one component: the marker a flagged resident carries on
