@@ -590,6 +590,16 @@ it wants answering before the flag widens past one district.
 Note also that `generatedAt` in the manifest changes on every build, so a
 cache has to stabilize it or no two responses ever share an ETag.
 
+**Two of the premises above have since been measured and one is wrong.** See
+[`docs/perf/voter-pack-headroom.md`](./perf/voter-pack-headroom.md). The rebuild
+being avoided is 23 s, not "no longer 43 seconds and therefore a small prize" —
+and one user triggered 19 of them in 14 days. And the third cache input does
+have a revision handle after all: `green."Voter"` and `green."DistrictVoter"`
+both carry `updated_at`. What is missing is a *cheap* read of it, which is a
+watermark table or a covering index rather than a product decision about
+staleness. Caching is now the largest single win available on this endpoint by
+an order of magnitude.
+
 ### What is left on the table, and why
 
 Three measured candidates that are **not** in the change that fixed the hang.
@@ -629,6 +639,13 @@ because they reach the socket promptly. Compressing the envelope means
 flushing (`Z_SYNC_FLUSH`) on every heartbeat, and it needs a test that says so
 — otherwise the first thing compression does is silently undo the guarantee
 this endpoint just got. Worth doing next, on its own, with that test.
+
+Since measured against production: **transport is 460 ms of a 23,027 ms
+request**, so compression buys nothing on a desk connection — gzip-1 would
+spend 177 ms of the task's single vCPU to save perhaps 300 ms of transfer. It
+remains a large win on a canvasser's LTE link (25 s → 8 s at 5 Mbps), so it
+should be argued as field usability rather than latency. See
+[`docs/perf/voter-pack-headroom.md`](./perf/voter-pack-headroom.md).
 
 **The encoder's remaining headroom is small.** Its dot index is now keyed on
 the coordinates as numbers rather than on a `${lat}|${lng}` string, which was

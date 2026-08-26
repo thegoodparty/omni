@@ -18,6 +18,14 @@ about](#confidence-and-what-would-change-these-numbers) are stated explicitly,
 because every number here is conditional on that dataset resembling the live
 district.
 
+> **This fix shipped, and the endpoint is now ~23 s for its worst district.**
+> [`voter-pack-headroom.md`](./voter-pack-headroom.md) decomposes that 23 s
+> against a real production trace rather than a synthetic one, and finds the
+> remaining time split roughly half Postgres, half Prisma object construction,
+> with the client at 38 ms. It supersedes this document's *ranked
+> recommendations*; the method, dataset and wire-format analysis here still
+> stand.
+
 ---
 
 ## Contents
