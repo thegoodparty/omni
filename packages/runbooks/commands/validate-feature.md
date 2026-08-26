@@ -14,7 +14,7 @@ Validate a shipped (or nearly shipped) feature against its spec and designs: pul
 ## Prerequisites
 
 **books/.env variables**: `$CLICKUP_PLANS_DIR`
-**scripts/.env variables**: `CLICKUP_API_KEY`, `CLERK_SECRET_KEY_DEV` (the dev Clerk secret key; used only to mint the caller's own 1h API token via `scripts/python/mint_dev_api_token.py`)
+**scripts/.env variables**: `CLICKUP_API_KEY`, `CLERK_SECRET_KEY_DEV` (the dev Clerk secret key), `CLERK_DEV_USER_ID` (your own dev-account Clerk user id, `user_...` — set once; `scripts/python/mint_dev_api_token.py` mints the caller token from these and takes no identity argument, so an agent can never pick whose token is minted)
 **Tools**: `uv` (Python scripts), `curl`
 **Subagents**: `gp-feature-validator` — installed by `./install.sh` (restart the session after first install). Degrades gracefully: if it isn't installed, run the validation inline with your own Playwright MCP access and note "validator: inline" in the report.
 **MCP**: the Playwright MCP server must be connected (the validator's allowlist names the `mcp__playwright__*` tools). Without it, validation falls back to a manual checklist for the user, flagged in the report.
@@ -29,7 +29,7 @@ Defaults if a `books/.env` value is unset: `$CLICKUP_PLANS_DIR=$HOME/.claude/pla
 - `--creds <email>` — skip provisioning and validate as an existing user (the agent prompts for the password interactively so it never lands in the transcript; login happens through the real sign-in UI; flakier than fixtures).
 - `--no-file` — report only; never offer to file tickets.
 
-**Never** echo, log, or write `CLICKUP_API_KEY`, `CLERK_SECRET_KEY_DEV`, minted tokens, or fixture passwords into any output file. The report and findings files under `$CLICKUP_PLANS_DIR/` must carry user *emails* at most.
+**Never** echo, log, or write `CLICKUP_API_KEY`, `CLERK_SECRET_KEY_DEV`, `API_TOKEN`, `sessionToken`, `signInToken`, or fixture passwords into any output file **or into a subagent prompt** — credentials reach the validator only as a temp-file path (step 9). The report and findings files under `$CLICKUP_PLANS_DIR/` must carry user *emails* at most.
 
 ---
 
@@ -102,9 +102,9 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
 
 7. **Mint your caller token** (needed for the fixtures API):
    ```bash
-   cd scripts/python && API_TOKEN=$(uv run mint_dev_api_token.py "$YOUR_DEV_EMAIL")
+   cd scripts/python && API_TOKEN=$(uv run mint_dev_api_token.py)
    ```
-   Ask the user for their dev-account email if you don't have it. Never print the token.
+   The identity comes from `CLERK_DEV_USER_ID` in `scripts/.env` — never from an argument. If it's unset, the script says so; tell the user to add their own dev-account Clerk user id there once. Never print the token.
 
 8. **Create one fixture user per required state**:
    ```bash
@@ -117,7 +117,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
 
 ### Phase 3: Validate
 
-9. **Dispatch `gp-feature-validator`** with: `TARGET_URL`, the login bundle(s) (`signInToken` + `orgSlug`, plus email/password fallback), the validation checklist, the artboard screenshot paths + spec notes, the flag-override keys, and the output path `$CLICKUP_PLANS_DIR/<task_id>-findings-validate.json`. Don't coach it toward a pass — hand over the checklist and let it judge. If the subagent isn't installed, run the same procedure inline (its definition is `agents/gp-feature-validator.md`).
+9. **Dispatch `gp-feature-validator`.** First write the login bundle(s) (`signInToken`, `orgSlug`, `email`, `password` per user) to a temp file (`mktemp`) — the subagent prompt carries only that **file path**, never credential values (prompts persist in the conversation transcript). Dispatch with: `TARGET_URL`, the login-bundle file path, the validation checklist, the artboard screenshot paths + spec notes, the flag-override keys, and the output path `$CLICKUP_PLANS_DIR/<task_id>-findings-validate.json`. Delete the temp file as soon as the subagent returns, even on failure. Don't coach it toward a pass — hand over the checklist and let it judge. If the subagent isn't installed, run the same procedure inline (its definition is `agents/gp-feature-validator.md`).
 
 10. **Read the findings.** Partition into feature findings (`functional|design|console|network`) and `environment` gaps. Environment gaps become manual-verification items with repro steps.
 

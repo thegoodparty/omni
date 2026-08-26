@@ -1,15 +1,21 @@
-"""Mint a 1h gp-api session token for an existing dev user via Clerk.
+"""Mint a 1h gp-api session token for the engineer's own dev user via Clerk.
 
 Used by commands/validate-feature.md to call the AdminOrM2MGuard-protected
 test-fixtures endpoints as the engineer's own (admin) dev account. Browser-
 minted Clerk tokens expire after 60 seconds; a backend-session token minted
 with an explicit TTL survives a whole run.
 
-Usage:
-    uv run mint_dev_api_token.py <email> [--ttl-seconds 3600]
+The identity comes ONLY from the CLERK_DEV_USER_ID env var, set once by the
+engineer in scripts/.env — deliberately not a CLI argument, so an agent-driven
+or prompt-injected invocation can never choose whose token gets minted
+(confused-deputy). There is no email lookup for the same reason.
 
-Reads CLERK_SECRET_KEY_DEV from ../.env (scripts/.env). Prints ONLY the JWT to
-stdout so callers can capture it; never echo it into logs or files.
+Usage:
+    uv run mint_dev_api_token.py [--ttl-seconds 3600]
+
+Reads CLERK_SECRET_KEY_DEV and CLERK_DEV_USER_ID from ../.env (scripts/.env).
+Prints ONLY the JWT to stdout so callers can capture it; never echo it into
+logs or files.
 """
 
 import argparse
@@ -31,7 +37,6 @@ def die(message: str, code: int = 1) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('email', help='dev-account email to mint a token for')
     parser.add_argument('--ttl-seconds', type=int, default=3600)
     args = parser.parse_args()
 
@@ -39,31 +44,15 @@ def main() -> None:
     secret = os.environ.get('CLERK_SECRET_KEY_DEV')
     if not secret:
         die('CLERK_SECRET_KEY_DEV missing from scripts/.env', 2)
+    user_id = os.environ.get('CLERK_DEV_USER_ID')
+    if not user_id:
+        die(
+            'CLERK_DEV_USER_ID missing from scripts/.env (your own '
+            'dev-account Clerk user id, user_...)',
+            2,
+        )
 
     headers = {'Authorization': f'Bearer {secret}'}
-
-    users = requests.get(
-        f'{CLERK_API}/users',
-        headers=headers,
-        params={'email_address': [args.email], 'limit': 1},
-        timeout=TIMEOUT,
-    )
-    users.raise_for_status()
-    found = users.json()
-    if not found:
-        die(f'No Clerk user found for {args.email}', 3)
-    user_id = found[0]['id']
-
-    # Confused-deputy guard: this mints a 1h token for ANY dev account, so an
-    # interactive caller must confirm the identity before it is issued.
-    if sys.stdin.isatty():
-        confirm = (
-            input(f'Mint a 1h dev API token for {args.email}? [y/N] ')
-            .strip()
-            .lower()
-        )
-        if confirm != 'y':
-            die('Aborted.', 4)
 
     session = requests.post(
         f'{CLERK_API}/sessions',

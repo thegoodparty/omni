@@ -33,8 +33,10 @@ concrete manual repro steps, and stop.
 ## Inputs
 
 - `TARGET_URL` of the already-deployed app (usually `https://dev.goodparty.org`).
-- A **login bundle** per test user: the single-use Clerk `signInToken` and
-  `orgSlug` from the test-fixtures API, plus email/password as a fallback.
+- A **login-bundle file path** (the orchestrator writes it; you `Read` it).
+  Per test user it holds the single-use Clerk `signInToken` and `orgSlug` from
+  the test-fixtures API, plus email/password as a fallback. Never copy its
+  contents into findings, summaries, or any file you write.
 - The **validation checklist**: functional scenarios (each traced to a ticket AC)
   and design expectations (each traced to a canvas artboard), assembled by the
   orchestrator.
