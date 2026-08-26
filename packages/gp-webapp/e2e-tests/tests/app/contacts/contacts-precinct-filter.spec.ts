@@ -250,7 +250,14 @@ test('precinct filter: the View all sheet reaches a hidden precinct', async ({
   })
   await expect(hiddenPill).toBeVisible({ timeout: 10_000 })
   await hiddenPill.click()
-  await closeCrmSheet(page)
+
+  // Closed by asserting THIS sheet's content is gone, not via closeCrmSheet:
+  // that helper re-resolves `[data-slot="drawer-content"]`.last() and waits for
+  // it to hide, but the precinct sheet is nested inside the wizard drawer — so
+  // the moment it closes, `.last()` falls back to the wizard, which is
+  // correctly still open, and the helper fails against the wrong element.
+  await sheet.getByRole('button', { name: 'Close' }).first().click()
+  await expect(allPrecincts).toBeHidden({ timeout: 10_000 })
 
   // A selection made in the sheet has to survive it closing — otherwise the
   // user cannot see or clear what they picked.
