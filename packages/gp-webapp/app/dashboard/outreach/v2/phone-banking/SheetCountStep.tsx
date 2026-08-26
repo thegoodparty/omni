@@ -103,12 +103,15 @@ export const SheetCountStep = ({
           Between 1 and {PHONE_BANKING_MAX_SHEET_COUNT} call sheets.
         </p>
       </div>
-      {overCapacity && reachableCount !== null && (
+      {/* No arithmetic against reachableCount here: it counts everyone in
+          the saved list with a phone, INCLUDING people already frozen into
+          earlier batches (the server excludes them only at create time), so
+          any "N won't be called" subtraction lies on a continuation batch.
+          Every claim below holds unconditionally. */}
+      {overCapacity && (
         <Alert variant="destructive">
           <AlertDescription>
-            {`Only the first ~${maxReach.toLocaleString()} contacts will be included; ${(
-              reachableCount - maxReach
-            ).toLocaleString()} won't be called. Create another campaign with this same list afterward to call the rest — it picks up where this one leaves off.`}
+            {`Up to ${maxReach.toLocaleString()} contacts will be included in this campaign. Contacts already called in an earlier campaign from this list are excluded automatically — if more remain afterward, create another campaign with this same list to continue.`}
           </AlertDescription>
         </Alert>
       )}

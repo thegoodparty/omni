@@ -414,7 +414,7 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Only the first ~1,200 contacts will be included; 800 won't be called. Create another campaign with this same list afterward to call the rest — it picks up where this one leaves off.",
+        'Up to 1,200 contacts will be included in this campaign. Contacts already called in an earlier campaign from this list are excluded automatically — if more remain afterward, create another campaign with this same list to continue.',
       ),
     ).toBeInTheDocument()
   })

@@ -560,6 +560,54 @@ describe('phone banking routes', () => {
       expect(persons.map((p) => p.personId)).toEqual([freshPerson.id])
     })
 
+    it('a concurrent create that claims the whole batch 400s as exhausted', async () => {
+      const racedPerson = fakePerson({ cellPhone: '3075903333' })
+      vi.spyOn(
+        service.app.get(VoterQueryService),
+        'findPeople',
+      ).mockImplementation(async () => {
+        await service.prisma.phoneBankingList.create({
+          data: {
+            organizationSlug: orgSlug,
+            voterFileFilterId: filter.id,
+            name: 'Concurrent batch',
+            script: 'hello',
+            sheetCount: 1,
+            purpose: 'introduce',
+            entries: {
+              create: [
+                {
+                  seq: 1,
+                  sheetIndex: 1,
+                  phone: '3075903333',
+                  persons: {
+                    create: [
+                      {
+                        personId: racedPerson.id,
+                        name: 'Jane Voter',
+                        firstName: 'Jane',
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        })
+        return { pagination: PEOPLE_PAGINATION, people: [racedPerson] }
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(res.status).toBe(400)
+      expect(res.data.message).toContain(
+        'already in a previous phone banking campaign',
+      )
+    })
+
     it('a prior-batch person whose number got suppressed 400s as empty, not exhausted', async () => {
       const phone = '3075559333'
       mockPeoplePage([fakePerson({ cellPhone: phone })])

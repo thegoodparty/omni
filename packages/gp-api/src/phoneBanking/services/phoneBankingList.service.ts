@@ -64,6 +64,10 @@ const EXHAUSTED_AUDIENCE_MESSAGE =
 // create just froze.
 const PHONE_BANKING_FILTER_LOCK_NAMESPACE = 25715
 
+const CONCURRENT_CREATE_RETRY_MESSAGE =
+  'Another campaign was just created from this list and claimed these ' +
+  'contacts — try again to get the next batch'
+
 const PURPOSE_TO_DB: Record<PhoneBankingPurpose, PrismaPhoneBankingPurpose> = {
   introduce: PrismaPhoneBankingPurpose.introduce,
   persuade: PrismaPhoneBankingPurpose.persuade,
@@ -284,11 +288,11 @@ export class PhoneBankingListService extends createPrismaBase(
 
     let page = 1
     while (true) {
-      if (page > MAX_BUILD_PAGES) {
-        throw new BadRequestException(
-          `Pagination exceeded ${MAX_BUILD_PAGES} pages — aborting`,
-        )
-      }
+      // break, not throw: a deep prior-batch audience legitimately burns
+      // pages with nobody usable, and create()'s empty/exhausted handling
+      // owns the user-facing message — an internal pagination error would
+      // leak out as the 400 body otherwise.
+      if (page > MAX_BUILD_PAGES) break
       const { people } = await this.voterQuery.findPeople(
         ListPeopleDTO.create({
           districtId,
@@ -397,8 +401,15 @@ export class PhoneBankingListService extends createPrismaBase(
               ] as const,
           )
           .filter(([, persons]) => persons.length > 0)
+        // hasMore true means usable people were dropped at the cap — a
+        // retry after this concurrent-create collision would succeed, so
+        // don't tell the user the whole audience is spent.
         if (survivingEntries.length === 0) {
-          throw new BadRequestException(EXHAUSTED_AUDIENCE_MESSAGE)
+          throw new BadRequestException(
+            hasMore
+              ? CONCURRENT_CREATE_RETRY_MESSAGE
+              : EXHAUSTED_AUDIENCE_MESSAGE,
+          )
         }
 
         const entriesData = survivingEntries.map(([phone, persons], index) => {
