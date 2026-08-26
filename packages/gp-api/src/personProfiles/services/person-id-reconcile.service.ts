@@ -27,18 +27,40 @@ export class PersonIdReconcileService {
     )
     if (!claimed) return
 
-    // Always release the daily-run lock: if the sweep throws (e.g. a Prisma
-    // error), leaving the claim un-completed strands it until the 6h stale
-    // takeover — well past the next 04:00 run — so the day's sweep is lost with
-    // no retry. finally lets the error still propagate to the global logger.
+    // Linking the unlinked and re-checking the linked are the same job seen
+    // from both ends, but they share nothing beyond this lock — so each half
+    // runs under its own catch, sequentially. Letting the first throw would
+    // skip the second entirely, and because the day is stamped complete either
+    // way, that half is lost until tomorrow's 04:00 with no retry in between.
+    let nullSweepError: unknown
+    let driftSweepError: unknown
+
     try {
       await this.backfill.reconcileNullPersonIds(RECONCILE_BATCH_LIMIT)
-      // Linking the unlinked and re-checking the linked are the same job seen
-      // from both ends, and the drift half must not be skipped just because the
-      // backfill half found nothing — so it runs on its own line, after.
-      await this.backfill.reconcileDriftedPersonIds(RECONCILE_BATCH_LIMIT)
-    } finally {
-      await this.cronLock.markCompleted(PERSON_ID_BACKFILL_CRON_JOB, now)
+    } catch (error) {
+      nullSweepError = error
     }
+
+    try {
+      await this.backfill.reconcileDriftedPersonIds(RECONCILE_BATCH_LIMIT)
+    } catch (error) {
+      driftSweepError = error
+    }
+
+    // Always release the daily-run lock: leaving the claim un-completed strands
+    // it until the 6h stale takeover — well past the next 04:00 run — so the
+    // day's sweep is lost with no retry.
+    await this.cronLock.markCompleted(PERSON_ID_BACKFILL_CRON_JOB, now)
+
+    // Re-thrown after the stamp so failures still reach the global logger. One
+    // half failing is no reason to hide the other, so both are surfaced.
+    if (nullSweepError && driftSweepError) {
+      throw new AggregateError(
+        [nullSweepError, driftSweepError],
+        'both person_id reconcile sweeps failed',
+      )
+    }
+    if (nullSweepError) throw nullSweepError
+    if (driftSweepError) throw driftSweepError
   }
 }
