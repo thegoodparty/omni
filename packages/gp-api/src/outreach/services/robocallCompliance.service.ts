@@ -11,14 +11,15 @@ import { RobocallTranscriptionService } from './robocallTranscription.service'
 
 const SYSTEM_PROMPT = [
   'You verify that a recorded political robocall meets FCC calling-disclosure',
-  'rules. You are given the transcript and the expected identifying details.',
-  'Decide, strictly from what the transcript actually says, whether each',
-  'element is present:',
+  'rules. You are given the transcript and the expected candidate name and',
+  'organization. Decide, strictly from what the transcript actually says,',
+  'whether each element is present:',
   '- hasSelfIdentification: the speaker identifies themselves (the candidate',
   '  name) AND that they are running for office.',
   '- hasOrganization: the organization / committee behind the call is named.',
-  '- hasCallbackNumber: a callback phone number is spoken (any spoken form of',
-  '  the expected number counts, e.g. digits or grouped).',
+  '- hasCallbackNumber: a callback phone number is spoken (any phone number in',
+  '  any spoken form — digits or grouped). There is no expected number to',
+  '  match; only confirm that a number is actually stated.',
   'Do not infer or give benefit of the doubt — if it is not in the transcript,',
   'it is false.',
 ].join('\n')
@@ -42,7 +43,6 @@ interface ComplianceParams {
   contentType: string
   candidateName: string
   organizationName: string
-  callbackNumber: string
   userId: string
 }
 
@@ -80,7 +80,6 @@ export class RobocallComplianceService {
         content: [
           `Expected candidate name: ${params.candidateName}`,
           `Expected organization: ${params.organizationName}`,
-          `Expected callback number: ${params.callbackNumber}`,
           'Transcript:',
           '"""',
           transcript,

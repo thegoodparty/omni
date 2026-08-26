@@ -17,6 +17,7 @@ phone banking also carries `@UseOrganization()` for the Pro gate)
 | `POST /outreach/robocall/draft`                                                                                         | `outreachRobocall.controller.ts`      | Robocall script draft/improve (VO 2.0 robocall): stateless, Pro-gated the same way. Purpose + tone (`currentDraft` polishes the `custom` purpose in place) → the script the candidate reads into the recording. An optional `callbackNumber` (the rented number, below) flips the generator from banning the disclosure to REQUIRING it — the script then ends with the spoken "paid for by" + callback number. Nothing persists here                                                                                                             |
 | `POST /outreach/robocall/number`                                                                                        | `outreachRobocall.controller.ts`      | Rents a fresh CallHub caller-ID number for this robocall (VO 2.0 robocall): stateless, Pro-gated the same way. Returns `{ phoneNumber, region }` via `CallhubNumbersService`. The candidate reads it aloud as the callback number, so it's rented before the disclosure draft. Rent-per-robocall (spam-flagging); the CallHub account auto-un-rents idle numbers. Area-code targeting from campaign location is a later refinement (US national for now)                                                                                          |
 | `POST /outreach/robocall/audio/presign`                                                                                 | `outreachRobocallAudio.controller.ts` | Presigned S3 POST for the recorded robocall audio (VO 2.0 robocall): stateless, Pro-gated the same way. Returns `{ url, fields, key, expiresIn }`; the browser submits a multipart form to `ROBOCALL_AUDIO_BUCKET` and holds the key until the send is created in a later step. It's a POST (not PUT) so the policy's `content-length-range` lets S3 reject an oversize upload at upload time |
+| `POST /outreach/robocall/compliance`                                                                                    | `outreachRobocall.controller.ts`      | Fail-closed compliance gate for the recorded audio (VO 2.0 robocall): Pro-gated the same way. Confirms the `audioKey` belongs to THIS campaign (prefix `robocall/<campaignId>/`, so a caller can't check another campaign's recording), derives candidate + organization server-side, then runs `RobocallComplianceService.checkRecording` on `{ audioKey, contentType }`. Everything the transcript is checked against is server-derived — the callback-number check only confirms a number is spoken, so the client has no expected value to spoof it with (the caller-ID voters reach is enforced at dial time). Returns the `RobocallComplianceVerdict`; a transcription/LLM failure is 502. Stateless — the verdict isn't persisted yet (that lands with the pay slice)                                                                                          |
 
 `GET /outreach/:id` deliberately lives on the social controller: detail reads
 must stay outside `OutreachNotificationInterceptor` — a 404 there would fire
@@ -116,11 +117,21 @@ never send `pending_payment` themselves.
   no-op. Restore clears both. **The turf is the source and this is the
   projection**, so the mirror writes the turf's timestamp rather than its own
   `now`, and it runs BEFORE that method's idempotence guard so a list archived
-  before the mirror shipped can be repaired by pressing Archive again. Nothing
-  writes `Outreach.archivedAt` for a door-knocking row from the history side —
-  the envelope carries the route id but nothing maps a route id back to its
-  turf, which is why the history drawer offers no archive on a door-knocking
-  row. See `docs/door-knocking.md`.
+  before the mirror shipped can be repaired by pressing Archive again.
+  `DoorKnockingTurfService.setArchived` is still the ONLY writer of the pair:
+  the history drawer now offers Archive on a door-knocking row, but that button
+  calls the turf's endpoint, not `OutreachService.setArchived`, which can reach
+  the envelope alone. See `docs/door-knocking.md`.
+- **`OutreachDetail.doorKnocking` is the door-knocking satellite block**, the
+  sibling of `phoneBanking`, filled by `OutreachSocialService.findDetail` for a
+  `nativeDoorKnocking` row. It needed no column: the envelope's
+  `doorKnockingRouteId` reaches `door_knocking_route`, whose `doorKnockingTurfId`
+  is `@unique`, so route → turf is one hop. Its three counts come from
+  `DoorKnockingTurfCountsService` — the SAME aggregate the door-knocking rail
+  reads — and must keep coming from there: a second derivation is the
+  two-denominator failure ADR 0010 forbids. `OutreachModule` imports
+  `DoorKnockingModule` behind a `forwardRef` for it (the module graph loops back
+  through contacts → campaigns → peerly). A tombstoned turf yields no block.
 
 ## Contracts / models
 

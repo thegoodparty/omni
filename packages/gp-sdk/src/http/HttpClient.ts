@@ -31,7 +31,12 @@ export class HttpClient {
       })
     } catch (error: unknown) {
       if (error instanceof FetchError) {
-        throw new SdkError(error.statusCode ?? 0, error.message, error.response)
+        throw new SdkError(
+          error.statusCode ?? 0,
+          error.message,
+          error.response,
+          error.data,
+        )
       }
       const message = error instanceof Error ? error.message : 'Unknown error'
       throw new SdkError(0, message)
