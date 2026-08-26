@@ -33,6 +33,10 @@ export class PersonIdReconcileService {
     // no retry. finally lets the error still propagate to the global logger.
     try {
       await this.backfill.reconcileNullPersonIds(RECONCILE_BATCH_LIMIT)
+      // Linking the unlinked and re-checking the linked are the same job seen
+      // from both ends, and the drift half must not be skipped just because the
+      // backfill half found nothing — so it runs on its own line, after.
+      await this.backfill.reconcileDriftedPersonIds(RECONCILE_BATCH_LIMIT)
     } finally {
       await this.cronLock.markCompleted(PERSON_ID_BACKFILL_CRON_JOB, now)
     }
