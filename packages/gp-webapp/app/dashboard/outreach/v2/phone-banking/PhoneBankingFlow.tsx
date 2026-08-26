@@ -526,11 +526,7 @@ export const PhoneBankingFlow = ({
           reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep
-          response={createResponse}
-          audienceLabel={audienceLabel}
-          reachableCount={audience.reachableCount}
-        />
+        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
       ) : null}
     </OutreachFlowShell>
   )

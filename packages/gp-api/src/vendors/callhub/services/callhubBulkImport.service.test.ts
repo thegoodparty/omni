@@ -53,7 +53,7 @@ describe('CallhubBulkImportService', () => {
     expect(http.post).toHaveBeenCalledWith('/v1/contacts/bulk_create/', {
       phonebook_id: '3966566468442653936',
       csv_url: 'https://s3.example/audience.csv',
-      mapping: { 0: 0 },
+      mapping: '{"0":"0"}',
       country_choice: 'custom',
       country_iso: 'US',
     })

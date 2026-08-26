@@ -20,6 +20,17 @@ interface BulkImportParams {
   countryIso: string
 }
 
+// CallHub wants `mapping` as a JSON *string* whose values are the column
+// indices as strings (e.g. `{"0":"0"}` — calling-number field ← column 0);
+// an object body 400s "Invalid Json [mapping]" and integer values are
+// ignored, 400ing "No column is set as Phone Number". Verified live.
+const encodeMapping = (mapping: Record<string, number>): string =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.entries(mapping).map(([field, column]) => [field, String(column)]),
+    ),
+  )
+
 // Loads an audience into a phonebook from a hosted CSV. Rate-limited to 1/min
 // and asynchronous with no job id, so callers serialize these and poll the
 // phonebook count to know when the load finished.
@@ -38,7 +49,7 @@ export class CallhubBulkImportService {
       const data = await this.http.post(BULK_CREATE_PATH, {
         phonebook_id: params.phonebookPkStr,
         csv_url: params.csvUrl,
-        mapping: params.mapping,
+        mapping: encodeMapping(params.mapping),
         country_choice: 'custom',
         country_iso: params.countryIso,
       })

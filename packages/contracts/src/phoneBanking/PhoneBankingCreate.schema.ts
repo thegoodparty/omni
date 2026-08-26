@@ -47,6 +47,12 @@ export const PhoneBankingCreateResponseSchema = z.object({
   entryCount: z.number().int(),
   personCount: z.number().int(),
   outreachId: z.number().int().nullable(),
+  // True when usable contacts remain beyond this batch — the build hit the
+  // sheetCount x sheet-size entry cap with people left over. Re-running the
+  // flow with the same saved list continues where this batch stopped, since
+  // people frozen into earlier batches of a filter are excluded at build
+  // time (ENG-10958).
+  hasMore: z.boolean(),
 })
 export type PhoneBankingCreateResponse = z.infer<
   typeof PhoneBankingCreateResponseSchema
