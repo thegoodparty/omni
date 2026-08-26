@@ -79,7 +79,7 @@ export const DownloadStep = ({
             <li>Contacts with name, phone, and status checkboxes</li>
             <li>
               Statuses: Answered, No answer, Voicemail left, Wrong number,
-              Refused
+              Disconnected, Refused, Hung up
             </li>
             <li>Support (Y / U / N) and notes column</li>
           </ul>
