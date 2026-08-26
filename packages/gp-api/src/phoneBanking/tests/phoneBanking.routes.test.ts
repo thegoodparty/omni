@@ -448,6 +448,28 @@ describe('phone banking routes', () => {
       expect(second.data.message).toContain('widen the filters')
     })
 
+    it('a prior-batch person whose number got suppressed 400s as empty, not exhausted', async () => {
+      const phone = '3075559333'
+      mockPeoplePage([fakePerson({ cellPhone: phone })])
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      await service.prisma.phoneBankingSuppressedPhone.create({
+        data: { organizationSlug: orgSlug, phone },
+      })
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(400)
+      expect(second.data.message).toContain('widen the filters')
+    })
+
     it('round-trips a hyphenated purpose through the snake_case DB enum', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075558999' })])
 

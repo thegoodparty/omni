@@ -292,16 +292,20 @@ export class PhoneBankingListService extends createPrismaBase(
 
       for (const person of people) {
         if (notAVoterIds.has(person.id)) continue
-        if (priorBatchPersonIds.has(person.id)) {
-          skippedPriorBatch = true
-          continue
-        }
         const name = [person.firstName, person.lastName]
           .filter(Boolean)
           .join(' ')
         if (!name) continue
         const phone = this.pickDialNumber(person, suppressedPhones)
         if (!phone) continue
+        // After the name/phone guards so the flag only fires for people the
+        // CURRENT batch could actually have used — a prior-batch person whose
+        // number has since been suppressed or dropped must read as
+        // unreachable, not as "already called".
+        if (priorBatchPersonIds.has(person.id)) {
+          skippedPriorBatch = true
+          continue
+        }
 
         const firstName = person.firstName ?? null
         const existing = grouped.get(phone)
