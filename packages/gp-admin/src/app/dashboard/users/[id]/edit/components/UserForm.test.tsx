@@ -90,7 +90,10 @@ describe('UserForm', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
     const payload = onSave.mock.calls[0][0]
     expect(Object.keys(payload)).toEqual(['roles'])
-    expect(payload.roles).toContain(UserRole.candidate)
+    expect(payload.roles).toEqual(
+      expect.arrayContaining([UserRole.admin, UserRole.candidate])
+    )
+    expect(payload.roles).toHaveLength(2)
   })
 
   it('submits only the changed metaData keys', async () => {

@@ -9,7 +9,7 @@ import {
   type GpEnvironment,
 } from '@/shared/util/gpEnvironment'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import type { UpdateUserInput, User } from '@goodparty_org/sdk'
+import { SdkError, type UpdateUserInput, type User } from '@goodparty_org/sdk'
 import { revalidatePath } from 'next/cache'
 import {
   DEFAULT_PER_PAGE,
@@ -102,6 +102,7 @@ export const updateUser = async (
       return { user }
     })
   } catch (error) {
+    if (!(error instanceof SdkError)) throw error
     return { error: extractApiErrorMessage(error, 'Failed to save changes') }
   }
 }

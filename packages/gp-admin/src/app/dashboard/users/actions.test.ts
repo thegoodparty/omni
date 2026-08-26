@@ -168,11 +168,19 @@ describe('updateUser', () => {
     })
   })
 
-  it('returns a generic message for opaque failures', async () => {
-    mockUsersUpdate.mockRejectedValue(new Error('socket hang up'))
+  it('returns a generic message for SDK errors without a parseable body', async () => {
+    mockUsersUpdate.mockRejectedValue(new SdkError(0, 'socket hang up'))
 
     const result = await updateUser(42, { phone: '4155552671' })
 
     expect(result).toEqual({ error: 'Failed to save changes' })
+  })
+
+  it('rethrows non-SDK errors so they reach the error boundary', async () => {
+    mockUsersUpdate.mockRejectedValue(new Error('revalidate blew up'))
+
+    await expect(updateUser(42, { phone: '4155552671' })).rejects.toThrow(
+      'revalidate blew up'
+    )
   })
 })
