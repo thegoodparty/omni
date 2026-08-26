@@ -51,6 +51,15 @@ const claimRequestCrmSyncCounter = meter.createCounter(
   },
 )
 
+// person_profile_person_id_drift_count_total{result=...}
+const personIdDriftCounter = meter.createCounter(
+  'person_profile.person_id_drift.count',
+  {
+    description:
+      'Re-resolutions of a linked user against the civics spine by outcome',
+  },
+)
+
 // person_profile_voter_density_request_count_total{result=...}
 // person_profile_voter_density_request_duration_milliseconds_{bucket,sum,count}
 const voterDensityCounter = meter.createCounter(
@@ -115,6 +124,27 @@ export type ClaimRequestCrmSyncResult =
  */
 export type VoterDensityResult = 'live' | 'empty' | 'no_district' | 'error'
 
+/**
+ * Outcome of re-resolving one already-linked user against election-api:
+ *  - unchanged:  the stored personId is still the canonical one (the norm)
+ *  - repointed:  the data platform moved them, and we carried our rows across
+ *  - collision:  the destination id is already occupied, so nothing moved
+ *  - unresolved: election-api returned no id, so we cannot tell drift from an
+ *                outage and deliberately left the link alone
+ *  - failed:     the repoint itself errored; the link is still stale
+ *
+ * `collision` is the one to alert on: it means two gp-api records now claim
+ * civics ids that upstream says are the same person, and only a human can pick
+ * a winner. A sustained `unresolved` share means election-api is failing, not
+ * that the cohort is unlinked.
+ */
+export type PersonIdDriftResult =
+  | 'unchanged'
+  | 'repointed'
+  | 'collision'
+  | 'unresolved'
+  | 'failed'
+
 export function recordPublicProfileRequest(
   result: PublicProfileResult,
   durationMs: number,
@@ -155,6 +185,15 @@ export function recordClaimRequestCrmSync(
     claimRequestCrmSyncCounter.add(1, { result, environment: environment() })
   } catch (error) {
     logger.error('Failed to record claim request CRM sync metric', error)
+  }
+}
+
+export function recordPersonIdDrift(result: PersonIdDriftResult): void {
+  if (!isOtelEnabled()) return
+  try {
+    personIdDriftCounter.add(1, { result, environment: environment() })
+  } catch (error) {
+    logger.error('Failed to record person id drift metric', error)
   }
 }
 
