@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
 import type { PolygonRing } from './VoterMapCanvas'
 import CreateListSurface, {
@@ -34,10 +35,14 @@ vi.mock('./createFlow/CreateListFlow', () => ({
     onHideAddresses: () => void
     onStepChange: (step: CreateFlowStep) => void
     onSaved: (drawAnother: boolean) => void
+    onSelectedListChange: (listId: number | null) => void
   }) => {
     flowProps.current = props
     return (
       <div data-testid="create-flow">
+        <button type="button" onClick={() => props.onSelectedListChange(4)}>
+          pick list 4
+        </button>
         <button type="button" onClick={props.onShowAddresses}>
           show addresses
         </button>
@@ -55,11 +60,16 @@ vi.mock('./createFlow/CreateListFlow', () => ({
   },
 }))
 
-const previewCalls = { count: 0 }
+const previewCalls: { count: number; bodies: Record<string, unknown>[] } = {
+  count: 0,
+  bodies: [],
+}
 const mockPreview = () => {
   previewCalls.count = 0
-  api.mock('POST /v1/door-knocking/address-preview', () => {
+  previewCalls.bodies = []
+  api.mock('POST /v1/door-knocking/address-preview', ({ body }) => {
     previewCalls.count += 1
+    previewCalls.bodies.push(body as Record<string, unknown>)
     return {
       status: 200,
       data: { stops: 1, doors: 2, people: 2, locations: [] },
@@ -175,6 +185,67 @@ describe('CreateListSurface seam', () => {
     await waitFor(() => expect(flowProps.current?.addressPreview).toBeNull())
     expect(flowProps.current?.previewStale).toBe(false)
     expect(onStepChange).toHaveBeenCalledWith('filters')
+  })
+
+  // The pack cannot shade a support-status clause, but gp-api can evaluate it
+  // exactly — the address preview runs the knock's own resolution. So the
+  // draft's booleans are not the whole request when a saved list is picked:
+  // without its own clauses the endpoint answers for the whole district inside
+  // the ring, and the draw step prints that as the exact count it commits to.
+  it('sends a picked list’s own clauses with the address preview', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        {
+          id: 4,
+          name: 'Persuasion walk list',
+          supportStatus: ['undecided'],
+          precincts: ['Sangamon|14'],
+          // `id` and `voterFileFilterId` are on the wire — activityConditions
+          // is a Prisma relation and gp-api returns the rows whole — but the
+          // client type models only the three fields the request grammar
+          // names. They are here so the normalisation is actually exercised.
+          activityConditions: [
+            {
+              id: 'row-1',
+              voterFileFilterId: 4,
+              outreachType: 'text',
+              outreachId: 12,
+              actions: ['responded'],
+            },
+          ] as unknown as SegmentResponse['activityConditions'],
+        },
+      ],
+    })
+
+    render(surface())
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick list 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'show addresses' }))
+
+    await waitFor(() => expect(previewCalls.count).toBe(1))
+    expect(previewCalls.bodies[0]?.filters).toMatchObject({
+      supportStatus: ['undecided'],
+      precincts: ['Sangamon|14'],
+      activityConditions: [
+        { outreachType: 'text', outreachId: 12, actions: ['responded'] },
+      ],
+    })
+  })
+
+  it('sends no list clauses when the draft is nobody’s saved list', async () => {
+    render(surface())
+
+    fireEvent.click(screen.getByRole('button', { name: 'show addresses' }))
+
+    await waitFor(() => expect(previewCalls.count).toBe(1))
+    const { filters } = previewCalls.bodies[0] as {
+      filters: Record<string, unknown>
+    }
+    expect(filters.supportStatus).toBeUndefined()
+    expect(filters.activityConditions).toBeUndefined()
+    expect(filters.precincts).toBeUndefined()
   })
 
   it('drops the panel after a save that draws another', async () => {

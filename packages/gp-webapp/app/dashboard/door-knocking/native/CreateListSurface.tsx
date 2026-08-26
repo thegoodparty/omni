@@ -12,6 +12,7 @@ import {
   TURF_COLORS,
 } from './turfQueries'
 import { voterPackQueryOptions } from './useVoterPack'
+import { savedListUnshadeableCriteria } from './savedListFilters'
 import CreateListFlow from './createFlow/CreateListFlow'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
 import { CONFIRM_PEEK_TOP_PCT } from './createFlow/createFlowSteps'
@@ -215,6 +216,32 @@ export default function CreateListSurface({
   preselectedListId,
   onPreselectApplied,
 }: CreateListSurfaceProps) {
+  // The who step's list picker. Both reads are the page's own queries by key,
+  // so this costs nothing: the saved lists are already warm (the rail resolves
+  // every turf's filter through them) and the pack is `enabled: false` because
+  // fetching one is emphatically not this surface's job — the page owns it,
+  // gates the whole feature on it, and disables the button that opens this
+  // flow until it has decoded. Reading it through an observer rather than
+  // `getQueryData` is what makes the counts appear if it lands late.
+  //
+  // Above the preview rather than below it because the preview request now
+  // reads from it: a picked list's clauses are part of what is asked.
+  const savedListsQuery = useQuery(savedListsQueryOptions)
+  const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
+  const audience = useMemo(
+    () => audienceOptions(savedListsQuery.data, packQuery.data ?? null),
+    [savedListsQuery.data, packQuery.data],
+  )
+  // Which list the who step is on, resolved against the same rows the picker
+  // is drawn from. The flow owns the choice and reports the id; the row it
+  // names is looked up once, here, so the preview cannot come to disagree
+  // with the picker about what a list carries.
+  const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  const selectedList = useMemo(
+    () => savedListsQuery.data?.find((list) => list.id === selectedListId),
+    [savedListsQuery.data, selectedListId],
+  )
+
   // The shape the candidate asked for addresses about (ADR 0010). Not a
   // boolean, because it is what makes an answer belong to one ring: a preview
   // is fetched for the shape that was on screen when it was asked for, and a
@@ -235,9 +262,19 @@ export default function CreateListSurface({
         : previewRing
     return { type: 'Polygon' as const, coordinates: [closed] }
   }, [previewRing])
+  // The draft plus whatever the draft cannot hold. `filters` is booleans, and
+  // a saved list's support-status, activity and precinct clauses are not — so
+  // assembling this request from the draft alone asked gp-api about the whole
+  // district inside the ring, and the draw step printed that as the exact
+  // count the route would be built from (ADR 0010's whole point is that these
+  // counts are the knock's own). The pack cannot shade those clauses and says
+  // so; this endpoint CAN evaluate them, and does.
   const previewFilters = useMemo(
-    () => transformVoterFileFiltersForBackend(filters),
-    [filters],
+    () => ({
+      ...transformVoterFileFiltersForBackend(filters),
+      ...savedListUnshadeableCriteria(selectedList),
+    }),
+    [filters, selectedList],
   )
   const previewQuery = useQuery({
     ...addressPreviewQueryOptions(
@@ -258,20 +295,6 @@ export default function CreateListSurface({
   // refetches on its own: re-asking is the candidate's press.
   const previewCurrent = previewRing !== null && previewRing === ring
   const addressPreview = previewCurrent ? (previewQuery.data ?? null) : null
-
-  // The who step's list picker. Both reads are the page's own queries by key,
-  // so this costs nothing: the saved lists are already warm (the rail resolves
-  // every turf's filter through them) and the pack is `enabled: false` because
-  // fetching one is emphatically not this surface's job — the page owns it,
-  // gates the whole feature on it, and disables the button that opens this
-  // flow until it has decoded. Reading it through an observer rather than
-  // `getQueryData` is what makes the counts appear if it lands late.
-  const savedListsQuery = useQuery(savedListsQueryOptions)
-  const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
-  const audience = useMemo(
-    () => audienceOptions(savedListsQuery.data, packQuery.data ?? null),
-    [savedListsQuery.data, packQuery.data],
-  )
 
   return (
     <CreateListFlow
@@ -322,6 +345,7 @@ export default function CreateListSurface({
       unpreviewableKeys={unpreviewableKeys}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}
+      onSelectedListChange={setSelectedListId}
     />
   )
 }

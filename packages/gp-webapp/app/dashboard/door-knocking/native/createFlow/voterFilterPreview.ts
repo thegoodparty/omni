@@ -174,6 +174,19 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // its buckets are selected.
 const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 
+// The marks `savedListFilterKeys` leaves for a list's non-boolean criteria.
+// Every other unshadeable key is an option in filters.config and takes its
+// label from there; these three are columns on the list itself, so the config
+// has no row to name them and they would drop straight back out of the
+// sentence they were just added to. "Past outreach activity" rather than
+// "Prior outreach" so it cannot be mistaken for the contacts-made group above,
+// which counts door knocks specifically.
+const LIST_CRITERION_DISCLOSURE_LABELS: Record<string, string> = {
+  supportStatus: 'Support status',
+  activityConditions: 'Past outreach activity',
+  precincts: 'Precinct',
+}
+
 // The disclosure's own vocabulary, beside the keys it describes: the draw step,
 // the landing rail and the details sheet all say which filters the map can't
 // shade, and a candidate meeting those sentences in one session must not find
@@ -182,6 +195,8 @@ export const unpreviewableDisclosureLabels = (keys: string[]): string[] => [
   ...new Set(
     keys
       .map((key) => {
+        const criterionLabel = LIST_CRITERION_DISCLOSURE_LABELS[key]
+        if (criterionLabel) return criterionLabel
         const field = filterSections
           .flatMap((section) => section.fields)
           .find((entry) => entry.options.some((option) => option.key === key))

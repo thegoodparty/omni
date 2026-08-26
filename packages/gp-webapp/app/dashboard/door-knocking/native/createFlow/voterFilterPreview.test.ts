@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
 import {
   filtersToDimSelections,
+  unpreviewableDisclosureLabels,
   unpreviewableDisclosureSentence,
   unpreviewableFilterKeys,
 } from './voterFilterPreview'
@@ -69,6 +70,23 @@ describe('filtersToDimSelections', () => {
         'veteranYes',
       ])
     })
+
+    // The marks `savedListFilterKeys` leaves for a list's non-boolean
+    // criteria. They are ordinary keys here on purpose — the pack has no plane
+    // for any of them, which is exactly what this function reports.
+    it('reports a list’s support-status, activity and precinct clauses', () => {
+      expect(
+        unpreviewableFilterKeys(
+          {
+            partyDemocrat: true,
+            supportStatus: true,
+            activityConditions: true,
+            precincts: true,
+          },
+          manifest,
+        ),
+      ).toEqual(['supportStatus', 'activityConditions', 'precincts'])
+    })
   })
 
   it('maps income pills through the shared range names', () => {
@@ -92,6 +110,29 @@ describe('filtersToDimSelections', () => {
       manifest, // has no educationLevel dim
     )
     expect(selections.size).toBe(0)
+  })
+})
+
+describe('unpreviewableDisclosureLabels', () => {
+  it('names the option for a group whose labels stand on their own', () => {
+    expect(unpreviewableDisclosureLabels(['age65Plus'])).toEqual(['65+'])
+  })
+
+  // A list's non-boolean criteria have no row in filters.config to take a
+  // label from, so they carried none — which silently dropped them back out
+  // of the sentence they had just been added to.
+  it('names a list’s own criteria, which no pill group covers', () => {
+    expect(
+      unpreviewableDisclosureLabels([
+        'supportStatus',
+        'activityConditions',
+        'precincts',
+      ]),
+    ).toEqual(['Support status', 'Past outreach activity', 'Precinct'])
+  })
+
+  it('still says nothing for a key that names no filter at all', () => {
+    expect(unpreviewableDisclosureLabels(['notARealFilterKey'])).toEqual([])
   })
 })
 

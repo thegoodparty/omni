@@ -1261,6 +1261,87 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('radio', { name: /^All contacts/ })).toBeTruthy()
   })
 
+  // The reported defect, at the step it was reported from. A persuasion list
+  // is narrowed by support status, and the pack has no plane for it — so
+  // starting from a 256-person list put the whole district in the Continue
+  // button and said nothing about why. The count itself cannot be fixed here
+  // (the map genuinely cannot shade that clause), so the step has to say so:
+  // an undisclosed superset is what made this read as the list being ignored.
+  it('discloses, on the who step, a picked list’s unshadeable clauses', () => {
+    const { rerender } = renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      unpreviewableKeys: [],
+    })
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        savedLists={savedLists}
+        districtHouseholds={12_000}
+        filters={{ supportStatus: true }}
+        unpreviewableKeys={['supportStatus']}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Continue (12,000 households)' }),
+    ).toBeEnabled()
+    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
+      'The map can’t yet shade by Support status, so these counts include ' +
+        'people that filter will exclude. Your saved list still applies it ' +
+        'when you knock.',
+    )
+  })
+
+  // Picking a list is two writes that have to happen together, and the second
+  // one is what the preview reads. A list whose only narrowing is a clause the
+  // draft cannot hold must still arrive marked, or the who step has nothing to
+  // disclose and the map shades the district.
+  it('lifts a picked list’s whole draft, marks and all', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists: [
+        {
+          id: 4,
+          name: 'Persuasion walk list',
+          households: 12_000,
+          filters: { supportStatus: true },
+        },
+      ],
+      onFiltersChange,
+    })
+
+    fireEvent.click(screen.getByRole('radio', { name: /Persuasion walk list/ }))
+
+    expect(onFiltersChange).toHaveBeenCalledWith({ supportStatus: true })
+  })
+
+  // Editing a pill leaves the named list behind, so its own clauses go with
+  // it: nothing can carry them onto the new list the flow is now offering to
+  // save, and a disclosure about a filter that list will not apply is a lie in
+  // the other direction.
+  it('drops the marks when a pill edit leaves the named list behind', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists,
+      filters: { supportStatus: true, partyDemocrat: true },
+      onFiltersChange,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Republican' }))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.not.objectContaining({ supportStatus: expect.anything() }),
+    )
+    expect(onFiltersChange.mock.calls.at(-1)?.[0]).toMatchObject({
+      partyDemocrat: true,
+      partyRepublican: true,
+    })
+  })
+
   // What adopting OutreachFlowShell would have bought, built here instead:
   // closing a flow someone has put work into asks first, and a pristine one
   // still closes on the first press.
