@@ -55,6 +55,15 @@ const EXHAUSTED_AUDIENCE_MESSAGE =
   'Everyone reachable in this list is already in a previous phone banking ' +
   'campaign — pick or build a different list'
 
+// Sibling of phoneBankingCall.service.ts's per-list lock namespace (25714),
+// keyed by voterFileFilterId instead: serializes batch CREATION per filter
+// so two concurrent creates can't both snapshot the prior-batch set before
+// either commits and freeze the same people. Audience paging stays OUTSIDE
+// the transaction (people-db/Databricks calls must never run inside it) —
+// the lock guards a cheap in-tx re-read that drops anyone a concurrent
+// create just froze.
+const PHONE_BANKING_FILTER_LOCK_NAMESPACE = 25715
+
 const PURPOSE_TO_DB: Record<PhoneBankingPurpose, PrismaPhoneBankingPurpose> = {
   introduce: PrismaPhoneBankingPurpose.introduce,
   persuade: PrismaPhoneBankingPurpose.persuade,
@@ -355,30 +364,63 @@ export class PhoneBankingListService extends createPrismaBase(
     grouped: Map<string, PersonName[]>,
     hasMore: boolean,
   ): Promise<PhoneBankingCreateResponse> {
-    const entriesData = [...grouped.entries()].map(
-      ([phone, persons], index) => {
-        const seq = index + 1
-        return {
-          seq,
-          sheetIndex: Math.ceil(seq / PHONE_BANKING_SHEET_SIZE),
-          phone,
-          persons: {
-            create: persons.map((person) => ({
-              personId: person.personId,
-              name: person.name,
-              firstName: person.firstName,
-            })),
-          },
-        }
-      },
-    )
-    const personCount = [...grouped.values()].reduce(
-      (sum, persons) => sum + persons.length,
-      0,
-    )
-
     return this.client.$transaction(
       async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PHONE_BANKING_FILTER_LOCK_NAMESPACE}::int, ${input.voterFileFilterId}::int)`
+
+        // Re-read under the lock: a concurrent create for this filter may
+        // have committed between the pre-paging snapshot and here, and
+        // anyone it froze must be dropped rather than duplicated.
+        const committedPriorIds = new Set(
+          (
+            await tx.phoneBankingListEntryPerson.groupBy({
+              by: ['personId'],
+              where: {
+                entry: {
+                  list: {
+                    organizationSlug: organization.slug,
+                    voterFileFilterId: input.voterFileFilterId,
+                  },
+                },
+              },
+            })
+          ).map((row) => row.personId),
+        )
+        const survivingEntries = [...grouped.entries()]
+          .map(
+            ([phone, persons]) =>
+              [
+                phone,
+                persons.filter(
+                  (person) => !committedPriorIds.has(person.personId),
+                ),
+              ] as const,
+          )
+          .filter(([, persons]) => persons.length > 0)
+        if (survivingEntries.length === 0) {
+          throw new BadRequestException(EXHAUSTED_AUDIENCE_MESSAGE)
+        }
+
+        const entriesData = survivingEntries.map(([phone, persons], index) => {
+          const seq = index + 1
+          return {
+            seq,
+            sheetIndex: Math.ceil(seq / PHONE_BANKING_SHEET_SIZE),
+            phone,
+            persons: {
+              create: persons.map((person) => ({
+                personId: person.personId,
+                name: person.name,
+                firstName: person.firstName,
+              })),
+            },
+          }
+        })
+        const personCount = survivingEntries.reduce(
+          (sum, [, persons]) => sum + persons.length,
+          0,
+        )
+
         const list = await tx.phoneBankingList.create({
           data: {
             organizationSlug: organization.slug,

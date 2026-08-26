@@ -501,6 +501,65 @@ describe('phone banking routes', () => {
       ])
     })
 
+    it('drops anyone a concurrent create froze between paging and the freeze transaction', async () => {
+      const racedPerson = fakePerson({ cellPhone: '3075901111' })
+      const freshPerson = fakePerson({ cellPhone: '3075902222' })
+      // Simulate the TOCTOU window: the prior-batch snapshot is read before
+      // findPeople, so a competing list committed DURING paging is exactly
+      // what the in-tx advisory-lock re-read must catch.
+      vi.spyOn(
+        service.app.get(VoterQueryService),
+        'findPeople',
+      ).mockImplementation(async () => {
+        await service.prisma.phoneBankingList.create({
+          data: {
+            organizationSlug: orgSlug,
+            voterFileFilterId: filter.id,
+            name: 'Concurrent batch',
+            script: 'hello',
+            sheetCount: 1,
+            purpose: 'introduce',
+            entries: {
+              create: [
+                {
+                  seq: 1,
+                  sheetIndex: 1,
+                  phone: '3075901111',
+                  persons: {
+                    create: [
+                      {
+                        personId: racedPerson.id,
+                        name: 'Jane Voter',
+                        firstName: 'Jane',
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        })
+        return {
+          pagination: PEOPLE_PAGINATION,
+          people: [racedPerson, freshPerson],
+        }
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(res.status).toBe(201)
+      expect(res.data).toMatchObject({ entryCount: 1, personCount: 1 })
+      const persons = await service.prisma.phoneBankingListEntryPerson.findMany(
+        {
+          where: { entry: { phoneBankingListId: res.data.id } },
+        },
+      )
+      expect(persons.map((p) => p.personId)).toEqual([freshPerson.id])
+    })
+
     it('a prior-batch person whose number got suppressed 400s as empty, not exhausted', async () => {
       const phone = '3075559333'
       mockPeoplePage([fakePerson({ cellPhone: phone })])
