@@ -202,6 +202,14 @@ describe('RobocallPhonebookService', () => {
     expect(phonebooks.createPhonebook).not.toHaveBeenCalled()
   })
 
+  it('rejects a missing organization', async () => {
+    organizations.findFirst.mockResolvedValue(null)
+
+    await expect(
+      service.loadAudienceToPhonebook(campaign as Campaign, 99),
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
   it('rejects a missing voter list', async () => {
     voterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(null)
 
