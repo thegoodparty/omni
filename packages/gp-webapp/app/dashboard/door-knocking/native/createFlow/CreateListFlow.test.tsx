@@ -637,9 +637,11 @@ describe('CreateListFlow', () => {
         element?.tagName === 'P' &&
         /can’t yet shade by/.test(element.textContent ?? ''),
     )
+    // "Your list", not "Your saved list": this renders the draw step of a
+    // from-scratch list, so there is no saved list to name.
     expect(disclosure.textContent).toBe(
       'The map can’t yet shade by 65+ or Prior contacts made, so these counts ' +
-        'include people those filters will exclude. Your saved list still ' +
+        'include people those filters will exclude. Your list still ' +
         'applies them when you knock.',
     )
   })
@@ -1283,6 +1285,12 @@ describe('CreateListFlow steps', () => {
     })
     expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
 
+    // Pick the row for real rather than posting the lifted draft in as props:
+    // the sentence names the picked list, so a test that never picks one is
+    // asserting wording the flow cannot actually reach.
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners/ }),
+    )
     rerender(
       <CreateListFlow
         {...baseProps}
@@ -1302,6 +1310,26 @@ describe('CreateListFlow steps', () => {
         'people that filter will exclude. Your saved list still applies it ' +
         'when you knock.',
     )
+  })
+
+  // The same sentence, one step earlier in the decision: a candidate who
+  // builds a list from scratch and picks 65+ has an unshadeable selection and
+  // no list to attribute it to. Citing "your saved list" there describes
+  // something that does not exist; dropping the promise instead would end the
+  // sentence on "that filter will exclude", which reads as the filter being
+  // ignored. Both halves are checked because fixing either one alone is a
+  // regression in the other.
+  it('does not cite a saved list on the who step when none is picked', () => {
+    renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      filters: { age65Plus: true },
+      unpreviewableKeys: ['age65Plus'],
+    })
+
+    const disclosure = screen.getByText(/The map can’t yet shade by/)
+    expect(disclosure).toHaveTextContent('Your list still applies it when you')
+    expect(disclosure).not.toHaveTextContent('saved list')
   })
 
   // Picking a list is two writes that have to happen together, and the second

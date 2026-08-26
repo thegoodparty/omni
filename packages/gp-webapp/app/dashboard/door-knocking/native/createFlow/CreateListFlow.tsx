@@ -585,6 +585,7 @@ export default function CreateListFlow({
 
   const unpreviewableDisclosure = unpreviewableDisclosureSentence(
     unpreviewableDisclosureLabels(unpreviewableKeys),
+    savedListId !== null,
   )
 
   // Both confirm buttons run the same mutation and both go dead while it is in

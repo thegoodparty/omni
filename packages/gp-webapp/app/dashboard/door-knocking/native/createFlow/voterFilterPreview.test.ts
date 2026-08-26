@@ -184,4 +184,32 @@ describe('unpreviewableDisclosureSentence', () => {
   it('has nothing to say when every filter shades', () => {
     expect(unpreviewableDisclosureSentence([])).toBeNull()
   })
+
+  // The create flow reaches this sentence before any list exists, so the
+  // closing clause must not cite one. It still has to promise the filter gets
+  // applied — ending on "that filter will exclude" is the reading ADR 0010
+  // exists to prevent — so the subject changes and the reassurance stays.
+  it('does not claim a saved list when none is picked', () => {
+    const sentence = unpreviewableDisclosureSentence(['65+'], false)
+    expect(sentence).toBe(
+      'The map can’t yet shade by 65+, so these counts include people that ' +
+        'filter will exclude. Your list still applies it when you knock.',
+    )
+    expect(sentence).not.toContain('saved list')
+    expect(sentence).toContain('still applies it when you knock')
+  })
+
+  it('keeps the plural pronoun when no list is picked', () => {
+    expect(
+      unpreviewableDisclosureSentence(['65+', 'Prior contacts made'], false),
+    ).toContain('Your list still applies them when you knock.')
+  })
+
+  // The details sheet and the landing rail describe a list that exists and
+  // never pass the flag, so the saved wording has to be what omitting it means.
+  it('defaults to the saved-list wording for the surfaces that omit the flag', () => {
+    expect(unpreviewableDisclosureSentence(['65+'])).toContain(
+      'Your saved list still applies it when you knock.',
+    )
+  })
 })

@@ -234,16 +234,29 @@ const joinWithOr = (labels: string[]): string => {
 // the filter, and the list still applies it at knock time. Never that the
 // filter isn't applied — a candidate who reads that concludes their targeting
 // is silently failing, which is the worse misunderstanding.
+// `hasSavedList` names the subject of the closing clause, and only that. The
+// create flow reaches this sentence with no list picked — a candidate who
+// toggles 65+ from scratch has an unshadeable selection and nothing saved to
+// attribute it to — where "Your saved list still applies it" cites a list that
+// does not exist. Dropping the clause instead was the obvious repair and is
+// the wrong one: what remains ends on "include people that filter will
+// exclude", which is the reading ADR 0010 exists to prevent. The reassurance
+// is true either way (knock-time evaluation is canonical for a list the flow
+// is about to create, exactly as for one already saved), so the fix is to say
+// whose list it is. Defaults to the saved wording because the other two
+// surfaces — the details sheet and the landing rail — only ever describe a
+// list that exists, and neither should have to opt in to being correct.
 export const unpreviewableDisclosureSentence = (
   labels: string[],
+  hasSavedList = true,
 ): string | null => {
   if (labels.length === 0) return null
   const plural = labels.length > 1
   return (
     `The map can’t yet shade by ${joinWithOr(labels)}, so these counts ` +
     `include people ${plural ? 'those filters' : 'that filter'} will ` +
-    `exclude. Your saved list still applies ${plural ? 'them' : 'it'} when ` +
-    `you knock.`
+    `exclude. Your ${hasSavedList ? 'saved list' : 'list'} still applies ` +
+    `${plural ? 'them' : 'it'} when you knock.`
   )
 }
 
