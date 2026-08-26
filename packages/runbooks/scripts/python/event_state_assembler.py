@@ -211,7 +211,7 @@ def assemble(
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
     # aeh.WATCHLIST looked up by attribute (not as reconcile's own default) so tests can
     # monkeypatch it (DATA-2152).
-    families, watchlist_events, dismissed_events, okr_by_event = aeh.load_watchlist(
+    families, watchlist_events, dismissed_events, okr_by_event = aeh.load_monitored_events(
         aeh.WATCHLIST
     )
     reconciled = aeh.reconcile(

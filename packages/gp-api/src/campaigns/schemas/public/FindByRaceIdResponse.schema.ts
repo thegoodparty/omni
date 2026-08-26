@@ -44,7 +44,6 @@ const PublicCampaignDetailsSchema = z.object({
   level: z.string().nullable().optional(),
   electionDate: z.string().optional(),
   primaryElectionDate: z.string().optional(),
-  ballotStatus: z.string().optional(),
   pledged: z.boolean().optional(),
   party: z.string().optional(),
   otherParty: z.string().optional(),

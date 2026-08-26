@@ -9,6 +9,7 @@ import {
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
 import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
+import { DoorKnockingOutreachDetailSchema } from '../doorKnocking/DoorKnockingTurf.schema'
 
 export const SOCIAL_PURPOSE_VALUES = [
   'introduce_myself',
@@ -156,5 +157,9 @@ export const OutreachDetailSchema = z.object({
   archivedAt: zCoerceDate().nullable(),
   social: OutreachSocialDetailSchema.optional(),
   phoneBanking: PhoneBankingOutreachDetailSchema.optional(),
+  // Present only on a nativeDoorKnocking row whose turf still resolves — a
+  // tombstoned list leaves the envelope standing, and the drawer degrades to
+  // the id-only rendering it had before this block existed.
+  doorKnocking: DoorKnockingOutreachDetailSchema.optional(),
 })
 export type OutreachDetail = z.infer<typeof OutreachDetailSchema>

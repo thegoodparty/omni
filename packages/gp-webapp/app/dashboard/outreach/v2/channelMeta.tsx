@@ -5,6 +5,7 @@ import {
   CalendarClockIcon,
   CheckCircleIcon,
   CircleDotIcon,
+  CircleIcon,
   ClockIcon,
   DoorOpenIcon,
   HeadphonesIcon,
@@ -110,7 +111,17 @@ const STATUS_DISPLAY: Record<
   Draft: { icon: <PencilIcon />, tone: 'muted' },
   'In review': { icon: <ClockIcon />, tone: 'primary' },
   Denied: { icon: <XCircleIcon />, tone: 'destructive' },
+  // A send that has been bought and has a real send time on it. Sending
+  // channels only — a door-knocking list is never scheduled, because there is
+  // nothing to schedule; see 'Not started' below.
   Scheduled: { icon: <CalendarClockIcon />, tone: 'primary' },
+  // The un-begun end of the same axis as 'In progress' and 'Done', and door
+  // knocking's alone: no other channel has a state between "composed" and
+  // "sending" that isn't already Draft, In review or Scheduled. Its icon is the
+  // empty circle those two fill in and then tick, so the three read as one
+  // progression rather than three unrelated marks. `turfStatusLabel`
+  // (door-knocking/native/turfLifecycle.ts) is the only producer.
+  'Not started': { icon: <CircleIcon />, tone: 'muted' },
   'In progress': { icon: <CircleDotIcon />, tone: 'primary' },
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },

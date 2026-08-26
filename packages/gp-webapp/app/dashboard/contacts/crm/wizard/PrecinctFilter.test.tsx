@@ -125,6 +125,41 @@ describe('PrecinctFilter', () => {
     })
   })
 
+  // 19 counties nationwide start with "MC" (McHenry and McLean IL, McPherson
+  // KS among them). Plain title-casing renders them "Mchenry".
+  it('capitalises a Mc- county correctly', () => {
+    renderFilter([option('MCHENRY', '0042')])
+
+    expect(screen.getByText('McHenry — 0042')).toBeInTheDocument()
+  })
+
+  // The Unknown pill is a raw button, not a ToggleGroupItem, so Radix sets no
+  // pressed state for it — it has to be declared, or the control reads as
+  // inert to assistive tech and to any aria-driven assertion.
+  it('exposes the Unknown pill’s pressed state via aria-pressed', async () => {
+    const { onChange } = renderFilter([
+      option('ORANGE', '711'),
+      option('ORANGE', '', 37),
+    ])
+
+    const unknown = screen.getByRole('button', { name: 'Unknown' })
+    expect(unknown).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(unknown)
+    expect(onChange).toHaveBeenCalledWith(['ORANGE|'])
+  })
+
+  it('reflects a selected Unknown as pressed', () => {
+    renderFilter([option('ORANGE', '711'), option('ORANGE', '', 37)], {
+      selected: ['ORANGE|'],
+    })
+
+    expect(screen.getByRole('button', { name: 'Unknown' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('explains an empty result instead of rendering an empty control', () => {
     renderFilter([])
 

@@ -3,10 +3,9 @@ import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { StoryState } from './campaignStoryIntake.service'
+import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 
-export type BallotStatus = NonNullable<
-  PrismaJson.CampaignDetails['ballotStatus']
->
+export type { BallotStatus }
 
 // Compact, grounded context the manager agent reasons over. Assembled by the
 // handler's loadContext from the candidate's campaign and top tracker tasks.

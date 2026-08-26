@@ -16,8 +16,19 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 }))
 
 vi.mock('app/dashboard/components/tasks/flows/TaskFlow', () => ({
-  default: ({ type }: { type: string }) => (
-    <div data-testid="task-flow">{type}</div>
+  default: ({
+    type,
+    preselectedListId,
+  }: {
+    type: string
+    preselectedListId?: number
+  }) => (
+    <div
+      data-testid="task-flow"
+      data-preselected-list={String(preselectedListId)}
+    >
+      {type}
+    </div>
   ),
 }))
 
@@ -64,10 +75,12 @@ const renderGrid = (
     onCreateSms: () => void
     onCreateRobocall: () => void
     onCreatePhoneBanking: () => void
+    preselectedListId: number
   }> = {},
 ) =>
   render(
     <ChannelTileGrid
+      preselectedListId={overrides.preselectedListId}
       onCreateSocial={overrides.onCreateSocial ?? vi.fn()}
       onCreateSms={overrides.onCreateSms ?? vi.fn()}
       onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
@@ -291,5 +304,81 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     expect(onCreatePhoneBanking).not.toHaveBeenCalled()
     expect(mockRouterPush).not.toHaveBeenCalled()
     expect(screen.getByTestId('task-flow')).toHaveTextContent('phoneBanking')
+  })
+})
+
+// Door knocking is the one tile that navigates rather than opening a flow in
+// place, so the selected list has to survive the navigation or "start a walk
+// from this list" lands the candidate back on the picker they came from.
+describe('ChannelTileGrid — door-knocking tile carries the selected list', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+  })
+
+  it('carries the preselected list as ?listId=', async () => {
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?listId=42',
+    )
+  })
+
+  it('navigates bare when no list is selected', async () => {
+    renderGrid()
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/door-knocking')
+  })
+
+  it('still hands the list to the SMS tile when door knocking was not pressed', async () => {
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(screen.getByTestId('task-flow')).toHaveAttribute(
+      'data-preselected-list',
+      '42',
+    )
+  })
+
+  // The instance can outlive the navigation in the App Router's soft-nav
+  // cache, so a list handed to door knocking has to be spent on the way out
+  // — otherwise a Back to this hub aims the next tile pressed at a list the
+  // candidate chose for a walk.
+  it('spends the list on the way out, so a later tile opens clean', async () => {
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?listId=42',
+    )
+
+    // SMS is the tile that always launches the legacy TaskFlow, which is the
+    // one place a leftover id would show up as a real preselection.
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(screen.getByTestId('task-flow')).toHaveAttribute(
+      'data-preselected-list',
+      'undefined',
+    )
+  })
+
+  // The tile is Pro-locked, and carrying a list must not become a way past
+  // that: a non-Pro click still gets the upgrade modal and goes nowhere.
+  it('shows the Pro modal instead of navigating for a non-Pro campaign', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText('Get Pro voter data and tools'),
+    ).toBeInTheDocument()
   })
 })

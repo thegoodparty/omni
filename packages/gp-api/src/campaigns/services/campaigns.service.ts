@@ -42,6 +42,7 @@ import { buildSlug } from 'src/shared/util/slug.util'
 import { getUserFullName } from 'src/users/util/users.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { AiContentInputValues } from '../ai/content/aiContent.types'
+import { BallotStatusSchema } from '../schemas/ballotStatus.schema'
 import {
   CampaignPlanVersionData,
   UpdateCampaignFieldsInput,
@@ -527,6 +528,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       canDownloadFederal,
       overrideDistrictId,
       primaryResult,
+      ballotStatus,
     } = body
 
     const runUpdate = async (tx: Prisma.TransactionClient) => {
@@ -579,6 +581,18 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       } else if (primaryResult !== undefined) {
         campaignUpdateData.primaryResult = primaryResult
       }
+      // The column is the source of truth. details.ballotStatus is only still
+      // read here so a pre-cutover frontend's write isn't lost during a
+      // deploy; it is stripped from the merged details below either way, so
+      // an existing row's stale copy disappears on its next update.
+      const legacyBallotStatus = BallotStatusSchema.safeParse(
+        details?.ballotStatus,
+      ).data
+      if (ballotStatus !== undefined) {
+        campaignUpdateData.ballotStatus = ballotStatus
+      } else if (legacyBallotStatus !== undefined) {
+        campaignUpdateData.ballotStatus = legacyBallotStatus
+      }
       if (details) {
         const mergedDetails = deepMerge(
           campaign.details as object,
@@ -611,6 +625,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
             delete mergedDetails.primaryElectionDate
           }
         }
+        Reflect.deleteProperty(mergedDetails, 'ballotStatus')
         campaignUpdateData.details = mergedDetails
       }
       if (objectNotEmpty(aiContent)) {

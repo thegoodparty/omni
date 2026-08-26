@@ -36,23 +36,38 @@ interface DeleteTurfControlProps {
   // which would otherwise keep masking the map to a list that no longer
   // exists.
   onDeleted: (turf: DoorKnockingTurf) => void
-  // The rail row is a dense row of four other affordances, so it gets the icon
-  // alone; the details sheet has room for the word. Same behavior either way —
-  // the 409 rule has one implementation, which is the whole reason this is a
-  // component and not a second copy of the mutation.
-  compact?: boolean
+  // Which trigger to draw, if any. The details sheet has room for the word;
+  // `icon` is the bare trash for a dense row. `none` renders the confirmation
+  // alone, for the rail — its trigger is a menu item, and a Radix menu unmounts
+  // its own content on select, which would take this dialog down with it before
+  // it could ever open. Same behavior in all three — the 409 rule has one
+  // implementation, which is the whole reason this is a component and not a
+  // second copy of the mutation.
+  trigger?: 'button' | 'icon' | 'none'
+  // Only read when `trigger` is `none`, where the caller outlives the trigger
+  // and therefore has to own the open state.
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 export default function DeleteTurfControl({
   turf,
   locked,
   onDeleted,
-  compact = false,
+  trigger = 'button',
+  open,
+  onOpenChange,
 }: DeleteTurfControlProps) {
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [ownConfirmOpen, setOwnConfirmOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const controlled = trigger === 'none'
+  const confirmOpen = controlled ? Boolean(open) : ownConfirmOpen
+  const setConfirmOpen = (next: boolean) => {
+    if (controlled) onOpenChange?.(next)
+    else setOwnConfirmOpen(next)
+  }
   const deleteTurf = useMutation({
     mutationFn: () =>
       clientRequest('DELETE /v1/door-knocking/turfs/:id', {
@@ -86,14 +101,14 @@ export default function DeleteTurfControl({
     },
   })
 
-  const open = () => {
+  const openConfirm = () => {
     setDeleteError(null)
     setConfirmOpen(true)
   }
 
   return (
     <>
-      {compact ? (
+      {trigger === 'icon' ? (
         <IconButton
           variant="ghost"
           size="small"
@@ -103,11 +118,11 @@ export default function DeleteTurfControl({
           // reader and to a test alike.
           aria-label={`Delete ${turf.name} list`}
           className="text-destructive hover:bg-destructive/10"
-          onClick={open}
+          onClick={openConfirm}
         >
           <Trash2Icon size={16} />
         </IconButton>
-      ) : (
+      ) : trigger === 'none' ? null : (
         <Button
           size="small"
           variant="outline"
@@ -115,7 +130,7 @@ export default function DeleteTurfControl({
           // dialog's own "Delete", for screen readers and tests alike.
           aria-label={`Delete ${turf.name}`}
           className="shrink-0 text-destructive hover:bg-destructive/10"
-          onClick={open}
+          onClick={openConfirm}
         >
           <Trash2Icon size={14} />
           Delete

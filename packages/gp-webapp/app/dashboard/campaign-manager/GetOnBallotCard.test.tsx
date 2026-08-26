@@ -13,14 +13,7 @@ const mockCampaign = vi.mocked(useCampaign)
 
 const withBallotStatus = (ballotStatus?: BallotStatus) =>
   mockCampaign.mockReturnValue([
-    { details: { ballotStatus }, data: {} } as Campaign,
-  ])
-
-// A campaign that onboarded before details.ballotStatus survived the update
-// schema: the answer only exists in the data.onboarding snapshot.
-const withLegacyBallotStatus = (ballotStatus: BallotStatus) =>
-  mockCampaign.mockReturnValue([
-    { details: {}, data: { onboarding: { ballotStatus } } } as Campaign,
+    { ballotStatus, details: {}, data: {} } as Campaign,
   ])
 
 describe('GetOnBallotCard', () => {
@@ -64,15 +57,6 @@ describe('GetOnBallotCard', () => {
       screen.getByRole('button', { name: 'Show me what it takes' }),
     )
     expect(onGetOnBallot).toHaveBeenCalledTimes(1)
-  })
-
-  it('falls back to the data.onboarding snapshot for older campaigns', () => {
-    withLegacyBallotStatus('qualified-not-filed')
-    render(<GetOnBallotCard onGetOnBallot={vi.fn()} />)
-
-    expect(
-      screen.getByText("Great. Let's get you on the ballot"),
-    ).toBeInTheDocument()
   })
 
   it('renders nothing when the candidate never answered', () => {

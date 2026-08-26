@@ -404,6 +404,26 @@ describe('WalkView', () => {
     expect(pill.className).toContain('border')
   })
 
+  // globals.css gives every `<li>` inside a `data-slot` element `display:
+  // flex`, and `DashboardLayout`'s sidebar wrapper puts this list in that
+  // scope, so the stop row and its expanded door were laid out as sibling flex
+  // items side by side and the residents' names truncated. jsdom has no
+  // layout, so this asserts the override is present rather than its effect —
+  // the rendered proof is in the PR's screenshots.
+  it('keeps the expanded door stacked under its stop row', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: withHousehold(routePayload),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    const row = screen.getAllByRole('listitem')[0] as HTMLElement
+    expect(row.className.split(/\s+/)).toContain('block')
+  })
+
   // A one-resident stop opens its sheet instead of expanding, so it is the one
   // stop whose status never gets labelled anywhere else. It used to close on a
   // bare coloured dot, leaving a canvasser to match a 6px circle against a

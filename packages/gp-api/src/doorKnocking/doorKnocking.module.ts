@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
@@ -22,7 +22,10 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
   imports: [
     ClerkModule,
     ContactInteractionModule,
-    ContactsModule,
+    // Deferred since OutreachModule started importing this one for the counts
+    // aggregate: Contacts → Campaigns → Peerly → Outreach now loops back here,
+    // so this edge is inside a module cycle rather than at the end of a chain.
+    forwardRef(() => ContactsModule),
     OrganizationsModule,
     GeoapifyModule,
     PeopleQueryModule,
@@ -41,5 +44,9 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
     DoorKnockingPackService,
     DoorKnockingPreviewService,
   ],
+  // The rail's counts aggregate, exported so the outreach detail read can
+  // report doors/people/logged for a nativeDoorKnocking envelope off the same
+  // computation rather than a second one of its own (ADR 0010).
+  exports: [DoorKnockingTurfCountsService],
 })
 export class DoorKnockingModule {}

@@ -14,22 +14,21 @@ export default function EditUserPage() {
   const { id } = user
 
   async function handleSave(data: UserFormData) {
+    let result: Awaited<ReturnType<typeof updateUser>>
     try {
-      const { metaData = {} } = data
-
-      await updateUser(id, {
-        ...data,
-        metaData: {
-          ...metaData,
-        },
-      })
-
-      router.push(`/dashboard/users/${id}`)
-      router.refresh()
+      result = await updateUser(id, data)
     } catch (error) {
-      showToast('Failed to save changes')
+      showToast('Failed to save changes', 'error')
       throw error
     }
+
+    if ('error' in result) {
+      showToast(result.error, 'error')
+      throw new Error(result.error)
+    }
+
+    router.push(`/dashboard/users/${id}`)
+    router.refresh()
   }
 
   function handleCancel() {

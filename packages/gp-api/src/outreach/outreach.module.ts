@@ -12,6 +12,7 @@ import { CallhubModule } from 'src/vendors/callhub/callhub.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
+import { DoorKnockingModule } from '../doorKnocking/doorKnocking.module'
 import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PaymentsModule } from '../payments/payments.module'
@@ -63,6 +64,10 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OrganizationsModule,
     ContactInteractionModule,
     CallhubModule,
+    // For DoorKnockingTurfCountsService, behind the detail read's doorKnocking
+    // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
+    // loops back here, the same cycle the ContactsModule edge above defers.
+    forwardRef(() => DoorKnockingModule),
   ],
   controllers: [
     OutreachController,

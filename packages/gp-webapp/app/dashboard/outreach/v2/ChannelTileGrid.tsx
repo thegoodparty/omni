@@ -86,9 +86,11 @@ export const ChannelTileGrid = ({
   // OutreachCreateCards): the deep-link strip's router.replace re-runs the
   // force-dynamic page's server render without ?listId, reverting the prop to
   // undefined — state on this instance survives that pass. Cleared as soon as
-  // a consuming flow closes so a later-opened flow starts clean; the ref
-  // tracks the last PROP value already pulled in so clearing on close can't
-  // get re-synced back from an unchanged prop.
+  // a consuming flow has taken it, so a later-opened flow starts clean: on
+  // close for the flows that open here, on navigation for door knocking,
+  // which applies it on the page it goes to. The ref tracks the last PROP
+  // value already pulled in so clearing can't get re-synced back from an
+  // unchanged prop.
   const [pendingPreselectedListId, setPendingPreselectedListId] =
     useState(preselectedListId)
   const lastSyncedPropListIdRef = useRef(preselectedListId)
@@ -154,7 +156,27 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.doorKnocking) {
-      router.push('/dashboard/door-knocking')
+      // The one tile that navigates instead of opening a flow here, so the
+      // preselected list travels as `?listId=` — the same param the CRM's
+      // "Send outreach" links already use to reach this hub. The
+      // door-knocking page parses it with the same positive-integer rule and
+      // ignores anything else, so a stale id costs the preselection and
+      // nothing more.
+      //
+      // Consumed on the way out, exactly as the flows that close do it: this
+      // channel is now one of the ones that APPLIES the preselect, and the
+      // instance can outlive the navigation in the App Router's soft-nav
+      // cache. Left set, a Back to this hub would hand the same id to
+      // whichever tile was pressed next — a text campaign silently aimed at a
+      // list the candidate chose for a walk.
+      const listId = pendingPreselectedListId
+      setPendingPreselectedListId(undefined)
+      lastSyncedPropListIdRef.current = undefined
+      router.push(
+        listId === undefined
+          ? '/dashboard/door-knocking'
+          : `/dashboard/door-knocking?listId=${listId}`,
+      )
       return
     }
     setFlowType(type)
@@ -211,7 +233,7 @@ export const ChannelTileGrid = ({
           onClose={() => {
             // Only flows whose audience step applies the preselect consume
             // it on close (text/robocall/phoneBanking — door knocking
-            // navigates away instead of opening TaskFlow here).
+            // carries it away in the URL instead of opening TaskFlow here).
             const isConsumingFlow =
               flowType === OUTREACH_TYPES.text ||
               flowType === OUTREACH_TYPES.robocall ||

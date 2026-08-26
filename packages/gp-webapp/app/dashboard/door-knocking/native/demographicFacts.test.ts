@@ -4,6 +4,7 @@ import {
   demographicFacts,
   incomeRangeLabel,
   NOT_ON_FILE,
+  voterDemographicFacts,
 } from './demographicFacts'
 
 const target = (
@@ -22,9 +23,14 @@ const target = (
   ...overrides,
 })
 
+// Both cards, searched as one profile: the split between them is a layout
+// decision, and a label moving across it should not need every assertion below
+// rewritten to follow.
 const valueFor = (label: string, overrides: Partial<RoutePayloadTarget> = {}) =>
-  demographicFacts(target(overrides)).find((fact) => fact.label === label)
-    ?.value
+  [
+    ...voterDemographicFacts(target(overrides)),
+    ...demographicFacts(target(overrides)),
+  ].find((fact) => fact.label === label)?.value
 
 describe('incomeRangeLabel', () => {
   // A modelled figure printed to the dollar implies a measurement nobody took,
@@ -56,29 +62,64 @@ describe('incomeRangeLabel', () => {
   })
 })
 
-describe('demographicFacts', () => {
-  it('returns the eleven attributes in the order product asked for', () => {
-    expect(demographicFacts(target()).map((fact) => fact.label)).toEqual([
+// The canvas splits the profile into a voter-file card and a personal one, so
+// the two lists are asserted separately — a field drifting from one to the
+// other is the defect this pair exists to catch.
+describe('voterDemographicFacts', () => {
+  it('returns the registration facts the canvas puts in that card', () => {
+    expect(voterDemographicFacts(target()).map((fact) => fact.label)).toEqual([
       'Registered voter',
       'Turnout likelihood',
+      'Political party',
+    ])
+  })
+
+  // Not the canvas's "Voter status", which means active-or-inactive
+  // registration. This column is turnout propensity and we hold nothing that
+  // answers the canvas's question.
+  it('names the turnout column for what it holds', () => {
+    const labels = voterDemographicFacts(target()).map((fact) => fact.label)
+    expect(labels).toContain('Turnout likelihood')
+    expect(labels).not.toContain('Voter status')
+  })
+
+  // Party rode the sheet's header subtitle before it joined this card; it is a
+  // voter-file attribute like the two beside it.
+  it('states the party, and says nothing when the file has none', () => {
+    expect(valueFor('Political party', { politicalParty: 'Democratic' })).toBe(
+      'Democratic',
+    )
+    expect(valueFor('Political party', { politicalParty: null })).toBe(
+      NOT_ON_FILE,
+    )
+  })
+})
+
+describe('demographicFacts', () => {
+  it('returns the personal attributes in the order product asked for', () => {
+    expect(demographicFacts(target()).map((fact) => fact.label)).toEqual([
       'Marital status',
       'Has children under 18',
-      'Veteran',
+      'Veteran status',
       'Homeowner',
       'Business owner',
       'Level of education',
       'Estimated household income',
       'Language',
-      'Ethnicity',
+      'Ethnicity group',
     ])
   })
 
-  // One decision about absence, applied to all eleven. A card where some fields
-  // say "Unknown", some say "No" and some vanish teaches a reader that absence
-  // means something different each time.
-  it('renders every absent attribute identically', () => {
+  // One decision about absence, applied across both cards. A profile where some
+  // fields say "Unknown", some say "No" and some vanish teaches a reader that
+  // absence means something different each time — and splitting the card in two
+  // is exactly the moment two vocabularies could creep in.
+  it('renders every absent attribute identically, on both cards', () => {
+    const empty = target({ politicalParty: null })
     expect(
-      demographicFacts(target()).every((fact) => fact.value === NOT_ON_FILE),
+      [...voterDemographicFacts(empty), ...demographicFacts(empty)].every(
+        (fact) => fact.value === NOT_ON_FILE,
+      ),
     ).toBe(true)
   })
 
@@ -86,7 +127,7 @@ describe('demographicFacts', () => {
   // indistinguishable from unknown. "No" would be a claim the data cannot
   // support, and the contract's z.enum(['Yes']) is what leaves no third branch.
   it.each([
-    ['Veteran', 'veteranStatus'],
+    ['Veteran status', 'veteranStatus'],
     ['Business owner', 'businessOwner'],
   ] as const)('never says No for an absent %s', (label, field) => {
     expect(valueFor(label, { [field]: null })).toBe(NOT_ON_FILE)

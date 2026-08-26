@@ -189,6 +189,32 @@ const mockRentNumberError = () =>
     data: { message: 'boom' },
   })
 
+// The compliance check fires once a recording is saved (uploaded). Default to
+// a pass so the record-and-continue tests advance; override per test.
+const mockCompliance = (passed = true, issues: string[] = []) =>
+  api.mock('POST /v1/outreach/robocall/compliance', {
+    status: 200,
+    data: {
+      passed,
+      checks: {
+        hasSelfIdentification: passed,
+        hasOrganization: passed,
+        hasCallbackNumber: passed,
+      },
+      transcript: 'Hi, this is Alex...',
+      issues,
+    },
+  })
+
+// The real endpoint returns 502 on a transcription/LLM failure; the UI just
+// branches on isError, and 502 isn't in the typed mocker's status union, so a
+// 500 stands in to drive the same error state.
+const mockComplianceError = () =>
+  api.mock('POST /v1/outreach/robocall/compliance', {
+    status: 500,
+    data: { message: 'transcription failed' },
+  })
+
 // Purpose -> audience -> schedule, then set a valid date+time and Continue into
 // compose WITHOUT pre-mocking a successful draft, so the caller controls
 // whether the on-entry draft succeeds or fails.
@@ -272,6 +298,7 @@ describe('RobocallFlow', () => {
       data: { message: 'No elected office' },
     })
     mockRentNumber()
+    mockCompliance()
   })
 
   it('opens on the purpose step with the robocall purposes', () => {
@@ -848,13 +875,14 @@ describe('RobocallFlow', () => {
     expect(textarea).toHaveValue('Hi, this is my own script.')
   })
 
-  it('rents and shows the callback number on entering compose', async () => {
-    await gotoCompose()
-    // The rented number and the read-aloud reminder render above the script.
-    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+  it('shows the callback number reminder in compose', async () => {
+    await gotoCompose('Write my own script')
+    // There is no banner now; a quiet reminder always surfaces the number so
+    // the candidate can read it aloud, whichever purpose they picked.
     expect(
-      screen.getByText(/Read your callback number aloud/),
+      await screen.findByText(/must say who paid for the call/),
     ).toBeInTheDocument()
+    expect(screen.getByText(/\+12025550147/)).toBeInTheDocument()
   })
 
   it('shows a retry when renting the callback number fails', async () => {
@@ -867,11 +895,16 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('+12025550147')).not.toBeInTheDocument()
 
-    // Retry succeeds -> the number appears.
+    // Retry succeeds -> the compose body unblocks and the drafted script
+    // renders (the number itself now lives inside that script's disclosure).
     mockRentNumber()
     mockDraft()
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Hi, this is Alex, and I am running for City Council.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('threads the rented callback number into the draft request', async () => {
@@ -939,5 +972,148 @@ describe('RobocallFlow', () => {
 
     // Only the current purpose was ever drafted — never the stale persuade one.
     expect(draftPurposes).toEqual(['introduce_myself'])
+  })
+
+  it('passes compliance on a saved recording and enables Continue', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // The compliance verdict renders and Continue unlocks.
+    expect(
+      await screen.findByText(/has everything it needs/),
+    ).toBeInTheDocument()
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(continueBtn).toBeEnabled())
+  })
+
+  it('shows the issues and blocks Continue when compliance fails', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+    mockCompliance(false, [
+      'The recording must name the organization behind the call.',
+    ])
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(
+      await screen.findByText('Your recording is missing:'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/must name the organization/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('offers a retry when the compliance check errors', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+    mockComplianceError()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(
+      await screen.findByText(/couldn't check your recording/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // Retry succeeds -> the verdict passes and Continue unlocks.
+    mockCompliance(true)
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  it('clears a passed verdict on re-record and re-checks the new clip', async () => {
+    await gotoCompose()
+    mockAudioUpload()
+
+    const record = async () => {
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Start recording' }),
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Stop recording' }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    }
+
+    await record()
+    expect(
+      await screen.findByText(/has everything it needs/),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+
+    // Re-record drops the passed verdict — a stale pass must not keep Continue
+    // enabled against a recording the candidate replaced.
+    await userEvent.click(screen.getByRole('button', { name: 'Re-record' }))
+    expect(
+      screen.queryByText(/has everything it needs/),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // The fresh clip re-checks and re-enables.
+    await record()
+    expect(
+      await screen.findByText(/has everything it needs/),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  it('runs the compliance check exactly once per saved recording', async () => {
+    let calls = 0
+    api.mock('POST /v1/outreach/robocall/compliance', () => {
+      calls += 1
+      return {
+        status: 200,
+        data: {
+          passed: true,
+          checks: {
+            hasSelfIdentification: true,
+            hasOrganization: true,
+            hasCallbackNumber: true,
+          },
+          transcript: 'Hi, this is Alex...',
+          issues: [],
+        },
+      }
+    })
+
+    await gotoCompose()
+    mockAudioUpload()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await screen.findByText(/has everything it needs/)
+    // No spurious re-fire from the effect's dependency array.
+    await waitFor(() => expect(calls).toBe(1))
+    expect(calls).toBe(1)
   })
 })

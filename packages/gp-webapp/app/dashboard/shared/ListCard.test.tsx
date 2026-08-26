@@ -94,16 +94,26 @@ describe('ListCard', () => {
     ).toBeVisible()
   })
 
-  // Selection changes the border's colour and never its width. These cards
-  // stack in a scrolling rail, so a card that thickened on selection would push
-  // every card below it down — on every toggle, under the thumb that toggled it.
-  it('keeps the border width constant across selection', () => {
+  // Selection is drawn without changing the box. These cards stack in a
+  // scrolling rail, so a card that thickened its border on selection would push
+  // every card below it down — on every toggle, under the thumb that toggled
+  // it. The canvas does thicken; a ring is a box-shadow and costs no layout, so
+  // the resting card keeps the canvas's 1px edge and the selected one still
+  // reads as 2px.
+  it('draws selection without changing the card box', () => {
     const { rerender } = render(
       <ListCard title="Elm St & 5th" data-testid="card" />,
     )
-    expect(screen.getByTestId('card')).toHaveClass('border-2')
+    const resting = screen.getByTestId('card')
+    expect(resting).toHaveClass('border')
+    expect(resting).not.toHaveClass('border-2')
+    expect(resting.className).not.toMatch(/ring/)
 
     rerender(<ListCard title="Elm St & 5th" selected data-testid="card" />)
-    expect(screen.getByTestId('card')).toHaveClass('border-2')
+    const selected = screen.getByTestId('card')
+    // Same border width, so the row above and below it do not move.
+    expect(selected).toHaveClass('border')
+    expect(selected).not.toHaveClass('border-2')
+    expect(selected).toHaveClass('ring-1', 'ring-inset', 'ring-primary')
   })
 })

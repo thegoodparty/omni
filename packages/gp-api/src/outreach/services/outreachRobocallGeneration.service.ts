@@ -28,9 +28,10 @@ const PURPOSE_GOALS: Record<RobocallPurpose, string> = {
 // script must contain, not why the call is happening.
 const PURPOSE_STRUCTURE: Record<RobocallPurpose, string> = {
   introduce_myself:
-    'Structure: (1) the identification opener, (2) one or two sentences ' +
-    "on why the candidate is running, grounded in the candidate's real " +
-    "story or top issues, (3) a soft ask for the voter's support.",
+    'Structure: (1) the identification opener, (2) one sentence on why ' +
+    "the candidate is running, grounded in the candidate's real story " +
+    "or top issues, (3) a soft ask for the voter's support, (4) a brief, " +
+    'warm thank-you to close.',
   persuade_voters:
     'Structure: (1) the identification opener, (2) one or two sentences ' +
     "on the candidate's real positions and why they matter to voters, " +
@@ -61,9 +62,10 @@ const PURPOSE_STRUCTURE: Record<RobocallPurpose, string> = {
 // for a recorded political call.
 const IDENTIFICATION_OPENER_RULE =
   'The identification opener is the first line of every script and is ' +
-  'spoken by the CANDIDATE in their own first person: "Hi, this is" ' +
-  'followed by the candidate name given below, "and I am running for" ' +
-  'followed by the office. Never invent a different name or office.'
+  'spoken by the CANDIDATE in their own first person: "This is" followed ' +
+  "by the candidate's first name (from the name given below), then " +
+  '"candidate for" and the office. Keep it to one short sentence. Never ' +
+  'invent a different name or office.'
 
 // With no rented number yet, the spoken script must NOT carry a "Paid for by"
 // line or callback number (they need the caller-ID number); "Reply STOP" is an
@@ -76,11 +78,11 @@ const COMPLIANCE_BAN_RULE =
 // Once a caller-ID number is rented, the recorded call must carry the spoken
 // disclosure the candidate reads: who paid for it, then the callback number.
 const DISCLOSURE_RULE =
-  'End the script with the spoken disclosure a political robocall requires: ' +
-  'state who paid for the call using the "paid for by" name given below, ' +
-  'then say the callback number given below, spoken so a listener can write ' +
-  'it down. Never add "Reply STOP" or any text-message opt-out — this is a ' +
-  'recorded voice call, not a text.'
+  'End the script, on its own final line, with the required spoken ' +
+  'disclosure in this exact shape: "Paid for by " then the "paid for by" ' +
+  'name given below, then a comma, then the callback number given below, ' +
+  'spoken so a listener can write it down. Never add "Reply STOP" or any ' +
+  'text-message opt-out — this is a recorded voice call, not a text.'
 
 // Improve mode preserves specifics, so the disclosure reads as keep/add rather
 // than write-fresh.
@@ -91,10 +93,10 @@ const IMPROVE_DISCLOSURE_RULE =
   '"Reply STOP" or any text-message opt-out — this is a recorded voice call.'
 
 const LENGTH_RULE =
-  'Keep the script to roughly 60-130 words of spoken, conversational ' +
-  'prose — a recorded call is capped at 60 seconds, so it must read ' +
-  'comfortably inside that when spoken aloud (no hashtags, no links, no ' +
-  'headings).'
+  'Keep the whole script short: about 40 to 75 words, four or five short ' +
+  'sentences of spoken, conversational prose. A recorded call is capped ' +
+  'at 60 seconds, and a shorter call holds attention better (no hashtags, ' +
+  'no links, no headings).'
 
 const draftSystemPrompt = (complianceLine: string): string =>
   [

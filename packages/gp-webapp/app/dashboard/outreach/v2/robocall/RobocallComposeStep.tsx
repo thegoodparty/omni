@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ROBOCALL_SCRIPT_MAX_LENGTH,
+  type RobocallComplianceVerdict,
   SOCIAL_TONE_VALUES,
   type SocialTone,
 } from '@goodparty_org/contracts'
@@ -73,6 +74,13 @@ interface RobocallComposeStepProps {
   onSaveRecording: () => void
   isUploading: boolean
   uploadError: string | null
+  // Compliance gate on the saved recording: while checking, a spinner; a
+  // verdict with passed=false lists the issues to re-record against; an error
+  // (transcription/LLM failure) offers a retry.
+  complianceChecking: boolean
+  complianceVerdict: RobocallComplianceVerdict | null
+  complianceError: boolean
+  onRetryCompliance: () => void
 }
 
 export const RobocallComposeStep = ({
@@ -94,6 +102,10 @@ export const RobocallComposeStep = ({
   onSaveRecording,
   isUploading,
   uploadError,
+  complianceChecking,
+  complianceVerdict,
+  complianceError,
+  onRetryCompliance,
 }: RobocallComposeStepProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -143,20 +155,6 @@ export const RobocallComposeStep = ({
           until it's rented. */}
       {callbackNumber && (
         <>
-          <Card className="gap-1 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Read your callback number aloud
-            </p>
-            <p className="text-base font-medium text-foreground">
-              {callbackNumber}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {isCustomPurpose
-                ? 'Your recording must say who paid for the call and this number — make sure your script includes both.'
-                : 'Your recording must say who paid for the call and this number — the script below includes it.'}
-            </p>
-          </Card>
-
           {!isCustomPurpose && (
             <FilterPillGroup
               type="single"
@@ -228,10 +226,20 @@ export const RobocallComposeStep = ({
                 Drafting your script…
               </p>
             ) : (
-              <p className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
+              <p
+                data-vaul-no-drag
+                className="select-text whitespace-pre-wrap text-base leading-relaxed text-foreground"
+              >
                 {draft}
               </p>
             )}
+            <p
+              data-vaul-no-drag
+              className="select-text text-xs text-muted-foreground"
+            >
+              Your recording must say who paid for the call and include this
+              callback number: {callbackNumber}.
+            </p>
           </Card>
 
           <p className="text-xs text-muted-foreground">
@@ -256,6 +264,51 @@ export const RobocallComposeStep = ({
             <p className="text-sm text-destructive">
               {recorder.error ?? uploadError}
             </p>
+          )}
+
+          {complianceChecking && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2Icon className="size-4 animate-spin" />
+              Checking your recording…
+            </p>
+          )}
+
+          {complianceError && (
+            <Card className="items-start gap-3 border-destructive p-4">
+              <p className="text-sm text-foreground">
+                We couldn&apos;t check your recording just now. Try again.
+              </p>
+              <Button type="button" size="small" onClick={onRetryCompliance}>
+                Try again
+              </Button>
+            </Card>
+          )}
+
+          {complianceVerdict && !complianceVerdict.passed && (
+            <Card className="items-start gap-2 border-destructive p-4">
+              <p className="text-sm font-medium text-foreground">
+                Your recording is missing:
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {complianceVerdict.issues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+              <p className="text-sm text-muted-foreground">
+                Re-record with all of these and we&apos;ll check again.
+              </p>
+            </Card>
+          )}
+
+          {complianceVerdict?.passed && (
+            <Card className="gap-1 border-success p-4">
+              <p className="text-sm font-medium text-foreground">
+                Your recording has everything it needs.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                It names you, who paid for the call, and the callback number.
+              </p>
+            </Card>
           )}
         </>
       )}

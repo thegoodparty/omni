@@ -261,7 +261,10 @@ section banners get stripped):
   `product` is `win` if `family` starts with `win`, else `serve` (mirrors
   `_proposal_yaml_row`'s own rule). **Check membership first** — skip if an `events:`
   row with this exact `event` string already exists (accept is meant to be
-  self-suppressing, same as today).
+  self-suppressing, same as today). Skip too if the event is any behavior's
+  `instrumented_by` in the `behaviors:` block: it is already monitored (the monitor
+  unions the two keys, DATA-2290) and validation rule 8 rejects the duplicate anchor.
+  The proposal queue already filters those out, so this only bites on a hand-added row.
 - **dismiss** — ask for a one-line reason, then append to `dismissed:`:
   ```yaml
   - {event: "<event_type>", reason: "<reason>", date: "<run_date>"}
