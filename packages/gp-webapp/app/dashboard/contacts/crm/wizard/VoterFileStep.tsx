@@ -133,32 +133,55 @@ export default function VoterFileStep({
     key: string
     label: string
     options: Array<{ key: string; label: string }>
-  }) => (
-    <div key={field.key} className="flex flex-col gap-2">
-      <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
-        {sentenceCase(field.label)}
-      </h4>
-      <ToggleGroup
-        type="multiple"
-        value={selectedOptionsForField(field.options)}
-        onValueChange={(values) =>
-          handleFieldValueChange(field.options, values)
-        }
-        aria-label={field.label}
-        className="flex flex-wrap gap-2"
-      >
-        {field.options.map((option) => (
-          <ToggleGroupItem
-            key={option.key}
-            value={option.key}
-            className={PILL_TOGGLE_ITEM_CLASSNAME}
-          >
-            {option.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
-  )
+  }) => {
+    const selectedOptions = selectedOptionsForField(field.options)
+    const allSelected = selectedOptions.length === field.options.length
+
+    return (
+      <div key={field.key} className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
+            {sentenceCase(field.label)}
+          </h4>
+          {field.options.length > 1 && (
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="h-auto border-none p-0 text-xs"
+              onClick={() =>
+                handleFieldValueChange(
+                  field.options,
+                  allSelected ? [] : field.options.map((option) => option.key),
+                )
+              }
+            >
+              {allSelected ? 'Clear' : 'Select all'}
+            </Button>
+          )}
+        </div>
+        <ToggleGroup
+          type="multiple"
+          value={selectedOptions}
+          onValueChange={(values) =>
+            handleFieldValueChange(field.options, values)
+          }
+          aria-label={field.label}
+          className="flex flex-wrap gap-2"
+        >
+          {field.options.map((option) => (
+            <ToggleGroupItem
+              key={option.key}
+              value={option.key}
+              className={PILL_TOGGLE_ITEM_CLASSNAME}
+            >
+              {option.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -195,7 +218,26 @@ export default function VoterFileStep({
         renderField(contactsMadeField)}
 
       <div className="flex flex-col gap-2">
-        <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
+        <div className="flex items-center justify-between">
+          <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
+          <Button
+            type="button"
+            variant="link"
+            size="small"
+            className="h-auto border-none p-0 text-xs"
+            onClick={() =>
+              onSupportStatusChange(
+                supportStatus.length === SUPPORT_STATUS_OPTIONS.length
+                  ? []
+                  : SUPPORT_STATUS_OPTIONS.map((option) => option.value),
+              )
+            }
+          >
+            {supportStatus.length === SUPPORT_STATUS_OPTIONS.length
+              ? 'Clear'
+              : 'Select all'}
+          </Button>
+        </div>
         <ToggleGroup
           type="multiple"
           value={supportStatus}
