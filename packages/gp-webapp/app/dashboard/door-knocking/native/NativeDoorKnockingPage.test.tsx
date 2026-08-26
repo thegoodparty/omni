@@ -520,7 +520,7 @@ describe('NativeDoorKnockingPage landing rail', () => {
 
     const disclosure = screen.getByText((_, element) => {
       if (element?.tagName !== 'P') return false
-      return /can’t shade by 65\+ yet/.test(element.textContent ?? '')
+      return /can’t yet shade by 65\+,/.test(element.textContent ?? '')
     })
     expect(disclosure.textContent).toContain('still applies it when you knock')
   })
@@ -529,7 +529,7 @@ describe('NativeDoorKnockingPage landing rail', () => {
     renderPage([{ id: 7, partyDemocrat: true }])
     await selectTurf()
 
-    expect(screen.queryByText(/can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
   })
 
   // The last hop of the empty rail's Create list button (#1452 wired it as far
