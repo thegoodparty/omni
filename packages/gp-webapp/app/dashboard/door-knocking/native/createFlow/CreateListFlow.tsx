@@ -25,7 +25,10 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { unpreviewableDisclosureLabels } from './voterFilterPreview'
+import {
+  unpreviewableDisclosureLabels,
+  unpreviewableDisclosureSentence,
+} from './voterFilterPreview'
 import {
   CONFIRM_PEEK_TOP_PCT,
   flowStage,
@@ -510,7 +513,9 @@ export default function CreateListFlow({
     continueLabel = 'No doors in this area'
   }
 
-  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
+  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
+    unpreviewableDisclosureLabels(unpreviewableKeys),
+  )
 
   // Both confirm buttons run the same mutation and both go dead while it is in
   // flight, so "Saving…" rides the one that was PRESSED rather than the one
@@ -625,12 +630,9 @@ export default function CreateListFlow({
                   shortfall the exact counts don't have, and the party mix is
                   a breakdown of the superset's people that would no longer
                   add up to the people figure above it. */}
-                {!exactCounts && unpreviewableLabels.length > 0 && (
+                {!exactCounts && unpreviewableDisclosure && (
                   <p className="text-xs text-muted-foreground">
-                    The map can&rsquo;t shade by{' '}
-                    {unpreviewableLabels.join(', ')} yet, so these counts
-                    include people that filter will exclude. Your saved list
-                    still applies it when you knock.
+                    {unpreviewableDisclosure}
                   </p>
                 )}
                 {!exactCounts && (turfStats?.partyMix.length ?? 0) > 0 && (
