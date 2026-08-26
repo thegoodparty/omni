@@ -170,7 +170,9 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(systemPrompt).not.toContain('Do NOT include a "Paid for by" line')
 
     const userPrompt = userContent()
-    expect(userPrompt).toContain('Callback number to read aloud: +12025550147')
+    // The number is formatted to a plain grouped form for the script, so the
+    // model echoes "202-555-0147" instead of spelling out every digit.
+    expect(userPrompt).toContain('Callback number to read aloud: 202-555-0147')
     expect(userPrompt).toContain('"Paid for by" name:')
   })
 
@@ -187,7 +189,7 @@ describe('POST /v1/outreach/robocall/draft', () => {
 
     expect(systemContent()).toContain('END with the spoken disclosure')
     expect(userContent()).toContain(
-      'Callback number to read aloud: +12025550147',
+      'Callback number to read aloud: 202-555-0147',
     )
   })
 
