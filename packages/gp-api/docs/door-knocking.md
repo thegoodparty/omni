@@ -590,15 +590,29 @@ it wants answering before the flag widens past one district.
 Note also that `generatedAt` in the manifest changes on every build, so a
 cache has to stabilize it or no two responses ever share an ETag.
 
-**Two of the premises above have since been measured and one is wrong.** See
+**Two of the premises above have since been measured and both are wrong.** See
 [`docs/perf/voter-pack-headroom.md`](./perf/voter-pack-headroom.md). The rebuild
 being avoided is 23 s, not "no longer 43 seconds and therefore a small prize" —
-and one user triggered 19 of them in 14 days. And the third cache input does
-have a revision handle after all: `green."Voter"` and `green."DistrictVoter"`
-both carry `updated_at`. What is missing is a *cheap* read of it, which is a
-watermark table or a covering index rather than a product decision about
-staleness. Caching is now the largest single win available on this endpoint by
-an order of magnitude.
+and one user triggered 19 of them in 14 days.
+
+And the third cache input needs no staleness policy, because **peopleDB is not a
+source of truth: it is a monthly, full-rebuild mirror of Databricks.** The dbt
+mart builds it, `people-api-loader` COPYs it into a **brand-new Aurora cluster**
+on an `@monthly` schedule, and the swap is published as an SSM parameter update
+that `PeopleDbUrlProvider` already polls and reports through `onChange()`
+(`PeopleDbService` and `VoterDownloadService` are already subscribers). The data
+is immutable between rebuilds, so the cache key is `districtId` + the resolved
+cluster identity and invalidation is wholesale on that event — no watermark, no
+scan, and nobody has to decide how stale a map may be.
+
+Do **not** reach for the `updated_at` columns for this. They exist, but the mart
+header records that they carry the L2 `loaded_at`, making them a per-load
+constant rather than a per-row change feed. An earlier revision of the headroom
+doc proposed a watermark table or covering index to read them cheaply; that was
+wrong and has been withdrawn.
+
+Caching is now the largest single win available on this endpoint by an order of
+magnitude.
 
 ### What is left on the table, and why
 
@@ -613,6 +627,17 @@ migration on a 218M-row partitioned mirror and the expression is shared with
 the list and CSV paths, so the blast radius is a decision about lock behaviour
 and rollout rather than a line of SQL. Note the same table's existing warning
 about expression indexes in `peopleDb/AGENTS.md` before proposing one.
+
+**That cost is wrong, and it is much lower.** There is no live migration to
+perform: the mirror is rebuilt from scratch each month into a fresh cluster, and
+the loader **already** adds a `STORED GENERATED` column absent from the mart —
+`Voter."geom"`, registered in `schema_spec.LOADER_ADDED_COLUMNS`. A precomputed
+household key is one more entry in that list, or one more column in
+`m_people_api__voter.sql`: no lock, no rollout, landing on the next monthly
+build. The `peopleDb/AGENTS.md` expression-index warning still applies to
+anything added to a *running* cluster, but it does not apply to a column the
+loader builds. It is cheap rather than urgent, though — it only pays inside a
+live build, which caching largely removes.
 
 **Compressing the response beats bit-packing the planes, and neither is
 done.** The profile recommends bit-packing the dim planes (37 bits per person

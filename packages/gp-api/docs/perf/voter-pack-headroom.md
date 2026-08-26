@@ -18,6 +18,12 @@ handful of knock bytes. One user rebuilt the identical 15.4 MB of Collin County
 **19 times in 14 days**. Caching, not optimising, is the answer to "get this
 under a few seconds".
 
+And caching is cheaper than it looks, because **peopleDB is a monthly,
+full-rebuild mirror of Databricks rather than a source of truth**. The data is
+immutable between rebuilds and gp-api already observes the rebuild, so there is
+no staleness policy to choose and nothing to invalidate incrementally — see
+[option 1](#1-cache-the-pack-per-district--22-s-and-the-only-option-that-reaches-a-few-seconds).
+
 ---
 
 ## Contents
@@ -226,7 +232,8 @@ benchmark; "estimated" means reasoned from those numbers.
 ### 1. Cache the pack per district — **~22 s, and the only option that reaches "a few seconds"**
 
 **Saving: ~22.5 s of 23.0 s (measured — it is everything except the 460 ms
-tail). Cost: medium-high. Risk: medium, concentrated entirely in invalidation.**
+tail). Cost: medium. Risk: low — invalidation, which looked like the hard part,
+turns out to be a single event gp-api already receives.**
 
 The structural finding: `DoorKnockingPackService.build()` resolves a
 `districtId` and a per-organization `knockStatuses` array, and
@@ -248,27 +255,48 @@ Sketch: key on `districtId` + voter-mirror version. Store the encoded pack with
 copying the cached buffer and writing one byte per knock at
 `canvassStatusOffset + rowIndex`. That is O(knocks), not O(district).
 
+Build it so the cached artifact **can be produced offline** — a loader step or a
+scheduled job — rather than only memoised in-process on first request. The two
+designs serve identically; the offline one additionally survives peopleDB's
+retirement, because a pack that was built ahead of time does not care what it
+was built from. See [option 4](#4-replace-prisma-with-pg-in-scanundercursor--25-s-contained)
+for why that matters.
+
 **On the staleness blocker.** `door-knocking.md` §"Why it is still built per
 request" rejects caching partly because the L2-derived voter data has "no
 revision handle exposed to gp-api — no mirror watermark, no refresh timestamp on
 the read path", making any cache key a chosen staleness window rather than a
-fact. **That is not quite true, and it is worth correcting**: both mirror tables
-carry one. `green."Voter"` and `green."DistrictVoter"` each have an `updated_at`
-column, and `green."DistrictVoterDensityMeta"` carries a per-district
-`updated_at` maintained by the same upstream pipeline.
+fact. **There is a handle, and it is better than the one I first proposed.**
 
-What is missing is not the fact but a *cheap read* of it.
-`max(updated_at)` over a district's `DistrictVoter` rows is 611k index entries
-whose payload is not in the index, so it is not free, and the density meta table
-tracks the density job rather than the voter load. Either wants a small
-watermark table or a covering index before it can front a cache.
+> **Correction (2026-08-26).** An earlier revision of this section argued that
+> `green."Voter"` and `green."DistrictVoter"` carry `updated_at`, so the blocker
+> was "expose a cheap mirror watermark" — a small watermark table or a covering
+> index, because `max(updated_at)` over 611k index entries is not free. **The
+> columns exist but the reasoning was wrong.** The `gp-data-platform` mart
+> header for `m_people_api__voter.sql` states that `created_at`/`updated_at`
+> come from the L2 `loaded_at`, so the value is a **per-load constant, not a
+> per-row change feed**. It cannot drive incremental invalidation, and no
+> watermark table or covering index should be built for this.
 
-That is a meaningfully smaller and more tractable piece of work than the product
-question the older document frames it as. **The blocker should be downgraded
-from "somebody must decide how stale a map may be" to "expose a cheap mirror
-watermark"** — and the schema already went most of the way there. Note that
-`green` is hardcoded and the loader swaps the whole cluster underneath, so the
-schema name itself is not a version and cannot serve as one.
+The actual mechanism is simpler and costs nothing. **peopleDB is not a source of
+truth — it is a monthly, full-rebuild mirror of Databricks.** The dbt mart
+`m_people_api__voter.sql` builds the table, `people-api-loader` unloads it to S3
+and COPYs it into a **brand-new Aurora cluster**, on an `@monthly` Airflow
+schedule. Two consequences:
+
+- **The data is immutable between rebuilds.** There is nothing to invalidate
+  incrementally, because nothing changes incrementally.
+- **The version handle is the cluster swap**, published as an SSM parameter
+  update — and `PeopleDbUrlProvider` already polls that parameter every five
+  minutes and fires `onChange()` only when the URL actually moves.
+  `PeopleDbService` and `VoterDownloadService` are already subscribers, each
+  swapping its client on the event. A cache invalidator is a third subscriber.
+
+So the key is `(districtId, mirrorVersion)` where `mirrorVersion` is the
+resolved connection string's cluster identity, and invalidation is wholesale on
+`onChange()`. **No watermark table, no covering index, no scan, and no product
+decision about how stale a map may be** — the mirror has exactly one version per
+month and gp-api already observes the change without querying anything.
 
 The other design question is **the sidecar**: the pack deliberately carries no
 person identity on the wire, so the id→index map has to live server-side. 611k
@@ -301,7 +329,44 @@ other caller on that task, which is a plausible contributor to the `list-detail`
 I would ship this before anything else and re-read the trace, because it is
 cheap, reversible, and it also sharpens every measurement above.
 
-### 3. Replace Prisma with `pg` in `scanUnderCursor` — **~2.5 s, contained**
+### 3. The household key — **~1–2 s, and far cheaper than recorded**
+
+**Saving: ~1–2 s (estimated; the previous document's ~550 ms was measured
+against the encoder alone). Cost: low — one column in the monthly rebuild.
+Risk: low.**
+
+> **Correction (2026-08-26).** Both this document and `door-knocking.md` costed
+> this as "a migration on a 218M-row partitioned mirror" and "a decision about
+> lock behaviour and rollout". **That is not what it is.** The mirror is rebuilt
+> from scratch every month into a fresh Aurora cluster, and the loader
+> **already** adds a `STORED GENERATED` column that does not exist in the mart —
+> `Voter."geom"`, registered in `schema_spec.LOADER_ADDED_COLUMNS` so validation
+> permits it. A precomputed household key is one more entry in that list, or one
+> more column in `m_people_api__voter.sql`. No lock, no rollout risk, no live
+> migration on a running table: it lands on the next monthly build.
+
+`buildHouseholdKeySql` concatenates four address columns into a text key. It is
+computed per row in Postgres, serialized into JSON, parsed back into a JS string
+and hashed into a `Map` — 611,000 times. The previous estimate costed the
+encoder-side `Map` work only; the full path is worth more than that, because
+this string is also a large share of the ~193 bytes/row on the wire. The
+rebuild is also the natural place to hand the encoder a genuinely **numeric**
+household id, which is what it actually wants and which `hashtext`'s 32-bit
+collisions currently block.
+
+**Cheaper does not make it urgent.** It ranks here — above both driver swaps —
+because it is the best ratio left once the cost is right: low risk, no live
+migration, and unlike options 4 and 5 it is a change to the pipeline rather than
+to Postgres-specific request code, so the store migration does not discard it.
+It does **not** rank above option 1, because it only pays inside the live build
+and caching deletes the live build.
+
+The honest reading is that this is worth doing *with* option 1 rather than
+instead of it: when the pack is built in the pipeline anyway, a precomputed
+household key is nearly free there and it also lets the encoder index households
+numerically. On its own, ahead of caching, it buys 1–2 s of a 23 s request.
+
+### 4. Replace Prisma with `pg` in `scanUnderCursor` — **~2.5 s, contained**
 
 **Saving: ~2.5 s (measured ratio, extrapolated). Cost: low-medium. Risk:
 low-medium.**
@@ -317,7 +382,26 @@ the sort of thing that causes a production incident on a busy day. Worth doing,
 worth doing carefully, and worth doing *after* the cache, at which point it
 optimises a cold path that runs on a schedule rather than in a request.
 
-### 4. `COPY TO STDOUT` — **~4.0 s, and I would not**
+**There is a second, independent reason to sequence this last: it is
+Postgres-specific work on a path that is written down as moving.**
+`VoterPackService.build` is named in the [#1370](https://github.com/thegoodparty/omni/pull/1370)
+PR body as one of the surfaces that must be ported before the Aurora cluster can
+be retired, alongside `VoterDoorKnockingService` and `VoterDensityService`, and
+nothing has started on it. A new `pg` pool and a hand-tuned cursor loop are
+exactly the kind of asset that a store migration discards.
+
+That does not mean the pack should be pointed at Databricks — the existing
+`PeopleDbxStatementClient` is `INLINE`/`JSON_ARRAY`/string-typed and accumulates
+the whole result in one array, which is the opposite shape to a 611k-row
+streaming scan, and its own comments record a 10–20 s serverless resume on the
+first read after an idle period. The house pattern for this already exists: the
+voter-density heat map is computed as dbt marts in Databricks, H3-binned and
+k-anonymised there, then loaded into Postgres and read as a plain indexed lookup
+with "NO H3 math here". **Precompute in the warehouse, serve from something that
+answers in milliseconds** — which is option 1 with the build moved into the
+pipeline, and it is why option 1 is also the thing that unblocks the port.
+
+### 5. `COPY TO STDOUT` — **~4.0 s, and I would not**
 
 **Saving: ~4.0 s (measured ratio). Cost: high. Risk: high.**
 
@@ -325,22 +409,6 @@ Fastest thing measured (2.50 µs/row) because nothing materialises a row. It
 also means hand-writing a COPY-text parser that has to get NULLs, quoting and
 escaping exactly right for 17 encoded dimensions, forever. That is a permanent
 correctness liability for 4 s that option 1 removes entirely.
-
-### 5. The household key — **~1–2 s, but the migration is the real cost**
-
-**Saving: ~1–2 s (estimated; the previous document's ~550 ms was measured
-against the encoder alone). Cost: high — a migration on a 218M-row mirror.
-Risk: medium.**
-
-`buildHouseholdKeySql` concatenates four address columns into a text key. It is
-computed per row in Postgres, serialized into JSON, parsed back into a JS string
-and hashed into a `Map` — 611,000 times. The previous estimate costed the
-encoder-side `Map` work only; the full path is worth more than that, because
-this string is also a large share of the ~193 bytes/row on the wire.
-
-But this only pays inside the live build, and option 1 deletes the live build.
-**Re-cost it after caching**, when it becomes a question about how long the
-offline refresh takes, and nobody is waiting.
 
 ### 6. Viewport / turf-scoped or progressive loading — **rejected on the measurement**
 
