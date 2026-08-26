@@ -158,6 +158,19 @@ describe('RobocallPhonebookService', () => {
     expect(result.importedCount).toBe(1)
   })
 
+  it('propagates a non-transient poll error immediately', async () => {
+    contacts.findContactsForFilter.mockResolvedValue(peoplePage(['2025550001']))
+    phonebooks.getContactCount.mockRejectedValue(new BadRequestException('bad'))
+
+    vi.useFakeTimers()
+    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
+    const assertion =
+      expect(promise).rejects.toBeInstanceOf(BadRequestException)
+    await vi.runAllTimersAsync()
+    await assertion
+    expect(phonebooks.getContactCount).toHaveBeenCalledTimes(1)
+  })
+
   it('throws when the import never reaches the expected count', async () => {
     contacts.findContactsForFilter.mockResolvedValue(
       peoplePage(['2025550001', '2025550002']),

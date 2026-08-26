@@ -192,8 +192,11 @@ export class RobocallPhonebookService {
       try {
         count = await this.phonebooks.getContactCount(phonebookPkStr)
       } catch (err) {
-        // A transient CallHub throttle/5xx mid-poll must not abort the load —
-        // the async import may still be settling. Log and retry next tick.
+        // Only a mapped vendor error (throttle/5xx → BadGatewayException) is
+        // transient and worth retrying while the async import settles; any
+        // other error (e.g. a schema-parse failure) is permanent and must
+        // propagate immediately rather than burn the whole poll window.
+        if (!(err instanceof BadGatewayException)) throw err
         this.logger.warn(
           { phonebookPkStr, attempt, err },
           'Transient error polling phonebook contact count; retrying',
