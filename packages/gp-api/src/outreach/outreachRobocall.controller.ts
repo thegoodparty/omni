@@ -139,7 +139,6 @@ export class OutreachRobocallController {
       contentType: input.contentType,
       candidateName: name,
       organizationName,
-      callbackNumber: input.callbackNumber,
       userId: String(user.id),
     })
   }

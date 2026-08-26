@@ -63,7 +63,6 @@ const postCompliance = (body: object) =>
 const validCompliancePayload = {
   audioKey: 'robocall/997/clip.webm',
   contentType: 'audio/webm',
-  callbackNumber: '+12025550147',
 }
 
 const mockDraft = (draft: string) =>
@@ -334,18 +333,26 @@ describe('POST /v1/outreach/robocall/compliance', () => {
       issues: [],
     })
 
-    const res = await postCompliance(validCompliancePayload)
+    // A client-supplied callbackNumber must never reach the check: it is the
+    // one value the transcript is verified against, so trusting the client
+    // would let a caller pass a number they know is in the audio and bypass the
+    // FCC callback-disclosure requirement. The controller forwards only an
+    // explicit allowlist to the service, so an extra key never reaches it.
+    const res = await postCompliance({
+      ...validCompliancePayload,
+      callbackNumber: '+12025550147',
+    })
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.passed).toBe(true)
     // Candidate + organization are derived server-side; the client only sends
-    // the key, content type, and callback number.
+    // the key and content type.
     const args = checkRecording.mock.calls[0]?.[0]
     expect(args).toMatchObject({
       audioKey: 'robocall/997/clip.webm',
       contentType: 'audio/webm',
-      callbackNumber: '+12025550147',
     })
+    expect(args).not.toHaveProperty('callbackNumber')
     expect(args.organizationName).toContain('City Council')
   })
 

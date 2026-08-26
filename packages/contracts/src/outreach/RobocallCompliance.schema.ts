@@ -2,13 +2,14 @@ import { z } from 'zod'
 import { ROBOCALL_AUDIO_ALLOWED_MIME_TYPES } from './RobocallAudio.schema'
 
 // Request for POST /v1/outreach/robocall/compliance: the uploaded recording's
-// object key + content type, and the rented callback number the candidate was
-// meant to read aloud (checked against the transcript). Candidate + org are
-// derived server-side.
+// object key + content type. Everything the transcript is checked against is
+// derived server-side — the candidate name and organization from the campaign,
+// and the callback-number check just confirms a number is spoken (no
+// client-supplied expected value to spoof). The caller-ID number that voters
+// actually reach is enforced at dial time, not here.
 export const RobocallComplianceRequestSchema = z.object({
   audioKey: z.string().min(1),
   contentType: z.enum(ROBOCALL_AUDIO_ALLOWED_MIME_TYPES),
-  callbackNumber: z.string().min(1).max(32),
 })
 export type RobocallComplianceRequest = z.infer<
   typeof RobocallComplianceRequestSchema

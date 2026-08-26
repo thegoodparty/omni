@@ -253,26 +253,20 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
 
   // Run the compliance check once a recording is saved (uploaded). Keyed on the
   // saved object key, so a fresh re-record re-checks and nothing else re-fires.
+  // The check is an audio-content gate (name/org/callback derived or verified
+  // server-side), so it needs only the recording — never the rented number.
   useEffect(() => {
     if (
       recorder.status === 'saved' &&
       audioUpload.key &&
-      audioUpload.contentType &&
-      callbackNumber
+      audioUpload.contentType
     ) {
       runCompliance({
         audioKey: audioUpload.key,
         contentType: audioUpload.contentType,
-        callbackNumber,
       })
     }
-  }, [
-    recorder.status,
-    audioUpload.key,
-    audioUpload.contentType,
-    callbackNumber,
-    runCompliance,
-  ])
+  }, [recorder.status, audioUpload.key, audioUpload.contentType, runCompliance])
 
   // Validate against the combined UTC instant so it's tz-correct: the send must
   // be at least 48h out. `earliest` (now + lead) drives both the "earliest
@@ -296,13 +290,12 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   }
 
   // Re-run the check after a transient (transcription/LLM) failure, reusing the
-  // already-uploaded recording and rented number.
+  // already-uploaded recording.
   const retryCompliance = () => {
-    if (audioUpload.key && audioUpload.contentType && callbackNumber) {
+    if (audioUpload.key && audioUpload.contentType) {
       runCompliance({
         audioKey: audioUpload.key,
         contentType: audioUpload.contentType,
-        callbackNumber,
       })
     }
   }
