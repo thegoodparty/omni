@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
+import { DOOR_KNOCK_STATUSES } from '@goodparty_org/contracts'
 import type {
   DoorKnockingPackManifest,
   DoorKnockingTurf,
@@ -829,6 +830,115 @@ describe('VoterMapCanvas drawing', () => {
     // The corners belong to the same boundary, so they move with it — a blue
     // handle on a green ring reads as two shapes.
     expect(staticColor('draw-vertices', 'getFillColor')).toEqual(line)
+  })
+
+  // `--primary` -> `--theme-primary` -> `--color-brand-blue-500` ->
+  // `--goodparty-blue-500`, which is `#1e63ec` in the styleguide's
+  // `design-tokens.css`. Pinned as channels because deck.gl takes tuples and
+  // nothing on this canvas can reach a CSS variable: if the design system moves
+  // its primary, this is the test that has to be the one to notice.
+  const PRIMARY = [30, 99, 236]
+
+  // The dots take their colours as one packed RGBA buffer rather than a
+  // per-datum accessor — deck.gl reads them as a binary attribute — so a test
+  // asks for a single dot's four bytes by index.
+  const dotColor = (index: number): number[] => {
+    const data = layerData('voter-dots') as {
+      attributes: { getFillColor: { value: Uint8Array } }
+    }
+    return [
+      ...data.attributes.getFillColor.value.slice(index * 4, index * 4 + 4),
+    ]
+  }
+
+  // One matched dot and one unmatched, both carrying a knock status — the
+  // status is what the blue has to win over inside the flow and go back to
+  // outside it, so a fixture without one couldn't tell the branches apart.
+  const mixed: FilterResult = {
+    people: 2,
+    households: 2,
+    matchedPerDot: new Uint32Array([1, 0]),
+    statusPerDot: new Uint8Array([
+      DOOR_KNOCK_STATUSES.indexOf('supporter'),
+      DOOR_KNOCK_STATUSES.indexOf('supporter'),
+    ]),
+  }
+
+  // What a candidate cutting a list is actually asking: does this boundary
+  // enclose the people I filtered for? A seven-colour status plane answers it
+  // by making the matched dots look like seven different kinds of thing, so the
+  // flow flattens them to the blue the rest of the product says "yes, these"
+  // in.
+  it('paints matching dots the design system’s primary blue while drawing', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        filterResult={mixed}
+        startDrawToken={1}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(dotColor(0).slice(0, 3)).toEqual(PRIMARY)
+    // The status plane's own strength, so entering the flow restates which dots
+    // matter without the whole map changing weight underfoot.
+    expect(dotColor(0)[3]).toBe(210)
+    // "Not who you asked for" is untouched — the blue answers one question and
+    // the grey still answers the other.
+    const unmatched = dotColor(1)
+    expect(unmatched.slice(0, 3)).not.toEqual(PRIMARY)
+    expect(unmatched[3]).toBeLessThan(dotColor(0)[3] ?? 0)
+
+    // Leaving the flow puts the status vocabulary back, and it has to: the rail
+    // returns with a legend chip per status, so a blue that outlived the flow
+    // would leave seven chips describing colours no longer on the map.
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        filterResult={mixed}
+        startDrawToken={1}
+        clearDrawToken={1}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(dotColor(0)).toEqual([...STATUS_RGB.supporter, 210])
+  })
+
+  // Two things on this canvas wear `--primary`: the matching dots above and the
+  // selected stop's halo. That is safe only because they can never share a
+  // screen — the create flow draws no route pins, and a walk is not the create
+  // flow. Were a whole district of dots ever blue underneath it, the halo would
+  // stop being findable as the mark for THIS stop, and this is the test that
+  // should fail before anyone sees that.
+  it('leaves the selection halo the only primary blue once a walk starts', () => {
+    const pin: RoutePin = {
+      stopId: 11,
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'supporter',
+      knockable: true,
+    }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        filterResult={mixed}
+        startDrawToken={0}
+        routePins={[pin]}
+        selectedStopId={11}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(
+      staticColor('route-pin-selection', 'getLineColor').slice(0, 3),
+    ).toEqual(PRIMARY)
+    expect(dotColor(0).slice(0, 3)).not.toEqual(PRIMARY)
   })
 
   // The map fills its container, so a step that covers the bottom of it and
