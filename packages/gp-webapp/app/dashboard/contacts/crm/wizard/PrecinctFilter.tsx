@@ -185,6 +185,7 @@ export default function PrecinctFilter({
         type="multiple"
         value={selected}
         onValueChange={onChange}
+        aria-label="Precinct"
         className="flex-wrap justify-start gap-2"
       >
         {inline.map((option) => (
@@ -236,6 +237,7 @@ export default function PrecinctFilter({
                 type="multiple"
                 value={selected}
                 onValueChange={onChange}
+                aria-label="All precincts"
                 className="flex-wrap justify-start gap-2"
               >
                 {filtered.map((option) => (
