@@ -608,6 +608,67 @@ describe('phone banking routes', () => {
       )
     })
 
+    it('a full collision with usable people still dropped 400s as retryable, not exhausted', async () => {
+      const audience = Array.from({ length: 61 }, (_, i) => {
+        const phone = `30759${String(i).padStart(5, '0')}`
+        return {
+          phone,
+          person: fakePerson({
+            id: randomUUID(),
+            firstName: `R${i}`,
+            lastName: 'Voter',
+            cellPhone: phone,
+          }),
+        }
+      })
+      // The concurrent create claims all 60 people the cap admits, while the
+      // 61st person was dropped at the cap (hasMore true) — the one shape
+      // where a retry genuinely succeeds and "exhausted" would be wrong.
+      vi.spyOn(
+        service.app.get(VoterQueryService),
+        'findPeople',
+      ).mockImplementation(async () => {
+        await service.prisma.phoneBankingList.create({
+          data: {
+            organizationSlug: orgSlug,
+            voterFileFilterId: filter.id,
+            name: 'Concurrent batch',
+            script: 'hello',
+            sheetCount: 1,
+            purpose: 'introduce',
+            entries: {
+              create: audience.slice(0, 60).map(({ phone, person }, i) => ({
+                seq: i + 1,
+                sheetIndex: 1,
+                phone,
+                persons: {
+                  create: [
+                    {
+                      personId: person.id,
+                      name: 'Jane Voter',
+                      firstName: 'Jane',
+                    },
+                  ],
+                },
+              })),
+            },
+          },
+        })
+        return {
+          pagination: PEOPLE_PAGINATION,
+          people: audience.map(({ person }) => person),
+        }
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1 }),
+        orgHeaders(),
+      )
+      expect(res.status).toBe(400)
+      expect(res.data.message).toContain('try again to get the next batch')
+    })
+
     it('a prior-batch person whose number got suppressed 400s as empty, not exhausted', async () => {
       const phone = '3075559333'
       mockPeoplePage([fakePerson({ cellPhone: phone })])
