@@ -81,6 +81,14 @@ describe('CallhubPhonebookService', () => {
     expect(result).toBe(42)
   })
 
+  it('lets a numbers_count schema mismatch propagate (not a 502)', async () => {
+    http.get.mockResolvedValue({ unexpected: 'shape' })
+
+    const call = service.getContactCount('3966566468442653936')
+    await expect(call).rejects.not.toBeInstanceOf(BadGatewayException)
+    await expect(call).rejects.toThrow()
+  })
+
   it('maps a CallHub failure to a 502', async () => {
     http.post.mockRejectedValue(axiosError(500))
 

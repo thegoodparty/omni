@@ -53,11 +53,18 @@ export class CallhubPhonebookService {
   // asynchronous with no job id, so callers poll this to know when the load
   // finished.
   async getContactCount(phonebookPkStr: string): Promise<number> {
+    // Parse OUTSIDE the fetch's try/catch so a schema mismatch surfaces as a
+    // ZodError (a permanent failure) rather than being wrapped into the
+    // transient-looking BadGatewayException the import poll retries on.
+    const data = await this.fetchNumbersCount(phonebookPkStr)
+    return PhonebookNumbersCountSchema.parse(data).phonenumber_count
+  }
+
+  private async fetchNumbersCount(phonebookPkStr: string) {
     try {
-      const data = await this.http.get(
+      return await this.http.get(
         `${PHONEBOOKS_PATH}${phonebookPkStr}/numbers_count`,
       )
-      return PhonebookNumbersCountSchema.parse(data).phonenumber_count
     } catch (error) {
       return this.errorHandling.handleApiError({
         error,
