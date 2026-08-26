@@ -111,3 +111,6 @@ src/generated/route-types.ts
 .claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
+
+# built by perf/voter-pack/driverbench.ts (see its AGENTS.md)
+perf/voter-pack/*.cjs
