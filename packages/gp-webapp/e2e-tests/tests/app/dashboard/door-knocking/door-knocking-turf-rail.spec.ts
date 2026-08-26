@@ -51,12 +51,19 @@ test.describe('native door-knocking turf rail', () => {
       page.getByRole('heading', { name: 'Saved lists (1)' }),
     ).toBeVisible()
 
-    // Delete is offered on the row itself, which is where lists get compared —
-    // asserted here, while the rail is the surface on screen, rather than after
-    // the details sheet has covered it.
+    // Delete is reachable from the row, but behind the overflow menu rather than
+    // on the card — it is the only control here that destroys anything, and the
+    // canvas keeps it off the surface. Asserted while the rail is still what is
+    // on screen, rather than after the details sheet has covered it.
+    await row
+      .getByRole('button', { name: `More options for ${name}`, exact: true })
+      .click()
     await expect(
-      row.getByRole('button', { name: `Delete ${name} list`, exact: true }),
+      page.getByRole('menuitem', { name: 'Delete list', exact: true }),
     ).toBeEnabled()
+    // Dismiss without selecting: the item opens a confirmation that would sit
+    // over the Details button this test clicks next.
+    await page.keyboard.press('Escape')
 
     await row.getByRole('button', { name: 'Details', exact: true }).click()
 
@@ -72,8 +79,8 @@ test.describe('native door-knocking turf rail', () => {
     // for a locked list too, so presence alone no longer distinguishes the two.
     await expect(page.getByText('Not knocked yet').first()).toBeVisible()
     // `exact` matters — Playwright's name option is a substring match by
-    // default, and the row's own "Delete <name> list" contains this one, so
-    // without it this locator matches both and fails on strict mode.
+    // default, and the sheet's title is "Delete <name>?", so without it this
+    // locator risks matching more than the button.
     await expect(
       page.getByRole('button', { name: `Delete ${name}`, exact: true }),
     ).toBeEnabled()
