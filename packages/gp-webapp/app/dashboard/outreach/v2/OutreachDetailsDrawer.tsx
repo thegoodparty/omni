@@ -206,18 +206,17 @@ export const OutreachDetailsDrawer = ({
   const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const { errorSnackbar, successSnackbar } = useSnackbar()
+  // Ids ride as mutation variables, never read from `row` in onSuccess:
+  // the confirm dialogs portal outside the vaul drawer, so their clicks
+  // count as outside-interactions that null the row mid-mutation (the
+  // page-refresh-to-see-updates bug).
   const deleteMutation = useMutation({
-    mutationFn: () => {
-      // The AlertDialog renders outside the row guard, so the confirm can
-      // outlive the detail data — never let that send /lists/undefined.
-      const listId = phoneBanking?.listId
-      if (!listId) return Promise.reject(new Error('listId unavailable'))
-      return clientRequest('DELETE /v1/phone-banking/lists/:id', {
+    mutationFn: ({ listId }: { listId: number; rowId: number }) =>
+      clientRequest('DELETE /v1/phone-banking/lists/:id', {
         id: String(listId),
-      })
-    },
-    onSuccess: () => {
-      setOutreaches(outreaches.filter((o) => o.id !== row?.id))
+      }),
+    onSuccess: (_data, { rowId }) => {
+      setOutreaches(outreaches.filter((o) => o.id !== rowId))
       setDeleteConfirmOpen(false)
       onOpenChange(false)
     },
@@ -276,24 +275,17 @@ export const OutreachDetailsDrawer = ({
   const isFreeSms = totalCost <= 0
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const cancelMutation = useMutation({
-    mutationFn: () => {
-      const rowId = row?.id
-      if (!rowId) return Promise.reject(new Error('row unavailable'))
-      return clientRequest('POST /v1/outreach/:id/cancel', {
-        id: String(rowId),
-      })
-    },
-    onSuccess: ({ data }) => {
+    mutationFn: (rowId: number) =>
+      clientRequest('POST /v1/outreach/:id/cancel', { id: String(rowId) }),
+    onSuccess: ({ data }, rowId) => {
       setOutreaches(
         outreaches.map((o) =>
-          o.id === row?.id ? { ...o, status: data.outreach.status } : o,
+          o.id === rowId ? { ...o, status: data.outreach.status } : o,
         ),
       )
-      if (row?.id) {
-        queryClient.invalidateQueries({
-          queryKey: outreachDetailQueryKey(row.id),
-        })
-      }
+      queryClient.invalidateQueries({
+        queryKey: outreachDetailQueryKey(rowId),
+      })
       setCancelConfirmOpen(false)
       onOpenChange(false)
       successSnackbar(
@@ -309,13 +301,10 @@ export const OutreachDetailsDrawer = ({
   const [deleteCanceledConfirmOpen, setDeleteCanceledConfirmOpen] =
     useState(false)
   const deleteCanceledMutation = useMutation({
-    mutationFn: () => {
-      const rowId = row?.id
-      if (!rowId) return Promise.reject(new Error('row unavailable'))
-      return clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) })
-    },
-    onSuccess: () => {
-      setOutreaches(outreaches.filter((o) => o.id !== row?.id))
+    mutationFn: (rowId: number) =>
+      clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
+    onSuccess: (_data, rowId) => {
+      setOutreaches(outreaches.filter((o) => o.id !== rowId))
       setDeleteCanceledConfirmOpen(false)
       onOpenChange(false)
       successSnackbar('Campaign deleted.')
@@ -382,6 +371,15 @@ export const OutreachDetailsDrawer = ({
         // The close lives inside the 608px content column (top right), not
         // on the sheet corner — same anatomy as the flow sheets.
         closeClassName="hidden"
+        onInteractOutside={(event) => {
+          if (
+            cancelConfirmOpen ||
+            deleteConfirmOpen ||
+            deleteCanceledConfirmOpen
+          ) {
+            event.preventDefault()
+          }
+        }}
       >
         <DrawerHandle />
         <DrawerHeader className="sr-only">
@@ -850,7 +848,7 @@ export const OutreachDetailsDrawer = ({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
+              onClick={() => row && cancelMutation.mutate(row.id)}
             >
               Cancel campaign
             </AlertDialogAction>
@@ -872,7 +870,14 @@ export const OutreachDetailsDrawer = ({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteMutation.isPending}
-              onClick={() => deleteMutation.mutate()}
+              onClick={() =>
+                row &&
+                phoneBanking &&
+                deleteMutation.mutate({
+                  listId: phoneBanking.listId,
+                  rowId: row.id,
+                })
+              }
             >
               Delete
             </AlertDialogAction>
@@ -897,7 +902,7 @@ export const OutreachDetailsDrawer = ({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteCanceledMutation.isPending}
-              onClick={() => deleteCanceledMutation.mutate()}
+              onClick={() => row && deleteCanceledMutation.mutate(row.id)}
             >
               Delete
             </AlertDialogAction>
