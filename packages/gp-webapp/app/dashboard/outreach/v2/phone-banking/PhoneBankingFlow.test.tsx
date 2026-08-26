@@ -471,6 +471,49 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('offers the next-batch path even when the reachable count is unavailable', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Huge list' }])
+    mockListDetail(null)
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: { ...createResponse, personCount: 1200, hasMore: true },
+    })
+    openFlow()
+    await advanceToWho()
+
+    // A null reachability leaf disables the picker's Continue, so reach the
+    // download step through the builder path instead — reachableCount stays
+    // null there, which is exactly the non-truncated branch under test.
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
+      ).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+    await screen.findAllByText('Name your list')
+    await user.type(screen.getByLabelText('List name'), 'My audience')
+    mockCreateList(99, 'My audience')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
+    await screen.findAllByText('Write your call script')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/More reachable contacts remain in this list/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/contacts frozen from/)).not.toBeInTheDocument()
+  })
+
   it('shows no reconciliation copy on the download step when the audience was not truncated', async () => {
     mockDraft()
     mockSavedLists([{ id: 3, name: 'Likely Dems' }])

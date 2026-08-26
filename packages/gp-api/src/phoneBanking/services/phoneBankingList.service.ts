@@ -149,9 +149,15 @@ export class PhoneBankingListService extends createPrismaBase(
     // into an earlier batch of this filter makes a re-run pick up where the
     // last one stopped. Scoped per filter, not org-wide — two different
     // lists may legitimately share people.
+    // groupBy, not findMany: batches frozen before continuation shipped can
+    // overlap (that WAS the bug), so one person can hold a row in several
+    // lists of this filter — GROUP BY dedups in the database instead of
+    // shipping every duplicate row up to be Set-deduped in memory. (Prisma's
+    // findMany `distinct` is applied in memory, so it wouldn't help here.)
     const priorBatchPersonIds = new Set(
       (
-        await this.client.phoneBankingListEntryPerson.findMany({
+        await this.client.phoneBankingListEntryPerson.groupBy({
+          by: ['personId'],
           where: {
             entry: {
               list: {
@@ -160,7 +166,6 @@ export class PhoneBankingListService extends createPrismaBase(
               },
             },
           },
-          select: { personId: true },
         })
       ).map((row) => row.personId),
     )
@@ -261,12 +266,11 @@ export class PhoneBankingListService extends createPrismaBase(
       maxEntries,
     } = args
     const grouped = new Map<string, PersonName[]>()
-    // hasMore is claimable only when a usable person was really left out:
-    // one was dropped at the entry cap, or the cap broke the loop on a full
-    // page (unseen pages may hold usable people). An audience that ends
-    // exactly at the cap reports hasMore: false.
+    // hasMore is claimable only when a usable person was actually seen and
+    // dropped at the entry cap. A cap hit exactly at a page boundary may
+    // under-report (unseen pages could still hold usable people), which at
+    // worst skips the next-batch hint — never a spurious one.
     let droppedUsable = false
-    let audienceExhausted = false
     let skippedPriorBatch = false
 
     let page = 1
@@ -318,19 +322,12 @@ export class PhoneBankingListService extends createPrismaBase(
         }
       }
 
-      if (people.length < BUILD_PAGE_SIZE) {
-        audienceExhausted = true
-        break
-      }
       if (grouped.size >= maxEntries) break
+      if (people.length < BUILD_PAGE_SIZE) break
       page += 1
     }
 
-    return {
-      grouped,
-      hasMore: droppedUsable || !audienceExhausted,
-      skippedPriorBatch,
-    }
+    return { grouped, hasMore: droppedUsable, skippedPriorBatch }
   }
 
   private pickDialNumber(
