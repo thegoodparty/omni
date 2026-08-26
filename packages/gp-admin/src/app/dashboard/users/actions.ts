@@ -1,6 +1,7 @@
 'use server'
 
 import { PERMISSIONS } from '@/lib/permissions'
+import { extractApiErrorMessage } from '@/lib/utils/sdkError'
 import { gpAction } from '@/shared/util/gpClient.util'
 import {
   GP_ENVIRONMENT,
@@ -83,19 +84,26 @@ export const getUsersProFlags = async (
   })
 }
 
+// Returns the failure reason instead of throwing: Next redacts messages of
+// errors thrown from server actions in production, so this is the only way
+// the browser can show the API's actual validation error.
 export const updateUser = async (
   id: number,
   input: UpdateUserInput
-): Promise<User> => {
+): Promise<{ user: User } | { error: string }> => {
   const { has } = await auth()
   if (!has({ permission: PERMISSIONS.WRITE_USERS })) {
     throw new Error('Missing write_users permission')
   }
-  return gpAction(async (client) => {
-    const user = await client.users.update(id, input)
-    revalidatePath(`/dashboard/users/${id}`, 'layout')
-    return user
-  })
+  try {
+    return await gpAction(async (client) => {
+      const user = await client.users.update(id, input)
+      revalidatePath(`/dashboard/users/${id}`, 'layout')
+      return { user }
+    })
+  } catch (error) {
+    return { error: extractApiErrorMessage(error, 'Failed to save changes') }
+  }
 }
 
 export const createImpersonationToken = async (targetUserId: number) => {
