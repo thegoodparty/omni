@@ -46,17 +46,31 @@ describe('updateCampaignBodySchema', () => {
   })
 
   it.each(['on-ballot', 'qualified-not-filed', 'considering', 'testing'])(
-    'persists onboarding ballotStatus "%s"',
+    'accepts the top-level ballotStatus "%s"',
     (ballotStatus) => {
-      const result = updateCampaignBodySchema.parse({
-        details: { ballotStatus },
-      })
+      const result = updateCampaignBodySchema.parse({ ballotStatus })
 
-      expect(result.details).toHaveProperty('ballotStatus', ballotStatus)
+      expect(result).toHaveProperty('ballotStatus', ballotStatus)
     },
   )
 
-  it('rejects an unknown ballotStatus', () => {
+  it('rejects an unknown top-level ballotStatus', () => {
+    expect(() =>
+      updateCampaignBodySchema.parse({ ballotStatus: 'maybe' }),
+    ).toThrow()
+  })
+
+  // The details key is deprecated but still accepted, so a frontend from
+  // before the column cutover isn't silently dropped mid-deploy.
+  it('still accepts the deprecated details.ballotStatus', () => {
+    const result = updateCampaignBodySchema.parse({
+      details: { ballotStatus: 'considering' },
+    })
+
+    expect(result.details).toHaveProperty('ballotStatus', 'considering')
+  })
+
+  it('rejects an unknown details.ballotStatus', () => {
     expect(() =>
       updateCampaignBodySchema.parse({ details: { ballotStatus: 'maybe' } }),
     ).toThrow()
