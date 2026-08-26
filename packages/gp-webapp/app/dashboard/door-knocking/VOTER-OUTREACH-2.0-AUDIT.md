@@ -7,7 +7,12 @@ difference, what the canvas does, what we do, and which of three piles it falls
 in.
 
 - **Fixed in this PR** — the canvas had it, we had drifted or never built it,
-  and adopting it was unambiguous. 6 items.
+  and adopting it was unambiguous. 7 items, the last of them added on 2026-08-26
+  after the door panel and the canvas panel were photographed side by side. It
+  is worth saying why that item was not in the first six: reading the prototype
+  source finds missing fields and wrong words, and this audit found plenty of
+  both. It does not find a card that has the right fields in the wrong
+  container. Compare renders, not markup.
 - **Deliberate, and still right** — we depart on purpose, the reasoning is on
   record, and I re-checked that it still holds. 18 items, of which **one has
   since been overturned**: item 14, the walk's single-colour progress bar, which
@@ -16,19 +21,20 @@ in.
   the reason it lost, because a departure that the person who owns the surface
   reads as a bug is the useful thing to have written down.
 - **Needs a product answer** — a real difference that is somebody's decision,
-  not an engineer's. 8 items, of which **three have since been answered and
+  not an engineer's. 8 items, of which **four have since been answered and
   built**: item 4, the drawer's breakdown of how the walk went, which overturned
-  the recorded ruling against it; and items 3 and 5, the confirm step's map band
-  and which of its two save buttons leads, both shipped in #1438. They are left
-  in place with the arguments that settled them rather than moved, because the
-  decision is the useful part.
+  the recorded ruling against it; items 3 and 5, the confirm step's map band and
+  which of its two save buttons leads, both shipped in #1438; and item 6, the
+  panel's "Voter support" card, built as a stance-or-silence card with its
+  will-vote half still open. They are left in place with the arguments that
+  settled them rather than moved, because the decision is the useful part.
 - **Deferred, with a named precondition** — right to build, wrong to build now,
   and the thing that has to change is written down. 1 item, under _Empty,
   loading, error and first-run states_: the canvas opens the create flow by
   itself for a candidate with no lists, and we will once
   `GET /v1/door-knocking/pack` is fast enough to open a flow on.
 
-**33 differences total.** The build is close to the canvas. Most of what looks
+**34 differences total.** The build is close to the canvas. Most of what looks
 missing is either the "three quantities" problem the previous review describes
 (a stop, a door and a person are different things live, and the prototype's data
 made them identical) or a deliberate correction of something the canvas itself
@@ -125,7 +131,44 @@ knocked, **In progress** once it has a route, **Done**, **Archived**. (Archived
 is ours — the canvas has no shelf, and "Done" would be a lie about a list the
 rail has taken off the active section.)
 
-### 6. Two small copy items
+### 6. The door panel's card stack was one card where the canvas has three
+
+Found on 2026-08-26 by photographing both panels rather than reading either
+file, which is why an audit written from the source missed it: every card we
+drew existed, every field was present and correctly worded, and the panel still
+did not look like the canvas.
+
+The canvas's `renderPanel` (lines 5404–5427) draws four cards in order under the
+header — **Household**, **Voter demographics** (registered voter, voter status,
+political party), **Voter support**, **Demographic information** (marital
+status, has children under 18, veteran status, homeowner, business owner, level
+of education, estimated income range, language, ethnicity group) — and every one
+of them is a single column of `panelField` rows, label over value, both at 14px.
+
+Ours merged the first and last of those three profile cards into a single
+"Demographic information" card laid out as a **two-column grid**, put Household
+_after_ it, and pinned the support card in the footer. The effect is that
+"Registered voter" sat in the cell beside "Marital status": a voter-file fact
+about whether this person can vote at all, and a modelled guess about their
+household, reading as two entries in one list. The card boundary is the claim,
+and we had erased it.
+
+Fixed: three cards in the canvas's order and Household above them, all single
+column. Three labels still depart on purpose ("Turnout likelihood", "Has
+children under 18", "Estimated household income" — see AGENTS.md), and two that
+had drifted for no reason are back to the canvas's words ("Veteran status",
+"Ethnicity group"). Political party moved out of the header subtitle into the
+Voter demographics card, which is where the canvas has it; our header now reads
+"47 years old" alone, as the canvas's does.
+
+Two smaller things the same comparison turned up, both left alone and both
+recorded in AGENTS.md rather than fixed here: the canvas draws talking points as
+the first card in the body where we pin the script in the footer (a real
+judgement call, and ours has an argument), and the canvas's footer begins
+directly with "Did they answer?" where ours adds a "Log this door" heading
+(ours, redundant, and removable only as a rename across two other test suites).
+
+### 7. Two small copy items
 
 - "Move to Archive" → **"Move to archive"**, on the rail card and in the drawer,
   matching the canvas's sentence case.
@@ -280,7 +323,7 @@ flipped: the pair is `outline` and not `secondary`, because the styleguide's
 secondary is a filled tonal button — two filled buttons side by side weigh the
 same, and leading with one of them would then say nothing at all.
 
-### 6. The panel's "Voter support" card
+### 6. The panel's "Voter support" card — **answered and built, with one half still open**
 
 The canvas panel carries a card stating the resident's current support level and
 whether they will vote. We ask both questions in the knock form and store both
@@ -290,6 +333,16 @@ more honest presentation (an answer given in June and an answer given in October
 are different things), but the canvas's is a real difference and it is the same
 family of question as the previous review's still-open item on how much of the
 voter file a canvasser should see before knocking.
+
+**Built.** The card states a support stance and the month it was given, and it
+is deliberately **silent** where the canvas prints "Not logged" — the honesty
+concern above is what the silence answers, not something the card overrode. It
+now sits in the body between the two profile cards, where the canvas draws it;
+it first shipped pinned in the footer, and the reasoning for both positions is
+in AGENTS.md. **The will-vote line is still not built**, because nothing derives
+that answer into a current value the way support becomes `knockStatus` — the
+door has an answer in the CRM and no fact to state. Closing it is a decision
+about where the derivation lives, and phone banking has the same hole.
 
 ### 7. The page has no AI bar
 
