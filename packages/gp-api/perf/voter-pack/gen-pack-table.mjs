@@ -9,7 +9,9 @@ import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 
 const ROWS = Number(process.env.ROWS ?? 300_000)
-const URL =
+// Not named URL: that would shadow the global URL constructor, which the
+// localhost guard in main() needs.
+const PG_URL =
   process.env.PGURL ?? 'postgres://postgres:pw@localhost:5599/peopledb'
 
 let seed = 0x9e3779b9
@@ -295,7 +297,18 @@ function* voterRows(district) {
 }
 
 const main = async () => {
-  const client = new Client({ connectionString: URL })
+  // The DDL below drops and recreates `green`, which on the real people-db
+  // mirror is the production voter schema. A PGURL left over from a VPN
+  // session would destroy it, so refuse anything that is not plainly local.
+  const { hostname } = new URL(PG_URL)
+  if (!['localhost', '127.0.0.1', '::1'].includes(hostname)) {
+    throw new Error(
+      `refusing to run against "${hostname}": this script drops the green ` +
+        'schema. Point PGURL at a local Postgres.',
+    )
+  }
+
+  const client = new Client({ connectionString: PG_URL })
   await client.connect()
   console.log(`creating schema, ${ROWS.toLocaleString()} rows`)
   await client.query(DDL)
