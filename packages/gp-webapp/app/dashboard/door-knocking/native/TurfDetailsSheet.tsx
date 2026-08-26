@@ -43,7 +43,10 @@ import {
 } from './turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from './walkEstimate'
 import { estimateTravelSeconds } from './travelMode'
-import { unpreviewableDisclosureLabels } from './createFlow/voterFilterPreview'
+import {
+  unpreviewableDisclosureLabels,
+  unpreviewableDisclosureSentence,
+} from './createFlow/voterFilterPreview'
 import type { DimSlice, PolygonStats } from './filterEngine'
 import { ageBucketLabel, routeAudienceMix } from './audienceMix'
 import DeleteTurfControl, { LOCKED_TURF_MESSAGE } from './DeleteTurfControl'
@@ -429,7 +432,9 @@ export default function TurfDetailsSheet({
   // "about" belongs to the pre-route branch only.
   const approximate = (count: number) =>
     liveTurf.locked ? count.toLocaleString() : `About ${count.toLocaleString()}`
-  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
+  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
+    unpreviewableDisclosureLabels(unpreviewableKeys),
+  )
   // Only the pre-route counts are the pack's, and only a settled count can be
   // qualified — a skeleton and an 'Unavailable' have nothing to be about.
   const discloseApproximation =
@@ -813,19 +818,17 @@ export default function TurfDetailsSheet({
               the worse misunderstanding. */}
           {discloseApproximation && (
             <p className="text-xs text-muted-foreground">
-              About, because the map can&rsquo;t show every filter this list
-              applies, and knocking also skips anyone marked do-not-knock or
-              &ldquo;not a voter&rdquo; — so you&rsquo;ll walk fewer doors than
-              this.
+              &ldquo;About,&rdquo; because the map can&rsquo;t show every filter
+              this list applies, and knocking also skips anyone marked
+              do-not-knock or &ldquo;not a voter&rdquo; — so you&rsquo;ll walk
+              fewer doors than this.
             </p>
           )}
           {/* The draw step's own sentence, from the same helper, so the
               filter isn't named one way while drawing and another here. */}
-          {discloseApproximation && unpreviewableLabels.length > 0 && (
+          {discloseApproximation && unpreviewableDisclosure && (
             <p className="text-xs text-muted-foreground">
-              The map can&rsquo;t shade by {unpreviewableLabels.join(', ')} yet,
-              so these counts include people that filter will exclude. Your
-              saved list still applies it when you knock.
+              {unpreviewableDisclosure}
             </p>
           )}
         </DetailsSection>

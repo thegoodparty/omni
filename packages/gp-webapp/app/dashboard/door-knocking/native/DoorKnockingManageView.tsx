@@ -6,6 +6,7 @@ import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import { turfsQueryOptions } from './turfQueries'
 import TurfList from './TurfList'
 import TurfLegend from './TurfLegend'
+import { unpreviewableDisclosureSentence } from './createFlow/voterFilterPreview'
 
 // The audience the map is shading, resolved once by the orchestrator so the
 // heading, the count line, the legend chips and the dots cannot each guess at
@@ -103,6 +104,9 @@ export default function DoorKnockingManageView({
   const savedListCount = (turfsQuery.data ?? []).filter(
     (turf) => !turf.archivedAt,
   ).length
+  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
+    scope.unpreviewableLabels,
+  )
 
   return (
     // The map is full-bleed at every width and the rail floats over it — the
@@ -220,24 +224,19 @@ export default function DoorKnockingManageView({
                 silently failing and is the worse misunderstanding. */}
             {scope.turf && scope.ready && (
               <p className="text-xs text-muted-foreground">
-                About, because the map can&rsquo;t show every filter this list
-                applies, and knocking also skips anyone marked do-not-knock or
-                &ldquo;not a voter&rdquo; — so you&rsquo;ll walk fewer doors
-                than this.
+                &ldquo;About,&rdquo; because the map can&rsquo;t show every
+                filter this list applies, and knocking also skips anyone marked
+                do-not-knock or &ldquo;not a voter&rdquo; — so you&rsquo;ll walk
+                fewer doors than this.
               </p>
             )}
             {/* The draw step's own sentence, from the same helper, so the
                 filter isn't named one way while drawing and another here. */}
-            {scope.turf &&
-              scope.ready &&
-              scope.unpreviewableLabels.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  The map can&rsquo;t shade by{' '}
-                  {scope.unpreviewableLabels.join(', ')} yet, so these counts
-                  include people that filter will exclude. Your saved list still
-                  applies it when you knock.
-                </p>
-              )}
+            {scope.turf && scope.ready && unpreviewableDisclosure && (
+              <p className="text-xs text-muted-foreground">
+                {unpreviewableDisclosure}
+              </p>
+            )}
           </div>
           <TurfLegend
             statusCounts={statusCounts}

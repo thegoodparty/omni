@@ -194,6 +194,44 @@ export const unpreviewableDisclosureLabels = (keys: string[]): string[] => [
   ),
 ]
 
+// "A", "A or B", "A, B, or C". The clause this feeds is negated — the map can
+// shade by none of them — so English wants "or" rather than "and", and the
+// comma before the final "or" is the thing that stops a three-item list from
+// reading as one long filter name.
+const joinWithOr = (labels: string[]): string => {
+  if (labels.length <= 1) return labels[0] ?? ''
+  if (labels.length === 2) return `${labels[0]} or ${labels[1]}`
+  return `${labels.slice(0, -1).join(', ')}, or ${labels[labels.length - 1]}`
+}
+
+// The one wording of the disclosure, for the three surfaces that carry it (the
+// draw step, the landing rail and the details sheet). It was assembled inline
+// at each of them from `labels.join(', ')` around a sentence written for
+// exactly one filter, which two selections turned into "The map can't shade by
+// 65+, Prior contacts made yet, so these counts include people that filter
+// will exclude" — a comma list a reader parses as a typo, a trailing "yet"
+// that glues itself to the last label ("Prior contacts made yet"), and then a
+// singular "that filter" / "it" for a plural subject. All three failures are
+// properties of the sentence rather than of any one surface, so the sentence
+// lives here with the labels it is about.
+//
+// What it must keep saying is in AGENTS.md and ADR 0010: the map can't SHOW
+// the filter, and the list still applies it at knock time. Never that the
+// filter isn't applied — a candidate who reads that concludes their targeting
+// is silently failing, which is the worse misunderstanding.
+export const unpreviewableDisclosureSentence = (
+  labels: string[],
+): string | null => {
+  if (labels.length === 0) return null
+  const plural = labels.length > 1
+  return (
+    `The map can’t yet shade by ${joinWithOr(labels)}, so these counts ` +
+    `include people ${plural ? 'those filters' : 'that filter'} will ` +
+    `exclude. Your saved list still applies ${plural ? 'them' : 'it'} when ` +
+    `you knock.`
+  )
+}
+
 // Builds the pack filter selection previewing a saved-list filter draft: for
 // each dim with at least one selected option, allow exactly the selected
 // buckets; dims untouched by the draft stay fully allowed.
