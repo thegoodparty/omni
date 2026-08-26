@@ -13,6 +13,7 @@ import {
 } from '@goodparty_org/contracts'
 import { Campaign, Prisma } from '../../../generated/prisma'
 import { CHANNEL_TO_FLOW_TYPE } from '../campaignTracker.consts'
+import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 
 // Resolve a catalog task's structured timing to a concrete date. The column is
 // NOT NULL, so undated kinds (jurisdiction/recurring/perItem) anchor to `start`
@@ -74,17 +75,6 @@ const toRow = (
   }
 }
 
-// Onboarding's "Are you already on the ballot?" answer. Read it the same way
-// the campaign manager does: onboarding writes it to details.ballotStatus AND
-// to the whole-answers snapshot, and campaigns that answered before the update
-// schema let details.ballotStatus through only have the snapshot copy.
-export const resolveBallotStatus = (
-  campaign: Pick<Campaign, 'details' | 'data'>,
-): PrismaJson.CampaignDetails['ballotStatus'] | null =>
-  campaign.details?.ballotStatus ??
-  campaign.data?.onboarding?.ballotStatus ??
-  null
-
 // Ballot access is only work for a candidate who has not filed yet.
 // 'on-ballot' is the one answer that affirmatively means those steps are done,
 // so it is the only one that drops them; 'testing' and a missing answer keep
@@ -92,8 +82,8 @@ export const resolveBallotStatus = (
 // silently dropping a filing deadline is unrecoverable while an extra
 // pre-launch task is one they can check off.
 export const needsBallotAccessTasks = (
-  campaign: Pick<Campaign, 'details' | 'data'>,
-): boolean => resolveBallotStatus(campaign) !== 'on-ballot'
+  campaign: Pick<Campaign, 'ballotStatus'>,
+): boolean => parseBallotStatus(campaign.ballotStatus) !== 'on-ballot'
 
 // Tracker rows carry no catalog id, so the titles are the only handle the
 // reconcile has on the ballot-access rows — derive them from the catalog so
@@ -124,7 +114,8 @@ export const buildBallotAccessTrackerTaskRows = (
   electionDate: Date | null,
 ): Prisma.CampaignTrackerTaskCreateManyInput[] =>
   CAMPAIGN_TASK_CATALOG.filter(
-    (task) => task.category === BALLOT_ACCESS_CATEGORY,
+    (task) =>
+      task.type === 'static' && task.category === BALLOT_ACCESS_CATEGORY,
   ).map((task) => toRow(campaignId, start, electionDate, task))
 
 // Build the 7 deterministic outreach rows (the plan contact schedule). Returns

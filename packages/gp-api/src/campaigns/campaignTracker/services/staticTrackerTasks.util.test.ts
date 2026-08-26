@@ -11,7 +11,6 @@ import {
   buildOutreachTrackerTaskRows,
   buildStaticTrackerTaskRows,
   needsBallotAccessTasks,
-  resolveBallotStatus,
 } from './staticTrackerTasks.util'
 
 describe('buildStaticTrackerTaskRows', () => {
@@ -78,11 +77,8 @@ describe('buildBallotAccessTrackerTaskRows', () => {
   })
 })
 
-describe('resolveBallotStatus / needsBallotAccessTasks', () => {
-  const campaign = (
-    details: Record<string, unknown>,
-    data: Record<string, unknown> = {},
-  ) => ({ details, data }) as never
+describe('needsBallotAccessTasks', () => {
+  const campaign = (ballotStatus: string | null) => ({ ballotStatus }) as never
 
   it.each([
     ['on-ballot', false],
@@ -92,30 +88,18 @@ describe('resolveBallotStatus / needsBallotAccessTasks', () => {
     // phase is what they are evaluating, so they still see the real path.
     ['testing', true],
   ] as const)('%s -> needs ballot access: %s', (ballotStatus, expected) => {
-    const c = campaign({ ballotStatus })
-    expect(resolveBallotStatus(c)).toBe(ballotStatus)
-    expect(needsBallotAccessTasks(c)).toBe(expected)
+    expect(needsBallotAccessTasks(campaign(ballotStatus))).toBe(expected)
   })
 
   it('keeps ballot access when the answer is absent', () => {
-    const c = campaign({})
-    expect(resolveBallotStatus(c)).toBeNull()
-    expect(needsBallotAccessTasks(c)).toBe(true)
+    expect(needsBallotAccessTasks(campaign(null))).toBe(true)
   })
 
-  it('falls back to the data.onboarding copy of the answer', () => {
-    const c = campaign({}, { onboarding: { ballotStatus: 'on-ballot' } })
-    expect(resolveBallotStatus(c)).toBe('on-ballot')
-    expect(needsBallotAccessTasks(c)).toBe(false)
-  })
-
-  it('prefers details.ballotStatus over the onboarding snapshot', () => {
-    const c = campaign(
-      { ballotStatus: 'qualified-not-filed' },
-      { onboarding: { ballotStatus: 'on-ballot' } },
-    )
-    expect(resolveBallotStatus(c)).toBe('qualified-not-filed')
-    expect(needsBallotAccessTasks(c)).toBe(true)
+  // The column is a plain String?, so an unrecognised value is possible. It
+  // must read as unanswered: dropping a filing deadline on the strength of a
+  // value we cannot interpret is the one unrecoverable outcome here.
+  it('treats an unrecognised value as unanswered', () => {
+    expect(needsBallotAccessTasks(campaign('maybe'))).toBe(true)
   })
 })
 

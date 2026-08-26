@@ -11,7 +11,7 @@ overview: `docs/features/campaign-tracker-v3.md`.
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                                                   |
 | `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                                            |
-| `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`resolveBallotStatus` / `needsBallotAccessTasks`). |
+| `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`needsBallotAccessTasks`). |
 | `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + `POST generate` (non-prod manual override).                                                                                                                |
 | `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                                             |
 | `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                                            |
@@ -48,10 +48,9 @@ overview: `docs/features/campaign-tracker-v3.md`.
   materialization for a candidate who answered onboarding's "Are you already on
   the ballot?" with `on-ballot`. Every other answer keeps it, including `testing`
   and a missing answer — an absent answer is not evidence they filed, and a
-  missed filing window can't be undone. The answer is read via
-  `resolveBallotStatus`, which falls back from `details.ballotStatus` to the
-  `data.onboarding` snapshot (campaigns that onboarded before the update schema
-  allowed the first through only have the second). Because static rows
+  missed filing window can't be undone. The answer is read off the
+  `campaign.ballotStatus` column via `parseBallotStatus`, so an unrecognised
+  value also reads as unanswered. Because static rows
   materialize once, `reconcileBallotAccessTasks` re-reads the _current_ answer on
   every generation (bootstrap, weekly cron, manual) and adds or deletes those
   rows to match, under the same advisory lock as `materializeStaticTasks`. These

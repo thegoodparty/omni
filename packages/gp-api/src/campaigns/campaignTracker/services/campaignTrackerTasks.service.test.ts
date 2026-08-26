@@ -180,7 +180,7 @@ describe('CampaignTrackerTasksService.materializeStaticTasks', () => {
 
   it('omits the ballot-access rows for a candidate already on the ballot', async () => {
     await h.service.materializeStaticTasks(
-      campaign({ details: { ballotStatus: 'on-ballot' } }),
+      campaign({ ballotStatus: 'on-ballot' }),
     )
     const titles = titlesFromFirstCreateMany()
     for (const title of BALLOT_ACCESS_TASK_TITLES) {
@@ -189,7 +189,7 @@ describe('CampaignTrackerTasksService.materializeStaticTasks', () => {
   })
 
   it('includes the ballot-access rows when no answer was ever given', async () => {
-    await h.service.materializeStaticTasks(campaign({ details: {}, data: {} }))
+    await h.service.materializeStaticTasks(campaign({ ballotStatus: null }))
     const titles = titlesFromFirstCreateMany()
     for (const title of BALLOT_ACCESS_TASK_TITLES) {
       expect(titles).toContain(title)
@@ -206,13 +206,8 @@ describe('CampaignTrackerTasksService.reconcileBallotAccessTasks', () => {
     h.prisma.campaignTrackerTask.count.mockResolvedValue(31)
   })
 
-  const withStatus = (ballotStatus: string | null, legacy = false) =>
-    campaign({
-      details: legacy
-        ? { raceId: 'race-abc' }
-        : { raceId: 'race-abc', ...(ballotStatus ? { ballotStatus } : {}) },
-      data: legacy && ballotStatus ? { onboarding: { ballotStatus } } : {},
-    })
+  const withStatus = (ballotStatus: string | null) =>
+    campaign({ details: { raceId: 'race-abc' }, ballotStatus })
 
   it('removes the ballot-access rows once the candidate is on the ballot', async () => {
     await h.service.reconcileBallotAccessTasks(withStatus('on-ballot'))
@@ -239,12 +234,6 @@ describe('CampaignTrackerTasksService.reconcileBallotAccessTasks', () => {
       )
     },
   )
-
-  it('reads the data.onboarding copy when details has no answer', async () => {
-    await h.service.reconcileBallotAccessTasks(withStatus('on-ballot', true))
-    expect(h.prisma.campaignTrackerTask.deleteMany).toHaveBeenCalled()
-    expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
-  })
 
   it('adds only the rows that are missing', async () => {
     h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce([
