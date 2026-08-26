@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   PhoneBankCallOutcome,
   SupportAnswer,
@@ -48,7 +48,7 @@ import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
-import { useOutreachDetail } from './useOutreachDetail'
+import { outreachDetailQueryKey, useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 import {
@@ -137,9 +137,11 @@ export const OutreachDetailsDrawer = ({
   const detailQuery = useOutreachDetail(row?.id ?? null, row !== null)
   const social = detailQuery.data?.social
   const phoneBanking = detailQuery.data?.phoneBanking
+  const doorKnocking = detailQuery.data?.doorKnocking
   const isCompleted = row?.status === 'completed'
 
   const [outreaches, setOutreaches] = useOutreach()
+  const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const { errorSnackbar } = useSnackbar()
   const deleteMutation = useMutation({
@@ -161,11 +163,34 @@ export const OutreachDetailsDrawer = ({
       errorSnackbar("Couldn't delete this list. Please try again."),
   })
 
-  const isArchived = Boolean(row?.archivedAt)
+  // The envelope's flag for every channel that owns its own archive, and the
+  // TURF's for a walk. They are one act with two rows, and the turf is the
+  // source the envelope is mirrored off — so a list archived before that
+  // mirror shipped has an envelope still reading active, and trusting the
+  // projection here would draw "Move to archive" on a list already on the
+  // shelf. The repair is pressing the button, which is why reading the source
+  // and writing through the turf go together.
+  const isArchived = Boolean(
+    isDoorKnocking ? doorKnocking?.archivedAt : row?.archivedAt,
+  )
   const archiveMutation = useMutation({
     mutationFn: () => {
       const rowId = row?.id
       if (!rowId) return Promise.reject(new Error('row unavailable'))
+      // Door knocking archives through the TURF's endpoint, never this row's.
+      // `DoorKnockingTurfService.setArchived` moves both rows in one
+      // transaction; `OutreachService.setArchived` can only reach the
+      // envelope, and a second writer that reaches one of two flags is exactly
+      // how they drift apart. So this drawer gained the button by gaining the
+      // turf id, not by gaining a write of its own.
+      if (isDoorKnocking) {
+        const turfId = doorKnocking?.turfId
+        if (!turfId) return Promise.reject(new Error('turfId unavailable'))
+        return clientRequest('POST /v1/door-knocking/turfs/:id/archive', {
+          id: String(turfId),
+          archived: !isArchived,
+        })
+      }
       return clientRequest('PATCH /v1/outreach/:id/archive', {
         id: String(rowId),
         archived: !isArchived,
@@ -177,6 +202,12 @@ export const OutreachDetailsDrawer = ({
           o.id === row?.id ? { ...o, archivedAt: data.archivedAt } : o,
         ),
       )
+      // The detail carries the turf's own `archivedAt`, so a stale cache entry
+      // would reopen the drawer on the pre-archive answer. Both channels
+      // invalidate: the envelope's flag rides the detail too.
+      queryClient.invalidateQueries({
+        queryKey: outreachDetailQueryKey(row?.id ?? -1),
+      })
       onOpenChange(false)
     },
     onError: () =>
@@ -221,9 +252,9 @@ export const OutreachDetailsDrawer = ({
       ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
       : null
     : // The walk is resumed from the door-knocking surface, which opens on the
-      // rail of saved lists. No deeper link exists to offer: this row carries
-      // `doorKnockingRouteId`, and nothing maps a route back to the turf whose
-      // id the map would need to focus on.
+      // rail of saved lists. The turf id is now on the detail, so the blocker
+      // is no longer identifying the list — it is that the door-knocking page
+      // reads no such param, so a deeper link would land on the rail anyway.
       '/dashboard/door-knocking'
 
   return (
@@ -311,15 +342,18 @@ export const OutreachDetailsDrawer = ({
                       : null
               }
               secondary={
-                // Archive applies to every finished row the history's Archive
-                // toggle can hide — except a door-knocking one, whose archive
-                // is the LIST's and belongs to the door-knocking surface. This
-                // row is the campaign-reporting projection of that list, and a
-                // second writer that could only reach the projection is exactly
-                // how the two `archivedAt` columns drift apart. See the note
-                // below and `door-knocking/native/turfLifecycle.ts`.
+                // Archive now applies to every finished row the history's
+                // Archive toggle can hide, door knocking included. What used to
+                // block it was reach, not policy: this row is the projection of
+                // a saved list, and until the detail carried the turf's id
+                // there was no way to write the source from here. It has one
+                // now, so the button calls the turf's endpoint (see the
+                // mutation) — one writer, both rows, still. Door knocking waits
+                // for the detail: without the turf id there is nothing to
+                // archive, and a button that resolves to a rejected mutation is
+                // worse than one that arrives a beat late.
                 footerMode === 'done' &&
-                !isDoorKnocking && (
+                (!isDoorKnocking || Boolean(doorKnocking)) && (
                   <Button
                     variant="outline"
                     className="w-full"
@@ -332,9 +366,14 @@ export const OutreachDetailsDrawer = ({
                 )
               }
               note={
+                // The turf is still the object, and the rail is still where a
+                // walk is managed — so the line stays, saying where this act
+                // also shows up rather than sending the candidate away to
+                // perform it.
                 footerMode === 'done' &&
                 isDoorKnocking &&
-                'Archive this from Door knocking, so the list and this record stay in step.'
+                Boolean(doorKnocking) &&
+                'This archives the saved list too, so Door knocking and this record stay in step.'
               }
             />
           )
@@ -390,7 +429,38 @@ export const OutreachDetailsDrawer = ({
                         : '—'
                     }
                   />
-                ) : isDoorKnocking ? null : (
+                ) : isDoorKnocking ? (
+                  // Doors and people are two figures on a walk, not one: a
+                  // multi-unit building is one stop and many doors, and its
+                  // residents are more people again. Both are the frozen
+                  // route's, from the same aggregate the door-knocking rail
+                  // reads — printing a second derivation of either is the
+                  // two-denominator failure this feature has a rule against.
+                  //
+                  // A walk whose list is gone renders neither cell rather than
+                  // two em-dashes, which is the rule this drawer already
+                  // followed when it had no block at all: the sentence below
+                  // says what happened, and a cell that can only say "—" adds
+                  // nothing to it.
+                  (doorKnocking || detailQuery.isLoading) && (
+                    <>
+                      <Metric
+                        icon={<DoorOpenIcon />}
+                        label="Doors"
+                        pending={detailQuery.isLoading}
+                        value={doorKnocking?.doorCount.toLocaleString() ?? '—'}
+                      />
+                      <Metric
+                        icon={<UsersRoundIcon />}
+                        label="People"
+                        pending={detailQuery.isLoading}
+                        value={
+                          doorKnocking?.peopleCount.toLocaleString() ?? '—'
+                        }
+                      />
+                    </>
+                  )
+                ) : (
                   <Metric
                     icon={<UsersRoundIcon />}
                     label="People"
@@ -407,16 +477,15 @@ export const OutreachDetailsDrawer = ({
                   />
                 )}
               </MetricGrid>
-              {/* Door knocking's figures are the frozen route's — doors,
-                  knockable people, how many have been logged — and this
-                  envelope holds none of them, only the route's id. Rather than
-                  print a People cell that can only ever say "—", the drawer
-                  says where the numbers live; the footer's "Continue knocking"
-                  is the way there. */}
-              {isDoorKnocking && (
+              {/* The detail resolves to no block when the saved list behind
+                  this walk has been deleted: the envelope and its paid route
+                  survive a tombstone, the list does not. So this is the old
+                  id-only rendering, kept for the one case that still has
+                  nothing to report — never for a walk whose list is intact. */}
+              {isDoorKnocking && !doorKnocking && !detailQuery.isLoading && (
                 <p className="text-sm text-muted-foreground">
-                  Doors, people and knocking progress for this walk are on the
-                  list itself, in Door knocking.
+                  This walk&apos;s saved list is no longer available, so its
+                  doors and knocking progress can&apos;t be shown.
                 </p>
               )}
             </DetailsSection>
@@ -466,6 +535,76 @@ export const OutreachDetailsDrawer = ({
                 We couldn&apos;t load this campaign&apos;s call progress. Close
                 and try again.
               </p>
+            )}
+
+            {isDoorKnocking && detailQuery.isLoading && (
+              <StatusText
+                tone="muted"
+                icon={<Loader2Icon />}
+                spinning
+                className="text-sm"
+              >
+                Loading knocking progress…
+              </StatusText>
+            )}
+            {isDoorKnocking && detailQuery.isError && (
+              <p className="text-sm text-muted-foreground">
+                We couldn&apos;t load this walk&apos;s knocking progress. Close
+                and try again.
+              </p>
+            )}
+
+            {/* Unlike phone banking's, this section does not give way to a
+                Results table on a finished row: door knocking has no outcomes
+                surface here (ADR 0012), and a walk is routinely ended with
+                doors left unlogged — so how much of the list was covered is
+                the answer on a done walk too, not only on a live one. */}
+            {isDoorKnocking && doorKnocking && (
+              <DetailsSection title="Progress">
+                <Card className="gap-3 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    {/* "Logged" and never "reached", the same word the walk
+                        and the list's own drawer use: not-home, inaccessible
+                        and refused all count here and none is a conversation.
+                        Both halves are the knockable people — the flagged
+                        residents are out of both — so the ratio never mixes
+                        two populations. */}
+                    <span className="text-sm text-muted-foreground">
+                      {doorKnocking.loggedCount.toLocaleString()} of{' '}
+                      {doorKnocking.peopleCount.toLocaleString()} people logged
+                    </span>
+                    <span className="text-sm font-medium text-foreground">
+                      {percentLabel(
+                        doorKnocking.loggedCount,
+                        doorKnocking.peopleCount,
+                      )}
+                    </span>
+                  </div>
+                  <Progress
+                    value={
+                      doorKnocking.peopleCount > 0
+                        ? (doorKnocking.loggedCount /
+                            doorKnocking.peopleCount) *
+                          100
+                        : 0
+                    }
+                  />
+                  <MetricGrid>
+                    <Metric
+                      icon={<CheckCircleIcon />}
+                      label="Logged"
+                      value={doorKnocking.loggedCount.toLocaleString()}
+                    />
+                    <Metric
+                      icon={<ClockIcon />}
+                      label="Remaining"
+                      value={(
+                        doorKnocking.peopleCount - doorKnocking.loggedCount
+                      ).toLocaleString()}
+                    />
+                  </MetricGrid>
+                </Card>
+              </DetailsSection>
             )}
 
             {isPhoneBanking && phoneBanking && !isCompleted && (

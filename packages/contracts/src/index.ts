@@ -875,6 +875,8 @@ export {
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,
   type DoorKnockingTurf,
+  DoorKnockingOutreachDetailSchema,
+  type DoorKnockingOutreachDetail,
   DoorKnockingArchiveRequestSchema,
   type DoorKnockingArchiveRequest,
   DoorKnockingKnockRequestSchema,

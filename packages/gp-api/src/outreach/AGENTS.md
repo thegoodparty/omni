@@ -117,11 +117,21 @@ never send `pending_payment` themselves.
   no-op. Restore clears both. **The turf is the source and this is the
   projection**, so the mirror writes the turf's timestamp rather than its own
   `now`, and it runs BEFORE that method's idempotence guard so a list archived
-  before the mirror shipped can be repaired by pressing Archive again. Nothing
-  writes `Outreach.archivedAt` for a door-knocking row from the history side —
-  the envelope carries the route id but nothing maps a route id back to its
-  turf, which is why the history drawer offers no archive on a door-knocking
-  row. See `docs/door-knocking.md`.
+  before the mirror shipped can be repaired by pressing Archive again.
+  `DoorKnockingTurfService.setArchived` is still the ONLY writer of the pair:
+  the history drawer now offers Archive on a door-knocking row, but that button
+  calls the turf's endpoint, not `OutreachService.setArchived`, which can reach
+  the envelope alone. See `docs/door-knocking.md`.
+- **`OutreachDetail.doorKnocking` is the door-knocking satellite block**, the
+  sibling of `phoneBanking`, filled by `OutreachSocialService.findDetail` for a
+  `nativeDoorKnocking` row. It needed no column: the envelope's
+  `doorKnockingRouteId` reaches `door_knocking_route`, whose `doorKnockingTurfId`
+  is `@unique`, so route → turf is one hop. Its three counts come from
+  `DoorKnockingTurfCountsService` — the SAME aggregate the door-knocking rail
+  reads — and must keep coming from there: a second derivation is the
+  two-denominator failure ADR 0010 forbids. `OutreachModule` imports
+  `DoorKnockingModule` behind a `forwardRef` for it (the module graph loops back
+  through contacts → campaigns → peerly). A tombstoned turf yields no block.
 
 ## Contracts / models
 

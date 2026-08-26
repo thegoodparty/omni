@@ -124,6 +124,55 @@ that endpoint and falls back to "Walk list".
 but a candidate who abandons a half-walked list still needs it off the rail,
 and refusing that would leave delete as the only way out.
 
+## The walk in the outreach history (`OutreachDetail.doorKnocking`)
+
+`GET /v1/outreach/:id` returns a `doorKnocking` block for a `nativeDoorKnocking`
+envelope — turf id, route id, the turf's live name, `doorCount` / `peopleCount`
+/ `loggedCount`, and the turf's `completedAt` / `archivedAt`. It is the sibling
+of `phoneBanking` on the same schema, and it exists so a walk reads like its
+peers in the shared history drawer instead of as a row that knows only a route
+id.
+
+**The reverse edge needed no column.** The envelope stores
+`doorKnockingRouteId`; `door_knocking_route` already carries a `@unique`
+`doorKnockingTurfId` back to the list it was frozen for. So turf → route →
+envelope resolved all along and route → turf is one hop the other way — the
+join was there, nothing had queried it. **No migration.** Notes elsewhere in
+this repo describing the turf as unreachable from the envelope are describing
+the read path, not the schema.
+
+**The counts are the rail's, not a second set.** The block calls
+`DoorKnockingTurfCountsService.forRoutes`, the same aggregate
+`GET /v1/door-knocking/turfs` uses, so doors are addresses paired with their
+stop, people exclude ADR 0007 / ADR 0008 residents, and logged is the subset of
+those people with a recorded status. Deriving any of the three here instead
+would put a second denominator on a second surface for one quantity, which is
+the failure ADR 0010 wrote the standing rule against — and the counts service's
+own header explains why its door key is a `(stopId, addressKey)` pair rather
+than a `COUNT(DISTINCT address_key)`. Anything added to this block takes its
+numbers from there.
+
+To reach it, `OutreachModule` imports `DoorKnockingModule` (which now exports
+that one service). Both that edge and `DoorKnockingModule`'s own
+`ContactsModule` import are `forwardRef`: door knocking → contacts → campaigns
+→ peerly → outreach loops back, so the import closes a module cycle.
+
+**A tombstoned list yields no block.** The turf is read through
+`activeTurfScope`, so a soft-deleted list — whose envelope and paid route both
+survive by design, above — leaves the envelope reporting only what it always
+did. The drawer says so rather than printing em-dashes.
+
+**Archive from the history drawer writes the TURF.** The drawer now offers
+Archive/Restore on a finished walk like every other channel, and the button
+calls `POST /v1/door-knocking/turfs/:id/archive` — never
+`PATCH /v1/outreach/:id/archive`. What blocked it before was reach rather than
+policy: nothing there could name the turf, and a writer that could only reach
+the envelope is exactly how the two `archivedAt` columns drift apart.
+`setArchived` is still the single writer of both rows. For the same reason the
+drawer reads `doorKnocking.archivedAt` — the source — rather than the
+envelope's mirror, so a list archived before the mirror shipped offers Restore
+instead of a second Archive.
+
 ## Where the code lives
 
 `src/doorKnocking/` (turf CRUD + the knock transaction; controller routes
