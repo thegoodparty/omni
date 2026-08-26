@@ -279,7 +279,13 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
    */
   async reconcileDriftedPersonIds(
     limit: number = DEFAULT_RECONCILE_LIMIT,
-  ): Promise<{ scanned: number; repointed: number; collisions: number }> {
+  ): Promise<{
+    scanned: number
+    repointed: number
+    collisions: number
+    unresolved: number
+    failed: number
+  }> {
     const removed = await this.client.personProfileRemoval.findMany({
       where: { clearedAt: null },
       select: { personId: true },
@@ -302,10 +308,14 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
 
     let repointed = 0
     let collisions = 0
+    let unresolved = 0
+    let failed = 0
     for (const user of users) {
       const result = await this.resyncLinkedUser(user)
       if (result === 'repointed') repointed += 1
       if (result === 'collision') collisions += 1
+      if (result === 'unresolved') unresolved += 1
+      if (result === 'failed') failed += 1
     }
 
     // The cohort is small by construction today. If a run ever fills the cap,
@@ -317,10 +327,20 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
         'person_id drift sweep filled its per-run cap; the tail of the cohort went unchecked',
       )
     }
+    // `unresolved` and `failed` carry the pass: deliberately changing nothing on
+    // a null from election-api means an outage otherwise reads exactly like a
+    // healthy pass with no drift — same scanned, same zero repointed.
     this.logger.info(
-      { scanned: users.length, repointed, collisions, limit },
+      {
+        scanned: users.length,
+        repointed,
+        collisions,
+        unresolved,
+        failed,
+        limit,
+      },
       'person_id drift pass complete',
     )
-    return { scanned: users.length, repointed, collisions }
+    return { scanned: users.length, repointed, collisions, unresolved, failed }
   }
 }

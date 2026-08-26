@@ -241,4 +241,38 @@ describe('PersonIdBackfillService.reconcileDriftedPersonIds', () => {
 
     expect(result).toMatchObject({ repointed: 0, collisions: 1 })
   })
+
+  it('separates an election-api outage from a pass with no drift', async () => {
+    await linkUser(OLD)
+    await seedProfile(OLD)
+    // getPersonIdByGpApiUserId swallows its own errors, so an outage is
+    // indistinguishable from "no link upstream" at the call site. Both leave
+    // the link alone — so the pass counters are the only thing that tells an
+    // operator the cohort went unchecked rather than checked out clean.
+    spyElections(null)
+
+    const outage = await backfill().reconcileDriftedPersonIds(50)
+
+    expect(outage).toMatchObject({
+      scanned: 1,
+      repointed: 0,
+      collisions: 0,
+      unresolved: 1,
+      failed: 0,
+    })
+    expect((await getUser(service.user.id)).personId).toBe(OLD)
+
+    vi.restoreAllMocks()
+    spyElections(OLD)
+
+    const healthy = await backfill().reconcileDriftedPersonIds(50)
+
+    expect(healthy).toMatchObject({
+      scanned: 1,
+      repointed: 0,
+      collisions: 0,
+      unresolved: 0,
+      failed: 0,
+    })
+  })
 })

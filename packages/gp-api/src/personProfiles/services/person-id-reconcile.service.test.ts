@@ -23,7 +23,13 @@ describe('PersonIdReconcileService.reconcile', () => {
       .mockResolvedValue({ scanned: 0, linked: 0 })
     const driftSweep = vi
       .spyOn(backfill, 'reconcileDriftedPersonIds')
-      .mockResolvedValue({ scanned: 0, repointed: 0, collisions: 0 })
+      .mockResolvedValue({
+        scanned: 0,
+        repointed: 0,
+        collisions: 0,
+        unresolved: 0,
+        failed: 0,
+      })
 
     await reconcileService().reconcile()
 
@@ -72,7 +78,13 @@ describe('PersonIdReconcileService.reconcile', () => {
     )
     const driftSweep = vi
       .spyOn(backfill, 'reconcileDriftedPersonIds')
-      .mockResolvedValue({ scanned: 0, repointed: 0, collisions: 0 })
+      .mockResolvedValue({
+        scanned: 0,
+        repointed: 0,
+        collisions: 0,
+        unresolved: 0,
+        failed: 0,
+      })
 
     // The day is stamped complete either way, so a drift sweep skipped here
     // never runs at all — a takedown keyed to a retired id stays unhonored.
