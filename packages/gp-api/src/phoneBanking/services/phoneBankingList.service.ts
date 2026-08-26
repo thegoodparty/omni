@@ -390,6 +390,10 @@ export class PhoneBankingListService extends createPrismaBase(
             })
           ).map((row) => row.personId),
         )
+        const pagedPersonCount = [...grouped.values()].reduce(
+          (sum, persons) => sum + persons.length,
+          0,
+        )
         const survivingEntries = [...grouped.entries()]
           .map(
             ([phone, persons]) =>
@@ -478,7 +482,12 @@ export class PhoneBankingListService extends createPrismaBase(
           entryCount: entriesData.length,
           personCount,
           outreachId,
-          hasMore,
+          // Any person the recheck removed means a concurrent create ran
+          // with a different exclusion set — it may have claimed the
+          // cap-dropped people too, so the next-batch promise is no longer
+          // safe to make. Person-level, not entry-level: an entry surviving
+          // with fewer household members is still a collision.
+          hasMore: hasMore && personCount === pagedPersonCount,
         }
       },
       { timeout: BUILD_TX_TIMEOUT_MS },
