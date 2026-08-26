@@ -500,11 +500,22 @@ const main = async () => {
     phases: Phase
     bytes?: number
   } | null = null
+  // gcPauses/gcTotal accumulate for the life of the process, so the totals at
+  // the end cover every run. The line below reports the *best* run's CPU, so
+  // pair it with that run's GC slice or the two describe different things.
+  let bestGcPauses: number[] = []
+  let bestGcTotal = 0
   const all: number[] = []
   for (let i = 0; i < runs; i++) {
+    const pausesBefore = gcPauses.length
+    const totalBefore = gcTotal
     const r = await variant.run()
     all.push(r.cpu)
-    if (!best || r.cpu < best.cpu) best = r
+    if (!best || r.cpu < best.cpu) {
+      best = r
+      bestGcPauses = gcPauses.slice(pausesBefore)
+      bestGcTotal = gcTotal - totalBefore
+    }
   }
   all.sort((x, y) => x - y)
   // The RUNS guard above means the loop ran at least once, but that is a
@@ -513,8 +524,8 @@ const main = async () => {
   report(`${variant.label} [fetch=${FETCH_SIZE}]`, best)
   console.log(
     `     CPU per run: ${all.map((m) => m.toFixed(0)).join(', ')} ms   ` +
-      `gc: ${gcPauses.length} pauses / ${gcTotal.toFixed(0)} ms total / ` +
-      `worst ${Math.max(0, ...gcPauses).toFixed(0)} ms`,
+      `gc: ${bestGcPauses.length} pauses / ${bestGcTotal.toFixed(0)} ms total / ` +
+      `worst ${Math.max(0, ...bestGcPauses).toFixed(0)} ms`,
   )
 }
 
