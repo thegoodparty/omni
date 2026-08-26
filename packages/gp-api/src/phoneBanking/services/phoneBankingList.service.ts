@@ -316,12 +316,12 @@ export class PhoneBankingListService extends createPrismaBase(
         // number has since been suppressed or dropped must read as
         // unreachable, not as "already called". Before the grouping chain so
         // an already-called household member can never ride onto a fresh
-        // entry through a shared phone. At capacity they count toward
-        // droppedUsable like any usable person: the cap is about to break
-        // the loop, and unseen pages may still hold fresh people.
+        // entry through a shared phone. Deliberately no droppedUsable here,
+        // even at capacity: a prior-batch person is never usable by the NEXT
+        // batch either, so counting them would promise a continuation that
+        // can 400 as exhausted.
         if (priorBatchPersonIds.has(person.id)) {
           skippedPriorBatch = true
-          if (grouped.size >= maxEntries) droppedUsable = true
           continue
         }
 

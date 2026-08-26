@@ -448,7 +448,7 @@ describe('phone banking routes', () => {
       expect(second.data.message).toContain('widen the filters')
     })
 
-    it('an at-capacity prior-batch person still signals hasMore, and never joins a fresh entry via a shared phone', async () => {
+    it('an at-capacity prior-batch person neither signals hasMore nor joins a fresh entry via a shared phone', async () => {
       const sharedPhone = '3075809999'
       const priorPerson = fakePerson({
         id: randomUUID(),
@@ -490,7 +490,7 @@ describe('phone banking routes', () => {
         orgHeaders(),
       )
       expect(second.status).toBe(201)
-      expect(second.data).toMatchObject({ entryCount: 60, hasMore: true })
+      expect(second.data).toMatchObject({ entryCount: 60, hasMore: false })
 
       const sharedEntry = await service.prisma.phoneBankingListEntry.findFirst({
         where: { phoneBankingListId: second.data.id, phone: sharedPhone },
