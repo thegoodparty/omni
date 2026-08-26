@@ -9,7 +9,6 @@ import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 import {
   buildAggregatesSql,
   buildCountSql,
-  buildDistrictSql,
   buildCsvSql,
   buildOverlapCountSql,
   buildPageSql,
@@ -21,7 +20,6 @@ import {
   buildVoterFiltersSql,
   buildPersonSql,
   createBag,
-  DISTRICT_TABLE,
   MAX_PRECINCT_OPTIONS,
   VOTER_TABLE,
   type DbxDistrict,
@@ -87,7 +85,6 @@ describe('buildScopeSql', () => {
       buildPageSql({ ...scope, columns: ['id'], take: 1, skip: 0 }),
       buildOverlapCountSql({ ...scope, savedFilterSets: [] }),
       buildCsvSql(scope),
-      buildDistrictSql(CONGRESSIONAL.districtId),
       buildVoterColumnsSql(),
     ]
 
@@ -99,7 +96,7 @@ describe('buildScopeSql', () => {
       const tables = sql.match(qualified) ?? []
       expect(new Set(tables).size).toBeLessThanOrEqual(1)
       for (const table of tables) {
-        expect([VOTER_TABLE, DISTRICT_TABLE]).toContain(table)
+        expect(table).toBe(VOTER_TABLE)
       }
     }
 
@@ -494,18 +491,6 @@ describe('buildVoterFiltersSql', () => {
 
     expect(buildVoterFiltersSql(bag, noFilters())).toBeNull()
     expect(bag.params).toEqual([])
-  })
-})
-
-describe('buildDistrictSql', () => {
-  it('binds the district id rather than splicing it in', () => {
-    const districtId = CONGRESSIONAL.districtId
-    const { sql, params } = buildDistrictSql(districtId)
-
-    expect(sql).toContain('SELECT id, state, type, name FROM')
-    expect(sql.endsWith('WHERE id = :p0')).toBe(true)
-    expect(sql).not.toContain(districtId)
-    expect(params).toEqual([{ name: 'p0', value: districtId, type: 'STRING' }])
   })
 })
 
