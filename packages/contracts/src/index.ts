@@ -770,6 +770,8 @@ export {
   type RobocallAudioPresignResponse,
 } from './outreach/RobocallAudio.schema'
 export {
+  RobocallComplianceRequestSchema,
+  type RobocallComplianceRequest,
   RobocallComplianceChecksSchema,
   type RobocallComplianceChecks,
   RobocallComplianceVerdictSchema,

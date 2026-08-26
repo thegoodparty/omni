@@ -47,6 +47,8 @@ import type {
   RobocallAudioPresignRequest,
   RobocallAudioPresignResponse,
   RobocallNumberResponse,
+  RobocallComplianceRequest,
+  RobocallComplianceVerdict,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
 } from '@goodparty_org/contracts'
@@ -335,6 +337,15 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/number': {
     Request: Record<string, never>
     Response: RobocallNumberResponse
+  }
+
+  // Fail-closed compliance gate for the recorded audio: transcribes the clip
+  // and verifies the candidate self-ID, organization, and callback number are
+  // spoken. Returns the verdict (passed + per-check + issues). Pro-gated; 502
+  // on a transcription/LLM failure.
+  'POST /v1/outreach/robocall/compliance': {
+    Request: RobocallComplianceRequest
+    Response: RobocallComplianceVerdict
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of

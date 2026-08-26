@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
+import { RobocallComplianceService } from '@/outreach/services/robocallCompliance.service'
 import { Campaign } from '../../generated/prisma'
 
 const service = useTestService()
 
 const jsonCompletion = vi.fn()
 const rentNumber = vi.fn()
+const checkRecording = vi.fn()
 
 let campaign: Campaign
 let orgSlug: string
@@ -18,6 +20,8 @@ beforeEach(async () => {
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
   const callhub = service.app.get(CallhubNumbersService)
   vi.spyOn(callhub, 'rentNumber').mockImplementation(rentNumber)
+  const compliance = service.app.get(RobocallComplianceService)
+  vi.spyOn(compliance, 'checkRecording').mockImplementation(checkRecording)
 
   const campaignId = 997
   orgSlug = `campaign-${campaignId}`
@@ -52,6 +56,15 @@ const postDraft = (body: object) =>
 
 const postNumber = () =>
   service.client.post('/v1/outreach/robocall/number', {}, orgHeaders())
+
+const postCompliance = (body: object) =>
+  service.client.post('/v1/outreach/robocall/compliance', body, orgHeaders())
+
+const validCompliancePayload = {
+  audioKey: 'robocall/997/clip.webm',
+  contentType: 'audio/webm',
+  callbackNumber: '+12025550147',
+}
 
 const mockDraft = (draft: string) =>
   jsonCompletion.mockResolvedValue({
@@ -303,6 +316,86 @@ describe('POST /v1/outreach/robocall/number', () => {
     rentNumber.mockRejectedValue(new BadGatewayException('rental failed'))
 
     const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+})
+
+describe('POST /v1/outreach/robocall/compliance', () => {
+  it('checks the recording and returns a passing verdict', async () => {
+    checkRecording.mockResolvedValue({
+      passed: true,
+      checks: {
+        hasSelfIdentification: true,
+        hasOrganization: true,
+        hasCallbackNumber: true,
+      },
+      transcript: 'Hi, this is Jane Doe...',
+      issues: [],
+    })
+
+    const res = await postCompliance(validCompliancePayload)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.passed).toBe(true)
+    // Candidate + organization are derived server-side; the client only sends
+    // the key, content type, and callback number.
+    const args = checkRecording.mock.calls[0]?.[0]
+    expect(args).toMatchObject({
+      audioKey: 'robocall/997/clip.webm',
+      contentType: 'audio/webm',
+      callbackNumber: '+12025550147',
+    })
+    expect(args.organizationName).toContain('City Council')
+  })
+
+  it('returns a failing verdict with the issues', async () => {
+    checkRecording.mockResolvedValue({
+      passed: false,
+      checks: {
+        hasSelfIdentification: true,
+        hasOrganization: false,
+        hasCallbackNumber: false,
+      },
+      transcript: 'Hi, this is Jane.',
+      issues: ['Name the organization.', 'State the callback number.'],
+    })
+
+    const res = await postCompliance(validCompliancePayload)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.passed).toBe(false)
+    expect(res.data.issues).toHaveLength(2)
+  })
+
+  it('rejects an audio key from another campaign without checking', async () => {
+    const res = await postCompliance({
+      ...validCompliancePayload,
+      audioKey: 'robocall/998/someone-elses.webm',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(checkRecording).not.toHaveBeenCalled()
+  })
+
+  it('rejects a non-Pro campaign without checking', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { isPro: false },
+    })
+
+    const res = await postCompliance(validCompliancePayload)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(checkRecording).not.toHaveBeenCalled()
+  })
+
+  it('propagates a fail-closed compliance failure as a 502', async () => {
+    // A transcription/LLM failure surfaces from the service as BadGateway; the
+    // controller must not swallow it into a silent pass.
+    checkRecording.mockRejectedValue(new BadGatewayException('transcribe down'))
+
+    const res = await postCompliance(validCompliancePayload)
 
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
