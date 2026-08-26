@@ -108,7 +108,7 @@ export const SheetCountStep = ({
           <AlertDescription>
             {`Only the first ~${maxReach.toLocaleString()} contacts will be included; ${(
               reachableCount - maxReach
-            ).toLocaleString()} won't be called.`}
+            ).toLocaleString()} won't be called. Create another campaign with this same list afterward to call the rest — it picks up where this one leaves off.`}
           </AlertDescription>
         </Alert>
       )}

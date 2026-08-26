@@ -47,10 +47,14 @@ export const DownloadStep = ({
         body={`Download the ${isZip ? 'PDFs' : 'PDF'} for your volunteers, then go to the calling page to start making calls and marking outcomes.`}
       />
 
-      {truncated && reachableCount !== null && (
+      {(truncated || response.hasMore) && (
         <Alert variant="destructive">
           <AlertDescription>
-            {`${response.personCount.toLocaleString()} contacts frozen from ${reachableCount.toLocaleString()} reachable.`}
+            {truncated && reachableCount !== null
+              ? `${response.personCount.toLocaleString()} contacts frozen from ${reachableCount.toLocaleString()} reachable.`
+              : 'More reachable contacts remain in this list.'}
+            {response.hasMore &&
+              ' Create another phone banking campaign with this same list to call the rest — it picks up where this one left off.'}
           </AlertDescription>
         </Alert>
       )}

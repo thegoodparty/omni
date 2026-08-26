@@ -93,6 +93,7 @@ const createResponse = {
   entryCount: 12,
   personCount: 42,
   outreachId: 9,
+  hasMore: false,
 }
 
 const user = userEvent.setup()
@@ -413,7 +414,7 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Only the first ~1,200 contacts will be included; 800 won't be called.",
+        "Only the first ~1,200 contacts will be included; 800 won't be called. Create another campaign with this same list afterward to call the rest — it picks up where this one leaves off.",
       ),
     ).toBeInTheDocument()
   })
@@ -441,6 +442,32 @@ describe('PhoneBankingFlow', () => {
 
     expect(
       await screen.findByText('1,200 contacts frozen from 2,000 reachable.'),
+    ).toBeInTheDocument()
+  })
+
+  it('offers the next-batch path on the download step when contacts remain', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Huge list' }])
+    mockListDetail(2000)
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: { ...createResponse, personCount: 1200, hasMore: true },
+    })
+    openFlow()
+    await advanceToWho()
+    await pickSavedListAndContinue('Huge list')
+    await screen.findAllByText('Write your call script')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/picks up where this one left off/),
     ).toBeInTheDocument()
   })
 

@@ -51,6 +51,10 @@ const BUILD_TX_TIMEOUT_MS = 60_000
 const EMPTY_AUDIENCE_MESSAGE =
   'No matching voters with a phone number — widen the filters'
 
+const EXHAUSTED_AUDIENCE_MESSAGE =
+  'Everyone reachable in this list is already in a previous phone banking ' +
+  'campaign — pick or build a different list'
+
 const PURPOSE_TO_DB: Record<PhoneBankingPurpose, PrismaPhoneBankingPurpose> = {
   introduce: PrismaPhoneBankingPurpose.introduce,
   persuade: PrismaPhoneBankingPurpose.persuade,
@@ -139,8 +143,30 @@ export class PhoneBankingListService extends createPrismaBase(
       ).map((row) => row.phone),
     )
 
+    // Batch continuation (ENG-10958): the audience pages in a deterministic
+    // ORDER BY id, so without this a second list built from the same saved
+    // filter would refreeze the exact same people. Excluding everyone frozen
+    // into an earlier batch of this filter makes a re-run pick up where the
+    // last one stopped. Scoped per filter, not org-wide — two different
+    // lists may legitimately share people.
+    const priorBatchPersonIds = new Set(
+      (
+        await this.client.phoneBankingListEntryPerson.findMany({
+          where: {
+            entry: {
+              list: {
+                organizationSlug: organization.slug,
+                voterFileFilterId: input.voterFileFilterId,
+              },
+            },
+          },
+          select: { personId: true },
+        })
+      ).map((row) => row.personId),
+    )
+
     const maxEntries = input.sheetCount * PHONE_BANKING_SHEET_SIZE
-    const grouped = await this.pageAudience({
+    const { grouped, hasMore } = await this.pageAudience({
       districtId,
       search: filterInput.search || undefined,
       filters: resolved.filters,
@@ -148,13 +174,18 @@ export class PhoneBankingListService extends createPrismaBase(
       contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
       notAVoterIds,
       suppressedPhones,
+      priorBatchPersonIds,
       maxEntries,
     })
     if (grouped.size === 0) {
-      throw new BadRequestException(EMPTY_AUDIENCE_MESSAGE)
+      throw new BadRequestException(
+        priorBatchPersonIds.size > 0
+          ? EXHAUSTED_AUDIENCE_MESSAGE
+          : EMPTY_AUDIENCE_MESSAGE,
+      )
     }
 
-    return this.freeze(organization, campaign, input, grouped)
+    return this.freeze(organization, campaign, input, grouped, hasMore)
   }
 
   async getForOrganization(
@@ -209,8 +240,9 @@ export class PhoneBankingListService extends createPrismaBase(
     contactsMadeIdOverrides?: IdOverrides
     notAVoterIds: Set<string>
     suppressedPhones: Set<string>
+    priorBatchPersonIds: Set<string>
     maxEntries: number
-  }): Promise<Map<string, PersonName[]>> {
+  }): Promise<{ grouped: Map<string, PersonName[]>; hasMore: boolean }> {
     const {
       districtId,
       search,
@@ -219,9 +251,16 @@ export class PhoneBankingListService extends createPrismaBase(
       contactsMadeIdOverrides,
       notAVoterIds,
       suppressedPhones,
+      priorBatchPersonIds,
       maxEntries,
     } = args
     const grouped = new Map<string, PersonName[]>()
+    // hasMore is claimable only when a usable person was really left out:
+    // one was dropped at the entry cap, or the cap broke the loop on a full
+    // page (unseen pages may hold usable people). An audience that ends
+    // exactly at the cap reports hasMore: false.
+    let droppedUsable = false
+    let audienceExhausted = false
 
     let page = 1
     while (true) {
@@ -246,6 +285,7 @@ export class PhoneBankingListService extends createPrismaBase(
 
       for (const person of people) {
         if (notAVoterIds.has(person.id)) continue
+        if (priorBatchPersonIds.has(person.id)) continue
         const name = [person.firstName, person.lastName]
           .filter(Boolean)
           .join(' ')
@@ -259,15 +299,20 @@ export class PhoneBankingListService extends createPrismaBase(
           existing.push({ personId: person.id, name, firstName })
         } else if (grouped.size < maxEntries) {
           grouped.set(phone, [{ personId: person.id, name, firstName }])
+        } else {
+          droppedUsable = true
         }
       }
 
+      if (people.length < BUILD_PAGE_SIZE) {
+        audienceExhausted = true
+        break
+      }
       if (grouped.size >= maxEntries) break
-      if (people.length < BUILD_PAGE_SIZE) break
       page += 1
     }
 
-    return grouped
+    return { grouped, hasMore: droppedUsable || !audienceExhausted }
   }
 
   private pickDialNumber(
@@ -288,6 +333,7 @@ export class PhoneBankingListService extends createPrismaBase(
     campaign: Campaign | null,
     input: PhoneBankingCreate,
     grouped: Map<string, PersonName[]>,
+    hasMore: boolean,
   ): Promise<PhoneBankingCreateResponse> {
     const entriesData = [...grouped.entries()].map(
       ([phone, persons], index) => {
@@ -359,6 +405,7 @@ export class PhoneBankingListService extends createPrismaBase(
           entryCount: entriesData.length,
           personCount,
           outreachId,
+          hasMore,
         }
       },
       { timeout: BUILD_TX_TIMEOUT_MS },

@@ -314,6 +314,9 @@ describe('phone banking routes', () => {
 
       expect(res.status).toBe(201)
       expect(res.data.entryCount).toBe(61)
+      // 61 usable people all fit under the 120-entry cap and the page was
+      // short — nothing remains.
+      expect(res.data.hasMore).toBe(false)
 
       const entries = await service.prisma.phoneBankingListEntry.findMany({
         where: { phoneBankingListId: res.data.id },
@@ -345,7 +348,85 @@ describe('phone banking routes', () => {
       )
 
       expect(res.status).toBe(201)
-      expect(res.data).toMatchObject({ entryCount: 60, personCount: 60 })
+      expect(res.data).toMatchObject({
+        entryCount: 60,
+        personCount: 60,
+        hasMore: true,
+      })
+    })
+
+    it('a follow-up create on the same filter continues past prior batches and 400s once exhausted', async () => {
+      const people = Array.from({ length: 61 }, (_, i) =>
+        fakePerson({
+          id: randomUUID(),
+          firstName: `B${i}`,
+          lastName: 'Voter',
+          cellPhone: `30757${String(i).padStart(5, '0')}`,
+        }),
+      )
+      mockPeoplePage(people)
+
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 1' }),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+      expect(first.data).toMatchObject({ entryCount: 60, hasMore: true })
+
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(201)
+      expect(second.data).toMatchObject({
+        entryCount: 1,
+        personCount: 1,
+        hasMore: false,
+      })
+      const persons = await service.prisma.phoneBankingListEntryPerson.findMany(
+        {
+          where: { entry: { phoneBankingListId: second.data.id } },
+        },
+      )
+      expect(persons.map((p) => p.personId)).toEqual([people[60]?.id])
+
+      const third = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 3' }),
+        orgHeaders(),
+      )
+      expect(third.status).toBe(400)
+      expect(third.data.message).toContain(
+        'already in a previous phone banking campaign',
+      )
+    })
+
+    it('prior batches on a different filter exclude nobody', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075559111' })])
+
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      const otherFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: orgSlug, name: 'PB audience 2' },
+      })
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ voterFileFilterId: otherFilter.id }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(201)
+      expect(second.data).toMatchObject({
+        entryCount: 1,
+        personCount: 1,
+        hasMore: false,
+      })
     })
 
     it('round-trips a hyphenated purpose through the snake_case DB enum', async () => {
