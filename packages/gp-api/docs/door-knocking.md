@@ -622,19 +622,28 @@ Three consequences worth knowing before changing this:
 
 ### Why it is still built per request
 
-Caching the pack behind an ETag keyed on `(districtId, knock revision)` would
-turn a repeat load into a 304 instead of a rebuild, and it is **deliberately
-not done here**, because getting the key wrong shows a canvasser yesterday's
-dots. It is also a much smaller prize than it looked before the query was
-fixed: the rebuild it avoids is no longer 43 seconds. The key has to
-invalidate on all three of its
-inputs and only two are in reach: the org's knock history (queryable) and
-`districtId` (trivial). The third is the L2-derived voter data itself, which
-has **no revision handle exposed to gp-api** — no mirror watermark, no refresh
-timestamp on the read path — so any cache built today would be pinned on a
-staleness window somebody has to choose rather than on a fact. That is a
-product call about how stale a map may be, not an implementation detail, and
-it wants answering before the flag widens past one district.
+Caching the pack behind an ETag keyed on `(districtId, mirrorVersion)` would
+turn a repeat load into a 304 instead of a rebuild. It is **not done here**, but
+it is the largest single win available on this endpoint by an order of
+magnitude: the rebuild it avoids is 23 s, and one user triggered 19 of them in
+14 days. See [`docs/perf/voter-pack-headroom.md`](./perf/voter-pack-headroom.md)
+for the measurements and the design.
+
+The key invalidates on three inputs, and all three are in reach: the org's knock
+history (queryable), `districtId` (trivial), and the voter data itself. The
+third is not a staleness window somebody has to choose, because **peopleDB is a
+monthly, full-rebuild mirror of Databricks rather than a source of truth**. The
+dbt mart builds it, `people-api-loader` COPYs it into a **brand-new Aurora
+cluster** on an `@monthly` schedule, and the swap is published as an SSM
+parameter update that `PeopleDbUrlProvider` already polls and reports through
+`onChange()` (`PeopleDbService` and `VoterDownloadService` are already
+subscribers). The data is immutable between rebuilds, so the key is `districtId`
+plus the resolved cluster identity, and invalidation is wholesale on that event.
+
+The `updated_at` columns on `green."Voter"` and `green."DistrictVoter"` are not
+the handle for this, despite looking like one: the mart header records that they
+carry the L2 `loaded_at`, which makes them a per-load constant rather than a
+per-row change feed.
 
 Note also that `generatedAt` in the manifest changes on every build, so a
 cache has to stabilize it or no two responses ever share an ETag.
@@ -646,12 +655,17 @@ Three measured candidates that are **not** in the change that fixed the hang.
 **The household key costs ~550ms of people-db CPU per request.**
 `buildHouseholdKeySql`'s `CONCAT_WS`/`UPPER`/`TRIM` is 38% of the single-pass
 execution — more than the `DistrictVoter` join — and it recomputes, on every
-request, a value that never changes. A stored generated column or an
-expression index would remove it. It is not done here because it is a
-migration on a 218M-row partitioned mirror and the expression is shared with
-the list and CSV paths, so the blast radius is a decision about lock behaviour
-and rollout rather than a line of SQL. Note the same table's existing warning
-about expression indexes in `peopleDb/AGENTS.md` before proposing one.
+request, a value that never changes. A stored generated column would remove it.
+
+It is not done here because it only pays inside a live build, which caching
+largely removes — not because it is expensive to land. The mirror is rebuilt
+from scratch each month into a fresh cluster, and the loader **already** adds a
+`STORED GENERATED` column absent from the mart — `Voter."geom"`, registered in
+`schema_spec.LOADER_ADDED_COLUMNS`. A precomputed household key is one more
+entry in that list, or one more column in `m_people_api__voter.sql`: no lock, no
+rollout, landing on the next monthly build. The `peopleDb/AGENTS.md` warning
+about expression indexes still applies to anything added to a *running* cluster,
+but not to a column the loader builds.
 
 **Compressing the response beats bit-packing the planes, and neither is
 done.** The profile recommends bit-packing the dim planes (37 bits per person
@@ -678,6 +692,13 @@ because they reach the socket promptly. Compressing the envelope means
 flushing (`Z_SYNC_FLUSH`) on every heartbeat, and it needs a test that says so
 — otherwise the first thing compression does is silently undo the guarantee
 this endpoint just got. Worth doing next, on its own, with that test.
+
+Since measured against production: **transport is 460 ms of a 23,027 ms
+request**, so compression buys nothing on a desk connection — gzip-1 would
+spend 177 ms of the task's single vCPU to save perhaps 300 ms of transfer. It
+remains a large win on a canvasser's LTE link (25 s → 8 s at 5 Mbps), so it
+should be argued as field usability rather than latency. See
+[`docs/perf/voter-pack-headroom.md`](./perf/voter-pack-headroom.md).
 
 **The encoder's remaining headroom is small.** Its dot index is now keyed on
 the coordinates as numbers rather than on a `${lat}|${lng}` string, which was

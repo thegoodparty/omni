@@ -216,7 +216,14 @@ export default function DoorNotesCard({
         {notes.entries.length > 0 && (
           <ul className="flex flex-col divide-y divide-border [&>li:first-child]:pt-0 [&>li:last-child]:pb-0 [&>li]:py-3">
             {notes.entries.map((note) => (
-              <li key={note.id}>
+              <li
+                key={note.id}
+                // `block` because globals.css gives every `<li>` inside a
+                // `data-slot` element `display: flex`: this row's single child
+                // would shrink to its content as a lone flex item, pulling the
+                // edit and delete buttons in from the card's right edge.
+                className="block"
+              >
                 {editingNoteId === note.id ? (
                   <div className="flex flex-col gap-2">
                     <Textarea

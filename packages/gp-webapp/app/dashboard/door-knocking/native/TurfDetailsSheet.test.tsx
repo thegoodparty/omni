@@ -173,7 +173,7 @@ describe('TurfDetailsSheet status', () => {
   })
 
   it.each([
-    ['Scheduled', { locked: false }],
+    ['Not started', { locked: false }],
     ['In progress', { locked: true }],
     ['Done', { locked: true, completedAt: new Date('2026-08-20T00:00:00Z') }],
     [

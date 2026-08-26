@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   AlertDialog,
@@ -131,6 +131,13 @@ interface CreateListFlowProps {
   // Selected filter option keys the map preview can't narrow by, so the drawn
   // shape shows more people than the list will target.
   unpreviewableKeys: string[]
+  // A saved list the candidate arrived on `?listId=` with, from the outreach
+  // hub's door-knocking tile. Undefined is the ordinary flow.
+  preselectedListId?: number
+  // Reported once the arrival has actually been applied, so the page above can
+  // spend it. This flow is unmounted every time the create surface closes, so
+  // it cannot remember on its own that the id has already been used.
+  onPreselectApplied?: () => void
 }
 
 const STAGE_META: Record<CreateFlowStage, { title: string; caption: string }> =
@@ -230,6 +237,8 @@ export default function CreateListFlow({
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
+  preselectedListId,
+  onPreselectApplied,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -244,6 +253,49 @@ export default function CreateListFlow({
   const [savedListId, setSavedListId] = useState<number | null>(null)
   const [savedName, setSavedName] = useState('')
   const [discardOpen, setDiscardOpen] = useState(false)
+
+  // Choosing a list is two writes that have to happen together: the id here,
+  // and the list's own filters lifted into the page's draft so the pills and
+  // the map say what the list says. Named once because there are now two ways
+  // to choose one — the who step's radio, and the `?listId=` preselect below
+  // — and a second copy of the pair is a second chance for them to diverge.
+  const selectList = useCallback(
+    (listId: number | null) => {
+      setSavedListId(listId)
+      onFiltersChange(
+        listId === null
+          ? {}
+          : (savedLists.find((list) => list.id === listId)?.filters ?? {}),
+      )
+    },
+    [onFiltersChange, savedLists],
+  )
+
+  // A list carried in from the outreach hub's door-knocking tile, so "start a
+  // walk from this list" arrives with it already picked instead of asking for
+  // it again.
+  //
+  // It waits for the picker's own rows rather than trusting the param, which
+  // is what makes every bad id degrade to the ordinary flow rather than to a
+  // radio group pointing at a row that isn't there: an id that is malformed,
+  // deleted, archived or another org's simply never matches, because these
+  // rows come from this org's `GET /v1/voters/voter-file/filters`. The ref
+  // makes it a seed and not a binding — pick something else and the arrival
+  // is spent, not re-applied when the lists refetch.
+  //
+  // The ref only covers this mount, and closing the flow unmounts it while
+  // `?listId=` stays in the address bar, so the page above is told the moment
+  // the id is used. Without that, dismissing and pressing Create list again
+  // would keep snapping back to the carried list, and a candidate who arrived
+  // from the hub could never start a clean flow without leaving the page.
+  const preselectApplied = useRef(false)
+  useEffect(() => {
+    if (preselectApplied.current || preselectedListId === undefined) return
+    if (!savedLists.some((list) => list.id === preselectedListId)) return
+    preselectApplied.current = true
+    selectList(preselectedListId)
+    onPreselectApplied?.()
+  }, [preselectedListId, savedLists, selectList, onPreselectApplied])
 
   const stage = flowStage(step, preDrawStage)
 
@@ -743,7 +795,14 @@ export default function CreateListFlow({
                       view. */}
                     <ul className="mt-2 divide-y divide-border">
                       {addressPreview.locations.map((location, index) => (
-                        <li key={index} className="py-2">
+                        <li
+                          key={index}
+                          // `block` because globals.css gives every `<li>`
+                          // inside a `data-slot` element `display: flex`, which
+                          // would put the "N doors at one location" heading and
+                          // the doors it introduces on one line.
+                          className="block py-2"
+                        >
                           {location.doors.length > 1 && (
                             <p className="text-xs font-medium">
                               {location.doors.length} doors at one location
@@ -865,15 +924,7 @@ export default function CreateListFlow({
                 savedLists={savedLists}
                 allContactsHouseholds={allContactsHouseholds}
                 selectedListId={savedListId}
-                onSelectList={(listId) => {
-                  setSavedListId(listId)
-                  onFiltersChange(
-                    listId === null
-                      ? {}
-                      : (savedLists.find((list) => list.id === listId)
-                          ?.filters ?? {}),
-                  )
-                }}
+                onSelectList={selectList}
                 isElectedOfficial={isElectedOfficial}
               />
             )}

@@ -17,7 +17,12 @@ vi.mock('@shared/hooks/useElectedOffice', () => ({
 }))
 vi.mock('./NativeDoorKnockingPage', () => ({
   __esModule: true,
-  default: () => <div data-testid="native-door-knocking" />,
+  default: ({ preselectedListId }: { preselectedListId?: number }) => (
+    <div
+      data-testid="native-door-knocking"
+      data-preselected-list={String(preselectedListId)}
+    />
+  ),
 }))
 vi.mock('../components/DoorKnockingPage', () => ({
   __esModule: true,
@@ -121,5 +126,26 @@ describe('DoorKnockingPageGate', () => {
     setState({ ready: true, enabled: false })
     render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
     expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+  })
+
+  // The `?listId=` the outreach hub's door-knocking tile carries here. Only
+  // the native arm has a create flow to open on it, and the gate must not
+  // swallow it on the way.
+  it('hands the carried list to the native experience', () => {
+    setState({ ready: true, enabled: true })
+    render(<DoorKnockingPageGate {...props} preselectedListId={42} />)
+    expect(screen.getByTestId('native-door-knocking')).toHaveAttribute(
+      'data-preselected-list',
+      '42',
+    )
+  })
+
+  it('renders the native experience with no list carried in', () => {
+    setState({ ready: true, enabled: true })
+    render(<DoorKnockingPageGate {...props} />)
+    expect(screen.getByTestId('native-door-knocking')).toHaveAttribute(
+      'data-preselected-list',
+      'undefined',
+    )
   })
 })

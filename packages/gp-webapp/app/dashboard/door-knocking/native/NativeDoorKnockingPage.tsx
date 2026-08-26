@@ -53,6 +53,11 @@ const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
 interface NativeDoorKnockingPageProps {
   pathname: string
   campaign: Campaign | null
+  // A saved list carried in on `?listId=`, handed straight to the create
+  // flow. Deliberately NOT read by anything on the landing map: it names the
+  // audience a walk will be cut from, and the map's own scope is the rail's
+  // `selectedTurf`, which is a turf and not a list.
+  preselectedListId?: number
 }
 
 // The orchestrator for the four door-knocking surfaces (Wave 1B). What stays
@@ -64,6 +69,7 @@ interface NativeDoorKnockingPageProps {
 export default function NativeDoorKnockingPage({
   pathname,
   campaign,
+  preselectedListId,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   // Win-only filters are hidden for an elected-office org, matching the CRM
@@ -87,6 +93,15 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
+  // Which carried list has already been handed to the create flow. Kept here
+  // because the flow itself is unmounted between opens while `?listId=` stays
+  // in the address bar, so this is the only place that can remember. Compared
+  // by id rather than a boolean so a SECOND arrival still counts: coming back
+  // to the hub and pressing the tile again with a different list re-renders
+  // this page with the new id, which is not the spent one.
+  const [spentPreselectId, setSpentPreselectId] = useState<number>()
+  const carriedListId =
+    preselectedListId === spentPreselectId ? undefined : preselectedListId
   const [filters, setFilters] = useState<VoterFileFilters>({})
   const [ring, setRing] = useState<PolygonRing | null>(null)
   // The create-list surface's half of the canvas: draw tokens, the point count
@@ -710,6 +725,8 @@ export default function NativeDoorKnockingPage({
               onSaved={handleSaved}
               isElectedOfficial={isElectedOfficial}
               unpreviewableKeys={unpreviewableKeys}
+              preselectedListId={carriedListId}
+              onPreselectApplied={() => setSpentPreselectId(preselectedListId)}
             />
           )}
         </div>

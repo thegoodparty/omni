@@ -81,7 +81,16 @@ export default function CreateListWizard({
     useState<VoterFileFilters>({})
   const [supportStatus, setSupportStatus] = useState<SupportStatusRollup[]>([])
   const [precincts, setPrecincts] = useState<string[]>([])
-  const precinctOptions = usePrecinctOptions(!isElectedOfficial)
+  // Gated on `open` because this component never unmounts — CrmContactsPage
+  // always renders it and only toggles `open` — so an ungated fetch ran on
+  // every contacts page load for every Win user, whether or not they opened
+  // the wizard. In prod that produced a 29% error rate on the endpoint (a
+  // non-Pro page load 400s on the Pro gate) while the sibling count queries,
+  // which gate the same way, took zero. `voterDataUnavailable` for the same
+  // reason the count does: an org with no resolvable district can only 400.
+  const precinctOptions = usePrecinctOptions(
+    open && !isElectedOfficial && !voterDataUnavailable,
+  )
   const [activityConditions, setActivityConditions] = useState<
     WizardActivityCondition[]
   >(() => [blankActivityCondition()])
