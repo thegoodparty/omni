@@ -539,10 +539,48 @@ export default function NativeDoorKnockingPage({
     <DashboardLayout
       pathname={pathname}
       campaign={campaign}
-      wrapperClassName="!p-0 flex flex-col"
+      // This page is a full-bleed map with a floating card over it, so it has
+      // to be EXACTLY the height left by the dashboard chrome — scrolling
+      // belongs inside the card, never on the document.
+      //
+      // `min-h-0` is what makes that true without naming a number. The wrapper
+      // is `flex-1` inside `SidebarInset`, which is `flex-1` inside
+      // `SidebarProvider`'s `min-h-svh` row; a flex item's default
+      // `min-height: auto` lets its CONTENT set the floor, so anything the
+      // layout put beside this page pushed the document past the window (see
+      // the chat spacer below). With the floor removed the
+      // chain resolves the other way — the row settles at `min-h-svh` and the
+      // wrapper takes what the chrome above it leaves, whatever that is at
+      // this width. It replaces an `h-[calc(100dvh-4rem)]` on the child below,
+      // which hard-coded the mobile top bar's height and was wrong at `lg`,
+      // where that bar is `lg:hidden`: the map ended 64px short of the bottom
+      // of the window on every desktop.
+      //
+      // This is also what makes `DashboardLayout`'s own siblings behave. When
+      // the campaign-story flag is on, `DashboardCampaignManagerChat` renders
+      // an in-flow `h-24` spacer next to this page, reserving room for its
+      // fixed footer bar. Against a child with a hard viewport height that
+      // spacer was 96px of pure overflow and the page scrolled by exactly
+      // that; against `h-full` it is honoured INSIDE the window instead — the
+      // map stops 96px short and the bar sits in the gap rather than over the
+      // map. Nothing here reaches into the layout every dashboard page shares.
+      //
+      // `overflow-hidden` is the guard for the case that reservation cannot be
+      // met: if a sibling ever exceeds the window the map is squeezed to
+      // nothing rather than the document growing a scrollbar again.
+      //
+      // `svh` rather than `dvh` is inherited from `SidebarProvider`, and is
+      // the right value here: `svh` is the viewport with mobile browser chrome
+      // at its largest, so the page is whole in every chrome state — and since
+      // the document can no longer scroll, the chrome never retracts, which
+      // leaves `dvh` permanently equal to `svh` on this page anyway.
+      wrapperClassName="!p-0 flex min-h-0 flex-col overflow-hidden"
     >
-      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex h-full w-full flex-col">
+        {/* `shrink-0`: the column is now exactly the height of the window, so
+            the header is the one row in it that must never be squeezed to buy
+            the map space. */}
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             {walkTurf && (
               <IconButton aria-label="Back to the map" onClick={endWalk}>

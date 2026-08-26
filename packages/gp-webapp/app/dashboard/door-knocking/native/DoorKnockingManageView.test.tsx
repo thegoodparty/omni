@@ -241,17 +241,44 @@ describe('DoorKnockingManageView seam', () => {
     )
   })
 
-  // One row, scrolling. Wrapped, the seven chips stacked into three rows inside
-  // a 384px rail and pushed the saved lists off the first screen of the
-  // feature.
-  it('keeps the legend on a single scrolling row', () => {
+  // The whole legend is on screen at once. It was one horizontally scrolling
+  // row until the product owner asked for this (see AGENTS.md, where the
+  // argument for scrolling is kept rather than deleted) — so what this asserts
+  // is that nothing has quietly put the scroller back: a wrapping group, and
+  // no `overflow-x` around it. jsdom has no layout, so the rows the chips
+  // actually land in are proven by the PR's rendered screenshots.
+  it('wraps the legend so every chip is on screen, without a sideways scroller', () => {
     const { container } = renderView()
 
     const group = container.querySelector(
       '[aria-label="Filter the map by canvass status"]',
     )
-    expect(group).toHaveClass('flex-nowrap', 'w-max')
-    expect(group?.parentElement).toHaveClass('overflow-x-auto')
+    expect(group).toHaveClass('flex-wrap')
+    expect(group).not.toHaveClass('flex-nowrap')
+    expect(group).not.toHaveClass('w-max')
+    expect(group?.parentElement).not.toHaveClass('overflow-x-auto')
+  })
+
+  // Every status keeps a chip, including the two the canvas has no equivalent
+  // for. Wrapping is what makes room for the whole vocabulary, and dropping
+  // one to save a row would be the truncation the scrolling row existed to
+  // avoid — a chip a candidate cannot reach is a filter they cannot clear.
+  it('keeps a chip for every canvass status', () => {
+    renderView()
+
+    for (const label of [
+      'Support unknown',
+      'Not home',
+      'Supporter',
+      'Non-supporter',
+      'Inaccessible',
+      'Refused',
+      'Not a voter',
+    ]) {
+      expect(
+        screen.getByRole('button', { name: new RegExp(`^${label}`) }),
+      ).toBeInTheDocument()
+    }
   })
 
   // The one piece of state this surface owns outright. It is safe to own

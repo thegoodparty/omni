@@ -169,9 +169,22 @@ vi.mock('./VoterMapCanvas', () => ({
     </div>
   ),
 }))
+// The real layout is a sidebar shell this suite has no use for, but the class
+// it is asked to put on its content wrapper is part of what this page decides
+// — it is how the page gets a height — so the stub keeps it readable.
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  default: ({
+    children,
+    wrapperClassName,
+  }: {
+    children: ReactNode
+    wrapperClassName?: string
+  }) => (
+    <div data-testid="dashboard-wrapper" className={wrapperClassName}>
+      {children}
+    </div>
+  ),
 }))
 vi.mock('app/dashboard/shared/useDistrictResolution', () => ({
   useDistrictResolution: () => ({ isUnresolvable: false }),
@@ -976,6 +989,58 @@ const mockPreview = () => {
     }
   })
 }
+
+// This page is a full-bleed map with a floating card over it, which only works
+// if the DOCUMENT is exactly the height the dashboard chrome leaves and all the
+// scrolling happens inside the card. jsdom has no layout, so these assert the
+// height contract rather than its effect — the rendered proof (no page scroll
+// at 1440×900 and 390×844, with and without the campaign-manager chat bar) is
+// in the PR's screenshots.
+describe('NativeDoorKnockingPage page height', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  // The wrapper is `flex-1` inside two more flex boxes, and a flex item's
+  // default `min-height: auto` lets its content set the floor. Without
+  // `min-h-0` anything the layout renders beside this page pushed the document
+  // past the window — which is exactly what happened: the campaign-manager
+  // chat's in-flow `h-24` spacer scrolled the landing map by 96px.
+  it('asks the layout for a wrapper that cannot be pushed past the window', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    const wrapper = screen.getByTestId('dashboard-wrapper')
+    expect(wrapper).toHaveClass('min-h-0', 'overflow-hidden', 'flex-col')
+  })
+
+  // It used to be `h-[calc(100dvh-4rem)]`, hard-coding the mobile top bar's
+  // height. That bar is `lg:hidden`, so above `lg` it subtracted a bar that
+  // was not there and the map stopped 64px short of the bottom of the window
+  // on every desktop. Filling the wrapper is right at every width, because
+  // measuring the chrome is the layout's job and not this page's.
+  it('fills that wrapper instead of guessing the chrome above it', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    const column = screen.getByTestId('dashboard-wrapper')
+      .firstElementChild as HTMLElement
+    expect(column.className.split(/\s+/)).toContain('h-full')
+    expect(column.className).not.toContain('100dvh')
+  })
+
+  // The column is now exactly the window's height, so the header is the one
+  // row in it that must never be squeezed to buy the map space.
+  it('keeps the page header from being squeezed', async () => {
+    renderPage()
+    const heading = await screen.findByRole('heading', {
+      name: 'Door knocking',
+    })
+
+    const header = heading.parentElement?.parentElement as HTMLElement
+    expect(header.className.split(/\s+/)).toContain('shrink-0')
+  })
+})
 
 describe('NativeDoorKnockingPage small-screen shell', () => {
   beforeEach(() => {
