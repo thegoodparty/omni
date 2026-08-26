@@ -8,12 +8,14 @@ import {
   type ReactNode,
 } from 'react'
 import * as ToastPrimitive from '@radix-ui/react-toast'
-import { HiCheck, HiX } from 'react-icons/hi'
+import { HiCheck, HiExclamationCircle, HiX } from 'react-icons/hi'
 
 const TOAST_DURATION = 3000
 
+export type ToastVariant = 'success' | 'error'
+
 interface ToastContextValue {
-  showToast: (message: string) => void
+  showToast: (message: string, variant?: ToastVariant) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -33,18 +35,27 @@ interface ToastProviderProps {
 export function ToastProvider({ children }: ToastProviderProps) {
   const [open, setOpen] = useState(false)
   const [message, setMessage] = useState('')
+  const [variant, setVariant] = useState<ToastVariant>('success')
 
-  const showToast = useCallback((msg: string) => {
-    setMessage(msg)
-    setOpen(true)
-  }, [])
+  const showToast = useCallback(
+    (msg: string, msgVariant: ToastVariant = 'success') => {
+      setMessage(msg)
+      setVariant(msgVariant)
+      setOpen(true)
+    },
+    []
+  )
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       <ToastPrimitive.Provider swipeDirection="right" duration={TOAST_DURATION}>
         {children}
         <ToastPrimitive.Root open={open} onOpenChange={setOpen}>
-          <HiCheck />
+          {variant === 'error' ? (
+            <HiExclamationCircle color="var(--red-9)" />
+          ) : (
+            <HiCheck />
+          )}
           <ToastPrimitive.Description>{message}</ToastPrimitive.Description>
           <ToastPrimitive.Close aria-label="Close">
             <HiX />
