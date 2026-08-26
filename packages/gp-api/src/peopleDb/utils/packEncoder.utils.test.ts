@@ -158,4 +158,25 @@ describe('PackEncoder', () => {
     const { manifest } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
     expect(manifest.counts).toEqual({ people: 0, households: 0, dots: 0 })
   })
+
+  // Two rooftops that agree to six decimals and differ past them are two
+  // houses, and merging them puts a canvasser at the wrong door. The dot index
+  // is keyed on the coordinates themselves for this reason: any scheme that
+  // packs a pair of scaled coordinates into one number runs out of mantissa
+  // (~56 bits needed, 53 available) and collides silently.
+  it('keeps rooftops that differ past six decimals apart', () => {
+    const encoder = new PackEncoder(new Map())
+    encoder.add(row({ id: 'a', lat: 41.9000001, lng: -87.65, hhKey: 'A' }))
+    encoder.add(row({ id: 'b', lat: 41.9000002, lng: -87.65, hhKey: 'B' }))
+    // Same latitude, different longitude: the second half of the key has to
+    // separate them too.
+    encoder.add(row({ id: 'c', lat: 41.9000001, lng: -87.6500001, hhKey: 'C' }))
+    // And an exact repeat of the first is the same dot, not a third one.
+    encoder.add(row({ id: 'd', lat: 41.9000001, lng: -87.65, hhKey: 'D' }))
+
+    const { manifest, u32 } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+
+    expect(manifest.counts.dots).toBe(3)
+    expect(u32('householdToDot')).toEqual([0, 1, 2, 0])
+  })
 })
