@@ -934,16 +934,14 @@ describe('PersonSheet demographic information', () => {
     expect(within(missing).queryByText('No')).toBeNull()
   })
 
-  // A mover has no live row, so the profile describes nobody rather than
-  // whoever lives at the address now — the same rule the phone numbers follow.
-  it('shows nothing on file for a target who may have moved', () => {
-    renderSheet([target({ mayHaveMoved: true, politicalParty: null })])
-
-    expect(within(voterCard()).getAllByText('Not on file')).toHaveLength(3)
-    expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
-      9,
-    )
-  })
+  // There is deliberately no mover case here. A mover's profile is empty
+  // because `demographicsOf(livePerson)` and `mayHaveMoved: !livePerson` are
+  // computed from one variable in one object literal in the serve service, so
+  // the two cannot disagree and this component never reads the flag to decide
+  // what a fact row says. A test here could only re-assert the case above with
+  // `mayHaveMoved: true` added — passing on the fixture's own nulls rather than
+  // on anything this file does — and reading as coverage of a suppression that
+  // does not exist. See the AGENTS.md profile bullet.
 
   // Household context is for the conversation, not a second profile: a
   // non-target resident is not someone the candidate asked to contact.
