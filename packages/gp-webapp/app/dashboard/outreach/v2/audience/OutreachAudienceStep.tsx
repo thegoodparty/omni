@@ -32,6 +32,12 @@ export interface OutreachAudienceCopy {
   pickerBody: string
   filtersTitle: string
   filtersBody: string
+  // Optional clarifying copy rendered above the filter groups, for a channel
+  // whose dial/send logic needs explaining beyond the filter labels
+  // themselves (e.g. phone banking calls whichever number a voter has, so
+  // the cell/landline filters read as narrowing, not a reachability
+  // requirement). Omitted entirely for channels with nothing to add.
+  filtersHint?: string
   nameTitle: string
   nameBody: string
   // Verb + noun for the reachable-count line, so the channel controls the whole
@@ -140,6 +146,9 @@ export const OutreachAudienceStep = ({
           title={copy.filtersTitle}
           body={copy.filtersBody}
         />
+        {copy.filtersHint && (
+          <p className="text-sm text-muted-foreground">{copy.filtersHint}</p>
+        )}
         <VoterFileStep
           filters={builderFilters}
           onFiltersChange={onBuilderFiltersChange}
