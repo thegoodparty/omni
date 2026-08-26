@@ -486,6 +486,13 @@ const main = async () => {
     return
   }
   const runs = Number(process.env.RUNS ?? 5)
+  if (!Number.isInteger(runs) || runs < 1) {
+    console.error(
+      `RUNS must be a positive integer; got ${JSON.stringify(process.env.RUNS)}`,
+    )
+    process.exit(1)
+    return
+  }
   let best: {
     rows: number
     ms: number
@@ -500,7 +507,10 @@ const main = async () => {
     if (!best || r.cpu < best.cpu) best = r
   }
   all.sort((x, y) => x - y)
-  report(`${variant.label} [fetch=${FETCH_SIZE}]`, best!)
+  // The RUNS guard above means the loop ran at least once, but that is a
+  // runtime fact the compiler cannot follow — narrow rather than assert.
+  if (!best) return
+  report(`${variant.label} [fetch=${FETCH_SIZE}]`, best)
   console.log(
     `     CPU per run: ${all.map((m) => m.toFixed(0)).join(', ')} ms   ` +
       `gc: ${gcPauses.length} pauses / ${gcTotal.toFixed(0)} ms total / ` +
