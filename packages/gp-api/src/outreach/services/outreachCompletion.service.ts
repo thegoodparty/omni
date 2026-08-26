@@ -150,8 +150,12 @@ export class OutreachCompletionService extends createPrismaBase(
       return
     }
 
-    await this.model.update({
-      where: { id: outreach.id },
+    // CAS on the status the decision was based on: cancel can claim the
+    // row (pending → canceled) between this sweep's fetch and its write,
+    // and an unguarded update would resurrect a canceled row — whose
+    // vendor job is deleted and charge refunded — as in_progress.
+    await this.model.updateMany({
+      where: { id: outreach.id, status: outreach.status },
       data: { status: nextStatus },
     })
   }
