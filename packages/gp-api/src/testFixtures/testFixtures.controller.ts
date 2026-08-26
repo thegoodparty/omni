@@ -1,5 +1,5 @@
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
-import { ResponseSchema } from '@/shared/decorators/responseSchema.decorator'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
   DeleteTestFixtureUsersResponseSchema,
