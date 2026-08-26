@@ -273,11 +273,9 @@ describe('CreateListFlow', () => {
         turfStats={turfStats(151, 140)}
       />,
     )
-    // The cap is on stops (the router's unit), but the button counts doors —
-    // 151 stops holding 140 doors is over the cap and says so.
-    expect(
-      screen.getByRole('button', { name: /Continue \(140 doors\)/ }),
-    ).toBeDisabled()
+    // The cap is on stops (the router's unit), so 151 stops holding 140 doors
+    // is over it and says so — beside a button that no longer counts anything.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
 
     rerender(
@@ -288,9 +286,7 @@ describe('CreateListFlow', () => {
         turfStats={turfStats(14, 9)}
       />,
     )
-    expect(
-      screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
   // The canvas has no Done: it closes the shape itself and only reports a ring
@@ -327,9 +323,7 @@ describe('CreateListFlow', () => {
         drawPointCount={3}
       />,
     )
-    expect(
-      screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
   // The other way to a disabled Continue with three points down: a shape drawn
@@ -365,15 +359,60 @@ describe('CreateListFlow', () => {
     // 61 households inside the ring are 61 doors across 84 stops, holding 168
     // people — every figure in-polygon, none of them the district's 12,000.
     // The counts sit in their own spans, so this matches the paragraph's whole
-    // text rather than a single node.
+    // text rather than a single node. Stops lead, as they do on the walk sheet,
+    // the PDF and the walk itself.
     expect(
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          /61 doors · 84 stops · 168 people/.test(element.textContent ?? ''),
+          /84 stops · 61 doors · 168 people/.test(element.textContent ?? ''),
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/12,000/)).toBeNull()
+  })
+
+  // The confirm step is the same three numbers one step later, so it reads them
+  // in the same order — the step that commits a shape is the last place the
+  // triple should reshuffle itself.
+  it('keeps the draw step’s order when the confirm step restates the counts', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        turfStats={turfStats(84, 61)}
+      />,
+    )
+
+    expect(
+      screen.getByText('84 stops · 61 doors · 168 voters'),
+    ).toBeInTheDocument()
+  })
+
+  // The count in this button was the canvas's shape too ("Add to saved lists
+  // (N)"), and the product owner asked for it out on 2026-08-26. It can go
+  // because it was never the only place the number was said: the stats line
+  // renders unconditionally, so it is on screen in every state this button is
+  // live in — which is the whole condition for removing it.
+  it('leaves the door count to the stats line rather than the Continue button', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={turfStats(14, 9)}
+      />,
+    )
+
+    const advance = screen.getByRole('button', { name: 'Continue' })
+    expect(advance).toBeEnabled()
+    expect(advance.textContent).not.toMatch(/\d/)
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          /14 stops · 9 doors · 22 people/.test(element.textContent ?? ''),
+      ),
+    ).toBeInTheDocument()
   })
 
   // The estimate is denominated in doors, not the stops the router plans, so a
@@ -422,9 +461,7 @@ describe('CreateListFlow', () => {
     expect(
       screen.getByText(/Over 100 stops is a long evening/),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /Continue \(80 doors\)/ }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
 
     // Past the hard cap only the blocking message stands.
     rerender(

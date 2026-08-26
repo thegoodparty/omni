@@ -554,8 +554,12 @@ export default function CreateListFlow({
   // is waiting for. The three-point minimum was otherwise undiscoverable —
   // someone who placed two points had a dead button, no Done anywhere, and
   // nothing on screen naming the rule.
+  //
+  // Enabled, it is the bare word. The door count it used to carry is one line
+  // above it in the stats bar, which renders unconditionally — so the number
+  // never leaves the screen, it just stops being said twice on it.
   const pointsNeeded = MIN_POLYGON_POINTS - drawPointCount
-  let continueLabel = `Continue (${doors.toLocaleString()} doors)`
+  let continueLabel = 'Continue'
   if (pointsNeeded > 0) {
     continueLabel =
       drawPointCount === 0
@@ -657,15 +661,21 @@ export default function CreateListFlow({
               {/* Everything here describes the drawn shape, not the district —
                 these numbers are what the candidate commits to. */}
               <div className="min-w-0 flex-1">
+                {/* Stops first, then doors, then people — the order the walk
+                  sheet, the PDF and `WalkView` already read them in. These
+                  four surfaces quote one route back to one canvasser, and a
+                  triple that reorders itself between them is read as a
+                  different triple. Nothing else about the line changes: the
+                  nouns and the counts are what `routeCounts.ts` defines. */}
                 <p className="text-sm">
-                  <span className="font-semibold tabular-nums">
-                    {doors.toLocaleString()}
-                  </span>{' '}
-                  doors ·{' '}
                   <span className="font-semibold tabular-nums">
                     {stops.toLocaleString()}
                   </span>{' '}
                   stops ·{' '}
+                  <span className="font-semibold tabular-nums">
+                    {doors.toLocaleString()}
+                  </span>{' '}
+                  doors ·{' '}
                   <span className="font-semibold tabular-nums">
                     {people.toLocaleString()}
                   </span>{' '}
@@ -994,9 +1004,12 @@ export default function CreateListFlow({
                 </div>
                 <div className="flex items-baseline justify-between border-t border-border pt-4">
                   <span className="text-sm font-semibold">This list</span>
+                  {/* The draw step's triple in the draw step's order — this is
+                    the same three numbers one step later, and the step that
+                    commits them is the last place they should reshuffle. */}
                   <span className="text-sm tabular-nums text-muted-foreground">
-                    {doors.toLocaleString()} doors · {stops.toLocaleString()}{' '}
-                    stops · {people.toLocaleString()} voters
+                    {stops.toLocaleString()} stops · {doors.toLocaleString()}{' '}
+                    doors · {people.toLocaleString()} voters
                   </span>
                 </div>
                 {save.isError && (
