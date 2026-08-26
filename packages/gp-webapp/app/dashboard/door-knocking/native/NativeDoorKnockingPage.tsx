@@ -384,6 +384,10 @@ export default function NativeDoorKnockingPage({
 
   const changeFlowStep = (next: CreateFlowStep) => {
     if (next === 'draw' && flowStep === 'filters') draw.startDrawing()
+    // Confirm covers most of the map, so the shape being confirmed has to be
+    // put back into the band it leaves — asked for on arrival, not on every
+    // change to the ring, which is the canvasser's own aim while they draw.
+    if (next === 'confirm') draw.frameDrawing()
     setFlowStep(next)
     setSelectedTurf(null)
   }
@@ -588,6 +592,14 @@ export default function NativeDoorKnockingPage({
                 startDrawToken={draw.startDrawToken}
                 clearDrawToken={draw.clearDrawToken}
                 undoDrawToken={draw.undoDrawToken}
+                // The confirm step's colour pick, on the boundary it is a pick
+                // about — state the map reads, so it lives up here.
+                drawColor={draw.drawColor}
+                frameDrawToken={draw.frameDrawToken}
+                frameDrawBottomPct={draw.frameDrawBottomPct}
+                // The confirm step shows a band of the map as a picture and
+                // shields it, so the buttons in that band would be dead ones.
+                controlsHidden={flowStep === 'confirm'}
                 onPolygonChange={setRing}
                 onDrawPointCount={draw.onPointCount}
                 onRoutePinClick={walkMap.onPinTap}
@@ -613,6 +625,8 @@ export default function NativeDoorKnockingPage({
               drawPointCount={draw.pointCount}
               onUndoPoint={draw.undoPoint}
               onClearPoints={draw.clearPoints}
+              color={draw.drawColor}
+              onColorChange={draw.onDrawColorChange}
               onSaved={handleSaved}
               isElectedOfficial={isElectedOfficial}
               unpreviewableKeys={unpreviewableKeys}

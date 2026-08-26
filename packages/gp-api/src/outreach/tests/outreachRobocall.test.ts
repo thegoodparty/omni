@@ -1,12 +1,14 @@
-import { HttpStatus } from '@nestjs/common'
+import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { Campaign } from '../../generated/prisma'
 
 const service = useTestService()
 
 const jsonCompletion = vi.fn()
+const rentNumber = vi.fn()
 
 let campaign: Campaign
 let orgSlug: string
@@ -14,6 +16,8 @@ let orgSlug: string
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
+  const callhub = service.app.get(CallhubNumbersService)
+  vi.spyOn(callhub, 'rentNumber').mockImplementation(rentNumber)
 
   const campaignId = 997
   orgSlug = `campaign-${campaignId}`
@@ -45,6 +49,9 @@ const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 
 const postDraft = (body: object) =>
   service.client.post('/v1/outreach/robocall/draft', body, orgHeaders())
+
+const postNumber = () =>
+  service.client.post('/v1/outreach/robocall/number', {}, orgHeaders())
 
 const mockDraft = (draft: string) =>
   jsonCompletion.mockResolvedValue({
@@ -135,6 +142,43 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(systemPrompt).toContain('"Reply STOP"')
   })
 
+  it('requires the spoken disclosure when a callbackNumber is given', async () => {
+    mockDraft('A script that ends with the disclosure.')
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      callbackNumber: '+12025550147',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const systemPrompt = systemContent()
+    expect(systemPrompt).toContain('say the callback number given below')
+    // The ban rule must NOT apply once a number is provided.
+    expect(systemPrompt).not.toContain('Do NOT include a "Paid for by" line')
+
+    const userPrompt = userContent()
+    expect(userPrompt).toContain('Callback number to read aloud: +12025550147')
+    expect(userPrompt).toContain('"Paid for by" name:')
+  })
+
+  it('requires the disclosure on the improve path too', async () => {
+    mockDraft('A polished script that still ends with the disclosure.')
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'Hi, this is Jane, running for council.',
+      callbackNumber: '+12025550147',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    expect(systemContent()).toContain('END with the spoken disclosure')
+    expect(userContent()).toContain(
+      'Callback number to read aloud: +12025550147',
+    )
+  })
+
   it.each(['early_voting', 'election_day_turnout'])(
     'includes voting logistics placeholders for %s',
     async (purpose) => {
@@ -223,5 +267,43 @@ describe('POST /v1/outreach/robocall/draft', () => {
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /v1/outreach/robocall/number', () => {
+  it('rents a US caller-ID number and returns it', async () => {
+    rentNumber.mockResolvedValue({
+      phone_number: '+12025550147',
+      region: 'DC',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
+    expect(rentNumber).toHaveBeenCalledWith({ countryIso: 'US' })
+  })
+
+  it('rejects a non-Pro campaign without renting', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { isPro: false },
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(rentNumber).not.toHaveBeenCalled()
+  })
+
+  it('propagates a CallHub rental failure as a 502', async () => {
+    // The vendor service maps a CallHub failure to BadGateway; the controller
+    // must not swallow or remap it.
+    rentNumber.mockRejectedValue(new BadGatewayException('rental failed'))
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 })

@@ -13,6 +13,7 @@ import {
   buildCsvSql,
   buildOverlapCountSql,
   buildPageSql,
+  buildPrecinctsSql,
   buildSampleSql,
   buildScopeSql,
   buildSearchSql,
@@ -21,6 +22,7 @@ import {
   buildPersonSql,
   createBag,
   DISTRICT_TABLE,
+  MAX_PRECINCT_OPTIONS,
   VOTER_TABLE,
   type DbxDistrict,
 } from './databricksVoterSql.util'
@@ -290,6 +292,7 @@ describe('buildVoterFiltersSql', () => {
       language: { in: ['English'] },
       estimatedIncomeAmountInt: { gte: 50000 },
       ageInt: { gte: 30 },
+      precinct: { in: ['ORANGE|711'] },
     }
 
     expect(Object.keys(sample).sort()).toEqual(
@@ -302,6 +305,8 @@ describe('buildVoterFiltersSql', () => {
     }
   })
 
+  // 'Yes' (the Homeowner pill's wire value) folds Probable Home Owner in
+  // (ENG-10947), so it maps to both L2 values rather than one.
   it('maps homeowner display values to their L2 values', () => {
     const bag = createBag()
     const sql = buildVoterFiltersSql(
@@ -309,9 +314,10 @@ describe('buildVoterFiltersSql', () => {
       parseFilters({ homeowner: { in: ['Yes'] } }),
     )
 
-    expect(sql).toBe('v.`Homeowner_Probability_Model` IN (:p0)')
+    expect(sql).toBe('v.`Homeowner_Probability_Model` IN (:p0, :p1)')
     expect(bag.params).toEqual([
       { name: 'p0', value: 'Home Owner', type: 'STRING' },
+      { name: 'p1', value: 'Probable Home Owner', type: 'STRING' },
     ])
   })
 
@@ -745,5 +751,118 @@ describe('buildPersonSql', () => {
     })
 
     expect(sql).not.toContain('OR 1=1')
+  })
+})
+
+describe('precinct filter', () => {
+  const paramValues = (bag: ReturnType<typeof createBag>) =>
+    bag.params.map((p) => p.value)
+
+  it('matches on the (county, precinct) tuple, not the precinct alone', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ precinct: { in: ['ORANGE|711'] } }),
+    )
+    expect(sql).toContain('(v.`County`, v.`Precinct`) IN ((:p0, :p1))')
+    expect(paramValues(bag)).toEqual(['ORANGE', '711'])
+  })
+
+  it('binds every pair rather than splicing values into the statement', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ precinct: { in: ["ORANGE|O'BRIEN 1", 'DADE|2'] } }),
+    )
+    expect(sql).not.toContain("O'BRIEN")
+    expect(paramValues(bag)).toEqual(['ORANGE', "O'BRIEN 1", 'DADE', '2'])
+  })
+
+  // The Unknown pill. A tuple comparison against '' matches nothing, so
+  // without this branch selecting Unknown would silently return zero voters
+  // for a bucket that can hold millions (every NH voter is in one).
+  it('resolves an empty precinct to IS NULL, scoped to its county', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ precinct: { in: ['HILLSBOROUGH|'] } }),
+    )
+    expect(sql).toBe('(v.`County` = :p0 AND v.`Precinct` IS NULL)')
+    expect(paramValues(bag)).toEqual(['HILLSBOROUGH'])
+  })
+
+  it('ORs the unknown bucket together with named precincts', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({
+        precinct: { in: ['LOS ANGELES|CARSON-0028', 'LOS ANGELES|'] },
+      }),
+    )
+    expect(sql).toContain(' OR ')
+    expect(sql).toContain('IS NULL')
+    expect(sql).toContain('(v.`County`, v.`Precinct`) IN ((:p0, :p1))')
+  })
+
+  it('keeps a precinct containing the delimiter intact', () => {
+    const bag = createBag()
+    buildVoterFiltersSql(bag, parseFilters({ precinct: { in: ['DADE|A|B'] } }))
+    expect(paramValues(bag)).toEqual(['DADE', 'A|B'])
+  })
+
+  it('ANDs with other filters instead of replacing them', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({
+        precinct: { in: ['ORANGE|711'] },
+        hasCellPhone: true,
+      }),
+    )
+    expect(sql).toContain(' AND ')
+    expect(sql).toContain('VoterTelephones_CellPhoneFormatted')
+  })
+})
+
+describe('buildPrecinctsSql', () => {
+  it('groups the district by county and precinct with a voter count', () => {
+    const { sql } = buildPrecinctsSql({ district: CONGRESSIONAL })
+    expect(sql).toContain('COUNT(*) AS voters')
+    expect(sql).toContain('GROUP BY v.`County`, v.`Precinct`')
+    expect(sql).toContain(`FROM ${VOTER_TABLE} v`)
+  })
+
+  it('scopes to the district the same way every other read does', () => {
+    const { sql, params } = buildPrecinctsSql({ district: CONGRESSIONAL })
+    expect(sql).toContain('v.`US_Congressional_District` = :p1')
+    expect(params.map((p) => p.value)).toContain('29')
+    expect(params.map((p) => p.value)).toContain('CA')
+  })
+
+  // The option list is the dimension's vocabulary. If it narrowed with the
+  // other filters, a precinct the user had already picked could vanish from
+  // the list while staying in the saved filter.
+  it('applies no filters', () => {
+    const { sql } = buildPrecinctsSql({ district: CONGRESSIONAL })
+    expect(sql).not.toContain('Voter_Status')
+    expect(sql).not.toContain('Parties_Description')
+  })
+
+  it('asks for one row beyond the cap so truncation is detectable', () => {
+    const { params } = buildPrecinctsSql({ district: CONGRESSIONAL })
+    expect(params.map((p) => p.value)).toContain(
+      String(MAX_PRECINCT_OPTIONS + 1),
+    )
+  })
+
+  it('orders by voter count so a truncated list keeps the largest', () => {
+    const { sql } = buildPrecinctsSql({ district: CONGRESSIONAL })
+    expect(sql).toContain('ORDER BY voters DESC')
+  })
+
+  it('drops the district predicate on the voter-only path', () => {
+    const { sql } = buildPrecinctsSql({ district: STATEWIDE })
+    expect(sql).toContain('v.`State` = :p0')
+    expect(sql).not.toContain('v.`State` = :p0 AND v.`State`')
   })
 })

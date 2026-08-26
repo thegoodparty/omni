@@ -48,6 +48,8 @@ const baseProps = {
   drawPointCount: 3,
   onUndoPoint: vi.fn(),
   onClearPoints: vi.fn(),
+  color: '#2563eb',
+  onColorChange: vi.fn(),
   onSaved: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
@@ -893,6 +895,150 @@ describe('CreateListFlow', () => {
     expect(
       screen.queryByRole('button', { name: 'See the addresses' }),
     ).toBeNull()
+  })
+
+  // CHANGED DELIBERATELY (Voter Outreach 2.0): the canvas makes "Save and draw
+  // another" the primary and "Save and exit" the outline one beside it, and we
+  // were exactly inverted. Both buttons do the same two things either way;
+  // which one leads is the flow's claim about the expected next move, and the
+  // canvas assumes a candidate cutting several evenings in one sitting.
+  it('leads the confirm step with Save and draw another', () => {
+    render(<CreateListFlow {...baseProps} step="confirm" />)
+
+    const [first, second] = screen.getAllByRole('button', { name: /^Save and/ })
+    expect(first).toHaveTextContent('Save and draw another')
+    expect(second).toHaveTextContent('Save and exit')
+    // The pairing is a filled primary against the styleguide's `outline`, not
+    // its `secondary` — `secondary` is a filled tonal button, so the two would
+    // read as equally weighted and the swap would have said nothing.
+    expect(first).toHaveClass('bg-primary')
+    expect(second).toHaveClass('bg-transparent')
+    expect(second).not.toHaveClass('bg-secondary')
+  })
+
+  // Both buttons run the same mutation, so `isPending` cannot say which. The
+  // label belongs to the button that was PRESSED rather than to whichever one
+  // leads: a candidate who chose to exit would otherwise watch the other button
+  // claim their write.
+  it('says Saving… on the button that was pressed', async () => {
+    let release: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', async () => {
+      await held
+      return { status: 200 as const, data: savedTurf }
+    })
+    const onSaved = vi.fn()
+
+    render(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    const exit = screen.getByRole('button', { name: 'Save and exit' })
+    fireEvent.click(exit)
+
+    await waitFor(() => expect(exit).toHaveTextContent('Saving…'))
+    // The primary keeps its own label and goes dead with it: one write is in
+    // flight, and it is not this one.
+    const primary = screen.getByRole('button', {
+      name: 'Save and draw another',
+    })
+    expect(primary).toBeDisabled()
+
+    release!()
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+  })
+
+  // The defect this closes: the confirm sheet was opaque and full height, so a
+  // candidate picked the colour their list would be drawn in with the map — and
+  // the boundary they had just drawn — hidden behind it.
+  it('opens the confirm step over a band of the map', () => {
+    const { rerender } = renderAtWho()
+
+    // The who step still opens covered; pulling it down is the candidate's own
+    // gesture there.
+    expect(
+      screen.getByRole('button', { name: 'Pull down to see the map' })
+        .parentElement,
+    ).toHaveStyle({ top: '0%' })
+    expect(document.getElementById('confirm-map-band')).toBeNull()
+
+    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+
+    expect(
+      screen.getByRole('button', { name: 'Expand the list details' })
+        .parentElement,
+    ).toHaveStyle({ top: '30%' })
+    // The uncovered strip is a picture and not a canvas: the drawing session is
+    // still live on this step, so a tap that reached the map would splice a
+    // vertex into the shape being confirmed, with no Undo here to take it back.
+    expect(document.getElementById('confirm-map-band')).toHaveStyle({
+      height: '30%',
+    })
+  })
+
+  // The colour is the page's now, because the shared canvas draws the ring in
+  // it — the swatch is a request, the same shape Undo and Clear have.
+  it('reports the colour pick upward, and saves the one it is handed', async () => {
+    let turfBody: unknown = null
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    const onColorChange = vi.fn()
+    const onSaved = vi.fn()
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        onColorChange={onColorChange}
+        onSaved={onSaved}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Green' }))
+    expect(onColorChange).toHaveBeenCalledWith('#16a34a')
+    // Nothing moved here: the flow holds no colour of its own, so the tick is
+    // still on Blue until the page hands the pick back down.
+    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        color="#16a34a"
+        onColorChange={onColorChange}
+        onSaved={onSaved}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Green' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    // The colour the map was tinted with is the colour the turf is filed under.
+    expect(turfBody).toMatchObject({ color: '#16a34a' })
   })
 
   // gp-api 400s a contacts-made selection from an elected-office org

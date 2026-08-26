@@ -65,12 +65,30 @@ const IDENTIFICATION_OPENER_RULE =
   'followed by the candidate name given below, "and I am running for" ' +
   'followed by the office. Never invent a different name or office.'
 
-// "Paid for by" and any callback number are added by the send pipeline, not
-// the spoken script; "Reply STOP" is an SMS concept and never belongs here.
+// With no rented number yet, the spoken script must NOT carry a "Paid for by"
+// line or callback number (they need the caller-ID number); "Reply STOP" is an
+// SMS concept and never belongs in a recorded call.
 const COMPLIANCE_BAN_RULE =
   'Do NOT include a "Paid for by" line, a callback phone number, or any ' +
   '"Reply STOP"/opt-out text — those are handled separately, and this is a ' +
   'recorded voice message, not a text.'
+
+// Once a caller-ID number is rented, the recorded call must carry the spoken
+// disclosure the candidate reads: who paid for it, then the callback number.
+const DISCLOSURE_RULE =
+  'End the script with the spoken disclosure a political robocall requires: ' +
+  'state who paid for the call using the "paid for by" name given below, ' +
+  'then say the callback number given below, spoken so a listener can write ' +
+  'it down. Never add "Reply STOP" or any text-message opt-out — this is a ' +
+  'recorded voice call, not a text.'
+
+// Improve mode preserves specifics, so the disclosure reads as keep/add rather
+// than write-fresh.
+const IMPROVE_DISCLOSURE_RULE =
+  'The script must END with the spoken disclosure — who paid for the call ' +
+  '(the "paid for by" name given below) and the callback number given ' +
+  'below. Keep it if the original has it, add it if missing. Never add ' +
+  '"Reply STOP" or any text-message opt-out — this is a recorded voice call.'
 
 const LENGTH_RULE =
   'Keep the script to roughly 60-130 words of spoken, conversational ' +
@@ -78,46 +96,48 @@ const LENGTH_RULE =
   'comfortably inside that when spoken aloud (no hashtags, no links, no ' +
   'headings).'
 
-const DRAFT_SYSTEM_PROMPT = [
-  'You are a campaign writing assistant helping an independent,',
-  'non-partisan local candidate draft one short robocall script — a',
-  'recorded message the candidate reads in their own voice, played to',
-  "voters' landlines.",
-  'Rules:',
-  `- ${IDENTIFICATION_OPENER_RULE}`,
-  '- Ground the why-statement, issues, and any specifics in the',
-  "  candidate's own campaign materials when they are provided; never",
-  '  invent policy positions, issue stances, endorsements, statistics,',
-  '  dates, places, or events the materials do not contain. With no',
-  '  materials, stay issue-neutral.',
-  '- Follow the structure given below for this call.',
-  `- ${COMPLIANCE_BAN_RULE}`,
-  '- Stay strictly non-partisan. No party labels, no attacks.',
-  '- Match the requested tone.',
-  `- ${LENGTH_RULE}`,
-].join('\n')
+const draftSystemPrompt = (complianceLine: string): string =>
+  [
+    'You are a campaign writing assistant helping an independent,',
+    'non-partisan local candidate draft one short robocall script — a',
+    'recorded message the candidate reads in their own voice, played to',
+    "voters' landlines.",
+    'Rules:',
+    `- ${IDENTIFICATION_OPENER_RULE}`,
+    '- Ground the why-statement, issues, and any specifics in the',
+    "  candidate's own campaign materials when they are provided; never",
+    '  invent policy positions, issue stances, endorsements, statistics,',
+    '  dates, places, or events the materials do not contain. With no',
+    '  materials, stay issue-neutral.',
+    '- Follow the structure given below for this call.',
+    `- ${complianceLine}`,
+    '- Stay strictly non-partisan. No party labels, no attacks.',
+    '- Match the requested tone.',
+    `- ${LENGTH_RULE}`,
+  ].join('\n')
 
-const IMPROVE_SYSTEM_PROMPT = [
-  'You are a campaign writing assistant helping an independent,',
-  'non-partisan local candidate polish one robocall script they wrote',
-  'themselves.',
-  'This is a light edit, NOT a rewrite. Rules:',
-  '- Every concrete detail in the original MUST appear in your output:',
-  '  the identification opener, dates, deadlines, places, events, times,',
-  '  names, numbers, asks, and any bracketed placeholder. Dropping one is',
-  '  a failure. Do not paraphrase specifics away.',
-  '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
-  "  keep the author's meaning, structure, and voice.",
-  '- Keep roughly the same length as the original. Do not add new',
-  '  sentences the original does not have.',
-  '- Never add policy positions, issue stances, endorsements, statistics,',
-  '  dates, places, or events the original text does not contain —',
-  '  campaign materials, when provided, are context for tone and',
-  '  accuracy, not a source of new content in a polish.',
-  `- ${COMPLIANCE_BAN_RULE} Remove any that appear in the original.`,
-  '- Stay strictly non-partisan. No party labels, no attacks.',
-  '- Match the requested tone through word choice, not new content.',
-].join('\n')
+const improveSystemPrompt = (complianceLine: string): string =>
+  [
+    'You are a campaign writing assistant helping an independent,',
+    'non-partisan local candidate polish one robocall script they wrote',
+    'themselves.',
+    'This is a light edit, NOT a rewrite. Rules:',
+    '- Every concrete detail in the original MUST appear in your output:',
+    '  the identification opener, dates, deadlines, places, events, times,',
+    '  names, numbers, asks, and any bracketed placeholder. Dropping one is',
+    '  a failure. Do not paraphrase specifics away.',
+    '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
+    "  keep the author's meaning, structure, and voice.",
+    '- Keep roughly the same length as the original. Do not add new',
+    '  sentences the original does not have.',
+    '- Never add policy positions, issue stances, endorsements, statistics,',
+    '  dates, places, or events the original text does not contain —',
+    '  campaign materials, when provided, are context for tone and',
+    '  accuracy, not a source of new content in a polish.',
+    `- ${complianceLine}`,
+    '- Stay strictly non-partisan. No party labels, no attacks.',
+    '- Match the requested tone through word choice, not new content.',
+  ].join('\n')
 
 // No max() here: on the improve path a near-limit currentDraft can grow by a
 // few chars, and a hard max would fail Zod validation -> caught -> 502 (an
@@ -150,17 +170,33 @@ export class OutreachRobocallGenerationService {
         'Custom-purpose scripts are written by the candidate',
       )
     }
+    const paidForBy =
+      candidateName && office
+        ? `${candidateName} for ${office}`
+        : candidateName || 'the campaign'
     const context = [
       `Candidate name: ${candidateName || 'The candidate'}.`,
       `Office sought: ${office || 'local office'}.`,
       `Goal of this call: ${PURPOSE_GOALS[input.purpose]}.`,
       PURPOSE_STRUCTURE[input.purpose],
       `Tone: ${TONE_STYLES[input.tone]}`,
+      ...(input.callbackNumber
+        ? [
+            `"Paid for by" name: ${paidForBy}.`,
+            `Callback number to read aloud: ${input.callbackNumber}.`,
+          ]
+        : []),
       ...campaignContext,
     ]
+    const draftCompliance = input.callbackNumber
+      ? DISCLOSURE_RULE
+      : COMPLIANCE_BAN_RULE
+    const improveCompliance = input.callbackNumber
+      ? IMPROVE_DISCLOSURE_RULE
+      : `${COMPLIANCE_BAN_RULE} Remove any that appear in the original.`
     const messages: LlmMessage[] = input.currentDraft
       ? [
-          { role: 'system', content: IMPROVE_SYSTEM_PROMPT },
+          { role: 'system', content: improveSystemPrompt(improveCompliance) },
           {
             role: 'user',
             content: [
@@ -174,7 +210,7 @@ export class OutreachRobocallGenerationService {
           },
         ]
       : [
-          { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+          { role: 'system', content: draftSystemPrompt(draftCompliance) },
           {
             role: 'user',
             content: [...context, 'Write the robocall script.'].join('\n'),

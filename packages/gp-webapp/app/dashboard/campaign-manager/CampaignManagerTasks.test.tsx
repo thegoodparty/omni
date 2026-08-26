@@ -135,6 +135,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -167,6 +168,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -199,6 +201,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -219,6 +222,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -246,6 +250,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -267,6 +272,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={onMeet}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
     await user.click(
@@ -285,6 +291,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -307,6 +314,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -330,6 +338,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -361,6 +370,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -377,6 +387,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={onPersonalize}
+        onGetOnBallot={vi.fn()}
       />,
     )
     await userEvent.click(
@@ -405,6 +416,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -434,6 +446,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -463,6 +476,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 

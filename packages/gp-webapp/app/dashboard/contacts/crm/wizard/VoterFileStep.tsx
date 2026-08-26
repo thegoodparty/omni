@@ -13,12 +13,20 @@ import {
   hasAnyVoterFileSelection,
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
+import PrecinctFilter from './PrecinctFilter'
+import type { PrecinctOptionsResult } from './usePrecinctOptions'
 
 interface VoterFileStepProps {
   filters: VoterFileFilters
   onFiltersChange: (filters: VoterFileFilters) => void
   supportStatus: SupportStatusRollup[]
   onSupportStatusChange: (value: SupportStatusRollup[]) => void
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  // Fetched by the caller, not here: this component stays dumb (same reason
+  // isElectedOfficial is resolved upstream), and both callers already own a
+  // React Query context that a bare render of this component does not.
+  precinctOptions: PrecinctOptionsResult
   isElectedOfficial: boolean
 }
 
@@ -63,6 +71,9 @@ export default function VoterFileStep({
   onFiltersChange,
   supportStatus,
   onSupportStatusChange,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   isElectedOfficial,
 }: VoterFileStepProps) {
   // Political party doesn't apply to an elected official's constituent file —
@@ -106,11 +117,16 @@ export default function VoterFileStep({
     onFiltersChange(updated)
   }
 
-  const hasAnySelection = hasAnyVoterFileSelection(filters, supportStatus)
+  const hasAnySelection = hasAnyVoterFileSelection(
+    filters,
+    supportStatus,
+    precincts,
+  )
 
   const handleClearFilters = () => {
     onFiltersChange({})
     onSupportStatusChange([])
+    onPrecinctsChange([])
   }
 
   const renderField = (field: {
@@ -160,6 +176,19 @@ export default function VoterFileStep({
           </Button>
         )}
       </div>
+
+      {/* First group on the step, per the locked prototype: Precinct sits
+          above Prior contacts made. */}
+      {!isElectedOfficial && (
+        <PrecinctFilter
+          options={precinctOptions.options}
+          selected={precincts}
+          onChange={onPrecinctsChange}
+          isLoading={precinctOptions.isLoading}
+          isError={precinctOptions.isError}
+          onRetry={precinctOptions.refetch}
+        />
+      )}
 
       {!isElectedOfficial &&
         contactsMadeField &&

@@ -15,6 +15,15 @@ describe('VoterFileStep — Support status pills', () => {
         filters={{}}
         onFiltersChange={vi.fn()}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={vi.fn()}
         isElectedOfficial={false}
       />,
@@ -40,6 +49,15 @@ describe('VoterFileStep — Support status pills', () => {
         filters={{}}
         onFiltersChange={vi.fn()}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={onSupportStatusChange}
         isElectedOfficial={false}
       />,
@@ -66,6 +84,15 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -88,6 +115,15 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -112,6 +148,15 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial
       />,
@@ -142,6 +187,15 @@ describe('VoterFileStep — prototype filter order', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -160,7 +214,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Marital status',
       'Children',
       'Veteran status',
-      'Homeowner',
+      'Homeownership',
       'Business owner',
       'Level of education',
       'Household income range',
@@ -178,6 +232,15 @@ describe('VoterFileStep — prototype filter order', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial
       />,
@@ -193,7 +256,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Marital status',
       'Children',
       'Veteran status',
-      'Homeowner',
+      'Homeownership',
       'Business owner',
       'Level of education',
       'Household income range',
@@ -218,6 +281,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -240,6 +312,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -265,6 +346,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={onFiltersChange}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -288,6 +378,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial
       />,

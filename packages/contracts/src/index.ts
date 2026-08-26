@@ -758,6 +758,10 @@ export {
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
 export {
+  RobocallNumberResponseSchema,
+  type RobocallNumberResponse,
+} from './outreach/RobocallNumber.schema'
+export {
   ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
   ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequestSchema,
@@ -787,11 +791,22 @@ export {
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
+  createPrecinctFilterSchema,
+  PRECINCT_PAIR_DELIMITER,
+  encodePrecinctPair,
+  decodePrecinctPair,
   PeopleFiltersSchema,
   type PeopleFilters,
   IdOverridesSchema,
   type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  PrecinctOptionSchema,
+  type PrecinctOption,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
+} from './people/PeoplePrecincts.schema'
 
 export {
   MAX_OVERLAP_SAVED_FILTER_SETS,

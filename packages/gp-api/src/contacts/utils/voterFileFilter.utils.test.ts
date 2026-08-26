@@ -130,3 +130,43 @@ describe('convertVoterFileFilterToFilters voter status', () => {
     ).toEqual({ voterStatus: { eq: 'Unreliable' } })
   })
 })
+
+// The precincts branch is the converter's most failure-prone path: the saved
+// column is `precincts` but the filter key is `precinct`, and the filter
+// accepts only `in`. Falling through to the generic array branch would emit
+// `{ eq }` for a single selection, which PeopleFiltersSchema silently strips
+// — turning a one-precinct list into the whole district.
+describe('convertVoterFileFilterToFilters precincts', () => {
+  it('renames the column to the filter key for a single selection', () => {
+    expect(
+      convertVoterFileFilterToFilters({ precincts: ['ORANGE|711'] }),
+    ).toEqual({ precinct: { in: ['ORANGE|711'] } })
+  })
+
+  it('uses `in`, never `eq`, for a single selection', () => {
+    const filters = convertVoterFileFilterToFilters({
+      precincts: ['ORANGE|711'],
+    })
+    expect(filters.precinct).not.toHaveProperty('eq')
+  })
+
+  it('keeps every pair for a multi selection', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        precincts: ['ORANGE|711', 'DADE|2'],
+      }),
+    ).toEqual({ precinct: { in: ['ORANGE|711', 'DADE|2'] } })
+  })
+
+  it('emits no precinct key at all for an empty array', () => {
+    expect(
+      convertVoterFileFilterToFilters({ precincts: [] }),
+    ).not.toHaveProperty('precinct')
+  })
+
+  it('preserves the unknown bucket’s empty precinct side', () => {
+    expect(
+      convertVoterFileFilterToFilters({ precincts: ['HILLSBOROUGH|'] }),
+    ).toEqual({ precinct: { in: ['HILLSBOROUGH|'] } })
+  })
+})

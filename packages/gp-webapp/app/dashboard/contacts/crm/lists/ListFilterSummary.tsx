@@ -7,6 +7,7 @@ import {
   ACTIVITY_CONDITION_CHANNELS,
   SUPPORT_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
+import { decodePrecinctPair } from '@goodparty_org/contracts'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { sentenceCase } from '../shared/labels.util'
 import { SectionLabel } from './ListDetailSection'
@@ -25,6 +26,10 @@ const CODE_TO_LANGUAGE_LABEL: Record<string, string> = (
   if (code) labelByCode[code] = option.label
   return labelByCode
 }, {})
+
+// Past this the sentence stops naming individual precincts and reports a
+// count instead — a district can hold hundreds, and the summary is one line.
+const MAX_LISTED_PRECINCTS = 5
 
 const INCOME_FIELD = filterSections
   .flatMap((section) => section.fields)
@@ -141,6 +146,28 @@ export const buildFilterSummary = (
           ?.label ?? value,
     )
     clauses.push(`Support status ${labels.join(' or ')}`)
+  }
+
+  // A saved list can carry a precinct filter, so the summary has to name it —
+  // otherwise the sentence describes a narrower audience than the list
+  // actually holds. Enumerated per district, so there is no label map to look
+  // values up in: the encoded pair is decoded for display.
+  const precincts =
+    !isElectedOfficial && Array.isArray(segment.precincts)
+      ? (segment.precincts as string[])
+      : []
+  if (precincts.length > 0) {
+    const labels = precincts.map((encoded) => {
+      const { county, precinct } = decodePrecinctPair(encoded)
+      return precinct === ''
+        ? `${sentenceCase(county)} (no precinct)`
+        : `${sentenceCase(county)} ${precinct}`
+    })
+    clauses.push(
+      labels.length > MAX_LISTED_PRECINCTS
+        ? `in ${labels.length} precincts`
+        : `in precinct${labels.length === 1 ? '' : 's'} ${labels.join(' or ')}`,
+    )
   }
 
   if (typeof segment.search === 'string' && segment.search.trim()) {

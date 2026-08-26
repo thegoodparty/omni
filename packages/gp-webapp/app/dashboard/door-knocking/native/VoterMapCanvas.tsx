@@ -25,9 +25,17 @@ import { LiveLocationFix, useLiveLocation } from './useLiveLocation'
 const STATUS_COLORS: Array<[number, number, number, number]> =
   DOOR_KNOCK_STATUSES.map((status) => [...STATUS_RGB[status], 210])
 const UNMATCHED_COLOR: [number, number, number, number] = [190, 195, 200, 60]
-// The demo's action blue for the in-progress boundary.
-const DRAW_BLUE: [number, number, number, number] = [19, 81, 216, 255]
-const DRAW_BLUE_FILL: [number, number, number, number] = [19, 81, 216, 40]
+// The in-progress boundary's hue is the confirm step's pick; its strengths are
+// this canvas's, so a tinted ring can never come out stronger or weaker than
+// the saved rings it is being cut alongside.
+const DRAW_LINE_ALPHA = 255
+const DRAW_FILL_ALPHA = 40
+// Breathing room around a framed shape, in pixels — a ring flush against the
+// edge of the band reads as a shape running off the map.
+const FRAME_MARGIN = 24
+// However much of the map a step claims to cover, a fit needs something left to
+// land in.
+const MAX_FRAME_COVERAGE_PCT = 90
 // "You are here": the same action blue, muted when the fix is too coarse to
 // trust, so a bad fix reads as a guess rather than a claim.
 const LOCATION_BLUE: [number, number, number, number] = [19, 81, 216, 255]
@@ -107,6 +115,25 @@ interface VoterMapCanvasProps {
   // corrects itself by dragging again, so the ring stays the whole history
   // instead of becoming an edit stack.
   undoDrawToken: number
+  // What the in-progress boundary is drawn in. A prop because the confirm step
+  // picks it: a candidate choosing the colour their list will be drawn in has
+  // nothing to judge it by unless the shape on screen is already wearing it.
+  drawColor: string
+  // Bump to fit the camera around the drawn ring. A request rather than a
+  // reaction to the ring, because the ring changes on every tap and drag while
+  // the canvasser is the one framing it — this is only ever pressed by a step
+  // that has just covered part of the map and needs the shape back in view.
+  frameDrawToken: number
+  // How much of the map's own height that step is covering, so the fit lands in
+  // the band that is left rather than centring the ring behind the chrome. Read
+  // when the token bumps, not on its own: dragging the sheet further open must
+  // uncover more map, not re-aim the camera mid-gesture.
+  frameDrawBottomPct: number
+  // Whether the zoom, compass and locate buttons are worth offering. A step
+  // that shows a band of the map as a picture shields it from taps, and a
+  // shielded "+" is a control that answers nothing — so the step that puts the
+  // shield up takes the buttons down with it.
+  controlsHidden?: boolean
   onPolygonChange: (ring: PolygonRing | null) => void
   // Fires with the vertex count as points are placed (0 on start/clear) —
   // the page uses it to dismiss the draw instructions on the first click.
@@ -244,6 +271,31 @@ export const packOpeningCenter = (
   return [positions[best * 2] ?? 0, positions[best * 2 + 1] ?? 0]
 }
 
+// The box around a ring, for the two things this canvas frames: a saved list's
+// outline and the shape someone has just drawn. One helper because a fit is a
+// fit — the difference between them is the padding it is given, not the box.
+const ringBounds = (
+  ring: PolygonRing | ReadonlyArray<readonly number[]>,
+): [[number, number], [number, number]] | null => {
+  if (ring.length === 0) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const point of ring) {
+    const x = point[0] ?? 0
+    const y = point[1] ?? 0
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+  return [
+    [minX, minY],
+    [maxX, maxY],
+  ]
+}
+
 // Shortest distance from `point` to the segment a-b. Longitude is scaled by
 // cos(latitude) first because a degree of longitude is only ~0.75 of a degree
 // of latitude at US latitudes — compared in raw degrees, a tall narrow ring's
@@ -304,6 +356,10 @@ export default function VoterMapCanvas({
   startDrawToken,
   clearDrawToken,
   undoDrawToken,
+  drawColor,
+  frameDrawToken,
+  frameDrawBottomPct,
+  controlsHidden = false,
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
@@ -342,6 +398,11 @@ export default function VoterMapCanvas({
   onDrawPointCountRef.current = onDrawPointCount
   const onRoutePinClickRef = useRef(onRoutePinClick)
   onRoutePinClickRef.current = onRoutePinClick
+  // Read when a framing is asked for, never depended on: dragging the sheet
+  // further open changes how much is covered, and re-aiming the camera in the
+  // middle of that gesture would fight the hand doing it.
+  const frameBottomPctRef = useRef(frameDrawBottomPct)
+  frameBottomPctRef.current = frameDrawBottomPct
   // Opt-in: nothing is watched until the canvasser asks to be shown.
   const [locationEnabled, setLocationEnabled] = useState(false)
   const location = useLiveLocation(locationEnabled)
@@ -546,6 +607,11 @@ export default function VoterMapCanvas({
     const overlay = overlayRef.current
     if (!overlay) return
     const dotCount = pack.manifest.counts.dots
+    // Only the hue crosses the seam. The strengths stay this canvas's, so the
+    // ring being cut can't come out bolder or fainter than the saved ones it is
+    // being compared against.
+    const drawLine = hexToRgba(drawColor, DRAW_LINE_ALPHA)
+    const drawFill = hexToRgba(drawColor, DRAW_FILL_ALPHA)
     overlay.setProps({
       layers: [
         new PolygonLayer<DoorKnockingTurf>({
@@ -585,8 +651,8 @@ export default function VoterMapCanvas({
           id: 'draw-preview',
           data: drawPoints.length >= 3 ? [drawPoints] : [],
           getPolygon: (ring) => ring,
-          getFillColor: DRAW_BLUE_FILL,
-          getLineColor: DRAW_BLUE,
+          getFillColor: drawFill,
+          getLineColor: drawLine,
           lineWidthMinPixels: 2.5,
           pickable: false,
         }),
@@ -594,7 +660,9 @@ export default function VoterMapCanvas({
           id: 'draw-vertices',
           data: drawPoints,
           getPosition: (point) => point,
-          getFillColor: DRAW_BLUE,
+          // The vertices wear the pick too: they are corners of the same
+          // boundary, and a blue handle on a green ring reads as two shapes.
+          getFillColor: drawLine,
           getLineColor: [255, 255, 255, 255],
           stroked: true,
           lineWidthMinPixels: 1.5,
@@ -759,6 +827,7 @@ export default function VoterMapCanvas({
     routeLoop,
     routeGeometry,
     drawPoints,
+    drawColor,
     locationFix,
     location.approximate,
   ])
@@ -782,25 +851,8 @@ export default function VoterMapCanvas({
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return
-    const ring = focusTurf.geoPoly.coordinates[0] ?? []
-    if (ring.length === 0) return
-    let minX = Infinity
-    let minY = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    for (const [x, y] of ring) {
-      if (x < minX) minX = x
-      if (x > maxX) maxX = x
-      if (y < minY) minY = y
-      if (y > maxY) maxY = y
-    }
-    mapRef.current.fitBounds(
-      [
-        [minX, minY],
-        [maxX, maxY],
-      ],
-      { padding: 64 },
-    )
+    const bounds = ringBounds(focusTurf.geoPoly.coordinates[0] ?? [])
+    if (bounds) mapRef.current.fitBounds(bounds, { padding: 64 })
   }, [focusTurf])
 
   // Fit once per distinct route: refit when the pin set actually changes,
@@ -873,6 +925,43 @@ export default function VoterMapCanvas({
     onPolygonChangeRef.current(next.length >= 3 ? next : null)
   }, [undoDrawToken])
 
+  // Put the shape back in view for a step that has just covered part of the
+  // map. The map fills its container, so uncovering a strip of it reveals
+  // whatever streets happen to be up there while the ring stays centred behind
+  // the chrome — the covered band has to reach the camera, and maplibre already
+  // takes one as padding. An offset centre would mean redoing the zoom
+  // arithmetic `fitBounds` does anyway, and getting it wrong on any ring wider
+  // than it is tall.
+  useEffect(() => {
+    if (frameDrawToken === 0) return
+    const map = mapRef.current
+    const bounds = ringBounds(drawPointsRef.current)
+    if (!map || !bounds) return
+    const height = map.getCanvas().clientHeight
+    const covered = Math.round(
+      (height *
+        Math.max(
+          0,
+          Math.min(MAX_FRAME_COVERAGE_PCT, frameBottomPctRef.current),
+        )) /
+        100,
+    )
+    map.fitBounds(bounds, {
+      padding: {
+        top: FRAME_MARGIN,
+        // Never more than the canvas can spare: a container that has not been
+        // measured yet (or a percentage against a short one) would otherwise
+        // ask for padding taller than the map and get no fit at all.
+        bottom: Math.min(
+          FRAME_MARGIN + covered,
+          Math.max(FRAME_MARGIN, height - FRAME_MARGIN * 3),
+        ),
+        left: FRAME_MARGIN,
+        right: FRAME_MARGIN,
+      },
+    })
+  }, [frameDrawToken])
+
   useEffect(() => {
     if (clearDrawToken === 0) return
     // Finish any in-flight vertex drag first — nulling the index without
@@ -899,13 +988,25 @@ export default function VoterMapCanvas({
   }
 
   return (
-    <div className="relative h-full w-full">
+    // maplibre owns the navigation stack's DOM, so it goes away by CSS rather
+    // than by not being added — dropping and re-adding the control on a step
+    // change would rebuild it mid-session. The rule rides this wrapper and not
+    // the map container below it: maplibre writes its own classes onto that
+    // node after mount, and a className React rewrites on every flip of
+    // `controlsHidden` would take `maplibregl-map` with it.
+    <div
+      className={`relative h-full w-full ${
+        controlsHidden ? '[&_.maplibregl-ctrl-top-right]:hidden' : ''
+      }`}
+    >
       <div ref={containerRef} className="h-full w-full" />
-      <LiveLocationControl
-        location={location}
-        enabled={locationEnabled}
-        onToggle={setLocationEnabled}
-      />
+      {!controlsHidden && (
+        <LiveLocationControl
+          location={location}
+          enabled={locationEnabled}
+          onToggle={setLocationEnabled}
+        />
+      )}
     </div>
   )
 }
