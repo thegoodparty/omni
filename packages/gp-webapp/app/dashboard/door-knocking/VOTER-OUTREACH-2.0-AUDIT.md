@@ -126,10 +126,32 @@ on a finished list and find nothing on the surface that knew it was finished —
 the footer's "Move to archive" button was the only clue.
 
 It now renders the same component the outreach drawer does, so one saved list is
-described in one vocabulary from both entry points: **Scheduled** before it is
+described in one vocabulary from both entry points: **Not started** before it is
 knocked, **In progress** once it has a route, **Done**, **Archived**. (Archived
 is ours — the canvas has no shelf, and "Done" would be a lie about a list the
 rail has taken off the active section.)
+
+**The unknocked state is a deliberate departure from the canvas, and the second
+one in this section.** The canvas says `scheduled` there, and this audit
+originally transcribed it as **Scheduled** — accurately, which is the point
+worth recording. A politics domain expert then read that label on a list he had
+drawn and never walked and asked when it had been scheduled. It never had been,
+and could not have been: door knocking has no send time, no date picker and no
+scheduling concept anywhere in the flow. The canvas's `STATUS_META` is six
+states written around the sending channels, where the flow does end on a date
+picker and the row does carry a `scheduledAt` — it has no "hasn't begun yet"
+bucket, so its door-knocking screen borrowed the nearest word. Reading the
+canvas correctly is what produced the confusing label, so this is a canvas
+defect inherited faithfully rather than drift on our side.
+
+**Not started** says what the canvas meant (`knocked === 0`) in the words this
+vocabulary already uses for the other two positions on the same axis. It cannot
+collide with the sending channels' Scheduled, which is untouched and still means
+a bought send with a real time on it, and it cannot put the two drawers out of
+step: the `Outreach` envelope is written by the knock transaction, so a list in
+this state is in no outreach history at all, and from the moment it is, both
+surfaces read In progress. `turfLifecycle.test.ts` asserts both halves so a
+future parity pass against the canvas cannot quietly put the word back.
 
 ### 6. The door panel's card stack was one card where the canvas has three
 
