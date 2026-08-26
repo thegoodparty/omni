@@ -434,6 +434,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const hasBuilderSelection = hasAnyVoterFileSelection(
     audience.builderFilters,
     audience.builderSupportStatus,
+    audience.builderPrecincts,
   )
 
   const dirty = purpose !== null
@@ -529,6 +530,9 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
             builderFilters={audience.builderFilters}
             onBuilderFiltersChange={audience.setBuilderFilters}
             builderSupportStatus={audience.builderSupportStatus}
+            builderPrecincts={audience.builderPrecincts}
+            onBuilderPrecinctsChange={audience.setBuilderPrecincts}
+            precinctOptions={audience.precinctOptions}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}

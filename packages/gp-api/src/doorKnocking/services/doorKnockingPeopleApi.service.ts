@@ -70,7 +70,10 @@ export class DoorKnockingPeopleApiService {
     )
   }
 
-  pack(request: DoorKnockingPackRequest): Promise<Buffer> {
-    return this.voterPack.build(request)
+  pack(
+    request: DoorKnockingPackRequest,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    return this.voterPack.build(request, signal)
   }
 }

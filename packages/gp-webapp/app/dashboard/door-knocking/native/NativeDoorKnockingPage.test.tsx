@@ -85,6 +85,7 @@ vi.mock('./VoterMapCanvas', () => ({
     frameDrawToken,
     frameDrawBottomPct,
     controlsHidden,
+    location,
     onPolygonChange,
     onDrawPointCount,
     onRoutePinClick,
@@ -98,6 +99,7 @@ vi.mock('./VoterMapCanvas', () => ({
     frameDrawToken: number
     frameDrawBottomPct: number
     controlsHidden?: boolean
+    location: { status: string }
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
     onRoutePinClick?: (pin: { stopId: number }) => void
@@ -135,6 +137,10 @@ vi.mock('./VoterMapCanvas', () => ({
       // The band the confirm step uncovers is shielded from taps, so the map's
       // own buttons standing in it would be dead ones.
       data-controls-hidden={String(Boolean(controlsHidden))}
+      // The canvasser's own position, read from the page's watch. The switch
+      // for it is the walk's, so this attribute is how a press on the walk's
+      // pill is shown to have reached the map that draws the dot.
+      data-location-status={location.status}
     >
       <button
         type="button"
@@ -524,6 +530,37 @@ describe('NativeDoorKnockingPage landing rail', () => {
     await selectTurf()
 
     expect(screen.queryByText(/can’t shade by/)).toBeNull()
+  })
+
+  // The last hop of the empty rail's Create list button (#1452 wired it as far
+  // as the manage view and stopped at the fence). Without it the rail falls
+  // back to naming a button it cannot press, which is what the empty state did
+  // before and is indistinguishable from the feature not existing.
+  it('opens the create flow from the empty rail’s own button', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    // Two buttons open one flow, so the rail's is scoped away from the
+    // header's rather than matched by name alone.
+    const rail = document.getElementById('door-knocking-rail') as HTMLElement
+    const create = await waitFor(() => {
+      const button = within(rail).getByRole('button', { name: 'Create list' })
+      expect(button).toBeEnabled()
+      return button
+    })
+
+    fireEvent.click(create)
+
+    expect(await screen.findByText(/Introduce myself/)).toBeInTheDocument()
+    // And no fallback copy standing in for the wiring.
+    expect(screen.queryByText(/Use Create list above/)).toBeNull()
   })
 
   // A legend that narrowed with its own chip would zero the other six counts
@@ -1368,6 +1405,110 @@ describe('NativeDoorKnockingPage walk map', () => {
     await screen.findByText(/voters in your district with a mapped address/)
 
     expect(screen.queryByText('Tap a pin to log the door.')).toBeNull()
+  })
+
+  // The canvas puts the walk's paper in the page header and calls it PDF. Ours
+  // called it "Print list" and hid it in the chip row under the map, pointing
+  // at the HTML print sheet — so the same artefact had two names depending on
+  // which surface you asked from. It opens in its own tab, because the walk in
+  // progress must not be navigated away from.
+  it('offers the walk’s PDF from the header, beside the list’s name', async () => {
+    await startWalk()
+
+    // The header row: the list's name, the way back, and the paper.
+    const header = () =>
+      screen.getByRole('heading', { name: /Elm St & 5th|Door knocking/ })
+        .parentElement?.parentElement as HTMLElement
+
+    const link = within(header()).getByRole('link', { name: 'PDF' })
+    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/1/pdf')
+    expect(link).toHaveAttribute('target', '_blank')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    // Outside a walk the header has nothing to print — no list is open. The
+    // details drawer carries its own, per list and only once that list is
+    // locked; the rail row's was removed in #1455 as ours, not the canvas's.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create list' })).toBeVisible(),
+    )
+    expect(within(header()).queryByRole('link', { name: 'PDF' })).toBeNull()
+  })
+})
+
+// One watch, two readers. The map draws the dot and outlives the walk; the
+// control that turns it on is the walk's alone, exactly as in the canvas —
+// which offers "My live location" in the walk's control row and on no other
+// surface. So the state is the orchestrator's and both halves read it.
+describe('NativeDoorKnockingPage live location', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    // jsdom has no geolocation, and the control hides itself without one.
+    Object.defineProperty(navigator, 'geolocation', {
+      value: { watchPosition: vi.fn(), clearWatch: vi.fn() },
+      configurable: true,
+    })
+    Object.defineProperty(window, 'isSecureContext', {
+      value: true,
+      configurable: true,
+    })
+  })
+
+  it('reaches the map from the walk’s own control', async () => {
+    await startWalk()
+
+    const map = screen.getByTestId('voter-map')
+    expect(map).toHaveAttribute('data-location-status', 'off')
+
+    fireEvent.click(screen.getByRole('button', { name: 'My live location' }))
+
+    // `locating` is the watch running with no fix yet — the stub never calls
+    // back, which is also what an unanswered permission prompt looks like.
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-location-status',
+        'locating',
+      ),
+    )
+  })
+
+  // Leaving is the only way out of a walk, and the walk row is the only place
+  // the switch exists — so a watch left running would keep the GPS radio warm
+  // for a surface with no way to see it and no way to stop it.
+  it('stops watching on the way out of the walk', async () => {
+    await startWalk()
+    fireEvent.click(screen.getByRole('button', { name: 'My live location' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-location-status',
+        'locating',
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-location-status',
+        'off',
+      ),
+    )
+  })
+
+  // The landing map and the create flow have no such control. A candidate
+  // drawing turfs at a desk is never asked for their position, and the refusal
+  // is structural rather than a habit: there is no button to press.
+  it('offers no location control outside a walk', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    expect(
+      screen.queryByRole('button', { name: 'My live location' }),
+    ).toBeNull()
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-location-status',
+      'off',
+    )
   })
 })
 

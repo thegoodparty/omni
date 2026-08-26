@@ -156,6 +156,54 @@ export const IdOverridesSchema = z.object({
 })
 export type IdOverrides = z.infer<typeof IdOverridesSchema>
 
+// Precinct is the one filter whose vocabulary is not fixed: it is enumerated
+// per district (GET /v1/contacts/precincts) rather than declared here. A
+// precinct number is only unique within its county — a bare "045" exists in
+// 52 different Colorado counties, and one Texas precinct string appears in 72
+// — so the pair is the identity, and it travels as one encoded scalar.
+//
+// A scalar rather than a {county, precinct} object because the server-side
+// `transformFilters` maps every `in` array through String(); an object would
+// arrive as "[object Object]". Encoding it once here keeps the producer, the
+// two SQL builders, and the saved `VoterFileFilter.precincts` column on one
+// representation.
+//
+// `|` is safe as the delimiter: verified 2026-08-25 that no County or
+// Precinct value in the voter file contains one.
+export const PRECINCT_PAIR_DELIMITER = '|'
+
+export const encodePrecinctPair = (county: string, precinct: string): string =>
+  `${county}${PRECINCT_PAIR_DELIMITER}${precinct}`
+
+// Splits on the FIRST delimiter only. Precinct values are the longer, more
+// varied side (up to 83 chars, and full of punctuation); should one ever gain
+// a `|`, the county still resolves correctly and the precinct keeps its
+// remainder rather than being silently truncated.
+export const decodePrecinctPair = (
+  encoded: string,
+): { county: string; precinct: string } => {
+  const at = encoded.indexOf(PRECINCT_PAIR_DELIMITER)
+  if (at === -1) return { county: encoded, precinct: '' }
+  return {
+    county: encoded.slice(0, at),
+    precinct: encoded.slice(at + PRECINCT_PAIR_DELIMITER.length),
+  }
+}
+
+// An empty precinct side is meaningful, not a bug: it is the "Unknown" bucket
+// the UI offers whenever a district contains voters with no precinct on file
+// (0.7% nationally, and all 1,086,506 New Hampshire voters). Selecting it must
+// resolve to `Precinct IS NULL`, never be dropped.
+const MAX_PRECINCT_FILTER_VALUES = 5_000
+
+export const createPrecinctFilterSchema = () =>
+  z.object({
+    in: z
+      .array(z.string().min(1).max(200))
+      .min(1)
+      .max(MAX_PRECINCT_FILTER_VALUES),
+  })
+
 export const createNumericFilterSchema = () => {
   return z
     .object({
@@ -225,6 +273,7 @@ export const PeopleFiltersSchema = z.object({
   ).optional(),
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),
+  precinct: createPrecinctFilterSchema().optional(),
 })
 
 export type PeopleFilters = z.infer<typeof PeopleFiltersSchema>

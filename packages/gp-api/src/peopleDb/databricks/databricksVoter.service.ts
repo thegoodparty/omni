@@ -12,6 +12,8 @@ import {
   PeopleAggregatesResponseSchema,
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import {
   AggregatesDTO,
@@ -30,6 +32,8 @@ import {
   buildCountSql,
   buildDistrictSql,
   buildOverlapCountSql,
+  buildPrecinctsSql,
+  MAX_PRECINCT_OPTIONS,
   buildPageSql,
   buildPersonSql,
   buildSampleSql,
@@ -214,6 +218,25 @@ export class DatabricksVoterService {
       throw new NotFoundException(`Person with ID ${id} not found`)
     }
     return transformToPersonOutput(toDbPerson(columnNames, row))
+  }
+
+  async findPrecincts(districtId: string): Promise<PeoplePrecinctsResponse> {
+    const district = await this.resolveDistrict(districtId)
+    const { rows } = await this.run(buildPrecinctsSql({ district }))
+    // The statement asks for one row past the cap purely so this comparison
+    // can tell a full list from a clipped one; that extra row is dropped.
+    const truncated = rows.length > MAX_PRECINCT_OPTIONS
+    const options = (
+      truncated ? rows.slice(0, MAX_PRECINCT_OPTIONS) : rows
+    ).map((row) => ({
+      county: row[0] ?? '',
+      // A SQL NULL precinct is the Unknown bucket. Normalised to '' here so
+      // the wire shape stays a plain string and encode/decode round-trips
+      // it, rather than making every consumer handle a nullable.
+      precinct: row[1] ?? '',
+      voters: Number(row[2] ?? 0),
+    }))
+    return PeoplePrecinctsResponseSchema.parse({ options, truncated })
   }
 
   async findPeople(dto: ListPeopleDTO) {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { PeopleFiltersSchema } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/people-prisma'
 import { buildVoterFiltersSql } from './filters.sql.util'
-import { FilterData } from '../schemas/filters.schema'
+import { filtersSchema, FilterData } from '../schemas/filters.schema'
 import {
   ALL_KNOWN_PARTY_VALUES,
   classifyPoliticalParty,
@@ -960,5 +961,104 @@ describe('buildVoterFiltersSql', () => {
       excludeIds.forEach((id) => expect(flatValues(result)).toContain(id))
       expect(result?.values).toHaveLength(2)
     })
+  })
+})
+
+describe('precinct filter', () => {
+  const precinctFilter = (values: string[]): FilterData => ({
+    filters: ['precinct'],
+    filterValues: { precinct: values },
+    filterOperators: { precinct: { operator: 'in', values } },
+  })
+
+  it('matches on the (county, precinct) tuple, not the precinct alone', () => {
+    const sql = buildVoterFiltersSql(precinctFilter(['ORANGE|711']))
+    expect(sqlToString(sql)).toContain('(v."County", v."Precinct") IN')
+    expect(sqlToString(sql)).toContain('unnest(')
+  })
+
+  // One bound array per side rather than a parameter per pair: the filter
+  // accepts up to 5,000 pairs, and per-value binding would approach
+  // PostgreSQL's 65,535 bind-parameter ceiling.
+  it('binds the pairs as two arrays, not one parameter per value', () => {
+    const sql = buildVoterFiltersSql(
+      precinctFilter(['ORANGE|711', 'DADE|2', 'BROWARD|3']),
+    )
+    expect(sql?.values).toHaveLength(2)
+    expect(flatValues(sql)).toEqual([
+      'ORANGE',
+      'DADE',
+      'BROWARD',
+      '711',
+      '2',
+      '3',
+    ])
+  })
+
+  it('resolves an empty precinct to IS NULL, scoped to its county', () => {
+    const sql = buildVoterFiltersSql(precinctFilter(['HILLSBOROUGH|']))
+    const text = sqlToString(sql)
+    expect(text).toContain('v."Precinct" IS NULL')
+    expect(text).toContain('v."County" = ANY')
+    expect(flatValues(sql)).toEqual(['HILLSBOROUGH'])
+  })
+
+  it('ORs the unknown bucket together with named precincts', () => {
+    const sql = buildVoterFiltersSql(
+      precinctFilter(['LOS ANGELES|CARSON-0028', 'LOS ANGELES|']),
+    )
+    const text = sqlToString(sql)
+    expect(text).toContain('OR')
+    expect(text).toContain('IS NULL')
+    expect(text).toContain('unnest(')
+  })
+
+  it('keeps a precinct containing the delimiter intact', () => {
+    const sql = buildVoterFiltersSql(precinctFilter(['DADE|A|B']))
+    expect(flatValues(sql)).toEqual([['DADE'], ['A|B']].flat())
+  })
+
+  it('emits nothing for an empty value list', () => {
+    expect(buildVoterFiltersSql(precinctFilter([]))).toBeNull()
+  })
+})
+
+// The Databricks builder has carried this guard since it was written; this
+// path did not, and it is the one that matters more. PeopleFiltersSchema
+// deliberately strips unknown keys instead of rejecting them, so a filter
+// with no case here does not error — it disappears, and the audience silently
+// grows. Every key the contract accepts must produce a clause.
+describe('every PeopleFilters key translates', () => {
+  const sample: Record<string, boolean | Record<string, unknown>> = {
+    hasCellPhone: true,
+    hasLandline: true,
+    hasAnyPhone: true,
+    hasAddress: true,
+    id: { in: ['11111111-1111-1111-1111-111111111111'] },
+    maritalStatus: { in: ['Married'] },
+    veteranStatus: { in: ['Yes'] },
+    educationLevel: { in: ['College Degree'] },
+    ethnicity: { in: ['European'] },
+    businessOwner: { in: ['Yes'] },
+    presenceOfChildren: { in: ['Yes'] },
+    homeowner: { in: ['Yes'] },
+    gender: { in: ['F'] },
+    voterStatus: { in: ['Super'] },
+    politicalParty: { in: ['Democratic'] },
+    language: { in: ['English'] },
+    estimatedIncomeAmountInt: { gte: 50000 },
+    ageInt: { gte: 30 },
+    precinct: { in: ['ORANGE|711'] },
+  }
+
+  it('covers the whole contract surface', () => {
+    expect(Object.keys(sample).sort()).toEqual(
+      Object.keys(PeopleFiltersSchema.shape).sort(),
+    )
+  })
+
+  it.each(Object.keys(sample))('emits a clause for %s', (key) => {
+    const parsed = filtersSchema.parse({ [key]: sample[key] })
+    expect(buildVoterFiltersSql(parsed)).not.toBeNull()
   })
 })

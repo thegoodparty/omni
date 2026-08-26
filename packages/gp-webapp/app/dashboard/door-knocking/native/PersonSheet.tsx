@@ -231,8 +231,14 @@ export default function PersonSheet({
             {/* The canvas's panel header: back, the stop's number, the person,
                 forward. Both chevrons are rendered at every position and
                 disabled at the ends, so the pair keeps its place in the row
-                and the header does not reflow as the canvasser walks. */}
+                and the header does not reflow as the canvasser walks.
+                `ghost` and not the default fill: three filled circles around
+                the name made the chrome the loudest thing on a panel whose
+                subject is the person, and the canvas draws all three as plain
+                glyphs. The hit target is the IconButton's either way, which is
+                the part that matters at a doorstep. */}
             <IconButton
+              variant="ghost"
               aria-label="Previous door"
               disabled={onOpenPreviousStop === null}
               onClick={() => onOpenPreviousStop?.()}
@@ -258,13 +264,18 @@ export default function PersonSheet({
               </p>
             </div>
             <IconButton
+              variant="ghost"
               aria-label="Next door"
               disabled={onOpenNextStop === null}
               onClick={() => onOpenNextStop?.()}
             >
               <ChevronRightIcon size={18} />
             </IconButton>
-            <IconButton aria-label="Close person details" onClick={onClose}>
+            <IconButton
+              variant="ghost"
+              aria-label="Close person details"
+              onClick={onClose}
+            >
               <XMarkIcon size={18} />
             </IconButton>
           </div>

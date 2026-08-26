@@ -420,6 +420,21 @@ describe('RobocallFlow', () => {
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
   })
 
+  // ENG-10948: the any-phone dialing hint is phone-banking-specific copy —
+  // robocall dials landlines only and passes no filtersHint, so it must not
+  // appear here.
+  it('does not show the phone-banking any-phone-dialing hint', async () => {
+    mockSavedLists()
+    await gotoAudience()
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Create a new list'))
+    expect(screen.getByText('Build a voter list')).toBeInTheDocument()
+
+    expect(
+      screen.queryByText(/Phone banking calls whichever number/),
+    ).not.toBeInTheDocument()
+  })
+
   it('builds a list, creates it, and advances to the schedule step', async () => {
     mockSavedLists()
     mockBuilderCount(50)
