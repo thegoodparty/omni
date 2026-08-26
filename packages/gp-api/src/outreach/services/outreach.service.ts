@@ -659,17 +659,31 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       throw new BadRequestException('Only scheduled campaigns can be canceled')
     }
 
-    const revertClaim = () =>
-      this.model.update({
-        where: { id: outreachId },
-        data: { status: OutreachStatus.pending },
-      })
+    // A revert failure must never replace the error that triggered it: the
+    // row would sit `canceled` with the cancel unfinished, and the
+    // idempotent early-return would make every retry silently succeed —
+    // for the refund path, with the user's money never returned.
+    const revertClaim = async (cause: string) => {
+      try {
+        await this.model.update({
+          where: { id: outreachId },
+          data: { status: OutreachStatus.pending },
+        })
+      } catch (revertErr) {
+        this.logger.error(
+          { err: revertErr },
+          `revertClaim failed for outreach ${outreachId} after ${cause}; ` +
+            'row is stuck canceled with the cancel unfinished — manual ' +
+            'intervention required',
+        )
+      }
+    }
 
     if (outreach.projectId) {
       try {
         await this.peerlyP2pJobService.deleteJob(outreach.projectId)
       } catch (error) {
-        await revertClaim()
+        await revertClaim('vendor delete failure')
         throw error
       }
     }
@@ -696,7 +710,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
           { err: error },
           `Refund failed canceling outreach ${outreachId}; claim reverted so cancel can retry`,
         )
-        await revertClaim()
+        await revertClaim('refund failure')
         throw new BadGatewayException(
           'The refund could not be processed. Try canceling again.',
         )
