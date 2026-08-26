@@ -226,11 +226,17 @@ export const RobocallComposeStep = ({
                 Drafting your script…
               </p>
             ) : (
-              <p className="select-text whitespace-pre-wrap text-base leading-relaxed text-foreground">
+              <p
+                data-vaul-no-drag
+                className="select-text whitespace-pre-wrap text-base leading-relaxed text-foreground"
+              >
                 {draft}
               </p>
             )}
-            <p className="select-text text-xs text-muted-foreground">
+            <p
+              data-vaul-no-drag
+              className="select-text text-xs text-muted-foreground"
+            >
               Your recording must say who paid for the call and include this
               callback number: {callbackNumber}.
             </p>
