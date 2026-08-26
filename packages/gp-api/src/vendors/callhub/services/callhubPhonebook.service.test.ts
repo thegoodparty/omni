@@ -67,6 +67,20 @@ describe('CallhubPhonebookService', () => {
     expect(result[0]?.name).toBe('Sample')
   })
 
+  it('reads the calling-number count from numbers_count', async () => {
+    http.get.mockResolvedValue({
+      phonenumber_count: 42,
+      mobilenumber_count: 0,
+    })
+
+    const result = await service.getContactCount('3966566468442653936')
+
+    expect(http.get).toHaveBeenCalledWith(
+      '/v1/phonebooks/3966566468442653936/numbers_count',
+    )
+    expect(result).toBe(42)
+  })
+
   it('maps a CallHub failure to a 502', async () => {
     http.post.mockRejectedValue(axiosError(500))
 

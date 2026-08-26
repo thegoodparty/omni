@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 import {
   CallhubPhonebook,
   CallhubPhonebookSchema,
+  PhonebookNumbersCountSchema,
   PhonebookPageSchema,
 } from '../schemas/callhubPhonebook.schema'
 import { CallhubErrorHandlingService } from './callhubErrorHandling.service'
@@ -42,6 +43,26 @@ export class CallhubPhonebookService {
         error,
         logger: this.logger,
         customMessage: 'CallHub phonebook creation failed',
+      })
+    }
+  }
+
+  // The phonebook's loaded calling-number count. Its hyperlinked `count`
+  // field resolves to a `.../numbers_count` sub-resource (a URL, not an
+  // integer), whose path is deterministic off the pk_str. A bulk import is
+  // asynchronous with no job id, so callers poll this to know when the load
+  // finished.
+  async getContactCount(phonebookPkStr: string): Promise<number> {
+    try {
+      const data = await this.http.get(
+        `${PHONEBOOKS_PATH}${phonebookPkStr}/numbers_count`,
+      )
+      return PhonebookNumbersCountSchema.parse(data).phonenumber_count
+    } catch (error) {
+      return this.errorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        customMessage: 'CallHub phonebook contact-count lookup failed',
       })
     }
   }
