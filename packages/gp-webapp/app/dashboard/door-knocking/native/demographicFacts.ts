@@ -3,9 +3,9 @@ import {
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 
-// One wording for every absent value on the demographic card, and it describes
-// the RECORD rather than the person. Sparseness is the normal condition of the
-// voter file — every one of the eleven attributes has a real null case and the
+// One wording for every absent value on both fact cards, and it describes the
+// RECORD rather than the person. Sparseness is the normal condition of the
+// voter file — every one of these attributes has a real null case and the
 // exploration pack reserves a no-data bucket on every dimension — so a
 // canvasser meets this string constantly and it has to be true every time.
 //
@@ -14,13 +14,16 @@ import {
 // column holds a value meaning yes or nothing at all, so absence is
 // indistinguishable from unknown and "No" would be a claim the data cannot
 // support — telling a canvasser at the door that someone is not a veteran on
-// the strength of an empty column. Applying the same string to all eleven is
+// the strength of an empty column. Applying the same string to every row is
 // deliberate: a card where some fields say "Unknown", some say "No" and some
 // vanish teaches a reader that absence means something different each time.
+// **Splitting one card into two did not split this rule** — the two cards read
+// as one profile down the panel, and a reader who met two vocabularies for
+// absence across them would learn the wrong lesson from the boundary.
 //
 // The CRM's person overlay says "Unknown" for the same columns. That is a
-// defensible word for the nine that genuinely have an unknown state, but not
-// for the two above, and one card cannot be read two ways at once.
+// defensible word for the ones that genuinely have an unknown state, but not
+// for the two above, and one panel cannot be read two ways at once.
 export const NOT_ON_FILE = 'Not on file'
 
 // `Estimated_Income_Amount_Int` is a modelled figure, so it is bucketed rather
@@ -58,28 +61,62 @@ export interface DemographicFact {
 const yesNo = (value: boolean | null | undefined): string | null =>
   value == null ? null : value ? 'Yes' : 'No'
 
-// The eleven attributes, in the order product asked for them. Values arrive
-// already mapped for display by gp-api (`transformToPersonOutput.util.ts`, the
-// same mappers `/v1/contacts` person detail uses), so this turns nulls into one
-// string and otherwise prints what the server decided — inventing a second
-// vocabulary here is how the door starts describing a voter's education
-// differently from the CRM.
+const withFallback = (
+  facts: Array<{ label: string; value: string | null | undefined }>,
+): DemographicFact[] =>
+  facts.map(({ label, value }) => ({ label, value: value ?? NOT_ON_FILE }))
+
+// Values in both lists arrive already mapped for display by gp-api
+// (`transformToPersonOutput.util.ts`, the same mappers `/v1/contacts` person
+// detail uses), so these turn nulls into one string and otherwise print what
+// the server decided — inventing a second vocabulary here is how the door
+// starts describing a voter's education differently from the CRM.
 //
-// Three labels are deliberate and load-bearing:
+// **The split is the canvas's, not a grouping we chose.** `renderPanel` draws
+// three cards where we drew one: registration facts, then support, then the
+// personal profile. What follows here is the first and third of those; the
+// middle one is `supportPresentation.ts`.
+
+// The canvas's "Voter demographics": who this person is to the voter file,
+// which is a different kind of claim from the lifestyle profile below and is
+// what a canvasser checks before deciding whether the door is worth the knock.
 //
-// - **"Turnout likelihood"**, not the prototype's "Voter status". `Voter_Status`
-//   holds turnout propensity (Super / Likely / Unreliable / Unlikely), while
-//   "voter status" in this industry means active-or-inactive registration. The
-//   prototype's label would name this as something it isn't.
+// **Political party moved here out of the sheet's header subtitle**, where it
+// used to sit beside the age. The canvas puts the age alone under the name and
+// the party in this card, and it is the better place for it: party is a
+// voter-file attribute like the two above it, while the subtitle is meant to
+// identify the person at a glance.
+export const voterDemographicFacts = (
+  target: Pick<
+    RoutePayloadTarget,
+    'registeredVoter' | 'turnoutLikelihood' | 'politicalParty'
+  >,
+): DemographicFact[] =>
+  withFallback([
+    { label: 'Registered voter', value: yesNo(target.registeredVoter) },
+    // **"Turnout likelihood", not the canvas's "Voter status".**
+    // `Voter_Status` holds turnout propensity (Super / Likely / Unreliable /
+    // Unlikely), while "voter status" in this industry means active-or-inactive
+    // registration — a column we do not have. The canvas's label would name
+    // this field as something it isn't.
+    { label: 'Turnout likelihood', value: target.turnoutLikelihood },
+    { label: 'Political party', value: target.politicalParty },
+  ])
+
+// The canvas's "Demographic information": the personal profile, which is
+// reference material a canvasser scans mid-conversation rather than something
+// they act on.
+//
+// Two labels are deliberate and load-bearing:
+//
 // - **"Has children under 18"** is a household Y/N flag, not a count — there is
 //   no column for the number of children.
 // - **"Estimated household income"** says household, because that is what the
-//   column models. Read as a personal income it is a different claim.
+//   column models. Read as a personal income it is a different claim, so this
+//   one keeps its wording against the canvas's "Estimated income range".
 export const demographicFacts = (
   target: Pick<
     RoutePayloadTarget,
-    | 'registeredVoter'
-    | 'turnoutLikelihood'
     | 'maritalStatus'
     | 'hasChildrenUnder18'
     | 'veteranStatus'
@@ -91,14 +128,12 @@ export const demographicFacts = (
     | 'ethnicityGroup'
   >,
 ): DemographicFact[] =>
-  [
-    { label: 'Registered voter', value: yesNo(target.registeredVoter) },
-    { label: 'Turnout likelihood', value: target.turnoutLikelihood },
+  withFallback([
     { label: 'Marital status', value: target.maritalStatus },
     { label: 'Has children under 18', value: target.hasChildrenUnder18 },
     // Presence-only. `veteranStatus` is 'Yes' or null and there is no third
     // branch to write, which is the point — see NOT_ON_FILE above.
-    { label: 'Veteran', value: target.veteranStatus },
+    { label: 'Veteran status', value: target.veteranStatus },
     { label: 'Homeowner', value: target.homeowner },
     { label: 'Business owner', value: target.businessOwner },
     { label: 'Level of education', value: target.levelOfEducation },
@@ -107,5 +142,5 @@ export const demographicFacts = (
       value: incomeRangeLabel(target.estimatedIncomeAmount),
     },
     { label: 'Language', value: target.language },
-    { label: 'Ethnicity', value: target.ethnicityGroup },
-  ].map(({ label, value }) => ({ label, value: value ?? NOT_ON_FILE }))
+    { label: 'Ethnicity group', value: target.ethnicityGroup },
+  ])

@@ -132,10 +132,25 @@ describe('PersonSheet header', () => {
     const header = screen.getByRole('heading', { name: 'Dorian Fen' })
       .parentElement!.parentElement!
     // The badge was a span whose entire text was the seq; the age line reads
-    // "31 years old · Independent", so it can't be mistaken for one.
+    // "31 years old", so it can't be mistaken for one.
     expect(within(header).queryByText('1')).toBeNull()
+    expect(within(header).getByText('31 years old')).toBeInTheDocument()
+  })
+
+  // The canvas puts the age alone under the name and the party in the Voter
+  // demographics card. Party is a voter-file attribute like registration and
+  // turnout, and the subtitle's job is to identify the person.
+  it('leaves the party to the Voter demographics card', () => {
+    renderSheet([target()])
+
+    const header = screen.getByRole('heading', { name: 'Dorian Fen' })
+      .parentElement!.parentElement!
+    expect(within(header).queryByText(/Independent/)).toBeNull()
     expect(
-      within(header).getByText('31 years old · Independent'),
+      within(
+        screen.getByRole('heading', { name: 'Voter demographics' })
+          .parentElement!,
+      ).getByText('Independent'),
     ).toBeInTheDocument()
   })
 })
@@ -201,6 +216,8 @@ describe('PersonSheet section headers', () => {
       'Contact information',
       'Notes',
       'Household',
+      'Voter demographics',
+      'Demographic information',
       'Activity feed',
     ]) {
       const icon = screen
@@ -211,6 +228,32 @@ describe('PersonSheet section headers', () => {
       // every other assertion in this file finds these cards by.
       expect(icon).toHaveAttribute('aria-hidden', 'true')
     }
+  })
+})
+
+// The canvas's `renderPanel` draws the profile as three cards in a fixed
+// order — registration facts, support, personal profile — under the household.
+// We drew the first and third as one two-column grid with support pinned in the
+// footer, which is the drift this order exists to hold.
+describe('PersonSheet card order', () => {
+  it('stacks the body cards the way the canvas does', () => {
+    renderSheet([target()])
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    const headings = [...body.querySelectorAll('h3')].map(
+      (heading) => heading.textContent,
+    )
+
+    expect(headings).toEqual([
+      'Contact information',
+      'Notes',
+      'Household',
+      'Voter demographics',
+      'Demographic information',
+      'Activity feed',
+    ])
   })
 })
 
@@ -603,9 +646,24 @@ describe('PersonSheet voter support', () => {
 
   // The whole reason the card exists: the answer has to be readable at the
   // moment the canvasser is deciding what to open with, not after scrolling the
-  // body down to the activity feed.
-  it('sits above the knock form', () => {
+  // body down to the activity feed. The canvas puts it between the two profile
+  // cards — the registration facts, then where they stand, then who they are —
+  // and above the pinned log bar.
+  it('sits between the two profile cards, above the knock form', () => {
     renderSheet([target({ knockStatus: 'supporter' })])
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    expect([...body.querySelectorAll('h3')].map((h) => h.textContent)).toEqual([
+      'Contact information',
+      'Notes',
+      'Household',
+      'Voter demographics',
+      'Voter support',
+      'Demographic information',
+      'Activity feed',
+    ])
 
     const heading = screen.getByRole('heading', { name: 'Voter support' })
     expect(
@@ -713,8 +771,8 @@ describe('PersonSheet voter support', () => {
   // ADR 0007 and 0008, at panel scale: the marker replaces the status rather
   // than sitting beside it. "Supporter" over a footer reading "asked not to be
   // visited again" is the pair of answers to one question that `targetMarker`
-  // exists to prevent, so the card is withheld by the same branch that
-  // withholds the script and the form.
+  // exists to prevent. The card now sits in the body rather than inside the
+  // footer's flag branch, so this pair is what holds the two halves together.
   it.each<[string, Partial<RoutePayloadTarget>]>([
     ['do-not-knock', { doNotKnock: true }],
     ['not-a-voter', { notAVoterReason: 'moved' }],
@@ -746,11 +804,15 @@ describe('PersonSheet voter support', () => {
   })
 })
 
-// The eleven attributes product asked to surface at the door. Every one is a
-// column already in `DOWNLOAD_COLUMNS` — handed to candidates as a CSV today
-// behind the same district access check and the same Pro gate — so this card is
-// a new surface for existing disclosure rather than new disclosure.
+// The twelve attributes the door surfaces for a target, across the canvas's
+// two profile cards. Every one is a column already in `DOWNLOAD_COLUMNS` —
+// handed to candidates as a CSV today behind the same district access check and
+// the same Pro gate — so these are a new surface for existing disclosure rather
+// than new disclosure.
 describe('PersonSheet demographic information', () => {
+  const voterCard = () =>
+    screen.getByRole('heading', { name: 'Voter demographics' }).parentElement!
+
   const demographicCard = () =>
     screen.getByRole('heading', { name: 'Demographic information' })
       .parentElement!
@@ -771,26 +833,47 @@ describe('PersonSheet demographic information', () => {
       ...overrides,
     })
 
-  it('shows all eleven attributes for a target', () => {
+  const expectRows = (
+    card: HTMLElement,
+    rows: Array<[label: string, value: string]>,
+  ) => {
+    const scope = within(card)
+    for (const [label, value] of rows) {
+      const row = scope.getByText(label).parentElement!
+      expect(within(row).getByText(value)).toBeInTheDocument()
+    }
+  }
+
+  // The split is the point: registration facts are a different kind of claim
+  // from the personal profile, and one grid holding both put "is this person on
+  // the roll" in the cell beside "do they have children".
+  it('states the voter-file facts on their own card', () => {
     renderSheet([fullTarget()])
 
-    const card = within(demographicCard())
-    for (const [label, value] of [
+    expectRows(voterCard(), [
       ['Registered voter', 'Yes'],
       ['Turnout likelihood', 'Super'],
+      ['Political party', 'Independent'],
+    ])
+    // Nothing from the personal profile leaks across the boundary.
+    expect(within(voterCard()).queryByText('Marital status')).toBeNull()
+  })
+
+  it('states the personal profile on its own card', () => {
+    renderSheet([fullTarget()])
+
+    expectRows(demographicCard(), [
       ['Marital status', 'Likely Married'],
       ['Has children under 18', 'Yes'],
-      ['Veteran', 'Yes'],
+      ['Veteran status', 'Yes'],
       ['Homeowner', 'Renter'],
       ['Business owner', 'Yes'],
       ['Level of education', 'Graduate Degree'],
       ['Estimated household income', '$75k - $100k'],
       ['Language', 'Spanish'],
-      ['Ethnicity', 'Hispanic'],
-    ]) {
-      const row = card.getByText(label!).parentElement!
-      expect(within(row).getByText(value!)).toBeInTheDocument()
-    }
+      ['Ethnicity group', 'Hispanic'],
+    ])
+    expect(within(demographicCard()).queryByText('Registered voter')).toBeNull()
   })
 
   // Not the prototype's "Voter status", which means active-or-inactive
@@ -799,7 +882,7 @@ describe('PersonSheet demographic information', () => {
   it('names the turnout column for what it holds', () => {
     renderSheet([fullTarget()])
 
-    const card = within(demographicCard())
+    const card = within(voterCard())
     expect(card.getByText('Turnout likelihood')).toBeInTheDocument()
     expect(card.queryByText('Voter status')).toBeNull()
   })
@@ -807,19 +890,22 @@ describe('PersonSheet demographic information', () => {
   // Sparseness is the common case in this file, not the edge. The default
   // fixture carries no demographic keys at all, which is also exactly what a
   // route snapshotted offline before this shipped looks like on a phone that
-  // cannot refetch.
+  // cannot refetch. Both cards say it the same way — two vocabularies for
+  // absence either side of a card boundary would teach a reader that the
+  // boundary means something.
   it('renders every absent attribute as Not on file', () => {
-    renderSheet([target()])
+    renderSheet([target({ politicalParty: null })])
 
+    expect(within(voterCard()).getAllByText('Not on file')).toHaveLength(3)
     expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
-      11,
+      9,
     )
   })
 
   // The two presence-only columns hold a value meaning yes or nothing at all,
   // so absence is indistinguishable from unknown. Printing "No" would tell a
   // canvasser at the door that someone is not a veteran on no data at all.
-  it.each(['Veteran', 'Business owner'])(
+  it.each(['Veteran status', 'Business owner'])(
     'says Not on file rather than No for an absent %s',
     (label) => {
       renderSheet([fullTarget({ veteranStatus: null, businessOwner: null })])
@@ -836,27 +922,26 @@ describe('PersonSheet demographic information', () => {
   it('distinguishes a known No from a missing registration answer', () => {
     renderSheet([fullTarget({ registeredVoter: false })])
     const known =
-      within(demographicCard()).getByText('Registered voter').parentElement!
+      within(voterCard()).getByText('Registered voter').parentElement!
     expect(within(known).getByText('No')).toBeInTheDocument()
 
     cleanup()
 
     renderSheet([fullTarget({ registeredVoter: null })])
     const missing =
-      within(demographicCard()).getByText('Registered voter').parentElement!
+      within(voterCard()).getByText('Registered voter').parentElement!
     expect(within(missing).getByText('Not on file')).toBeInTheDocument()
     expect(within(missing).queryByText('No')).toBeNull()
   })
 
-  // A mover has no live row, so the profile describes nobody rather than
-  // whoever lives at the address now — the same rule the phone numbers follow.
-  it('shows nothing on file for a target who may have moved', () => {
-    renderSheet([target({ mayHaveMoved: true })])
-
-    expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
-      11,
-    )
-  })
+  // There is deliberately no mover case here. A mover's profile is empty
+  // because `demographicsOf(livePerson)` and `mayHaveMoved: !livePerson` are
+  // computed from one variable in one object literal in the serve service, so
+  // the two cannot disagree and this component never reads the flag to decide
+  // what a fact row says. A test here could only re-assert the case above with
+  // `mayHaveMoved: true` added — passing on the fixture's own nulls rather than
+  // on anything this file does — and reading as coverage of a suppression that
+  // does not exist. See the AGENTS.md profile bullet.
 
   // Household context is for the conversation, not a second profile: a
   // non-target resident is not someone the candidate asked to contact.
