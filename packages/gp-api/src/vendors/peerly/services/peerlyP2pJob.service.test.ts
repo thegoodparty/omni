@@ -419,5 +419,24 @@ describe('PeerlyP2pJobService', () => {
 
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
     })
+
+    // start_date drives the completion sweep's not-started hold the same
+    // way end_date drives its completion predicate: a missing value must
+    // 502 the poll, never parse to Invalid Date and skip the pending guard.
+    it('throws BadGatewayException when the job response lacks start_date', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          id: 'job-1',
+          status: PeerlyJobStatus.ACTIVE,
+          leads_remaining: 0,
+          end_date: '2026-09-07',
+        },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof GetJobResponseDto).create(data),
+      )
+
+      await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
   })
 })

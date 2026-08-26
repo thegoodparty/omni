@@ -486,8 +486,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         name: outreach.name ?? undefined,
         didState: outreach.didState ?? undefined,
         didNpaSubset: outreach.didNpaSubset,
-        scheduledDate:
-          outreach.scheduledLocalDate ?? outreach.date?.toISOString(),
+        // Legacy drafts created before scheduledLocalDate existed carry
+        // only the UTC instant, whose sliced day is one late for evening
+        // US sends — unscheduled (Peerly holds P2P jobs for canvassers
+        // anyway) beats a wrong-day send for that transient set.
+        scheduledDate: outreach.scheduledLocalDate ?? undefined,
       })
     } catch (err) {
       throw new OutreachStepError('peerlyJobCreation', err)
