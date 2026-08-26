@@ -70,6 +70,12 @@ the district at **≈611,000 mappable rows**. That is consistent with the previo
 document's independent estimate of 580k–680k (most likely ~630k) inverted from
 the 16,010,618-byte pack constant.
 
+At that document's measured 25.27 bytes per person, 611,000 rows implies a
+**~15.4 MB** pack. Every pack size quoted below for Collin County is derived
+that way rather than read off the wire: the `Request completed` log line records
+`"bytes": null` for this route, because the response is a stream and Fastify
+never sees a content length.
+
 Every span nests cleanly, so the split is exactly additive:
 
 | phase | ms | share |
