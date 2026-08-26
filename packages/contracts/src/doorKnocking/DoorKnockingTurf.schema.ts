@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { zDate } from '../shared/Date.schema'
+import { zCoerceDate, zDate } from '../shared/Date.schema'
 import {
   DoorKnockingModeSchema,
   type DoorKnockingMode,
@@ -91,6 +91,51 @@ export const DoorKnockingTurfSchema = z.object({
 })
 
 export type DoorKnockingTurf = z.infer<typeof DoorKnockingTurfSchema>
+
+// The nativeDoorKnocking extension of the outreach detail schema
+// (OutreachDetailSchema in outreach/OutreachSocial.schema.ts), the sibling of
+// PhoneBankingOutreachDetailSchema — an envelope-level rollup, not a per-stop
+// read.
+//
+// The three counts are the SAME three as `DoorKnockingTurfSchema` above, from
+// the same `DoorKnockingTurfCountsService` aggregate the rail reads, and they
+// mean exactly what they mean there. That reuse is the point: doors and logged
+// progress are already reported on the door-knocking surface, and a second
+// derivation here would be the two-denominator failure ADR 0010 wrote the rule
+// against — one quantity, one number, wherever it is printed.
+//
+// They are non-nullable here where the turf's are nullable, and the envelope is
+// why: one `Outreach` row is created per generated `door_knocking_route`, so a
+// row carrying this block always has a frozen route to count. The unlocked
+// turf that makes the rail's counts null has no envelope at all.
+//
+// `turfId` is what the drawer could not reach before: the envelope stores
+// `doorKnockingRouteId`, and the turf is one `@unique` hop the other side of
+// it. It is here so the archive action can be written by the turf's own
+// endpoint — the single writer that moves both `archivedAt` rows in one
+// transaction — rather than by a second writer that could only reach the
+// envelope.
+export const DoorKnockingOutreachDetailSchema = z.object({
+  turfId: z.number().int(),
+  routeId: z.number().int(),
+  // The turf's live name, not the envelope's `name` snapshot taken at knock
+  // time: a list renamed since is one list, and two names for it across two
+  // drawers is the same class of defect as two counts.
+  turfName: z.string(),
+  doorCount: z.number().int(),
+  peopleCount: z.number().int(),
+  loggedCount: z.number().int(),
+  // The turf's lifecycle, which is the source the envelope's own `status` and
+  // `archivedAt` are mirrors of. Carried so the drawer reads the source rather
+  // than its projection — a list archived before that mirror shipped has an
+  // envelope that never followed, and the repair is pressing Archive again.
+  completedAt: zCoerceDate().nullable(),
+  archivedAt: zCoerceDate().nullable(),
+})
+
+export type DoorKnockingOutreachDetail = z.infer<
+  typeof DoorKnockingOutreachDetailSchema
+>
 
 // A boolean rather than two endpoints, so restore-from-archive can't drift
 // away from archive in gating or shape.
