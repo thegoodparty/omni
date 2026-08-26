@@ -121,7 +121,7 @@ describe('UserForm', () => {
     await userEvent.click(saveButton)
 
     expect(onSave).toHaveBeenCalledTimes(1)
-    resolveSave()
     await waitFor(() => expect(saveButton).toBeDisabled())
+    resolveSave()
   })
 })
