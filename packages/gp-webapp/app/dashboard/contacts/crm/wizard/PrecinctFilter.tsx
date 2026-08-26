@@ -33,8 +33,14 @@ const keyOf = (option: PrecinctOption) =>
 // L2 ships county names uppercase. Title-cased for display only; the word
 // "County" is deliberately not appended, because Louisiana has parishes and
 // Alaska has boroughs and the file does not record which.
+// The Mc- rule is not cosmetic: 19 counties across GA, IL, KS, KY, MN, MO, MT,
+// NC, ND, NE, NM and more start with "MC", several of them populous (McHenry
+// and McLean IL, McPherson KS). Without it they render "Mchenry".
 const titleCase = (value: string) =>
-  value.toLowerCase().replace(/\b[a-z]/g, (char) => char.toUpperCase())
+  value
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase())
+    .replace(/\bMc([a-z])/g, (_, char: string) => 'Mc' + char.toUpperCase())
 
 const labelOf = (option: PrecinctOption) =>
   option.precinct === ''
@@ -126,6 +132,11 @@ export default function PrecinctFilter({
         key={`unknown-${keySuffix}`}
         type="button"
         onClick={toggleUnknown}
+        // A raw button rather than a ToggleGroupItem (it maps to N county
+        // buckets, not one value), so Radix sets neither of these — the
+        // pressed state has to be declared explicitly or assistive tech and
+        // any aria-driven assertion see an inert button.
+        aria-pressed={unknownSelected}
         data-state={unknownSelected ? 'on' : 'off'}
         className={PILL_TOGGLE_ITEM_CLASSNAME}
       >
