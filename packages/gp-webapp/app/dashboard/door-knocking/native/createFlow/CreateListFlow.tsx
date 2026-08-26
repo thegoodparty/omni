@@ -25,7 +25,10 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { unpreviewableDisclosureLabels } from './voterFilterPreview'
+import {
+  unpreviewableDisclosureLabels,
+  unpreviewableDisclosureSentence,
+} from './voterFilterPreview'
 import {
   CONFIRM_PEEK_TOP_PCT,
   flowStage,
@@ -562,7 +565,9 @@ export default function CreateListFlow({
     continueLabel = 'No doors in this area'
   }
 
-  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
+  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
+    unpreviewableDisclosureLabels(unpreviewableKeys),
+  )
 
   // Both confirm buttons run the same mutation and both go dead while it is in
   // flight, so "Saving…" rides the one that was PRESSED rather than the one
@@ -677,12 +682,9 @@ export default function CreateListFlow({
                   shortfall the exact counts don't have, and the party mix is
                   a breakdown of the superset's people that would no longer
                   add up to the people figure above it. */}
-                {!exactCounts && unpreviewableLabels.length > 0 && (
+                {!exactCounts && unpreviewableDisclosure && (
                   <p className="text-xs text-muted-foreground">
-                    The map can&rsquo;t shade by{' '}
-                    {unpreviewableLabels.join(', ')} yet, so these counts
-                    include people that filter will exclude. Your saved list
-                    still applies it when you knock.
+                    {unpreviewableDisclosure}
                   </p>
                 )}
                 {!exactCounts && (turfStats?.partyMix.length ?? 0) > 0 && (
@@ -793,7 +795,14 @@ export default function CreateListFlow({
                       view. */}
                     <ul className="mt-2 divide-y divide-border">
                       {addressPreview.locations.map((location, index) => (
-                        <li key={index} className="py-2">
+                        <li
+                          key={index}
+                          // `block` because globals.css gives every `<li>`
+                          // inside a `data-slot` element `display: flex`, which
+                          // would put the "N doors at one location" heading and
+                          // the doors it introduces on one line.
+                          className="block py-2"
+                        >
                           {location.doors.length > 1 && (
                             <p className="text-xs font-medium">
                               {location.doors.length} doors at one location

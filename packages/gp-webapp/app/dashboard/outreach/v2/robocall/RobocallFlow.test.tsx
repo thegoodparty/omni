@@ -875,13 +875,14 @@ describe('RobocallFlow', () => {
     expect(textarea).toHaveValue('Hi, this is my own script.')
   })
 
-  it('rents and shows the callback number on entering compose', async () => {
-    await gotoCompose()
-    // The rented number and the read-aloud reminder render above the script.
-    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+  it('shows the callback number reminder in compose', async () => {
+    await gotoCompose('Write my own script')
+    // There is no banner now; a quiet reminder always surfaces the number so
+    // the candidate can read it aloud, whichever purpose they picked.
     expect(
-      screen.getByText(/Read your callback number aloud/),
+      await screen.findByText(/must say who paid for the call/),
     ).toBeInTheDocument()
+    expect(screen.getByText(/\+12025550147/)).toBeInTheDocument()
   })
 
   it('shows a retry when renting the callback number fails', async () => {
@@ -894,11 +895,16 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('+12025550147')).not.toBeInTheDocument()
 
-    // Retry succeeds -> the number appears.
+    // Retry succeeds -> the compose body unblocks and the drafted script
+    // renders (the number itself now lives inside that script's disclosure).
     mockRentNumber()
     mockDraft()
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByText('+12025550147')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Hi, this is Alex, and I am running for City Council.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('threads the rented callback number into the draft request', async () => {

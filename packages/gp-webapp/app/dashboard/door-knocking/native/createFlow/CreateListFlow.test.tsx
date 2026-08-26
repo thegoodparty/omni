@@ -571,7 +571,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="draw" unpreviewableKeys={[]} />,
     )
-    expect(screen.queryByText(/can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
 
     rerender(
       <CreateListFlow
@@ -589,7 +589,9 @@ describe('CreateListFlow', () => {
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          new RegExp(`can’t shade by ${label}`).test(element.textContent ?? ''),
+          new RegExp(`can’t yet shade by ${label}`).test(
+            element.textContent ?? '',
+          ),
       ),
     ).toBeInTheDocument()
   })
@@ -608,11 +610,37 @@ describe('CreateListFlow', () => {
     const disclosure = screen.getByText(
       (_, element) =>
         element?.tagName === 'P' &&
-        /can’t shade by/.test(element.textContent ?? ''),
+        /can’t yet shade by/.test(element.textContent ?? ''),
     )
     // Named once, however many of its buckets are selected.
     expect(disclosure.textContent).toContain(
-      'can’t shade by Prior contacts made yet',
+      'can’t yet shade by Prior contacts made,',
+    )
+  })
+
+  // Two unshadeable filters used to be comma-joined into a sentence written
+  // for one — "shade by 65+, Prior contacts made yet, so these counts include
+  // people that filter will exclude" — which reads as a typo rather than as a
+  // list. The wiring, not the joining, is what this asserts; the joins
+  // themselves are covered in voterFilterPreview.test.ts.
+  it('joins two unshadeable filters with or, and pluralises around them', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        unpreviewableKeys={['age65Plus', 'contactsMade0']}
+      />,
+    )
+
+    const disclosure = screen.getByText(
+      (_, element) =>
+        element?.tagName === 'P' &&
+        /can’t yet shade by/.test(element.textContent ?? ''),
+    )
+    expect(disclosure.textContent).toBe(
+      'The map can’t yet shade by 65+ or Prior contacts made, so these counts ' +
+        'include people those filters will exclude. Your saved list still ' +
+        'applies them when you knock.',
     )
   })
 
@@ -707,6 +735,14 @@ describe('CreateListFlow', () => {
     expect(screen.getByText('1200 W Elm St Apt 1')).toBeInTheDocument()
     expect(screen.getByText('1200 W Elm St Apt 2')).toBeInTheDocument()
     expect(screen.getByText('14 N Oak Ave')).toBeInTheDocument()
+    // globals.css gives every `<li>` inside a `data-slot` element `display:
+    // flex`, which ran the "N doors at one location" heading into the first
+    // address. jsdom has no layout, so this asserts the override is present
+    // rather than its effect; the rendered proof is in the PR's screenshots.
+    const location = screen
+      .getByText('2 doors at one location')
+      .closest('li') as HTMLElement
+    expect(location.className.split(/\s+/)).toContain('block')
   })
 
   // The rule this feature has already broken once: one quantity gets one
@@ -730,7 +766,7 @@ describe('CreateListFlow', () => {
     )
 
     expect(screen.getByText('9')).toBeInTheDocument()
-    expect(screen.getByText(/The map can’t shade by/)).toBeInTheDocument()
+    expect(screen.getByText(/The map can’t yet shade by/)).toBeInTheDocument()
 
     rerender(
       <CreateListFlow
@@ -759,7 +795,7 @@ describe('CreateListFlow', () => {
     expect(screen.queryByText('9')).toBeNull()
     expect(screen.queryByText('14')).toBeNull()
     expect(screen.queryByText('22')).toBeNull()
-    expect(screen.queryByText(/The map can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
     // What the preview does still owe the reader: these are suppressed
     // already, so a shorter walk than this is not the expectation.
     expect(screen.getByText(/already out/)).toBeInTheDocument()

@@ -349,6 +349,33 @@ a:hover {
     padding-inline-start: 0;
   }
 
+  /*
+   * CAUTION: `[data-slot] li` is far broader than the menu and sidebar rows it
+   * was written for. Every shadcn-derived styleguide component emits
+   * `data-slot`, and `DashboardLayout` wraps the whole dashboard in
+   * `SidebarProvider`/`SidebarInset` — both of which emit it — so this makes
+   * EVERY `<li>` on every dashboard page a flex row, not just the ones inside a
+   * menu.
+   *
+   * Three consequences for authors, all of them silent:
+   *   - an `<li>` with more than one child gets its children side by side
+   *     instead of stacked, which reads as truncated text;
+   *   - an `<li>` with a single child gets that child shrunk to its content
+   *     width, which reads as a row stopping short of its container;
+   *   - whitespace between two child elements is dropped, because flex
+   *     containers do not render whitespace-only text between items, so
+   *     `<span>Method:</span>{' '}<span>SMS</span>` renders as "Method:SMS".
+   * Any `<li>` that is not a single inline run therefore needs an explicit
+   * display utility to override this — `block`, `flex flex-col`, or
+   * `list-item` when the list is numbered or bulleted and needs its marker
+   * back; see the door-knocking walk list, address preview, notes card and
+   * survey question dialogs for examples.
+   *
+   * Left broad deliberately. Narrowing the selector to the menu components that
+   * want it would risk regressing sidebar and menu layout app-wide, which
+   * cannot be verified without rendering every surface that uses them. Doing
+   * that properly is a follow-up, not a drive-by.
+   */
   [data-slot] ul li,
   [data-slot] li,
   li[data-sidebar] {
