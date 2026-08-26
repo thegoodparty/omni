@@ -244,8 +244,8 @@ voters and the polygon, tinted in the colour being chosen just below it.
 **Ours, when this was written:** no map on that step — the sheet was full height
 and covered the page's map. The concrete cost was the colour picker: it asked a
 candidate to choose the colour their list would be drawn in on the map, with the
-map hidden. The stats line ("N doors · N stops · N voters") was the only
-description of the shape.
+map hidden. The stats line (now "N stops · N doors · N voters", reordered
+2026-08-26) was the only description of the shape.
 
 **Ours now:** the confirm sheet opens short of the top rather than full height,
 and the strip it leaves is the page's own map — not a second instance. The ring
@@ -427,10 +427,37 @@ Nothing was changed.
    and disabling it would block a filter that works. The rule throughout this
    feature is that the gap is the preview's, never the filter's. _(Newly
    recorded — this was not written down before.)_
-9. **"Continue (N doors)" rather than "Add to saved lists (N)"** on the draw
+9. ~~**"Continue (N doors)" rather than "Add to saved lists (N)"** on the draw
    step. The canvas's own handler does not save there either; it opens the
    confirm step, exactly as ours does. Adopting that label would promise a write
-   that does not happen.
+   that does not happen.~~
+   **Half overturned by the product owner, 2026-08-26: the verb stands, the
+   count is gone. The button is now the bare word `Continue`.**
+
+   The departure from the canvas's _verb_ is unchanged and still right — that
+   handler opens the confirm step, and "Add to saved lists" would promise a
+   write that does not happen. What went is the parenthesised count, which this
+   entry had quietly kept from the canvas's `(N)` while arguing about the words
+   in front of it. The case for keeping it was that the 2026-08-20 call had
+   added a count to the outreach Filters CTA, making a count in a CTA the house
+   pattern; the owner's reading of that same call was the reverse — "I think
+   that's actually why we didn't show the exact count in the button" — and it
+   is their call to make.
+
+   **This is now a departure from the canvas in a second respect, so it is
+   recorded rather than left to look like drift.** The canvas prints a number
+   in this button and we do not. The reason it costs nothing: the draw step's
+   stats bar sits directly above the button and renders unconditionally, so in
+   every state where Continue is enabled the door count is already on screen —
+   the canvas says it twice and we say it once. The states where the bar would
+   be absent are exactly the states where the button is disabled and carrying a
+   different message anyway (`Tap 3 points to continue`, `1 more point to
+   continue`, `No doors in this area`).
+
+   Logged rather than edited in place, because "the count was defended on the
+   Filters-CTA precedent and the owner rejected the precedent" is the useful
+   record; an entry saying only "bare Continue" would invite the next reviewer
+   to re-derive the argument and put the number back.
 10. **"Continue" rather than "Save and continue"** on the name step, for the
     same reason and already recorded in the step's own comment: the voter list is
     written with the turf, by the one save path on the confirm step, so nothing
