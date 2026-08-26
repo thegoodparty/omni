@@ -230,7 +230,10 @@ jobs:
           echo "Confirming $BASE is serving $EXPECTED_SHA"
           got=""
           for i in $(seq 1 18); do
-            got="$(curl -fsS "$BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            # --max-time keeps a hung container (accepted TCP, no response) from
+            # parking the runner: `|| true` only catches non-zero exits, not a
+            # curl that never returns, and this job sets no timeout-minutes.
+            got="$(curl -fsS --max-time 8 "$BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
             if [ "$got" = "$EXPECTED_SHA" ]; then
               echo "preview serving $EXPECTED_SHA"
               exit 0
