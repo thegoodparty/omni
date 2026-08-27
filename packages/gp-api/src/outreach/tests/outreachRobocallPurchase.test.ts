@@ -243,8 +243,10 @@ describe('robocall purchase handler — server-derived billing', () => {
     ).rejects.toThrow()
   })
 
-  it('both checkout gates reject a draft whose scheduled time has passed', async () => {
+  it('both checkout gates reject a draft with a lapsed or missing schedule', async () => {
     const outreachId = await draftARow(500)
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    const handler = service.app.get(OutreachRobocallPurchaseService)
 
     // The create-time guard forces a future date; simulate the schedule
     // lapsing while the buyer sits on the checkout page.
@@ -252,12 +254,19 @@ describe('robocall purchase handler — server-derived billing', () => {
       where: { id: outreachId },
       data: { date: new Date(Date.now() - 3_600_000) },
     })
-    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
-
-    const handler = service.app.get(OutreachRobocallPurchaseService)
     await expect(
       handler.calculateAmount({ outreachId, campaignId: CAMPAIGN_ID }),
     ).rejects.toThrow()
+    await expect(
+      handler.validatePurchase({ outreachId, campaignId: CAMPAIGN_ID }),
+    ).rejects.toThrow()
+
+    // A null date is a corrupt draft (the spine's date is nullable) — it must
+    // be rejected, not short-circuit the guard into a pass.
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { date: null },
+    })
     await expect(
       handler.validatePurchase({ outreachId, campaignId: CAMPAIGN_ID }),
     ).rejects.toThrow()

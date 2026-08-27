@@ -175,10 +175,11 @@ export class OutreachRobocallService extends createPrismaBase(
     // The create-time future-date guard can go stale between draft and pay: a
     // charge that settles after the scheduled time would bill for a robocall
     // CallHub can no longer dial. Re-check here so both checkout entry points
-    // (deriveDraftAmount, assertPurchasable) reject a lapsed schedule.
-    if (draft.date && !isFuture(draft.date)) {
+    // (deriveDraftAmount, assertPurchasable) reject a lapsed schedule. A null
+    // date is a corrupt draft (the spine's date is nullable), not a pass.
+    if (!draft.date || !isFuture(draft.date)) {
       throw new BadRequestException(
-        'The scheduled send time has passed — please start a new robocall',
+        'The scheduled send time is missing or has passed — start a new one',
       )
     }
     if (!draft.organizationSlug || !draft.voterFileFilterId) {
