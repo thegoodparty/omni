@@ -371,12 +371,127 @@ changed. If you could not fix it, say that instead and stop; a truthful "I could
 not work this out" is worth far more than a green check bought by a weakened test.
 """
 
+# REVIEW DRIVE: what a run launched by .github/workflows/gpbot-ci-drive.yml is
+# told once CI is green but a Cursor Bugbot review thread on a [GP-Bot] PR is
+# still unresolved and unanswered (see clickup_bot/ci_triage.py).
+#
+# WHY THIS EXISTS: on PR #1306 Bugbot posted a correct high-severity finding
+# three minutes after the PR opened. delegate-reviewer approved two minutes
+# later, a human approved two days after that, and nobody answered the thread.
+# The regression reached main and was fixed separately in PR #1431.
+#
+# THE FINDING TEXT IS NOT INTERPOLATED, only the PR number, which is validated
+# as an integer before it gets here. A review comment is untrusted input — it is
+# written by another model and anyone who can comment on the repo could add to
+# the thread — so the agent fetches it with `gh` as data rather than receiving
+# it as part of its own instructions.
+FINDINGS_FIX_INSTRUCTION = """## YOUR TASK: Answer the open review findings on a PR
+
+PR **#{pr_number}** in `thegoodparty/omni` was opened by you. CI is green, but
+Cursor Bugbot left review findings that nobody has answered. Settle each one.
+
+Read them with:
+
+```
+gh api graphql -f query='
+{{
+  repository(owner: "thegoodparty", name: "omni") {{
+    pullRequest(number: {pr_number}) {{
+      reviewThreads(first: 100) {{
+        nodes {{
+          id isResolved isOutdated
+          comments(first: 10) {{ nodes {{ author {{ login __typename }} body path line }} }}
+        }}
+      }}
+    }}
+  }}
+}}'
+```
+
+A thread is yours to settle only when **all four** hold:
+
+1. `isResolved` is false.
+2. `isOutdated` is false — the lines it points at have not moved since.
+3. The FIRST comment's author is `cursor`. A `delegate-reviewer` thread is not
+   yours: it withholds approval until its own blockers are fixed and runs a
+   separate `delegate review` protocol.
+4. **No comment in the thread has an author whose `__typename` is `User`.** A
+   person is in that thread and it belongs to them. Resolving it would hide a
+   live conversation and put a green tick beside a finding nobody settled.
+
+Skip every thread that fails any of the four. Do not reply in it, and do not
+resolve it.
+
+## JUDGE EACH FINDING ON THE CODE
+
+A finding is a claim, not a verdict. Check it against the actual code on the
+branch before you accept or reject it. There are exactly two honest outcomes:
+
+- **The finding is right.** Fix the cause, and add a test that fails without the
+  fix. `gh pr checkout {pr_number}` puts you on the branch.
+- **The finding is wrong,** or it describes behaviour that is intended. **Change
+  nothing.** Say why in the thread, citing the code that shows it.
+
+"I could not tell" is a third acceptable answer. Say that in the thread and
+leave the code alone; a human reads these.
+
+## CLOSE EVERY THREAD YOU TOUCH
+
+Reply in the thread, then resolve it:
+
+```
+gh api graphql -f query='mutation {{
+  addPullRequestReviewThreadReply(input: {{pullRequestReviewThreadId: "<THREAD_ID>", body: "<YOUR REPLY>"}}) {{ clientMutationId }}
+}}'
+gh api graphql -f query='mutation {{
+  resolveReviewThread(input: {{threadId: "<THREAD_ID>"}}) {{ thread {{ isResolved }} }}
+}}'
+```
+
+**NEVER resolve a thread you have not answered.** Resolving is how you record
+that the finding was dealt with; using it to clear the board is how a real
+defect reaches production with a green tick beside it. An unanswered thread left
+open is fine — it goes to a human, which is the correct outcome.
+
+## ABSOLUTE PROHIBITIONS
+
+1. **NEVER weaken a test.** Do not delete a test, do not mark it
+   `skip`/`only`/`todo`/`xfail`, do not loosen an assertion, and do not narrow a
+   test's inputs so it stops exercising the path a finding is about.
+2. **NEVER merge this PR.** No `gh pr merge`, no `--auto`. A bot may approve; a
+   human decides what lands.
+3. **NEVER open a second PR.** Commit to this PR's existing branch and push.
+4. **Stay inside the findings.** Do not refactor and do not fix unrelated things
+   you notice on the way past.
+
+## BEFORE PUSHING
+
+Run the affected package's own lint/type/test steps (its `AGENTS.md` "Verify"
+section lists them). CI was green before you started, and pushing a change that
+breaks it turns an answered finding into a red PR.
+
+Post a short comment on the PR saying which findings you accepted, which you
+rejected, and why.
+"""
+
 ANALYZE_LABEL = "analyze"
 IMPLEMENT_LABEL = "implement"
 # Not in TAG_CONFIG, deliberately: a CI fix run has no ClickUp tag and must not
 # be reachable from the webhook or the sweep. Its only entry point is the
 # gpbot_ci_fix dispatch below, which GitHub Actions invokes directly.
 CI_FIX_LABEL = "ci-fix"
+# Same reasoning, and a distinct value so a review-finding run is separable from
+# a CI run in the logs and in the cost figures. Neither is "analyze", which is
+# the only label engineer_agent lets escalate to an implement run.
+FINDINGS_FIX_LABEL = "findings-fix"
+
+# What the drive may ask for. Anything else is a malformed request rather than
+# something to guess at: the two modes carry different instructions, and picking
+# the wrong one points an agent at work nobody asked for.
+CI_FIX_MODES = {
+    "checks": (CI_FIX_INSTRUCTION, CI_FIX_LABEL),
+    "findings": (FINDINGS_FIX_INSTRUCTION, FINDINGS_FIX_LABEL),
+}
 
 ANALYZE_TAG = "gpbot-analyze"
 IMPLEMENT_TAG = "gpbot-work"
@@ -1300,13 +1415,18 @@ MAX_PR_NUMBER = 10_000_000
 
 
 def handle_ci_fix(event: dict) -> dict:
-    """Launch an agent run to get a [GP-Bot] PR's failing checks green.
+    """Launch an agent run to settle what is outstanding on a [GP-Bot] PR.
 
-    Called by .github/workflows/gpbot-ci-drive.yml, which has already done the
-    triage: this only ever runs for a failure that survived a re-run, is not
-    failing on main, and carries no infrastructure signature (see
-    clickup_bot/ci_triage.py). The per-PR cap lives in the drive's marker comment
-    — the dedup claim below is a concurrency guard, not the budget.
+    Two modes, both from .github/workflows/gpbot-ci-drive.yml, which has already
+    done the triage (see clickup_bot/ci_triage.py):
+
+    - `checks` (the default): a failing check that survived a re-run, is not
+      failing on main, and carries no infrastructure signature.
+    - `findings`: CI is green but a Cursor Bugbot review thread is unresolved
+      and nobody has answered it.
+
+    The per-PR cap lives in the drive's marker comment — the dedup claim below is
+    a concurrency guard, not the budget.
 
     Same never-raise contract as handle_async_processing: the caller is an
     `aws lambda invoke` in a workflow, so an unhandled exception here surfaces as
@@ -1328,10 +1448,24 @@ def handle_ci_fix(event: dict) -> dict:
         if isinstance(pr_number, bool) or not isinstance(pr_number, int) or not 0 < pr_number < MAX_PR_NUMBER:
             print("ERROR: CI fix request refused: missing or malformed pr_number")
             return {"statusCode": 400, "body": json.dumps({"error": "invalid ci fix payload"})}
+        # Absent means `checks`, so an older workflow that predates the findings
+        # mode keeps working. An unrecognised value is refused rather than
+        # defaulted: silently running the CI instruction against a request that
+        # asked for something else is worse than not running at all.
+        mode = event.get("mode", "checks")
+        if mode not in CI_FIX_MODES:
+            print(f"ERROR: CI fix request refused: unknown mode {mode!r}")
+            return {"statusCode": 400, "body": json.dumps({"error": "invalid ci fix payload"})}
+        instruction, run_label = CI_FIX_MODES[mode]
 
         # Bounds concurrent launches for one ticket the same way every other
         # trigger is bounded. Losing the race is the guard working, not a
         # failure: quiet log, no launch, 200.
+        #
+        # KEYED ON CI_FIX_LABEL FOR BOTH MODES, not on the mode's own label. The
+        # two runs push to the same branch, so letting a findings run start
+        # alongside a checks run is the collision this claim exists to prevent —
+        # and keying them separately would make the claim unable to see it.
         if not try_acquire_dedup_lock(task_id, CI_FIX_LABEL):
             print(f"Duplicate CI fix trigger for {task_id} suppressed by dedup table")
             return {"statusCode": 200, "body": json.dumps({"skipped": "duplicate suppressed"})}
@@ -1339,8 +1473,8 @@ def handle_ci_fix(event: dict) -> dict:
 
         result = trigger_fargate_task(
             task_id,
-            CI_FIX_INSTRUCTION.format(pr_number=pr_number),
-            CI_FIX_LABEL,
+            instruction.format(pr_number=pr_number),
+            run_label,
             "opus",
             # The caller is a workflow step waiting on the response, not ClickUp
             # counting a webhook timeout, so the ack retry is free here.

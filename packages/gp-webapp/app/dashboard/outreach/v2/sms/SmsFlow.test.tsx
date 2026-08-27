@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -147,8 +147,32 @@ const openFlow = (tcrCompliance: TcrCompliance | null = verifiedCompliance) => {
   return { onClose, onScheduled }
 }
 
+// Every scheduling assertion below is relative to "today", and the calendar
+// day a test picks is addressed by its formatted name. Left on the real
+// clock, both the month the target lands in and whether its day number is a
+// prefix of another same-weekday day ("September 1" also matches "September
+// 15") change from one day to the next. Freeze the date — Date only, so
+// timers stay real for userEvent/waitFor — on a day where +4 and +16 both
+// stay inside the month and address exactly one day each.
+const FROZEN_NOW = new Date('2026-09-01T12:00:00Z')
+
+// The picked day, addressed the way react-day-picker names its buttons
+// ("Saturday, September 5th, 2026"). (?!\d) stops a single-digit day from
+// also matching the two-digit days it prefixes.
+const dayName = (daysFromNow: number) => {
+  const target = new Date(FROZEN_NOW)
+  target.setDate(target.getDate() + daysFromNow)
+  return new RegExp(
+    `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ` +
+      `${target.toLocaleDateString('en-US', { month: 'long' })} ` +
+      `${target.getDate()}(?!\\d)`,
+  )
+}
+
 describe('SmsFlow', () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(FROZEN_NOW)
     mockLists()
     mockListDetail()
     // useOutreachAudience's useElectedOffice fires on mount; 404 => not an
@@ -158,6 +182,10 @@ describe('SmsFlow', () => {
       data: { message: 'No elected office' },
     })
     mockOutreachList()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('shows the persistent compliance banner while verification is pending and routes Start compliance', async () => {
@@ -210,39 +238,8 @@ describe('SmsFlow', () => {
     // Design parity: a date 4 days out clears the hard 48h calendar floor,
     // so it stays SELECTABLE — picking it surfaces the compliance alert and
     // blocks Continue instead of disabling the day outright.
-    const target = new Date()
-    target.setDate(target.getDate() + 4)
     await userEvent.click(screen.getByText('Pick a date'))
-    await screen.findByText(
-      new Date().toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric',
-      }),
-      undefined,
-      { timeout: 15000 },
-    )
-    if (target.getMonth() !== new Date().getMonth()) {
-      await userEvent.click(
-        await screen.findByRole('button', { name: /next month/i }),
-      )
-      await screen.findByText(
-        target.toLocaleDateString('en-US', {
-          month: 'long',
-          year: 'numeric',
-        }),
-        undefined,
-        { timeout: 15000 },
-      )
-    }
-    const dayButton = await screen.findByRole(
-      'button',
-      {
-        name: new RegExp(
-          `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
-        ),
-      },
-      { timeout: 15000 },
-    )
+    const dayButton = await screen.findByRole('button', { name: dayName(4) })
     expect(dayButton).toBeEnabled()
     await userEvent.click(dayButton)
     expect(
@@ -279,50 +276,19 @@ describe('SmsFlow', () => {
       screen.getByRole('button', { name: /Continue \(1,200\)/ }),
     )
 
-    // Schedule: pick the earliest allowed date via the calendar is fiddly in
-    // jsdom; type a custom time path instead by picking a date 4 days out.
+    // Schedule: a date 4 days out clears the 48-hour floor.
     expect(
       await screen.findByText('When do you want to send it?'),
     ).toBeInTheDocument()
-    const target = new Date()
-    target.setDate(target.getDate() + 4)
     await userEvent.click(screen.getByText('Pick a date'))
-    // The caption is the tell for the calendar's actual state: a click that
-    // silently no-ops (the CI-only failure mode) surfaces here by name
-    // instead of as a missing day button two waits later.
-    const monthCaption = (d: Date) =>
-      d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    await screen.findByText(monthCaption(new Date()), undefined, {
-      timeout: 15000,
-    })
-    if (target.getMonth() !== new Date().getMonth()) {
-      await userEvent.click(
-        await screen.findByRole('button', { name: /next month/i }),
-      )
-      await screen.findByText(monthCaption(target), undefined, {
-        timeout: 15000,
-      })
-    }
     await userEvent.click(
-      await screen.findByRole(
-        'button',
-        {
-          name: new RegExp(
-            `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
-          ),
-        },
-        { timeout: 15000 },
-      ),
+      await screen.findByRole('button', { name: dayName(4) }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Compose: initial AI draft fires; body arrives with the intro region.
     expect(
-      await screen.findByText(
-        /AI body \(warm\) for introduce_myself/,
-        undefined,
-        { timeout: 15000 },
-      ),
+      await screen.findByText(/AI body \(warm\) for introduce_myself/),
     ).toBeInTheDocument()
     expect(draftCalls).toHaveLength(1)
     expect(
@@ -426,57 +392,17 @@ describe('SmsFlow', () => {
       await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
     )
 
-    // The 14-day compliance floor: pick a date 16 days out, paging the
-    // calendar when the target lands in the next month.
+    // The 14-day compliance floor: a date 16 days out clears it.
     expect(
       await screen.findByText('When do you want to send it?'),
     ).toBeInTheDocument()
-    const target = new Date()
-    target.setDate(target.getDate() + 16)
     await userEvent.click(screen.getByText('Pick a date'))
-    await screen.findByText(
-      new Date().toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric',
-      }),
-      undefined,
-      { timeout: 15000 },
-    )
-    if (target.getMonth() !== new Date().getMonth()) {
-      await userEvent.click(
-        await screen.findByRole(
-          'button',
-          { name: /next month/i },
-          { timeout: 15000 },
-        ),
-      )
-      await screen.findByText(
-        target.toLocaleDateString('en-US', {
-          month: 'long',
-          year: 'numeric',
-        }),
-        undefined,
-        { timeout: 15000 },
-      )
-    }
     await userEvent.click(
-      await screen.findByRole(
-        'button',
-        {
-          name: new RegExp(
-            `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
-          ),
-        },
-        { timeout: 15000 },
-      ),
+      await screen.findByRole('button', { name: dayName(16) }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText(
-      /AI body \(warm\) for introduce_myself/,
-      undefined,
-      { timeout: 15000 },
-    )
+    await screen.findByText(/AI body \(warm\) for introduce_myself/)
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
