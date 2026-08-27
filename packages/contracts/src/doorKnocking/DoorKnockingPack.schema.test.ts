@@ -82,6 +82,29 @@ describe('DoorKnockingPackManifestSchema', () => {
     )
   })
 
+  // The browser parses a pack with the schema from ITS bundle, so a manifest
+  // key added on the server has to be readable by the tab that was already
+  // open when it deployed. Strict here would make every such addition a hard
+  // decode failure, which is what this asserts against.
+  it('tolerates manifest keys it does not know', () => {
+    const parsed = DoorKnockingPackManifestSchema.parse({
+      ...validManifest,
+      formatRevision: 7,
+    })
+    expect(parsed.version).toBe(1)
+  })
+
+  // Tolerance is only at the top level: the integrity checks below are the
+  // reason the format is safe to extend, so nothing about them relaxes.
+  it('still rejects unknown keys inside counts', () => {
+    expect(() =>
+      DoorKnockingPackManifestSchema.parse({
+        ...validManifest,
+        counts: { ...validManifest.counts, voters: 100 },
+      }),
+    ).toThrow()
+  })
+
   it('rejects a dim whose byte plane is not u8', () => {
     const manifest = {
       ...validManifest,

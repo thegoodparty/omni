@@ -314,6 +314,9 @@ describe('phone banking routes', () => {
 
       expect(res.status).toBe(201)
       expect(res.data.entryCount).toBe(61)
+      // 61 usable people all fit under the 120-entry cap and the page was
+      // short — nothing remains.
+      expect(res.data.hasMore).toBe(false)
 
       const entries = await service.prisma.phoneBankingListEntry.findMany({
         where: { phoneBankingListId: res.data.id },
@@ -345,7 +348,347 @@ describe('phone banking routes', () => {
       )
 
       expect(res.status).toBe(201)
-      expect(res.data).toMatchObject({ entryCount: 60, personCount: 60 })
+      expect(res.data).toMatchObject({
+        entryCount: 60,
+        personCount: 60,
+        hasMore: true,
+      })
+    })
+
+    it('a follow-up create on the same filter continues past prior batches and 400s once exhausted', async () => {
+      const people = Array.from({ length: 61 }, (_, i) =>
+        fakePerson({
+          id: randomUUID(),
+          firstName: `B${i}`,
+          lastName: 'Voter',
+          cellPhone: `30757${String(i).padStart(5, '0')}`,
+        }),
+      )
+      mockPeoplePage(people)
+
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 1' }),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+      expect(first.data).toMatchObject({ entryCount: 60, hasMore: true })
+
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(201)
+      expect(second.data).toMatchObject({
+        entryCount: 1,
+        personCount: 1,
+        hasMore: false,
+      })
+      const persons = await service.prisma.phoneBankingListEntryPerson.findMany(
+        {
+          where: { entry: { phoneBankingListId: second.data.id } },
+        },
+      )
+      expect(persons.map((p) => p.personId)).toEqual([people[60]?.id])
+
+      const third = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 3' }),
+        orgHeaders(),
+      )
+      expect(third.status).toBe(400)
+      expect(third.data.message).toContain(
+        'already in a previous phone banking campaign',
+      )
+    })
+
+    it('prior batches on a different filter exclude nobody', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075559111' })])
+
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      const otherFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: orgSlug, name: 'PB audience 2' },
+      })
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ voterFileFilterId: otherFilter.id }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(201)
+      expect(second.data).toMatchObject({
+        entryCount: 1,
+        personCount: 1,
+        hasMore: false,
+      })
+    })
+
+    it('a filter that stopped matching anyone 400s as empty, not exhausted, despite a prior batch', async () => {
+      mockPeoplePage([fakePerson({ cellPhone: '3075559222' })])
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      mockPeoplePage([])
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(400)
+      expect(second.data.message).toContain('widen the filters')
+    })
+
+    it('an at-capacity prior-batch person neither signals hasMore nor joins a fresh entry via a shared phone', async () => {
+      const sharedPhone = '3075809999'
+      const priorPerson = fakePerson({
+        id: randomUUID(),
+        firstName: 'Called',
+        lastName: 'Already',
+        cellPhone: sharedPhone,
+      })
+      mockPeoplePage([priorPerson])
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ name: 'Batch 1' }),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      // Batch 2's page: 60 fresh people fill the cap, then the prior-batch
+      // person appears at capacity — plus a fresh household member on the
+      // prior person's phone, who must get their own entry without the
+      // already-called person riding along.
+      const fresh = Array.from({ length: 60 }, (_, i) =>
+        fakePerson({
+          id: randomUUID(),
+          firstName: `F${i}`,
+          lastName: 'Voter',
+          cellPhone: `30758${String(i).padStart(5, '0')}`,
+        }),
+      )
+      const householdMate = fakePerson({
+        id: randomUUID(),
+        firstName: 'New',
+        lastName: 'Housemate',
+        cellPhone: sharedPhone,
+      })
+      mockPeoplePage([householdMate, ...fresh.slice(0, 59), priorPerson])
+
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1, name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(201)
+      expect(second.data).toMatchObject({ entryCount: 60, hasMore: false })
+
+      const sharedEntry = await service.prisma.phoneBankingListEntry.findFirst({
+        where: { phoneBankingListId: second.data.id, phone: sharedPhone },
+        include: { persons: true },
+      })
+      expect(sharedEntry?.persons.map((p) => p.personId)).toEqual([
+        householdMate.id,
+      ])
+    })
+
+    it('drops anyone a concurrent create froze between paging and the freeze transaction', async () => {
+      const racedPerson = fakePerson({ cellPhone: '3075901111' })
+      const freshPerson = fakePerson({ cellPhone: '3075902222' })
+      // Simulate the TOCTOU window: the prior-batch snapshot is read before
+      // findPeople, so a competing list committed DURING paging is exactly
+      // what the in-tx advisory-lock re-read must catch.
+      vi.spyOn(
+        service.app.get(VoterQueryService),
+        'findPeople',
+      ).mockImplementation(async () => {
+        await service.prisma.phoneBankingList.create({
+          data: {
+            organizationSlug: orgSlug,
+            voterFileFilterId: filter.id,
+            name: 'Concurrent batch',
+            script: 'hello',
+            sheetCount: 1,
+            purpose: 'introduce',
+            entries: {
+              create: [
+                {
+                  seq: 1,
+                  sheetIndex: 1,
+                  phone: '3075901111',
+                  persons: {
+                    create: [
+                      {
+                        personId: racedPerson.id,
+                        name: 'Jane Voter',
+                        firstName: 'Jane',
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        })
+        return {
+          pagination: PEOPLE_PAGINATION,
+          people: [racedPerson, freshPerson],
+        }
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(res.status).toBe(201)
+      expect(res.data).toMatchObject({ entryCount: 1, personCount: 1 })
+      const persons = await service.prisma.phoneBankingListEntryPerson.findMany(
+        {
+          where: { entry: { phoneBankingListId: res.data.id } },
+        },
+      )
+      expect(persons.map((p) => p.personId)).toEqual([freshPerson.id])
+    })
+
+    it('a concurrent create that claims the whole batch 400s as exhausted', async () => {
+      const racedPerson = fakePerson({ cellPhone: '3075903333' })
+      vi.spyOn(
+        service.app.get(VoterQueryService),
+        'findPeople',
+      ).mockImplementation(async () => {
+        await service.prisma.phoneBankingList.create({
+          data: {
+            organizationSlug: orgSlug,
+            voterFileFilterId: filter.id,
+            name: 'Concurrent batch',
+            script: 'hello',
+            sheetCount: 1,
+            purpose: 'introduce',
+            entries: {
+              create: [
+                {
+                  seq: 1,
+                  sheetIndex: 1,
+                  phone: '3075903333',
+                  persons: {
+                    create: [
+                      {
+                        personId: racedPerson.id,
+                        name: 'Jane Voter',
+                        firstName: 'Jane',
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        })
+        return { pagination: PEOPLE_PAGINATION, people: [racedPerson] }
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(res.status).toBe(400)
+      expect(res.data.message).toContain(
+        'already in a previous phone banking campaign',
+      )
+    })
+
+    it('a full collision with usable people still dropped 400s as retryable, not exhausted', async () => {
+      const audience = Array.from({ length: 61 }, (_, i) => {
+        const phone = `30759${String(i).padStart(5, '0')}`
+        return {
+          phone,
+          person: fakePerson({
+            id: randomUUID(),
+            firstName: `R${i}`,
+            lastName: 'Voter',
+            cellPhone: phone,
+          }),
+        }
+      })
+      // The concurrent create claims all 60 people the cap admits, while the
+      // 61st person was dropped at the cap (hasMore true) — the one shape
+      // where a retry genuinely succeeds and "exhausted" would be wrong.
+      vi.spyOn(
+        service.app.get(VoterQueryService),
+        'findPeople',
+      ).mockImplementation(async () => {
+        await service.prisma.phoneBankingList.create({
+          data: {
+            organizationSlug: orgSlug,
+            voterFileFilterId: filter.id,
+            name: 'Concurrent batch',
+            script: 'hello',
+            sheetCount: 1,
+            purpose: 'introduce',
+            entries: {
+              create: audience.slice(0, 60).map(({ phone, person }, i) => ({
+                seq: i + 1,
+                sheetIndex: 1,
+                phone,
+                persons: {
+                  create: [
+                    {
+                      personId: person.id,
+                      name: 'Jane Voter',
+                      firstName: 'Jane',
+                    },
+                  ],
+                },
+              })),
+            },
+          },
+        })
+        return {
+          pagination: PEOPLE_PAGINATION,
+          people: audience.map(({ person }) => person),
+        }
+      })
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ sheetCount: 1 }),
+        orgHeaders(),
+      )
+      expect(res.status).toBe(400)
+      expect(res.data.message).toContain('try again to get the next batch')
+    })
+
+    it('a prior-batch person whose number got suppressed 400s as empty, not exhausted', async () => {
+      const phone = '3075559333'
+      mockPeoplePage([fakePerson({ cellPhone: phone })])
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody(),
+        orgHeaders(),
+      )
+      expect(first.status).toBe(201)
+
+      await service.prisma.phoneBankingSuppressedPhone.create({
+        data: { organizationSlug: orgSlug, phone },
+      })
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ name: 'Batch 2' }),
+        orgHeaders(),
+      )
+      expect(second.status).toBe(400)
+      expect(second.data.message).toContain('widen the filters')
     })
 
     it('round-trips a hyphenated purpose through the snake_case DB enum', async () => {

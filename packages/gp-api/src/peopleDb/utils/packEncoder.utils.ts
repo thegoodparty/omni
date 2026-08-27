@@ -1,6 +1,9 @@
 import {
+  CONTACTS_MADE_BUCKETS,
+  CONTACTS_MADE_DIM_KEY,
   DOOR_KNOCK_STATUSES,
   DoorKnockingPackManifest,
+  DoorKnockingPackRequest,
   INCOME_RANGE_MAPPING,
   PEOPLE_FILTER_VALUE_ENUMS,
 } from '@goodparty_org/contracts'
@@ -158,6 +161,19 @@ export const statusesToBytes = (
   )
 }
 
+// personId -> contacts-made bucket byte (index into CONTACTS_MADE_BUCKETS).
+// `null` is "gp-api could not answer", and the encoder omits the plane for it
+// — distinct from an empty map, which is an organization that has contacted
+// nobody and whose plane is a legitimate wall of bucket 0.
+export type PackContactsMade = Map<string, number> | null
+
+export const contactsMadeToBytes = (
+  entries: DoorKnockingPackRequest['contactsMade'],
+): PackContactsMade =>
+  entries === undefined
+    ? null
+    : new Map(entries.map(({ personId, bucket }) => [personId, bucket]))
+
 export class PackEncoder {
   // Keyed lat -> lng -> dot rather than on a `${lat}|${lng}` string. Building
   // that string was 261ms of a 628k-row build — the single most expensive
@@ -180,7 +196,10 @@ export class PackEncoder {
   private peopleCount = 0
   private readonly dims: DimPlane[]
 
-  constructor(statusByPersonId: PackStatuses) {
+  constructor(
+    statusByPersonId: PackStatuses,
+    contactsMadeByPersonId: PackContactsMade = null,
+  ) {
     const mapped: DimPlane[] = MAPPED_DIMS.map(([key, mapperKey, column]) => {
       const { values, rawToByte } = invertMapper(
         mapperKey,
@@ -273,6 +292,24 @@ export class PackEncoder {
         bytes: new GrowableU8(),
       },
     ]
+    // The second campaign-specific plane, and the only conditional one. It is
+    // pushed after the district-scoped dims for the same reason canvassStatus
+    // is: everything above this line is a pure function of the district, so a
+    // cached shared build can be copied and only the tail rewritten.
+    //
+    // Omitted rather than zero-filled when gp-api has no answer — a plane of
+    // zeros claims every person has never been contacted, which is a stronger
+    // and more wrong statement than having no plane at all. Absent, the dim
+    // never reaches the manifest, and the client's own unpreviewable-filter
+    // machinery names the filter it cannot shade.
+    if (contactsMadeByPersonId) {
+      this.dims.push({
+        key: CONTACTS_MADE_DIM_KEY,
+        values: [...CONTACTS_MADE_BUCKETS],
+        encode: (row) => contactsMadeByPersonId.get(row.id) ?? 0,
+        bytes: new GrowableU8(),
+      })
+    }
   }
 
   add(row: PackRow): void {

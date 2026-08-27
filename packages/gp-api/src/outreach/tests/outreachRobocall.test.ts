@@ -147,8 +147,8 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const systemPrompt = systemContent()
-    expect(systemPrompt).toContain('Hi, this is')
-    expect(systemPrompt).toContain('and I am running for')
+    expect(systemPrompt).toContain('"This is"')
+    expect(systemPrompt).toContain('"candidate for"')
     expect(systemPrompt).toContain('"Paid for by"')
     expect(systemPrompt).toContain('callback phone number')
     expect(systemPrompt).toContain('"Reply STOP"')
@@ -165,12 +165,14 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const systemPrompt = systemContent()
-    expect(systemPrompt).toContain('say the callback number given below')
+    expect(systemPrompt).toContain('callback number given below')
     // The ban rule must NOT apply once a number is provided.
     expect(systemPrompt).not.toContain('Do NOT include a "Paid for by" line')
 
     const userPrompt = userContent()
-    expect(userPrompt).toContain('Callback number to read aloud: +12025550147')
+    // The number is formatted to a plain grouped form for the script, so the
+    // model echoes "202-555-0147" instead of spelling out every digit.
+    expect(userPrompt).toContain('Callback number to read aloud: 202-555-0147')
     expect(userPrompt).toContain('"Paid for by" name:')
   })
 
@@ -186,8 +188,13 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
 
     expect(systemContent()).toContain('END with the spoken disclosure')
+    // The improve path must also normalize a digit-by-digit number, not just
+    // preserve whatever the original draft had.
+    expect(systemContent()).toContain(
+      'rewrite a digit-by-digit number into that grouped form',
+    )
     expect(userContent()).toContain(
-      'Callback number to read aloud: +12025550147',
+      'Callback number to read aloud: 202-555-0147',
     )
   })
 

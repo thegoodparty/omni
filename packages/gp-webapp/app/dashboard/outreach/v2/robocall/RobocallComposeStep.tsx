@@ -155,20 +155,6 @@ export const RobocallComposeStep = ({
           until it's rented. */}
       {callbackNumber && (
         <>
-          <Card className="gap-1 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Read your callback number aloud
-            </p>
-            <p className="text-base font-medium text-foreground">
-              {callbackNumber}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {isCustomPurpose
-                ? 'Your recording must say who paid for the call and this number — make sure your script includes both.'
-                : 'Your recording must say who paid for the call and this number — the script below includes it.'}
-            </p>
-          </Card>
-
           {!isCustomPurpose && (
             <FilterPillGroup
               type="single"
@@ -240,10 +226,20 @@ export const RobocallComposeStep = ({
                 Drafting your script…
               </p>
             ) : (
-              <p className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
+              <p
+                data-vaul-no-drag
+                className="select-text whitespace-pre-wrap text-base leading-relaxed text-foreground"
+              >
                 {draft}
               </p>
             )}
+            <p
+              data-vaul-no-drag
+              className="select-text text-xs text-muted-foreground"
+            >
+              Your recording must say who paid for the call and include this
+              callback number: {callbackNumber}.
+            </p>
           </Card>
 
           <p className="text-xs text-muted-foreground">
