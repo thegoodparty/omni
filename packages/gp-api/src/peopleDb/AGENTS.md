@@ -1,15 +1,78 @@
 # peopleDb
 
-A second, **read-only** Prisma client + raw-SQL voter engine inside gp-api,
-talking directly to the people-db Postgres cluster (the same `green`-schema
-Voter table, 200M+ L2 records, partitioned by state, that the now-retired
-`people-api` package used to serve over HTTP). This module is the in-process
-replacement for that service — and the SOLE path: filter pipeline, id
-`in`/`notIn`, trigram search, stats/aggregates, CSV download, and
-door-knocking targeting all live here now. `ContactsService` (`src/contacts/`)
-calls this module directly; the `USE_LOCAL_PEOPLE_DB` flag and the legacy
-people-api HTTP/S2S client it used to fall back to are gone (see
-`src/contacts/CLAUDE.md`).
+gp-api's voter engine: the filter pipeline, id `in`/`notIn`, trigram search,
+stats/aggregates, CSV download, door-knocking targeting, and the voter-density
+heat map. `ContactsService` (`src/contacts/`) and `src/doorKnocking/` call it
+directly.
+
+It reads the same L2 voter file through **two** stores, and which one answers
+depends on `PEOPLE_DB_DUAL_READ` (next section):
+
+- **people-db Postgres** — a second, read-only Prisma client against the
+  `green`-schema Voter table (200M+ records, partitioned by state), reached
+  with raw SQL. Everything below about connection handling, statement
+  timeouts, cursors and partition pruning is about this client.
+- **Databricks** — the `mart_gp_api` schema, reached over the Statement
+  Execution API (`databricks/`). No Prisma, no connection pool.
+
+Both are downstream of the same dbt models: people-db is a monthly full
+rebuild written out of Databricks, so the mart is the fresher copy of the same
+data rather than a different source.
+
+## Which store answers: `PEOPLE_DB_DUAL_READ` + `ShadowReadService`
+
+`shadowRead.service.ts` owns the fork. With the flag off — or with
+`PEOPLE_DATABRICKS_*` unresolved — every read is served from Postgres and
+nothing else happens, so an environment without Databricks configured is
+unaffected rather than broken. "Asked for but unresolvable" logs a one-time
+warning, because it is otherwise indistinguishable from "switched off" and a
+whole measurement window can pass with nothing but an absence of log lines to
+show for it.
+
+With it on, `compare()` runs **both** arms: Databricks is authoritative and its
+failures propagate (voter data has no fallback store, so a warehouse outage
+must surface as an error rather than silently serving a second store's answer),
+while Postgres is started first so both clocks begin together and is then never
+awaited on the response path. A Postgres failure, timeout, or exhausted pool
+therefore cannot affect what a caller sees.
+
+Each compared read emits one flat `people-db dual read` log line — `op`,
+`districtId`, both timings, both fingerprints, `agrees`, `dbxFailed`, `pgError`
+— at a stable message so LogQL can aggregate a window of them. Flat rather than
+nested because LogQL cannot unwrap nested json without a parser expression per
+field.
+
+| `op` | Databricks side | Postgres side |
+| --- | --- | --- |
+| `list`, `voter-by-id`, `aggregates`, `overlap`, `sample` | `DatabricksVoterService` | `voterQuery.service.ts` |
+| `stats` | `DatabricksVoterService.findStats` | `stats.service.ts` |
+| `dk-evaluate`, `dk-residents` | `DatabricksVoterService` | `voterDoorKnocking.service.ts` |
+| `dk-pack` | `DatabricksVoterPackService` | `voterPack.service.ts` |
+
+Two forked reads **switch outright instead of comparing**, so they emit no
+`op` and no log line: the CSV download (`voterDownload.service.ts`) and
+`findPrecincts` (`voterQuery.service.ts`). Both stream or shape their result in
+a way that makes running a second copy pointless rather than informative — but
+it does mean neither has comparison evidence behind it. Don't read an absence
+of disagreement for them as agreement.
+
+Two reads are **deliberately not** forked:
+
+- **`DistrictService.findDistrictById`.** Every voter read resolves its
+  district first. Routing this through Databricks would make Postgres-only
+  reads fail when Databricks does, and would fold Databricks latency into the
+  Postgres side of every comparison. The Databricks arm resolves the district
+  itself, so that cost is already counted in its own timing.
+- **`VoterDensityService`.** `mart_gp_api` holds no H3 density table, so this
+  one cannot move until the data platform publishes one. It is the only
+  remaining Postgres-only read.
+
+A fingerprint is diagnostics, never a reason to fail a request — a bad one is
+swallowed and logged as null. Choose one that can actually see the divergence
+you care about: a row count calls two answers equal whenever they happen to be
+the same size, which is why the door-knocking ops digest a **sorted id set**
+instead. Neither store orders those scans, so an order-sensitive digest would
+report constant disagreement and hide the real one.
 
 ## Connection: `PeopleDbUrlProvider` + `PEOPLE_DB_SSM_PARAM`
 
@@ -70,11 +133,17 @@ service pointed at a disconnected client after a URL swap.
 
 ## `PeopleQueryModule` exports
 
-`peopleQuery.module.ts` provides and exports: `DistrictService`,
+`peopleQuery.module.ts` exports `ShadowReadService`, `DistrictService`,
 `StatsService`, `VoterSampleService`, `VoterQueryService`,
 `VoterDownloadService`, `VoterDoorKnockingService`, `VoterPackService`,
-`VoterDensityService`. Import this module to get the whole people-db surface;
-don't reach for individual services from other modules directly.
+`VoterDensityService`. Import this module to get the whole voter surface; don't
+reach for individual services from other modules directly.
+
+The Databricks services (`PeopleDbxStatementClient`, `DatabricksVoterService`,
+`DatabricksVoterDownloadService`, `DatabricksVoterPackService`) are provided
+but **not** exported. They are reached through the Postgres-named service that
+forks to them, or through `ShadowReadService.databricks` — a caller outside
+this module should not be choosing an engine.
 
 ## `plan_cache_mode=force_custom_plan` — do not remove it
 
@@ -123,6 +192,13 @@ which set their own timeout rather than skipping the idea:
 `voterDownload.service.ts` runs a minutes-long COPY on its own pool with
 `statement_timeout = 0`, and `utils/cursorScan.util.ts` uses 45s per fetch
 (below).
+
+In dual-read mode these queries are comparison-only, so they pass
+`COMPARISON_STATEMENT_TIMEOUT_MS` instead of the 25s default: nothing is
+waiting on the answer, and a slow shadow must not hold a pooled connection
+open. Pass it wherever you add a forked Postgres arm — `SET LOCAL` means
+Postgres cancels the query itself rather than the client abandoning it and
+letting it burn CPU on a datastore that is, by hypothesis, already struggling.
 
 This is not belt-and-braces on top of `socket_timeout=60`. The two do
 materially different things, and the difference is the whole point:
@@ -218,6 +294,31 @@ ever lands, the components become usable again, but there is no reason to go
 back to them: AddressLine is one column instead of five and already carries the
 CASS-standardized spelling.
 
+## Door knocking runs on both engines — the guards are shared, the SQL is not
+
+`voterDoorKnocking.service.ts` and `voterPack.service.ts` fork per the table
+above. Each engine produces **rows**; the cap check and the roster shaping
+happen once, in module-level functions both arms call. That placement is
+deliberate and the one thing to preserve if you touch this: the
+reject-rather-than-truncate rule below is a correctness invariant, not a
+Postgres implementation detail, and two copies of it are two things that can
+drift apart.
+
+The SQL is necessarily duplicated — Prisma raw SQL in `services/`, Spark in
+`databricks/databricksVoterSql.util.ts` — but the pieces that must agree
+byte-for-byte come from `@goodparty_org/contracts`
+(`DOOR_KNOCKING_UNIT_KEY_COLUMNS`, its legacy twin, and
+`HOUSEHOLD_KEY_RESIDENCE_COLUMNS`) so a key composed on one engine matches one
+composed on the other. Spark needs an explicit `cast(... AS STRING)` inside the
+`coalesce` where Postgres got it free from `::text` — the two direction columns
+are INT (see below) and Spark will not coalesce an INT with `''`.
+
+The pack is the one query that does not use the inline path on either engine.
+`PeopleDbxStatementClient.query()` accumulates every chunk before returning,
+which for a whole district is the same unbounded materialization the Postgres
+cursor exists to avoid, so `DatabricksVoterPackService` reads CSV through
+external links and parses one chunk at a time into the encoder.
+
 ## Door-knocking's address-key predicate is non-sargable (latent fragility)
 
 `residents()` filters on
@@ -242,7 +343,9 @@ always did. Don't "simplify" that into an unconditional `OR` of the two: it woul
 put a second seven-column `CONCAT_WS` on every row of this scan for a branch that
 is never both.
 
-This is a **latent fragility, not a live defect**. Measured reality as of
+This is a **Postgres** pathology specifically: a columnar full scan has no
+index to miss, so the Databricks arm does not carry it. This is a **latent
+fragility, not a live defect**. Measured reality as of
 2026-08-20: a two-second median on this endpoint, ten consecutive 200s for the
 same user and turf ~19h before the incident, and exactly one 5xx in seven days.
 It is best read as the reason `residents()` is the query that tips over *first*
@@ -334,10 +437,22 @@ pattern); SQL-builder utils assert the generated SQL string + params
 Keep new tests in this module to that pattern — don't reach for
 `useTestService()` here, it boots gp-api's own Postgres, not people-db.
 
+The Databricks side follows the same rule: `databricks*.util.test.ts` asserts
+the generated Spark string and its bound parameters, and the services are
+tested against a stubbed `PeopleDbxStatementClient` (and a stubbed `fetch` for
+external-link chunks). Nothing here talks to a warehouse.
+
 ## Key files
 
 | Path                                    | Purpose                                                               |
 | --------------------------------------- | --------------------------------------------------------------------- |
+| `shadowRead.service.ts`                 | The engine fork: `enabled`, `compare()`, the dual-read log line       |
+| `databricks/peopleDbx.config.ts`        | `PEOPLE_DATABRICKS_*` resolution; catalog/schema/hostname constants   |
+| `databricks/peopleDbxStatement.client.ts` | Statement Execution API: inline JSON, CSV external links, polling  |
+| `databricks/databricksVoterSql.util.ts` | Spark SQL builders + the bound-parameter/inlining rules              |
+| `databricks/databricksVoter.service.ts` | List/person/aggregates/stats/sample/precincts + door-knocking rows    |
+| `databricks/databricksVoterDownload.service.ts` | Streaming CSV export over external links                     |
+| `databricks/databricksVoterPack.service.ts` | Voter pack built from CSV chunks (never the inline path)         |
 | `peopleDbUrl.provider.ts`               | SSM-backed connection-string resolution + change notification         |
 | `peopleDb.service.ts`                   | Owns the live Prisma client; hot-swap on URL change                   |
 | `peopleDbBase.util.ts`                  | `createPeopleDbBase` — PrismaBase equivalent for this client          |
@@ -353,6 +468,8 @@ Keep new tests in this module to that pattern — don't reach for
 | `services/voterDensity.service.ts`      | Voter-density heat-map cells (read-only, precomputed H3 centroids)    |
 | `schemas/filters.schema.ts`             | Zod filter input schema                                               |
 | `utils/statementTimeout.util.ts`        | `runUnderStatementTimeout` — the 25s guard every query goes through   |
+| `utils/doorKnockingAddressKey.util.ts`  | The unit key (current + legacy), Postgres side                        |
+| `utils/bboxSql.util.ts`                 | Guarded float cast + bbox predicate, Postgres side                    |
 | `utils/cursorScan.util.ts`              | `scanUnderCursor` — one statement, read in chunks (never keyset a join) |
 | `utils/filters.sql.util.ts`             | `buildVoterFiltersSql` — filter → SQL translation, incl. id-set cap   |
 | `utils/buildVoterWhereSql.util.ts`      | WHERE-clause SQL builders, incl. `stateEquals`                        |
@@ -364,7 +481,10 @@ Keep new tests in this module to that pattern — don't reach for
 
 Query performance here is benchmarked by the in-process suite in
 `perf/people-db/` (latency matrix + concurrency load mode against a real
-people-db). If you add or change a query method on one of the services above,
+people-db). **It measures the Postgres arm only** — there is no Databricks
+dimension in it, so a green benchmark says nothing about what a dual-read
+environment actually serves. For that, read the `people-db dual read` lines in
+Loki, which carry both timings per request. If you add or change a query method on one of the services above,
 add or adjust a case so it stays covered: a new query type needs a branch in
 `perf/people-db/harness.ts`'s `invoke` and cases in `perf/people-db/cases.ts`;
 a new filter shape worth measuring is a `FilterVariant` in
