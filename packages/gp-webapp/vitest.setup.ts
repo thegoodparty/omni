@@ -79,4 +79,5 @@ beforeEach(() => {
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => router),
   usePathname: vi.fn(() => '/'),
+  useSearchParams: vi.fn(() => new URLSearchParams()),
 }))

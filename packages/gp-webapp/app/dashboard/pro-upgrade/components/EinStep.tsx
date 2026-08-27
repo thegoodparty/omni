@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -16,6 +15,8 @@ import {
   einIndicatorState,
 } from '@shared/inputs/EinSanityCheck'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import WizardStepFooter from './WizardStepFooter'
+import WizardHeading from './WizardHeading'
 
 // Front-end EIN collection, Phase 1 style: format + sanity only, no backend /
 // IRS verification (Peerly stays the downstream backstop for a truly bad EIN).
@@ -132,14 +133,17 @@ const EinStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        What is your campaign EIN?
-      </h1>
-      <Body2 className="text-base-muted-foreground mb-6">
-        Every campaign needs one to access voter data and texting. If you
-        don&apos;t have one for your campaign, you can get a free EIN from the
-        IRS in just a few minutes.
-      </Body2>
+      <WizardHeading
+        proBadge
+        title="What is your campaign EIN?"
+        subtitle={
+          <>
+            Every campaign needs one to access voter data and texting. If you
+            don&apos;t have one for your campaign, you can get a free EIN from
+            the IRS in just a few minutes.
+          </>
+        }
+      />
 
       {showEinError && (
         <StyledAlert severity="error" className="mb-6">
@@ -168,24 +172,13 @@ const EinStep = (): React.JSX.Element => {
           </a>
         }
       />
-      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-        <Button
-          variant="outline"
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={goToPreviousStep}
-        >
-          Back
-        </Button>
-        <Button
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={() => void handleNextClick()}
-          disabled={submitting}
-        >
-          Continue
-        </Button>
-      </div>
+      <WizardStepFooter
+        back={{ onClick: goToPreviousStep }}
+        primary={{
+          onClick: () => void handleNextClick(),
+          disabled: submitting,
+        }}
+      />
     </div>
   )
 }

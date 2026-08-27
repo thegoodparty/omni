@@ -3,7 +3,7 @@ import { screen, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import ProUpgradeWizard, { useProUpgradeWizard } from './ProUpgradeWizard'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { noop } from '@shared/utils/noop'
 
 // The global setup mocks next/navigation with useRouter only; this component
@@ -11,9 +11,11 @@ import { noop } from '@shared/utils/noop'
 vi.mock('next/navigation', () => ({
   useRouter: () => router,
   usePathname: vi.fn(),
+  useSearchParams: vi.fn(() => new URLSearchParams()),
 }))
 
 const mockUsePathname = vi.mocked(usePathname)
+const mockUseSearchParams = vi.mocked(useSearchParams)
 
 // Context probe: the wizard chrome no longer renders Back itself (steps own
 // their footer Back buttons), so navigation behavior is exercised through the
@@ -32,6 +34,30 @@ describe('ProUpgradeWizard', () => {
     vi.clearAllMocks()
     vi.spyOn(window, 'scrollTo').mockImplementation(noop)
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
+  })
+
+  it('renders the takeover chrome when entered with ?src=outreach', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams('src=outreach') as ReturnType<typeof useSearchParams>,
+    )
+
+    render(
+      <ProUpgradeWizard>
+        <div>step-content</div>
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toBeInTheDocument()
+    expect(screen.getByLabelText('Close')).toHaveAttribute('href', '/dashboard')
+    expect(screen.getByText('step-content')).toBeInTheDocument()
+    // The legacy chrome's Exit link and vertical stepper must not render.
+    expect(screen.queryByText('Exit')).not.toBeInTheDocument()
+
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams() as ReturnType<typeof useSearchParams>,
+    )
   })
 
   it('renders the step children', () => {

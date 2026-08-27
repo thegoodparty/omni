@@ -2,12 +2,13 @@
 
 import { useEffect } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
-import { Button } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import WizardStepFooter from './WizardStepFooter'
+import WizardHeading from './WizardHeading'
 
 // The four things the rest of the wizard collects, in the order the candidate
 // encounters them (EIN → filing details → candidate profile → payment). Per
@@ -68,13 +69,11 @@ const GuidanceStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        Great! We&apos;ll need to gather a few things to get you set up for
-        texting
-      </h1>
-      <Body2 className="text-base-muted-foreground mb-6">
-        This is required to access voter data and send texts.
-      </Body2>
+      <WizardHeading
+        proBadge
+        title="Great! We'll need to gather a few things to get you set up for texting"
+        subtitle="This is required to access voter data and send texts."
+      />
 
       <ol className="rounded-xl border border-base-border">
         {GATHER_STEPS.map((label, index) => {
@@ -100,23 +99,10 @@ const GuidanceStep = (): React.JSX.Element => {
         })}
       </ol>
 
-      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-        <Button
-          variant="outline"
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={goToPreviousStep}
-        >
-          Back
-        </Button>
-        <Button
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={handleContinue}
-        >
-          Let&apos;s go!
-        </Button>
-      </div>
+      <WizardStepFooter
+        back={{ onClick: goToPreviousStep }}
+        primary={{ label: "Let's go!", onClick: handleContinue }}
+      />
     </div>
   )
 }

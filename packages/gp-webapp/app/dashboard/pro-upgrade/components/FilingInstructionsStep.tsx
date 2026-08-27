@@ -16,6 +16,8 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import WizardStepFooter from './WizardStepFooter'
+import WizardHeading from './WizardHeading'
 
 const FILING_INSTRUCTIONS_QUERY_KEY = ['filing-instructions']
 
@@ -122,15 +124,11 @@ const FilingInstructionsStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        You&apos;re not eligible for Pro yet, but here&apos;s how to file for
-        this election
-      </h1>
-      <Body2 className="text-base-muted-foreground mb-6">
-        Once done, you can come right back and we&apos;ll have everything ready
-        to go. In the meantime, you still have access to our free campaign
-        tools.
-      </Body2>
+      <WizardHeading
+        proBadge
+        title="You're not eligible for Pro yet, but here's how to file for this election"
+        subtitle="Once done, you can come right back and we'll have everything ready to go. In the meantime, you still have access to our free campaign tools."
+      />
 
       <div className="rounded-xl border border-base-border">
         <InstructionRow
@@ -188,19 +186,10 @@ const FilingInstructionsStep = (): React.JSX.Element => {
         </div>
       </div>
 
-      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-        <Button
-          variant="outline"
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={goToPreviousStep}
-        >
-          Back
-        </Button>
-        <Button size="large" className="w-full sm:w-auto" onClick={handleExit}>
-          Continue to dashboard
-        </Button>
-      </div>
+      <WizardStepFooter
+        back={{ onClick: goToPreviousStep }}
+        primary={{ label: 'Continue to dashboard', onClick: handleExit }}
+      />
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
-import { Button, ProBadge } from '@styleguide'
+import { ProBadge } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -14,6 +14,8 @@ import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 import { createProSubscriptionCheckoutSession } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
 import { PRO_UPGRADE_STEP, proUpgradeStepPath } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import WizardStepFooter from './WizardStepFooter'
+import WizardHeading from './WizardHeading'
 
 // Stripe sends the candidate here when a confirm requires a redirect (e.g.
 // 3DS). The success step (task 14) reads the post-payment state; isPro is
@@ -70,15 +72,11 @@ const PaymentFrame = ({
 }): React.JSX.Element => (
   <div className="flex flex-col items-center gap-8 lg:grid lg:grid-cols-[1fr_360px] lg:items-start lg:gap-16">
     <div className="w-full max-w-screen-sm rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-6">
-        Complete your upgrade
-      </h1>
+      <WizardHeading title="Complete your upgrade" />
       {children}
-      <div className="mt-8">
-        <Button variant="outline" size="large" onClick={onBack}>
-          Back
-        </Button>
-      </div>
+      {/* Stripe's embedded Checkout owns the forward CTA, so the takeover
+          footer carries Back alone (recorded design divergence). */}
+      <WizardStepFooter back={{ onClick: onBack }} />
     </div>
     {summary}
   </div>

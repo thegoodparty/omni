@@ -19,9 +19,11 @@ import {
   MegaphoneIcon,
   XMarkIcon,
 } from '@styleguide/components/ui/icons'
-import Body2 from '@shared/typography/Body2'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import { useTakeoverActive } from 'app/dashboard/shared/takeover/TakeoverShell'
+import WizardStepFooter from './WizardStepFooter'
+import WizardHeading from './WizardHeading'
 
 interface ComparisonRow {
   label: string
@@ -80,6 +82,7 @@ const ROW_GRID =
   'grid grid-cols-[1fr_64px_64px] md:grid-cols-[1fr_100px_100px] items-center'
 
 const ValuePropStep = (): React.JSX.Element => {
+  const takeover = useTakeoverActive()
   const router = useRouter()
   const { goToNextStep } = useProUpgradeWizard()
 
@@ -99,12 +102,11 @@ const ValuePropStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <h1 className="text-center text-[32px] leading-[44px] font-semibold mb-1.5">
-        76% of candidates who use Pro win
-      </h1>
-      <Body2 className="text-center text-base-muted-foreground mb-6">
-        Get $300 of value for $10/mo.
-      </Body2>
+      <WizardHeading
+        center
+        title="76% of candidates who use Pro win"
+        subtitle="Get $300 of value for $10/mo."
+      />
 
       <div className="mb-9">
         <div className={`${ROW_GRID} py-2`}>
@@ -161,18 +163,25 @@ const ValuePropStep = (): React.JSX.Element => {
         ))}
       </div>
 
-      <div className="flex flex-col items-center gap-2">
-        <Button
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={handleGetPro}
-        >
-          Get Pro for $10/mo
-        </Button>
-        <Button variant="ghost" onClick={handleMaybeLater}>
-          Maybe later
-        </Button>
-      </div>
+      {takeover ? (
+        <WizardStepFooter
+          primary={{ label: 'Get Pro for $10/mo', onClick: handleGetPro }}
+          back={{ label: 'Maybe later', onClick: handleMaybeLater }}
+        />
+      ) : (
+        <div className="flex flex-col items-center gap-2">
+          <Button
+            size="large"
+            className="w-full sm:w-auto"
+            onClick={handleGetPro}
+          >
+            Get Pro for $10/mo
+          </Button>
+          <Button variant="ghost" onClick={handleMaybeLater}>
+            Maybe later
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

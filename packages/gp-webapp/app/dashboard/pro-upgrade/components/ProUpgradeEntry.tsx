@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@styleguide'
 import H2 from '@shared/typography/H2'
@@ -39,6 +39,7 @@ const SUPPORT_EMAIL = 'campaignsuccess@goodparty.org'
 // re-derives, landing a returning candidate on the first incomplete step.
 const ProUpgradeEntry = (): React.JSX.Element | null => {
   const router = useRouter()
+  const src = useSearchParams()?.get('src') ?? null
 
   // Observe the shared campaign query (same key as CampaignProvider, deduped)
   // so step derivation waits for it. Reading campaign from context instead
@@ -117,8 +118,9 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
       pinComplete,
     })
 
-    router.replace(proUpgradeStepPath(step))
+    router.replace(proUpgradeStepPath(step, src))
   }, [
+    src,
     ready,
     hasError,
     purchaseBlocked,

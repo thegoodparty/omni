@@ -8,15 +8,17 @@ import {
   useMemo,
 } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { Button, Stepper } from '@styleguide'
 import { noop } from '@shared/utils/noop'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { TakeoverShell } from 'app/dashboard/shared/takeover/TakeoverShell'
 import {
   PRO_UPGRADE_BASE_PATH,
   PRO_UPGRADE_STEP,
   PRO_UPGRADE_STEP_ORDER,
+  PRO_UPGRADE_TAKEOVER_SRC,
   proUpgradeStepPath,
   type ProUpgradeStep,
 } from '../proUpgradeStep'
@@ -129,6 +131,14 @@ const ProUpgradeWizard = ({
 }: ProUpgradeWizardProps): React.JSX.Element => {
   const router = useRouter()
   const pathname = usePathname()
+  // The chrome fork (2026-08-27 Voter Outreach 2.0 parity): outreach entry
+  // points append ?src=outreach, which swaps the legacy Exit-link/vertical-
+  // stepper/card chrome for the design's full-screen takeover. Every in-wizard
+  // navigation propagates the param so the fork survives step changes. Once
+  // design approves the new chrome for every entry, flipping `takeover` to
+  // default-true un-forks it.
+  const src = useSearchParams()?.get('src') ?? null
+  const takeover = src === PRO_UPGRADE_TAKEOVER_SRC
 
   const currentStep = stepFromPathname(pathname)
   const orderIndex = currentStep
@@ -141,15 +151,17 @@ const ProUpgradeWizard = ({
   }, [currentStep])
 
   const goToStep = useCallback(
-    (step: ProUpgradeStep) => router.push(proUpgradeStepPath(step)),
-    [router],
+    (step: ProUpgradeStep) => router.push(proUpgradeStepPath(step, src)),
+    [router, src],
   )
 
   const goToNextStep = useCallback(() => {
     if (orderIndex < 0 || orderIndex >= PRO_UPGRADE_STEP_ORDER.length - 1)
       return
-    router.push(proUpgradeStepPath(PRO_UPGRADE_STEP_ORDER[orderIndex + 1]!))
-  }, [orderIndex, router])
+    router.push(
+      proUpgradeStepPath(PRO_UPGRADE_STEP_ORDER[orderIndex + 1]!, src),
+    )
+  }, [orderIndex, router, src])
 
   const goToPreviousStep = useCallback(() => {
     // The off-order routes (guidance, filing-instructions) are only ever
@@ -160,13 +172,15 @@ const ProUpgradeWizard = ({
       currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS ||
       currentStep === PRO_UPGRADE_STEP.GUIDANCE
     ) {
-      router.push(proUpgradeStepPath(PRO_UPGRADE_STEP.STATUS))
+      router.push(proUpgradeStepPath(PRO_UPGRADE_STEP.STATUS, src))
     } else if (orderIndex > 0) {
-      router.push(proUpgradeStepPath(PRO_UPGRADE_STEP_ORDER[orderIndex - 1]!))
+      router.push(
+        proUpgradeStepPath(PRO_UPGRADE_STEP_ORDER[orderIndex - 1]!, src),
+      )
     } else {
       router.back()
     }
-  }, [currentStep, orderIndex, router])
+  }, [currentStep, orderIndex, router, src])
 
   const contextValue = useMemo<ProUpgradeWizardContextValue>(
     () => ({ currentStep, goToStep, goToNextStep, goToPreviousStep }),
@@ -177,6 +191,34 @@ const ProUpgradeWizard = ({
   const stepperStep = isPayment
     ? 0
     : STEPPER_STEPS.findIndex(({ step }) => step === currentStep) + 1
+
+  if (takeover) {
+    // The design's progress bar fills by position in the linear order; the
+    // off-order branches (guidance, filing-instructions) sit between status
+    // and EIN, so they read as the status step's progress.
+    const progressIndex =
+      orderIndex >= 0
+        ? orderIndex + 1
+        : currentStep
+          ? PRO_UPGRADE_STEP_ORDER.indexOf(PRO_UPGRADE_STEP.STATUS) + 1
+          : 0
+    return (
+      <ProUpgradeWizardContext.Provider value={contextValue}>
+        <TakeoverShell
+          eyebrow="Upgrade to Pro"
+          progressValue={Math.round(
+            (progressIndex / PRO_UPGRADE_STEP_ORDER.length) * 100,
+          )}
+          closeHref="/dashboard"
+          onCloseClick={() =>
+            trackEvent(EVENTS.ProUpgrade.ClickExit, { pathname })
+          }
+        >
+          {children}
+        </TakeoverShell>
+      </ProUpgradeWizardContext.Provider>
+    )
+  }
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>

@@ -1,10 +1,10 @@
 'use client'
 
-import { Button } from '@styleguide'
-import Body2 from '@shared/typography/Body2'
 import { useCandidateProfileForm } from 'app/dashboard/profile/texting-compliance/candidate-profile/useCandidateProfileForm'
 import CandidateProfileFields from 'app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfileFields'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import WizardStepFooter from './WizardStepFooter'
+import WizardHeading from './WizardHeading'
 
 // The candidate-profile wizard step. Mounts the shared candidate-profile form
 // (bio + policy priorities) rather than forking it: the bio-length and
@@ -22,35 +22,22 @@ const CandidateProfileStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        What is your campaign about?
-      </h1>
-      <Body2 className="text-base-muted-foreground mb-6">
-        We need to submit your candidate profile to register your campaign.
-        Please be as descriptive as possible to ensure your profile is approved.
-      </Body2>
+      <WizardHeading
+        proBadge
+        title="What is your campaign about?"
+        subtitle="We need to submit your candidate profile to register your campaign. Please be as descriptive as possible to ensure your profile is approved."
+      />
 
       <CandidateProfileFields form={form} />
 
-      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-        <Button
-          variant="outline"
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={goToPreviousStep}
-        >
-          Back
-        </Button>
-        <Button
-          size="large"
-          className="w-full sm:w-auto"
-          onClick={() => void form.handleSubmit()}
-          loading={form.submitting}
-          loadingText="Saving"
-        >
-          Continue
-        </Button>
-      </div>
+      <WizardStepFooter
+        back={{ onClick: goToPreviousStep }}
+        primary={{
+          onClick: () => void form.handleSubmit(),
+          loading: form.submitting,
+          loadingText: 'Saving',
+        }}
+      />
     </div>
   )
 }

@@ -24,8 +24,16 @@ export type ProUpgradeStep =
 
 export const PRO_UPGRADE_BASE_PATH = '/dashboard/pro-upgrade'
 
-export const proUpgradeStepPath = (step: ProUpgradeStep): string =>
-  `${PRO_UPGRADE_BASE_PATH}/${step}`
+// ?src=outreach swaps the wizard chrome for the Voter Outreach 2.0 takeover
+// (see ProUpgradeWizard). Navigation helpers pass the current src through so
+// the fork survives every in-wizard step change.
+export const PRO_UPGRADE_TAKEOVER_SRC = 'outreach'
+
+export const proUpgradeStepPath = (
+  step: ProUpgradeStep,
+  src?: string | null,
+): string =>
+  `${PRO_UPGRADE_BASE_PATH}/${step}${src ? `?src=${encodeURIComponent(src)}` : ''}`
 
 // Linear forward-navigation order for the wizard shell's Back/Next controls.
 // Every entry is a step `deriveProUpgradeStep` can actually land on, so the

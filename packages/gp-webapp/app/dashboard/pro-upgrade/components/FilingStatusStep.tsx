@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
@@ -11,6 +10,8 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { PRO_UPGRADE_STEP, type ProUpgradeStep } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import WizardStepFooter from './WizardStepFooter'
+import WizardHeading from './WizardHeading'
 
 interface FilingStatusOption {
   // Persisted to campaign.details.hasFiledForRace; read back by the wizard
@@ -83,13 +84,11 @@ const FilingStatusStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        Have you already filed for your race?
-      </h1>
-      <Body2 className="text-base-muted-foreground mb-6">
-        In order to get Pro you need to be officially filed as a candidate to
-        comply with voter data and texting regulations.
-      </Body2>
+      <WizardHeading
+        proBadge
+        title="Have you already filed for your race?"
+        subtitle="In order to get Pro you need to be officially filed as a candidate to comply with voter data and texting regulations."
+      />
 
       <div className="flex flex-col gap-3">
         {OPTIONS.map((option) => (
@@ -111,11 +110,7 @@ const FilingStatusStep = (): React.JSX.Element => {
         ))}
       </div>
 
-      <div className="mt-8">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
-          Back
-        </Button>
-      </div>
+      <WizardStepFooter back={{ onClick: goToPreviousStep }} />
     </div>
   )
 }
