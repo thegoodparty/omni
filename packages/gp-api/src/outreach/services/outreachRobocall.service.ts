@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { isFuture, parseISO } from 'date-fns'
 import { RobocallDraftCreateRequest } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
@@ -98,6 +99,15 @@ export class OutreachRobocallService extends createPrismaBase(
     organization: Organization,
     input: RobocallDraftCreateRequest,
   ): Promise<RobocallDraftResult> {
+    // Reject a past send time before the people-db round trip: a paid draft
+    // whose schedule is in the past can never dial at CallHub, so the caller
+    // would be charged for a robocall that never sends.
+    if (!isFuture(parseISO(input.scheduledAt))) {
+      throw new BadRequestException(
+        'The scheduled send time must be in the future',
+      )
+    }
+
     const billableCount = await this.deriveBillableCount(
       organization,
       input.voterFileFilterId,

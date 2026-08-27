@@ -188,6 +188,23 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     })
     expect(rows).toBe(0)
   })
+
+  // A past send time can never dial at CallHub, so a paid draft on it would be
+  // money taken for a robocall that never sends — reject before any DB write.
+  it('rejects a scheduledAt in the past', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      scheduledAt: new Date(Date.now() - 86_400_000).toISOString(),
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
 })
 
 describe('robocall purchase handler — server-derived billing', () => {
