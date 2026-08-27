@@ -120,6 +120,15 @@ the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the
 rebuild performs. Table-level grants on the `dbt` objects do not -- they were
 granted directly once and silently vanished, taking every voter read with them.
 
+A Databricks-served voter read touches people-db not at all. Scoping needs the
+district's `type`, `name`, and `state`, and those come from **election-api**,
+which owns that table -- people-db's `District` is downstream of it, and the two
+agree exactly (a checksum over `id|state|type|name` across all 131,642 rows
+matched). Resolving it from the warehouse instead cost a p90 of 8.6s for one
+keyed row, at the head of every read; resolving it from people-db kept that
+cluster on the path. The result is memoized per process, so it is one hop per
+district per task.
+
 `gp_api_district_stats` mirrors Postgres's `DistrictStats` column for column,
 including which districts have no row at all. Read it rather than aggregating
 the voter rows: absence is the product's signal for "no constituent data for
