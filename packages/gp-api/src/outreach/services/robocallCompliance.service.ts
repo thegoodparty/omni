@@ -103,7 +103,10 @@ export class RobocallComplianceService {
 
     const checks = await this.runVerdict(messages, params.userId)
 
-    this.logger.debug({ checks, transcript }, 'Robocall compliance verdict')
+    // Log only the boolean checks, never the transcript — it contains PII (the
+    // spoken callback number, the candidate name). The full transcript is still
+    // returned in the verdict for client-side debugging.
+    this.logger.debug({ checks }, 'Robocall compliance verdict')
 
     const issues = CHECK_ISSUES.filter(([key]) => !checks[key]).map(
       ([, message]) => message,

@@ -89,7 +89,7 @@ describe('RobocallComplianceService', () => {
     // confirms a callback number is spoken, so nothing is there to spoof.
     expect(userPrompt).not.toMatch(/expected callback number/i)
     expect(logger.debug).toHaveBeenCalledWith(
-      { checks: checks().object, transcript: verdict.transcript },
+      { checks: checks().object },
       'Robocall compliance verdict',
     )
   })
