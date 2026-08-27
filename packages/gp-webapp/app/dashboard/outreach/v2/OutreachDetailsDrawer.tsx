@@ -54,6 +54,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { TcrCompliance, VoterFileFilters } from 'helpers/types'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
@@ -242,6 +243,15 @@ export const OutreachDetailsDrawer = ({
     staleTime: 5 * 60 * 1000,
   })
   const receiptUrl = receiptQuery.data?.receiptUrl ?? null
+  // 404 is the expected free-row signal the fallback below exists for;
+  // anything else (Stripe 502, network) must not masquerade as a computed
+  // amount — the section shows an error state instead.
+  const receiptFailed =
+    receiptQuery.isError &&
+    !(
+      receiptQuery.error instanceof FetchError &&
+      receiptQuery.error.status === 404
+    )
   // The receipt is the charge of record; rows without one (free-texts sends
   // 404 it) fall back to the billable count at the standard per-text price —
   // which lands on $0.00, i.e. "Free".
@@ -701,18 +711,26 @@ export const OutreachDetailsDrawer = ({
 
             {isPaidFlowSms && (
               <DetailsSection title="Payment details">
-                <MetricGrid>
-                  <Metric
-                    icon={<DollarSignIcon />}
-                    label="Total cost"
-                    value={isFreeSms ? 'Free' : `$${totalCost.toFixed(2)}`}
-                  />
-                  <Metric
-                    icon={<HashIcon />}
-                    label="Cost per outreach"
-                    value={isFreeSms ? '—' : `$${PRICE_PER_TEXT.toFixed(3)}`}
-                  />
-                </MetricGrid>
+                {receiptFailed && (
+                  <p className="text-sm text-muted-foreground">
+                    We couldn&apos;t load the payment details. Close and try
+                    again.
+                  </p>
+                )}
+                {!receiptFailed && (
+                  <MetricGrid>
+                    <Metric
+                      icon={<DollarSignIcon />}
+                      label="Total cost"
+                      value={isFreeSms ? 'Free' : `$${totalCost.toFixed(2)}`}
+                    />
+                    <Metric
+                      icon={<HashIcon />}
+                      label="Cost per outreach"
+                      value={isFreeSms ? '—' : `$${PRICE_PER_TEXT.toFixed(3)}`}
+                    />
+                  </MetricGrid>
+                )}
                 {receiptUrl && (
                   <Button
                     type="button"

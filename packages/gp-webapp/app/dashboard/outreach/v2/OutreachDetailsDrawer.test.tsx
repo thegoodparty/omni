@@ -848,6 +848,28 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('shows an error state instead of a computed amount when the receipt read fails', async () => {
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    // 500, not 502: the mocker's error union stops at 500, and the drawer
+    // treats every non-404 failure the same way.
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 500,
+      data: { message: 'Stripe unreachable' },
+    })
+
+    render(
+      <OutreachDetailsDrawer row={scheduledSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/couldn't load the payment details/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Total cost')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'View receipt' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('offers Move to archive on a canceled row — history is never hard-deleted', async () => {
     mockNoReceipt()
     api.mock('GET /v1/outreach/:id', {
@@ -859,7 +881,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       archiveBody = body
       return {
         status: 200,
-        data: { id: 41, archivedAt: '2026-08-27T00:00:00Z' },
+        data: { id: 41, archivedAt: new Date('2026-08-27T00:00:00Z') },
       }
     })
 
