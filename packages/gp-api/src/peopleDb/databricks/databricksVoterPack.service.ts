@@ -123,8 +123,12 @@ export class DatabricksVoterPackService {
   ): Promise<void> {
     const response = await fetch(chunk.externalLink)
     if (!response.ok) {
-      throw new Error(
-        `Databricks CSV chunk fetch failed with ${response.status}`,
+      // Classified, not bare: presigned chunk links expire in ~15 minutes, so
+      // a long multi-chunk build can genuinely lose one mid-scan. A plain
+      // Error escapes build()'s catch unlogged and lands as a 500, which reads
+      // as a bug in the pack rather than the upstream fetch failure it is.
+      throw new PeopleDbxUnavailableError(
+        `CSV chunk fetch failed with ${response.status}`,
       )
     }
     const body = Buffer.from(await response.arrayBuffer())
