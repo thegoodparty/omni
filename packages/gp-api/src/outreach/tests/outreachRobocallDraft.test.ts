@@ -93,7 +93,8 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
   it('persists a pending_payment spine + satellite with the server count', async () => {
     findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
 
-    const res = await postDraft(validDraftBody())
+    const body = validDraftBody()
+    const res = await postDraft(body)
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({
@@ -116,6 +117,9 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(spine.outreachType).toBe(OutreachType.robocall)
     expect(spine.status).toBe(OutreachStatus.pending_payment)
     expect(spine.voterFileFilterId).toBe(filterId)
+    // Local calendar day captured from the offset-annotated payload, not
+    // derived from the UTC `date` instant.
+    expect(spine.scheduledLocalDate).toBe(body.scheduledAt.slice(0, 10))
     expect(spine.robocall).toMatchObject({
       audioKey: `robocall/${CAMPAIGN_ID}/clip.webm`,
       callbackNumber: '+15125550123',
@@ -193,6 +197,22 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(first.status).toBe(HttpStatus.CREATED)
     expect(second.data.outreachId).toBe(first.data.outreachId)
 
+    const rows = await service.prisma.outreachRobocall.count({
+      where: { outreach: { campaignId: CAMPAIGN_ID } },
+    })
+    expect(rows).toBe(1)
+  })
+
+  // The money-critical backstop: two truly concurrent submits must resolve to
+  // one billable anchor via the unique(audio_key) index + P2002 recovery, not
+  // just the sequential read-before-write.
+  it('is idempotent under a concurrent double-submit (one row, same id)', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    const body = validDraftBody()
+
+    const [a, b] = await Promise.all([postDraft(body), postDraft(body)])
+
+    expect(a.data.outreachId).toBe(b.data.outreachId)
     const rows = await service.prisma.outreachRobocall.count({
       where: { outreach: { campaignId: CAMPAIGN_ID } },
     })

@@ -8,12 +8,12 @@ import {
 } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import {
   Campaign,
   Organization,
   OutreachStatus,
   OutreachType,
-  Prisma,
   RobocallSettleState,
 } from '../../generated/prisma'
 
@@ -93,22 +93,24 @@ export class OutreachRobocallService extends createPrismaBase(
     organization: Organization,
     input: RobocallDraftCreateRequest,
   ): Promise<RobocallDraftResult> {
-    // Reject a past send time before the people-db round trip: a paid draft
-    // whose schedule is in the past can never dial at CallHub, so the caller
-    // would be charged for a robocall that never sends.
+    // Idempotent on a double-click / retry: a repeat POST with the same audio
+    // returns the existing pending_payment draft rather than minting a second
+    // billable anchor the hold/settlement slices could charge twice. Runs
+    // before the schedule guard so a retry of an already-persisted draft is
+    // returned even if its send time has since elapsed. The unique(audio_key)
+    // constraint is the atomic backstop for the concurrent race this
+    // read-before-write can't win alone.
+    const existing = await this.findExistingDraft(campaign.id, input.audioKey)
+    if (existing) return existing
+
+    // A past send time can never dial at CallHub, so a paid draft on it would
+    // be money taken for a robocall that never sends. Reject before the
+    // people-db round trip.
     if (!isFuture(parseISO(input.scheduledAt))) {
       throw new BadRequestException(
         'The scheduled send time must be in the future',
       )
     }
-
-    // Idempotent on a double-click / retry: a repeat POST with the same audio
-    // for this campaign returns the existing pending_payment draft rather than
-    // minting a second billable anchor the hold/settlement slices could charge
-    // twice. The unique(audio_key) constraint is the atomic backstop for the
-    // concurrent race this read-before-write can't win alone.
-    const existing = await this.findExistingDraft(campaign.id, input.audioKey)
-    if (existing) return existing
 
     const billableCount = await this.deriveBillableCount(
       organization,
@@ -128,6 +130,10 @@ export class OutreachRobocallService extends createPrismaBase(
             name: input.name,
             script: input.script,
             date: parseISO(input.scheduledAt),
+            // The user's local calendar day (YYYY-MM-DD) from the
+            // offset-annotated payload: `date` is a UTC instant, so an evening
+            // US send would otherwise shift to the next day at dial time.
+            scheduledLocalDate: input.scheduledAt.slice(0, 10),
             voterFileFilterId: input.voterFileFilterId,
           },
         })
@@ -147,11 +153,10 @@ export class OutreachRobocallService extends createPrismaBase(
       return { outreachId, billableCount, amountInCents }
     } catch (err) {
       // A concurrent create won the unique(audio_key) race: return its draft
-      // rather than surfacing the constraint violation.
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
+      // rather than surfacing the constraint violation. isUniqueConstraintError
+      // (not instanceof) because the Prisma runtime loads from two paths in CI,
+      // giving distinct constructor identities.
+      if (isUniqueConstraintError(err)) {
         const raced = await this.findExistingDraft(campaign.id, input.audioKey)
         if (raced) return raced
       }
@@ -159,6 +164,10 @@ export class OutreachRobocallService extends createPrismaBase(
     }
   }
 
+  // Scoped to pending_payment: once a later slice advances the status, a repeat
+  // POST with the same audioKey misses this read and trips the unique index
+  // (409, still money-safe — the INSERT fails atomically), rather than
+  // returning a draft. Per-recording keys make that path unlikely.
   private async findExistingDraft(
     campaignId: number,
     audioKey: string,
