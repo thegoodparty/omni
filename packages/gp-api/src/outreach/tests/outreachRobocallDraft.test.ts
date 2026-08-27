@@ -274,4 +274,21 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(rows).toBe(1)
     findFirstSpy.mockRestore()
   })
+
+  it('rejects a non-Pro campaign, writing no row', async () => {
+    await service.prisma.campaign.update({
+      where: { id: CAMPAIGN_ID },
+      data: { isPro: false },
+    })
+
+    const res = await postDraft(validDraftBody())
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    // The Pro gate rejects before the service does any people-db work.
+    expect(findContactsForFilter).not.toHaveBeenCalled()
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
 })
