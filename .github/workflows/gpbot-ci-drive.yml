@@ -178,6 +178,13 @@ jobs:
         env:
           PR_NUMBERS: ${{ steps.candidates.outputs.prs }}
           LAMBDA_FUNCTION: clickup-bot-prod
+        # THE SHELL IS OVERRIDDEN TO DROP `-e`, which the body below has always
+        # assumed and never actually had: GitHub's default for `run:` is
+        # `bash -e {0}`, and `set -uo pipefail` cannot turn `-e` back off. Every
+        # scheduled pass that found a real PR died at the first unguarded
+        # assignment — see the log-fetch guard below — before writing state or
+        # telling anyone, so the drive reported success while doing nothing.
+        shell: bash --noprofile --norc {0}
         run: |
           # Deliberately not `-e`. One unreadable PR must not strand every PR
           # behind it — the next one may be the bot PR that has been red for two
@@ -331,7 +338,19 @@ jobs:
                 # Only the tail: every signature in INFRA_LOG_SIGNATURES appears
                 # near the end of a failed job, and the classifier caps what it
                 # reads anyway.
-                log="$(gh api "repos/$REPO/actions/jobs/${job_id}/logs" 2>/dev/null | tail -c 20000)"
+                #
+                # --allow-escape-sequences IS LOAD-BEARING. Job logs are full of
+                # ANSI colour, and from gh 2.98.0 (on the runner since
+                # 2026-08-20) gh refuses to print such a response and exits 1
+                # rather than printing it. Under pipefail that fails the
+                # assignment, which is what every scheduled pass was dying on.
+                #
+                # Guarded as well as fixed, because the classifier treats a
+                # missing excerpt as UNKNOWN, which costs a re-run rather than a
+                # fix run. A log we cannot read is worth one cheap re-run; it is
+                # never worth stranding every other PR in the sweep.
+                log="$(gh api --allow-escape-sequences \
+                  "repos/$REPO/actions/jobs/${job_id}/logs" 2>/dev/null | tail -c 20000)" || log=""
               fi
 
               on_main=false
@@ -353,8 +372,18 @@ jobs:
             # reset the counters to zero and let the same PR be cycled through a
             # fresh budget on demand. Only this workflow's own comments count,
             # and it posts as github-actions[bot].
+            #
+            # FAILS CLOSED, and it is the one read here that must. The counters
+            # live only in this comment, so a fetch that failed and was allowed
+            # through would read as "no state yet" and hand the PR a fresh
+            # budget on every pass — an unbounded spend that looks identical to
+            # a first visit. Skipping the PR costs one 30-minute pass.
             marker="$(gh api "repos/$REPO/issues/$pr/comments" --paginate \
-              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- gpbot-ci-drive -->")))] | last')"
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- gpbot-ci-drive -->")))] | last')" || {
+              echo "::error::could not read the state comment for #$pr; not driving it this pass"
+              action_failed=1
+              echo "::endgroup::"; continue
+            }
             comment_id="$(jq -r 'if . == null then "" else .id end' <<<"${marker:-null}")"
 
             decision="$(jq -n --argjson checks "$enriched" --argjson findings "${threads:-[]}" \
