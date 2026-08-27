@@ -92,6 +92,17 @@ describe('mapVoterDensityCells', () => {
 
     expect(cells).toEqual([{ lat: 43.2, lng: -108.3, count: 11 }])
   })
+
+  it('drops a row with a null count rather than emitting a zero cell', () => {
+    // Number(null) is 0, and a zero-voter cell is one k-anonymity cannot
+    // publish, so emitting it would put an impossible value on the map.
+    const cells = mapVoterDensityCells([
+      ['43.1', '-108.2', null],
+      ['43.2', '-108.3', '11'],
+    ])
+
+    expect(cells).toEqual([{ lat: 43.2, lng: -108.3, count: 11 }])
+  })
 })
 
 describe('mapVoterDensityCoverage', () => {

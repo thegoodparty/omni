@@ -59,11 +59,13 @@ export const mapVoterDensityCells = (
 ): VoterDensityCell[] => {
   const cells: VoterDensityCell[] = []
   for (const [lat, lng, count] of rows) {
-    // A cell with no centroid cannot be drawn, and Number(null) is 0 rather
-    // than NaN, which would place it off the coast of Africa instead of
-    // failing. Neither column is nullable in the mart; this is the guard for
-    // that stopping being true.
-    if (lat === null || lng === null) continue
+    // Number(null) is 0 rather than NaN, so a null column reaches the map as a
+    // plausible value instead of failing: a missing centroid lands off the
+    // coast of Africa, and a missing count renders as a zero-voter cell that
+    // k-anonymity makes impossible (every published cell holds at least
+    // min_cell_count). None of the three is nullable in the mart; this is the
+    // guard for that stopping being true.
+    if (lat === null || lng === null || count === null) continue
     cells.push({ lat: Number(lat), lng: Number(lng), count: Number(count) })
   }
   return cells
