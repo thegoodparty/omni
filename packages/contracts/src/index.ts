@@ -851,6 +851,10 @@ export {
 export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
+  CONTACTS_MADE_DIM_KEY,
+  CONTACTS_MADE_BUCKETS,
+  PACK_CONTACTS_MADE_MAX,
+  PACK_FORMAT_REVISION,
   PACK_ARRAY_TYPES,
   PACK_CORE_ARRAYS,
   PACK_STREAM_ALIGNMENT,

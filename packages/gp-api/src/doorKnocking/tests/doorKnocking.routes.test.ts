@@ -13,6 +13,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
 import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
@@ -3203,7 +3204,7 @@ describe('door-knocking routes', () => {
       throw new Error('no pack frame in the response')
     }
 
-    it('proxies the binary and threads org knock statuses', async () => {
+    it('proxies the binary and threads both campaign planes', async () => {
       const personId = '77777777-1111-1111-1111-111111111111'
       await service.prisma.contactInteractionDoorKnock.create({
         data: {
@@ -3237,7 +3238,47 @@ describe('door-knocking routes', () => {
       expect(packRequest?.knockStatuses).toEqual([
         { personId, status: 'supporter' },
       ])
+      // The same knock, counted by the OTHER campaign plane. Both are read in
+      // gp-api and shipped with the request, so the district scan below stays
+      // a pure function of districtId.
+      expect(packRequest?.contactsMade).toEqual([{ personId, bucket: 1 }])
       expect(packRequest?.districtId).toBe(DISTRICT_ID)
+    })
+
+    // Absent, not empty: an empty array is an organization that has contacted
+    // nobody, which the map CAN shade. This org has contacted somebody and
+    // gp-api simply could not describe them all, which it must not silently
+    // render as "nobody has been contacted".
+    it('omits the contacts-made plane past the cap rather than truncating', async () => {
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: ['a', 'b', 'c'].map((seed) => ({
+          organizationSlug: orgSlug,
+          personId: `7777777${seed === 'a' ? 1 : seed === 'b' ? 2 : 3}-1111-1111-1111-111111111111`,
+          occurredAt: new Date('2026-07-10T10:00:00Z'),
+          outcome: 'answered' as const,
+        })),
+      })
+      vi.spyOn(
+        service.app.get(ContactsMadeResolutionService),
+        'contactsMadeBuckets',
+      ).mockResolvedValue(null)
+      let packRequest: DoorKnockingPackRequest | undefined
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockImplementation((request: DoorKnockingPackRequest) => {
+        packRequest = request
+        return Promise.resolve(packBytes)
+      })
+
+      await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(packRequest).toBeDefined()
+      expect(packRequest?.contactsMade).toBeUndefined()
     })
 
     // The production defect, at the wire: the route used to await the whole
