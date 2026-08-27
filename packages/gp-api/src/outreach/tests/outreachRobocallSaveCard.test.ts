@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
 import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { UsersService } from '@/users/services/users.service'
 import { Campaign } from '../../generated/prisma'
 
 const service = useTestService()
@@ -60,6 +61,10 @@ const setUserMetaData = (metaData: PrismaJson.UserMetaData) =>
 describe('POST /v1/outreach/robocall/save-card-intent', () => {
   it('creates and persists a customer, then returns a setup-intent secret', async () => {
     await setUserMetaData({ customerId: undefined })
+    const setCasSpy = vi.spyOn(
+      service.app.get(UsersService),
+      'setCustomerIdIfAbsent',
+    )
     customersCreate.mockResolvedValue({ id: 'cus_test_new' })
     setupIntentsCreate.mockResolvedValue({
       id: 'seti_test_1',
@@ -77,17 +82,51 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
     expect(customersCreate).toHaveBeenCalledTimes(1)
     const customerArgs = customersCreate.mock.calls[0]?.[0]
     expect(customerArgs.metadata).toEqual({ userId: String(service.user.id) })
+    // Racing creates collapse Stripe-side via a per-user idempotency key.
+    const customerOpts = customersCreate.mock.calls[0]?.[1]
+    expect(customerOpts.idempotencyKey).toBe(
+      `ensure-customer-user-${service.user.id}`,
+    )
+
+    // The winning path persists through the set-if-absent CAS exactly once.
+    expect(setCasSpy).toHaveBeenCalledTimes(1)
 
     // The setup intent must be off_session so the later robocall charge is
-    // pre-authenticated, and it must target the customer just created.
+    // pre-authenticated, must target the customer just created, and must be
+    // pinned to cards only (a vaulted bank debit would settle as ACH).
     const setupArgs = setupIntentsCreate.mock.calls[0]?.[0]
     expect(setupArgs.customer).toBe('cus_test_new')
     expect(setupArgs.usage).toBe('off_session')
+    expect(setupArgs.payment_method_types).toEqual(['card'])
 
     const persisted = await service.prisma.user.findUniqueOrThrow({
       where: { id: service.user.id },
     })
     expect(persisted.metaData?.customerId).toBe('cus_test_new')
+  })
+
+  it('loses the CAS race: deletes the orphan and returns the stored winner', async () => {
+    // A concurrent request already stored the winning customerId in the DB,
+    // but this request read its user row before that write, so its in-hand
+    // user still has no customerId and it proceeds to create.
+    await setUserMetaData({ customerId: 'cus_winner' })
+    const staleUser = { ...service.user, metaData: {} }
+
+    const stripe = service.app.get(StripeService)
+    vi.spyOn(
+      service.app.get(UsersService),
+      'setCustomerIdIfAbsent',
+    ).mockResolvedValue(false)
+    customersCreate.mockResolvedValue({ id: 'cus_orphan' })
+    const customersDel = vi.fn().mockResolvedValue({ deleted: true })
+    const stripeClient = (stripe as unknown as { stripe: Stripe }).stripe
+    vi.spyOn(stripeClient.customers, 'del').mockImplementation(customersDel)
+
+    const result = await stripe.ensureCustomer(staleUser)
+
+    expect(result).toBe('cus_winner')
+    expect(customersCreate).toHaveBeenCalledTimes(1)
+    expect(customersDel).toHaveBeenCalledWith('cus_orphan')
   })
 
   it('reuses the stored customer and never creates a second one', async () => {

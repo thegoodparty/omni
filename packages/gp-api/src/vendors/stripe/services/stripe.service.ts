@@ -34,6 +34,8 @@ export class StripeService {
 
   constructor(
     private readonly slack: SlackService,
+    // Resolvable without StripeModule importing UsersModule because UsersModule
+    // is @Global; forwardRef breaks the UsersService <-> StripeService cycle.
     @Inject(forwardRef(() => UsersService))
     private readonly usersService: WrapperType<UsersService>,
     private readonly logger: PinoLogger,
@@ -42,8 +44,11 @@ export class StripeService {
   }
 
   // Returns the user's Stripe customerId, creating and persisting one the first
-  // time. Idempotent on the stored id so a card can never be vaulted against a
-  // second customer — the later off-session charge must find the saved method.
+  // time. Concurrency-safe: a Stripe idempotency key collapses racing creates
+  // Stripe-side, and a set-if-absent CAS elects exactly one winner. A request
+  // that loses the CAS deletes its orphan customer (no payment method attached
+  // yet) and returns the stored id, so a card is never vaulted against a second
+  // customer.
   async ensureCustomer(user: User): Promise<string> {
     const existingCustomerId = user.metaData?.customerId
     if (existingCustomerId) {
@@ -57,35 +62,59 @@ export class StripeService {
 
     let customer: Stripe.Customer
     try {
-      customer = await this.stripe.customers.create({
-        ...(user.email ? { email: user.email } : {}),
-        ...(name ? { name } : {}),
-        metadata: { userId: String(user.id) },
-      })
+      customer = await this.stripe.customers.create(
+        {
+          ...(user.email ? { email: user.email } : {}),
+          ...(name ? { name } : {}),
+          metadata: { userId: String(user.id) },
+        },
+        { idempotencyKey: `ensure-customer-user-${user.id}` },
+      )
     } catch (err) {
       this.logger.error({ err }, 'Failed to create Stripe customer')
       throw new BadGatewayException('Failed to create Stripe customer')
     }
 
-    await this.usersService.patchUserMetaData(user.id, {
-      customerId: customer.id,
-    })
+    const won = await this.usersService.setCustomerIdIfAbsent(
+      user.id,
+      customer.id,
+    )
+    if (won) {
+      return customer.id
+    }
 
-    return customer.id
+    // Lost the race: another request stored a customerId first. Drop this
+    // orphan (safe — no payment method is attached yet) and use the winner's.
+    try {
+      await this.stripe.customers.del(customer.id)
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to delete orphan Stripe customer')
+      throw new BadGatewayException('Failed to delete orphan Stripe customer')
+    }
+
+    const winner = await this.usersService.findUser({ id: user.id })
+    const winnerCustomerId = winner?.metaData?.customerId
+    if (!winnerCustomerId) {
+      throw new BadGatewayException(
+        'Lost the customer-id race but found no stored customerId',
+      )
+    }
+    return winnerCustomerId
   }
 
   // Off-session usage pre-authenticates the saved card so the later robocall
-  // charge can run without the candidate present.
-  async createSetupIntent(customerId: string): Promise<{
-    clientSecret: string
-    setupIntentId: string
-  }> {
+  // charge can run without the candidate present. Cards only: an off-session
+  // vaulted bank debit would settle as ACH (delayed, returnable), breaking the
+  // hold-then-capture model (mirrors createCustomCheckoutSession's pinning).
+  async createSetupIntent(
+    customerId: string,
+  ): Promise<{ clientSecret: string }> {
     let setupIntent: Stripe.SetupIntent
     try {
       setupIntent = await this.stripe.setupIntents.create({
         customer: customerId,
         usage: 'off_session',
-        automatic_payment_methods: { enabled: true },
+        payment_method_types: ['card'],
       })
     } catch (err) {
       this.logger.error({ err }, 'Failed to create Stripe setup intent')
@@ -98,10 +127,7 @@ export class StripeService {
       )
     }
 
-    return {
-      clientSecret: setupIntent.client_secret,
-      setupIntentId: setupIntent.id,
-    }
+    return { clientSecret: setupIntent.client_secret }
   }
 
   private getPrice = async () => {
