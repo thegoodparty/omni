@@ -272,11 +272,17 @@ jobs:
             #
             # `comments(first: 1)` identifies the thread: the author of the
             # FIRST comment is who raised it, which is what the author filter
-            # judges. `first: 20` on the second selection is a separate question
-            # — whether a person has since joined the thread, in which case the
-            # bot must not talk over them. __typename is used rather than a
-            # name pattern because it is the only reliable way to tell a Bot
-            # account from a User.
+            # judges. The second selection is a separate question — whether a
+            # person has since joined the thread, in which case the bot must not
+            # talk over them. __typename is used rather than a name pattern
+            # because it is the only reliable way to tell a Bot account from a
+            # User.
+            #
+            # `first: 100` on that second selection, GitHub's maximum, because
+            # it is the ONLY defence against answering into a live conversation
+            # and truncation fails in the wrong direction: a human reply past
+            # the cap reads as no human at all, and nothing downstream would
+            # catch it.
             #
             # FAILS TOWARD "NOTHING FOUND": a GraphQL error yields an empty list,
             # so an API blip costs a pass of latency rather than a fix run
@@ -296,7 +302,7 @@ jobs:
                         isResolved
                         isOutdated
                         raisedBy: comments(first: 1) { nodes { author { login } body } }
-                        participants: comments(first: 20) { nodes { author { __typename } } }
+                        participants: comments(first: 100) { nodes { author { __typename } } }
                       }
                     }
                   }
