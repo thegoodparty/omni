@@ -271,10 +271,19 @@ const renderPage = (savedLists: SegmentResponse[] = [{ id: 7 }]) => {
 // the page's single `filters` step, so the transition these tests are actually
 // about (filters → draw, the one that starts a drawing session) is unchanged.
 // Reaching it just takes two presses now.
+// The draw step's stats bar, which is where the three counts live now that the
+// Continue button is the bare word. Matched on the paragraph's whole text
+// because each number sits in its own `<span>`.
+const drawStats = (pattern: RegExp) =>
+  screen.findByText(
+    (_, element) =>
+      element?.tagName === 'P' && pattern.test(element.textContent ?? ''),
+  )
+
 const openFlowAndDraw = () => {
   fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
   fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
-  fireEvent.click(screen.getByRole('button', { name: /^Continue \(/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
 const selectTurf = async () => {
@@ -1328,10 +1337,11 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     ).toBeDisabled()
 
     fireEvent.click(tapMap)
-    const advance = await screen.findByRole('button', {
-      name: /Continue \(\d+ doors\)/,
-    })
+    const advance = await screen.findByRole('button', { name: 'Continue' })
     expect(advance).toBeEnabled()
+    // The count the button used to carry is on the stats line above it, which
+    // is what a canvasser reads the size of the walk off now.
+    await drawStats(/\d+ stops · \d+ doors · \d+ people/)
 
     fireEvent.click(advance)
 
@@ -1359,9 +1369,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     // they place points.
     expect(map).toHaveAttribute('data-frame', '0')
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Continue \(\d+ doors\)/ }),
-    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
 
     // Entering confirm asks for one fit, against the 70% the sheet covers, and
     // takes the map's buttons down: the band it uncovers is shielded from taps,
@@ -1407,7 +1415,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
 
-    await screen.findByRole('button', { name: 'Continue (3 doors)' })
+    await drawStats(/· 3 doors ·/)
     // Drawing the shape asks nothing of the server, and a shut panel has no
     // count to read off.
     expect(previewCalls.count).toBe(0)
@@ -1455,16 +1463,14 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
-    await screen.findByRole('button', { name: 'Continue (3 doors)' })
+    await drawStats(/· 3 doors ·/)
 
     fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
 
-    // The pack's 3 doors is gone from the button, not printed next to the
-    // server's 2.
-    await screen.findByRole('button', { name: 'Continue (2 doors)' })
-    expect(
-      screen.queryByRole('button', { name: 'Continue (3 doors)' }),
-    ).toBeNull()
+    // The pack's 3 doors is gone from the stats line, not printed next to the
+    // server's 2 — and the stops it came in with go with it.
+    const stats = await drawStats(/1 stops · 2 doors · 2 people/)
+    expect(stats.textContent).not.toMatch(/3 doors/)
   })
 
   // Backing out to the filters re-cuts the audience, and the step forward from
@@ -1485,7 +1491,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
-    await screen.findByRole('button', { name: 'Continue (3 doors)' })
+    await drawStats(/· 3 doors ·/)
     expect(previewCalls.count).toBe(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
@@ -1494,7 +1500,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     // Back lands on the audience step, whose CTA carries the district count.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     const callsOnLeaving = previewCalls.count
-    fireEvent.click(screen.getByRole('button', { name: /^Continue \(/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(document.getElementById('draw-step-doors')).toBeNull()
     expect(

@@ -273,11 +273,9 @@ describe('CreateListFlow', () => {
         turfStats={turfStats(151, 140)}
       />,
     )
-    // The cap is on stops (the router's unit), but the button counts doors —
-    // 151 stops holding 140 doors is over the cap and says so.
-    expect(
-      screen.getByRole('button', { name: /Continue \(140 doors\)/ }),
-    ).toBeDisabled()
+    // The cap is on stops (the router's unit), so 151 stops holding 140 doors
+    // is over it and says so — beside a button that no longer counts anything.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
 
     rerender(
@@ -288,9 +286,7 @@ describe('CreateListFlow', () => {
         turfStats={turfStats(14, 9)}
       />,
     )
-    expect(
-      screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
   // The canvas has no Done: it closes the shape itself and only reports a ring
@@ -327,9 +323,7 @@ describe('CreateListFlow', () => {
         drawPointCount={3}
       />,
     )
-    expect(
-      screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
   // The other way to a disabled Continue with three points down: a shape drawn
@@ -365,15 +359,60 @@ describe('CreateListFlow', () => {
     // 61 households inside the ring are 61 doors across 84 stops, holding 168
     // people — every figure in-polygon, none of them the district's 12,000.
     // The counts sit in their own spans, so this matches the paragraph's whole
-    // text rather than a single node.
+    // text rather than a single node. Stops lead, as they do on the walk sheet,
+    // the PDF and the walk itself.
     expect(
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          /61 doors · 84 stops · 168 people/.test(element.textContent ?? ''),
+          /84 stops · 61 doors · 168 people/.test(element.textContent ?? ''),
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/12,000/)).toBeNull()
+  })
+
+  // The confirm step is the same three numbers one step later, so it reads them
+  // in the same order — the step that commits a shape is the last place the
+  // triple should reshuffle itself.
+  it('keeps the draw step’s order when the confirm step restates the counts', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        turfStats={turfStats(84, 61)}
+      />,
+    )
+
+    expect(
+      screen.getByText('84 stops · 61 doors · 168 voters'),
+    ).toBeInTheDocument()
+  })
+
+  // The count in this button was the canvas's shape too ("Add to saved lists
+  // (N)"), and the product owner asked for it out on 2026-08-26. It can go
+  // because it was never the only place the number was said: the stats line
+  // renders unconditionally, so it is on screen in every state this button is
+  // live in — which is the whole condition for removing it.
+  it('leaves the door count to the stats line rather than the Continue button', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={turfStats(14, 9)}
+      />,
+    )
+
+    const advance = screen.getByRole('button', { name: 'Continue' })
+    expect(advance).toBeEnabled()
+    expect(advance.textContent).not.toMatch(/\d/)
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          /14 stops · 9 doors · 28 people/.test(element.textContent ?? ''),
+      ),
+    ).toBeInTheDocument()
   })
 
   // The estimate is denominated in doors, not the stops the router plans, so a
@@ -422,9 +461,7 @@ describe('CreateListFlow', () => {
     expect(
       screen.getByText(/Over 100 stops is a long evening/),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /Continue \(80 doors\)/ }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
 
     // Past the hard cap only the blocking message stands.
     rerender(
@@ -479,19 +516,32 @@ describe('CreateListFlow', () => {
     expect(onFiltersChange).toHaveBeenCalledWith({})
   })
 
-  // CHANGED DELIBERATELY (Voter Outreach 2.0): the count moved off its own
-  // line and into the CTA, which is where the canvas puts it. The two-
-  // denominator rule is unaffected and still has to be visible — before a
-  // polygon exists, district-wide is the only honest denominator — so the line
-  // that used to carry both the number and the qualifier now carries the
-  // qualifier alone, and the number is in the button.
-  it('puts the matching count in the Continue button, and still says it is district-wide', () => {
+  // The CTA is the bare word on this step too, per the product owner's
+  // 2026-08-26 call against counts in this flow's Continue buttons. The count
+  // itself does NOT leave the step — unlike the draw step there is no stats
+  // bar to fall back on, so it returns to the line beside the button, which is
+  // where it lived before the canvas moved it into the CTA. The qualifier
+  // travels with it: a bare district-wide count on the one step with no
+  // polygon is the exact confusion the two-denominator rule exists for.
+  it('leaves the matching count to the line beside a bare Continue, still district-wide', () => {
     renderAtWho({ districtHouseholds: 12000 })
 
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
     expect(
-      screen.getByRole('button', { name: 'Continue (12,000 households)' }),
-    ).toBeEnabled()
-    expect(screen.getByText(/Across your whole district/)).toBeInTheDocument()
+      screen.queryByRole('button', { name: /households/ }),
+    ).not.toBeInTheDocument()
+    // Matched on the paragraph's whole text because the number sits in its own
+    // `<span>`, and by element because "12,000" is also the picker's unfiltered
+    // `All contacts` count — which is the very reason this line has to exist.
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          /12,000 matching households across your whole district/.test(
+            element.textContent ?? '',
+          ),
+      ),
+    ).toBeInTheDocument()
   })
 
   it('refuses to continue from an audience holding nobody', () => {
@@ -514,9 +564,7 @@ describe('CreateListFlow', () => {
     // nothing about it — it only needs to know when a shape is being cut.
     expect(onStepChange).not.toHaveBeenCalled()
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
   })
 
@@ -1142,9 +1190,7 @@ describe('CreateListFlow steps', () => {
     )
     expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(screen.getByText('Name your list')).toBeInTheDocument()
     expect(screen.getByText('Step 3 of 5')).toBeInTheDocument()
     // Still inside the orchestrator's `filters` step — a step it never learns
@@ -1181,9 +1227,7 @@ describe('CreateListFlow steps', () => {
     const onSaved = vi.fn()
 
     const { rerender } = renderAtWho({ filters: { partyDemocrat: true } })
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     fireEvent.change(screen.getByLabelText('List name'), {
       target: { value: 'Precinct 2 homeowners' },
     })
@@ -1302,9 +1346,18 @@ describe('CreateListFlow steps', () => {
       />,
     )
 
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    // The count left the CTA on 2026-08-26 for the line beside it. It is still
+    // the whole district here, which is the thing the sentence below discloses.
     expect(
-      screen.getByRole('button', { name: 'Continue (12,000 households)' }),
-    ).toBeEnabled()
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          /12,000 matching households across your whole district/.test(
+            element.textContent ?? '',
+          ),
+      ),
+    ).toBeInTheDocument()
     expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
       'The map can’t yet shade by Support status, so these counts include ' +
         'people that filter will exclude. Your saved list still applies it ' +
@@ -1493,9 +1546,7 @@ describe('CreateListFlow steps', () => {
     fireEvent.click(
       screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
     )
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     rerender(<CreateListFlow {...props} step="confirm" />)
     fireEvent.change(screen.getByLabelText('Route name'), {
@@ -1531,9 +1582,7 @@ describe('CreateListFlow steps', () => {
     }
 
     const { rerender } = renderAtWho(props)
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     fireEvent.change(screen.getByLabelText('List name'), {
       target: { value: 'Homeowners' },
     })
@@ -1557,9 +1606,7 @@ describe('CreateListFlow steps', () => {
   it('re-seeds the route name when the list is renamed, and never over a typed one', () => {
     const props = { ...baseProps, filters: { partyDemocrat: true } }
     const { rerender } = renderAtWho(props)
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     fireEvent.change(screen.getByLabelText('List name'), {
       target: { value: 'Homeowners' },
     })
@@ -1632,9 +1679,7 @@ describe('CreateListFlow steps', () => {
       filters: { partyDemocrat: true },
       onStepChange,
     })
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     fireEvent.change(screen.getByLabelText('List name'), {
       target: { value: 'Homeowners' },
     })
@@ -1818,9 +1863,7 @@ describe('CreateListFlow preselected list', () => {
     const props = { ...baseProps, savedLists, preselectedListId: 9, onSaved }
 
     const { rerender } = renderAtWho(props)
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     rerender(<CreateListFlow {...props} step="confirm" />)
     fireEvent.change(screen.getByLabelText('Route name'), {
