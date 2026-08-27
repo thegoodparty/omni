@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { DistrictService } from '../services/district.service'
+import { ElectionApiDistrictService } from '../services/electionApiDistrict.service'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
@@ -130,18 +130,16 @@ export class DatabricksVoterService {
   constructor(
     private readonly logger: PinoLogger,
     private readonly client: PeopleDbxStatementClient,
-    private readonly districtService: DistrictService,
+    private readonly districtService: ElectionApiDistrictService,
   ) {
     this.logger.setContext(DatabricksVoterService.name)
   }
 
-  // Resolved from Postgres, never from Databricks. Postgres is the system of
-  // record for the District table and the mart's copy is downstream of it, so
-  // both answer the same thing -- but a keyed single-row read costs ~4ms there
-  // against a measured p90 of 8.6s on the warehouse, where it sat at the head
-  // of every voter read. It was also the slowest statement we issued: 329 calls
-  // in 24h, 11 of them over 10s, purely to learn three strings the caller could
-  // have handed us.
+  // Resolved from election-api, which owns the District table -- not from
+  // Databricks (a measured p90 of 8.6s for one keyed row, at the head of every
+  // voter read) and no longer from people-db either. Reading the upstream
+  // directly is what leaves a Databricks-served read touching people-db not at
+  // all. Memoized per process, so a district costs one hop per task.
   async resolveDistrict(districtId: string): Promise<DbxDistrict> {
     const cached = this.districts.get(districtId)
     if (cached) return cached
