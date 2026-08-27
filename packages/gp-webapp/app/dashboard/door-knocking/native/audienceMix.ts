@@ -1,5 +1,9 @@
-import type { RoutePayloadTarget } from '@goodparty_org/contracts'
-import type { DimSlice } from './filterEngine'
+import {
+  PACK_AGE_BUCKETS,
+  PACK_AGE_BUCKET_TO_BAND,
+  encodeAgeBucket,
+  type RoutePayloadTarget,
+} from '@goodparty_org/contracts'
 
 // Party and age are the only two dimensions BOTH of this sheet's sources can
 // answer. The pack carries fourteen more (education, income, ethnicity,
@@ -17,10 +21,33 @@ import type { DimSlice } from './filterEngine'
 // visual form on a surface opened from that rail is how two presentations of
 // one quantity start disagreeing.
 
-// packEncoder's AGE_VALUES, verbatim — the pack ships raw bucket keys, so
-// both branches below speak those and only presentation turns them into prose.
+// One slice of a breakdown. It lives here rather than in `filterEngine`, which
+// re-exports it for the callers that already look there, because both
+// producers of a breakdown are in this file's world: the pack pass builds
+// slices and this module regroups them, so pointing the type the other way
+// would only make the two modules circular.
+export interface DimSlice {
+  // The pack's own bucket name for the value ('Democratic', '36_49',
+  // 'Unknown', …), so a district whose buckets differ still reads correctly.
+  // Presentation maps these onto display labels; the pack's vocabulary is
+  // deliberately what crosses this boundary, since it is what the manifest
+  // and the saved-list preview both speak.
+  label: string
+  people: number
+}
+
+// The pack ships raw bucket keys and both branches below speak them, so only
+// presentation turns them into prose. The current generation's five bands
+// come from contracts; the four legacy spellings stay because a pack built
+// before the age re-cut still ships them, and a breakdown must render rather
+// than blank out during a deploy.
 const AGE_BUCKET_LABELS: Record<string, string> = {
   Unknown: 'Unknown',
+  '18_24': '18–24',
+  '25_34': '25–34',
+  '35_49': '35–49',
+  '50_64': '50–64',
+  '65_plus': '65+',
   '18_25': '18–25',
   '25_35': '25–35',
   '35_50': '35–50',
@@ -30,22 +57,35 @@ const AGE_BUCKET_LABELS: Record<string, string> = {
 export const ageBucketLabel = (bucket: string): string =>
   AGE_BUCKET_LABELS[bucket] ?? bucket
 
-// Mirrors gp-api's `encodeAge` bound for bound: shared inclusive edges resolve
-// to the younger bucket, and an under-18 row reads Unknown because no age
-// filter matches it, so no bucket may either. Duplicated rather than imported
-// because the encoder is a server module — but the two MUST agree, or knocking
-// a list would silently re-shape its own age breakdown while the audience
-// behind it never moved.
-const ageBucket = (age: number | null): string =>
-  age === null || age < 18
-    ? 'Unknown'
-    : age <= 25
-      ? '18_25'
-      : age <= 35
-        ? '25_35'
-        : age <= 50
-          ? '35_50'
-          : '50_plus'
+// The pack's age buckets are cut at every boundary BOTH generations of
+// saved-list age key use, so three of them are a single year wide (25, 35, 50)
+// — the price of every key mapping onto them exactly. That is a filtering
+// vocabulary, and showing it would put a one-year slice next to a fourteen-year
+// one in a breakdown nobody asked to see cut that way, so slices roll up into
+// the current generation's bands before anything renders them.
+//
+// A bucket with no band (the legacy spellings above, from a pack built before
+// the re-cut) passes through as itself: it is already a displayable band, and
+// inventing a mapping onto the new bands would re-shape a real breakdown.
+export const groupAgeSlices = (slices: DimSlice[]): DimSlice[] => {
+  const banded = new Map<string, number>()
+  for (const { label, people } of slices) {
+    const band = PACK_AGE_BUCKET_TO_BAND[label] ?? label
+    banded.set(band, (banded.get(band) ?? 0) + people)
+  }
+  return [...banded]
+    .map(([label, people]) => ({ label, people }))
+    .sort((a, b) => b.people - a.people)
+}
+
+// The frozen-route mirror of the pack's bucketing, rolled up the same way, so
+// a list's age breakdown does not re-shape itself as a reward for walking it.
+// It reads contracts' table rather than restating bounds — the duplicate this
+// replaces was one `encodeAge` change away from silently disagreeing.
+const ageBucket = (age: number | null): string => {
+  const bucket = PACK_AGE_BUCKETS[encodeAgeBucket(age)] as string
+  return PACK_AGE_BUCKET_TO_BAND[bucket] ?? bucket
+}
 
 // A live target with no row behind it (mayHaveMoved) carries a null party, and
 // that is genuinely unknown rather than 'Other' — which here means a party we

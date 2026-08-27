@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { DoorKnockingPackManifestSchema } from '@goodparty_org/contracts'
+import {
+  DoorKnockingPackManifestSchema,
+  PACK_AGE_BUCKETS,
+} from '@goodparty_org/contracts'
 import {
   contactsMadeToBytes,
   PackEncoder,
@@ -132,7 +135,7 @@ describe('PackEncoder', () => {
       'Unknown',
       'Unknown',
     ])
-    expect(dim('age')).toEqual(['25_35', '50_plus', 'Unknown', 'Unknown'])
+    expect(dim('age')).toEqual(['26_34', '65_plus', 'Unknown', 'Unknown'])
     expect(dim('voterStatus')[0]).toBe('Super')
     expect(dim('language')).toEqual(['Other', 'Other', 'Spanish', 'Other'])
     expect(dim('income')[3]).toBe('$50k - $75k')
@@ -183,6 +186,63 @@ describe('PackEncoder', () => {
 
     expect(manifest.counts.dots).toBe(3)
     expect(u32('householdToDot')).toEqual([0, 1, 2, 0])
+  })
+
+  // The `age` dim is the one whose vocabulary is derived (contracts'
+  // PackAgeBuckets.ts) rather than written down here. These assert the encoder
+  // actually ships that derivation, since a plane bucketed by one rule and
+  // labelled by another is invisible until a candidate's count is wrong.
+  describe('the age plane', () => {
+    const bucketFor = (ages: Array<number | null>) => {
+      const encoder = new PackEncoder(new Map())
+      ages.forEach((age, index) =>
+        encoder.add(row({ id: `p${index}`, hhKey: `h${index}`, Age_Int: age })),
+      )
+      const { manifest, u8 } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+      const values = manifest.dims.find((d) => d.key === 'age')!.values
+      return u8('dim:age').map((byte) => values[byte])
+    }
+
+    it('declares the derived buckets, in byte order', () => {
+      const { manifest } = decode(
+        new PackEncoder(new Map()).toBuffer('2026-07-21T12:00:00Z'),
+      )
+      expect(manifest.dims.find((d) => d.key === 'age')!.values).toEqual([
+        ...PACK_AGE_BUCKETS,
+      ])
+    })
+
+    // Every boundary from both sides. The three single-year buckets exist so
+    // the retired keys' shared inclusive edges (25 is in both `age18_25` and
+    // `age25_35`) stay expressible, and they are the ones most likely to be
+    // quietly folded away by a later "simplification".
+    it.each([
+      [18, '18_24'],
+      [24, '18_24'],
+      [25, '25'],
+      [26, '26_34'],
+      [34, '26_34'],
+      [35, '35'],
+      [36, '36_49'],
+      [49, '36_49'],
+      [50, '50'],
+      [51, '51_64'],
+      [64, '51_64'],
+      [65, '65_plus'],
+      [103, '65_plus'],
+    ])('buckets age %i as %s', (age, bucket) => {
+      expect(bucketFor([age])).toEqual([bucket])
+    })
+
+    // No age filter matches an under-18 row (pre-registrant, bad data), so no
+    // pack bucket may either — otherwise the map shades doors no list serves.
+    it('reads a missing or under-18 age as Unknown', () => {
+      expect(bucketFor([null, 0, 17])).toEqual([
+        'Unknown',
+        'Unknown',
+        'Unknown',
+      ])
+    })
   })
 
   describe('the contactsMade plane', () => {

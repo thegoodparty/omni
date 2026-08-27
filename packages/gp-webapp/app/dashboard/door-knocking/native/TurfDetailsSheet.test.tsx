@@ -1025,7 +1025,7 @@ describe('TurfDetailsSheet audience', () => {
           { label: 'Democratic', people: 60 },
           { label: 'Republican', people: 40 },
         ],
-        ageMix: [{ label: '35_50', people: 100 }],
+        ageMix: [{ label: '35_49', people: 100 }],
       }),
     })
 
@@ -1033,8 +1033,8 @@ describe('TurfDetailsSheet audience', () => {
     expect(screen.getByText('Democratic')).toBeInTheDocument()
     expect(screen.getByText('60 · 60%')).toBeInTheDocument()
     // The pack ships raw bucket keys; the sheet is what turns them into prose.
-    expect(screen.getByText('35–50')).toBeInTheDocument()
-    expect(screen.queryByText('35_50')).toBeNull()
+    expect(screen.getByText('35–49')).toBeInTheDocument()
+    expect(screen.queryByText('35_49')).toBeNull()
   })
 
   // The frozen route's targets are the audience, so its breakdown is built off
@@ -1079,7 +1079,7 @@ describe('TurfDetailsSheet audience', () => {
     renderSheet({ prop: { locked: true }, listStats: listStats() })
 
     expect(await screen.findByText('31m')).toBeInTheDocument()
-    // One knockable Democrat aged 40 — the 50+ do-not-knock resident is not in
+    // One knockable Democrat aged 40 — the 65+ do-not-knock resident is not in
     // the audience the People stat reports, so they are not in its breakdown.
     // Both dims report the same lone person, hence two identical figures.
     // Scoped to this section: the outcome table below is built over the same
@@ -1087,8 +1087,8 @@ describe('TurfDetailsSheet audience', () => {
     const audience = screen.getByText('Audience').closest('section')!
     expect(within(audience).getAllByText('1 · 100%')).toHaveLength(2)
     expect(within(audience).getByText('Democratic')).toBeInTheDocument()
-    expect(within(audience).getByText('35–50')).toBeInTheDocument()
-    expect(screen.queryByText('50+')).toBeNull()
+    expect(within(audience).getByText('35–49')).toBeInTheDocument()
+    expect(screen.queryByText('65+')).toBeNull()
     // The pack's own mix must not leak through once a route exists.
     expect(screen.queryByText('Republican')).toBeNull()
   })

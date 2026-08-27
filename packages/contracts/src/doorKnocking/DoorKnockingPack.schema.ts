@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { DoorKnockStatusSchema } from './DoorKnockingRoutePayload.schema'
 
+// The district-scoped dim whose buckets are derived rather than chosen — see
+// PackAgeBuckets.ts, which owns that vocabulary. The key lives here with the
+// other dim keys so nothing has to import a whole module to name it.
+export const AGE_DIM_KEY = 'age'
+
 // The `contactsMade` dim's buckets, in byte order. These ARE the labels the
 // saved-list filter offers ('0'…'5+', gp-webapp's filters.config), so the
 // pack's vocabulary and the pill a candidate pressed are the same string and
@@ -161,7 +166,12 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 // Increment when a district-scoped dim's key or bucket list changes. Do NOT
 // increment for the per-organization planes: those are rebuilt per request
 // under any caching design, so a cached artifact never contains a stale one.
-export const PACK_FORMAT_REVISION = 1
+//
+//   1 — the legacy age bands (18_25 / 25_35 / 35_50 / 50_plus).
+//   2 — age re-cut at every boundary both generations of age key use, so
+//       `age65Plus` and `age50_64` have somewhere exact to map
+//       (PackAgeBuckets.ts).
+export const PACK_FORMAT_REVISION = 2
 
 export const DoorKnockingPackManifestSchema = z
   .object({

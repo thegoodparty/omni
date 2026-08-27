@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PACK_AGE_BUCKETS,
   PACK_STREAM_ALIGNMENT,
   PACK_STREAM_FRAME_HEADER_BYTES,
   PACK_STREAM_FRAME_KINDS,
@@ -27,7 +28,10 @@ const buildPack = (): ArrayBuffer => {
   // Deliberately a different shape from `party` — same four people bucketed
   // unevenly — so a stat that read the wrong plane produces the wrong answer
   // rather than coincidentally the right one.
-  const age = new Uint8Array([3, 1, 3, 0]) // 35_50, 18_25, 35_50, Unknown
+  // Persons 0 and 2 are in the two buckets that make up the 35–49 band (the
+  // single-year 35 and 36_49), so a breakdown that forgot to roll the pack's
+  // filtering buckets up into display bands reports them as two slices.
+  const age = new Uint8Array([4, 1, 5, 0]) // 35, 18_24, 36_49, Unknown
   const canvass = new Uint8Array([2, 0, 0, 0]) // supporter, unknown...
 
   const pad4 = (n: number) => Math.ceil(n / 4) * 4
@@ -65,10 +69,11 @@ const buildPack = (): ArrayBuffer => {
       counts,
       dims: [
         { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
-        // gp-api's AGE_VALUES, in its order — the byte IS the index into this.
+        // contracts' PACK_AGE_BUCKETS, in its order — the byte IS the index
+        // into this.
         {
           key: 'age',
-          values: ['Unknown', '18_25', '25_35', '35_50', '50_plus'],
+          values: [...PACK_AGE_BUCKETS],
         },
         {
           key: 'canvassStatus',
@@ -159,7 +164,7 @@ describe('decodePack', () => {
     // visibly wrong: the demographics stay plausible, they are just the wrong
     // dim's, which is exactly the kind of thing a merge introduces silently.
     expect(Array.from(pack.dimPlanes.get('party') ?? [])).toEqual([1, 2, 0, 0])
-    expect(Array.from(pack.dimPlanes.get('age') ?? [])).toEqual([3, 1, 3, 0])
+    expect(Array.from(pack.dimPlanes.get('age') ?? [])).toEqual([4, 1, 5, 0])
     expect(Array.from(pack.dimPlanes.get('canvassStatus') ?? [])).toEqual([
       2, 0, 0, 0,
     ])
@@ -324,14 +329,16 @@ describe('polygonStats', () => {
 
     const stats = polygonStats(pack, new Map(), wholeDistrictRing)
 
-    // Persons 0 and 2 are 35_50, person 1 is 18_25, person 3 Unknown — and the
-    // labels are the manifest's raw bucket keys, which the sheet formats.
-    // The two one-person buckets tie, and the sort is stable, so they hold
-    // manifest order (Unknown is index 0) rather than an arbitrary one.
+    // Persons 0 and 2 are in the pack's `35` and `36_49` buckets, person 1 in
+    // `18_24`, person 3 Unknown. The first two ROLL UP into the 35–49 display
+    // band: the pack's buckets are cut fine enough for every saved-list age
+    // key to map onto them exactly, and showing that cut would put a one-year
+    // slice beside a fourteen-year one. The two one-person buckets tie, and
+    // the sort is stable, so they hold manifest order (Unknown is index 0).
     expect(stats.ageMix).toEqual([
-      { label: '35_50', people: 2 },
+      { label: '35_49', people: 2 },
       { label: 'Unknown', people: 1 },
-      { label: '18_25', people: 1 },
+      { label: '18_24', people: 1 },
     ])
   })
 
@@ -340,8 +347,8 @@ describe('polygonStats', () => {
 
     // Dot 0 holds households 0 and 1, i.e. persons 0, 1 and 2.
     expect(polygonStats(pack, new Map(), dotZeroRing).ageMix).toEqual([
-      { label: '35_50', people: 2 },
-      { label: '18_25', people: 1 },
+      { label: '35_49', people: 2 },
+      { label: '18_24', people: 1 },
     ])
   })
 
@@ -349,11 +356,11 @@ describe('polygonStats', () => {
     const pack = decodePack(buildFixture())
     const demsOnly: DimSelections = new Map([['party', new Set([1])]])
 
-    // Person 0 is the only Democrat, and they are 35_50 — so the other three
-    // age buckets go, rather than reporting the polygon's whole age spread
-    // beside a people count of 1.
+    // Person 0 is the only Democrat, and they are 35–49 — so the other age
+    // buckets go, rather than reporting the polygon's whole age spread beside
+    // a people count of 1.
     expect(polygonStats(pack, demsOnly, wholeDistrictRing).ageMix).toEqual([
-      { label: '35_50', people: 1 },
+      { label: '35_49', people: 1 },
     ])
   })
 
