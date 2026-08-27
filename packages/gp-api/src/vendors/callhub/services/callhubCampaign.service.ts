@@ -100,9 +100,16 @@ export class CallhubCampaignService {
       },
     }
 
+    // Parse OUTSIDE the fetch try/catch so a response-shape mismatch surfaces
+    // as a schema error, not a retryable BadGatewayException the caller would
+    // treat as a transient vendor failure.
+    const data = await this.postCampaign(body)
+    return CreateVbCampaignResponseSchema.parse(data)
+  }
+
+  private async postCampaign(body: CreateVbCampaignBody) {
     try {
-      const data = await this.http.post(CREATE_PATH, body)
-      return CreateVbCampaignResponseSchema.parse(data)
+      return await this.http.post(CREATE_PATH, body)
     } catch (error) {
       return this.errorHandling.handleApiError({
         error,
