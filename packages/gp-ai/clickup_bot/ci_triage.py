@@ -436,6 +436,15 @@ def decide(checks: Any, state: Any, findings: Any = None, now: float | None = No
     unanswered = open_findings(findings)
 
     if not classifications and not unanswered:
+        # next_state is INERT on every ACTION_NONE branch. gpbot-ci-drive.yml
+        # `continue`s on `none` before it reaches the comment write, so nothing
+        # here is ever persisted and this cannot clear or set a flag. It is
+        # returned only so the decision shape is uniform for the caller.
+        #
+        # An escalation therefore survives a clear board, which is deliberate.
+        # Once the bot has handed a PR to a human, the only actor who can put
+        # new work on it is that human, and they were told the bot had stopped.
+        # A human deletes the marker comment to hand it back.
         return {
             "action": ACTION_NONE,
             "reason": "no failing checks and no unanswered review findings",

@@ -539,6 +539,22 @@ class TestUnansweredReviewFindingsAreWork:
         assert decision["action"] == ACTION_HOLD
         assert "no fix runs left" in decision["reason"]
 
+    def test_a_hold_survives_the_board_going_quiet(self):
+        # Once the bot hands a PR to a human it stays handed over, the same as
+        # every other escalation. A clear board is not the bot being given the
+        # PR back: the only actor who can put new work on it is the human who
+        # was told the bot had stopped, and they hand it back by deleting the
+        # marker comment.
+        held = decide([], dict(FRESH_STATE, fixes=MAX_FIX_RUNS), [PR_1306_BUGBOT_FINDING], now=NOW)
+        assert held["action"] == ACTION_HOLD
+
+        after = parse_state(ci_triage.render_comment(held))
+        assert after["escalated"] is True
+
+        # A board that goes quiet and then red again on a later commit.
+        assert decide([], after, [], now=NOW + 10_000)["action"] == ACTION_NONE
+        assert decide([a_check()], after, [], now=NOW + 20_000)["action"] == ACTION_NONE
+
     def test_an_in_flight_fix_run_is_not_duplicated_by_a_finding(self):
         # Same window the CI path uses. A launched run changes nothing on the PR
         # for many minutes, so the 30-minute schedule would otherwise point a
