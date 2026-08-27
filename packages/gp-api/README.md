@@ -153,14 +153,11 @@ See `gp-ai-projects/campaign_plan_lambda/README.md` for full setup instructions 
 
 ### AWS Setup
 
-To set up your AWS CLI locally, run the following script from the repo root:
+To set up your AWS CLI locally, run the following script:
 
 ```bash
-./packages/gp-api/scripts/aws-setup.sh
+curl -fsSL https://raw.githubusercontent.com/thegoodparty/omni/main/packages/gp-api/scripts/aws-setup.sh | bash
 ```
-
-It writes `gp-readonly`, `gp-engineer`, and `gp-admin` SSO profiles to
-`~/.aws/config`. Then authenticate with `aws sso login --profile gp-engineer`.
 
 ## Contracts Package (`@goodparty_org/contracts`)
 
