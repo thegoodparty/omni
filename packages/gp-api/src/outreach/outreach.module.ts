@@ -34,6 +34,7 @@ import { OutreachSocialGenerationService } from './services/outreachSocialGenera
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { RobocallTranscriptionService } from './services/robocallTranscription.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { RobocallPhonebookService } from './services/robocallPhonebook.service'
@@ -85,6 +86,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachPhoneBankingGenerationService,
     OutreachSmsGenerationService,
     OutreachRobocallGenerationService,
+    OutreachRobocallService,
     RobocallTranscriptionService,
     RobocallComplianceService,
     RobocallPhonebookService,

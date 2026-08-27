@@ -783,6 +783,12 @@ export {
   type RobocallComplianceVerdict,
 } from './outreach/RobocallCompliance.schema'
 export {
+  RobocallDraftCreateRequestSchema,
+  type RobocallDraftCreateRequest,
+  RobocallDraftCreateResponseSchema,
+  type RobocallDraftCreateResponse,
+} from './outreach/RobocallPurchase.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,
