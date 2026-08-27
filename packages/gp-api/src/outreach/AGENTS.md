@@ -69,7 +69,10 @@ count the audience step showed and `RobocallPhonebookService` dials) — a clien
 count is never accepted. An audience with no reachable landlines is rejected at
 both draft create and the live checkout re-derive: a 0 count yields a 0 amount,
 which the payments free-checkout path (`amount === 0`) would otherwise settle as
-an unpaid `paid` robocall. The draft id rides in the checkout-session metadata as
+an unpaid `paid` robocall. A past `scheduledAt` is rejected the same way at both
+points (the create-time guard can lapse while the buyer sits on checkout): a
+charge that settles after the send time would bill for a robocall CallHub can no
+longer dial. The draft id rides in the checkout-session metadata as
 `outreachId`; `PurchaseType.ROBOCALL`'s handler re-derives the amount live at
 checkout (not the persisted snapshot) and, on payment completion, atomically
 claims `pending_payment → paid` — no dialing / CallHub campaign here (the send

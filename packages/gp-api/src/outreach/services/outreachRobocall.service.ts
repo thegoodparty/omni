@@ -155,7 +155,12 @@ export class OutreachRobocallService extends createPrismaBase(
         campaignId,
         outreachType: OutreachType.robocall,
       },
-      select: { status: true, organizationSlug: true, voterFileFilterId: true },
+      select: {
+        status: true,
+        organizationSlug: true,
+        voterFileFilterId: true,
+        date: true,
+      },
     })
     if (!draft) {
       throw new BadRequestException(
@@ -165,6 +170,15 @@ export class OutreachRobocallService extends createPrismaBase(
     if (draft.status !== OutreachStatus.pending_payment) {
       throw new ConflictException(
         'This robocall has already been purchased. Please refresh the page.',
+      )
+    }
+    // The create-time future-date guard can go stale between draft and pay: a
+    // charge that settles after the scheduled time would bill for a robocall
+    // CallHub can no longer dial. Re-check here so both checkout entry points
+    // (deriveDraftAmount, assertPurchasable) reject a lapsed schedule.
+    if (draft.date && !isFuture(draft.date)) {
+      throw new BadRequestException(
+        'The scheduled send time has passed — please start a new robocall',
       )
     }
     if (!draft.organizationSlug || !draft.voterFileFilterId) {

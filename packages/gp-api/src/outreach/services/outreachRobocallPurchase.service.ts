@@ -44,10 +44,19 @@ export class OutreachRobocallPurchaseService implements PurchaseHandler<unknown>
     paymentIntentId: string,
     rawMetadata: unknown,
   ): Promise<void> {
+    // This handler is registered only for PurchaseType.ROBOCALL, so a parse
+    // failure is a corrupt ROBOCALL session — not another type's. Throwing
+    // keeps completeCheckoutSession from stamping its idempotency marker, so
+    // Stripe retries rather than leaving the robocall stuck pending_payment.
     const result = RobocallPurchaseMetadataSchema.safeParse(rawMetadata)
-    // A non-robocall session shape here is not this handler's to finalize.
     if (!result.success) {
-      return
+      this.logger.error(
+        { err: result.error },
+        'ROBOCALL post-purchase metadata failed to parse — rethrowing',
+      )
+      throw new Error(
+        `ROBOCALL post-purchase metadata parse failed: ${result.error.message}`,
+      )
     }
     const { outreachId, campaignId } = result.data
 

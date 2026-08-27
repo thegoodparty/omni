@@ -243,6 +243,26 @@ describe('robocall purchase handler — server-derived billing', () => {
     ).rejects.toThrow()
   })
 
+  it('both checkout gates reject a draft whose scheduled time has passed', async () => {
+    const outreachId = await draftARow(500)
+
+    // The create-time guard forces a future date; simulate the schedule
+    // lapsing while the buyer sits on the checkout page.
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { date: new Date(Date.now() - 3_600_000) },
+    })
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const handler = service.app.get(OutreachRobocallPurchaseService)
+    await expect(
+      handler.calculateAmount({ outreachId, campaignId: CAMPAIGN_ID }),
+    ).rejects.toThrow()
+    await expect(
+      handler.validatePurchase({ outreachId, campaignId: CAMPAIGN_ID }),
+    ).rejects.toThrow()
+  })
+
   it('createCheckoutSession bills the derived amount and carries outreachId', async () => {
     const outreachId = await draftARow(1000)
     findContactsForFilter.mockResolvedValue(peopleListWithTotal(1000))
@@ -334,15 +354,16 @@ describe('robocall purchase finalize — webhook', () => {
     expect(stillDraft.status).toBe(OutreachStatus.pending_payment)
   })
 
-  it('executePostPurchase finalizes and ignores a non-robocall shape', async () => {
+  it('executePostPurchase throws on unparseable metadata, then finalizes a valid one', async () => {
     const outreachId = await draftARow()
     const handler = service.app.get(OutreachRobocallPurchaseService)
 
-    // A metadata shape that isn't a robocall purchase is not this handler's to
-    // finalize — it must not throw.
+    // Corrupt ROBOCALL metadata must throw so completeCheckoutSession does not
+    // stamp its idempotency marker — otherwise Stripe stops retrying and the
+    // draft is stuck pending_payment with no recovery path.
     await expect(
       handler.executePostPurchase('pi_test', { purchaseType: 'TEXT' }),
-    ).resolves.toBeUndefined()
+    ).rejects.toThrow()
 
     await handler.executePostPurchase('pi_test', {
       outreachId: String(outreachId),
