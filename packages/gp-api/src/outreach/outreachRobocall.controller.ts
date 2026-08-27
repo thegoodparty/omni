@@ -16,6 +16,8 @@ import {
   RobocallDraftCreateResponseSchema,
   RobocallNumberResponse,
   RobocallNumberResponseSchema,
+  RobocallSaveCardIntentResponse,
+  RobocallSaveCardIntentResponseSchema,
   RobocallScriptDraftRequest,
   RobocallScriptDraftRequestSchema,
   RobocallScriptDraftResponse,
@@ -33,6 +35,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
@@ -59,6 +62,7 @@ export class OutreachRobocallController {
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
     private readonly callhubNumbers: CallhubNumbersService,
+    private readonly stripe: StripeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallController.name)
@@ -93,6 +97,22 @@ export class OutreachRobocallController {
     await this.contacts.assertProAccess(organization)
     const rented = await this.callhubNumbers.rentNumber({ countryIso: 'US' })
     return { phoneNumber: rented.phone_number, region: rented.region }
+  }
+
+  // Vaults the candidate's card for the later off-session robocall charge:
+  // ensures a Stripe customer for the user, then returns a SetupIntent client
+  // secret the pay-step mounts a Payment Element against. No charge here — the
+  // hold and the charge land in later slices.
+  @Post('robocall/save-card-intent')
+  @ResponseSchema(RobocallSaveCardIntentResponseSchema)
+  async saveCardIntent(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+  ): Promise<RobocallSaveCardIntentResponse> {
+    await this.contacts.assertProAccess(organization)
+    const customerId = await this.stripe.ensureCustomer(user)
+    const { clientSecret } = await this.stripe.createSetupIntent(customerId)
+    return { clientSecret, customerId }
   }
 
   @Post('robocall/draft')

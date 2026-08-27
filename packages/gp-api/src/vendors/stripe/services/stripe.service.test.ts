@@ -3,6 +3,7 @@ import { BadGatewayException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
+import { UsersService } from 'src/users/services/users.service'
 import { StripeService } from './stripe.service'
 
 const {
@@ -44,6 +45,7 @@ describe('StripeService Pro subscription checkout', () => {
     productsRetrieve.mockResolvedValue({ default_price: priceId })
     service = new StripeService(
       {} as unknown as SlackService,
+      {} as unknown as UsersService,
       createMockLogger(),
     )
   })

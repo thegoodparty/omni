@@ -767,6 +767,10 @@ export {
   type RobocallNumberResponse,
 } from './outreach/RobocallNumber.schema'
 export {
+  RobocallSaveCardIntentResponseSchema,
+  type RobocallSaveCardIntentResponse,
+} from './outreach/RobocallSaveCard.schema'
+export {
   ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
   ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequestSchema,

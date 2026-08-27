@@ -1,6 +1,13 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  forwardRef,
+  Inject,
+  Injectable,
+} from '@nestjs/common'
 import { User } from '../../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
+import { UsersService } from 'src/users/services/users.service'
+import { WrapperType } from 'src/shared/types/utility.types'
 import {
   CheckoutSessionMode,
   CustomCheckoutSessionPayload,
@@ -27,9 +34,74 @@ export class StripeService {
 
   constructor(
     private readonly slack: SlackService,
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: WrapperType<UsersService>,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(StripeService.name)
+  }
+
+  // Returns the user's Stripe customerId, creating and persisting one the first
+  // time. Idempotent on the stored id so a card can never be vaulted against a
+  // second customer — the later off-session charge must find the saved method.
+  async ensureCustomer(user: User): Promise<string> {
+    const existingCustomerId = user.metaData?.customerId
+    if (existingCustomerId) {
+      return existingCustomerId
+    }
+
+    const name = [user.firstName, user.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+
+    let customer: Stripe.Customer
+    try {
+      customer = await this.stripe.customers.create({
+        ...(user.email ? { email: user.email } : {}),
+        ...(name ? { name } : {}),
+        metadata: { userId: String(user.id) },
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe customer')
+      throw new BadGatewayException('Failed to create Stripe customer')
+    }
+
+    await this.usersService.patchUserMetaData(user.id, {
+      customerId: customer.id,
+    })
+
+    return customer.id
+  }
+
+  // Off-session usage pre-authenticates the saved card so the later robocall
+  // charge can run without the candidate present.
+  async createSetupIntent(customerId: string): Promise<{
+    clientSecret: string
+    setupIntentId: string
+  }> {
+    let setupIntent: Stripe.SetupIntent
+    try {
+      setupIntent = await this.stripe.setupIntents.create({
+        customer: customerId,
+        usage: 'off_session',
+        automatic_payment_methods: { enabled: true },
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe setup intent')
+      throw new BadGatewayException('Failed to create Stripe setup intent')
+    }
+
+    if (!setupIntent.client_secret) {
+      throw new BadGatewayException(
+        'Failed to create setup intent: no client_secret returned',
+      )
+    }
+
+    return {
+      clientSecret: setupIntent.client_secret,
+      setupIntentId: setupIntent.id,
+    }
   }
 
   private getPrice = async () => {
