@@ -1346,9 +1346,18 @@ describe('CreateListFlow steps', () => {
       />,
     )
 
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    // The count left the CTA on 2026-08-26 for the line beside it. It is still
+    // the whole district here, which is the thing the sentence below discloses.
     expect(
-      screen.getByRole('button', { name: 'Continue (12,000 households)' }),
-    ).toBeEnabled()
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          /12,000 matching households across your whole district/.test(
+            element.textContent ?? '',
+          ),
+      ),
+    ).toBeInTheDocument()
     expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
       'The map can’t yet shade by Support status, so these counts include ' +
         'people that filter will exclude. Your saved list still applies it ' +
