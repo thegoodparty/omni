@@ -167,8 +167,14 @@ test.describe('outreach list handoff to door knocking', () => {
     // And the flow is still only a flow — reaching the who step with the list
     // picked has written nothing. The next step is Draw, which is where a
     // saved list actually comes from.
+    //
+    // The CTA is the bare word: no Continue button in this flow carries a
+    // count any more. This still waits for the pack rather than racing it —
+    // until a count exists the button reads `No matching households`, so the
+    // name being matched at all is the same signal the old `/^Continue \(/`
+    // was waiting for.
     await expect(
-      page.getByRole('button', { name: /^Continue \(/ }),
+      page.getByRole('button', { name: 'Continue', exact: true }),
     ).toBeEnabled({ timeout: 30_000 })
 
     const { data: turfs } = await client.get<unknown[]>(
