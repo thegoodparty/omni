@@ -1,0 +1,73 @@
+// The settlement lifecycle of a robocall's payment. A robocall is authorized
+// (a hold placed on the estimate) before it dials, then captured for the ACTUAL
+// billable count once CallHub reports it — hold + capture-actual, not
+// prepay-on-estimate. Terminal states cover the ways a hold ends: captured/
+// charged (money taken), voided/cancelled (hold released, no charge), disputed/
+// uncollectable (money owed but not collected). The hold and settlement
+// transitions themselves land in later slices; this slice only seeds
+// pending_payment.
+enum RobocallSettleState {
+  pending_payment
+  authorized
+  settling
+  captured
+  charged
+  voided
+  cancelled
+  disputed
+  uncollectable
+}
+
+model OutreachRobocall {
+  id             Int      @id @default(autoincrement())
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  outreach       Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId     Int      @unique @map("outreach_id")
+  // The recorded audio's S3 object key (bucket ROBOCALL_AUDIO_BUCKET), persisted
+  // at draft so the later slices are self-contained when the browser is gone.
+  // Unique: a fresh per-recording key is one intended send, so the constraint
+  // is the atomic backstop that makes a concurrent double-submit fail the second
+  // INSERT rather than mint a second billable anchor.
+  audioKey       String   @unique @map("audio_key")
+  // The rented CallHub caller-ID number the candidate reads aloud as the
+  // callback; held through payment for the later send slice to dial from.
+  callbackNumber String   @map("callback_number")
+  // Server-derived landline count at draft time (the audience's hasLandline
+  // reachable count). A snapshot for the record and the pay-step estimate — the
+  // amount actually captured is re-derived from CallHub's dialed count later.
+  billableCount  Int      @map("billable_count")
+  // The authorized estimate, in cents — what the hold is placed for. The
+  // captured amount can be less once the actual dialed count is known.
+  amountInCents  Int      @map("amount_in_cents")
+
+  // --- payment / settlement state (populated by later slices) -------------
+
+  // The Stripe customer the hold and capture run against.
+  stripeCustomerId       String?             @map("stripe_customer_id")
+  // The saved card the hold and capture charge.
+  paymentMethodId        String?             @map("payment_method_id")
+  // The CallHub voice-broadcast campaign this robocall dials from (its PK, as a
+  // string — CallHub ids exceed a 32-bit int).
+  callhubCampaignPkStr   String?             @map("callhub_campaign_pk_str")
+  // The CallHub campaign's scheduled dial window, mirrored back for settlement.
+  callhubStartingDate    DateTime?           @map("callhub_starting_date")
+  callhubExpirationDate  DateTime?           @map("callhub_expiration_date")
+  // The Stripe PaymentIntent the hold is placed on (manual capture).
+  authorizationIntentId  String?             @map("authorization_intent_id")
+  // The amount actually authorized on the hold, in cents.
+  authorizedAmountInCents Int?               @map("authorized_amount_in_cents")
+  // The deadline by which the hold must be captured before Stripe auto-expires
+  // it (Stripe holds last ~7 days).
+  captureBefore          DateTime?           @map("capture_before")
+  // The amount actually captured off the hold once the dialed count is known.
+  capturedAmountInCents  Int?                @map("captured_amount_in_cents")
+  // The Stripe PaymentIntent a fresh charge is placed on when the hold has
+  // lapsed and a new charge is needed instead of a capture.
+  chargeIntentId         String?             @map("charge_intent_id")
+  // How many times settlement has been attempted, to bound retries.
+  payAttempt             Int                 @default(0) @map("pay_attempt")
+  settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
+
+  @@map("outreach_robocall")
+}

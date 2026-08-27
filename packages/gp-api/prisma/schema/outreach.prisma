@@ -79,6 +79,7 @@ model Outreach {
   // drawer; cleared on restore. Never set at creation.
   archivedAt                        DateTime?                          @map("archived_at")
   social                            OutreachSocial?
+  robocall                          OutreachRobocall?
   voterActivities                   VoterOutreachActivity[]
   raceOpponentContrasts             RaceOpponentContrast[]
   contactInteractionTexts           ContactInteractionText[]

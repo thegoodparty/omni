@@ -18,6 +18,7 @@ phone banking also carries `@UseOrganization()` for the Pro gate)
 | `POST /outreach/robocall/number`                                                                                        | `outreachRobocall.controller.ts`      | Rents a fresh CallHub caller-ID number for this robocall (VO 2.0 robocall): stateless, Pro-gated the same way. Returns `{ phoneNumber, region }` via `CallhubNumbersService`. The candidate reads it aloud as the callback number, so it's rented before the disclosure draft. Rent-per-robocall (spam-flagging); the CallHub account auto-un-rents idle numbers. Area-code targeting from campaign location is a later refinement (US national for now)                                                                                          |
 | `POST /outreach/robocall/audio/presign`                                                                                 | `outreachRobocallAudio.controller.ts` | Presigned S3 POST for the recorded robocall audio (VO 2.0 robocall): stateless, Pro-gated the same way. Returns `{ url, fields, key, expiresIn }`; the browser submits a multipart form to `ROBOCALL_AUDIO_BUCKET` and holds the key until the send is created in a later step. It's a POST (not PUT) so the policy's `content-length-range` lets S3 reject an oversize upload at upload time |
 | `POST /outreach/robocall/compliance`                                                                                    | `outreachRobocall.controller.ts`      | Fail-closed compliance gate for the recorded audio (VO 2.0 robocall): Pro-gated the same way. Confirms the `audioKey` belongs to THIS campaign (prefix `robocall/<campaignId>/`, so a caller can't check another campaign's recording), derives candidate + organization server-side, then runs `RobocallComplianceService.checkRecording` on `{ audioKey, contentType }`. Everything the transcript is checked against is server-derived — the callback-number check only confirms a number is spoken, so the client has no expected value to spoof it with (the caller-ID voters reach is enforced at dial time). Returns the `RobocallComplianceVerdict`; a transcription/LLM failure is 502. Stateless — the verdict isn't persisted yet (that lands with the pay slice)                                                                                          |
+| `POST /outreach/robocall`                                                                                               | `outreachRobocall.controller.ts`      | Draft-first create (VO 2.0 robocall), Pro-gated the same way. Confirms the `audioKey` belongs to THIS campaign (prefix `robocall/<campaignId>/`), then persists the `pending_payment` spine + `OutreachRobocall` satellite (settleState `pending_payment`) in one transaction. Billable count + amount are derived server-side from `voterFileFilterId` (landline forced) — never a client count — and returned for the pay-step estimate. The only robocall write; hold + settlement are later slices                                                                                                        |
 
 `GET /outreach/:id` deliberately lives on the social controller: detail reads
 must stay outside `OutreachNotificationInterceptor` — a 404 there would fire
@@ -33,6 +34,7 @@ a CAS failure Slack meant for send attempts.
 | `outreachSocialGeneration.service.ts`               | Stateless LLM compose (temperature 0.8, Zod-validated output): one draft per draft/improve call, all per-platform assets in one structured generate call. Fresh generation is refused for the `custom` purpose (improve allowed); improve is a detail-preserving polish, never new content                                                                                                                                                                                                                                                                                                                                     |
 | `outreachPhoneBankingGeneration.service.ts`         | Stateless LLM compose for call scripts, same shape as social generation. Per-purpose structure (volunteer opener, why-statement, issue-ID question for `persuade`, real election-day/early-voting dates for `vote-early`/`election-day` — grounded from `campaign.details` and, for `vote-early` only, a live `CampaignsService.fetchLiveRaceTargetMetrics` milestones fetch — with no bracket placeholders anywhere except `[your name]` and the voter-name token (`VOTER_NAME_TOKEN`, contracts), which the caller page interpolates with the active contact's first name); hard-bans SMS/robocall compliance lines (`Reply STOP`, `Paid for by`, callback numbers) since a volunteer reads this live                                                          |
 | `outreachRobocallGeneration.service.ts`             | Stateless LLM compose for the recorded robocall message, same shape again. Differs from phone banking in the opener — a robocall is the CANDIDATE speaking, so the rule is a first-person self-ID (`This is [first name], candidate for [office]`), not a volunteer intro — and in length (about 40-75 words, four or five short sentences, well inside a 60-second recording). Compliance is conditional on the request's `callbackNumber`: with no number the `Paid for by` disclaimer / callback number / opt-out are banned (the number isn't rented until compose); once a number is passed, the script MUST end with the spoken disclosure ("paid for by" + that number), which is what the compliance gate later verifies. Refuses fresh generation for `custom` (improve allowed), like social |
+| `outreachRobocall.service.ts`                       | Persists the robocall draft (`OutreachRobocallService`, `createPrismaBase(MODELS.OutreachRobocall)`): `deriveBillableCount` (the saved list resolved with `hasLandline` forced → people-db total, never a client count), `assertReachableCount` (a 0-landline audience is not purchasable), the future-schedule guard, and `createDraft` (spine `pending_payment` + satellite settleState `pending_payment` in one transaction). No hold/Stripe/CallHub/settlement — the payment/callhub satellite fields stay unset until later slices                                                                                                                                                                                                                                                                                     |
 | `outreachRobocallAudio.service.ts`                  | Builds a campaign-scoped object key (`robocall/<campaignId>/<uuid>.<ext>`) and returns a presigned S3 POST (`S3Service.createPresignedUpload`, a `content-length-range` policy capping bytes at `ROBOCALL_AUDIO_MAX_BYTES`), reading the bucket from `ROBOCALL_AUDIO_BUCKET` (throws at construction if unset). Stateless — no row is written                                                                                                                                                                                                                                                                                  |
 | `robocallTranscription.service.ts`                  | Batch AWS Transcribe (`@aws-sdk/client-transcribe`, `StartTranscriptionJob` → poll → read the transcript JSON from S3) for a stored robocall recording. Batch, not the streaming path the mic dictation uses, because a stored webm/mp4/mp3 needs container decoding. Task role needs `transcribe:StartTranscriptionJob`/`GetTranscriptionJob` (granted in `deploy/index.ts`)                                                                                                                                                                                                                                                    |
 | `robocallCompliance.service.ts`                     | Fail-closed compliance gate: transcribes the recording, then verifies via the LLM (temperature 0) that the FCC calling disclosures are actually spoken — candidate self-ID, organization name, callback number. Returns a `RobocallComplianceVerdict` (per-check booleans + transcript + issues). A transcription/LLM failure propagates as 502; it never silently passes. Distinct from the result sweep (ADR 0013) — this is a pre-send audio check, not a disposition writer                                                                                                                                                  |
@@ -53,6 +55,23 @@ Stripe webhook path calls `finalizeOutreachPurchase`: atomic claim
 from S3); a Peerly failure reverts the status and rethrows so Stripe retries.
 `schemas/createOutreachSchema.ts`: only p2p may be a draft, and clients can
 never send `pending_payment` themselves.
+
+## Robocall payment (hold + capture-actual)
+
+Robocall billing is a hold-then-capture-actual model, not prepay-on-estimate:
+authorize a hold on the estimate before the call dials, then capture for the
+ACTUAL billable count CallHub reports. `POST /outreach/robocall`
+(`OutreachRobocallService.createDraft`) is the foundation — it persists the
+`pending_payment` spine + `OutreachRobocall` satellite and returns the
+server-derived estimate. The satellite's `settleState` (`RobocallSettleState`
+enum: `pending_payment → authorized → settling → captured|charged`, with
+`voided|cancelled|disputed|uncollectable` terminals) tracks the lifecycle, and
+the satellite carries the Stripe (customer / payment-method / authorization &
+charge intent / captured amount) and CallHub (campaign / dial-window) fields the
+later slices fill. This slice writes none of them — the hold, CallHub dispatch,
+and settlement land in later slices; the satellite is seeded `pending_payment`
+with only `audioKey`, `callbackNumber`, `billableCount`, and `amountInCents`
+(the authorized estimate).
 
 ## Gotchas / invariants
 
@@ -142,9 +161,12 @@ never send `pending_payment` themselves.
   `RobocallAudio.schema.ts` (presign request/response + allowed audio MIME
   types + `ROBOCALL_AUDIO_MAX_BYTES` cap),
   `RobocallCompliance.schema.ts` (the transcription-verdict shape: per-check
-  booleans + transcript + issues).
+  booleans + transcript + issues),
+  `RobocallPurchase.schema.ts` (the draft-create request/response for
+  `POST /outreach/robocall`).
 - Prisma: `outreach.prisma` (spine), `outreachSocial.prisma` +
-  `outreachSocialAsset.prisma` (satellite). Phone banking's own tables
+  `outreachSocialAsset.prisma` (social satellite), `outreachRobocall.prisma`
+  (`OutreachRobocall` payment/state satellite + the `RobocallSettleState` enum). Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
   controller/service live in a separate `src/phoneBanking/` module — this
