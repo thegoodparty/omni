@@ -101,6 +101,29 @@ export class OutreachRobocallService extends createPrismaBase(
       )
     }
 
+    // Idempotent on a double-click / retry / network retry: a repeat POST with
+    // the same audio for this campaign returns the existing pending_payment
+    // draft rather than minting a second billable anchor the hold/settlement
+    // slices could charge twice. audioKey is a fresh per-recording key, so it
+    // is the natural dedup key for one intended send.
+    const existing = await this.findFirst({
+      where: {
+        audioKey: input.audioKey,
+        outreach: {
+          campaignId: campaign.id,
+          status: OutreachStatus.pending_payment,
+          outreachType: OutreachType.robocall,
+        },
+      },
+    })
+    if (existing) {
+      return {
+        outreachId: existing.outreachId,
+        billableCount: existing.billableCount,
+        amountInCents: existing.amountInCents,
+      }
+    }
+
     const billableCount = await this.deriveBillableCount(
       organization,
       input.voterFileFilterId,

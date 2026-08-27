@@ -181,4 +181,21 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     })
     expect(rows).toBe(0)
   })
+
+  // A double-click / retry must not mint a second billable anchor the
+  // hold/settlement slices could charge twice.
+  it('is idempotent on a repeat submit: same audio returns the same draft', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const first = await postDraft(validDraftBody())
+    const second = await postDraft(validDraftBody())
+
+    expect(first.status).toBe(HttpStatus.CREATED)
+    expect(second.data.outreachId).toBe(first.data.outreachId)
+
+    const rows = await service.prisma.outreachRobocall.count({
+      where: { outreach: { campaignId: CAMPAIGN_ID } },
+    })
+    expect(rows).toBe(1)
+  })
 })
