@@ -36,9 +36,37 @@ export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
 // Door knocking keys at UNIT granularity, not household: an apartment
 // building shares one AddressLine, so the household key above would sweep
 // every resident of the building into one door (and blow the serve-time
-// residents cap). These components resolve to the single knockable unit —
-// the July 14 audit's list, in display order. Same normalization recipe.
+// residents cap). This is that key plus the one component that names the
+// knockable unit. Same normalization recipe.
+//
+// The AddressLine is load-bearing rather than a convenience. The obvious
+// alternative — compose the line from the file's parsed components, which is
+// what DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did — cannot carry a
+// cardinal direction, because `Residence_Addresses_PrefixDirection` and
+// `Residence_Addresses_SuffixDirection` are INTEGER columns in the people-db
+// mirror. The loader `try_cast`s them, so every 'N'/'S'/'E'/'W' in the source
+// file lands as NULL and no consumer of those two columns can ever see one.
+// AddressLine is TEXT and holds the whole line, directions included.
+//
+// That made this a de-duplication defect and not only a display one: with both
+// direction components permanently empty, `1234 S Main St` and `1234 N Main St`
+// in one ZIP produced byte-identical keys and were one door. Grid-addressed
+// cities are where it bites hardest — in Salt Lake City the directions carry
+// most of the address, and `1234 S 5678 W` keyed as `1234 5678`.
 export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
+  'Residence_Addresses_AddressLine',
+  'Residence_Addresses_ApartmentNum',
+  'Residence_Addresses_Zip',
+] as const
+
+// The component-composed key routes frozen before that fix still hold. Kept
+// buildable so `residents()` can look those routes' stored keys back up — a
+// canvasser mid-list must not lose live phone numbers and household context
+// because the key definition moved under them. Nothing new is ever keyed this
+// way, and it is not a fallback for the current key: a request carries one
+// format or the other, never a mixture, because a route freezes all of its
+// keys at once.
+export const DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS = [
   'Residence_Addresses_HouseNumber',
   'Residence_Addresses_PrefixDirection',
   'Residence_Addresses_StreetName',
@@ -47,6 +75,16 @@ export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
   'Residence_Addresses_ApartmentNum',
   'Residence_Addresses_Zip',
 ] as const
+
+// Which of the two a stored key was built by. Segment count is the whole test,
+// and it is sound because CONCAT_WS's delimiter was chosen to be a character no
+// address column contains: a current key has three segments and a legacy one
+// seven. Keys older than both (the four-segment household key, from before
+// door knocking keyed by unit at all) answer false and are handled by
+// `renderUnitAddress`'s own fallback — they never matched a component-composed
+// key either, so nothing regresses by leaving them out.
+export const isLegacyDoorKnockingUnitKey = (addressKey: string): boolean =>
+  addressKey.split('|').length === DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS.length
 
 // Shared person/voter shape sourced from people-api, surfaced through gp-api's
 // /v1/contacts and consumed by gp-webapp. Field names and nullability mirror

@@ -1,6 +1,26 @@
 import { z } from 'zod'
 import { DoorKnockStatusSchema } from './DoorKnockingRoutePayload.schema'
 
+// The `contactsMade` dim's buckets, in byte order. These ARE the labels the
+// saved-list filter offers ('0'…'5+', gp-webapp's filters.config), so the
+// pack's vocabulary and the pill a candidate pressed are the same string and
+// the preview mapping needs no translation table. `5+` is ">= 5 logged
+// interactions", matching CONTACTS_MADE_BUCKET_FIELDS in gp-api's
+// voterFileFilter.utils.ts and the HAVING arms in
+// ContactsMadeResolutionService.
+export const CONTACTS_MADE_DIM_KEY = 'contactsMade'
+export const CONTACTS_MADE_BUCKETS = ['0', '1', '2', '3', '4', '5+'] as const
+
+// The most contacted people gp-api will describe on the wire. It is
+// deliberately MAX_RESOLVED_ID_SET_SIZE (activityConditionResolution.service),
+// the same number at which resolving a contacts-made filter for a real query
+// gives up: above it the filter cannot be applied at knock time either, so a
+// pack that shaded by it would be previewing an audience no list can serve.
+// Past the cap the plane is omitted rather than truncated — a truncated plane
+// would silently read those people as "0 prior contacts", which is exactly
+// the wrong answer for the one bucket candidates select most.
+export const PACK_CONTACTS_MADE_MAX = 100_000
+
 // The exploration-map "pack": one binary buffer, built per request and
 // streamed people-api → gp-api → browser, never stored. Wire framing:
 //
@@ -9,9 +29,10 @@ import { DoorKnockStatusSchema } from './DoorKnockingRoutePayload.schema'
 //
 // where each typed array sits at its manifest-declared byteOffset from the
 // START of the pack (f32/u32 arrays are 4-byte aligned). Consumers must
-// trust the manifest, not a fixed layout. The `canvassStatus` dim is joined
-// inside the encoder from the statuses gp-api sends with the request — the
-// binary is never patched after the fact.
+// trust the manifest, not a fixed layout. The `canvassStatus` and
+// `contactsMade` dims are joined inside the encoder from the per-organization
+// arrays gp-api sends with the request — the binary is never patched after
+// the fact.
 //
 // That pack rides inside the streaming envelope below, so its byteOffsets are
 // relative to the pack frame's payload rather than to byte 0 of the response.
@@ -31,6 +52,35 @@ export const DoorKnockingPackRequestSchema = z
           .strict(),
       )
       .max(200_000)
+      .optional(),
+    // The second per-organization plane: how many interactions this campaign
+    // has logged against each person, bucketed as the saved-list filter
+    // buckets it. Only people with at least one are sent — everyone else IS
+    // bucket 0, so the plane's default byte is already the right answer for
+    // them, and the array is bounded by who the campaign has contacted rather
+    // than by the district.
+    //
+    // ABSENT AND EMPTY MEAN DIFFERENT THINGS, and the encoder treats them so.
+    // An empty array is an organization that has contacted nobody, which is a
+    // fact the map can shade ("0 prior contacts" is everyone). Absent means
+    // gp-api could not answer — see PACK_CONTACTS_MADE_MAX — and the plane is
+    // then left out of the pack entirely, which the client reads through the
+    // same unpreviewable-filter disclosure that names any other dim it lacks.
+    contactsMade: z
+      .array(
+        z
+          .object({
+            personId: z.guid(),
+            // Index into CONTACTS_MADE_BUCKETS; never 0, since bucket 0 is
+            // the plane's default and sending it would be a wasted row.
+            bucket: z
+              .int()
+              .min(1)
+              .max(CONTACTS_MADE_BUCKETS.length - 1),
+          })
+          .strict(),
+      )
+      .max(PACK_CONTACTS_MADE_MAX)
       .optional(),
   })
   .strict()
@@ -97,6 +147,22 @@ export const DoorKnockingPackArraySchema = z.object({
 
 export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 
+// What the district scan MEANS, as opposed to how the bytes are framed.
+// `version` below is the framing: bump it only when a decoder written for the
+// old one would read the new bytes wrongly, because doing so is designed to
+// make every old client reject the pack. This number is the other axis — the
+// vocabulary of the district-scoped dims, whose buckets a client reads out of
+// the manifest and therefore survives a change to. Nothing on the wire carries
+// it and nothing needs to; it exists so the planned per-district pack cache
+// (docs/perf/voter-pack-headroom.md, option 1) can key on
+// `(districtId, mirrorVersion, PACK_FORMAT_REVISION)` and stop serving a
+// cached buffer whose age buckets predate the code that would read it.
+//
+// Increment when a district-scoped dim's key or bucket list changes. Do NOT
+// increment for the per-organization planes: those are rebuilt per request
+// under any caching design, so a cached artifact never contains a stale one.
+export const PACK_FORMAT_REVISION = 1
+
 export const DoorKnockingPackManifestSchema = z
   .object({
     version: z.literal(1),
@@ -111,7 +177,14 @@ export const DoorKnockingPackManifestSchema = z
     dims: z.array(DoorKnockingPackDimSchema),
     arrays: z.array(DoorKnockingPackArraySchema),
   })
-  .strict()
+  // Deliberately NOT `.strict()`, unlike every nested object above. The
+  // browser parses this manifest with whatever schema shipped in ITS bundle,
+  // so a strict top level makes adding any manifest field a change that breaks
+  // every tab open across the deploy — the pack throws in `decodePack` and the
+  // map fails to load, rather than degrading. Tolerating unknown keys costs
+  // nothing (`superRefine` below, not the key list, is what actually keeps
+  // producer and consumer honest) and makes the manifest additively
+  // extensible, which a versioned wire format has to be.
   .superRefine((manifest, ctx) => {
     const byName = new Map(manifest.arrays.map((a) => [a.name, a]))
     for (const core of Object.values(PACK_CORE_ARRAYS)) {

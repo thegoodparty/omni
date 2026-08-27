@@ -540,6 +540,23 @@ Checked specifically, because this feature is used one-handed at a doorstep.
   recorded departure and it still looks right — the sheet stops short of the top
   so pressing a status chip still recolours dots the canvasser can see, which the
   scrolling column cannot do once you have scrolled past the map.
+- **The page itself does not scroll, at any width.** That claim is the whole
+  basis of the departure above — a sheet over a full-bleed map is only better
+  than the canvas's scrolling column if the map is actually all there — and it
+  was not true until 2026-08-26. The landing view sized its own column with
+  `h-[calc(100dvh-4rem)]` while nothing above it was pinned to the window, so
+  the campaign-manager chat's in-flow `h-24` spacer scrolled the document by
+  96px on a phone and 32px on a desktop, and the hard-coded `4rem` (the
+  `lg:hidden` mobile top bar) additionally left the desktop map 64px short of
+  the bottom of the window. Fixed in `NativeDoorKnockingPage` by letting the
+  flex chain supply the height; the reasoning is in `AGENTS.md`. Re-verify this
+  by rendering rather than by reading, and at more than one height — the
+  desktop case fit the viewport by 0px and the phone case did not, which is not
+  a difference textual inspection can show.
+- **The District voters legend wraps rather than scrolling sideways**, as of the
+  same date and the same reviewer. The canvas's own legend is a wrapping flow of
+  six chips; ours is seven, because `not_a_voter` is ours (ADR 0008). Checked at
+  320px, where all seven still lay out two to a row with nothing clipped.
 - **The door panel.** Bottom sheet under `lg`, right-hand panel above it, same as
   the canvas. The panel is 430px wide against the canvas's 448px; not worth a
   change.

@@ -21,3 +21,13 @@ export const PhonebookPageSchema = z.object({
   results: z.array(CallhubPhonebookSchema),
 })
 export type PhonebookPage = z.infer<typeof PhonebookPageSchema>
+
+// The `.../numbers_count` sub-resource the phonebook's hyperlinked `count`
+// field points at. Verified live: it returns loaded-contact counts split by
+// number kind — `phonenumber_count` is the calling-number (landline/robocall)
+// tally a bulk import fills, `mobilenumber_count` the texting-number tally.
+export const PhonebookNumbersCountSchema = z.object({
+  phonenumber_count: z.number(),
+  mobilenumber_count: z.number().nullish(),
+})
+export type PhonebookNumbersCount = z.infer<typeof PhonebookNumbersCountSchema>

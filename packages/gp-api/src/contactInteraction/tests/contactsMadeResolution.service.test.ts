@@ -8,7 +8,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { ContactInteractionDoorKnockService } from '../services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '../services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '../services/contactInteractionText.service'
-import { ContactsMadeResolutionService } from '../services/contactsMadeResolution.service'
+import {
+  ContactsMadeResolutionService,
+  type ContactsMadeBucket,
+} from '../services/contactsMadeResolution.service'
 
 const service = useTestService()
 
@@ -76,6 +79,104 @@ describe('ContactsMadeResolutionService', () => {
     texts = service.app.get(ContactInteractionTextService)
     robocalls = service.app.get(ContactInteractionRobocallService)
     doorKnocks = service.app.get(ContactInteractionDoorKnockService)
+  })
+
+  // The door-knocking pack's contacts-made plane. Same UNION ALL and same
+  // grouping as the resolution path below, so a person's bucket on the map is
+  // the bucket the filter will resolve them into rather than a second count.
+  describe('contactsMadeBuckets', () => {
+    it('buckets every contacted person, across channels and capped at 5+', async () => {
+      const org = await seedOrganization('org-plane-buckets')
+      await seedOutreach(org, OutreachType.text)
+      await seedText(org, 'p-one')
+      await seedText(org, 'p-two')
+      await seedRobocall(org, 'p-two')
+      for (let i = 0; i < 7; i += 1) await seedDoorKnock(org, 'p-many')
+
+      const rows = await resolution.contactsMadeBuckets(org, 100)
+
+      expect(
+        rows && [...rows].sort((a, b) => (a.personId < b.personId ? -1 : 1)),
+      ).toEqual([
+        { personId: 'p-many', bucket: 5 },
+        { personId: 'p-one', bucket: 1 },
+        { personId: 'p-two', bucket: 2 },
+      ])
+    })
+
+    // The plane's default byte is bucket 0, so an uncontacted person needs no
+    // row — and an organization that has contacted nobody is a legitimate
+    // empty answer rather than a missing one.
+    it('returns an empty list for an organization with no interactions', async () => {
+      const org = await seedOrganization('org-plane-empty')
+
+      await expect(resolution.contactsMadeBuckets(org, 100)).resolves.toEqual(
+        [],
+      )
+    })
+
+    // Truncating would read the dropped people as "0 prior contacts", which
+    // is the bucket candidates select most and the one answer that must never
+    // be invented.
+    it('gives up rather than truncating past the cap', async () => {
+      const org = await seedOrganization('org-plane-cap')
+      await seedText(org, 'p-a')
+      await seedText(org, 'p-b')
+
+      await expect(resolution.contactsMadeBuckets(org, 1)).resolves.toBeNull()
+    })
+
+    // ADR 0010: the map's shading and the list's membership are one quantity,
+    // so the plane and the resolution below must agree person-for-person for
+    // EVERY selection, not just the ones a test happens to pick. Disagreeing
+    // here would replace the honest "the map can't shade this" caveat with a
+    // silent superset, which is strictly worse.
+    it('agrees with resolveContactsMade on every selection', async () => {
+      const org = await seedOrganization('org-plane-agrees')
+      await seedText(org, 'p-1')
+      await seedText(org, 'p-2')
+      await seedRobocall(org, 'p-2')
+      await seedDoorKnock(org, 'p-3')
+      await seedPhoneBanking(org, 'p-3')
+      await seedText(org, 'p-3')
+      for (let i = 0; i < 6; i += 1) await seedText(org, 'p-6')
+      const everyone = ['p-1', 'p-2', 'p-3', 'p-6', 'p-never']
+
+      const plane = await resolution.contactsMadeBuckets(org, 100)
+      const bucketOf = new Map(
+        plane!.map(({ personId, bucket }) => [personId, bucket as number]),
+      )
+      // What the MAP would shade: the plane's byte, defaulting to 0.
+      const shaded = (selected: Set<number>) =>
+        everyone.filter((id) => selected.has(bucketOf.get(id) ?? 0))
+
+      // What the LIST would serve, played out through each resolution shape.
+      const served = async (selected: Set<ContactsMadeBucket>) => {
+        const result = await resolution.resolveContactsMade(org, selected)
+        if (result.kind === 'none') return everyone
+        if (result.kind === 'empty') return []
+        if (result.kind === 'override') {
+          const include = new Set(result.idOverrides.include ?? [])
+          const exclude = new Set(result.idOverrides.exclude ?? [])
+          return everyone.filter((id) => include.has(id) || !exclude.has(id))
+        }
+        const { idFilter } = result
+        return 'in' in idFilter
+          ? everyone.filter((id) => idFilter.in.includes(id))
+          : everyone.filter((id) => !idFilter.notIn.includes(id))
+      }
+
+      // All 63 non-empty selections over {0,1,2,3,4,5}.
+      for (let mask = 1; mask < 1 << 6; mask += 1) {
+        const selected = new Set(
+          [0, 1, 2, 3, 4, 5].filter((bucket) => mask & (1 << bucket)),
+        )
+        expect(
+          await served(selected as Set<ContactsMadeBucket>),
+          `selection {${[...selected]}}`,
+        ).toEqual(shaded(selected))
+      }
+    })
   })
 
   describe('personIdsByContactCount', () => {

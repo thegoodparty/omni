@@ -70,6 +70,7 @@ import {
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import { useVoterOutreachV2Flag } from '@shared/experiments/voterOutreachV2Flag'
 
 interface MenuItem {
   id: string
@@ -282,11 +283,15 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 // DoorKnockingPageGate decides on the page itself. `proAccess` is the CRM's
 // canUseProFeatures (isPro OR elected office), which is the same predicate
 // gp-api's ContactsService.assertProAccess enforces on every native route.
+// `outreachHubEnabled` is the settled `voter-outreach-v2` value — whether the
+// candidate's Voter Outreach tab is the hub that carries the door-knocking
+// channel tile.
 interface DoorKnockingNavGate {
   ecanvasserConnected: boolean
   nativeEnabled: boolean
   districtResolvable: boolean
   proAccess: boolean
+  outreachHubEnabled: boolean
 }
 
 export const getDashboardMenuItems = (
@@ -302,6 +307,7 @@ export const getDashboardMenuItems = (
     nativeEnabled: false,
     districtResolvable: false,
     proAccess: false,
+    outreachHubEnabled: false,
   },
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
@@ -413,10 +419,25 @@ export const getDashboardMenuItems = (
   // (assume access until refused) would flash a Pro-only link at every non-Pro
   // Win candidate, which is the thing this entry is hidden to avoid; the page
   // gate, which can show a real loading state, is where that wait belongs.
-  const doorKnockingShown = doorKnocking.nativeEnabled
+  //
+  // Door knocking is a channel of Voter Outreach, not a peer of it, so the hub
+  // is where it is entered from: `v2/ChannelTileGrid.tsx` has a door-knocking
+  // tile that routes here and carries the selected saved list as `?listId=`,
+  // which a top-level nav entry cannot do. The tile only exists on the v2 hub
+  // though, and `voter-outreach-v2` is a separate Amplitude experiment from
+  // `native-door-knocking` — a candidate can be on one and not the other, and
+  // an unassigned flag reads off. So the entry is withdrawn from the cohort
+  // that HAS the tile rather than from everyone: dropping it unconditionally
+  // would leave a pilot candidate whose outreach tab is still the legacy page
+  // with no route into the feature at all. Once the hub is at 100% and its
+  // flag is cleaned up, `outreachHubEnabled` goes with it and the item goes
+  // with that. Nothing here is an access check — Pro is enforced by
+  // DoorKnockingPageGate and by every `/v1/door-knocking` route (ENG-10888);
+  // `proAccess` above only decides whether a link worth following is offered.
+  const doorKnockingReachable = doorKnocking.nativeEnabled
     ? doorKnocking.districtResolvable && doorKnocking.proAccess
     : doorKnocking.ecanvasserConnected
-  if (doorKnockingShown) {
+  if (doorKnockingReachable && !doorKnocking.outreachHubEnabled) {
     menuItems.push(DOOR_KNOCKING_MENU_ITEM)
   }
 
@@ -443,6 +464,11 @@ export default function DashboardMenu({
   // The page's gate is the treatment surface, so read without tracking exposure.
   const { ready: nativeDoorKnockingReady, enabled: nativeDoorKnockingEnabled } =
     useNativeDoorKnockingFlag(false)
+  // OutreachPageGate is that experiment's treatment surface; the nav only needs
+  // to know whether the outreach tab is the hub that carries the door-knocking
+  // tile, so read it without tracking exposure.
+  const { ready: outreachHubReady, enabled: outreachHubEnabled } =
+    useVoterOutreachV2Flag(false)
   const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
   const campaignStrategyExists = useCampaignStrategyExists()
 
@@ -461,6 +487,7 @@ export default function DashboardMenu({
           nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
           districtResolvable: !isDistrictUnresolvable,
           proAccess: !!campaign?.isPro || !!electedOffice,
+          outreachHubEnabled: outreachHubReady && outreachHubEnabled,
         },
       ),
     [
@@ -474,6 +501,8 @@ export default function DashboardMenu({
       ordinancesEnabled,
       nativeDoorKnockingReady,
       nativeDoorKnockingEnabled,
+      outreachHubReady,
+      outreachHubEnabled,
       isDistrictUnresolvable,
       campaign,
     ],
