@@ -60,11 +60,7 @@ import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudience
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
-import {
-  ELECTION_FILING_PATH,
-  SUBMIT_PIN_PATH,
-} from 'app/dashboard/shared/ComplianceModal'
-import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import { getComplianceRoute } from 'app/dashboard/shared/complianceRoute'
 import {
   ChannelBadge,
   HistoryStatusText,
@@ -226,14 +222,8 @@ export const OutreachDetailsDrawer = ({
     (isCancelableSms ||
       (row !== null && getHistoryStatusLabel(row) === 'Scheduled'))
 
-  // ComplianceModal's status-aware target: SUBMITTED waits on the
-  // CampaignVerify PIN; anything else enters at the election-filing form.
   const startVerification = () => {
-    router.push(
-      tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
-        ? SUBMIT_PIN_PATH
-        : ELECTION_FILING_PATH,
-    )
+    router.push(getComplianceRoute(tcrCompliance?.status))
     onOpenChange(false)
   }
 

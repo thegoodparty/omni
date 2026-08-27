@@ -696,11 +696,12 @@ const TextingComplianceRegistrationForm = ({
       <TextingComplianceFooter>
         <Button
           size="large"
+          className="w-full lg:w-auto lg:min-w-[240px]"
           disabled={loading}
           loading={loading}
           onClick={handleOnSubmit}
         >
-          Submit
+          Submit for verification
         </Button>
       </TextingComplianceFooter>
     </>

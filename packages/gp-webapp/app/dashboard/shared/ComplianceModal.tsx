@@ -8,15 +8,14 @@ import Link from 'next/link'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrComplianceStatus } from 'helpers/types'
 
-export const SUBMIT_PIN_PATH =
-  '/dashboard/profile/texting-compliance/submit-pin'
-// The registration form (not the pre-payment Pro-upgrade wizard). An
-// already-Pro candidate with no TCR record routed into the wizard dead-ends on
-// its SUCCESS surface and loops back to the dashboard (ENG-10441); the
-// election-filing form calls createAgentic and is the correct entry for them,
-// matching ProUpgrade3Compliance's no-record branch.
-export const ELECTION_FILING_PATH =
-  '/dashboard/profile/texting-compliance/election-filing'
+// Paths + the status-aware route decision live in the plain (server-safe)
+// complianceRoute module; re-exported here for existing importers.
+import {
+  SUBMIT_PIN_PATH,
+  ELECTION_FILING_PATH,
+} from 'app/dashboard/shared/complianceRoute'
+
+export { SUBMIT_PIN_PATH, ELECTION_FILING_PATH }
 
 interface ComplianceModalProps {
   open: boolean

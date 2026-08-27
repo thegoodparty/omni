@@ -1,7 +1,6 @@
 'use client'
-import H2 from '@shared/typography/H2'
-import H5 from '@shared/typography/H5'
-import TextingComplianceHeader from 'app/dashboard/profile/texting-compliance/shared/TextingComplianceHeader'
+import { TakeoverShell } from 'app/dashboard/shared/takeover/TakeoverShell'
+import { VerificationBadge } from 'app/dashboard/shared/takeover/VerificationBadge'
 import { FormDataProvider } from '@shared/hooks/useFormData'
 import {
   TextingComplianceSubmitPinForm,
@@ -44,13 +43,16 @@ const TextingComplianceSubmitPinPage = ({
   const handleFormSubmit = ({ pin }: PinFormData) => submit(pin)
 
   return (
-    <div className="bg-white pt-2 md:pt-0">
-      <TextingComplianceHeader>
-        <H5 className="flex-1 text-center md:hidden">Enter your PIN</H5>
-      </TextingComplianceHeader>
-
-      <div className="mx-auto max-w-2xl px-4 py-6 md:px-8 md:py-8">
-        <H2 className="mb-6 hidden md:block">Enter your PIN</H2>
+    <TakeoverShell
+      eyebrow="Verify campaign"
+      progressValue={100}
+      closeHref="/dashboard/account"
+    >
+      <div className="mb-4 flex">
+        <VerificationBadge />
+      </div>
+      <div>
+        <h1 className="mb-6 text-xl font-semibold">Enter your PIN</h1>
 
         {pinGate.state === CV_PIN_GATE.LOADING ? (
           <div className="text-sm text-gray-500">Loading…</div>
@@ -73,7 +75,7 @@ const TextingComplianceSubmitPinPage = ({
           <CvVerificationInProgressNotice />
         )}
       </div>
-    </div>
+    </TakeoverShell>
   )
 }
 

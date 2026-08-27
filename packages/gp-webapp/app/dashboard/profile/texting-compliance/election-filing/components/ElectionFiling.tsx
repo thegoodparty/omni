@@ -1,7 +1,7 @@
 'use client'
-import { ChevronLeft } from 'lucide-react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { TakeoverShell } from 'app/dashboard/shared/takeover/TakeoverShell'
+import { VerificationBadge } from 'app/dashboard/shared/takeover/VerificationBadge'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FormDataProvider, FormDataState } from '@shared/hooks/useFormData'
@@ -142,83 +142,85 @@ export default function ElectionFiling(): React.JSX.Element {
   }
 
   return (
-    <div className="min-h-screen bg-white pt-2 md:pt-4">
-      <div className="mx-auto w-full max-w-2xl p-4">
-        <div className="flex items-center justify-between">
-          <Link href="/dashboard/account" aria-label="Back to account">
-            <ChevronLeft className="h-6 w-6" />
-          </Link>
-          <div className="font-medium md:text-xl">Election filing</div>
-          <div>&nbsp;</div>
-        </div>
-
-        <div className="mt-10">
-          {ready ? (
-            <FormDataProvider
-              initialState={getInitialFormState(campaign)}
-              validator={validateAgenticForm}
-            >
-              <TextingComplianceRegistrationForm
-                onSubmit={handleFormSubmit}
-                loading={loading}
-                hasSubmissionError={hasSubmissionError}
-                requireWebsite={false}
-                // The profile section rides inside the form so the combined
-                // validation alert stays at the very top of the page, above
-                // it. Its errors join that alert via extraErrors (the
-                // section's own alert is suppressed) and block submission via
-                // onValidateExtra.
-                topSection={
-                  needsProfile ? (
-                    <div className="mb-4">
-                      <h2 className="text-lg font-medium">
-                        Tell voters about yourself
-                      </h2>
-                      <p className="mt-1 mb-6 text-sm text-muted-foreground">
-                        We need your candidate profile to register your campaign
-                        for texting. Please be as descriptive as possible to
-                        ensure your registration is approved.
-                      </p>
-                      <CandidateProfileFields
-                        form={profileForm}
-                        hideValidationAlert
-                      />
-                    </div>
-                  ) : undefined
-                }
-                onValidateExtra={
-                  needsProfile ? profileForm.validate : undefined
-                }
-                extraErrors={
-                  needsProfile
-                    ? [
-                        ...(profileForm.bioError
-                          ? [
-                              {
-                                label: 'Your why',
-                                message: profileForm.bioError,
-                              },
-                            ]
-                          : []),
-                        ...(profileForm.prioritiesError
-                          ? [
-                              {
-                                label: 'Your policy priorities',
-                                message: profileForm.prioritiesError,
-                              },
-                            ]
-                          : []),
-                      ]
-                    : []
-                }
-              />
-            </FormDataProvider>
-          ) : (
-            <div className="text-sm text-muted-foreground">Loading…</div>
-          )}
-        </div>
+    <TakeoverShell
+      eyebrow="Verify campaign"
+      progressValue={67}
+      closeHref="/dashboard/account"
+    >
+      <div className="mb-4 flex">
+        <VerificationBadge />
       </div>
-    </div>
+      <div className="mb-6 flex flex-col gap-2">
+        <h1 className="text-xl font-semibold">Election filing</h1>
+        <p className="text-base text-muted-foreground">
+          Your filing details verify that you filed with your local election
+          authority.
+        </p>
+      </div>
+      <div>
+        {ready ? (
+          <FormDataProvider
+            initialState={getInitialFormState(campaign)}
+            validator={validateAgenticForm}
+          >
+            <TextingComplianceRegistrationForm
+              onSubmit={handleFormSubmit}
+              loading={loading}
+              hasSubmissionError={hasSubmissionError}
+              requireWebsite={false}
+              // The profile section rides inside the form so the combined
+              // validation alert stays at the very top of the page, above
+              // it. Its errors join that alert via extraErrors (the
+              // section's own alert is suppressed) and block submission via
+              // onValidateExtra.
+              topSection={
+                needsProfile ? (
+                  <div className="mb-4">
+                    <h2 className="text-lg font-medium">
+                      Tell voters about yourself
+                    </h2>
+                    <p className="mt-1 mb-6 text-sm text-muted-foreground">
+                      We need your candidate profile to register your campaign
+                      for texting. Please be as descriptive as possible to
+                      ensure your registration is approved.
+                    </p>
+                    <CandidateProfileFields
+                      form={profileForm}
+                      hideValidationAlert
+                    />
+                  </div>
+                ) : undefined
+              }
+              onValidateExtra={needsProfile ? profileForm.validate : undefined}
+              extraErrors={
+                needsProfile
+                  ? [
+                      ...(profileForm.bioError
+                        ? [
+                            {
+                              label: 'Your why',
+                              message: profileForm.bioError,
+                            },
+                          ]
+                        : []),
+                      ...(profileForm.prioritiesError
+                        ? [
+                            {
+                              label: 'Your policy priorities',
+                              message: profileForm.prioritiesError,
+                            },
+                          ]
+                        : []),
+                    ]
+                  : []
+              }
+            />
+          </FormDataProvider>
+        ) : (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        )}
+      </div>
+    </TakeoverShell>
   )
 }
 

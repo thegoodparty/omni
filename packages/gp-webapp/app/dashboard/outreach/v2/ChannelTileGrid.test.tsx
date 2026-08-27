@@ -197,7 +197,9 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
 
     await userEvent.click(screen.getByText('Phone banking'))
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade?src=outreach',
+    )
     expect(onCreatePhoneBanking).not.toHaveBeenCalled()
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })

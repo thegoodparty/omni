@@ -1,14 +1,40 @@
 'use client'
+import { useContext, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useFormData } from '@shared/hooks/useFormData'
+import { TakeoverFooterSlotContext } from 'app/dashboard/shared/takeover/TakeoverShell'
 
 interface TextingComplianceFooterProps {
   children: React.ReactNode
 }
 
+const useIsomorphicLayoutEffect =
+  typeof window === 'undefined' ? useEffect : useLayoutEffect
+
+// The compliance forms' submit bar. Under a TakeoverShell (the compliance
+// pages now render inside the Voter Outreach 2.0 takeover chrome) the actions
+// portal into the shell's pinned footer with the design's row anatomy; the
+// standalone fixed bar remains for any mount outside a shell (tests, legacy).
 export default function TextingComplianceFooter({
   children,
 }: TextingComplianceFooterProps): React.JSX.Element {
   useFormData()
+  const { element, register } = useContext(TakeoverFooterSlotContext)
+
+  useIsomorphicLayoutEffect(() => {
+    register(1)
+    return () => register(-1)
+  }, [register])
+
+  if (element) {
+    return createPortal(
+      <div className="flex w-full flex-col gap-3 lg:flex-row-reverse lg:justify-between">
+        {children}
+      </div>,
+      element,
+    )
+  }
+
   return (
     <div
       className="

@@ -24,7 +24,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertTitle,
-  Badge,
   Button,
   Card,
 } from '@styleguide'
@@ -41,11 +40,8 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
-import {
-  ELECTION_FILING_PATH,
-  SUBMIT_PIN_PATH,
-} from 'app/dashboard/shared/ComplianceModal'
-import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import { getComplianceRoute } from 'app/dashboard/shared/complianceRoute'
+import { VerificationBadge } from 'app/dashboard/shared/takeover/VerificationBadge'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -283,12 +279,7 @@ const VerificationRow = ({
 // next action is starting verification.
 const VerificationInterstitial = () => (
   <div className="space-y-6 py-8">
-    <Badge
-      shape="pill"
-      className="h-6.5 gap-1.5 border-transparent bg-info-light px-3 text-xs font-semibold text-foreground"
-    >
-      Verification
-    </Badge>
+    <VerificationBadge />
     <div className="space-y-2">
       <h2 className="text-2xl font-semibold text-foreground">
         One more step before this can send
@@ -716,15 +707,8 @@ export const SmsFlow = ({
     await onScheduled()
   }
 
-  // ComplianceModal's status-aware target: a SUBMITTED registration is
-  // waiting on the CampaignVerify PIN; anything else (typically no record)
-  // enters at the election-filing form.
   const startVerification = () => {
-    router.push(
-      tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
-        ? SUBMIT_PIN_PATH
-        : ELECTION_FILING_PATH,
-    )
+    router.push(getComplianceRoute(tcrCompliance?.status))
     onClose()
   }
 
