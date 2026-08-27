@@ -272,5 +272,6 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
       where: { outreach: { campaignId: CAMPAIGN_ID } },
     })
     expect(rows).toBe(1)
+    findFirstSpy.mockRestore()
   })
 })

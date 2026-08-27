@@ -164,8 +164,10 @@ export class OutreachRobocallService extends createPrismaBase(
         const raced = await this.findExistingDraft(campaign.id, input.audioKey)
         if (raced) return raced
         // Same audioKey already used by a robocall no longer awaiting payment:
-        // a duplicate we can't return as a draft. Surface a clean 409, not a
-        // raw P2002 (there is no global Prisma filter to map it).
+        // a duplicate we can't return as a draft. Surface a clean 409
+        // explicitly: the global PrismaExceptionFilter maps P2002 only via
+        // `instanceof`, unreliable under CI's dual Prisma runtime (see
+        // isUniqueConstraintError), so a rethrown P2002 could reach a 500.
         throw new ConflictException(
           'This recording has already been used for a robocall',
         )
