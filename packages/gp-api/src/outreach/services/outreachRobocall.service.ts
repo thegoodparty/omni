@@ -76,6 +76,19 @@ export class OutreachRobocallService extends createPrismaBase(
     return pagination.totalResults
   }
 
+  // A robocall to zero reachable landlines is not a purchasable send: a 0
+  // count yields a 0 amount, and the payments free-checkout path treats a 0
+  // amount as a fully-covered purchase — it would mint a synthetic free
+  // session and mark the robocall paid with no Stripe charge. Reject at both
+  // draft create and the live checkout re-derive so that path is never reached.
+  private assertReachableCount(count: number): void {
+    if (count === 0) {
+      throw new BadRequestException(
+        'This voter list has no reachable landline numbers to call',
+      )
+    }
+  }
+
   // Persists the robocall as a pending_payment draft (spine + satellite) BEFORE
   // checkout, so a payment-webhook finalize is self-contained when the browser
   // is gone (mirrors the p2p draft-first flow). Derives the count/amount here
@@ -89,6 +102,7 @@ export class OutreachRobocallService extends createPrismaBase(
       organization,
       input.voterFileFilterId,
     )
+    this.assertReachableCount(billableCount)
     const amountInCents = calcRobocallAmountInCents(billableCount)
 
     const outreachId = await this.client.$transaction(async (tx) => {
@@ -171,9 +185,12 @@ export class OutreachRobocallService extends createPrismaBase(
         `Organization ${organizationSlug} not found`,
       )
     }
-    return calcRobocallAmountInCents(
-      await this.deriveBillableCount(organization, voterFileFilterId),
+    const count = await this.deriveBillableCount(
+      organization,
+      voterFileFilterId,
     )
+    this.assertReachableCount(count)
+    return calcRobocallAmountInCents(count)
   }
 
   // Same guard as deriveDraftAmount, used by validatePurchase to reject a

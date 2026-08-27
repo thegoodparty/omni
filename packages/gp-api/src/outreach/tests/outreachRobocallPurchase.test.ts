@@ -173,6 +173,21 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
+
+  // A zero-landline audience derives a 0 amount, which the payments
+  // free-checkout path (amount === 0) would settle as a free "paid" robocall
+  // with no Stripe charge. Reject it before any draft is persisted.
+  it('rejects an audience with no reachable landlines', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(0))
+
+    const res = await postDraft(validDraftBody())
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
 })
 
 describe('robocall purchase handler — server-derived billing', () => {
@@ -196,6 +211,19 @@ describe('robocall purchase handler — server-derived billing', () => {
     })
 
     expect(amount).toBe(calcRobocallAmountInCents(4321))
+  })
+
+  it('calculateAmount rejects an audience that emptied to zero landlines', async () => {
+    const outreachId = await draftARow(500)
+
+    // The audience now resolves to no landlines — a 0 amount here would slip
+    // through the payments free-checkout path, so it must throw instead.
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(0))
+
+    const handler = service.app.get(OutreachRobocallPurchaseService)
+    await expect(
+      handler.calculateAmount({ outreachId, campaignId: CAMPAIGN_ID }),
+    ).rejects.toThrow()
   })
 
   it('createCheckoutSession bills the derived amount and carries outreachId', async () => {

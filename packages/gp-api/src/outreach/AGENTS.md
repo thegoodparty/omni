@@ -66,7 +66,10 @@ returns the SERVER-derived landline count + amount (contracts
 `RobocallDraftCreateResponse`). The billable count comes from
 `voterFileFilterId` with the `hasLandline` dimension forced (the same reachable
 count the audience step showed and `RobocallPhonebookService` dials) — a client
-count is never accepted. The draft id rides in the checkout-session metadata as
+count is never accepted. An audience with no reachable landlines is rejected at
+both draft create and the live checkout re-derive: a 0 count yields a 0 amount,
+which the payments free-checkout path (`amount === 0`) would otherwise settle as
+an unpaid `paid` robocall. The draft id rides in the checkout-session metadata as
 `outreachId`; `PurchaseType.ROBOCALL`'s handler re-derives the amount live at
 checkout (not the persisted snapshot) and, on payment completion, atomically
 claims `pending_payment → paid` — no dialing / CallHub campaign here (the send

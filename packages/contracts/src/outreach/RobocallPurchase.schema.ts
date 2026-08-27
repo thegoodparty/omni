@@ -1,8 +1,5 @@
 import { z } from 'zod'
-import {
-  RobocallPurposeSchema,
-  ROBOCALL_SCRIPT_MAX_LENGTH,
-} from './RobocallScript.schema'
+import { ROBOCALL_SCRIPT_MAX_LENGTH } from './RobocallScript.schema'
 
 // POST /v1/outreach/robocall — creates the robocall as a `pending_payment`
 // draft BEFORE checkout (mirrors the p2p draft-first flow), storing everything
@@ -22,7 +19,6 @@ export const RobocallDraftCreateRequestSchema = z.object({
   scheduledAt: z.string().datetime(),
   // The script the candidate read into the recording (display/record only).
   script: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
-  purpose: RobocallPurposeSchema.optional(),
   name: z.string().min(1).max(120).optional(),
 })
 export type RobocallDraftCreateRequest = z.infer<
