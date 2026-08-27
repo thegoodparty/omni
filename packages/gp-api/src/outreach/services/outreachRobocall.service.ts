@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
 import { isFuture, parseISO } from 'date-fns'
 import { RobocallDraftCreateRequest } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -159,6 +163,12 @@ export class OutreachRobocallService extends createPrismaBase(
       if (isUniqueConstraintError(err)) {
         const raced = await this.findExistingDraft(campaign.id, input.audioKey)
         if (raced) return raced
+        // Same audioKey already used by a robocall no longer awaiting payment:
+        // a duplicate we can't return as a draft. Surface a clean 409, not a
+        // raw P2002 (there is no global Prisma filter to map it).
+        throw new ConflictException(
+          'This recording has already been used for a robocall',
+        )
       }
       throw err
     }

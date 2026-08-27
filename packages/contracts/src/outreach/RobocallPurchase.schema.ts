@@ -15,9 +15,18 @@ export const RobocallDraftCreateRequestSchema = z.object({
   audioKey: z.string().min(1),
   // The rented CallHub caller-ID number the candidate reads aloud.
   callbackNumber: z.string().min(1).max(32),
-  // When the robocall should go out, ISO-8601. offset:true so a browser's
-  // local-offset timestamp (e.g. -05:00) is accepted, not only UTC 'Z'.
-  scheduledAt: z.string().datetime({ offset: true }),
+  // When the robocall should go out, ISO-8601 WITH a timezone offset (not UTC
+  // 'Z'). The offset is required because the server takes the local calendar
+  // day from this string (its date portion) to schedule the dial — a bare 'Z'
+  // erases the offset, so an evening US send would record the next UTC day.
+  scheduledAt: z
+    .string()
+    .datetime({ offset: true })
+    .refine((value) => !value.endsWith('Z'), {
+      message:
+        'scheduledAt must include a timezone offset, not UTC Z, so the ' +
+        'local send day is unambiguous',
+    }),
   // The script the candidate read into the recording (display/record only).
   script: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
   name: z.string().min(1).max(120).optional(),

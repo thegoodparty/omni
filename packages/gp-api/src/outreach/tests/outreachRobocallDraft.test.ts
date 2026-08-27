@@ -82,7 +82,10 @@ const validDraftBody = () => ({
   voterFileFilterId: filterId,
   audioKey: `robocall/${CAMPAIGN_ID}/clip.webm`,
   callbackNumber: '+15125550123',
-  scheduledAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+  // Offset-annotated (the schema rejects a bare UTC 'Z').
+  scheduledAt: new Date(Date.now() + 3 * 86_400_000)
+    .toISOString()
+    .replace('Z', '+00:00'),
   script: 'This is Jane Doe. Paid for by Jane for Council, 512-555-0123.',
 })
 
@@ -93,8 +96,7 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
   it('persists a pending_payment spine + satellite with the server count', async () => {
     findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
 
-    const body = validDraftBody()
-    const res = await postDraft(body)
+    const res = await postDraft(validDraftBody())
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({
@@ -117,9 +119,6 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(spine.outreachType).toBe(OutreachType.robocall)
     expect(spine.status).toBe(OutreachStatus.pending_payment)
     expect(spine.voterFileFilterId).toBe(filterId)
-    // Local calendar day captured from the offset-annotated payload, not
-    // derived from the UTC `date` instant.
-    expect(spine.scheduledLocalDate).toBe(body.scheduledAt.slice(0, 10))
     expect(spine.robocall).toMatchObject({
       audioKey: `robocall/${CAMPAIGN_ID}/clip.webm`,
       callbackNumber: '+15125550123',
@@ -131,6 +130,42 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(spine.robocall?.authorizationIntentId).toBeNull()
     expect(spine.robocall?.capturedAmountInCents).toBeNull()
     expect(spine.robocall?.payAttempt).toBe(0)
+  })
+
+  // Local calendar day, not the UTC date: an evening local send whose UTC
+  // instant lands on the next day must store the LOCAL day.
+  it('captures the local calendar day, not the UTC date', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    // A far-future local day at 20:00 -05:00 -> 01:00Z the NEXT day.
+    const localDay = new Date(Date.now() + 10 * 86_400_000)
+      .toISOString()
+      .slice(0, 10)
+    const res = await postDraft({
+      ...validDraftBody(),
+      scheduledAt: `${localDay}T20:00:00-05:00`,
+    })
+
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: res.data.outreachId },
+    })
+    expect(spine.scheduledLocalDate).toBe(localDay)
+    // The UTC instant is the next day — prove we didn't store that.
+    expect(spine.date?.toISOString().slice(0, 10)).not.toBe(localDay)
+  })
+
+  it('rejects a Z (UTC, no offset) scheduledAt, writing no row', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      scheduledAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
   })
 
   it('rejects an audioKey from another campaign, writing no row', async () => {
