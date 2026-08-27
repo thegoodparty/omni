@@ -213,11 +213,36 @@ describe('SmsFlow', () => {
     const target = new Date()
     target.setDate(target.getDate() + 4)
     await userEvent.click(screen.getByText('Pick a date'))
-    const dayButton = await screen.findByRole('button', {
-      name: new RegExp(
-        `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
-      ),
-    })
+    await screen.findByText(
+      new Date().toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+      }),
+      undefined,
+      { timeout: 15000 },
+    )
+    if (target.getMonth() !== new Date().getMonth()) {
+      await userEvent.click(
+        await screen.findByRole('button', { name: /next month/i }),
+      )
+      await screen.findByText(
+        target.toLocaleDateString('en-US', {
+          month: 'long',
+          year: 'numeric',
+        }),
+        undefined,
+        { timeout: 15000 },
+      )
+    }
+    const dayButton = await screen.findByRole(
+      'button',
+      {
+        name: new RegExp(
+          `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
+        ),
+      },
+      { timeout: 15000 },
+    )
     expect(dayButton).toBeEnabled()
     await userEvent.click(dayButton)
     expect(
@@ -262,12 +287,32 @@ describe('SmsFlow', () => {
     const target = new Date()
     target.setDate(target.getDate() + 4)
     await userEvent.click(screen.getByText('Pick a date'))
+    // The caption is the tell for the calendar's actual state: a click that
+    // silently no-ops (the CI-only failure mode) surfaces here by name
+    // instead of as a missing day button two waits later.
+    const monthCaption = (d: Date) =>
+      d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    await screen.findByText(monthCaption(new Date()), undefined, {
+      timeout: 15000,
+    })
+    if (target.getMonth() !== new Date().getMonth()) {
+      await userEvent.click(
+        await screen.findByRole('button', { name: /next month/i }),
+      )
+      await screen.findByText(monthCaption(target), undefined, {
+        timeout: 15000,
+      })
+    }
     await userEvent.click(
-      await screen.findByRole('button', {
-        name: new RegExp(
-          `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
-        ),
-      }),
+      await screen.findByRole(
+        'button',
+        {
+          name: new RegExp(
+            `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
+          ),
+        },
+        { timeout: 15000 },
+      ),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -389,6 +434,14 @@ describe('SmsFlow', () => {
     const target = new Date()
     target.setDate(target.getDate() + 16)
     await userEvent.click(screen.getByText('Pick a date'))
+    await screen.findByText(
+      new Date().toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+      }),
+      undefined,
+      { timeout: 15000 },
+    )
     if (target.getMonth() !== new Date().getMonth()) {
       await userEvent.click(
         await screen.findByRole(
@@ -396,6 +449,14 @@ describe('SmsFlow', () => {
           { name: /next month/i },
           { timeout: 15000 },
         ),
+      )
+      await screen.findByText(
+        target.toLocaleDateString('en-US', {
+          month: 'long',
+          year: 'numeric',
+        }),
+        undefined,
+        { timeout: 15000 },
       )
     }
     await userEvent.click(
