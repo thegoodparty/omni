@@ -848,16 +848,19 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('offers Delete only on a canceled row and removes it from the history', async () => {
+  it('offers Move to archive on a canceled row — history is never hard-deleted', async () => {
     mockNoReceipt()
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: { ...smsDetail, status: 'canceled' },
     })
-    let deleteParams: unknown
-    api.mock('DELETE /v1/outreach/:id', ({ params }) => {
-      deleteParams = params
-      return { status: 200, data: undefined }
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ body }) => {
+      archiveBody = body
+      return {
+        status: 200,
+        data: { id: 41, archivedAt: '2026-08-27T00:00:00Z' },
+      }
     })
 
     const onOpenChange = vi.fn()
@@ -871,14 +874,13 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(
       screen.queryByRole('button', { name: 'Cancel campaign' }),
     ).not.toBeInTheDocument()
-    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
-    expect(await screen.findByText('Delete this campaign?')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' }),
+    ).not.toBeInTheDocument()
     await userEvent.click(
-      within(screen.getByRole('alertdialog')).getByRole('button', {
-        name: 'Delete',
-      }),
+      await screen.findByRole('button', { name: 'Move to archive' }),
     )
-    expect(deleteParams).toEqual({ id: '41' })
+    expect(archiveBody).toEqual({ archived: true })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 

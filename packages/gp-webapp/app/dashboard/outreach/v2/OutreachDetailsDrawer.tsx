@@ -274,21 +274,6 @@ export const OutreachDetailsDrawer = ({
       errorSnackbar("Couldn't cancel this campaign. Please try again."),
   })
 
-  const [deleteCanceledConfirmOpen, setDeleteCanceledConfirmOpen] =
-    useState(false)
-  const deleteCanceledMutation = useMutation({
-    mutationFn: (rowId: number) =>
-      clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
-    onSuccess: (_data, rowId) => {
-      setOutreaches(outreaches.filter((o) => o.id !== rowId))
-      setDeleteCanceledConfirmOpen(false)
-      onOpenChange(false)
-      successSnackbar('Campaign deleted.')
-    },
-    onError: () =>
-      errorSnackbar("Couldn't delete this campaign. Please try again."),
-  })
-
   // The envelope's flag for every channel that owns its own archive, and the
   // TURF's for a walk. They are one act with two rows, and the turf is the
   // source the envelope is mirrored off — so a list archived before that
@@ -425,16 +410,19 @@ export const OutreachDetailsDrawer = ({
       </div>
     </div>
   ) : isCanceled ? (
+    // Canceled rows keep their record (product decision: history is never
+    // hard-deleted — archiving preserves results and generated content off
+    // the main table). Same action pair completed rows get.
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px]">
         <Button
           variant="outline"
-          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
-          disabled={deleteCanceledMutation.isPending}
-          onClick={() => setDeleteCanceledConfirmOpen(true)}
+          className="flex-1"
+          disabled={archiveMutation.isPending}
+          onClick={() => archiveMutation.mutate()}
         >
-          <Trash2Icon className="size-4" />
-          Delete
+          <ArchiveIcon className="size-4" />
+          {isArchived ? 'Restore from archive' : 'Move to archive'}
         </Button>
       </div>
     </div>
@@ -447,11 +435,7 @@ export const OutreachDetailsDrawer = ({
         onOpenChange={onOpenChange}
         title={row?.name || row?.title || 'Outreach details'}
         onInteractOutside={(event) => {
-          if (
-            cancelConfirmOpen ||
-            deleteConfirmOpen ||
-            deleteCanceledConfirmOpen
-          ) {
+          if (cancelConfirmOpen || deleteConfirmOpen) {
             event.preventDefault()
           }
         }}
@@ -1034,31 +1018,6 @@ export const OutreachDetailsDrawer = ({
                   rowId: row.id,
                 })
               }
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={deleteCanceledConfirmOpen}
-        onOpenChange={setDeleteCanceledConfirmOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this campaign?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the canceled campaign from your history. This
-              can&apos;t be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep campaign</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteCanceledMutation.isPending}
-              onClick={() => row && deleteCanceledMutation.mutate(row.id)}
             >
               Delete
             </AlertDialogAction>

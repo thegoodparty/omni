@@ -1,10 +1,7 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
-  HttpCode,
-  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -151,18 +148,6 @@ export class OutreachSocialController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<CancelOutreachResponse> {
     return this.outreachService.cancelOutreach(id, campaign.id)
-  }
-
-  // Campaign-scoped like cancel: only the owning campaign may erase its
-  // history row, and only after cancel has already unwound the money and
-  // the vendor job (the service enforces canceled-only).
-  @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(
-    @ReqCampaign() campaign: Campaign,
-    @Param('id', ParseIntPipe) id: number,
-  ): Promise<void> {
-    await this.outreachService.deleteCanceledOutreach(id, campaign.id)
   }
 
   // Campaign-scoped like cancel: the receipt is the paying campaign's
