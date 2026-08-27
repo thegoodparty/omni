@@ -15,13 +15,19 @@ interface TurfLegendProps {
 }
 
 /**
- * The seven canvass-status chips, on one horizontally scrolling row.
+ * The seven canvass-status chips, as a wrapping flow that is whole on screen.
  *
- * Wrapping was what the rail did before, and in a 384px column it stacked into
- * three rows of chips that pushed the saved lists off the first screen of the
- * feature. One row keeps the legend a strip under the count line at any width;
- * the row scrolls rather than truncating, because a chip a candidate cannot
- * reach is a filter they cannot clear.
+ * This was one horizontally scrolling row until 2026-08-26, when the product
+ * owner asked for the whole legend to be visible at once. The argument for
+ * scrolling is kept in AGENTS.md rather than deleted, because it was a real
+ * one: wrapped chips are taller, and the rail pays for that in list room.
+ *
+ * What makes wrapping affordable now is that the page is finally the height of
+ * the window (`NativeDoorKnockingPage`'s `min-h-0` wrapper), so the rail is a
+ * bounded card whose list region absorbs the extra rows by scrolling — the
+ * thing the original objection said would be pushed off screen. The chips are
+ * also drawn tighter than the DS default, which is what gets two of them onto
+ * a row in a 384px rail instead of one.
  */
 export default function TurfLegend({
   statusCounts,
@@ -31,9 +37,9 @@ export default function TurfLegend({
   pending,
 }: TurfLegendProps) {
   return (
-    // The scroll container is padded and negatively margined so a chip's focus
-    // ring isn't clipped by its own overflow.
-    <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    // Padded and negatively margined so a chip's focus ring isn't clipped at
+    // the edge of the rail's own padding.
+    <div className="-mx-1 px-1">
       <FilterPillGroup
         type="multiple"
         value={[...statusFilter]}
@@ -46,7 +52,10 @@ export default function TurfLegend({
           )
           if (changed) onToggleStatus(changed)
         }}
-        className="w-max flex-nowrap gap-1.5"
+        // `flex-wrap` is the DS default; naming it here is the point of the
+        // component, so it is stated rather than inherited. `gap-1.5` over the
+        // DS `gap-2` for the same reason the padding below is tighter.
+        className="flex-wrap gap-1.5"
         aria-label="Filter the map by canvass status"
       >
         {DOOR_KNOCK_STATUSES.map((status) => (
@@ -56,11 +65,21 @@ export default function TurfLegend({
             // A chip narrows WITHIN the scope, so with no scope to narrow it
             // could only flip its own pressed state and change nothing.
             disabled={!ready}
-            className="shrink-0 gap-1.5 px-2.5 py-1 text-xs"
+            // `max-w-full` is the narrow-viewport guard: a chip is never
+            // allowed to be wider than the rail, so the flow can always place
+            // it. `min-w-0` lets the label inside it shrink to make that true.
+            // At every width down to 320px the labels still fit whole — this
+            // is the floor that keeps a very narrow phone from overflowing
+            // sideways, not a truncation the layout expects to use.
+            className="max-w-full min-w-0 gap-1.5 px-2.5 py-1 text-xs"
           >
+            {/* `shrink-0` on both the dot and the count: the pill may now
+                shrink (see `min-w-0` above), and the two things a squeezed
+                chip must never give up are the colour that ties it to the dots
+                on the map and the number it is reporting. */}
             <span
               aria-hidden="true"
-              className="size-2 rounded-full"
+              className="size-2 shrink-0 rounded-full"
               style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
             />
             {STATUS_LABELS[status]}
@@ -69,16 +88,16 @@ export default function TurfLegend({
                 number: a skeleton while it can still arrive, an em dash once
                 it can't. */}
             {ready ? (
-              <span className="font-semibold tabular-nums">
+              <span className="shrink-0 font-semibold tabular-nums">
                 {(statusCounts[status] ?? 0).toLocaleString()}
               </span>
             ) : pending ? (
               <span
                 aria-hidden="true"
-                className="h-3 w-5 animate-pulse rounded bg-muted"
+                className="h-3 w-5 shrink-0 animate-pulse rounded bg-muted"
               />
             ) : (
-              <span className="font-semibold">&mdash;</span>
+              <span className="shrink-0 font-semibold">&mdash;</span>
             )}
           </FilterPill>
         ))}
