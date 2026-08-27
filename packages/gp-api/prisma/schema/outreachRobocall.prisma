@@ -1,0 +1,22 @@
+model OutreachRobocall {
+  id             Int      @id @default(autoincrement())
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  outreach       Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId     Int      @unique @map("outreach_id")
+  // The recorded audio's S3 object key (bucket ROBOCALL_AUDIO_BUCKET), persisted
+  // at draft so a payment-webhook finalize is self-contained when the browser
+  // is long gone.
+  audioKey       String   @map("audio_key")
+  // The rented CallHub caller-ID number the candidate reads aloud as the
+  // callback; held through payment for the later send slice to dial from.
+  callbackNumber String   @map("callback_number")
+  // Server-derived landline count at draft time (the audience's hasLandline
+  // reachable count). A snapshot for the record — the amount actually charged
+  // is re-derived live at checkout, never trusting this or a client value.
+  billableCount  Int      @map("billable_count")
+  // The prepay-on-estimate amount charged up front, in cents.
+  amountInCents  Int      @map("amount_in_cents")
+
+  @@map("outreach_robocall")
+}

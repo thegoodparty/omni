@@ -49,6 +49,8 @@ import type {
   RobocallNumberResponse,
   RobocallComplianceRequest,
   RobocallComplianceVerdict,
+  RobocallDraftCreateRequest,
+  RobocallDraftCreateResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
   PeoplePrecinctsResponse,
@@ -347,6 +349,17 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/compliance': {
     Request: RobocallComplianceRequest
     Response: RobocallComplianceVerdict
+  }
+
+  // Persists the robocall as a pending_payment draft before checkout
+  // (draft-first, like p2p). The billable landline count and estimate are
+  // derived server-side from voterFileFilterId — never a client count — and
+  // returned so the pay step shows what checkout will bill. The returned
+  // outreachId rides in the checkout-session metadata; the Stripe webhook
+  // finalizes the draft to `paid`.
+  'POST /v1/outreach/robocall': {
+    Request: RobocallDraftCreateRequest
+    Response: RobocallDraftCreateResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of

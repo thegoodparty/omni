@@ -293,6 +293,8 @@ export class PurchaseService {
         return 'SMS Outreach'
       case PurchaseType.POLL:
         return 'Poll Credits'
+      case PurchaseType.ROBOCALL:
+        return 'Robocall'
       default:
         return 'Purchase'
     }
@@ -377,6 +379,8 @@ export class PurchaseService {
       case PurchaseType.DOMAIN_REGISTRATION:
         return PaymentType.DOMAIN_REGISTRATION
       case PurchaseType.TEXT:
+        return PaymentType.OUTREACH_PURCHASE
+      case PurchaseType.ROBOCALL:
         return PaymentType.OUTREACH_PURCHASE
       case PurchaseType.POLL:
         return PaymentType.POLL

@@ -31,6 +31,8 @@ import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallPurchaseService } from './services/outreachRobocallPurchase.service'
 import { RobocallTranscriptionService } from './services/robocallTranscription.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { RobocallPhonebookService } from './services/robocallPhonebook.service'
@@ -79,6 +81,8 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,
     OutreachRobocallGenerationService,
+    OutreachRobocallService,
+    OutreachRobocallPurchaseService,
     RobocallTranscriptionService,
     RobocallComplianceService,
     RobocallPhonebookService,
@@ -97,6 +101,7 @@ export class OutreachModule {
   constructor(
     private readonly purchaseService: PurchaseService,
     private readonly outreachPurchaseHandler: OutreachPurchaseHandlerService,
+    private readonly robocallPurchaseHandler: OutreachRobocallPurchaseService,
   ) {
     this.purchaseService.registerPurchaseHandler(
       PurchaseType.TEXT,
@@ -107,6 +112,17 @@ export class OutreachModule {
       PurchaseType.TEXT,
       (sessionId, metadata) =>
         this.outreachPurchaseHandler.executePostPurchase(sessionId, metadata),
+    )
+
+    this.purchaseService.registerPurchaseHandler(
+      PurchaseType.ROBOCALL,
+      this.robocallPurchaseHandler,
+    )
+
+    this.purchaseService.registerCheckoutSessionPostPurchaseHandler(
+      PurchaseType.ROBOCALL,
+      (sessionId, metadata) =>
+        this.robocallPurchaseHandler.executePostPurchase(sessionId, metadata),
     )
   }
 }

@@ -18,7 +18,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 | `services/purchase.service.ts`     | Per-`PurchaseType` validation, amount calc, post-purchase handlers                                                                             |
 | `services/paymentEventsService.ts` | Stripe webhook event dispatcher (subscriptions, invoices, charges)                                                                             |
 | `payments.types.ts`                | `PaymentType`, `PaymentIntentPayload<T>`                                                                                                       |
-| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `POLL`) and per-type DTOs                                                                  |
+| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `POLL`, `ROBOCALL`) and per-type DTOs                                                      |
 
 Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suffix — historical, leave it.
 

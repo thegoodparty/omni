@@ -10,6 +10,10 @@ import {
   RobocallComplianceRequestSchema,
   RobocallComplianceVerdict,
   RobocallComplianceVerdictSchema,
+  RobocallDraftCreateRequest,
+  RobocallDraftCreateRequestSchema,
+  RobocallDraftCreateResponse,
+  RobocallDraftCreateResponseSchema,
   RobocallNumberResponse,
   RobocallNumberResponseSchema,
   RobocallScriptDraftRequest,
@@ -31,6 +35,7 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
@@ -47,6 +52,7 @@ const candidateName = (user: User): string =>
 export class OutreachRobocallController {
   constructor(
     private readonly generationService: OutreachRobocallGenerationService,
+    private readonly robocallService: OutreachRobocallService,
     private readonly compliance: RobocallComplianceService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
@@ -108,6 +114,30 @@ export class OutreachRobocallController {
         await this.composeContext.buildCampaignContext(campaign),
       ),
     }
+  }
+
+  // Persists the robocall as a pending_payment draft BEFORE checkout
+  // (draft-first, mirrors p2p): the returned outreachId rides in the
+  // checkout-session metadata, and the payment webhook finalizes it. The
+  // audioKey is client-held, so confirm it belongs to THIS campaign first. The
+  // billable count and amount are derived server-side from voterFileFilterId —
+  // never trusting a client count — and returned so the pay step shows the
+  // estimate it will be charged.
+  @Post('robocall')
+  @ResponseSchema(RobocallDraftCreateResponseSchema)
+  async createDraft(
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(RobocallDraftCreateRequestSchema))
+    input: RobocallDraftCreateRequest,
+  ): Promise<RobocallDraftCreateResponse> {
+    await this.contacts.assertProAccess(organization)
+
+    if (!input.audioKey.startsWith(`robocall/${campaign.id}/`)) {
+      throw new BadRequestException('Audio does not belong to this campaign')
+    }
+
+    return this.robocallService.createDraft(campaign, organization, input)
   }
 
   // Fail-closed compliance gate for the recorded audio: transcribe and verify

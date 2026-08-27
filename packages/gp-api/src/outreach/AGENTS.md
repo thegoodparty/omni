@@ -30,6 +30,8 @@ a CAS failure Slack meant for send attempts.
 | `outreach.service.ts`                               | Spine CRUD + `finalizeOutreachPurchase` (see below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `outreachPurchase.service.ts`                       | The `PurchaseType.TEXT` purchase handler (registered in the module constructor). Re-derives the billable count server-side from the phone-list token (Peerly `leads_loaded`, falling back to captured recipient rows) — the client's `contactCount` is never trusted for billing. Applies the free-texts (5,000) discount server-side                                                                                                                                                                                                                                                                                          |
 | `outreachSocial.service.ts`                         | Saves/reads the social satellite: spine (status `completed` — nothing is sent, so no lifecycle) + `OutreachSocial` + `OutreachSocialAsset` rows in one transaction                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `outreachRobocall.service.ts`                       | The robocall satellite (`OutreachRobocall`) + billing. `createDraft` writes a `pending_payment` spine (`robocall`) + satellite (audioKey, callbackNumber, snapshot count/amount) in one transaction. `deriveBillableCount` resolves the saved list with `hasLandline` forced and reads the people-db total (the same landline count the audience step showed and the send-time phonebook load dials) — a client count is never consulted. `deriveDraftAmount`/`assertPurchasable` re-derive live at checkout off the draft (not the snapshot). `finalizeRobocallPurchase` atomically claims `pending_payment → paid`, idempotent, no dialing (send chain is separate slices) |
+| `outreachRobocallPurchase.service.ts`               | The `PurchaseType.ROBOCALL` purchase handler (registered in the module constructor). `validatePurchase`/`calculateAmount` derive off the draft (`outreachId` + server-validated `campaignId`), never a client count; `executePostPurchase` finalizes the paid draft (throws so a failed finalize makes Stripe retry rather than stamping the idempotency marker) |
 | `outreachSocialGeneration.service.ts`               | Stateless LLM compose (temperature 0.8, Zod-validated output): one draft per draft/improve call, all per-platform assets in one structured generate call. Fresh generation is refused for the `custom` purpose (improve allowed); improve is a detail-preserving polish, never new content                                                                                                                                                                                                                                                                                                                                     |
 | `outreachPhoneBankingGeneration.service.ts`         | Stateless LLM compose for call scripts, same shape as social generation. Per-purpose structure (volunteer opener, why-statement, issue-ID question for `persuade`, real election-day/early-voting dates for `vote-early`/`election-day` — grounded from `campaign.details` and, for `vote-early` only, a live `CampaignsService.fetchLiveRaceTargetMetrics` milestones fetch — with no bracket placeholders anywhere except `[your name]` and the voter-name token (`VOTER_NAME_TOKEN`, contracts), which the caller page interpolates with the active contact's first name); hard-bans SMS/robocall compliance lines (`Reply STOP`, `Paid for by`, callback numbers) since a volunteer reads this live                                                          |
 | `outreachRobocallGeneration.service.ts`             | Stateless LLM compose for the recorded robocall message, same shape again. Differs from phone banking in the opener — a robocall is the CANDIDATE speaking, so the rule is a first-person self-ID (`This is [first name], candidate for [office]`), not a volunteer intro — and in length (about 40-75 words, four or five short sentences, well inside a 60-second recording). Compliance is conditional on the request's `callbackNumber`: with no number the `Paid for by` disclaimer / callback number / opt-out are banned (the number isn't rented until compose); once a number is passed, the script MUST end with the spoken disclosure ("paid for by" + that number), which is what the compliance gate later verifies. Refuses fresh generation for `custom` (improve allowed), like social |
@@ -53,6 +55,26 @@ Stripe webhook path calls `finalizeOutreachPurchase`: atomic claim
 from S3); a Peerly failure reverts the status and rethrows so Stripe retries.
 `schemas/createOutreachSchema.ts`: only p2p may be a draft, and clients can
 never send `pending_payment` themselves.
+
+## Draft-first purchase (robocall) — prepay-on-estimate
+
+Interim model: charge the derived estimate up front at checkout, like TEXT
+(explicitly revisable to a save-card/charge-actual model later). `POST
+/outreach/robocall` (`OutreachRobocallController.createDraft`) persists a
+`pending_payment` spine + `OutreachRobocall` satellite BEFORE checkout and
+returns the SERVER-derived landline count + amount (contracts
+`RobocallDraftCreateResponse`). The billable count comes from
+`voterFileFilterId` with the `hasLandline` dimension forced (the same reachable
+count the audience step showed and `RobocallPhonebookService` dials) — a client
+count is never accepted. The draft id rides in the checkout-session metadata as
+`outreachId`; `PurchaseType.ROBOCALL`'s handler re-derives the amount live at
+checkout (not the persisted snapshot) and, on payment completion, atomically
+claims `pending_payment → paid` — no dialing / CallHub campaign here (the send
+chain is separate slices). Price: `PRICE_PER_ROBOCALL_TENTH_CENTS` (45,
+`shared/util/robocallPricing.util.ts`) — the sole server-side source, mirroring
+the webapp's `OUTREACH_OPTIONS` robocall `cost: 0.045`. The clean seam to swap
+prepay-estimate for charge-actual is `deriveBillableCount` +
+`calcRobocallAmountInCents`.
 
 ## Gotchas / invariants
 
@@ -142,9 +164,13 @@ never send `pending_payment` themselves.
   `RobocallAudio.schema.ts` (presign request/response + allowed audio MIME
   types + `ROBOCALL_AUDIO_MAX_BYTES` cap),
   `RobocallCompliance.schema.ts` (the transcription-verdict shape: per-check
-  booleans + transcript + issues).
+  booleans + transcript + issues),
+  `RobocallPurchase.schema.ts` (the draft-first create request/response for
+  `POST /outreach/robocall`).
 - Prisma: `outreach.prisma` (spine), `outreachSocial.prisma` +
-  `outreachSocialAsset.prisma` (satellite). Phone banking's own tables
+  `outreachSocialAsset.prisma` (satellite), `outreachRobocall.prisma` (the
+  robocall satellite: audioKey, callbackNumber, snapshot billableCount/
+  amountInCents). Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
   controller/service live in a separate `src/phoneBanking/` module — this
