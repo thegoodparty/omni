@@ -11,6 +11,7 @@ import { AwsModule } from 'src/vendors/aws/aws.module'
 import { CallhubModule } from 'src/vendors/callhub/callhub.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
+import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { DoorKnockingModule } from '../doorKnocking/doorKnocking.module'
 import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
@@ -18,6 +19,7 @@ import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
+import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachRobocallController } from './outreachRobocall.controller'
@@ -30,6 +32,7 @@ import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
+import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { RobocallTranscriptionService } from './services/robocallTranscription.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
@@ -55,6 +58,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     AiModule,
     LlmModule,
     SlackModule,
+    StripeModule,
     // ContactsModule pulls in CampaignsModule (and onward to Peerly), which
     // loops back to Outreach — defer this edge so the module graph resolves.
     forwardRef(() => ContactsModule),
@@ -70,6 +74,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachController,
     OutreachSocialController,
     OutreachPhoneBankingController,
+    OutreachSmsController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
   ],
@@ -78,6 +83,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachSocialService,
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,
+    OutreachSmsGenerationService,
     OutreachRobocallGenerationService,
     RobocallTranscriptionService,
     RobocallComplianceService,

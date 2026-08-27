@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
+import { DOOR_KNOCK_STATUSES } from '@goodparty_org/contracts'
 import type {
   DoorKnockingPackManifest,
   DoorKnockingTurf,
@@ -32,6 +33,10 @@ interface MockLayerProps {
   data: unknown
   pickable?: boolean
   radiusMinPixels?: number
+  // Which basemap layer this one is drawn beneath, in interleaved mode.
+  // Undefined means "on top of the basemap", which is where every layer was
+  // before the labels were lifted over the dots.
+  beforeId?: string
   // Accessors the layers derive per row, so a test can ask what a given pin or
   // a given saved list would actually be drawn as. `unknown` because the mock
   // stands in for every layer on the canvas and each one has its own datum.
@@ -49,14 +54,18 @@ interface PickParams {
 }
 
 const gl = vi.hoisted(() => {
-  const handlers = new Map<string, (event: MapEvent) => void>()
+  const handlers = new Map<string, (event?: MapEvent) => void>()
   let canvas: HTMLCanvasElement | null = null
+  // The basemap's own layers, as `style.load` finds them. Empty by default so
+  // the existing tests exercise the no-symbol-layer fallback; a test that
+  // cares about label ordering sets its own.
+  const style = { layers: [] as Array<{ id: string; type: string }> }
   const map = {
     addControl: vi.fn(),
-    on: vi.fn((event: string, handler: (event: MapEvent) => void) => {
+    on: vi.fn((event: string, handler: (event?: MapEvent) => void) => {
       handlers.set(event, handler)
     }),
-    getStyle: () => ({ layers: [] }),
+    getStyle: () => style,
     setPaintProperty: vi.fn(),
     setLayoutProperty: vi.fn(),
     getCanvas: () => (canvas ??= document.createElement('canvas')),
@@ -69,6 +78,10 @@ const gl = vi.hoisted(() => {
   }
   const overlay = {
     layers: [] as MockLayerProps[],
+    // How the overlay was constructed. `interleaved` is what decides whether
+    // deck draws into the basemap's layer stack or as one canvas over all of
+    // it, and it is a constructor-only option.
+    options: null as { interleaved?: boolean } | null,
     // Stands a pin under the tap, so a test can knock on a door the way a
     // canvasser does. Keyed by layer so the vertex picking the drag handlers
     // do is unaffected.
@@ -86,6 +99,7 @@ const gl = vi.hoisted(() => {
     handlers,
     map,
     overlay,
+    style,
     mapOptions: null as { attributionControl?: unknown } | null,
   }
 })
@@ -105,7 +119,8 @@ vi.mock('maplibre-gl', () => ({
 
 vi.mock('@deck.gl/mapbox', () => ({
   MapboxOverlay: class {
-    constructor() {
+    constructor(options: { interleaved?: boolean }) {
+      gl.overlay.options = options
       return gl.overlay
     }
   },
@@ -276,6 +291,8 @@ describe('VoterMapCanvas drawing', () => {
     gl.overlay.layers = []
     gl.overlay.pickedPin = null
     gl.overlay.lastPick = null
+    gl.overlay.options = null
+    gl.style.layers = []
     vi.clearAllMocks()
   })
 
@@ -823,6 +840,115 @@ describe('VoterMapCanvas drawing', () => {
     expect(staticColor('draw-vertices', 'getFillColor')).toEqual(line)
   })
 
+  // `--primary` -> `--theme-primary` -> `--color-brand-blue-500` ->
+  // `--goodparty-blue-500`, which is `#1e63ec` in the styleguide's
+  // `design-tokens.css`. Pinned as channels because deck.gl takes tuples and
+  // nothing on this canvas can reach a CSS variable: if the design system moves
+  // its primary, this is the test that has to be the one to notice.
+  const PRIMARY = [30, 99, 236]
+
+  // The dots take their colours as one packed RGBA buffer rather than a
+  // per-datum accessor — deck.gl reads them as a binary attribute — so a test
+  // asks for a single dot's four bytes by index.
+  const dotColor = (index: number): number[] => {
+    const data = layerData('voter-dots') as {
+      attributes: { getFillColor: { value: Uint8Array } }
+    }
+    return [
+      ...data.attributes.getFillColor.value.slice(index * 4, index * 4 + 4),
+    ]
+  }
+
+  // One matched dot and one unmatched, both carrying a knock status — the
+  // status is what the blue has to win over inside the flow and go back to
+  // outside it, so a fixture without one couldn't tell the branches apart.
+  const mixed: FilterResult = {
+    people: 2,
+    households: 2,
+    matchedPerDot: new Uint32Array([1, 0]),
+    statusPerDot: new Uint8Array([
+      DOOR_KNOCK_STATUSES.indexOf('supporter'),
+      DOOR_KNOCK_STATUSES.indexOf('supporter'),
+    ]),
+  }
+
+  // What a candidate cutting a list is actually asking: does this boundary
+  // enclose the people I filtered for? A seven-colour status plane answers it
+  // by making the matched dots look like seven different kinds of thing, so the
+  // flow flattens them to the blue the rest of the product says "yes, these"
+  // in.
+  it('paints matching dots the design system’s primary blue while drawing', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        filterResult={mixed}
+        startDrawToken={1}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(dotColor(0).slice(0, 3)).toEqual(PRIMARY)
+    // The status plane's own strength, so entering the flow restates which dots
+    // matter without the whole map changing weight underfoot.
+    expect(dotColor(0)[3]).toBe(210)
+    // "Not who you asked for" is untouched — the blue answers one question and
+    // the grey still answers the other.
+    const unmatched = dotColor(1)
+    expect(unmatched.slice(0, 3)).not.toEqual(PRIMARY)
+    expect(unmatched[3]).toBeLessThan(dotColor(0)[3] ?? 0)
+
+    // Leaving the flow puts the status vocabulary back, and it has to: the rail
+    // returns with a legend chip per status, so a blue that outlived the flow
+    // would leave seven chips describing colours no longer on the map.
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        filterResult={mixed}
+        startDrawToken={1}
+        clearDrawToken={1}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(dotColor(0)).toEqual([...STATUS_RGB.supporter, 210])
+  })
+
+  // Two things on this canvas wear `--primary`: the matching dots above and the
+  // selected stop's halo. That is safe only because they can never share a
+  // screen — the create flow draws no route pins, and a walk is not the create
+  // flow. Were a whole district of dots ever blue underneath it, the halo would
+  // stop being findable as the mark for THIS stop, and this is the test that
+  // should fail before anyone sees that.
+  it('leaves the selection halo the only primary blue once a walk starts', () => {
+    const pin: RoutePin = {
+      stopId: 11,
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'supporter',
+      knockable: true,
+    }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        filterResult={mixed}
+        startDrawToken={0}
+        routePins={[pin]}
+        selectedStopId={11}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(
+      staticColor('route-pin-selection', 'getLineColor').slice(0, 3),
+    ).toEqual(PRIMARY)
+    expect(dotColor(0).slice(0, 3)).not.toEqual(PRIMARY)
+  })
+
   // The map fills its container, so a step that covers the bottom of it and
   // uncovers the top strip reveals empty streets while the shape stays centred
   // behind the chrome. The covered band has to reach the camera as padding, or
@@ -1096,5 +1222,125 @@ describe('VoterMapCanvas drawing', () => {
     const center = openingCenterOf([...neighborhood, ...strays])
 
     expectIsOneOf(center, neighborhood)
+  })
+})
+
+// Which layers sit under the basemap's labels and which stay over them. The
+// dots used to cover every city and street name on the map, because an
+// overlaid deck.gl canvas composites above the WHOLE basemap.
+describe('VoterMapCanvas label ordering', () => {
+  // A basemap in osm-liberty's shape: fills and lines, then the symbol plane
+  // that carries the one-way arrows, the road names and the place names.
+  const BASEMAP = [
+    { id: 'background', type: 'background' },
+    { id: 'water', type: 'fill' },
+    { id: 'building', type: 'fill-extrusion' },
+    { id: 'highway-motorway', type: 'line' },
+    { id: 'road_one_way_arrow', type: 'symbol' },
+    { id: 'highway-name-major', type: 'symbol' },
+    { id: 'label_city', type: 'symbol' },
+  ]
+
+  const baseProps = {
+    pack,
+    filterResult,
+    turfs: [turfFixture],
+    routePins: [],
+    selectedStopId: null,
+    routeLoop: false,
+    routeGeometry: null,
+    focusTurf: null,
+    startDrawToken: 0,
+    clearDrawToken: 0,
+    undoDrawToken: 0,
+    drawColor: '#2563eb',
+    frameDrawToken: 0,
+    frameDrawBottomPct: 0,
+    location: LOCATION_OFF,
+    onPolygonChange: vi.fn(),
+  }
+
+  beforeEach(() => {
+    gl.handlers.clear()
+    gl.overlay.layers = []
+    gl.overlay.options = null
+    gl.style.layers = []
+    vi.clearAllMocks()
+  })
+
+  const renderWithStyle = (layers: Array<{ id: string; type: string }>) => {
+    gl.style.layers = layers
+    render(<VoterMapCanvas {...baseProps} />)
+    act(() => {
+      gl.handlers.get('style.load')?.()
+    })
+  }
+
+  const beforeIdOf = (id: string) => layer(id)?.beforeId
+
+  it('draws into the basemap stack rather than over all of it', () => {
+    renderWithStyle(BASEMAP)
+
+    expect(gl.overlay.options?.interleaved).toBe(true)
+  })
+
+  it('puts the dots and the saved rings under the basemap symbol plane', () => {
+    renderWithStyle(BASEMAP)
+
+    // The FIRST symbol layer, so the dots land under every label the basemap
+    // draws and not merely under the place names.
+    expect(beforeIdOf('voter-dots')).toBe('road_one_way_arrow')
+    expect(beforeIdOf('saved-turfs')).toBe('road_one_way_arrow')
+  })
+
+  // Everything a canvasser is manipulating or navigating by. A place name is
+  // never worth covering the ring being cut or the stop being walked to.
+  it.each([
+    'draw-preview',
+    'draw-vertices',
+    'route-path',
+    'route-pin-selection',
+    'route-pins',
+    'route-pin-numbers',
+    'live-location-accuracy',
+    'live-location-dot',
+  ])('keeps %s above the labels', (id) => {
+    renderWithStyle(BASEMAP)
+
+    expect(beforeIdOf(id)).toBeUndefined()
+  })
+
+  // The two that go under the labels have to stay adjacent in the array:
+  // deck.gl buckets CONSECUTIVE layers sharing a beforeId into one basemap
+  // layer, so a third layer spliced between them would split the bucket and
+  // put the turf fill over the dots.
+  it('keeps the two under-label layers adjacent, rings under dots', () => {
+    renderWithStyle(BASEMAP)
+
+    const ids = gl.overlay.layers.map((entry) => entry.id)
+
+    expect(ids.indexOf('voter-dots')).toBe(ids.indexOf('saved-turfs') + 1)
+  })
+
+  // A basemap that ships no symbol layer at all, or a style that renames
+  // every one of them: the dots go back on top of everything, which is where
+  // they were. Naming a layer id that does not exist would drop them from the
+  // map entirely.
+  it('falls back to drawing on top when the style has no symbol layer', () => {
+    renderWithStyle([
+      { id: 'background', type: 'background' },
+      { id: 'water', type: 'fill' },
+    ])
+
+    expect(beforeIdOf('voter-dots')).toBeUndefined()
+    expect(beforeIdOf('saved-turfs')).toBeUndefined()
+  })
+
+  // Before the style resolves there is no symbol layer to name yet.
+  it('draws on top until the style has loaded', () => {
+    gl.style.layers = BASEMAP
+    render(<VoterMapCanvas {...baseProps} />)
+
+    expect(beforeIdOf('voter-dots')).toBeUndefined()
   })
 })

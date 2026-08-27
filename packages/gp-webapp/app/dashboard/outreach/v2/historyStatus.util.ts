@@ -20,8 +20,11 @@ type StatusKey =
   | 'in_progress'
   | 'completed'
   | 'pending_payment'
+  | 'canceled'
 
-// P2P rows (phoneListId != null): `pending` is a real unfinished draft.
+// P2P rows (phoneListId != null): `pending` only ever reaches the map for
+// rows without a vendor job (getP2pStatusLabel remaps pending-with-a-job to
+// `paid`, i.e. Scheduled).
 const p2pStatusLabels: { [K in StatusKey]: string } = {
   pending: 'Draft',
   approved: 'In review',
@@ -30,6 +33,7 @@ const p2pStatusLabels: { [K in StatusKey]: string } = {
   in_progress: 'Scheduled',
   completed: 'Done',
   pending_payment: 'Pending payment',
+  canceled: 'Canceled',
 }
 
 // Rows without a phone list (robocall, legacy text, social): `pending` means
@@ -43,6 +47,7 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   in_progress: 'Scheduled',
   completed: 'Done',
   pending_payment: 'Pending payment',
+  canceled: 'Canceled',
 }
 
 const isStatusKey = (key: string | null | undefined): key is StatusKey =>
@@ -50,12 +55,29 @@ const isStatusKey = (key: string | null | undefined): key is StatusKey =>
 
 const getP2pStatusLabel = (row: HistoryRow): string | null => {
   const { p2pJob, status } = row
-  if (!p2pJob?.status || !status || !isStatusKey(status)) {
+  if (!status || !isStatusKey(status)) {
     return null
   }
-  // An active Peerly job displays as sent regardless of the spine status.
+  // Cancel deletes the vendor job, so a canceled row has no p2pJob to
+  // merge — requiring one here read every canceled campaign as "n/a".
+  if (status === 'canceled') {
+    return p2pStatusLabels.canceled
+  }
+  if (!p2pJob?.status) {
+    return null
+  }
+  // An active Peerly job displays as sent regardless of the spine status
+  // (canceled rows returned above — their vendor job is gone). A pending
+  // row WITH a vendor job is a scheduled send awaiting its start day, not
+  // an unfinished draft — draft-first finalize leaves the spine at
+  // `pending` until the completion sweep advances it, so 'Draft' would be
+  // a lie the moment verification cleared.
   const displayStatus: StatusKey =
-    p2pJob.status === 'active' ? 'completed' : status
+    p2pJob.status === 'active'
+      ? 'completed'
+      : status === 'pending'
+        ? 'paid'
+        : status
   return p2pStatusLabels[displayStatus]
 }
 

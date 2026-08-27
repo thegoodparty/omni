@@ -253,6 +253,19 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // the group is permanently unshadeable.
 const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 
+// The marks `savedListFilterKeys` leaves for a list's non-boolean criteria.
+// Every other unshadeable key is an option in filters.config and takes its
+// label from there; these three are columns on the list itself, so the config
+// has no row to name them and they would drop straight back out of the
+// sentence they were just added to. "Past outreach activity" rather than
+// "Prior outreach" so it cannot be mistaken for the contacts-made group above,
+// which counts door knocks specifically.
+const LIST_CRITERION_DISCLOSURE_LABELS: Record<string, string> = {
+  supportStatus: 'Support status',
+  activityConditions: 'Past outreach activity',
+  precincts: 'Precinct',
+}
+
 // The disclosure's own vocabulary, beside the keys it describes: the draw step,
 // the landing rail and the details sheet all say which filters the map can't
 // shade, and a candidate meeting those sentences in one session must not find
@@ -261,6 +274,8 @@ export const unpreviewableDisclosureLabels = (keys: string[]): string[] => [
   ...new Set(
     keys
       .map((key) => {
+        const criterionLabel = LIST_CRITERION_DISCLOSURE_LABELS[key]
+        if (criterionLabel) return criterionLabel
         const field = filterSections
           .flatMap((section) => section.fields)
           .find((entry) => entry.options.some((option) => option.key === key))
@@ -298,16 +313,29 @@ const joinWithOr = (labels: string[]): string => {
 // the filter, and the list still applies it at knock time. Never that the
 // filter isn't applied — a candidate who reads that concludes their targeting
 // is silently failing, which is the worse misunderstanding.
+// `hasSavedList` names the subject of the closing clause, and only that. The
+// create flow reaches this sentence with no list picked — a candidate who
+// toggles 65+ from scratch has an unshadeable selection and nothing saved to
+// attribute it to — where "Your saved list still applies it" cites a list that
+// does not exist. Dropping the clause instead was the obvious repair and is
+// the wrong one: what remains ends on "include people that filter will
+// exclude", which is the reading ADR 0010 exists to prevent. The reassurance
+// is true either way (knock-time evaluation is canonical for a list the flow
+// is about to create, exactly as for one already saved), so the fix is to say
+// whose list it is. Defaults to the saved wording because the other two
+// surfaces — the details sheet and the landing rail — only ever describe a
+// list that exists, and neither should have to opt in to being correct.
 export const unpreviewableDisclosureSentence = (
   labels: string[],
+  hasSavedList = true,
 ): string | null => {
   if (labels.length === 0) return null
   const plural = labels.length > 1
   return (
     `The map can’t yet shade by ${joinWithOr(labels)}, so these counts ` +
     `include people ${plural ? 'those filters' : 'that filter'} will ` +
-    `exclude. Your saved list still applies ${plural ? 'them' : 'it'} when ` +
-    `you knock.`
+    `exclude. Your ${hasSavedList ? 'saved list' : 'list'} still applies ` +
+    `${plural ? 'them' : 'it'} when you knock.`
   )
 }
 

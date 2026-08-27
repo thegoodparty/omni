@@ -1,12 +1,18 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  OutreachReceipt,
   PhoneBankCallOutcome,
   SupportAnswer,
 } from '@goodparty_org/contracts'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import {
+  Alert,
+  AlertAction,
+  AlertDescription,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -15,6 +21,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertTitle,
   Button,
   Card,
   Eyebrow,
@@ -33,21 +40,39 @@ import {
   DollarSignIcon,
   DoorOpenIcon,
   FileTextIcon,
+  HashIcon,
   Loader2Icon,
   PhoneIcon,
-  Share2Icon,
+  RadioIcon,
+  ReceiptIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
   Trash2Icon,
+  UserMinusIcon,
   UsersRoundIcon,
+  XCircleIcon,
 } from '@styleguide/components/ui/icons'
-import { dateUsHelper } from 'helpers/dateHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
-import type { VoterFileFilters } from 'helpers/types'
+import type { TcrCompliance, VoterFileFilters } from 'helpers/types'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
+import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
-import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
+import {
+  ELECTION_FILING_PATH,
+  SUBMIT_PIN_PATH,
+} from 'app/dashboard/shared/ComplianceModal'
+import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  ChannelBadge,
+  HistoryStatusText,
+  WILL_NOT_SEND_LABEL,
+  getChannelLabel,
+} from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import { shortOutreachDate } from './outreachDate.util'
 import { outreachDetailQueryKey, useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
@@ -97,6 +122,9 @@ const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {
 const percentLabel = (count: number, total: number): string =>
   total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
 
+const PRICE_PER_TEXT =
+  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
+
 // The status the candidate is reading, mapped onto the canvas's three
 // lifecycle positions. Derived from the displayed label rather than from
 // `status` so the footer can never contradict the badge two inches above it —
@@ -119,6 +147,9 @@ const lifecycleOf = (
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
+  // CampaignVerify clearance state: while pending, scheduled SMS rows show
+  // "Needs compliance" and the footer offers Cancel + Start verification.
+  tcrCompliance?: TcrCompliance
 }
 
 interface DetailRow extends HistoryRow {
@@ -130,7 +161,9 @@ interface DetailRow extends HistoryRow {
 export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
+  tcrCompliance,
 }: OutreachDetailsDrawerProps) => {
+  const router = useRouter()
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
   const isDoorKnocking = row?.outreachType === OUTREACH_TYPES.nativeDoorKnocking
@@ -139,28 +172,126 @@ export const OutreachDetailsDrawer = ({
   const phoneBanking = detailQuery.data?.phoneBanking
   const doorKnocking = detailQuery.data?.doorKnocking
   const isCompleted = row?.status === 'completed'
+  const isSms =
+    row?.outreachType === OUTREACH_TYPES.text ||
+    row?.outreachType === OUTREACH_TYPES.p2p
+  // Only rows created through the paid P2P flow carry a phone list — the
+  // set that has payment details (and possibly a receipt) to show.
+  const isPaidFlowSms = isSms && row?.phoneListId != null
 
   const [outreaches, setOutreaches] = useOutreach()
   const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const { errorSnackbar } = useSnackbar()
+  const { errorSnackbar, successSnackbar } = useSnackbar()
+  // Ids ride as mutation variables, never read from `row` in onSuccess:
+  // the confirm dialogs portal outside the vaul drawer, so their clicks
+  // count as outside-interactions that null the row mid-mutation (the
+  // page-refresh-to-see-updates bug).
   const deleteMutation = useMutation({
-    mutationFn: () => {
-      // The AlertDialog renders outside the row guard, so the confirm can
-      // outlive the detail data — never let that send /lists/undefined.
-      const listId = phoneBanking?.listId
-      if (!listId) return Promise.reject(new Error('listId unavailable'))
-      return clientRequest('DELETE /v1/phone-banking/lists/:id', {
+    mutationFn: ({ listId }: { listId: number; rowId: number }) =>
+      clientRequest('DELETE /v1/phone-banking/lists/:id', {
         id: String(listId),
-      })
-    },
-    onSuccess: () => {
-      setOutreaches(outreaches.filter((o) => o.id !== row?.id))
+      }),
+    onSuccess: (_data, { rowId }) => {
+      setOutreaches(outreaches.filter((o) => o.id !== rowId))
       setDeleteConfirmOpen(false)
       onOpenChange(false)
     },
     onError: () =>
       errorSnackbar("Couldn't delete this list. Please try again."),
+  })
+
+  // Cancel-before-send: only a paid, scheduled-not-started text campaign
+  // (spine status `pending`, created through the P2P flow) is cancelable —
+  // the backend enforces the same set.
+  const isCancelableSms = isPaidFlowSms && row?.status === 'pending'
+  // Delete is reserved for canceled campaigns — cancel already unwound the
+  // vendor job and the charge, so the row is pure history. The backend
+  // rejects every other status.
+  const isCanceled = row?.status === 'canceled'
+  // A scheduled SMS row while CampaignVerify clearance pends: the carriers
+  // will hold the send, so the drawer flags it and swaps the footer to
+  // Cancel + Start verification.
+  const notCleared =
+    tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
+  const isPendingVerificationSms = isCancelableSms && notCleared
+  // The carriers hold EVERY uncleared SMS send, not just the cancelable
+  // pending set — legacy rows labeled Scheduled ride spine paid/in_progress.
+  // Mirrors the table's substitution so the drawer can't contradict the row
+  // that opened it; only the label and banner widen, the Cancel footer stays
+  // pending-only because cancel is.
+  const isComplianceHeldSms =
+    notCleared &&
+    isSms &&
+    (isCancelableSms ||
+      (row !== null && getHistoryStatusLabel(row) === 'Scheduled'))
+
+  // ComplianceModal's status-aware target: SUBMITTED waits on the
+  // CampaignVerify PIN; anything else enters at the election-filing form.
+  const startVerification = () => {
+    router.push(
+      tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
+        ? SUBMIT_PIN_PATH
+        : ELECTION_FILING_PATH,
+    )
+    onOpenChange(false)
+  }
+
+  // Only rows created through the paid P2P flow ever record a checkout
+  // session; the endpoint 404s the rest (free-texts, legacy), which simply
+  // leaves the link unrendered.
+  const receiptQuery = useQuery({
+    queryKey: ['outreach-receipt', row?.id ?? -1],
+    queryFn: async (): Promise<OutreachReceipt> => {
+      const { data } = await clientRequest('GET /v1/outreach/:id/receipt', {
+        id: String(row?.id),
+      })
+      return data
+    },
+    enabled: row !== null && isPaidFlowSms,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+  const receiptUrl = receiptQuery.data?.receiptUrl ?? null
+  // 404 is the expected free-row signal the fallback below exists for;
+  // anything else (Stripe 502, network) must not masquerade as a computed
+  // amount — the section shows an error state instead.
+  const receiptFailed =
+    receiptQuery.isError &&
+    !(
+      receiptQuery.error instanceof FetchError &&
+      receiptQuery.error.status === 404
+    )
+  // The receipt is the charge of record; rows without one (free-texts sends
+  // 404 it) fall back to the billable count at the standard per-text price —
+  // which lands on $0.00, i.e. "Free".
+  const totalCost =
+    receiptQuery.data?.amount ??
+    (row?.billableTextCount ?? row?.textCount ?? 0) * PRICE_PER_TEXT
+  const isFreeSms = totalCost <= 0
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const cancelMutation = useMutation({
+    mutationFn: (rowId: number) =>
+      clientRequest('POST /v1/outreach/:id/cancel', { id: String(rowId) }),
+    onSuccess: ({ data }, rowId) => {
+      setOutreaches(
+        outreaches.map((o) =>
+          o.id === rowId ? { ...o, status: data.outreach.status } : o,
+        ),
+      )
+      queryClient.invalidateQueries({
+        queryKey: outreachDetailQueryKey(rowId),
+      })
+      setCancelConfirmOpen(false)
+      onOpenChange(false)
+      successSnackbar(
+        data.refunded
+          ? 'Campaign canceled. Your refund will arrive in 5-10 business days.'
+          : 'Campaign canceled.',
+      )
+    },
+    onError: () =>
+      errorSnackbar("Couldn't cancel this campaign. Please try again."),
   })
 
   // The envelope's flag for every channel that owns its own archive, and the
@@ -237,14 +368,19 @@ export const OutreachDetailsDrawer = ({
       : statusLabel === 'Done'
         ? 'Sent'
         : null
+  // The pill next to the title swaps to the warning label; the byline keeps
+  // "Scheduled for {date}" — the send date itself is unchanged.
+  const displayStatusLabel = isComplianceHeldSms
+    ? WILL_NOT_SEND_LABEL
+    : statusLabel
 
   // "Is there something this candidate can do about this campaign from here",
   // which is the second half of the canvas's footer decision. True for the two
-  // channels we run ourselves and false for the paid ones: a scheduled text or
-  // robocall has been bought and is sent by Peerly, with no edit, no delete and
-  // nothing to drive, so `automatic` — the canvas's own words for a campaign
-  // that needs nothing from you — is the honest footer rather than two dead
-  // buttons.
+  // channels we run ourselves and false for the paid ones: a scheduled legacy
+  // text or robocall is sent by Peerly with nothing to drive, so `automatic`
+  // is the honest footer. The paid-flow SMS rows are the exception now that
+  // cancel-before-send and canceled-row delete exist for them — they carry
+  // their own footer below instead of the mode machine.
   const selfServe = isPhoneBanking || isDoorKnocking
   const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
   const continueHref = isPhoneBanking
@@ -257,12 +393,72 @@ export const OutreachDetailsDrawer = ({
       // reads no such param, so a deeper link would land on the rail anyway.
       '/dashboard/door-knocking'
 
+  // The SMS lifecycle actions this branch added have no mode in the canvas's
+  // footer vocabulary (its `automatic` predates cancel/delete existing for a
+  // paid send), so these rows render their own footer node in the shared
+  // footer's container anatomy.
+  const smsFooter = isPendingVerificationSms ? (
+    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[608px] gap-3">
+        <Button
+          variant="ghost"
+          className="shrink-0 text-destructive hover:bg-destructive/10"
+          disabled={cancelMutation.isPending}
+          onClick={() => setCancelConfirmOpen(true)}
+        >
+          <XCircleIcon className="size-4" />
+          Cancel
+        </Button>
+        <Button className="flex-1" onClick={startVerification}>
+          <ShieldCheckIcon className="size-4" />
+          Start verification
+        </Button>
+      </div>
+    </div>
+  ) : isCancelableSms ? (
+    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[608px]">
+        <Button
+          variant="outline"
+          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+          disabled={cancelMutation.isPending}
+          onClick={() => setCancelConfirmOpen(true)}
+        >
+          <XCircleIcon className="size-4" />
+          Cancel campaign
+        </Button>
+      </div>
+    </div>
+  ) : isCanceled ? (
+    // Canceled rows keep their record (product decision: history is never
+    // hard-deleted — archiving preserves results and generated content off
+    // the main table). Same action pair completed rows get.
+    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[608px]">
+        <Button
+          variant="outline"
+          className="flex-1"
+          disabled={archiveMutation.isPending}
+          onClick={() => archiveMutation.mutate()}
+        >
+          <ArchiveIcon className="size-4" />
+          {isArchived ? 'Restore from archive' : 'Move to archive'}
+        </Button>
+      </div>
+    </div>
+  ) : null
+
   return (
     <>
       <ListDetailsSheetShell
         open={row !== null}
         onOpenChange={onOpenChange}
         title={row?.name || row?.title || 'Outreach details'}
+        onInteractOutside={(event) => {
+          if (cancelConfirmOpen || deleteConfirmOpen) {
+            event.preventDefault()
+          }
+        }}
         header={
           row && (
             <div className="min-w-0">
@@ -270,7 +466,7 @@ export const OutreachDetailsDrawer = ({
                 <h2 className="text-[22px] font-semibold text-foreground">
                   {row.name || row.title || 'Untitled campaign'}
                 </h2>
-                <HistoryStatusText label={statusLabel} />
+                <HistoryStatusText label={displayStatusLabel} />
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <ChannelBadge type={row.outreachType} />
@@ -278,8 +474,8 @@ export const OutreachDetailsDrawer = ({
                   <span className="text-sm text-muted-foreground">
                     ·{' '}
                     {bylineVerb
-                      ? `${bylineVerb} ${dateUsHelper(displayDate, 'long')}`
-                      : dateUsHelper(displayDate, 'long')}
+                      ? `${bylineVerb} ${shortOutreachDate(displayDate)}`
+                      : shortOutreachDate(displayDate)}
                   </span>
                 )}
               </div>
@@ -287,7 +483,8 @@ export const OutreachDetailsDrawer = ({
           )
         }
         footer={
-          row && (
+          row &&
+          (smsFooter ?? (
             <ListDetailsFooter
               mode={footerMode}
               destructive={
@@ -376,11 +573,33 @@ export const OutreachDetailsDrawer = ({
                 'This archives the saved list too, so Door knocking and this record stay in step.'
               }
             />
-          )
+          ))
         }
       >
         {row && (
           <>
+            {isComplianceHeldSms && (
+              // Same banner as the SMS flow: the drawer is where a user
+              // lands from the "Needs compliance" history row, so the
+              // unblock action leads here too.
+              <Alert variant="info" icon={<ShieldAlertIcon />}>
+                <AlertTitle>Compliance needed before this can send</AlertTitle>
+                <AlertDescription>
+                  Carrier approval takes 1 to 2 weeks. Schedule now, start
+                  compliance so your text clears in time.
+                </AlertDescription>
+                <AlertAction>
+                  <Button
+                    type="button"
+                    variant="alertOutline"
+                    onClick={startVerification}
+                  >
+                    <ShieldCheckIcon />
+                    Start compliance
+                  </Button>
+                </AlertAction>
+              </Alert>
+            )}
             {(audienceName || audienceLabels.length > 0) && (
               <DetailsSection title="Applied filters">
                 {audienceName && (
@@ -397,7 +616,7 @@ export const OutreachDetailsDrawer = ({
                 <Metric
                   icon={<CalendarIcon />}
                   label="Date"
-                  value={displayDate ? dateUsHelper(displayDate, 'long') : '—'}
+                  value={displayDate ? shortOutreachDate(displayDate) : '—'}
                 />
                 <Metric
                   icon={<FileTextIcon />}
@@ -405,7 +624,7 @@ export const OutreachDetailsDrawer = ({
                   value={row.name || row.title || 'Untitled campaign'}
                 />
                 <Metric
-                  icon={<Share2Icon />}
+                  icon={<RadioIcon />}
                   label="Channel"
                   value={getChannelLabel(row.outreachType)}
                 />
@@ -476,6 +695,16 @@ export const OutreachDetailsDrawer = ({
                     value={socialPurposeLabel(social.purpose)}
                   />
                 )}
+                {isSms && (
+                  // No per-campaign opt-out feed exists yet (the results
+                  // sweep is a later slice), so this reads 0 — the same
+                  // value the design shows for a not-yet-sent row.
+                  <Metric
+                    icon={<UserMinusIcon />}
+                    label="Unsubscribes"
+                    value="0"
+                  />
+                )}
               </MetricGrid>
               {/* The detail resolves to no block when the saved list behind
                   this walk has been deleted: the envelope and its paid route
@@ -489,6 +718,60 @@ export const OutreachDetailsDrawer = ({
                 </p>
               )}
             </DetailsSection>
+
+            {isPaidFlowSms && (
+              <DetailsSection title="Payment details">
+                {receiptFailed && (
+                  <p className="text-sm text-muted-foreground">
+                    We couldn&apos;t load the payment details. Close and try
+                    again.
+                  </p>
+                )}
+                {!receiptFailed && (
+                  <MetricGrid>
+                    <Metric
+                      icon={<DollarSignIcon />}
+                      label="Total cost"
+                      value={isFreeSms ? 'Free' : `$${totalCost.toFixed(2)}`}
+                    />
+                    <Metric
+                      icon={<HashIcon />}
+                      label="Cost per outreach"
+                      value={isFreeSms ? '—' : `$${PRICE_PER_TEXT.toFixed(3)}`}
+                    />
+                  </MetricGrid>
+                )}
+                {receiptUrl && (
+                  <Button
+                    type="button"
+                    // px-0 loses to the size variant's has-[>svg]:px-4
+                    // (different modifier group in tailwind-merge), so
+                    // the icon needs its own zero to sit flush left.
+                    variant="link"
+                    className="h-auto px-0 no-underline has-[>svg]:px-0"
+                    onClick={() => {
+                      window.open(receiptUrl, '_blank', 'noopener')
+                    }}
+                  >
+                    <ReceiptIcon className="size-4" />
+                    View receipt
+                  </Button>
+                )}
+              </DetailsSection>
+            )}
+
+            {isSms && row.script && (
+              <DetailsSection title="Message">
+                {/* The stored script is already the fully composed send
+                    (greeting + body + opt-out footer) — render it verbatim,
+                    line breaks included. */}
+                <Card className="rounded-lg p-3">
+                  <p className="text-sm whitespace-pre-wrap text-foreground">
+                    {row.script}
+                  </p>
+                </Card>
+              </DetailsSection>
+            )}
 
             {isSocial && detailQuery.isLoading && (
               <StatusText
@@ -719,6 +1002,28 @@ export const OutreachDetailsDrawer = ({
         )}
       </ListDetailsSheetShell>
 
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure? This can&apos;t be undone. Your texts won&apos;t
+              send, and any payment is refunded automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep campaign</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={cancelMutation.isPending}
+              onClick={() => row && cancelMutation.mutate(row.id)}
+            >
+              Cancel campaign
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -733,7 +1038,14 @@ export const OutreachDetailsDrawer = ({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteMutation.isPending}
-              onClick={() => deleteMutation.mutate()}
+              onClick={() =>
+                row &&
+                phoneBanking &&
+                deleteMutation.mutate({
+                  listId: phoneBanking.listId,
+                  rowId: row.id,
+                })
+              }
             >
               Delete
             </AlertDialogAction>

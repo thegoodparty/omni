@@ -60,8 +60,10 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   readonly scope = ChatScope.ordinance_flow
   readonly isSensitive = true
   readonly models = [...ORDINANCE_FLOW_MODELS]
-  // Per-turn tool-loop ceiling (stopWhen: stepCountIs), reset every message —
-  // not a whole-conversation budget. A current_law research turn chains
+  // Per-turn tool-step budget, reset every message — not a whole-conversation
+  // cap. The loop grants one extra text-only step past it so an exhausted
+  // turn still ends with an answer (see LlmService.streamChatCompletion).
+  // A current_law research turn chains
   // get_code_source + repeated brave_search/fetch_url rounds (chasing a
   // server-rendered copy when Municode renders blank) + save_existing_law + two
   // present_* widgets; at 8 it exhausted the budget mid-research and never

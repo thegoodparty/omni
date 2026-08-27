@@ -64,9 +64,15 @@ vi.mock('@shared/experiments/voterOutreachV2PhoneBankingFlag', () => ({
   useVoterOutreachV2PhoneBankingFlag: () => phoneBankingFlag,
 }))
 
+const smsFlag = { ready: true, enabled: false }
+vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
+  useVoterOutreachV2SmsFlag: () => smsFlag,
+}))
+
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
+    onCreateSms: () => void
     onCreateRobocall: () => void
     onCreatePhoneBanking: () => void
     preselectedListId: number
@@ -76,6 +82,7 @@ const renderGrid = (
     <ChannelTileGrid
       preselectedListId={overrides.preselectedListId}
       onCreateSocial={overrides.onCreateSocial ?? vi.fn()}
+      onCreateSms={overrides.onCreateSms ?? vi.fn()}
       onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
       onCreatePhoneBanking={overrides.onCreatePhoneBanking ?? vi.fn()}
     />,

@@ -13,6 +13,7 @@ import {
   PencilIcon,
   PhoneIcon,
   Share2Icon,
+  ShieldAlertIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
@@ -124,6 +125,7 @@ const STATUS_DISPLAY: Record<
   'In progress': { icon: <CircleDotIcon />, tone: 'primary' },
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
+  Canceled: { icon: <XCircleIcon />, tone: 'muted' },
   // Shelved, not finished. No history row carries this label yet — the archive
   // transition is reached from the door-knocking rail, whose details drawer
   // renders this same component so one saved list is described the same way
@@ -133,9 +135,26 @@ const STATUS_DISPLAY: Record<
   Archived: { icon: <ArchiveIcon />, tone: 'muted' },
 }
 
+// The display label for a scheduled SMS row whose CampaignVerify clearance
+// is still pending — the carriers will hold the send, so "Scheduled" would
+// be a lie. Rendered without a pill background, in the darker destructive
+// shade, per the design.
+export const WILL_NOT_SEND_LABEL = 'Needs compliance'
+
 export const HistoryStatusText = ({ label }: { label: string | null }) => {
   if (!label) {
     return <StatusText tone="muted">n/a</StatusText>
+  }
+  if (label === WILL_NOT_SEND_LABEL) {
+    return (
+      <StatusText
+        tone="destructive"
+        icon={<ShieldAlertIcon />}
+        className="font-semibold text-destructive-dark [&_svg]:size-3.5"
+      >
+        {WILL_NOT_SEND_LABEL}
+      </StatusText>
+    )
   }
   const display = STATUS_DISPLAY[label]
   return (
