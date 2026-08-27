@@ -12,9 +12,12 @@ permissions:
   contents: read
   pull-requests: write
 
+# Cancel superseded PR runs: the diff comment only ever describes the head
+# commit, so an in-flight run for an older one is wasted work that the new run
+# was also queued behind. Safe to kill — `pulumi diff` only reads state.
 concurrency:
   group: gp-api-infrastructure-diffs-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AWS_REGION: us-west-2

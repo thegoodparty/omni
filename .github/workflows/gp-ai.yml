@@ -16,9 +16,13 @@ permissions:
   contents: read
   id-token: write
 
+# Cancel superseded PR runs: a new push makes the in-flight result irrelevant,
+# and while cancel was off the new run also queued behind it. Safe for the two
+# jobs that touch AWS — the image build only pushes to ECR on main, and the
+# terraform plans run -lock=false, so neither can strand state. Never on main.
 concurrency:
   group: gp-ai-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AWS_REGION: us-west-2

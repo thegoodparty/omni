@@ -14,9 +14,12 @@ permissions:
 # shared group made every merge wait a full CI cycle for the previous one before
 # it even checked out. Deploys are still serialized, by the deploy job's own
 # election-api-deploy-<ref> group.
+#
+# Superseded PR runs are cancelled too: a new push makes the in-flight result
+# irrelevant, and while cancel was off the new run also queued behind it.
 concurrency:
   group: election-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AWS_REGION: us-west-2
