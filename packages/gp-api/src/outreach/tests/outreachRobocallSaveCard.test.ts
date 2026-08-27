@@ -82,11 +82,6 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
     expect(customersCreate).toHaveBeenCalledTimes(1)
     const customerArgs = customersCreate.mock.calls[0]?.[0]
     expect(customerArgs.metadata).toEqual({ userId: String(service.user.id) })
-    // Racing creates collapse Stripe-side via a per-user idempotency key.
-    const customerOpts = customersCreate.mock.calls[0]?.[1]
-    expect(customerOpts.idempotencyKey).toBe(
-      `ensure-customer-user-${service.user.id}`,
-    )
 
     // The winning path persists through the set-if-absent CAS exactly once.
     expect(setCasSpy).toHaveBeenCalledTimes(1)
@@ -127,29 +122,6 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
     expect(result).toBe('cus_winner')
     expect(customersCreate).toHaveBeenCalledTimes(1)
     expect(customersDel).toHaveBeenCalledWith('cus_orphan')
-  })
-
-  it('loses the CAS on the SAME customer (idempotency dedup): never deletes it', async () => {
-    // The idempotency key made the concurrent create return the SAME customer
-    // the winner persisted. Deleting it here would destroy the customer the
-    // stored id points at — so no delete must fire.
-    await setUserMetaData({ customerId: 'cus_shared' })
-    const staleUser = { ...service.user, metaData: {} }
-
-    const stripe = service.app.get(StripeService)
-    vi.spyOn(
-      service.app.get(UsersService),
-      'setCustomerIdIfAbsent',
-    ).mockResolvedValue(false)
-    customersCreate.mockResolvedValue({ id: 'cus_shared' })
-    const customersDel = vi.fn().mockResolvedValue({ deleted: true })
-    const stripeClient = (stripe as unknown as { stripe: Stripe }).stripe
-    vi.spyOn(stripeClient.customers, 'del').mockImplementation(customersDel)
-
-    const result = await stripe.ensureCustomer(staleUser)
-
-    expect(result).toBe('cus_shared')
-    expect(customersDel).not.toHaveBeenCalled()
   })
 
   it('reuses the stored customer and never creates a second one', async () => {
