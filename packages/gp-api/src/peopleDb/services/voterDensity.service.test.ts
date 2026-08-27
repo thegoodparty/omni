@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoterDensityService } from './voterDensity.service'
 import type { PeopleDbService } from '../peopleDb.service'
+import type { ShadowReadService } from '../shadowRead.service'
 
 describe('VoterDensityService', () => {
   let service: VoterDensityService
@@ -16,6 +17,11 @@ describe('VoterDensityService', () => {
     }
 
     service = new VoterDensityService()
+    // Flag off: this file covers the Postgres arm. The dual-read fork has its
+    // own file.
+    ;(service as unknown as { shadow: ShadowReadService }).shadow = {
+      enabled: false,
+    } as unknown as ShadowReadService
     ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
       get instance() {
         return mockPrisma

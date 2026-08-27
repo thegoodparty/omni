@@ -48,6 +48,7 @@ field.
 | `stats` | `DatabricksVoterService.findStats` | `stats.service.ts` |
 | `dk-evaluate`, `dk-residents` | `DatabricksVoterService` | `voterDoorKnocking.service.ts` |
 | `dk-pack` | `DatabricksVoterPackService` | `voterPack.service.ts` |
+| `voter-density` | `DatabricksVoterDensityService` | `voterDensity.service.ts` |
 
 Two forked reads **switch outright instead of comparing**, so they emit no
 `op` and no log line: the CSV download (`voterDownload.service.ts`) and
@@ -63,9 +64,18 @@ Two reads are **deliberately not** forked:
   reads fail when Databricks does, and would fold Databricks latency into the
   Postgres side of every comparison. The Databricks arm resolves the district
   itself, so that cost is already counted in its own timing.
-- **`VoterDensityService`.** `mart_gp_api` holds no H3 density table, so this
-  one cannot move until the data platform publishes one. It is the only
-  remaining Postgres-only read.
+- **`VoterSampleService`.** Hash-bucket sampling over the id space, never
+  ported. It is the only remaining Postgres-only read, so people-db cannot be
+  retired until it moves.
+
+`voter-density` is the one comparison where **disagreement is not by itself a
+defect**. Every other op reads one L2 voter file through two engines on the same
+cadence, so a mismatch means a bug. Density's Postgres copy arrives through the
+monthly loader while Databricks reads `mart_gp_api` directly, so the two
+legitimately differ between a mart rebuild and the next load — and until the
+loader has run once for these tables, people-db holds no density rows at all and
+every comparison disagrees. Read its fingerprints as a staleness signal and its
+timings as the engine measurement.
 
 A fingerprint is diagnostics, never a reason to fail a request — a bad one is
 swallowed and logged as null. Choose one that can actually see the divergence
@@ -140,7 +150,8 @@ service pointed at a disconnected client after a URL swap.
 reach for individual services from other modules directly.
 
 The Databricks services (`PeopleDbxStatementClient`, `DatabricksVoterService`,
-`DatabricksVoterDownloadService`, `DatabricksVoterPackService`) are provided
+`DatabricksVoterDownloadService`, `DatabricksVoterPackService`,
+`DatabricksVoterDensityService`) are provided
 but **not** exported. They are reached through the Postgres-named service that
 forks to them, or through `ShadowReadService.databricks` — a caller outside
 this module should not be choosing an engine.
@@ -453,6 +464,7 @@ external-link chunks). Nothing here talks to a warehouse.
 | `databricks/databricksVoter.service.ts` | List/person/aggregates/stats/sample/precincts + door-knocking rows    |
 | `databricks/databricksVoterDownload.service.ts` | Streaming CSV export over external links                     |
 | `databricks/databricksVoterPack.service.ts` | Voter pack built from CSV chunks (never the inline path)         |
+| `databricks/databricksVoterDensity.service.ts` | Voter-density cells + coverage, two keyed reads on `mart_gp_api` |
 | `peopleDbUrl.provider.ts`               | SSM-backed connection-string resolution + change notification         |
 | `peopleDb.service.ts`                   | Owns the live Prisma client; hot-swap on URL change                   |
 | `peopleDbBase.util.ts`                  | `createPeopleDbBase` — PrismaBase equivalent for this client          |
