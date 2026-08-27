@@ -15,7 +15,6 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
-import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -172,8 +171,8 @@ export const PhoneBankingFlow = ({
       trackEvent(EVENTS.Outreach.PhoneBanking.ListCreated, {
         product: 'phoneBanking',
         // Always true now: every audience is a saved VoterFileFilter (picked
-        // or just built) — the filter-less "All voters" default is gone
-        // (ENG-10930). Kept for analytics-schema continuity.
+        // or just built) — even an all-voters list built with no criteria
+        // (ENG-10960) persists as one. Kept for analytics-schema continuity.
         filtersApplied: true,
         listSize: response.personCount,
       })
@@ -364,12 +363,6 @@ export const PhoneBankingFlow = ({
     setStepId(previous)
   }
 
-  const hasBuilderSelection = hasAnyVoterFileSelection(
-    audience.builderFilters,
-    audience.builderSupportStatus,
-    audience.builderPrecincts,
-  )
-
   const dirty = !saved && purpose !== null
 
   const createErrorMessage = createMutation.isError
@@ -387,12 +380,14 @@ export const PhoneBankingFlow = ({
             ? 'Continue'
             : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
           onClick: () => audience.setMode('name'),
+          // No minimum-filter gate (ENG-10960): the step recommends reaching
+          // all voters, and an empty filter set builds exactly that list —
+          // the backend accepts a criteria-less saved filter.
           disabled:
-            !hasBuilderSelection ||
             audience.builderCounting ||
             audience.builderZeroMatch ||
             audience.builderCapError,
-          loading: hasBuilderSelection && audience.builderCounting,
+          loading: audience.builderCounting,
         }
       : audience.mode === 'name'
         ? {
