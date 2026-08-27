@@ -45,10 +45,11 @@ export class StripeService {
 
   // Returns the user's Stripe customerId, creating and persisting one the first
   // time. Concurrency-safe: a Stripe idempotency key collapses racing creates
-  // Stripe-side, and a set-if-absent CAS elects exactly one winner. A request
-  // that loses the CAS deletes its orphan customer (no payment method attached
-  // yet) and returns the stored id, so a card is never vaulted against a second
-  // customer.
+  // to ONE customer Stripe-side, and a set-if-absent CAS elects one winner to
+  // persist it. A loser returns the stored id — and deletes its create only
+  // when that stored id is a DIFFERENT customer (a genuine orphan), never the
+  // shared one the idempotency key returned, so a card is never vaulted against
+  // a second customer and the persisted id never points at a deleted one.
   async ensureCustomer(user: User): Promise<string> {
     const existingCustomerId = user.metaData?.customerId
     if (existingCustomerId) {
@@ -83,21 +84,25 @@ export class StripeService {
       return customer.id
     }
 
-    // Lost the race: another request stored a customerId first. Drop this
-    // orphan (safe — no payment method is attached yet) and use the winner's.
-    try {
-      await this.stripe.customers.del(customer.id)
-    } catch (err) {
-      this.logger.error({ err }, 'Failed to delete orphan Stripe customer')
-      throw new BadGatewayException('Failed to delete orphan Stripe customer')
-    }
-
+    // Lost the race: another request stored a customerId first. The idempotency
+    // key means our create usually returned that SAME customer, so there is
+    // nothing to drop. Only when the stored id is a DIFFERENT customer (e.g. a
+    // concurrent Pro checkout set one) is ours a genuine unused orphan — drop it
+    // best-effort (no card attached, so a cleanup failure is non-fatal and must
+    // not fail a request that already has a valid customerId).
     const winner = await this.usersService.findUser({ id: user.id })
     const winnerCustomerId = winner?.metaData?.customerId
     if (!winnerCustomerId) {
       throw new BadGatewayException(
         'Lost the customer-id race but found no stored customerId',
       )
+    }
+    if (winnerCustomerId !== customer.id) {
+      try {
+        await this.stripe.customers.del(customer.id)
+      } catch (err) {
+        this.logger.error({ err }, 'Failed to delete orphan Stripe customer')
+      }
     }
     return winnerCustomerId
   }

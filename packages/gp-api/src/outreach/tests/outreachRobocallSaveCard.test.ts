@@ -129,6 +129,29 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
     expect(customersDel).toHaveBeenCalledWith('cus_orphan')
   })
 
+  it('loses the CAS on the SAME customer (idempotency dedup): never deletes it', async () => {
+    // The idempotency key made the concurrent create return the SAME customer
+    // the winner persisted. Deleting it here would destroy the customer the
+    // stored id points at — so no delete must fire.
+    await setUserMetaData({ customerId: 'cus_shared' })
+    const staleUser = { ...service.user, metaData: {} }
+
+    const stripe = service.app.get(StripeService)
+    vi.spyOn(
+      service.app.get(UsersService),
+      'setCustomerIdIfAbsent',
+    ).mockResolvedValue(false)
+    customersCreate.mockResolvedValue({ id: 'cus_shared' })
+    const customersDel = vi.fn().mockResolvedValue({ deleted: true })
+    const stripeClient = (stripe as unknown as { stripe: Stripe }).stripe
+    vi.spyOn(stripeClient.customers, 'del').mockImplementation(customersDel)
+
+    const result = await stripe.ensureCustomer(staleUser)
+
+    expect(result).toBe('cus_shared')
+    expect(customersDel).not.toHaveBeenCalled()
+  })
+
   it('reuses the stored customer and never creates a second one', async () => {
     await setUserMetaData({ customerId: 'cus_existing' })
     setupIntentsCreate.mockResolvedValue({
