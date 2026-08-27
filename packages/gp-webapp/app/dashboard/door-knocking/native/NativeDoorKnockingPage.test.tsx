@@ -283,7 +283,7 @@ const drawStats = (pattern: RegExp) =>
 const openFlowAndDraw = () => {
   fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
   fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
-  fireEvent.click(screen.getByRole('button', { name: /^Continue \(/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
 const selectTurf = async () => {
@@ -1500,7 +1500,7 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     // Back lands on the audience step, whose CTA carries the district count.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     const callsOnLeaving = previewCalls.count
-    fireEvent.click(screen.getByRole('button', { name: /^Continue \(/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(document.getElementById('draw-step-doors')).toBeNull()
     expect(

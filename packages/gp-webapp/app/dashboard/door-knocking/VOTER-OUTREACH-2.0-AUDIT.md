@@ -454,6 +454,29 @@ Nothing was changed.
    different message anyway (`Tap 3 points to continue`, `1 more point to
 continue`, `No doors in this area`).
 
+   **The same call took the count out of the who step's CTA, which is the
+   other Continue button in this flow, and that one is a departure the audit
+   did not previously have to record.** It read
+   `Continue (1,500 households)` and was never a departure at all — the canvas
+   prints the matching count in that button, so we were following the
+   prototype. It is a departure now, on the same grounds: no Continue button in
+   this flow carries a count. Leaving the two steps disagreeing was the visible
+   symptom that made this worth deciding once rather than twice.
+
+   **What is different about the who step, and why the number did not simply
+   go:** the draw step could drop its count because the stats bar above it
+   already said it. The who step has no stats bar. `districtHouseholds` is the
+   size of the filtered draft, and the only other figure on that step is the
+   picker's `All contacts (N)`, which is the **unfiltered** universe and does
+   not move when a pill is toggled — so the CTA was the one place a candidate
+   could see how big the audience they were cutting had become. Deleting it
+   would have been a real loss rather than a de-duplication. So it moved to the
+   line beside the button, which reads "N matching households across your whole
+   district. You'll draw the area to knock next." — the number and the
+   denominator in one sentence, which is where they were before the canvas
+   moved the number into the CTA. Zero still disables the button and says
+   `No matching households`.
+
    Logged rather than edited in place, because "the count was defended on the
    Filters-CTA precedent and the owner rejected the precedent" is the useful
    record; an entry saying only "bare Continue" would invite the next reviewer

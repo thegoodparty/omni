@@ -1030,11 +1030,20 @@ export default function CreateListFlow({
               {stage === 'who' && (
                 <>
                   {/* No polygon exists yet, so district-wide is the only honest
-                    denominator here — and with the count now inside the CTA,
-                    this line is what still says which denominator it is. */}
+                    denominator here, and this line carries both halves: the
+                    count and the qualifier that says which denominator it is.
+                    The count came back out of the CTA and had nowhere else to
+                    go — unlike the draw step, this step has no stats bar, so
+                    the button was the only place the filtered audience size
+                    was said. A bare count would be the exact confusion the
+                    two-denominator rule exists for, so the two travel
+                    together in one sentence. */}
                   <p className="flex-1 self-center text-sm text-muted-foreground">
-                    Across your whole district. You&rsquo;ll draw the area to
-                    knock next.
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {districtHouseholds.toLocaleString()}
+                    </span>{' '}
+                    matching households across your whole district. You&rsquo;ll
+                    draw the area to knock next.
                   </p>
                   <Button
                     variant="ghost"
@@ -1053,7 +1062,7 @@ export default function CreateListFlow({
                   >
                     {districtHouseholds === 0
                       ? 'No matching households'
-                      : `Continue (${districtHouseholds.toLocaleString()} households)`}
+                      : 'Continue'}
                   </Button>
                 </>
               )}
