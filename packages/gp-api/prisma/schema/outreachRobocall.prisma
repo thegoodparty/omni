@@ -26,7 +26,10 @@ model OutreachRobocall {
   outreachId     Int      @unique @map("outreach_id")
   // The recorded audio's S3 object key (bucket ROBOCALL_AUDIO_BUCKET), persisted
   // at draft so the later slices are self-contained when the browser is gone.
-  audioKey       String   @map("audio_key")
+  // Unique: a fresh per-recording key is one intended send, so the constraint
+  // is the atomic backstop that makes a concurrent double-submit fail the second
+  // INSERT rather than mint a second billable anchor.
+  audioKey       String   @unique @map("audio_key")
   // The rented CallHub caller-ID number the candidate reads aloud as the
   // callback; held through payment for the later send slice to dial from.
   callbackNumber String   @map("callback_number")

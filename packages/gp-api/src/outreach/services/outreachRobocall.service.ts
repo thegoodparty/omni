@@ -13,6 +13,7 @@ import {
   Organization,
   OutreachStatus,
   OutreachType,
+  Prisma,
   RobocallSettleState,
 } from '../../generated/prisma'
 
@@ -101,28 +102,13 @@ export class OutreachRobocallService extends createPrismaBase(
       )
     }
 
-    // Idempotent on a double-click / retry / network retry: a repeat POST with
-    // the same audio for this campaign returns the existing pending_payment
-    // draft rather than minting a second billable anchor the hold/settlement
-    // slices could charge twice. audioKey is a fresh per-recording key, so it
-    // is the natural dedup key for one intended send.
-    const existing = await this.findFirst({
-      where: {
-        audioKey: input.audioKey,
-        outreach: {
-          campaignId: campaign.id,
-          status: OutreachStatus.pending_payment,
-          outreachType: OutreachType.robocall,
-        },
-      },
-    })
-    if (existing) {
-      return {
-        outreachId: existing.outreachId,
-        billableCount: existing.billableCount,
-        amountInCents: existing.amountInCents,
-      }
-    }
+    // Idempotent on a double-click / retry: a repeat POST with the same audio
+    // for this campaign returns the existing pending_payment draft rather than
+    // minting a second billable anchor the hold/settlement slices could charge
+    // twice. The unique(audio_key) constraint is the atomic backstop for the
+    // concurrent race this read-before-write can't win alone.
+    const existing = await this.findExistingDraft(campaign.id, input.audioKey)
+    if (existing) return existing
 
     const billableCount = await this.deriveBillableCount(
       organization,
@@ -131,32 +117,68 @@ export class OutreachRobocallService extends createPrismaBase(
     this.assertReachableCount(billableCount)
     const amountInCents = calcRobocallAmountInCents(billableCount)
 
-    const outreachId = await this.client.$transaction(async (tx) => {
-      const spine = await tx.outreach.create({
-        data: {
-          campaignId: campaign.id,
-          organizationSlug: campaign.organizationSlug,
-          outreachType: OutreachType.robocall,
-          status: OutreachStatus.pending_payment,
-          name: input.name,
-          script: input.script,
-          date: parseISO(input.scheduledAt),
-          voterFileFilterId: input.voterFileFilterId,
-        },
+    try {
+      const outreachId = await this.client.$transaction(async (tx) => {
+        const spine = await tx.outreach.create({
+          data: {
+            campaignId: campaign.id,
+            organizationSlug: campaign.organizationSlug,
+            outreachType: OutreachType.robocall,
+            status: OutreachStatus.pending_payment,
+            name: input.name,
+            script: input.script,
+            date: parseISO(input.scheduledAt),
+            voterFileFilterId: input.voterFileFilterId,
+          },
+        })
+        await tx.outreachRobocall.create({
+          data: {
+            outreachId: spine.id,
+            audioKey: input.audioKey,
+            callbackNumber: input.callbackNumber,
+            billableCount,
+            amountInCents,
+            settleState: RobocallSettleState.pending_payment,
+          },
+        })
+        return spine.id
       })
-      await tx.outreachRobocall.create({
-        data: {
-          outreachId: spine.id,
-          audioKey: input.audioKey,
-          callbackNumber: input.callbackNumber,
-          billableCount,
-          amountInCents,
-          settleState: RobocallSettleState.pending_payment,
-        },
-      })
-      return spine.id
-    })
 
-    return { outreachId, billableCount, amountInCents }
+      return { outreachId, billableCount, amountInCents }
+    } catch (err) {
+      // A concurrent create won the unique(audio_key) race: return its draft
+      // rather than surfacing the constraint violation.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const raced = await this.findExistingDraft(campaign.id, input.audioKey)
+        if (raced) return raced
+      }
+      throw err
+    }
+  }
+
+  private async findExistingDraft(
+    campaignId: number,
+    audioKey: string,
+  ): Promise<RobocallDraftResult | null> {
+    const existing = await this.findFirst({
+      where: {
+        audioKey,
+        outreach: {
+          campaignId,
+          status: OutreachStatus.pending_payment,
+          outreachType: OutreachType.robocall,
+        },
+      },
+    })
+    return existing
+      ? {
+          outreachId: existing.outreachId,
+          billableCount: existing.billableCount,
+          amountInCents: existing.amountInCents,
+        }
+      : null
   }
 }

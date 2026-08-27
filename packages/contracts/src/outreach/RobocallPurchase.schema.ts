@@ -15,8 +15,9 @@ export const RobocallDraftCreateRequestSchema = z.object({
   audioKey: z.string().min(1),
   // The rented CallHub caller-ID number the candidate reads aloud.
   callbackNumber: z.string().min(1).max(32),
-  // When the robocall should go out, ISO-8601.
-  scheduledAt: z.string().datetime(),
+  // When the robocall should go out, ISO-8601. offset:true so a browser's
+  // local-offset timestamp (e.g. -05:00) is accepted, not only UTC 'Z'.
+  scheduledAt: z.string().datetime({ offset: true }),
   // The script the candidate read into the recording (display/record only).
   script: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
   name: z.string().min(1).max(120).optional(),
