@@ -37,10 +37,10 @@ model Voter {
     Mailing_Addresses_DPBC                 String?   @peopleDb.Text() // Mailing_Addresses_DPBC
     Mailing_Addresses_ExtraAddressLine     String?   @peopleDb.Text() // 
     Mailing_Addresses_HouseNumber          String?   @peopleDb.Text() // 
-    Mailing_Addresses_PrefixDirection      Int?      @peopleDb.Integer // 
+    Mailing_Addresses_PrefixDirection      String?   @peopleDb.Text() // 
     Mailing_Addresses_State                String?   @peopleDb.Text() // 
     Mailing_Addresses_StreetName           String?   @peopleDb.Text() // 
-    Mailing_Addresses_SuffixDirection      Int?      @peopleDb.Integer // 
+    Mailing_Addresses_SuffixDirection      String?   @peopleDb.Text() // 
     Mailing_Addresses_Zip                  String?   @peopleDb.Text() // 
     Mailing_Addresses_ZipPlus4             String?   @peopleDb.Text() // 
     Mailing_Families_FamilyID              String?   @peopleDb.Text() // Unique alpha-numeric ID starting with an M' for 'Mailing' that is common to all members of a mailing household address but different from all other mailing households.'
@@ -67,10 +67,10 @@ model Voter {
     Residence_Addresses_LatLongAccuracy    String?   @peopleDb.Text() // Residence_Addresses_LatLongAccuracy
     Residence_Addresses_Latitude           String?   @peopleDb.Text() // 
     Residence_Addresses_Longitude          String?   @peopleDb.Text() //
-    Residence_Addresses_PrefixDirection    Int?      @peopleDb.Integer // 
+    Residence_Addresses_PrefixDirection    String?   @peopleDb.Text() // 
     Residence_Addresses_State              String?   @peopleDb.Text() // 
     Residence_Addresses_StreetName         String?   @peopleDb.Text() // 
-    Residence_Addresses_SuffixDirection    Int?      @peopleDb.Integer // 
+    Residence_Addresses_SuffixDirection    String?   @peopleDb.Text() // 
     Residence_Addresses_Zip                String?   @peopleDb.Text() // 
     Residence_Addresses_ZipPlus4           String?   @peopleDb.Text() // 
     Residence_HHParties_Description        String?   @peopleDb.Text() // Same as Mailing HH Parties calculation but based on those sharing the same residence address rather than those sharing the same mailing address

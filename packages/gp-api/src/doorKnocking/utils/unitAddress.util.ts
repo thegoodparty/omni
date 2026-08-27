@@ -22,11 +22,12 @@ const withApartment = (line: string, apartment: string | undefined): string =>
 // A current key carries the file's whole AddressLine and needs no assembly.
 // A legacy key carries parsed components and is joined back in display order —
 // note that its two direction segments are always empty, because the columns
-// they came from cannot hold a letter (see DOOR_KNOCKING_UNIT_KEY_COLUMNS), so
-// a route frozen before the switch still prints "1234 5678" where the house is
-// "1234 S 5678 W". Re-knocking that list is what fixes it; there is nothing in
-// the key to recover the directions from. Anything else is a household-era key
-// whose first segment is already an address line.
+// they came from were INTEGER when those routes froze (see
+// DOOR_KNOCKING_UNIT_KEY_COLUMNS), so a route frozen before the switch still
+// prints "1234 5678" where the house is "1234 S 5678 W". Re-knocking that list
+// is what fixes it; there is nothing in the key to recover the directions from.
+// Anything else is a household-era key whose first segment is already an
+// address line.
 export const renderUnitAddress = (addressKey: string): string => {
   const parts = addressKey.split('|')
 
