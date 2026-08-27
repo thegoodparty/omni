@@ -18,6 +18,7 @@ import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { PeopleListResponse } from '@/contacts/schemas/person.schema'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import { OutreachRobocallService } from '../services/outreachRobocall.service'
 import {
   OutreachStatus,
   OutreachType,
@@ -242,16 +243,31 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(rows).toBe(1)
   })
 
-  // The money-critical backstop: two truly concurrent submits must resolve to
-  // one billable anchor via the unique(audio_key) index + P2002 recovery, not
-  // just the sequential read-before-write.
-  it('is idempotent under a concurrent double-submit (one row, same id)', async () => {
+  // The money-critical backstop: when the pre-INSERT lookup misses (the true
+  // concurrent race), the INSERT trips unique(audio_key) and the P2002 catch
+  // must recover the winner's draft rather than mint a second anchor. Forced
+  // deterministically — a Promise.all serializes at the DB layer and would
+  // take the read-before-write path instead, never exercising the catch.
+  it('recovers from the unique(audio_key) race via the P2002 catch', async () => {
     findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
     const body = validDraftBody()
 
-    const [a, b] = await Promise.all([postDraft(body), postDraft(body)])
+    // The committed winner.
+    const winner = await postDraft(body)
 
-    expect(a.data.outreachId).toBe(b.data.outreachId)
+    // Force the loser's pre-INSERT lookup to miss once; its recovery lookup in
+    // the catch falls through to the real winner row.
+    const robocall = service.app.get(OutreachRobocallService)
+    const findFirstSpy = vi
+      .spyOn(robocall, 'findFirst')
+      .mockResolvedValueOnce(null)
+
+    const loser = await postDraft(body)
+
+    expect(loser.status).toBe(HttpStatus.CREATED)
+    expect(loser.data.outreachId).toBe(winner.data.outreachId)
+    // Pre-INSERT miss + the catch's recovery lookup.
+    expect(findFirstSpy).toHaveBeenCalledTimes(2)
     const rows = await service.prisma.outreachRobocall.count({
       where: { outreach: { campaignId: CAMPAIGN_ID } },
     })
