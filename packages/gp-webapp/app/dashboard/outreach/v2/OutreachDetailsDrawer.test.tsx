@@ -848,6 +848,38 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('flags a paid scheduled row as Needs compliance too, without the Cancel footer', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...smsDetail, status: 'paid' },
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={{
+          ...scheduledSmsRow,
+          status: 'paid',
+          p2pJob: { status: 'building' },
+        }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    // Label and banner mirror the table's substitution; Cancel stays
+    // pending-only because the backend's cancel window is.
+    expect(await screen.findByText('Needs compliance')).toBeInTheDocument()
+    expect(
+      screen.getByText('Compliance needed before this can send'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cancel' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('shows an error state instead of a computed amount when the receipt read fails', async () => {
     api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
     // 500, not 502: the mocker's error union stops at 500, and the drawer

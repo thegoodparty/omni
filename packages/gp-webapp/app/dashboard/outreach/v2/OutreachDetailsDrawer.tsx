@@ -215,6 +215,16 @@ export const OutreachDetailsDrawer = ({
   const notCleared =
     tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
   const isPendingVerificationSms = isCancelableSms && notCleared
+  // The carriers hold EVERY uncleared SMS send, not just the cancelable
+  // pending set — legacy rows labeled Scheduled ride spine paid/in_progress.
+  // Mirrors the table's substitution so the drawer can't contradict the row
+  // that opened it; only the label and banner widen, the Cancel footer stays
+  // pending-only because cancel is.
+  const isComplianceHeldSms =
+    notCleared &&
+    isSms &&
+    (isCancelableSms ||
+      (row !== null && getHistoryStatusLabel(row) === 'Scheduled'))
 
   // ComplianceModal's status-aware target: SUBMITTED waits on the
   // CampaignVerify PIN; anything else enters at the election-filing form.
@@ -360,7 +370,7 @@ export const OutreachDetailsDrawer = ({
         : null
   // The pill next to the title swaps to the warning label; the byline keeps
   // "Scheduled for {date}" — the send date itself is unchanged.
-  const displayStatusLabel = isPendingVerificationSms
+  const displayStatusLabel = isComplianceHeldSms
     ? WILL_NOT_SEND_LABEL
     : statusLabel
 
@@ -568,7 +578,7 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
-            {isPendingVerificationSms && (
+            {isComplianceHeldSms && (
               // Same banner as the SMS flow: the drawer is where a user
               // lands from the "Needs compliance" history row, so the
               // unblock action leads here too.

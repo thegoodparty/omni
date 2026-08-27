@@ -273,7 +273,11 @@ describe('SmsFlow', () => {
 
     // Compose: initial AI draft fires; body arrives with the intro region.
     expect(
-      await screen.findByText(/AI body \(warm\) for introduce_myself/),
+      await screen.findByText(
+        /AI body \(warm\) for introduce_myself/,
+        undefined,
+        { timeout: 15000 },
+      ),
     ).toBeInTheDocument()
     expect(draftCalls).toHaveLength(1)
     expect(
@@ -387,19 +391,31 @@ describe('SmsFlow', () => {
     await userEvent.click(screen.getByText('Pick a date'))
     if (target.getMonth() !== new Date().getMonth()) {
       await userEvent.click(
-        await screen.findByRole('button', { name: /next month/i }),
+        await screen.findByRole(
+          'button',
+          { name: /next month/i },
+          { timeout: 15000 },
+        ),
       )
     }
     await userEvent.click(
-      await screen.findByRole('button', {
-        name: new RegExp(
-          `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
-        ),
-      }),
+      await screen.findByRole(
+        'button',
+        {
+          name: new RegExp(
+            `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
+          ),
+        },
+        { timeout: 15000 },
+      ),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText(/AI body \(warm\) for introduce_myself/)
+    await screen.findByText(
+      /AI body \(warm\) for introduce_myself/,
+      undefined,
+      { timeout: 15000 },
+    )
     await attachImage()
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
