@@ -8,6 +8,7 @@ import ProUpgrade3Compliance from 'app/dashboard/profile/texting-compliance-agen
 import { Campaign, User } from 'helpers/types'
 import { PersonalInformationCard } from './PersonalInformationCard'
 import { AccountInformationCard } from './AccountInformationCard'
+import { PaymentMethodCard } from './PaymentMethodCard'
 import DeleteAccountPage from './DeleteAccountPage'
 
 interface AccountProfilePageProps {
@@ -55,6 +56,8 @@ const AccountProfilePage = ({
               subscriptionId={subscriptionId}
             />
           )}
+
+          <PaymentMethodCard user={user} />
 
           {(!!campaign || isElectedOffice) && (
             <NotificationSection showCampaignChannels={!isElectedOffice} />

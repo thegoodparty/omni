@@ -552,6 +552,8 @@ export const EVENTS = {
       ClickUpgrade: 'Settings - Account Settings: Click Upgrade',
       ClickManageSubscription:
         'Settings - Account Settings: Click Manage Pro Subscription',
+      ManagePaymentMethod:
+        'Settings - Account Settings: Click Manage Payment Method',
     },
     DeleteAccount: {
       ClickDelete: 'Settings - Delete Account: Click Delete',

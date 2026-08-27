@@ -12,11 +12,16 @@ interface PaymentPortalButtonProps extends Omit<
   'children' | 'loading' | 'disabled' | 'onClick'
 > {
   redirectUrl?: string | null
+  // Which analytics event the click fires. Defaults to the Manage Subscription
+  // event so existing callers are unchanged; the saved-card entry passes its
+  // own so a payment-method click isn't logged as a subscription click.
+  analyticsEvent?: string
   children: ReactNode
 }
 
 export const PaymentPortalButton = ({
   redirectUrl = null,
+  analyticsEvent = EVENTS.Settings.Account.ClickManageSubscription,
   children,
   ...restProps
 }: PaymentPortalButtonProps): React.JSX.Element => {
@@ -25,7 +30,7 @@ export const PaymentPortalButton = ({
 
   const onClick = async (e: MouseEvent<HTMLButtonElement>): Promise<void> => {
     e.preventDefault()
-    trackEvent(EVENTS.Settings.Account.ClickManageSubscription)
+    trackEvent(analyticsEvent)
     setLoading(true)
     // A failed portal request must re-enable the button: on the post-election
     // gated screen this button is the user's only path to the Stripe portal,
