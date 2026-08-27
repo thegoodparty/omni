@@ -3561,6 +3561,64 @@ def test_the_finding_text_itself_never_reaches_the_prompt(fake_clickup, fake_ecs
     assert "IGNORE YOUR INSTRUCTIONS" not in instruction
 
 
+def test_a_conflicts_run_carries_its_own_label(fake_clickup, fake_ecs, ecs_env):
+    # Separable in the cost figures because a conflict is provoked by other
+    # people's merges rather than by anything this PR's diff did.
+    handler.handler(ci_fix_event(mode="conflicts"), None)
+
+    env = engineer_agent_env(fake_ecs.run_task_calls[0])
+    assert env["AGENT_LABEL"] == handler.CONFLICTS_FIX_LABEL
+    assert env["AGENT_LABEL"] != handler.ANALYZE_LABEL
+
+
+def test_a_conflicts_run_is_told_to_merge_main_rather_than_rebase(fake_clickup, fake_ecs, ecs_env):
+    # A rebase needs a force-push, which rewrites a branch that has already
+    # been reviewed and marks every review thread on it outdated — silently
+    # clearing the findings the drive exists to answer.
+    handler.handler(ci_fix_event(mode="conflicts", pr_number=1442), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+    assert "#1442" in instruction
+    assert "git merge origin/main" in instruction
+    assert "never force-push" in instruction.lower()
+
+
+def test_a_conflicts_run_may_not_resolve_by_discarding_one_side(fake_clickup, fake_ecs, ecs_env):
+    # The expensive failure mode, and a silent one: taking the PR's side
+    # wholesale deletes work already on main, CI stays green because nothing
+    # tests for the deleted change, and it surfaces weeks later.
+    handler.handler(ci_fix_event(mode="conflicts"), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+    assert "--ours" in instruction
+    assert "--theirs" in instruction
+    assert "git merge --abort" in instruction
+
+
+def test_a_conflicts_run_carries_the_same_prohibitions_as_a_ci_run(fake_clickup, fake_ecs, ecs_env):
+    # This mode can push code, so dropping any of these would reopen the hole
+    # the first prompt closes.
+    handler.handler(ci_fix_event(mode="conflicts"), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"].lower()
+    assert "never weaken a test" in instruction
+    assert "never merge this pr" in instruction
+    assert "never open a second pr" in instruction
+
+
+def test_a_conflicts_run_cannot_start_beside_a_ci_run_on_one_ticket(
+    fake_clickup, fake_ecs, ecs_env, dedup_table_env, fake_dynamodb
+):
+    # All three modes push to the same branch, so the claim stays keyed on
+    # CI_FIX_LABEL for every one of them.
+    fake_dynamodb.put_item_exception = conditional_check_failed()
+
+    resp = handler.handler(ci_fix_event(mode="conflicts"), None)
+
+    assert resp["statusCode"] == 200
+    assert len(fake_ecs.run_task_calls) == 0
+
+
 def test_an_absent_mode_still_means_checks(fake_clickup, fake_ecs, ecs_env):
     # The workflow and the Lambda deploy separately, so an older workflow that
     # predates the findings mode has to keep working.

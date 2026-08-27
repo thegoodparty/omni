@@ -239,8 +239,8 @@ jobs:
           for pr in $PR_NUMBERS; do
             echo "::group::PR #$pr"
 
-            pr_json="$(gh pr view "$pr" --repo "$REPO" \
-              --json number,title,state,url,headRefName,statusCheckRollup)" || { echo "::endgroup::"; continue; }
+            pr_fields=number,title,state,url,headRefName,statusCheckRollup,mergeable,mergeStateStatus
+            pr_json="$(gh pr view "$pr" --repo "$REPO" --json "$pr_fields")" || { echo "::endgroup::"; continue; }
 
             # Same two-signal bot gate as gpbot-pr-triage.yml. The schedule path
             # already filtered on it; the workflow_run path has not.
@@ -250,6 +250,23 @@ jobs:
             if [ "$(jq -r .state <<<"$pr_json")" != "OPEN" ]; then
               echo "not open"; echo "::endgroup::"; continue
             fi
+
+            # GitHub computes mergeability lazily and answers UNKNOWN until it
+            # has, which asking is what triggers. Re-asking a few times turns the
+            # common case — a PR pushed to minutes ago — into a real answer on
+            # this pass instead of the next one.
+            #
+            # An UNKNOWN that survives the loop is passed through as UNKNOWN
+            # rather than guessed at; is_conflicted reads that as "not
+            # conflicted" on purpose, so the cost of giving up here is 30
+            # minutes of latency and never a fix run against a clean branch.
+            for _ in 1 2 3; do
+              [ "$(jq -r '.mergeable // "UNKNOWN"' <<<"$pr_json")" != "UNKNOWN" ] && break
+              sleep 5
+              pr_json="$(gh pr view "$pr" --repo "$REPO" --json "$pr_fields")" || break
+            done
+            mergeability="$(jq -c '{mergeable: (.mergeable // "UNKNOWN"), merge_state: (.mergeStateStatus // "UNKNOWN")}' <<<"$pr_json")"
+            echo "mergeability: $(jq -r '.mergeable + "/" + .merge_state' <<<"$mergeability")"
 
             # Normalise both rollup shapes into one list. GitHub Actions jobs
             # arrive as CheckRun (status + conclusion); external reporters such as
@@ -274,8 +291,9 @@ jobs:
             echo "failing checks: $(jq 'length' <<<"$failing")"
 
             # A GREEN BOARD IS NO LONGER AN EXIT. Review threads are gathered on
-            # every pass, and the triage decides which of the two — checks or
-            # findings — is this pass's work.
+            # every pass, and the triage decides which of the three — conflicts,
+            # checks or findings — is this pass's work. A PR whose checks all
+            # passed can still be unmergeable.
             #
             # `comments(first: 1)` identifies the thread: the author of the
             # FIRST comment is who raised it, which is what the author filter
@@ -387,8 +405,10 @@ jobs:
             comment_id="$(jq -r 'if . == null then "" else .id end' <<<"${marker:-null}")"
 
             decision="$(jq -n --argjson checks "$enriched" --argjson findings "${threads:-[]}" \
+              --argjson mergeability "$mergeability" \
               --arg body "$(jq -r 'if . == null then "" else .body end' <<<"${marker:-null}")" \
-              '{checks: $checks, findings: $findings, state_comment: (if $body == "" then null else $body end)}' \
+              '{checks: $checks, findings: $findings, mergeability: $mergeability,
+                state_comment: (if $body == "" then null else $body end)}' \
               | python3 "$triage")" || { echo "::error::triage failed for #$pr"; echo "::endgroup::"; continue; }
 
             action="$(jq -r .action <<<"$decision")"
@@ -416,7 +436,7 @@ jobs:
                   echo "::endgroup::"; continue
                 fi
                 ;;
-              fix|fix-findings)
+              fix|fix-findings|fix-conflicts)
                 # The ClickUp task is recovered from the branch's custom_id
                 # prefix (ENG-1234/gp-bot_...), the same route
                 # gpbot-pr-triage.yml uses.
@@ -475,7 +495,7 @@ jobs:
                 done <<<"$run_ids"
                 ;;
 
-              fix|fix-findings)
+              fix|fix-findings|fix-conflicts)
                 # Launching goes through the Lambda so the fix run reuses the one
                 # audited path to Fargate — trigger_fargate_task — rather than a
                 # second, less-scrutinised one wired straight to ECS from CI.
@@ -488,6 +508,7 @@ jobs:
                 # prompt. The agent fetches its own evidence with `gh`.
                 mode=checks
                 [ "$action" = "fix-findings" ] && mode=findings
+                [ "$action" = "fix-conflicts" ] && mode=conflicts
                 aws lambda invoke \
                   --function-name "$LAMBDA_FUNCTION" \
                   --cli-binary-format raw-in-base64-out \
