@@ -14,6 +14,8 @@ import {
   statusesToBytes,
 } from '../utils/packEncoder.utils'
 import { scanUnderCursor } from '../utils/cursorScan.util'
+import { ShadowReadService } from '../shadowRead.service'
+import { DatabricksVoterPackService } from '../databricks/databricksVoterPack.service'
 
 const VOTER_TABLE = Prisma.raw('"green"."Voter"')
 const DV_TABLE = Prisma.raw('"green"."DistrictVoter"')
@@ -39,8 +41,33 @@ const SCAN_TIMEOUT_MESSAGE =
 
 @Injectable()
 export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
-  constructor(private readonly districtService: DistrictService) {
+  constructor(
+    private readonly districtService: DistrictService,
+    private readonly shadow: ShadowReadService,
+    private readonly databricksPack: DatabricksVoterPackService,
+  ) {
     super()
+  }
+
+  async build(
+    request: DoorKnockingPackRequest,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    if (!this.shadow.enabled) return this.buildFromPostgres(request, signal)
+    return this.shadow.compare({
+      op: 'dk-pack',
+      districtId: request.districtId,
+      authoritative: () => this.databricksPack.build(request, signal),
+      // No signal on the comparison arm. It is already unawaited, and a build
+      // that stops early would report a length the authoritative arm never
+      // had -- a false disagreement rather than a missing measurement.
+      comparison: () => this.buildFromPostgres(request),
+      // Byte length, not the bytes: the encoded planes are positional and
+      // fixed-width per person, so a length mismatch is a population
+      // mismatch. `generatedAt` is a fixed-width ISO string in both.
+      fingerprintAuthoritative: (pack) => pack.length,
+      fingerprintComparison: (pack) => pack.length,
+    })
   }
 
   // One unordered pass over the district, read through a server-side cursor:
@@ -66,7 +93,7 @@ export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // `signal` is the caller's response stream. A build with nobody left to read
   // it stops at the next chunk rather than scanning the rest of the district
   // for a socket that is already closed.
-  async build(
+  private async buildFromPostgres(
     request: DoorKnockingPackRequest,
     signal?: AbortSignal,
   ): Promise<Buffer> {

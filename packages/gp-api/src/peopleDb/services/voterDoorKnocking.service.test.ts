@@ -36,6 +36,11 @@ describe('VoterDoorKnockingService', () => {
     $executeRaw: ReturnType<typeof vi.fn>
     $transaction: ReturnType<typeof vi.fn>
   }
+  let shadow: {
+    enabled: boolean
+    compare: ReturnType<typeof vi.fn>
+    databricks: Record<string, unknown>
+  }
   const mockDistrictService = {
     findDistrictById: vi.fn().mockResolvedValue({
       id: DISTRICT_ID,
@@ -53,7 +58,13 @@ describe('VoterDoorKnockingService', () => {
         .fn()
         .mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
     }
-    service = new VoterDoorKnockingService(mockDistrictService as never)
+    // Dual read off: these cases cover the Postgres arm's SQL and guards.
+    // The fork itself is covered in voterDoorKnocking.dualRead.test.ts.
+    shadow = { enabled: false, compare: vi.fn(), databricks: {} }
+    service = new VoterDoorKnockingService(
+      mockDistrictService as never,
+      shadow as never,
+    )
     ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
       get instance() {
         return mockClient

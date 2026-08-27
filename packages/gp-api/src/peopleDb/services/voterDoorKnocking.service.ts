@@ -37,7 +37,12 @@ import {
   DoorKnockingResidentsDTO,
 } from '../schemas/doorKnocking.schema'
 import { buildBboxSql } from '../utils/bboxSql.util'
+import { hash32 } from '../util/hash.util'
 import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
+import {
+  COMPARISON_STATEMENT_TIMEOUT_MS,
+  ShadowReadService,
+} from '../shadowRead.service'
 
 const VOTER_TABLE = Prisma.raw(`"${DATABASE_SCHEMA}"."Voter"`)
 const DV_TABLE = Prisma.raw(`"${DATABASE_SCHEMA}"."DistrictVoter"`)
@@ -184,11 +189,114 @@ const mapDemographics = (
   ethnicityGroup: mapEthnicity(row.EthnicGroups_EthnicGroup1Desc),
 })
 
+const shapeEvaluate = (
+  rows: EvaluateRow[],
+  dto: DoorKnockingEvaluateDTO,
+): DoorKnockingEvaluateResponse => {
+  // maxPeople is a guard, not pagination: over the cap the whole request
+  // fails, so an oversized polygon can't silently truncate to a wrong roster
+  // or stream a whole voter file. Both engines LIMIT cap + 1, so the overflow
+  // is detected without counting.
+  if (rows.length > dto.maxPeople) {
+    throw new BadRequestException(
+      `Turf evaluation matched more than ${dto.maxPeople} people — ` +
+        'shrink the polygon or narrow the filters',
+    )
+  }
+
+  return DoorKnockingEvaluateResponseSchema.parse({ people: rows })
+}
+
+const shapeResidents = (
+  rows: ResidentRow[],
+  dto: DoorKnockingResidentsDTO,
+  residentsCap: number,
+): DoorKnockingResidentsResponse => {
+  // Mirrors evaluate's guard: reject rather than silently truncate — a
+  // truncated response would serve wrong rosters. The cap is generous
+  // (unit-level addressKeys hold household-sized populations).
+  if (rows.length > residentsCap) {
+    throw new BadRequestException(
+      'Residents lookup exceeded the expected population for this route',
+    )
+  }
+
+  const targetIds = new Set<string>(dto.targetPersonIds)
+  const byAddress = new Map<
+    string,
+    DoorKnockingResidentsResponse['addresses'][number]
+  >()
+  for (const row of rows) {
+    let address = byAddress.get(row.addressKey)
+    if (!address) {
+      address = {
+        addressKey: row.addressKey,
+        targets: [],
+        otherResidents: [],
+      }
+      byAddress.set(row.addressKey, address)
+    }
+    if (targetIds.has(row.id)) {
+      address.targets.push({
+        personId: row.id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        age: mapAge(row),
+        // No party data (null/empty) stays null — unlike /v1/people
+        // output, which collapses it to 'Other'. A non-empty unrecognized
+        // value (Green, Libertarian, …) IS a real registration and maps
+        // to 'Other' deliberately; the ?? null only narrows the mapper's
+        // optional return type.
+        politicalParty: row.Parties_Description
+          ? (mapPoliticalParty(row.Parties_Description) ?? null)
+          : null,
+        // Blank-vs-NULL is not consistent across the voter file, and a blank
+        // would render as an empty phone row at the door.
+        cellPhone: row.cellPhone?.trim() || null,
+        landline: row.landline?.trim() || null,
+        ...mapDemographics(row),
+      })
+    } else {
+      address.otherResidents.push({
+        personId: row.id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+      })
+    }
+  }
+
+  // A requested addressKey with no current residents is simply absent — the
+  // caller renders that unit from its frozen snapshot.
+  return DoorKnockingResidentsResponseSchema.parse({
+    addresses: [...byAddress.values()],
+  })
+}
+
+// Order-insensitive digests over the id sets, not row counts. The divergence
+// worth catching is a bbox or key expression that selects a DIFFERENT set of
+// the same size, and neither engine orders these scans.
+const digestIds = (ids: string[]): string =>
+  `${ids.length}:${hash32([...ids].sort().join(','))}`
+
+const fingerprintPeople = (value: DoorKnockingEvaluateResponse): string =>
+  digestIds(value.people.map((person) => person.id))
+
+const fingerprintResidents = (value: DoorKnockingResidentsResponse): string =>
+  digestIds(
+    value.addresses.flatMap((address) => [
+      ...address.targets.map((target) => target.personId),
+      ...address.otherResidents.map((resident) => resident.personId),
+    ]),
+  )
+
 @Injectable()
 export class VoterDoorKnockingService extends createPeopleDbBase(
   PEOPLE_MODELS.Voter,
 ) {
-  constructor(private readonly districtService: DistrictService) {
+  constructor(
+    private readonly districtService: DistrictService,
+    private readonly shadow: ShadowReadService,
+  ) {
     super()
   }
 
@@ -210,6 +318,31 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
   async evaluate(
     dto: DoorKnockingEvaluateDTO,
   ): Promise<DoorKnockingEvaluateResponse> {
+    if (!this.shadow.enabled) {
+      return shapeEvaluate(await this.evaluateRowsFromPostgres(dto), dto)
+    }
+    return this.shadow.compare({
+      op: 'dk-evaluate',
+      districtId: dto.districtId,
+      authoritative: async () =>
+        shapeEvaluate(
+          await this.shadow.databricks.doorKnockingEvaluateRows(dto),
+          dto,
+        ),
+      comparison: async () =>
+        shapeEvaluate(await this.evaluateRowsFromPostgres(dto), dto),
+      // Person count alone would call two rosters equal whenever they happen
+      // to be the same size, and the failure this is watching for is a bbox or
+      // key expression that selects a DIFFERENT set of the same size. The id
+      // set is what has to agree.
+      fingerprintAuthoritative: fingerprintPeople,
+      fingerprintComparison: fingerprintPeople,
+    })
+  }
+
+  private async evaluateRowsFromPostgres(
+    dto: DoorKnockingEvaluateDTO,
+  ): Promise<EvaluateRow[]> {
     const { state, effectiveDistrictId, joinClause } = await this.resolveScope(
       dto.districtId,
     )
@@ -257,21 +390,50 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       this.logger,
       'Evaluating this turf took too long. Shrink the polygon or narrow the ' +
         'filters and try again.',
+      this.shadow.enabled ? COMPARISON_STATEMENT_TIMEOUT_MS : undefined,
     )
 
-    if (rows.length > dto.maxPeople) {
-      throw new BadRequestException(
-        `Turf evaluation matched more than ${dto.maxPeople} people — ` +
-          'shrink the polygon or narrow the filters',
-      )
-    }
-
-    return DoorKnockingEvaluateResponseSchema.parse({ people: rows })
+    return rows
   }
 
   async residents(
     dto: DoorKnockingResidentsDTO,
   ): Promise<DoorKnockingResidentsResponse> {
+    const residentsCap = dto.targetPersonIds.length * 10
+    if (!this.shadow.enabled) {
+      return shapeResidents(
+        await this.residentRowsFromPostgres(dto, residentsCap),
+        dto,
+        residentsCap,
+      )
+    }
+    return this.shadow.compare({
+      op: 'dk-residents',
+      districtId: dto.districtId,
+      authoritative: async () =>
+        shapeResidents(
+          await this.shadow.databricks.doorKnockingResidentRows(
+            dto,
+            residentsCap,
+          ),
+          dto,
+          residentsCap,
+        ),
+      comparison: async () =>
+        shapeResidents(
+          await this.residentRowsFromPostgres(dto, residentsCap),
+          dto,
+          residentsCap,
+        ),
+      fingerprintAuthoritative: fingerprintResidents,
+      fingerprintComparison: fingerprintResidents,
+    })
+  }
+
+  private async residentRowsFromPostgres(
+    dto: DoorKnockingResidentsDTO,
+    residentsCap: number,
+  ): Promise<ResidentRow[]> {
     const { state, effectiveDistrictId, joinClause } = await this.resolveScope(
       dto.districtId,
     )
@@ -289,7 +451,6 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       ],
     })
 
-    const residentsCap = dto.targetPersonIds.length * 10
     // The demographic columns below are a wider PROJECTION and nothing else.
     // The address-key predicate, the LIMIT and the reject-rather-than-truncate
     // guard are deliberately untouched: this is the module's fragile query —
@@ -331,65 +492,9 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       LIMIT ${residentsCap + 1}`,
       this.logger,
       'Loading residents for this route took too long. Try again in a moment.',
+      this.shadow.enabled ? COMPARISON_STATEMENT_TIMEOUT_MS : undefined,
     )
 
-    // Mirrors evaluate's guard: reject rather than silently truncate — a
-    // truncated response would serve wrong rosters. The cap is generous
-    // (unit-level addressKeys hold household-sized populations).
-    if (rows.length > residentsCap) {
-      throw new BadRequestException(
-        'Residents lookup exceeded the expected population for this route',
-      )
-    }
-
-    const targetIds = new Set<string>(dto.targetPersonIds)
-    const byAddress = new Map<
-      string,
-      DoorKnockingResidentsResponse['addresses'][number]
-    >()
-    for (const row of rows) {
-      let address = byAddress.get(row.addressKey)
-      if (!address) {
-        address = {
-          addressKey: row.addressKey,
-          targets: [],
-          otherResidents: [],
-        }
-        byAddress.set(row.addressKey, address)
-      }
-      if (targetIds.has(row.id)) {
-        address.targets.push({
-          personId: row.id,
-          firstName: row.firstName,
-          lastName: row.lastName,
-          age: mapAge(row),
-          // No party data (null/empty) stays null — unlike /v1/people
-          // output, which collapses it to 'Other'. A non-empty unrecognized
-          // value (Green, Libertarian, …) IS a real registration and maps
-          // to 'Other' deliberately; the ?? null only narrows the mapper's
-          // optional return type.
-          politicalParty: row.Parties_Description
-            ? (mapPoliticalParty(row.Parties_Description) ?? null)
-            : null,
-          // Blank-vs-NULL is not consistent across the voter file, and a blank
-          // would render as an empty phone row at the door.
-          cellPhone: row.cellPhone?.trim() || null,
-          landline: row.landline?.trim() || null,
-          ...mapDemographics(row),
-        })
-      } else {
-        address.otherResidents.push({
-          personId: row.id,
-          firstName: row.firstName,
-          lastName: row.lastName,
-        })
-      }
-    }
-
-    // A requested addressKey with no current residents is simply absent —
-    // the caller renders that unit from its frozen snapshot.
-    return DoorKnockingResidentsResponseSchema.parse({
-      addresses: [...byAddress.values()],
-    })
+    return rows
   }
 }
