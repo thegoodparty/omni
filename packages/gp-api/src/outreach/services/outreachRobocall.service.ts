@@ -124,7 +124,7 @@ export class OutreachRobocallService extends createPrismaBase(
           status: OutreachStatus.pending_payment,
           name: input.name,
           script: input.script,
-          date: new Date(input.scheduledAt),
+          date: parseISO(input.scheduledAt),
           voterFileFilterId: input.voterFileFilterId,
         },
       })
