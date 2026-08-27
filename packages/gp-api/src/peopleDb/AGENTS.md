@@ -190,6 +190,34 @@ Three things about it are not tuning:
 - **Do not add `ORDER BY` back** unless a consumer genuinely needs order. For
   the pack nothing can observe it, and sorting a district is not free.
 
+## The two direction columns cannot hold a direction
+
+`Residence_Addresses_PrefixDirection` and `Residence_Addresses_SuffixDirection`
+are **INTEGER** in the mirror (`prisma-people/schema/Voter.prisma`), as are their
+`Mailing_` twins, while every other address component is TEXT. The L2 file spells
+them `N`/`S`/`E`/`W`; the data-platform loader `try_cast`s each to `int`
+(`dbt/project/models/marts/people_api/m_people_api__voter.sql`, and
+`INTEGER_COLUMNS` in `write__l2_databricks_to_gp_api.py`), which in Spark yields
+NULL rather than an error. **Every residence directional in people-db is
+therefore NULL, silently.** Nothing in this repo can recover them.
+
+**Do not read either column.** Anything needing a street line reads
+`Residence_Addresses_AddressLine`, which is TEXT and holds the whole line,
+directions included — the stop's frozen `displayAddress` and the door-knocking
+unit key both do.
+
+The cost of getting this wrong is not cosmetic. The unit key used to compose the
+line from components, so with both directionals permanently empty `1234 S Main
+St` and `1234 N Main St` in one ZIP keyed identically and were **one door** to
+`residents()`, which merged two households' rosters. Salt Lake City is where it
+is impossible to miss: the grid puts the information in the directions, so
+`1234 S 5678 W` keyed — and printed on the walk sheet — as `1234 5678`.
+
+Fixing this properly is a data-platform change (the column type, upstream). If it
+ever lands, the components become usable again, but there is no reason to go
+back to them: AddressLine is one column instead of five and already carries the
+CASS-standardized spelling.
+
 ## Door-knocking's address-key predicate is non-sargable (latent fragility)
 
 `residents()` filters on
@@ -204,6 +232,15 @@ Contrast `evaluate()` directly above it: same key in the SELECT list, but its
 scan is bounded by a bbox (`buildBboxSql`) on indexed lat/long columns. It uses
 the computed key for output, not to constrain the scan. `residents()` uses it to
 constrain the scan, and that is the difference.
+
+One request compiles **one** key expression, not both. A route freezes all of
+its keys in a single transaction, so a `residents()` call carries either the
+current three-column key or the legacy seven-column one and `residentsKeySql`
+picks accordingly — a request from a route frozen since the key changed now pays
+strictly less here than it used to, and one frozen before pays exactly what it
+always did. Don't "simplify" that into an unconditional `OR` of the two: it would
+put a second seven-column `CONCAT_WS` on every row of this scan for a branch that
+is never both.
 
 This is a **latent fragility, not a live defect**. Measured reality as of
 2026-08-20: a two-second median on this endpoint, ten consecutive 200s for the

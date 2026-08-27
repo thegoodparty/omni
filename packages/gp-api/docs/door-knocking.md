@@ -26,6 +26,27 @@ only mutable record — one row per knock on a person.
 | `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
 | `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
+### `addressKey` — the unit key, and the format that came before it
+
+`door_knocking_stop_target.addressKey` names the knockable door. It is
+`ADDRESSLINE|APT|ZIP` (`DOOR_KNOCKING_UNIT_KEY_COLUMNS`), normalized
+`UPPER(TRIM(COALESCE(col::text, '')))` per segment: the CRM household key plus
+the one component that separates a unit from its building.
+
+Routes frozen before that hold a seven-segment key composed from the file's
+parsed components instead. Two of those components were the cardinal directions,
+and the columns they came from are INTEGER in the mirror and so always NULL — see
+peopleDb/AGENTS.md § *The two direction columns cannot hold a direction* for the
+mechanism. A legacy key therefore never captured an `S` or a `W`, and nothing can
+recover them from one: **a list knocked before the fix keeps printing its
+addresses without directions until it is re-knocked**, because the key is frozen
+and re-freezing is what re-reads the file.
+
+Both formats stay readable. `renderUnitAddress` tells them apart by segment count
+and `residents()` looks a route up by whichever format it froze, so an in-flight
+list keeps resolving to live phone numbers and household context. Door counts are
+computed from the stored keys and so do not move for any existing route.
+
 The route-created activity event (one per target at freeze) is deferred to
 the interaction-write PR alongside the vocabulary resolution — it should
 follow the `ContactInteraction*` convention (`occurredAt`, idempotency
