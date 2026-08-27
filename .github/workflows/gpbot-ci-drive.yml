@@ -425,7 +425,12 @@ jobs:
             else
               gh api -X POST "repos/$REPO/issues/$pr/comments" -f body="$body" >/dev/null
             fi || {
+              # RED, like the other two failure paths. Skipping the action is
+              # the safe half; without this the step still exits 0, so a GitHub
+              # API failure that persists would have the drive skip every PR on
+              # every pass while reporting success and telling nobody.
               echo "::error::could not record state for #$pr; not spending the round"
+              action_failed=1
               echo "::endgroup::"; continue
             }
 
