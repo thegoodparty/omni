@@ -18,11 +18,13 @@ export type OutreachStatus =
   | 'in_progress'
   | 'completed'
   | 'pending_payment'
+  | 'canceled'
 
 /** Payload for POST /outreach (create) */
 export interface CreateOutreachPayload {
   campaignId: number
   outreachType: OutreachType
+  name?: string
   message?: string | null
   title?: string | null
   script?: string | null

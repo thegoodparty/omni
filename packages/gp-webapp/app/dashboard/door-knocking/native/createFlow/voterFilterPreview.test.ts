@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
 import {
   filtersToDimSelections,
+  unpreviewableDisclosureLabels,
   unpreviewableDisclosureSentence,
   unpreviewableFilterKeys,
 } from './voterFilterPreview'
@@ -68,6 +69,23 @@ describe('filtersToDimSelections', () => {
       expect(unpreviewableFilterKeys({ veteranYes: true }, manifest)).toEqual([
         'veteranYes',
       ])
+    })
+
+    // The marks `savedListFilterKeys` leaves for a list's non-boolean
+    // criteria. They are ordinary keys here on purpose — the pack has no plane
+    // for any of them, which is exactly what this function reports.
+    it('reports a list’s support-status, activity and precinct clauses', () => {
+      expect(
+        unpreviewableFilterKeys(
+          {
+            partyDemocrat: true,
+            supportStatus: true,
+            activityConditions: true,
+            precincts: true,
+          },
+          manifest,
+        ),
+      ).toEqual(['supportStatus', 'activityConditions', 'precincts'])
     })
   })
 
@@ -142,6 +160,29 @@ describe('filtersToDimSelections', () => {
   })
 })
 
+describe('unpreviewableDisclosureLabels', () => {
+  it('names the option for a group whose labels stand on their own', () => {
+    expect(unpreviewableDisclosureLabels(['age65Plus'])).toEqual(['65+'])
+  })
+
+  // A list's non-boolean criteria have no row in filters.config to take a
+  // label from, so they carried none — which silently dropped them back out
+  // of the sentence they had just been added to.
+  it('names a list’s own criteria, which no pill group covers', () => {
+    expect(
+      unpreviewableDisclosureLabels([
+        'supportStatus',
+        'activityConditions',
+        'precincts',
+      ]),
+    ).toEqual(['Support status', 'Past outreach activity', 'Precinct'])
+  })
+
+  it('still says nothing for a key that names no filter at all', () => {
+    expect(unpreviewableDisclosureLabels(['notARealFilterKey'])).toEqual([])
+  })
+})
+
 // The sentence was written for exactly one filter and then had a
 // `labels.join(', ')` dropped into it, so a second selection produced "shade
 // by 65+, Prior contacts made yet, so these counts include people that filter
@@ -189,5 +230,33 @@ describe('unpreviewableDisclosureSentence', () => {
   // about no filters.
   it('has nothing to say when every filter shades', () => {
     expect(unpreviewableDisclosureSentence([])).toBeNull()
+  })
+
+  // The create flow reaches this sentence before any list exists, so the
+  // closing clause must not cite one. It still has to promise the filter gets
+  // applied — ending on "that filter will exclude" is the reading ADR 0010
+  // exists to prevent — so the subject changes and the reassurance stays.
+  it('does not claim a saved list when none is picked', () => {
+    const sentence = unpreviewableDisclosureSentence(['65+'], false)
+    expect(sentence).toBe(
+      'The map can’t yet shade by 65+, so these counts include people that ' +
+        'filter will exclude. Your list still applies it when you knock.',
+    )
+    expect(sentence).not.toContain('saved list')
+    expect(sentence).toContain('still applies it when you knock')
+  })
+
+  it('keeps the plural pronoun when no list is picked', () => {
+    expect(
+      unpreviewableDisclosureSentence(['65+', 'Prior contacts made'], false),
+    ).toContain('Your list still applies them when you knock.')
+  })
+
+  // The details sheet and the landing rail describe a list that exists and
+  // never pass the flag, so the saved wording has to be what omitting it means.
+  it('defaults to the saved-list wording for the surfaces that omit the flag', () => {
+    expect(unpreviewableDisclosureSentence(['65+'])).toContain(
+      'Your saved list still applies it when you knock.',
+    )
   })
 })

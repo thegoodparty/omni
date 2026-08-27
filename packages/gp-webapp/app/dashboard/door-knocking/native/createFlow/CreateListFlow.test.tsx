@@ -685,9 +685,11 @@ describe('CreateListFlow', () => {
         element?.tagName === 'P' &&
         /can’t yet shade by/.test(element.textContent ?? ''),
     )
+    // "Your list", not "Your saved list": this renders the draw step of a
+    // from-scratch list, so there is no saved list to name.
     expect(disclosure.textContent).toBe(
       'The map can’t yet shade by 65+ or Prior contacts made, so these counts ' +
-        'include people those filters will exclude. Your saved list still ' +
+        'include people those filters will exclude. Your list still ' +
         'applies them when you knock.',
     )
   })
@@ -1311,6 +1313,113 @@ describe('CreateListFlow steps', () => {
 
     expect(screen.getByRole('radio', { name: /^Precinct 2/ })).toBeTruthy()
     expect(screen.getByRole('radio', { name: /^All contacts/ })).toBeTruthy()
+  })
+
+  // The reported defect, at the step it was reported from. A persuasion list
+  // is narrowed by support status, and the pack has no plane for it — so
+  // starting from a 256-person list put the whole district in the Continue
+  // button and said nothing about why. The count itself cannot be fixed here
+  // (the map genuinely cannot shade that clause), so the step has to say so:
+  // an undisclosed superset is what made this read as the list being ignored.
+  it('discloses, on the who step, a picked list’s unshadeable clauses', () => {
+    const { rerender } = renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      unpreviewableKeys: [],
+    })
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
+
+    // Pick the row for real rather than posting the lifted draft in as props:
+    // the sentence names the picked list, so a test that never picks one is
+    // asserting wording the flow cannot actually reach.
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners/ }),
+    )
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        savedLists={savedLists}
+        districtHouseholds={12_000}
+        filters={{ supportStatus: true }}
+        unpreviewableKeys={['supportStatus']}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Continue (12,000 households)' }),
+    ).toBeEnabled()
+    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
+      'The map can’t yet shade by Support status, so these counts include ' +
+        'people that filter will exclude. Your saved list still applies it ' +
+        'when you knock.',
+    )
+  })
+
+  // The same sentence, one step earlier in the decision: a candidate who
+  // builds a list from scratch and picks 65+ has an unshadeable selection and
+  // no list to attribute it to. Citing "your saved list" there describes
+  // something that does not exist; dropping the promise instead would end the
+  // sentence on "that filter will exclude", which reads as the filter being
+  // ignored. Both halves are checked because fixing either one alone is a
+  // regression in the other.
+  it('does not cite a saved list on the who step when none is picked', () => {
+    renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      filters: { age65Plus: true },
+      unpreviewableKeys: ['age65Plus'],
+    })
+
+    const disclosure = screen.getByText(/The map can’t yet shade by/)
+    expect(disclosure).toHaveTextContent('Your list still applies it when you')
+    expect(disclosure).not.toHaveTextContent('saved list')
+  })
+
+  // Picking a list is two writes that have to happen together, and the second
+  // one is what the preview reads. A list whose only narrowing is a clause the
+  // draft cannot hold must still arrive marked, or the who step has nothing to
+  // disclose and the map shades the district.
+  it('lifts a picked list’s whole draft, marks and all', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists: [
+        {
+          id: 4,
+          name: 'Persuasion walk list',
+          households: 12_000,
+          filters: { supportStatus: true },
+        },
+      ],
+      onFiltersChange,
+    })
+
+    fireEvent.click(screen.getByRole('radio', { name: /Persuasion walk list/ }))
+
+    expect(onFiltersChange).toHaveBeenCalledWith({ supportStatus: true })
+  })
+
+  // Editing a pill leaves the named list behind, so its own clauses go with
+  // it: nothing can carry them onto the new list the flow is now offering to
+  // save, and a disclosure about a filter that list will not apply is a lie in
+  // the other direction.
+  it('drops the marks when a pill edit leaves the named list behind', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists,
+      filters: { supportStatus: true, partyDemocrat: true },
+      onFiltersChange,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Republican' }))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.not.objectContaining({ supportStatus: expect.anything() }),
+    )
+    expect(onFiltersChange.mock.calls.at(-1)?.[0]).toMatchObject({
+      partyDemocrat: true,
+      partyRepublican: true,
+    })
   })
 
   // What adopting OutreachFlowShell would have bought, built here instead:

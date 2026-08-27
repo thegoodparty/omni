@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { router } from 'helpers/test-utils/router-mocking'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -211,6 +212,13 @@ describe('ElectionFiling — inline candidate profile collection (ENG-10857)', (
 
     await waitFor(() => expect(submitTcrCompliance).toHaveBeenCalledTimes(1))
     expect(saveAboutFields).not.toHaveBeenCalled()
+    // Post-submit lands on the submitted-for-verification confirmation, not
+    // account settings.
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith(
+        '/dashboard/profile/texting-compliance/verification-submitted',
+      ),
+    )
   })
 
   it('blocks the filing submit and surfaces errors when the profile is invalid', async () => {

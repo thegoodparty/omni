@@ -20,6 +20,7 @@ describe('PeerlyP2pJobService', () => {
   let mockHttpService: {
     post: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
+    delete: ReturnType<typeof vi.fn>
     validateResponse: ReturnType<typeof vi.fn>
   }
   let mockErrorHandling: {
@@ -50,6 +51,7 @@ describe('PeerlyP2pJobService', () => {
     mockHttpService = {
       post: vi.fn(),
       get: vi.fn(),
+      delete: vi.fn(),
       validateResponse: vi
         .fn()
         .mockImplementation((_data, _dto, _ctx) => _data),
@@ -331,6 +333,37 @@ describe('PeerlyP2pJobService', () => {
     })
   })
 
+  describe('deleteJob', () => {
+    it('deletes the job through the HTTP service', async () => {
+      mockHttpService.delete.mockResolvedValue(undefined)
+
+      await service.deleteJob('job-1')
+
+      expect(mockHttpService.delete).toHaveBeenCalledWith('/1to1/jobs/job-1')
+    })
+
+    // Cancel retries after a refund failure re-run the delete; the job being
+    // gone already is the desired state, not a vendor failure.
+    it('treats an already-deleted job (404) as success', async () => {
+      mockHttpService.delete.mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 404'), {
+          isAxiosError: true,
+          response: { status: 404 },
+        }),
+      )
+
+      await expect(service.deleteJob('job-1')).resolves.toBeUndefined()
+    })
+
+    it('throws BadGatewayException on any other vendor failure', async () => {
+      mockHttpService.delete.mockRejectedValue(new Error('boom'))
+
+      await expect(service.deleteJob('job-1')).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+  })
+
   describe('getJob', () => {
     it('returns job from HTTP service', async () => {
       const mockJob = {
@@ -378,6 +411,25 @@ describe('PeerlyP2pJobService', () => {
           id: 'job-1',
           status: PeerlyJobStatus.ACTIVE,
           leads_remaining: 0,
+        },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof GetJobResponseDto).create(data),
+      )
+
+      await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
+
+    // start_date drives the completion sweep's not-started hold the same
+    // way end_date drives its completion predicate: a missing value must
+    // 502 the poll, never parse to Invalid Date and skip the pending guard.
+    it('throws BadGatewayException when the job response lacks start_date', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          id: 'job-1',
+          status: PeerlyJobStatus.ACTIVE,
+          leads_remaining: 0,
+          end_date: '2026-09-07',
         },
       })
       mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>

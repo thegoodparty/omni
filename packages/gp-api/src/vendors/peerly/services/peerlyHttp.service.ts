@@ -85,6 +85,14 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
     return this.request<T>(Methods.POST, path, data, config)
   }
 
+  async put<T>(
+    path: string,
+    data?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<AxiosResponse<T>> {
+    return this.request<T>(Methods.PUT, path, data, config)
+  }
+
   async delete<T>(
     path: string,
     config?: AxiosRequestConfig,

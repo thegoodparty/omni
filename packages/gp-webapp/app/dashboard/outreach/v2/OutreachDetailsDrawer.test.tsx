@@ -683,7 +683,9 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
   })
 
   // Draft and In review have no canvas position at all: nothing to continue,
-  // nothing to archive, and nothing automatic to promise.
+  // nothing to archive, and nothing automatic to promise. No phone list on
+  // purpose: a pending row WITH one is the cancel-before-send set, which
+  // carries the Cancel footer covered below.
   it('leaves a draft with no footer', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -696,7 +698,6 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
       outreachType: 'text',
       name: 'Untitled',
       status: 'pending',
-      phoneListId: 9,
     }
     render(<OutreachDetailsDrawer row={draft} onOpenChange={vi.fn()} />)
 
@@ -705,5 +706,325 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
     expect(
       screen.queryByRole('button', { name: 'Move to archive' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('OutreachDetailsDrawer — cancel before send', () => {
+  const scheduledSmsRow: HistoryRow = {
+    id: 41,
+    createdAt: '2026-08-20T00:00:00Z',
+    outreachType: 'p2p',
+    name: 'Likely voters — SMS',
+    status: 'pending',
+    phoneListId: 9,
+  }
+  const smsDetail = {
+    ...baseDetail,
+    id: 41,
+    outreachType: 'p2p' as const,
+    name: 'Likely voters — SMS',
+    status: 'pending' as const,
+    phoneListId: 9,
+  }
+  // Cleared compliance keeps the shipped Cancel campaign footer; omitting it
+  // reads as verification-pending and swaps to Delete + Start verification.
+  const verifiedCompliance = {
+    peerlyCvStatus: 'VERIFIED',
+  } as React.ComponentProps<typeof OutreachDetailsDrawer>['tcrCompliance']
+  const mockNoReceipt = () =>
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
+
+  it('confirms, cancels, updates the row, and notes the refund', async () => {
+    mockNoReceipt()
+    const successSnackbar = vi.fn()
+    vi.mocked(useSnackbar).mockReturnValue({
+      displaySnackbar: vi.fn(),
+      errorSnackbar: vi.fn(),
+      successSnackbar,
+    })
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    let cancelParams: unknown
+    api.mock('POST /v1/outreach/:id/cancel', ({ params }) => {
+      cancelParams = params
+      return {
+        status: 200,
+        data: {
+          outreach: { ...smsDetail, status: 'canceled' },
+          refunded: true,
+        },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={onOpenChange}
+        tcrCompliance={verifiedCompliance}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Cancel campaign' }),
+    )
+    expect(await screen.findByText('Cancel this campaign?')).toBeInTheDocument()
+
+    // The dialog's destructive action shares the trigger's name.
+    const dialogButtons = screen.getAllByRole('button', {
+      name: 'Cancel campaign',
+    })
+    await userEvent.click(
+      dialogButtons[dialogButtons.length - 1] as HTMLElement,
+    )
+
+    expect(cancelParams).toEqual({ id: '41' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(successSnackbar).toHaveBeenCalledWith(
+      'Campaign canceled. Your refund will arrive in 5-10 business days.',
+    )
+  })
+
+  it('offers no cancel action on a completed row', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...smsDetail, status: 'completed' },
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...scheduledSmsRow, status: 'completed' }}
+        onOpenChange={vi.fn()}
+        tcrCompliance={verifiedCompliance}
+      />,
+    )
+    expect(
+      (await screen.findAllByText('Likely voters — SMS')).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('flags a scheduled SMS row as Needs compliance while verification pends, with Cancel + Start verification', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    let cancelParams: unknown
+    api.mock('POST /v1/outreach/:id/cancel', ({ params }) => {
+      cancelParams = params
+      return {
+        status: 200,
+        data: {
+          outreach: { ...smsDetail, status: 'canceled' },
+          refunded: true,
+        },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    expect(await screen.findByText('Needs compliance')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+
+    // Cancel rides the same confirm + endpoint as Cancel campaign.
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByText('Cancel this campaign?')).toBeInTheDocument()
+    await userEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Cancel campaign',
+      }),
+    )
+    expect(cancelParams).toEqual({ id: '41' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('flags a paid scheduled row as Needs compliance too, without the Cancel footer', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...smsDetail, status: 'paid' },
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={{
+          ...scheduledSmsRow,
+          status: 'paid',
+          p2pJob: { status: 'building' },
+        }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    // Label and banner mirror the table's substitution; Cancel stays
+    // pending-only because the backend's cancel window is.
+    expect(await screen.findByText('Needs compliance')).toBeInTheDocument()
+    expect(
+      screen.getByText('Compliance needed before this can send'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cancel' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows an error state instead of a computed amount when the receipt read fails', async () => {
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    // 500, not 502: the mocker's error union stops at 500, and the drawer
+    // treats every non-404 failure the same way.
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 500,
+      data: { message: 'Stripe unreachable' },
+    })
+
+    render(
+      <OutreachDetailsDrawer row={scheduledSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/couldn't load the payment details/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Total cost')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'View receipt' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers Move to archive on a canceled row — history is never hard-deleted', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...smsDetail, status: 'canceled' },
+    })
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ body }) => {
+      archiveBody = body
+      return {
+        status: 200,
+        data: { id: 41, archivedAt: new Date('2026-08-27T00:00:00Z') },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...scheduledSmsRow, status: 'canceled' }}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    )
+    expect(archiveBody).toEqual({ archived: true })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('routes Start verification to the election-filing entry when no TCR record exists', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    const { router } = await import('helpers/test-utils/router-mocking')
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Start verification' }),
+    )
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/profile/texting-compliance/election-filing',
+    )
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('shows Payment details from the receipt with View receipt opening in a new tab', async () => {
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 42,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: 'https://pay.stripe.com/receipts/rcpt_1',
+        paidAt: '2026-08-24T12:00:00.000Z',
+      },
+    })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={vi.fn()}
+        tcrCompliance={verifiedCompliance}
+      />,
+    )
+
+    // The receipt amount is the charge of record, in dollars.
+    expect(await screen.findByText('$42.00')).toBeInTheDocument()
+    expect(screen.getByText('Payment details')).toBeInTheDocument()
+    expect(screen.getByText('Cost per outreach')).toBeInTheDocument()
+    expect(screen.getByText('$0.035')).toBeInTheDocument()
+    expect(screen.getByText('Unsubscribes')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'View receipt' }))
+    expect(open).toHaveBeenCalledWith(
+      'https://pay.stripe.com/receipts/rcpt_1',
+      '_blank',
+      'noopener',
+    )
+    open.mockRestore()
+  })
+
+  it('reads Free with no receipt and renders the composed script verbatim', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+
+    const script =
+      'Hello {first_name}, this is Ada, candidate for City Council.\nReply STOP to opt out.'
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...scheduledSmsRow, script }}
+        onOpenChange={vi.fn()}
+        tcrCompliance={verifiedCompliance}
+      />,
+    )
+
+    // No receipt + no billable count = a fully free send.
+    expect(await screen.findByText('Free')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'View receipt' }),
+    ).not.toBeInTheDocument()
+
+    expect(screen.getByText('Message')).toBeInTheDocument()
+    // Line breaks survive: the script renders as one pre-wrap block, not
+    // re-composed copy.
+    expect(
+      screen.getByText((_, el) => el?.textContent === script, {
+        selector: 'p',
+      }),
+    ).toBeInTheDocument()
   })
 })

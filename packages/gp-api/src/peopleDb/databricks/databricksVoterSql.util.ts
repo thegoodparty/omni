@@ -21,7 +21,6 @@ const TABLE = (name: string): string =>
 const VOTER_TABLE_NAME = 'gp_api_voters'
 
 export const VOTER_TABLE = TABLE(VOTER_TABLE_NAME)
-export const DISTRICT_TABLE = TABLE('gp_api_districts')
 
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
@@ -644,14 +643,6 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
   if (filterSql) parts.push(filterSql)
 
   return `WHERE ${parts.join(' AND ')}`
-}
-
-export const buildDistrictSql = (districtId: string): DbxStatement => {
-  const bag = createBag()
-  const sql =
-    `SELECT id, state, type, name FROM ${DISTRICT_TABLE}` +
-    ` WHERE id = ${bag.bind(districtId)}`
-  return { sql, params: bag.params }
 }
 
 // The voter table's column set, used to validate a district `type` before it is

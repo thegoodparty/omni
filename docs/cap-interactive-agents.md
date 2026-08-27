@@ -41,8 +41,16 @@ calls `anthropicProvider.languageModel(model)`). DI tokens:
 
 - **Non-streaming** (`chatCompletion`, `toolCompletion`) use `generateText` from the
   `ai` SDK. `jsonCompletion` uses `generateObject` with a Zod schema.
-- **Streaming** (`streamChatCompletion`) uses `streamText` with
-  `stopWhen: stepCountIs(maxSteps)` (default 5) for multi-step tool loops.
+- **Streaming** (`streamChatCompletion`) uses `streamText` for multi-step tool
+  loops: `maxSteps` (default 5) tool steps, then one extra text-only step so a
+  turn that exhausts its tool budget still ends with a text answer instead of
+  an empty message. `prepareStep` blocks tools on that step and rewrites its
+  tool history as plain text (the Anthropic adapter drops the `tools` param on
+  `toolChoice: 'none'`, and tool blocks without it are not reliably accepted).
+  Rewritten results stay assistant-role (tool output is untrusted, so it must
+  not speak as the user), provider-run web-search payloads are omitted, and a
+  closing user-role note tells the model to answer from what it gathered or
+  fall back to a fixed could-not-find reply.
 
 Models come from env: `AI_MODELS` (comma-separated default chain, required — set to
 `claude-sonnet-4-6` in `deploy/index.ts`) plus an optional `AI_FALLBACK_MODEL`.
