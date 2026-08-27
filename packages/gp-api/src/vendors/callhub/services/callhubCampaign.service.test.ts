@@ -84,15 +84,20 @@ describe('CallhubCampaignService', () => {
       // Schedule + contact options are nested objects (flat fields are ignored
       // by CallHub) and the start carries the 21-day-out time verbatim.
       expect(body.schedule.startingdate).toBe(
-        formatInTimeZone(scheduledStart, 'UTC', 'yyyy-MM-dd HH:mm:ss'),
+        formatInTimeZone(
+          scheduledStart,
+          'America/Chicago',
+          'yyyy-MM-dd HH:mm:ss',
+        ),
       )
       expect(body.schedule.expirationdate).toBe(
         formatInTimeZone(
           addDays(scheduledStart, 7),
-          'UTC',
+          'America/Chicago',
           'yyyy-MM-dd HH:mm:ss',
         ),
       )
+      expect(body.schedule.timezone).toBe('America/Chicago')
       expect(body.schedule.monday).toBe(true)
       expect(body.contact_options).toEqual({
         use_contact_tz: true,
@@ -123,6 +128,17 @@ describe('CallhubCampaignService', () => {
       await expect(service.createVoiceBroadcast(params)).rejects.toBeInstanceOf(
         BadGatewayException,
       )
+    })
+
+    it('surfaces a malformed create response as a schema error, not a 502', async () => {
+      // The response is parsed OUTSIDE the fetch try/catch, so a shape mismatch
+      // is a permanent ZodError — not a BadGatewayException a caller would
+      // retry as a transient vendor blip.
+      http.post.mockResolvedValue({ name: 'no pk_str here' })
+
+      await expect(
+        service.createVoiceBroadcast(params),
+      ).rejects.not.toBeInstanceOf(BadGatewayException)
     })
   })
 })

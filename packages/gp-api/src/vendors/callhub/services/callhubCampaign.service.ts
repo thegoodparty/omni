@@ -13,7 +13,11 @@ import { CallhubHttpService } from './callhubHttp.service'
 // Trailing slash is load-bearing: POST /v1/vb_campaign (no slash) returns the
 // campaign list instead of creating one.
 const CREATE_PATH = '/v1/vb_campaign/'
-const SCHEDULE_TZ = 'UTC'
+// use_contact_tz applies the daily window in each contact's own tz, but a
+// contact whose tz is unknown falls back to this schedule tz. Central keeps
+// that fallback window within legal US calling hours; UTC would fire it at
+// ~1am-1pm Eastern (a TCPA violation).
+const SCHEDULE_TZ = 'America/Chicago'
 const CALLHUB_DATE_FORMAT = 'yyyy-MM-dd HH:mm:ss'
 // How long after the start the broadcast may keep dialing before it expires —
 // enough for a large landline list to drain.
