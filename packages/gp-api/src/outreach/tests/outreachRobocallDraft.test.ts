@@ -211,7 +211,11 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
 
     const res = await postDraft({
       ...validDraftBody(),
-      scheduledAt: new Date(Date.now() - 86_400_000).toISOString(),
+      // Offset-annotated (passes the Z refine) so the future-date guard, not
+      // the offset refine, is what rejects it.
+      scheduledAt: new Date(Date.now() - 86_400_000)
+        .toISOString()
+        .replace('Z', '+00:00'),
     })
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
