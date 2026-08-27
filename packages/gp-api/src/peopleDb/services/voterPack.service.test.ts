@@ -57,7 +57,13 @@ describe('VoterPackService', () => {
         run(mockClient),
       ),
     }
-    service = new VoterPackService(mockDistrictService as never)
+    // Dual read off: these cases cover the Postgres cursor scan. The fork is
+    // covered in voterPack.dualRead.test.ts.
+    service = new VoterPackService(
+      mockDistrictService as never,
+      { enabled: false, compare: vi.fn(), databricks: {} } as never,
+      { build: vi.fn() } as never,
+    )
     ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
       get instance() {
         return mockClient

@@ -1,6 +1,10 @@
 import {
+  type Bbox,
   decodePrecinctPair,
+  DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS,
+  DOOR_KNOCKING_UNIT_KEY_COLUMNS,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  isLegacyDoorKnockingUnitKey,
   type IdOverrides,
 } from '@goodparty_org/contracts'
 import { FilterData, type FilterOperator } from '../schemas/filters.schema'
@@ -861,4 +865,260 @@ export const buildCsvSql = (
     .join(', ')
   const sql = `SELECT ${projection} FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
+}
+
+// Unit-granularity twin of householdKey(), in Spark dialect. Cast to STRING
+// before COALESCE because two of the legacy key's columns are INT in the mart
+// (the permanently-NULL direction columns), and Spark will not COALESCE an INT
+// with ''. The Postgres builder casts for the same reason, so a legacy key
+// composed here is byte-identical to one composed there.
+const unitKey = (columns: readonly string[]): string =>
+  `concat_ws('|', ${columns
+    .map((name) => `upper(trim(coalesce(cast(${col(name)} AS STRING), '')))`)
+    .join(', ')})`
+
+const currentUnitKey = (): string => unitKey(DOOR_KNOCKING_UNIT_KEY_COLUMNS)
+const legacyUnitKey = (): string =>
+  unitKey(DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS)
+
+// Rooftop-geocoded rows only, the same v1 quality gate both Postgres door
+// knocking queries apply.
+const ROOFTOP_ONLY = `${col('Residence_Addresses_LatLongAccuracy')} = 'GeoMatchRooftop'`
+
+// Lat/long are STRING in the mart, as they are TEXT in Postgres. No regex
+// guard is needed here: Spark's cast yields NULL for a non-numeric value
+// rather than aborting the statement, and NULL BETWEEN is not true, so a
+// garbage coordinate falls out of the bbox exactly as it does in Postgres.
+const latDouble = `CAST(${col('Residence_Addresses_Latitude')} AS DOUBLE)`
+const lngDouble = `CAST(${col('Residence_Addresses_Longitude')} AS DOUBLE)`
+
+export const buildDoorKnockingEvaluateSql = (
+  args: DbxScopeArgs & {
+    bbox: Bbox
+    maxPeople: number
+    excludePersonIds?: readonly string[]
+  },
+): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, args)
+  const parts = [
+    scope,
+    `AND ${ROOFTOP_ONLY}`,
+    `AND ${latDouble} BETWEEN ${bag.bind(num(args.bbox.minLat))}` +
+      ` AND ${bag.bind(num(args.bbox.maxLat))}`,
+    `AND ${lngDouble} BETWEEN ${bag.bind(num(args.bbox.minLng))}` +
+      ` AND ${bag.bind(num(args.bbox.maxLng))}`,
+  ]
+
+  const excluded = args.excludePersonIds ?? []
+  if (excluded.length > 0) {
+    parts.push(`AND ${col('id')} NOT IN (${idList(excluded)})`)
+  }
+
+  const sql =
+    `SELECT ${col('id')} AS ${ident('id')},` +
+    ` ${col('FirstName')} AS ${ident('firstName')},` +
+    ` ${col('LastName')} AS ${ident('lastName')},` +
+    ` ${latDouble} AS ${ident('lat')},` +
+    ` ${lngDouble} AS ${ident('lng')},` +
+    ` ${currentUnitKey()} AS ${ident('addressKey')},` +
+    ` nvl(${col('Residence_Addresses_AddressLine')}, '') AS ${ident('displayAddress')}` +
+    ` FROM ${VOTER_TABLE} v ${parts.join(' ')}` +
+    // LIMIT cap + 1 so an overflowing polygon is detected without counting.
+    // The caller rejects rather than truncating.
+    ` LIMIT ${bag.bind(num(args.maxPeople) + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
+// A route freezes all of its keys in one transaction, so a request carries
+// either the current three-column key or the legacy seven-column one, never a
+// mixture. The Postgres builder picks one expression for that reason and this
+// one does the same: compiling both would put a second seven-column concat on
+// every row of the scan for a branch that is never taken.
+const residentsKeyMatch = (
+  bag: Bag,
+  addressKeys: readonly string[],
+): { match: string; key: string } => {
+  const legacyKeys = addressKeys.filter(isLegacyDoorKnockingUnitKey)
+  const currentKeys = addressKeys.filter(
+    (key) => !isLegacyDoorKnockingUnitKey(key),
+  )
+  const inList = (keys: readonly string[]): string =>
+    keys.map((key) => bag.bind(key)).join(', ')
+
+  if (legacyKeys.length === 0) {
+    const key = currentUnitKey()
+    return { match: `${key} IN (${inList(addressKeys)})`, key }
+  }
+  if (currentKeys.length === 0) {
+    const key = legacyUnitKey()
+    return { match: `${key} IN (${inList(legacyKeys)})`, key }
+  }
+  const current = currentUnitKey()
+  const legacy = legacyUnitKey()
+  return {
+    match:
+      `(${current} IN (${inList(currentKeys)})` +
+      ` OR ${legacy} IN (${inList(legacyKeys)}))`,
+    key:
+      `CASE WHEN ${current} IN (${inList(currentKeys)})` +
+      ` THEN ${current} ELSE ${legacy} END`,
+  }
+}
+
+export const DOOR_KNOCKING_RESIDENT_COLUMNS = [
+  'Age',
+  'Age_Int',
+  'Parties_Description',
+  'Voter_Status',
+  'Marital_Status',
+  'Presence_Of_Children',
+  'Veteran_Status',
+  'Homeowner_Probability_Model',
+  'Business_Owner',
+  'Education_Of_Person',
+  'Estimated_Income_Amount_Int',
+  'Language_Code',
+  'EthnicGroups_EthnicGroup1Desc',
+] as const
+
+export const buildDoorKnockingResidentsSql = (args: {
+  district: DbxDistrict
+  addressKeys: readonly string[]
+  residentsCap: number
+}): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: { filters: [], filterValues: {}, filterOperators: {} },
+  })
+  const { match, key } = residentsKeyMatch(bag, args.addressKeys)
+  const projection = DOOR_KNOCKING_RESIDENT_COLUMNS.map(
+    (column) => `${col(column)} AS ${ident(column)}`,
+  ).join(', ')
+
+  const sql =
+    `SELECT ${col('id')} AS ${ident('id')},` +
+    ` ${col('FirstName')} AS ${ident('firstName')},` +
+    ` ${col('LastName')} AS ${ident('lastName')},` +
+    ` ${col('VoterTelephones_CellPhoneFormatted')} AS ${ident('cellPhone')},` +
+    ` ${col('VoterTelephones_LandlineFormatted')} AS ${ident('landline')},` +
+    ` (${col('StateVoterID')} IS NOT NULL) AS ${ident('registered')},` +
+    ` ${projection},` +
+    ` ${key} AS ${ident('addressKey')}` +
+    ` FROM ${VOTER_TABLE} v ${scope} AND ${ROOFTOP_ONLY} AND ${match}` +
+    ` LIMIT ${bag.bind(num(args.residentsCap) + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
+// The pack's projection, in PackRow order. Read as CSV through external links
+// rather than inline JSON: this drains a whole district (600k+ rows) and the
+// inline path accumulates every chunk in memory before returning, which is the
+// same unbounded materialization the Postgres cursor exists to avoid.
+export const PACK_CSV_COLUMNS = [
+  'id',
+  'lat',
+  'lng',
+  'hhKey',
+  'Parties_Description',
+  'Age_Int',
+  'Gender',
+  'Voter_Status',
+  'Marital_Status',
+  'Veteran_Status',
+  'Presence_Of_Children',
+  'Homeowner_Probability_Model',
+  'Business_Owner',
+  'Education_Of_Person',
+  'Estimated_Income_Amount_Int',
+  'Language_Code',
+  'EthnicGroups_EthnicGroup1Desc',
+  'registered',
+  'hasCellPhone',
+  'hasLandline',
+] as const
+
+export const buildPackSql = (args: { district: DbxDistrict }): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: { filters: [], filterValues: {}, filterOperators: {} },
+  })
+  const passthrough = [
+    'Parties_Description',
+    'Age_Int',
+    'Gender',
+    'Voter_Status',
+    'Marital_Status',
+    'Veteran_Status',
+    'Presence_Of_Children',
+    'Homeowner_Probability_Model',
+    'Business_Owner',
+    'Education_Of_Person',
+    'Estimated_Income_Amount_Int',
+    'Language_Code',
+    'EthnicGroups_EthnicGroup1Desc',
+  ]
+    // Read back as CSV, where the Statement Execution API renders a SQL NULL
+    // as the literal text `null`. Coalescing to '' here makes the empty case
+    // unambiguous for the parser, the same reason buildCsvSql does it.
+    .map(
+      (column) => `nvl(CAST(${col(column)} AS STRING), '') AS ${ident(column)}`,
+    )
+    .join(', ')
+
+  // No ORDER BY, deliberately: the pack carries no person identity on the wire
+  // and the client walks it positionally, so nothing downstream can observe
+  // row order. Sorting a district is not free.
+  const sql =
+    `SELECT ${col('id')} AS ${ident('id')},` +
+    ` ${latDouble} AS ${ident('lat')},` +
+    ` ${lngDouble} AS ${ident('lng')},` +
+    ` ${householdKey()} AS ${ident('hhKey')},` +
+    ` ${passthrough},` +
+    ` (${col('StateVoterID')} IS NOT NULL) AS ${ident('registered')},` +
+    ` (${col('VoterTelephones_CellPhoneFormatted')} IS NOT NULL)` +
+    ` AS ${ident('hasCellPhone')},` +
+    ` (${col('VoterTelephones_LandlineFormatted')} IS NOT NULL)` +
+    ` AS ${ident('hasLandline')}` +
+    ` FROM ${VOTER_TABLE} v ${scope}` +
+    ` AND ${ROOFTOP_ONLY}` +
+    ` AND ${latDouble} IS NOT NULL AND ${lngDouble} IS NOT NULL`
+  return { sql, params: bag.params }
+}
+
+// The two door-knocking row shapes, declared beside the projections that
+// produce them. VoterDoorKnockingService shapes both engines' rows through one
+// code path, so these mirror the Postgres row types exactly.
+export type DbxEvaluateRow = {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  lat: number
+  lng: number
+  addressKey: string
+  displayAddress: string
+}
+
+export type DbxResidentRow = {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  Age: string | null
+  Age_Int: number | null
+  Parties_Description: string | null
+  cellPhone: string | null
+  landline: string | null
+  addressKey: string
+  registered: boolean
+  Voter_Status: string | null
+  Marital_Status: string | null
+  Presence_Of_Children: string | null
+  Veteran_Status: string | null
+  Homeowner_Probability_Model: string | null
+  Business_Owner: string | null
+  Education_Of_Person: string | null
+  Estimated_Income_Amount_Int: number | null
+  Language_Code: string | null
+  EthnicGroups_EthnicGroup1Desc: string | null
 }
