@@ -16,6 +16,8 @@ import ci_triage
 from ci_triage import (
     ACTION_ESCALATE,
     ACTION_FIX,
+    ACTION_FIX_FINDINGS,
+    ACTION_HOLD,
     ACTION_NONE,
     ACTION_REPORT,
     ACTION_RERUN,
@@ -27,6 +29,7 @@ from ci_triage import (
     UNKNOWN,
     classify_check,
     decide,
+    open_findings,
     parse_state,
     render_state,
 )
@@ -50,7 +53,27 @@ PR_1306_E2E_SHARD_1 = {
     ),
 }
 
-FRESH_STATE = {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0}
+FRESH_STATE = {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0, "findings_attempted": []}
+
+# PR #1306 again, this time the half nobody acted on. Cursor Bugbot posted this
+# three minutes after the PR opened; delegate-reviewer approved two minutes
+# later, a human approved two days after that, and the thread was still open
+# when the PR merged. The regression it describes reached main.
+PR_1306_BUGBOT_FINDING = {
+    "id": "PRRT_kwDOJ1306",
+    "author": "cursor",
+    "resolved": False,
+    "outdated": False,
+    "human_replied": False,
+    "excerpt": (
+        "### Failed collection hides retry UI\n\n"
+        "**High Severity**\n\n"
+        "<!-- DESCRIPTION START -->\n"
+        "`groupByOpponent` always seeds roster-only opponents into the response, "
+        "including when `collectionStatus` is `failed`.\n"
+        "<!-- DESCRIPTION END -->\n"
+    ),
+}
 
 # A fixed instant, so the in-flight window is asserted against arithmetic rather
 # than against how long the test suite happened to take.
@@ -317,7 +340,15 @@ class TestStateSurvivesBetweenInvocations:
         # The durability contract: what render_state writes into the PR comment
         # is what parse_state reads back on the next CI completion. If these drift
         # the caps silently stop applying.
-        state = {"reruns": 2, "fixes": 1, "escalated": False, "fix_started_at": NOW}
+        state = {
+            "reruns": 2,
+            "fixes": 1,
+            "escalated": False,
+            "fix_started_at": NOW,
+            # Carried across too. A round trip that dropped these would let an
+            # already-answered finding buy a second fix run on every pass.
+            "findings_attempted": ["PRRT_one", "PRRT_two"],
+        }
 
         assert parse_state(f"some text\n{render_state(state)}\nmore text") == state
 
@@ -375,19 +406,30 @@ class TestEvidenceIsReportedToHumans:
     def test_the_module_only_ever_returns_known_actions(self):
         # The workflow branches on this string. A typo'd action would silently
         # do nothing and put the PR back to sitting untouched.
-        known = {ACTION_RERUN, ACTION_FIX, ACTION_REPORT, ACTION_ESCALATE, ACTION_NONE}
+        known = {
+            ACTION_RERUN,
+            ACTION_FIX,
+            ACTION_FIX_FINDINGS,
+            ACTION_REPORT,
+            ACTION_ESCALATE,
+            ACTION_HOLD,
+            ACTION_NONE,
+        }
         states = [
             FRESH_STATE,
             {"reruns": 1, "fixes": 0, "escalated": False},
             {"reruns": MAX_RERUNS, "fixes": 0, "escalated": False},
             {"reruns": MAX_RERUNS, "fixes": MAX_FIX_RUNS, "escalated": False},
             {"reruns": 0, "fixes": 0, "escalated": True},
+            {"reruns": 0, "fixes": 0, "escalated": False, "findings_attempted": [PR_1306_BUGBOT_FINDING["id"]]},
         ]
         boards = [[], [a_check()], [PR_1306_E2E_SHARD_1], [a_check(failing_on_main=True)]]
+        finding_sets = [None, [], [PR_1306_BUGBOT_FINDING]]
 
         for state in states:
             for board in boards:
-                assert decide(board, state)["action"] in known
+                for findings in finding_sets:
+                    assert decide(board, state, findings)["action"] in known
 
 
 class TestTheRenderedCommentIsTheDurableState:
@@ -434,6 +476,141 @@ class TestTheRenderedCommentIsTheDurableState:
 
         assert state["reruns"] == 1
         assert decide([PR_1306_E2E_SHARD_1], state)["next_state"]["reruns"] == 2
+
+
+class TestUnansweredReviewFindingsAreWork:
+    """The #1306 gap: Bugbot found the defect and nothing treated it as work.
+
+    Bugbot posts a COMMENTED review rather than CHANGES_REQUESTED, so it never
+    blocks a merge, and delegate's approval satisfies the one-approval ruleset
+    on its own. Until this path existed, an unresolved finding on a bot PR was
+    read by every part of the system as "nothing to do".
+    """
+
+    def test_the_finding_that_reached_main_would_now_buy_a_fix_run(self):
+        decision = decide([], FRESH_STATE, [PR_1306_BUGBOT_FINDING], now=NOW)
+
+        assert decision["action"] == ACTION_FIX_FINDINGS
+
+    def test_a_green_board_with_nothing_outstanding_does_nothing(self):
+        assert decide([], FRESH_STATE, [], now=NOW)["action"] == ACTION_NONE
+        assert decide([], FRESH_STATE, None, now=NOW)["action"] == ACTION_NONE
+
+    def test_a_red_board_is_settled_before_any_finding_is_paid_for(self):
+        # A run that answers a finding pushes code that still has to pass CI, so
+        # buying one against a red board spends money to arrive back at a red PR.
+        decision = decide([PR_1306_E2E_SHARD_1], FRESH_STATE, [PR_1306_BUGBOT_FINDING], now=NOW)
+
+        assert decision["action"] == ACTION_RERUN
+
+    def test_a_finding_gets_one_fix_run_and_never_a_second(self):
+        # The unbounded-spend case this guard exists for: the agent disagrees
+        # with a false positive, leaves the thread open, and without the banked
+        # id every later pass reads the same thread as fresh work.
+        first = decide([], FRESH_STATE, [PR_1306_BUGBOT_FINDING], now=NOW)
+        assert first["action"] == ACTION_FIX_FINDINGS
+
+        after = parse_state(ci_triage.render_comment(first))
+        second = decide([], after, [PR_1306_BUGBOT_FINDING], now=NOW + FIX_RUN_GRACE_SECONDS + 1)
+
+        assert second["action"] == ACTION_HOLD
+        assert second["next_state"]["escalated"] is True
+
+    def test_a_finding_posted_after_the_first_run_still_gets_answered(self):
+        # Bugbot re-reviews the fix push. A genuinely new thread is new work and
+        # must not be silenced by the previous thread having been attempted.
+        state = dict(FRESH_STATE, fixes=1, findings_attempted=[PR_1306_BUGBOT_FINDING["id"]])
+        new_finding = dict(PR_1306_BUGBOT_FINDING, id="PRRT_second", excerpt="### Something else")
+
+        decision = decide([], state, [PR_1306_BUGBOT_FINDING, new_finding], now=NOW)
+
+        assert decision["action"] == ACTION_FIX_FINDINGS
+        # Both ids are banked, not just the fresh one, because a single run is
+        # pointed at every open thread at once.
+        assert set(decision["next_state"]["findings_attempted"]) == {PR_1306_BUGBOT_FINDING["id"], "PRRT_second"}
+
+    def test_findings_and_checks_draw_on_the_same_fix_budget(self):
+        # One budget, because what it bounds is money rather than either
+        # activity on its own.
+        state = dict(FRESH_STATE, reruns=MAX_RERUNS, fixes=MAX_FIX_RUNS)
+
+        decision = decide([], state, [PR_1306_BUGBOT_FINDING], now=NOW)
+
+        assert decision["action"] == ACTION_HOLD
+        assert "no fix runs left" in decision["reason"]
+
+    def test_an_in_flight_fix_run_is_not_duplicated_by_a_finding(self):
+        # Same window the CI path uses. A launched run changes nothing on the PR
+        # for many minutes, so the 30-minute schedule would otherwise point a
+        # second agent at the same branch.
+        state = dict(FRESH_STATE, fixes=1, fix_started_at=NOW)
+
+        decision = decide([], state, [PR_1306_BUGBOT_FINDING], now=NOW + 60)
+
+        assert decision["action"] == ACTION_NONE
+        assert "in flight" in decision["reason"]
+
+
+class TestWhichThreadsCount:
+    def test_a_resolved_thread_is_finished(self):
+        assert open_findings([dict(PR_1306_BUGBOT_FINDING, resolved=True)]) == []
+
+    def test_an_outdated_thread_is_finished(self):
+        # A fix push moves the lines and GitHub marks the thread outdated by
+        # itself, which is the natural stop for a thread already acted on.
+        assert open_findings([dict(PR_1306_BUGBOT_FINDING, outdated=True)]) == []
+
+    def test_a_thread_a_human_replied_in_belongs_to_the_human(self):
+        # Nobody replied on #1306, which is exactly why it qualified. Once a
+        # person is in the thread the bot must not talk over them.
+        assert open_findings([dict(PR_1306_BUGBOT_FINDING, human_replied=True)]) == []
+
+    def test_delegate_findings_are_left_alone(self):
+        # delegate withholds approval until its blockers are fixed, so it
+        # already gates the merge, and it runs a reply-and-re-review protocol a
+        # second automated actor would fight.
+        assert open_findings([dict(PR_1306_BUGBOT_FINDING, author="delegate-reviewer")]) == []
+
+    def test_the_same_account_counts_over_either_api(self):
+        # GraphQL says `cursor`, REST says `cursor[bot]`.
+        assert len(open_findings([dict(PR_1306_BUGBOT_FINDING, author="cursor[bot]")])) == 1
+        assert len(open_findings([dict(PR_1306_BUGBOT_FINDING, author="Cursor")])) == 1
+
+    def test_a_garbled_thread_still_counts_as_needing_an_answer(self):
+        # Missing flags must not read as "already handled" — silently dropping a
+        # real finding is the bug this whole path exists to fix.
+        bare = {"id": "PRRT_bare", "author": "cursor"}
+
+        assert len(open_findings([bare])) == 1
+
+    def test_a_thread_with_no_id_is_dropped(self):
+        # The one drop that is not the cautious direction, and it has to be:
+        # findings_attempted is keyed on the id, so an untrackable thread would
+        # buy a fix run on every pass forever.
+        assert open_findings([dict(PR_1306_BUGBOT_FINDING, id="")]) == []
+        assert open_findings([dict(PR_1306_BUGBOT_FINDING, id=None)]) == []
+
+    def test_junk_cannot_crash_the_drive(self):
+        assert open_findings("nope") == []
+        assert open_findings([None, 7, "x"]) == []
+
+    def test_the_title_a_human_reads_is_the_headline_not_the_markup(self):
+        # This string goes to Slack. Bugbot's body opens with a markdown heading
+        # and then a wall of HTML comment markers.
+        assert open_findings([PR_1306_BUGBOT_FINDING])[0]["title"] == "Failed collection hides retry UI"
+
+    def test_a_finding_is_named_in_the_escalation_a_human_reads(self):
+        decision = decide([], dict(FRESH_STATE, fixes=MAX_FIX_RUNS), [PR_1306_BUGBOT_FINDING], now=NOW)
+
+        assert "Failed collection hides retry UI" in ci_triage.render_summary(decision)
+
+    def test_a_stopped_findings_pr_tells_a_human_how_to_hand_it_back(self):
+        body = ci_triage.render_comment(
+            decide([], dict(FRESH_STATE, fixes=MAX_FIX_RUNS), [PR_1306_BUGBOT_FINDING], now=NOW)
+        )
+
+        assert "will not be driven further" in body
+        assert "Delete this comment" in body
 
 
 class TestCapsAreDeliberate:

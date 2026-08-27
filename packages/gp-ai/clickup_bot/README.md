@@ -346,8 +346,9 @@ run exits there. If CI then failed, nothing happened. PR #1306 was opened
 `E2E` check because no one was watching. #1318 sat the same way.
 
 `.github/workflows/gpbot-ci-drive.yml` closes that gap. It fires when a CI
-workflow completes, and when every check on a `[GP-Bot]` PR has resolved and at
-least one is red, it triages the failure and acts.
+workflow completes, waits until every check on a `[GP-Bot]` PR has resolved, and
+then acts on whichever of two things is outstanding: a red check, or a review
+finding nobody answered.
 
 **Triage comes before action, and that ordering is the whole design.** Most
 bot-PR check failures we have actually observed were infrastructure, not
@@ -374,12 +375,55 @@ evidence that it is deterministic. The taxonomy and the round caps are lifted
 from `.claude/skills/ship-pr/SKILL.md` "Phase 3" — this automates a judgement
 humans already make here rather than inventing a new one.
 
+### Unanswered review findings
+
+The other half of what #1306 exposed. Cursor Bugbot posted a **correct**
+high-severity finding on it three minutes after the PR opened —
+`groupByOpponent` seeded roster opponents regardless of `collectionStatus`, and
+the page gates its "Collection failed / Try again" card on an empty
+`opponents[]`, so a failed collection lost its only retry path.
+`delegate-reviewer` approved two minutes later without accounting for it, a
+human approved two days after that, and nobody ever answered the thread. The PR
+merged, the regression reached `main`, and it was fixed separately in #1431.
+
+Nothing in the system treated that as work. Bugbot posts a `COMMENTED` review
+rather than `CHANGES_REQUESTED`, so it never blocks; one approval satisfies the
+ruleset; and the drive stopped as soon as the board was green.
+
+So once CI is green, an unresolved Bugbot thread buys a fix run of its own. Four
+things take a thread out of scope, and every default errs toward "still needs an
+answer", because silently dropping a real finding is the bug this exists to fix:
+
+| Out of scope | Why |
+|---|---|
+| Resolved | Someone dealt with it |
+| Outdated | The lines it points at have changed. This is the natural stop after a fix push: GitHub marks the thread outdated by itself |
+| A human has replied | A person owns the thread and the bot must not talk over them. Nobody had replied on #1306, which is why it qualified |
+| Raised by `delegate-reviewer` | It withholds approval until its blockers are fixed, which already gates the merge, and it runs a `delegate review` reply protocol a second automated actor would fight |
+
+**A finding gets one fix run and never a second.** The state comment banks the
+thread ids a run was pointed at, so a finding still open afterwards goes to a
+human. Without that the loop is unbounded in the expensive direction: the agent
+disagrees with a false positive, leaves the thread open, and every later pass
+reads it as fresh work.
+
+**Checks are settled before findings**, because a run that answers a finding
+pushes code that has to pass CI anyway.
+
+There is no severity filter, and that is affordable rather than careless: one
+run answers every open thread at once, so cost does not grow with how much
+Bugbot found. Parsing a severity string out of a comment body to decide what to
+ignore would fail in the direction that just cost us a production regression.
+
 ### Caps, and where they live
 
 | Cap | Value | Why |
 |---|---|---|
 | Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
 | Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
+
+The fix-run budget is **shared** between failing checks and review findings,
+because what it bounds is money rather than either activity on its own.
 
 Both are **per-PR and cumulative for the life of the PR**, deliberately not
 per-commit. A fix run pushes a commit, and resetting on a new commit would let a
@@ -430,24 +474,45 @@ a workflow added later is not in the watched list.
 
 A fix run is launched through this Lambda (`{"gpbot_ci_fix": true, ...}` →
 `handle_ci_fix`), not by a second path wired straight to ECS, so it reuses the
-one audited route to Fargate. It carries `AGENT_LABEL=ci-fix`, which keeps it
-out of the analyze→implement escalation, and `ci-fix` is deliberately **not** in
-`TAG_CONFIG`: a ClickUp tag must never be able to launch a run that pushes to an
-arbitrary PR.
+one audited route to Fargate. `mode` picks the instruction:
 
-**Only the PR number and the ClickUp task id cross that boundary**, both
-validated as an integer and a character-class-checked id. Check names, step
-names and log text are left out on purpose — they originate in CI output, and
-interpolating them into a system prompt would make every failing build a
-prompt-injection surface. The agent holds `gh` and fetches its own evidence.
+| `mode` | Label | Instruction |
+|---|---|---|
+| `checks` (the default when absent) | `ci-fix` | `CI_FIX_INSTRUCTION` |
+| `findings` | `findings-fix` | `FINDINGS_FIX_INSTRUCTION` |
 
-The instruction (`CI_FIX_INSTRUCTION`) forbids, in order of how much damage
-they do: weakening a test to make it pass (deleting, skipping, loosening an
-assertion, or adding a retry to hide a real failure), merging, opening a second
-PR, and touching anything outside the failure. It also tells the agent to check
-`main` and change nothing if the failure is infra or pre-existing — a second
-line of the same defence, because the signature list in `ci_triage.py` is not
-exhaustive.
+An unrecognised mode is a 400, not a default — quietly running the CI
+instruction against a request that asked for something else points an agent at
+work nobody asked for. Neither label is `analyze`, which keeps both out of the
+analyze→implement escalation, and neither is in `TAG_CONFIG`: a ClickUp tag must
+never be able to launch a run that pushes to an arbitrary PR. The dedup claim is
+keyed on `ci-fix` for **both** modes, because they push to the same branch and a
+claim keyed per-mode could not see that collision.
+
+**Only the PR number, the ClickUp task id and that fixed enum cross the
+boundary** — an integer, a character-class-checked id, and one of two literals.
+Check names, step names, log text and review-comment bodies are all left out on
+purpose. The first three originate in CI output; the last is written by another
+model, in a thread anyone who can comment on the repo may add to. Interpolating
+any of them into a system prompt would make every failing build and every review
+comment a prompt-injection surface. The agent holds `gh` and fetches its own
+evidence.
+
+Both instructions forbid, in order of how much damage they do: weakening a test
+to make it pass (deleting, skipping, loosening an assertion, or adding a retry
+to hide a real failure), merging, opening a second PR, and working outside the
+thing they were sent for.
+
+`CI_FIX_INSTRUCTION` additionally tells the agent to check `main` and change
+nothing if the failure is infra or pre-existing — a second line of the same
+defence, because the signature list in `ci_triage.py` is not exhaustive.
+
+`FINDINGS_FIX_INSTRUCTION` treats a finding as a claim rather than a verdict:
+accept it and fix the cause with a test, reject it and say why in the thread, or
+say it could not be judged. Whichever it does, it replies and then resolves the
+thread — and it must **never resolve a thread it has not answered**, because
+resolving is the record that a finding was dealt with. An unanswered thread left
+open is a fine outcome; it goes to a human.
 
 **Nothing in this feature merges anything.** `gpbot-ci-drive.yml` carries the
 same header contract as `gpbot-pr-triage.yml`: the bot getting CI green is not

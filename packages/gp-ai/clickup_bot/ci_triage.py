@@ -1,8 +1,24 @@
-"""Decide what to do about a failing check on a [GP-Bot] PR.
+"""Decide what to do about a failing check or an unanswered review finding on a
+[GP-Bot] PR.
 
 WHY THIS EXISTS: the bot opens a PR and stops. PR #1306 sat from 2026-08-18
 with delegate-reviewer[bot] approval and a red `E2E` check, waiting for a human
 to notice. Nothing drove it.
+
+THE SECOND HALF, added after #1306 merged: Cursor Bugbot posted a high-severity
+finding on that same PR three minutes after it opened, delegate-reviewer
+approved two minutes later without accounting for it, and a human approved and
+merged two days after that without answering the thread. The finding was
+correct — the regression it described reached main and was fixed separately in
+PR #1431. Nothing in the system treats an unresolved finding as work: Bugbot
+posts a COMMENTED review, never CHANGES_REQUESTED, so it never blocks, and one
+approval satisfies the ruleset. So an unresolved, unanswered Bugbot thread is
+driven here too, on the same budget as a failing check.
+
+delegate-reviewer's own findings are deliberately NOT driven here. It withholds
+approval until its blockers are fixed, which already gates the merge, and it
+runs a reply-and-re-review protocol (`delegate review`) that a second automated
+actor would fight.
 
 WHY IT IS NOT JUST "ASK THE MODEL TO FIX CI": most bot-PR check failures we have
 actually observed were infrastructure, not regressions. #1306's failing
@@ -53,9 +69,16 @@ UNKNOWN = "unknown"
 # What the workflow should do with the PR.
 ACTION_RERUN = "rerun"
 ACTION_FIX = "fix"
+ACTION_FIX_FINDINGS = "fix-findings"
 ACTION_REPORT = "report"
 ACTION_ESCALATE = "escalate"
+ACTION_HOLD = "hold"
 ACTION_NONE = "none"
+
+# Review authors whose unresolved threads count as work. Compared after
+# lowercasing and stripping a trailing "[bot]", because the same account is
+# `cursor` over GraphQL and `cursor[bot]` over REST.
+FINDING_AUTHORS = ("cursor",)
 
 # CAPS. Both are per-PR and cumulative for the life of the PR, deliberately NOT
 # per-HEAD-SHA: a fix run pushes a commit, and resetting the counters on a new
@@ -73,7 +96,24 @@ MAX_RERUNS = 3
 # check-fix rounds" cap in ship-pr's Phase 3, and holds this feature's worst case
 # to ~$10 per PR on top of the ~$30 the ticket may already have spent on
 # analyze-then-implement.
+#
+# ONE BUDGET, SHARED between failing checks and review findings, because what it
+# bounds is money rather than either activity on its own. A single run answers
+# every open finding at once, so the cost does not grow with how much Bugbot
+# found — which is what makes it affordable to treat a low-severity finding as
+# work instead of filtering on a severity string parsed out of a comment body.
 MAX_FIX_RUNS = 2
+
+# How many finding ids the marker comment carries. Each is ~40 characters and
+# the comment is capped at 65536, so this is far below the real limit; it exists
+# so a PR that collects findings indefinitely cannot grow the comment without
+# bound. Overflow drops the OLDEST ids, so the most recent findings stay
+# tracked and an old one can at worst buy one more fix run.
+MAX_TRACKED_FINDINGS = 50
+
+# A finding's title as shown to a human in Slack. Bugbot's own heading is one
+# short line, so this only ever truncates a malformed body.
+MAX_FINDING_TITLE_CHARS = 120
 
 # How long a launched fix run is assumed to still be working.
 #
@@ -216,6 +256,69 @@ def classify_check(check: Any) -> dict:
     }
 
 
+def _finding_title(excerpt: Any) -> str:
+    """The first meaningful line of a finding, for the summary a human reads.
+
+    Bugbot opens with a markdown heading (`### Failed collection hides retry
+    UI`) followed by a severity line and a block of HTML comment markers. The
+    heading is the only part worth repeating in Slack.
+
+    This text never reaches an agent's prompt. It comes from a comment body,
+    which is exactly the untrusted-input shape the CI path keeps out of the
+    Lambda payload, and the same rule applies here.
+    """
+    if not isinstance(excerpt, str):
+        return "(no description)"
+    for line in excerpt.splitlines():
+        line = line.strip().lstrip("#").strip()
+        if not line or line.startswith("<"):
+            continue
+        return line[:MAX_FINDING_TITLE_CHARS]
+    return "(no description)"
+
+
+def open_findings(findings: Any) -> list[dict]:
+    """The review threads that still need an answer, newest shape-checked.
+
+    Four things disqualify a thread, and the direction of each default is
+    chosen so that a garbled input errs toward "this still needs an answer" —
+    silently dropping a real finding is the bug this whole path exists to fix:
+
+    - Not from a watched review author. delegate is excluded on purpose (see
+      the module docstring).
+    - Already resolved. Only an explicit `true` counts, so a missing field
+      leaves the thread in scope.
+    - Outdated, meaning the lines it points at have since changed. This is the
+      natural stop for a thread the bot has already acted on: a fix push moves
+      the code and GitHub marks the thread outdated by itself. A push that
+      moves the lines WITHOUT addressing the finding also clears it, which is
+      the accepted cost of not re-litigating every thread on every commit.
+    - A human has replied. Then a person owns the thread and the bot must not
+      talk over them. On #1306 nobody replied, which is why it qualified.
+
+    A thread with no id is dropped, and that is the one drop that is not the
+    safe direction. It has to be: `findings_attempted` is keyed on the id, so
+    an untrackable thread would buy a fix run on every single pass forever.
+    """
+    result = []
+    for finding in findings if isinstance(findings, list) else []:
+        if not isinstance(finding, dict):
+            continue
+        thread_id = finding.get("id")
+        if not isinstance(thread_id, str) or not thread_id:
+            continue
+        author = finding.get("author")
+        author = author.strip().lower().removesuffix("[bot]") if isinstance(author, str) else ""
+        if author not in FINDING_AUTHORS:
+            continue
+        if finding.get("resolved") is True or finding.get("outdated") is True:
+            continue
+        if finding.get("human_replied") is True:
+            continue
+        result.append({"id": thread_id, "title": _finding_title(finding.get("excerpt"))})
+    return result
+
+
 def _coerce_count(value: Any) -> int:
     # A hand-edited or drifted marker comment must not crash the drive, and must
     # not read as "nothing spent yet" either — that would silently uncap the
@@ -234,6 +337,17 @@ def _coerce_timestamp(value: Any) -> int:
     return int(value)
 
 
+def _coerce_ids(value: Any) -> list[str]:
+    # Unreadable means "nothing attempted", which at worst lets a finding buy
+    # one more fix run. The fix counter still caps the spend either way, and
+    # the alternative — treating a garbled list as "everything was attempted" —
+    # would silently stop answering findings, which is the failure this path
+    # exists to prevent.
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item][-MAX_TRACKED_FINDINGS:]
+
+
 def parse_state(comment_body: Any) -> dict:
     """Read the attempt counters out of the drive's own PR comment.
 
@@ -241,9 +355,15 @@ def parse_state(comment_body: Any) -> dict:
     exhausted rather than fresh: guessing "fresh" on a state comment we cannot
     read is how a bounded feature becomes an unbounded bill.
     """
-    exhausted = {"reruns": MAX_RERUNS, "fixes": MAX_FIX_RUNS, "escalated": True, "fix_started_at": 0}
+    exhausted = {
+        "reruns": MAX_RERUNS,
+        "fixes": MAX_FIX_RUNS,
+        "escalated": True,
+        "fix_started_at": 0,
+        "findings_attempted": [],
+    }
     if not isinstance(comment_body, str) or not comment_body.strip():
-        return {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0}
+        return {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0, "findings_attempted": []}
 
     match = _STATE_PATTERN.search(comment_body)
     if not match:
@@ -260,6 +380,7 @@ def parse_state(comment_body: Any) -> dict:
         "fixes": _coerce_count(parsed.get("fixes")),
         "escalated": parsed.get("escalated") is True,
         "fix_started_at": _coerce_timestamp(parsed.get("fix_started_at")),
+        "findings_attempted": _coerce_ids(parsed.get("findings_attempted")),
     }
 
 
@@ -267,13 +388,17 @@ def render_state(state: dict) -> str:
     return "<!-- gpbot-ci-state: " + json.dumps(state, sort_keys=True) + " -->"
 
 
-def decide(checks: Any, state: Any, now: float | None = None) -> dict:
+def decide(checks: Any, state: Any, findings: Any = None, now: float | None = None) -> dict:
     """Turn classified failures plus what has already been spent into one action.
 
     One action for the whole PR, not one per check: a re-run re-runs every failed
     job at once, and an agent run is pointed at the PR rather than at a single
     check. Ordering is cheap-first — a re-run that clears the board costs no model
     spend and no code change.
+
+    CHECKS ARE SETTLED BEFORE FINDINGS. A run that answers a finding pushes code
+    that has to pass CI anyway, so paying for one while the board is red spends
+    money to arrive at a PR that is still red.
 
     `now` is injected so the in-flight window below is exercised by tests at
     fixed instants rather than by whatever the clock happens to say.
@@ -285,20 +410,38 @@ def decide(checks: Any, state: Any, now: float | None = None) -> dict:
     fixes = _coerce_count(state.get("fixes"))
     already_escalated = state.get("escalated") is True
     fix_started_at = _coerce_timestamp(state.get("fix_started_at"))
+    attempted = _coerce_ids(state.get("findings_attempted"))
+
+    # Every branch below returns the whole state, and a branch that forgot one
+    # field would silently reset it — dropping `findings_attempted` would let
+    # the same finding buy a fix run on every pass. Defaults are bound to the
+    # values read above, so a caller states only what it changes.
+    def next_state(
+        *,
+        reruns: int = reruns,
+        fixes: int = fixes,
+        escalated: bool = False,
+        fix_started_at: int = fix_started_at,
+        findings_attempted: list[str] = attempted,
+    ) -> dict:
+        return {
+            "reruns": reruns,
+            "fixes": fixes,
+            "escalated": escalated,
+            "fix_started_at": fix_started_at,
+            "findings_attempted": findings_attempted,
+        }
 
     classifications = [classify_check(check) for check in (checks if isinstance(checks, list) else [])]
+    unanswered = open_findings(findings)
 
-    if not classifications:
+    if not classifications and not unanswered:
         return {
             "action": ACTION_NONE,
-            "reason": "no failing checks",
+            "reason": "no failing checks and no unanswered review findings",
             "classifications": [],
-            "next_state": {
-                "reruns": reruns,
-                "fixes": fixes,
-                "escalated": already_escalated,
-                "fix_started_at": fix_started_at,
-            },
+            "findings": [],
+            "next_state": next_state(escalated=already_escalated),
         }
 
     if already_escalated:
@@ -309,7 +452,8 @@ def decide(checks: Any, state: Any, now: float | None = None) -> dict:
             "action": ACTION_NONE,
             "reason": "already escalated to a human on this PR; not spending anything further",
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
+            "findings": unanswered,
+            "next_state": next_state(escalated=True),
         }
 
     # A fix run in flight leaves the board red and untouched until it pushes, so
@@ -324,9 +468,20 @@ def decide(checks: Any, state: Any, now: float | None = None) -> dict:
             "action": ACTION_NONE,
             "reason": f"a fix run is still in flight; waiting up to {minutes_left} more minute(s) for it to push",
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": False, "fix_started_at": fix_started_at},
+            "findings": unanswered,
+            "next_state": next_state(),
         }
 
+    if classifications:
+        return _decide_checks(classifications, unanswered, reruns, fixes, now, next_state)
+
+    return _decide_findings(unanswered, attempted, fixes, now, classifications, next_state)
+
+
+def _decide_checks(
+    classifications: list, unanswered: list, reruns: int, fixes: int, now: float, next_state: Any
+) -> dict:
+    """The failing-check ladder: pre-existing, then infrastructure, then the rest."""
     actionable = [c for c in classifications if c["classification"] != PRE_EXISTING]
     if not actionable:
         # Hard requirement: a breakage that is already red on main gets reported,
@@ -336,7 +491,8 @@ def decide(checks: Any, state: Any, now: float | None = None) -> dict:
             "action": ACTION_REPORT,
             "reason": "every failing check is already failing on main; not this PR's regression",
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
+            "findings": unanswered,
+            "next_state": next_state(escalated=True),
         }
 
     infra = [c for c in actionable if c["classification"] == INFRA]
@@ -351,7 +507,8 @@ def decide(checks: Any, state: Any, now: float | None = None) -> dict:
             "action": ACTION_RERUN,
             "reason": f"re-running {names} (attempt {reruns + 1} of {MAX_RERUNS})",
             "classifications": classifications,
-            "next_state": {"reruns": reruns + 1, "fixes": fixes, "escalated": False, "fix_started_at": 0},
+            "findings": unanswered,
+            "next_state": next_state(reruns=reruns + 1, fix_started_at=0),
         }
 
     # INFRA NEVER BECOMES AN AGENT RUN. An environmental failure that survived
@@ -379,7 +536,8 @@ def decide(checks: Any, state: Any, now: float | None = None) -> dict:
                 )
             ),
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
+            "findings": unanswered,
+            "next_state": next_state(escalated=True),
         }
 
     if fixes < MAX_FIX_RUNS:
@@ -398,17 +556,71 @@ def decide(checks: Any, state: Any, now: float | None = None) -> dict:
                 f"(fix run {fixes + 1} of {MAX_FIX_RUNS})"
             ),
             "classifications": classifications,
+            "findings": unanswered,
             # Stamped here rather than by the workflow so the in-flight window
             # opens in the same write that spends the slot. Two separate writes
             # could crash between them and leave a launched run unguarded.
-            "next_state": {"reruns": reruns, "fixes": fixes + 1, "escalated": False, "fix_started_at": int(now)},
+            "next_state": next_state(fixes=fixes + 1, fix_started_at=int(now)),
         }
 
     return {
         "action": ACTION_ESCALATE,
         "reason": f"spent {reruns} re-run(s) and {fixes} fix run(s) without getting CI green",
         "classifications": classifications,
-        "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
+        "findings": unanswered,
+        "next_state": next_state(escalated=True),
+    }
+
+
+def _decide_findings(
+    unanswered: list, attempted: list[str], fixes: int, now: float, classifications: list, next_state: Any
+) -> dict:
+    """What to do about review findings, reached only once the board is green.
+
+    A finding gets ONE fix run and no more. `findings_attempted` records the ids
+    a run was pointed at, so a finding still open after that run goes to a human
+    instead of buying a second attempt. Without it the loop is unbounded in the
+    expensive direction: the agent disagrees with a false positive, leaves the
+    thread open, and every later pass reads it as fresh work.
+    """
+    fresh = [f for f in unanswered if f["id"] not in attempted]
+
+    if not fresh:
+        return {
+            "action": ACTION_HOLD,
+            "reason": (
+                f"a fix run already answered {'this finding' if len(unanswered) == 1 else 'these findings'} "
+                "and the thread is still open; a human has to settle it"
+            ),
+            "classifications": classifications,
+            "findings": unanswered,
+            "next_state": next_state(escalated=True),
+        }
+
+    if fixes >= MAX_FIX_RUNS:
+        return {
+            "action": ACTION_HOLD,
+            "reason": f"no fix runs left ({fixes} of {MAX_FIX_RUNS} spent), so the review findings need a human",
+            "classifications": classifications,
+            "findings": unanswered,
+            "next_state": next_state(escalated=True),
+        }
+
+    return {
+        "action": ACTION_FIX_FINDINGS,
+        "reason": (
+            f"CI is green but {len(fresh)} review finding(s) have no answer (fix run {fixes + 1} of {MAX_FIX_RUNS})"
+        ),
+        "classifications": classifications,
+        "findings": unanswered,
+        # Every fresh id is banked now, in the same write that spends the slot.
+        # One run answers all of them, so a run that answers none must not be
+        # able to buy a second attempt at any of them.
+        "next_state": next_state(
+            fixes=fixes + 1,
+            fix_started_at=int(now),
+            findings_attempted=(attempted + [f["id"] for f in fresh])[-MAX_TRACKED_FINDINGS:],
+        ),
     }
 
 
@@ -420,6 +632,10 @@ def render_summary(decision: dict) -> str:
     is actionable, "classified as infra" is not.
     """
     lines = [f"{c['name']}: {c['evidence']}" for c in decision.get("classifications", [])]
+    # Findings are listed even when the decision was about a check, because a
+    # human reading a Slack escalation needs to see everything still outstanding
+    # on the PR, not only the half that produced the verdict.
+    lines += [f"unanswered review finding — {f['title']}" for f in decision.get("findings", [])]
     return decision.get("reason", "") + ("\n" + "\n".join(f"• {line}" for line in lines) if lines else "")
 
 
@@ -435,8 +651,10 @@ def render_comment(decision: dict) -> str:
     headline = {
         ACTION_RERUN: "Re-running the failed checks.",
         ACTION_FIX: "Starting a run to fix this.",
+        ACTION_FIX_FINDINGS: "Starting a run to answer the review findings.",
         ACTION_REPORT: "Stopping: this is already broken on `main`.",
         ACTION_ESCALATE: "Stopping and handing this to a human.",
+        ACTION_HOLD: "Stopping: the review findings need a human.",
         ACTION_NONE: "No action.",
     }.get(action, "No action.")
 
@@ -444,7 +662,7 @@ def render_comment(decision: dict) -> str:
     spent += f"{MAX_RERUNS}, {next_state.get('fixes', 0)} fix run(s) of {MAX_FIX_RUNS}."
 
     footer = ""
-    if action in (ACTION_ESCALATE, ACTION_REPORT):
+    if action in (ACTION_ESCALATE, ACTION_REPORT, ACTION_HOLD):
         # The counters are per-PR and nothing the bot does resets them, so a human
         # has to be told how to hand it back rather than left wondering why the
         # bot went quiet.
@@ -473,6 +691,10 @@ def main() -> int:
     `state_comment` is the raw body of the drive's own PR comment (or null on the
     first pass). Parsing it here rather than in the workflow keeps every reading
     and writing of the durable counters inside the tested module.
+
+    `findings` is every review thread on the PR, unfiltered. Which ones count is
+    a judgement (see open_findings), so the workflow hands over what it gathered
+    and decides nothing.
     """
     try:
         payload = json.load(sys.stdin)
@@ -487,7 +709,7 @@ def main() -> int:
     if state is None:
         state = parse_state(payload.get("state_comment"))
 
-    decision = decide(payload.get("checks"), state)
+    decision = decide(payload.get("checks"), state, payload.get("findings"))
     decision["comment_body"] = render_comment(decision)
     decision["summary"] = render_summary(decision)
 
