@@ -214,6 +214,12 @@ export const OutreachHistoryTable = ({
   // paid/in_progress) and draft-first rows finalize left at spine `pending`
   // with a phone list — the same set cancel-before-send acts on.
   const displayStatusLabel = (row: HistoryRow): string | null => {
+    // An archived row reads "Archived" no matter what state it was shelved
+    // in (prototype: effStatus) — the underlying status is a detail the
+    // archive view doesn't relitigate.
+    if (row.archivedAt) {
+      return 'Archived'
+    }
     const label = getHistoryStatusLabel(row)
     const isSms =
       row.outreachType === OUTREACH_TYPES.text ||

@@ -13,11 +13,9 @@ import {
   AlertDialogTitle,
   ArrowLeftIcon,
   Button,
-  DrawerClose,
   DrawerTitle,
   IconButton,
   Stepper,
-  XMarkIcon,
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
 
@@ -101,29 +99,24 @@ export const OutreachFlowShell = ({
         headerless={totalSteps === 0}
         header={
           <>
-            {/* Prototype header anatomy: no visible title — a circular back
-                (when the step has one) and the close sit inside the content
-                column on one row, with the channel pill in the step body
-                carrying the flow context. The back slot is always reserved
-                so the row doesn't collapse between steps. */}
-            <div className="flex items-center justify-between">
-              <div className="size-10">
-                {onBack && (
-                  <IconButton
-                    type="button"
-                    variant="outline"
-                    aria-label="Back"
-                    onClick={onBack}
-                    className="border-border text-foreground"
-                  >
-                    <ArrowLeftIcon className="size-4" />
-                  </IconButton>
-                )}
-              </div>
-              <DrawerClose className="inline-flex size-10 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none">
-                <XMarkIcon className="size-4" />
-                <span className="sr-only">Close</span>
-              </DrawerClose>
+            {/* Prototype full-mode header anatomy: no visible title, no close
+                here (the sheet's absolute corner X is the close). One Back
+                button, responsive: pinned to the panel's top-left corner on
+                mobile (the header's 64px top padding clears that strip),
+                sitting in an always-reserved row above the stepper on
+                desktop — one element so jsdom/a11y see a single Back. */}
+            <div className="flex h-0 items-center lg:mb-4 lg:h-10">
+              {onBack && (
+                <IconButton
+                  type="button"
+                  variant="outline"
+                  aria-label="Back"
+                  onClick={onBack}
+                  className="absolute top-4 left-4 z-30 border-border text-foreground lg:static"
+                >
+                  <ArrowLeftIcon className="size-4" />
+                </IconButton>
+              )}
             </div>
             <DrawerTitle className="sr-only">{title}</DrawerTitle>
             {totalSteps > 0 && (
@@ -132,33 +125,34 @@ export const OutreachFlowShell = ({
                 currentStep={currentStep}
                 totalSteps={totalSteps}
                 labelClassName="text-xs"
-                className="mt-2 lg:mt-3"
               />
             )}
           </>
         }
         footer={
           cta ? (
-            <div className="flex w-full items-center gap-3">
-              {cta.secondary && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="flex-1 text-sm"
-                  onClick={cta.secondary.onClick}
-                >
-                  {cta.secondary.label}
-                </Button>
-              )}
+            // Prototype footer stacking: primary on top on mobile (column),
+            // primary on the right on desktop (row-reverse).
+            <div className="flex w-full flex-col gap-3 lg:flex-row-reverse lg:items-center">
               <Button
                 type="button"
-                className="flex-1 text-sm"
+                className="w-full text-sm lg:w-auto lg:flex-1"
                 onClick={cta.onClick}
                 disabled={cta.disabled}
                 loading={cta.loading}
               >
                 {cta.label}
               </Button>
+              {cta.secondary && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full text-sm lg:w-auto lg:flex-1"
+                  onClick={cta.secondary.onClick}
+                >
+                  {cta.secondary.label}
+                </Button>
+              )}
             </div>
           ) : undefined
         }

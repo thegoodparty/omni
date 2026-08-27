@@ -369,10 +369,15 @@ export const OutreachDetailsDrawer = ({
         ? 'Sent'
         : null
   // The pill next to the title swaps to the warning label; the byline keeps
-  // "Scheduled for {date}" — the send date itself is unchanged.
-  const displayStatusLabel = isComplianceHeldSms
-    ? WILL_NOT_SEND_LABEL
-    : statusLabel
+  // "Scheduled for {date}" — the send date itself is unchanged. An archived
+  // row's pill reads "Archived" (prototype: effStatus) — display only, so
+  // the footer's lifecycle still resolves off the underlying status and the
+  // Restore action stays reachable.
+  const displayStatusLabel = isArchived
+    ? 'Archived'
+    : isComplianceHeldSms
+      ? WILL_NOT_SEND_LABEL
+      : statusLabel
 
   // "Is there something this candidate can do about this campaign from here",
   // which is the second half of the canvas's footer decision. True for the two
