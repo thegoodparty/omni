@@ -8,6 +8,7 @@ import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.util'
 import { resolveDistrict } from '../utils/resolveDistrict.util'
 import { FilterData } from '../schemas/filters.schema'
 import {
+  contactsMadeToBytes,
   PackEncoder,
   PackRow,
   statusesToBytes,
@@ -75,8 +76,14 @@ export class VoterPackService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       : request.districtId
     const joinClause = effectiveDistrictId ? DV_JOIN : Prisma.empty
 
+    // Both campaign-specific planes are joined here, from arrays gp-api
+    // shipped with the request; the scan below reads nothing per-organization
+    // and is therefore a pure function of `districtId` and the voter mirror.
+    // Keep it that way — it is what makes the shared build cacheable (see
+    // docs/perf/voter-pack-headroom.md).
     const encoder = new PackEncoder(
       statusesToBytes(request.knockStatuses ?? []),
+      contactsMadeToBytes(request.contactsMade),
     )
 
     const whereClause = buildVoterWhereSql({

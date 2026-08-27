@@ -95,17 +95,25 @@ const gl = vi.hoisted(() => {
       return params.layerIds.includes('route-pins') ? overlay.pickedPin : null
     },
   }
-  return { handlers, map, overlay, style }
+  return {
+    handlers,
+    map,
+    overlay,
+    style,
+    mapOptions: null as { attributionControl?: unknown } | null,
+  }
 })
 
 vi.mock('maplibre-gl', () => ({
   default: {
     Map: class {
-      constructor() {
+      constructor(options: { attributionControl?: unknown }) {
+        gl.mapOptions = options
         return gl.map
       }
     },
     NavigationControl: class {},
+    AttributionControl: class {},
   },
 }))
 
@@ -1004,6 +1012,30 @@ describe('VoterMapCanvas drawing', () => {
     expect(framePadding().bottom).toBe(framePadding().top)
   })
 
+  // Every corner on the right of this map is behind the manage surface's
+  // floating rail above `lg` (`lg:inset-y-4 lg:right-4 lg:w-96`), so a control
+  // placed there is drawn, looks pressable and cannot be clicked. The left half
+  // is what nothing floats over at any width.
+  it('puts the map controls on the left, away from the floating rail', () => {
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const corners = gl.map.addControl.mock.calls.map((call) => call[1])
+    expect(corners).toContain('top-left')
+    expect(corners).toContain('bottom-left')
+    expect(corners).not.toContain('top-right')
+    expect(corners).not.toContain('bottom-right')
+    // The attribution is placed rather than defaulted, and maplibre only lets
+    // it be placed if its own default is switched off first — leaving the
+    // option on would put a second credit back in the covered corner.
+    expect(gl.mapOptions?.attributionControl).toBe(false)
+  })
+
   // The band the confirm step uncovers is a picture: it is shielded from taps,
   // so every button standing in it is one that answers nothing when pressed.
   it('takes the map controls down for a step showing the map as a picture', () => {
@@ -1015,7 +1047,7 @@ describe('VoterMapCanvas drawing', () => {
       />,
     )
     expect(container.firstElementChild?.className).not.toContain(
-      'maplibregl-ctrl-top-right',
+      'maplibregl-ctrl-top-left',
     )
 
     rerender(
@@ -1032,7 +1064,7 @@ describe('VoterMapCanvas drawing', () => {
     // on the wrapper, never on the container maplibre writes its own classes
     // onto — a className React rewrites would take `maplibregl-map` with it.
     const wrapper = container.firstElementChild
-    expect(wrapper?.className).toContain('maplibregl-ctrl-top-right')
+    expect(wrapper?.className).toContain('maplibregl-ctrl-top-left')
     expect(wrapper?.firstElementChild?.className).toBe('h-full w-full')
   })
 

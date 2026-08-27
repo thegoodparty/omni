@@ -471,10 +471,23 @@ export default function VoterMapCanvas({
       style: `https://maps.geoapify.com/v1/styles/osm-liberty/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
       center: [-98, 39],
       zoom: 4,
-      attributionControl: { compact: true },
+      // Added by hand below so it can be placed; maplibre's default is the
+      // bottom-RIGHT corner, which on this page is under the rail.
+      attributionControl: false,
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
+    // Left, because the right half of this map is spoken for. The manage
+    // surface floats its rail over the map as an inset card pinned
+    // `lg:inset-y-4 lg:right-4 lg:w-96`, so every corner on the right is
+    // behind it above `lg` — all three zoom-stack buttons were drawn, looked
+    // pressable, and could not be clicked at 1024px or wider, and the
+    // attribution was covered with them. The left half is the only part of
+    // the map nothing floats over at any width.
+    map.addControl(new maplibregl.NavigationControl(), 'top-left')
+    map.addControl(
+      new maplibregl.AttributionControl({ compact: true }),
+      'bottom-left',
+    )
 
     // osm-liberty ships transit overlays and 3D building extrusions we
     // don't want on a canvassing map. Transit hides entirely; buildings
@@ -1096,7 +1109,7 @@ export default function VoterMapCanvas({
     // `controlsHidden` would take `maplibregl-map` with it.
     <div
       className={`relative h-full w-full ${
-        controlsHidden ? '[&_.maplibregl-ctrl-top-right]:hidden' : ''
+        controlsHidden ? '[&_.maplibregl-ctrl-top-left]:hidden' : ''
       }`}
     >
       <div ref={containerRef} className="h-full w-full" />

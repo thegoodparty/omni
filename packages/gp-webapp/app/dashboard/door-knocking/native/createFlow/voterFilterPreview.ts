@@ -1,4 +1,8 @@
-import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
+import {
+  CONTACTS_MADE_BUCKETS,
+  CONTACTS_MADE_DIM_KEY,
+  DoorKnockingPackManifest,
+} from '@goodparty_org/contracts'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { DimSelections } from '../filterEngine'
 import {
@@ -7,135 +11,167 @@ import {
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 
 // Maps saved-list filter option keys onto pack dims so the map can preview a
-// step-1 selection. Candidates are matched against the manifest's actual
-// bucket names at runtime; unmatched keys simply don't narrow the preview —
-// the knock-time evaluation stays canonical. The pack's age buckets predate
-// ENG-10752's exclusive split, so the age mapping is the closest legacy
-// bucket. Income buckets are named by the shared INCOME_RANGE_MAPPING keys,
-// which INCOME_KEY_TO_RANGE already points at.
-const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
-  {
-    partyDemocrat: { dim: 'party', candidates: ['Democratic', 'Democrat'] },
-    partyRepublican: { dim: 'party', candidates: ['Republican'] },
-    partyIndependent: { dim: 'party', candidates: ['Independent'] },
-    partyOther: { dim: 'party', candidates: ['Unknown', 'unknown', 'Other'] },
-    age18_24: { dim: 'age', candidates: ['18_25', '18-25'] },
-    age25_34: { dim: 'age', candidates: ['25_35', '25-35'] },
-    age35_49: { dim: 'age', candidates: ['35_50', '35-50'] },
-    age50_64: { dim: 'age', candidates: ['50_plus', '50+'] },
-    // The pack's legacy buckets can't distinguish 65+ from 50-64; mapping
-    // both to 50_plus would preview identical cohorts for different pills,
-    // so 65+ deliberately doesn't narrow (an unmapped pill previews a
-    // superset, which is the honest failure mode).
-    ageUnknown: { dim: 'age', candidates: ['Unknown', 'unknown'] },
-    genderMale: { dim: 'gender', candidates: ['M', 'Male'] },
-    genderFemale: { dim: 'gender', candidates: ['F', 'Female'] },
-    genderUnknown: { dim: 'gender', candidates: ['Unknown', 'unknown'] },
-    audienceSuperVoters: { dim: 'voterStatus', candidates: ['Super'] },
-    audienceLikelyVoters: { dim: 'voterStatus', candidates: ['Likely'] },
-    audienceUnreliableVoters: {
-      dim: 'voterStatus',
-      candidates: ['Unreliable'],
-    },
-    audienceUnlikelyVoters: { dim: 'voterStatus', candidates: ['Unlikely'] },
-    audienceUnknown: { dim: 'voterStatus', candidates: ['Unknown', 'unknown'] },
-    hasCellPhone: { dim: 'hasCellPhone', candidates: ['Yes', 'true', 'Has'] },
-    hasLandline: { dim: 'hasLandline', candidates: ['Yes', 'true', 'Has'] },
-    veteranYes: { dim: 'veteranStatus', candidates: ['Yes', 'Veteran'] },
-    veteranUnknown: {
-      dim: 'veteranStatus',
-      candidates: ['Unknown', 'unknown'],
-    },
-    // 'Homeowner' folds Probable Home Owner in server-side (ENG-10947), but
-    // the pack encodes one bucket per person (packEncoder.utils.ts's
-    // invertMapper), so it cannot represent an OR of two buckets under one
-    // filter key. The preview therefore only shades the exact-owner bucket
-    // here — a known, disclosed undercount (the map preview is a superset
-    // OR undercount approximation elsewhere too; knock-time evaluation
-    // stays canonical). homeownerLikely still previews its own bucket for a
-    // pre-collapse saved list (homeownerLikely=true, no homeownerYes).
-    homeownerYes: { dim: 'homeowner', candidates: ['Home Owner', 'Yes'] },
-    homeownerLikely: {
-      dim: 'homeowner',
-      candidates: ['Probable Home Owner', 'Likely'],
-    },
-    homeownerNo: { dim: 'homeowner', candidates: ['Renter', 'No'] },
-    homeownerUnknown: {
-      dim: 'homeowner',
-      candidates: ['Unknown', 'unknown'],
-    },
-    businessOwnerYes: { dim: 'businessOwner', candidates: ['Yes'] },
-    businessOwnerUnknown: {
-      dim: 'businessOwner',
-      candidates: ['Unknown', 'unknown'],
-    },
-    registeredVoterTrue: { dim: 'registered', candidates: ['Yes', 'true'] },
-    registeredVoterFalse: { dim: 'registered', candidates: ['No', 'false'] },
-    hasChildrenYes: { dim: 'presenceOfChildren', candidates: ['Yes'] },
-    hasChildrenNo: { dim: 'presenceOfChildren', candidates: ['No'] },
-    hasChildrenUnknown: {
-      dim: 'presenceOfChildren',
-      candidates: ['Unknown', 'unknown'],
-    },
-    languageEnglish: { dim: 'language', candidates: ['English'] },
-    languageSpanish: { dim: 'language', candidates: ['Spanish'] },
-    languageOther: { dim: 'language', candidates: ['Other'] },
-    likelyMarried: {
-      dim: 'maritalStatus',
-      candidates: ['Inferred Married'],
-    },
-    likelySingle: { dim: 'maritalStatus', candidates: ['Inferred Single'] },
-    married: { dim: 'maritalStatus', candidates: ['Married'] },
-    single: { dim: 'maritalStatus', candidates: ['Single'] },
-    maritalUnknown: {
-      dim: 'maritalStatus',
-      candidates: ['Unknown', 'unknown'],
-    },
-    educationNone: { dim: 'educationLevel', candidates: ['None'] },
-    educationHighSchoolDiploma: {
-      dim: 'educationLevel',
-      candidates: ['High School Diploma'],
-    },
-    educationTechnicalSchool: {
-      dim: 'educationLevel',
-      candidates: ['Technical School'],
-    },
-    educationSomeCollege: {
-      dim: 'educationLevel',
-      candidates: ['Some College'],
-    },
-    educationCollegeDegree: {
-      dim: 'educationLevel',
-      candidates: ['College Degree'],
-    },
-    educationGraduateDegree: {
-      dim: 'educationLevel',
-      candidates: ['Graduate Degree'],
-    },
-    educationUnknown: {
-      dim: 'educationLevel',
-      candidates: ['Unknown', 'unknown'],
-    },
-    ethnicityAsian: { dim: 'ethnicity', candidates: ['Asian'] },
-    ethnicityEuropean: { dim: 'ethnicity', candidates: ['European'] },
-    ethnicityHispanic: { dim: 'ethnicity', candidates: ['Hispanic'] },
-    ethnicityAfricanAmerican: {
-      dim: 'ethnicity',
-      candidates: ['African American'],
-    },
-    ethnicityOther: { dim: 'ethnicity', candidates: ['Other'] },
-    ethnicityUnknown: {
-      dim: 'ethnicity',
-      candidates: ['Unknown', 'unknown'],
-    },
-    incomeUnknown: { dim: 'income', candidates: ['Unknown', 'unknown'] },
-    ...Object.fromEntries(
-      Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [
-        key,
-        { dim: 'income', candidates: [range] },
-      ]),
-    ),
-  }
+// step-1 selection. `buckets` is the set of manifest bucket names the key
+// selects — EVERY one the manifest carries, not the first match — and the
+// names are matched at runtime, so a district whose pack spells a bucket
+// differently (or lacks it entirely) degrades to not narrowing rather than to
+// narrowing wrongly. Unmatched keys don't narrow the preview at all and are
+// reported by `unpreviewableFilterKeys`; the knock-time evaluation stays
+// canonical either way.
+//
+// Most entries list alternative spellings of ONE bucket, of which a given
+// manifest can only ever have one (the pack's vocabularies are closed sets in
+// `packEncoder.utils.ts`). Age is the exception and lists real siblings: its
+// buckets are cut at every boundary either generation of age key uses, so a
+// key that spans several of them selects several. Income buckets are named by
+// the shared INCOME_RANGE_MAPPING keys, which INCOME_KEY_TO_RANGE points at.
+const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
+  partyDemocrat: { dim: 'party', buckets: ['Democratic', 'Democrat'] },
+  partyRepublican: { dim: 'party', buckets: ['Republican'] },
+  partyIndependent: { dim: 'party', buckets: ['Independent'] },
+  partyOther: { dim: 'party', buckets: ['Unknown', 'unknown', 'Other'] },
+  age18_24: { dim: 'age', buckets: ['18_25', '18-25'] },
+  age25_34: { dim: 'age', buckets: ['25_35', '25-35'] },
+  age35_49: { dim: 'age', buckets: ['35_50', '35-50'] },
+  age50_64: { dim: 'age', buckets: ['50_plus', '50+'] },
+  // The pack's legacy buckets can't distinguish 65+ from 50-64; mapping
+  // both to 50_plus would preview identical cohorts for different pills,
+  // so 65+ deliberately doesn't narrow (an unmapped pill previews a
+  // superset, which is the honest failure mode).
+  ageUnknown: { dim: 'age', buckets: ['Unknown', 'unknown'] },
+  genderMale: { dim: 'gender', buckets: ['M', 'Male'] },
+  genderFemale: { dim: 'gender', buckets: ['F', 'Female'] },
+  genderUnknown: { dim: 'gender', buckets: ['Unknown', 'unknown'] },
+  audienceSuperVoters: { dim: 'voterStatus', buckets: ['Super'] },
+  audienceLikelyVoters: { dim: 'voterStatus', buckets: ['Likely'] },
+  audienceUnreliableVoters: {
+    dim: 'voterStatus',
+    buckets: ['Unreliable'],
+  },
+  audienceUnlikelyVoters: { dim: 'voterStatus', buckets: ['Unlikely'] },
+  audienceUnknown: { dim: 'voterStatus', buckets: ['Unknown', 'unknown'] },
+  hasCellPhone: { dim: 'hasCellPhone', buckets: ['Yes', 'true', 'Has'] },
+  hasLandline: { dim: 'hasLandline', buckets: ['Yes', 'true', 'Has'] },
+  veteranYes: { dim: 'veteranStatus', buckets: ['Yes', 'Veteran'] },
+  veteranUnknown: {
+    dim: 'veteranStatus',
+    buckets: ['Unknown', 'unknown'],
+  },
+  // 'Homeowner' folds Probable Home Owner in server-side (ENG-10947), but
+  // the pack encodes one bucket per person (packEncoder.utils.ts's
+  // invertMapper), so it cannot represent an OR of two buckets under one
+  // filter key. The preview therefore only shades the exact-owner bucket
+  // here — a known, disclosed undercount (the map preview is a superset
+  // OR undercount approximation elsewhere too; knock-time evaluation
+  // stays canonical). homeownerLikely still previews its own bucket for a
+  // pre-collapse saved list (homeownerLikely=true, no homeownerYes).
+  homeownerYes: { dim: 'homeowner', buckets: ['Home Owner', 'Yes'] },
+  homeownerLikely: {
+    dim: 'homeowner',
+    buckets: ['Probable Home Owner', 'Likely'],
+  },
+  homeownerNo: { dim: 'homeowner', buckets: ['Renter', 'No'] },
+  homeownerUnknown: {
+    dim: 'homeowner',
+    buckets: ['Unknown', 'unknown'],
+  },
+  businessOwnerYes: { dim: 'businessOwner', buckets: ['Yes'] },
+  businessOwnerUnknown: {
+    dim: 'businessOwner',
+    buckets: ['Unknown', 'unknown'],
+  },
+  registeredVoterTrue: { dim: 'registered', buckets: ['Yes', 'true'] },
+  registeredVoterFalse: { dim: 'registered', buckets: ['No', 'false'] },
+  hasChildrenYes: { dim: 'presenceOfChildren', buckets: ['Yes'] },
+  hasChildrenNo: { dim: 'presenceOfChildren', buckets: ['No'] },
+  hasChildrenUnknown: {
+    dim: 'presenceOfChildren',
+    buckets: ['Unknown', 'unknown'],
+  },
+  languageEnglish: { dim: 'language', buckets: ['English'] },
+  languageSpanish: { dim: 'language', buckets: ['Spanish'] },
+  languageOther: { dim: 'language', buckets: ['Other'] },
+  likelyMarried: {
+    dim: 'maritalStatus',
+    buckets: ['Inferred Married'],
+  },
+  likelySingle: { dim: 'maritalStatus', buckets: ['Inferred Single'] },
+  married: { dim: 'maritalStatus', buckets: ['Married'] },
+  single: { dim: 'maritalStatus', buckets: ['Single'] },
+  maritalUnknown: {
+    dim: 'maritalStatus',
+    buckets: ['Unknown', 'unknown'],
+  },
+  educationNone: { dim: 'educationLevel', buckets: ['None'] },
+  educationHighSchoolDiploma: {
+    dim: 'educationLevel',
+    buckets: ['High School Diploma'],
+  },
+  educationTechnicalSchool: {
+    dim: 'educationLevel',
+    buckets: ['Technical School'],
+  },
+  educationSomeCollege: {
+    dim: 'educationLevel',
+    buckets: ['Some College'],
+  },
+  educationCollegeDegree: {
+    dim: 'educationLevel',
+    buckets: ['College Degree'],
+  },
+  educationGraduateDegree: {
+    dim: 'educationLevel',
+    buckets: ['Graduate Degree'],
+  },
+  educationUnknown: {
+    dim: 'educationLevel',
+    buckets: ['Unknown', 'unknown'],
+  },
+  ethnicityAsian: { dim: 'ethnicity', buckets: ['Asian'] },
+  ethnicityEuropean: { dim: 'ethnicity', buckets: ['European'] },
+  ethnicityHispanic: { dim: 'ethnicity', buckets: ['Hispanic'] },
+  ethnicityAfricanAmerican: {
+    dim: 'ethnicity',
+    buckets: ['African American'],
+  },
+  ethnicityOther: { dim: 'ethnicity', buckets: ['Other'] },
+  ethnicityUnknown: {
+    dim: 'ethnicity',
+    buckets: ['Unknown', 'unknown'],
+  },
+  incomeUnknown: { dim: 'income', buckets: ['Unknown', 'unknown'] },
+  ...Object.fromEntries(
+    Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [
+      key,
+      { dim: 'income', buckets: [range] },
+    ]),
+  ),
+  // Prior contacts made is the campaign's own outreach history rather than a
+  // voter attribute, so it rides its own pack plane, joined per organization
+  // from the same grouped count `ContactsMadeResolutionService` resolves the
+  // filter with (gp-api). The bucket names ARE the pill labels ('0'…'5+'),
+  // and CONTACTS_MADE_BUCKET_FIELDS' order is the plane's byte order, so the
+  // Nth field maps to the Nth bucket with no translation table between them.
+  //
+  // An org with too much outreach to describe in one pack ships no plane at
+  // all (PACK_CONTACTS_MADE_MAX), and these keys then fall through to the
+  // disclosure below exactly as they did before the plane existed.
+  ...Object.fromEntries(
+    (
+      [
+        'contactsMade0',
+        'contactsMade1',
+        'contactsMade2',
+        'contactsMade3',
+        'contactsMade4',
+        'contactsMade5Plus',
+      ] as const
+    ).map((key, index) => [
+      key,
+      { dim: CONTACTS_MADE_DIM_KEY, buckets: [CONTACTS_MADE_BUCKETS[index]] },
+    ]),
+  ),
+}
 
 // True when a selected option can't be expressed against the pack's buckets,
 // so it leaves the preview unnarrowed. Shared with filtersToDimSelections
@@ -148,14 +184,18 @@ const narrowsPreview = (
   if (!mapping) return false
   const dim = manifest.dims.find((entry) => entry.key === mapping.dim)
   if (!dim) return false
-  return dim.values.some((bucket) => mapping.candidates.includes(bucket))
+  return dim.values.some((bucket) => mapping.buckets.includes(bucket))
 }
 
-// The selected options the map preview silently ignores — age 65+ today, and
-// anything else whose bucket the pack lacks. They still apply at knock time
-// (evaluation is canonical), so the preview shows a SUPERSET of what the list
-// will actually target. Callers surface this rather than letting a candidate
-// draw against a shape that quietly disagrees with their own filters.
+// The selected options the map preview silently ignores: anything whose
+// bucket THIS pack lacks. That is a property of the pack in hand rather than a
+// fixed list — an organization past PACK_CONTACTS_MADE_MAX gets no
+// contacts-made plane and its prior-contacts pills land here, while the same
+// pills on the same build shade fine for everyone else. They still apply at
+// knock time (evaluation is canonical), so the preview shows a SUPERSET of
+// what the list will actually target. Callers surface this rather than letting
+// a candidate draw against a shape that quietly disagrees with their own
+// filters.
 export const unpreviewableFilterKeys = (
   filters: VoterFileFilters,
   manifest: DoorKnockingPackManifest,
@@ -172,6 +212,11 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // '0'…'5+', which turned the sentence into "the map can't shade by 0 yet" — a
 // sentence that reads like a bug. Name the group instead, once however many of
 // its buckets are selected.
+//
+// This survives the plane shipping: the plane is omitted for an organization
+// with more contacted people than one pack can carry, and that org's pills
+// still need naming. It is the group's fallback wording, not a statement that
+// the group is permanently unshadeable.
 const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 
 // The disclosure's own vocabulary, beside the keys it describes: the draw step,
@@ -248,12 +293,16 @@ export const filtersToDimSelections = (
     if (!mapping) continue
     const dim = dimIndex.get(mapping.dim)
     if (!dim) continue
-    const index = dim.values.findIndex((bucket) =>
-      mapping.candidates.includes(bucket),
+    // Every matching bucket, not the first: an age key spans several of the
+    // pack's, and a key whose whole set is missing must add NO entry rather
+    // than an empty one — an empty set would allow nothing and shade an empty
+    // map, where "we can't express this" has to mean "don't constrain".
+    const indexes = dim.values.flatMap((bucket, index) =>
+      mapping.buckets.includes(bucket) ? [index] : [],
     )
-    if (index === -1) continue
+    if (indexes.length === 0) continue
     const set = allowed.get(mapping.dim) ?? new Set<number>()
-    set.add(index)
+    for (const index of indexes) set.add(index)
     allowed.set(mapping.dim, set)
   }
 

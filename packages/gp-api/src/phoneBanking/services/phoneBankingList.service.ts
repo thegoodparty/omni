@@ -51,6 +51,23 @@ const BUILD_TX_TIMEOUT_MS = 60_000
 const EMPTY_AUDIENCE_MESSAGE =
   'No matching voters with a phone number — widen the filters'
 
+const EXHAUSTED_AUDIENCE_MESSAGE =
+  'Everyone reachable in this list is already in a previous phone banking ' +
+  'campaign — pick or build a different list'
+
+// Sibling of phoneBankingCall.service.ts's per-list lock namespace (25714),
+// keyed by voterFileFilterId instead: serializes batch CREATION per filter
+// so two concurrent creates can't both snapshot the prior-batch set before
+// either commits and freeze the same people. Audience paging stays OUTSIDE
+// the transaction (people-db/Databricks calls must never run inside it) —
+// the lock guards a cheap in-tx re-read that drops anyone a concurrent
+// create just froze.
+const PHONE_BANKING_FILTER_LOCK_NAMESPACE = 25715
+
+const CONCURRENT_CREATE_RETRY_MESSAGE =
+  'Another campaign was just created from this list and claimed these ' +
+  'contacts — try again to get the next batch'
+
 const PURPOSE_TO_DB: Record<PhoneBankingPurpose, PrismaPhoneBankingPurpose> = {
   introduce: PrismaPhoneBankingPurpose.introduce,
   persuade: PrismaPhoneBankingPurpose.persuade,
@@ -139,8 +156,35 @@ export class PhoneBankingListService extends createPrismaBase(
       ).map((row) => row.phone),
     )
 
+    // Batch continuation (ENG-10958): the audience pages in a deterministic
+    // ORDER BY id, so without this a second list built from the same saved
+    // filter would refreeze the exact same people. Excluding everyone frozen
+    // into an earlier batch of this filter makes a re-run pick up where the
+    // last one stopped. Scoped per filter, not org-wide — two different
+    // lists may legitimately share people.
+    // groupBy, not findMany: batches frozen before continuation shipped can
+    // overlap (that WAS the bug), so one person can hold a row in several
+    // lists of this filter — GROUP BY dedups in the database instead of
+    // shipping every duplicate row up to be Set-deduped in memory. (Prisma's
+    // findMany `distinct` is applied in memory, so it wouldn't help here.)
+    const priorBatchPersonIds = new Set(
+      (
+        await this.client.phoneBankingListEntryPerson.groupBy({
+          by: ['personId'],
+          where: {
+            entry: {
+              list: {
+                organizationSlug: organization.slug,
+                voterFileFilterId: input.voterFileFilterId,
+              },
+            },
+          },
+        })
+      ).map((row) => row.personId),
+    )
+
     const maxEntries = input.sheetCount * PHONE_BANKING_SHEET_SIZE
-    const grouped = await this.pageAudience({
+    const { grouped, hasMore, skippedPriorBatch } = await this.pageAudience({
       districtId,
       search: filterInput.search || undefined,
       filters: resolved.filters,
@@ -148,13 +192,20 @@ export class PhoneBankingListService extends createPrismaBase(
       contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
       notAVoterIds,
       suppressedPhones,
+      priorBatchPersonIds,
       maxEntries,
     })
+    // Exhausted only when someone was actually skipped FOR being in a prior
+    // batch — a prior batch merely existing proves nothing (the filter may
+    // now match zero voters, or only phone-less ones, and "already in a
+    // previous campaign" would misdirect the user away from widening it).
     if (grouped.size === 0) {
-      throw new BadRequestException(EMPTY_AUDIENCE_MESSAGE)
+      throw new BadRequestException(
+        skippedPriorBatch ? EXHAUSTED_AUDIENCE_MESSAGE : EMPTY_AUDIENCE_MESSAGE,
+      )
     }
 
-    return this.freeze(organization, campaign, input, grouped)
+    return this.freeze(organization, campaign, input, grouped, hasMore)
   }
 
   async getForOrganization(
@@ -209,8 +260,13 @@ export class PhoneBankingListService extends createPrismaBase(
     contactsMadeIdOverrides?: IdOverrides
     notAVoterIds: Set<string>
     suppressedPhones: Set<string>
+    priorBatchPersonIds: Set<string>
     maxEntries: number
-  }): Promise<Map<string, PersonName[]>> {
+  }): Promise<{
+    grouped: Map<string, PersonName[]>
+    hasMore: boolean
+    skippedPriorBatch: boolean
+  }> {
     const {
       districtId,
       search,
@@ -219,17 +275,24 @@ export class PhoneBankingListService extends createPrismaBase(
       contactsMadeIdOverrides,
       notAVoterIds,
       suppressedPhones,
+      priorBatchPersonIds,
       maxEntries,
     } = args
     const grouped = new Map<string, PersonName[]>()
+    // hasMore is claimable only when a usable person was actually seen and
+    // dropped at the entry cap. A cap hit exactly at a page boundary may
+    // under-report (unseen pages could still hold usable people), which at
+    // worst skips the next-batch hint — never a spurious one.
+    let droppedUsable = false
+    let skippedPriorBatch = false
 
     let page = 1
     while (true) {
-      if (page > MAX_BUILD_PAGES) {
-        throw new BadRequestException(
-          `Pagination exceeded ${MAX_BUILD_PAGES} pages — aborting`,
-        )
-      }
+      // break, not throw: a deep prior-batch audience legitimately burns
+      // pages with nobody usable, and create()'s empty/exhausted handling
+      // owns the user-facing message — an internal pagination error would
+      // leak out as the 400 body otherwise.
+      if (page > MAX_BUILD_PAGES) break
       const { people } = await this.voterQuery.findPeople(
         ListPeopleDTO.create({
           districtId,
@@ -252,6 +315,19 @@ export class PhoneBankingListService extends createPrismaBase(
         if (!name) continue
         const phone = this.pickDialNumber(person, suppressedPhones)
         if (!phone) continue
+        // After the name/phone guards so the flag only fires for people the
+        // CURRENT batch could actually have used — a prior-batch person whose
+        // number has since been suppressed or dropped must read as
+        // unreachable, not as "already called". Before the grouping chain so
+        // an already-called household member can never ride onto a fresh
+        // entry through a shared phone. Deliberately no droppedUsable here,
+        // even at capacity: a prior-batch person is never usable by the NEXT
+        // batch either, so counting them would promise a continuation that
+        // can 400 as exhausted.
+        if (priorBatchPersonIds.has(person.id)) {
+          skippedPriorBatch = true
+          continue
+        }
 
         const firstName = person.firstName ?? null
         const existing = grouped.get(phone)
@@ -259,6 +335,8 @@ export class PhoneBankingListService extends createPrismaBase(
           existing.push({ personId: person.id, name, firstName })
         } else if (grouped.size < maxEntries) {
           grouped.set(phone, [{ personId: person.id, name, firstName }])
+        } else {
+          droppedUsable = true
         }
       }
 
@@ -267,7 +345,7 @@ export class PhoneBankingListService extends createPrismaBase(
       page += 1
     }
 
-    return grouped
+    return { grouped, hasMore: droppedUsable, skippedPriorBatch }
   }
 
   private pickDialNumber(
@@ -288,31 +366,76 @@ export class PhoneBankingListService extends createPrismaBase(
     campaign: Campaign | null,
     input: PhoneBankingCreate,
     grouped: Map<string, PersonName[]>,
+    hasMore: boolean,
   ): Promise<PhoneBankingCreateResponse> {
-    const entriesData = [...grouped.entries()].map(
-      ([phone, persons], index) => {
-        const seq = index + 1
-        return {
-          seq,
-          sheetIndex: Math.ceil(seq / PHONE_BANKING_SHEET_SIZE),
-          phone,
-          persons: {
-            create: persons.map((person) => ({
-              personId: person.personId,
-              name: person.name,
-              firstName: person.firstName,
-            })),
-          },
-        }
-      },
-    )
-    const personCount = [...grouped.values()].reduce(
-      (sum, persons) => sum + persons.length,
-      0,
-    )
-
     return this.client.$transaction(
       async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PHONE_BANKING_FILTER_LOCK_NAMESPACE}::int, ${input.voterFileFilterId}::int)`
+
+        // Re-read under the lock: a concurrent create for this filter may
+        // have committed between the pre-paging snapshot and here, and
+        // anyone it froze must be dropped rather than duplicated.
+        const committedPriorIds = new Set(
+          (
+            await tx.phoneBankingListEntryPerson.groupBy({
+              by: ['personId'],
+              where: {
+                entry: {
+                  list: {
+                    organizationSlug: organization.slug,
+                    voterFileFilterId: input.voterFileFilterId,
+                  },
+                },
+              },
+            })
+          ).map((row) => row.personId),
+        )
+        const pagedPersonCount = [...grouped.values()].reduce(
+          (sum, persons) => sum + persons.length,
+          0,
+        )
+        const survivingEntries = [...grouped.entries()]
+          .map(
+            ([phone, persons]) =>
+              [
+                phone,
+                persons.filter(
+                  (person) => !committedPriorIds.has(person.personId),
+                ),
+              ] as const,
+          )
+          .filter(([, persons]) => persons.length > 0)
+        // hasMore true means usable people were dropped at the cap — a
+        // retry after this concurrent-create collision would succeed, so
+        // don't tell the user the whole audience is spent.
+        if (survivingEntries.length === 0) {
+          throw new BadRequestException(
+            hasMore
+              ? CONCURRENT_CREATE_RETRY_MESSAGE
+              : EXHAUSTED_AUDIENCE_MESSAGE,
+          )
+        }
+
+        const entriesData = survivingEntries.map(([phone, persons], index) => {
+          const seq = index + 1
+          return {
+            seq,
+            sheetIndex: Math.ceil(seq / PHONE_BANKING_SHEET_SIZE),
+            phone,
+            persons: {
+              create: persons.map((person) => ({
+                personId: person.personId,
+                name: person.name,
+                firstName: person.firstName,
+              })),
+            },
+          }
+        })
+        const personCount = survivingEntries.reduce(
+          (sum, [, persons]) => sum + persons.length,
+          0,
+        )
+
         const list = await tx.phoneBankingList.create({
           data: {
             organizationSlug: organization.slug,
@@ -359,6 +482,12 @@ export class PhoneBankingListService extends createPrismaBase(
           entryCount: entriesData.length,
           personCount,
           outreachId,
+          // Any person the recheck removed means a concurrent create ran
+          // with a different exclusion set — it may have claimed the
+          // cap-dropped people too, so the next-batch promise is no longer
+          // safe to make. Person-level, not entry-level: an entry surviving
+          // with fewer household members is still a collision.
+          hasMore: hasMore && personCount === pagedPersonCount,
         }
       },
       { timeout: BUILD_TX_TIMEOUT_MS },

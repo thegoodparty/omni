@@ -1,8 +1,12 @@
 import { Readable } from 'node:stream'
 import { Injectable } from '@nestjs/common'
-import { DoorKnockingPackRequest } from '@goodparty_org/contracts'
+import {
+  DoorKnockingPackRequest,
+  PACK_CONTACTS_MADE_MAX,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { Organization, Prisma } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
@@ -15,6 +19,7 @@ export class DoorKnockingPackService extends createPrismaBase(
   constructor(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
+    private readonly contactsMade: ContactsMadeResolutionService,
   ) {
     super()
   }
@@ -38,9 +43,15 @@ export class DoorKnockingPackService extends createPrismaBase(
   }
 
   // The pack is a pass-through payload: the people-db pack builder encodes
-  // the whole binary (including the canvassStatus plane, from the statuses
-  // shipped in the request), so this service never patches bytes — it only
-  // knows the org's knock history.
+  // the whole binary (including the two campaign-specific planes, from the
+  // arrays shipped in the request), so this service never patches bytes — it
+  // only knows the org's own outreach history.
+  //
+  // Both plane inputs are read HERE rather than inside the people-db build,
+  // and that separation is load-bearing: the district scan stays a pure
+  // function of `districtId`, which is the property a per-district pack cache
+  // would rest on (docs/perf/voter-pack-headroom.md). A per-organization read
+  // that moved into `VoterPackService` would take it away.
   async build(
     organization: Organization,
     signal?: AbortSignal,
@@ -48,18 +59,31 @@ export class DoorKnockingPackService extends createPrismaBase(
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 
-    const interactions = await this.findMany({
-      where: { organizationSlug: organization.slug },
-      orderBy: [
-        { occurredAt: Prisma.SortOrder.desc },
-        { id: Prisma.SortOrder.desc },
-      ],
-      // Mirrors the contract's knockStatuses cap. Newest-first ordering
-      // means truncation (absurd knock volume) drops the OLDEST rows, and a
-      // dropped person just renders as unknown on the map.
-      take: 200_000,
-      select: { personId: true, outcome: true, supportAnswer: true },
-    })
+    // Concurrent, but only after the district resolve: that call is also the
+    // eligibility check, and an ineligible organization should not have had
+    // its interaction history read at all. These two are independent of each
+    // other, and both are small next to the district scan they precede.
+    const [buckets, interactions] = await Promise.all([
+      this.contactsMade.contactsMadeBuckets(
+        organization.slug,
+        PACK_CONTACTS_MADE_MAX,
+      ),
+      this.findMany({
+        where: { organizationSlug: organization.slug },
+        orderBy: [
+          { occurredAt: Prisma.SortOrder.desc },
+          { id: Prisma.SortOrder.desc },
+        ],
+        // Mirrors the contract's knockStatuses cap. Newest-first ordering
+        // means truncation (absurd knock volume) drops the OLDEST rows, and a
+        // dropped person just renders as unknown on the map.
+        take: 200_000,
+        select: { personId: true, outcome: true, supportAnswer: true },
+      }),
+    ])
+    // `null` (over the cap) becomes absent, not empty — the contract's two
+    // states differ, and empty would assert nobody has been contacted.
+    const contactsMade = buckets ?? undefined
     const knockStatuses: DoorKnockingPackRequest['knockStatuses'] = []
     const seen = new Set<string>()
     for (const interaction of interactions) {
@@ -71,6 +95,9 @@ export class DoorKnockingPackService extends createPrismaBase(
       })
     }
 
-    return this.peopleApi.pack({ districtId, knockStatuses }, signal)
+    return this.peopleApi.pack(
+      { districtId, knockStatuses, contactsMade },
+      signal,
+    )
   }
 }
