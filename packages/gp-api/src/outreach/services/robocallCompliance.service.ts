@@ -9,19 +9,32 @@ import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { RobocallTranscriptionService } from './robocallTranscription.service'
 
-const SYSTEM_PROMPT = [
+export const SYSTEM_PROMPT = [
   'You verify that a recorded political robocall meets FCC calling-disclosure',
   'rules. You are given the transcript and the expected candidate name and',
   'organization. Decide, strictly from what the transcript actually says,',
-  'whether each element is present:',
-  '- hasSelfIdentification: the speaker identifies themselves (the candidate',
-  '  name) AND that they are running for office.',
-  '- hasOrganization: the organization / committee behind the call is named.',
+  'whether each element is present. The transcript comes from automated',
+  'speech-to-text on a proper name, which frequently mis-spells, mis-splits,',
+  'or garbles it — judge names by reasonable phonetic/spelling similarity to',
+  'the expected name, not exact string matching:',
+  '- hasSelfIdentification: the speaker identifies themselves by a name that',
+  '  reasonably matches the expected candidate name — a first-name-only',
+  '  identification is enough, and minor transcription variation on the name',
+  '  is fine — AND indicates they are running for or seeking office (e.g.',
+  '  "candidate for", "running for", "seeking"). The full legal name is not',
+  '  required to appear verbatim.',
+  '- hasOrganization: the call states who is responsible for / paid for it.',
+  '  For an independent candidate this is commonly their own campaign or',
+  '  committee, named as "[candidate] for [office]" — reusing the',
+  "  candidate's own name as the sponsor counts. A distinct, separate",
+  '  organization is not required. Allow the same name-transcription',
+  '  variance as above.',
   '- hasCallbackNumber: a callback phone number is spoken (any phone number in',
   '  any spoken form — digits or grouped). There is no expected number to',
   '  match; only confirm that a number is actually stated.',
-  'Do not infer or give benefit of the doubt — if it is not in the transcript,',
-  'it is false.',
+  'This tolerance is only for transcription noise on names and for a',
+  'first-name-only self-ID — if an element is genuinely absent from the',
+  'transcript, mark it false.',
 ].join('\n')
 
 // Typed tuples (not a Record + Object.keys) so the keys keep their literal
@@ -89,6 +102,8 @@ export class RobocallComplianceService {
     ]
 
     const checks = await this.runVerdict(messages, params.userId)
+
+    this.logger.debug({ checks, transcript }, 'Robocall compliance verdict')
 
     const issues = CHECK_ISSUES.filter(([key]) => !checks[key]).map(
       ([, message]) => message,
