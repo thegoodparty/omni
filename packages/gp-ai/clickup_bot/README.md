@@ -507,7 +507,13 @@ thing they were sent for.
 nothing if the failure is infra or pre-existing — a second line of the same
 defence, because the signature list in `ci_triage.py` is not exhaustive.
 
-`FINDINGS_FIX_INSTRUCTION` treats a finding as a claim rather than a verdict:
+`FINDINGS_FIX_INSTRUCTION` **repeats the scope rules above**, and that
+duplication is load-bearing rather than sloppy: the run is pointed at the PR,
+not at one thread, so a run bought by one finding would otherwise go on to
+answer and resolve a thread a human is mid-conversation in. Resolving hides the
+discussion, which is the exact harm the triage filter exists to prevent.
+
+It treats a finding as a claim rather than a verdict:
 accept it and fix the cause with a test, reject it and say why in the thread, or
 say it could not be judged. Whichever it does, it replies and then resolves the
 thread — and it must **never resolve a thread it has not answered**, because

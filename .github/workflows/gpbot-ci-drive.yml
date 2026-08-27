@@ -405,12 +405,23 @@ jobs:
             # cap. If this job dies between the two, the round is recorded as
             # spent and at worst the PR loses one attempt; recording it after
             # would let a crash-looping drive spend the same round forever.
+            #
+            # AND THE ACTION IS ABANDONED IF THE WRITE FAILS. This block runs
+            # under `set -uo pipefail` without `-e`, so a failed gh call would
+            # otherwise be swallowed and the case below would act anyway: the
+            # round spent, nothing recorded, and the next pass reading the
+            # pre-increment counters and deciding the same thing again. The
+            # ordering above is only a cap while a failed write stops the
+            # action, so the guard is what makes the comment above true.
             body="$(jq -r .comment_body <<<"$decision")"
             if [ -n "$comment_id" ]; then
               gh api -X PATCH "repos/$REPO/issues/comments/$comment_id" -f body="$body" >/dev/null
             else
               gh api -X POST "repos/$REPO/issues/$pr/comments" -f body="$body" >/dev/null
-            fi
+            fi || {
+              echo "::error::could not record state for #$pr; not spending the round"
+              echo "::endgroup::"; continue
+            }
 
             case "$action" in
               rerun)
@@ -484,7 +495,15 @@ jobs:
                         -H 'Content-type: application/json; charset=utf-8' \
                         --data @- \
                     | tee /dev/stderr | jq -e '.ok' > /dev/null \
-                    || echo "::error::could not announce #$pr in Slack"
+                    || {
+                      # THE STEP MUST GO RED, for the same reason the fix branch
+                      # does. The marker comment is already written and marks the
+                      # PR escalated, so the next pass decides `none` and never
+                      # tries again: a swallowed failure here is a human who is
+                      # never told, on a PR the bot has stopped driving.
+                      echo "::error::could not announce #$pr in Slack"
+                      action_failed=1
+                    }
                 fi
                 ;;
             esac

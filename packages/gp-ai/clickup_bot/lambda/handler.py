@@ -400,7 +400,7 @@ gh api graphql -f query='
       reviewThreads(first: 100) {{
         nodes {{
           id isResolved isOutdated
-          comments(first: 10) {{ nodes {{ author {{ login }} body path line }} }}
+          comments(first: 10) {{ nodes {{ author {{ login __typename }} body path line }} }}
         }}
       }}
     }}
@@ -408,8 +408,19 @@ gh api graphql -f query='
 }}'
 ```
 
-Work only on threads where `isResolved` is false, `isOutdated` is false, and the
-first comment's author is `cursor`.
+A thread is yours to settle only when **all four** hold:
+
+1. `isResolved` is false.
+2. `isOutdated` is false — the lines it points at have not moved since.
+3. The FIRST comment's author is `cursor`. A `delegate-reviewer` thread is not
+   yours: it withholds approval until its own blockers are fixed and runs a
+   separate `delegate review` protocol.
+4. **No comment in the thread has an author whose `__typename` is `User`.** A
+   person is in that thread and it belongs to them. Resolving it would hide a
+   live conversation and put a green tick beside a finding nobody settled.
+
+Skip every thread that fails any of the four. Do not reply in it, and do not
+resolve it.
 
 ## JUDGE EACH FINDING ON THE CODE
 

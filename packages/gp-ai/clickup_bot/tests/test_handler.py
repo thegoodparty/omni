@@ -3520,6 +3520,20 @@ def test_a_findings_run_may_not_resolve_a_thread_it_did_not_answer(fake_clickup,
     assert "never resolve a thread you have not answered" in instruction
 
 
+def test_a_findings_run_leaves_human_owned_threads_alone(fake_clickup, fake_ecs, ecs_env):
+    # The triage drops a thread a human has replied in, but the run it launches
+    # is pointed at the PR rather than at one thread — so without this rule in
+    # the prompt, a run bought by thread A would go on to answer and resolve
+    # thread B, where a person is mid-conversation. Resolving hides the
+    # discussion, which is the exact harm the triage filter exists to prevent.
+    handler.handler(ci_fix_event(mode="findings"), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+    assert "__typename" in instruction
+    assert "User" in instruction
+    assert "delegate-reviewer" in instruction
+
+
 def test_a_findings_run_carries_the_same_prohibitions_as_a_ci_run(fake_clickup, fake_ecs, ecs_env):
     # This mode can push code, so dropping any of these from the second prompt
     # would reopen the hole the first one closes.
