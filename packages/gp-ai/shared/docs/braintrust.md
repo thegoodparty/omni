@@ -26,7 +26,6 @@ Each folder in gp-ai-projects maps to a Braintrust project. Pass the project nam
 | `ai_generated_campaign_plan` | `campaign-plan` |
 | `serve/analyze_texts` | `analyze-texts` |
 | `hubspot_ddhq_match` | `hubspot-ddhq-match` |
-| `stitch_golden_data` | `stitch-golden-data` |
 
 ## Usage
 
@@ -126,7 +125,6 @@ terraform apply
 | Service | Environment | Status | Date |
 |---------|-------------|--------|------|
 | serve-analyze (hierarchical_discovery) | dev | Experiment | TBD |
-| stitch_golden_data (prod_gold_data) | dev | Prompt caching | TBD |
 
 ## Architecture Notes
 
