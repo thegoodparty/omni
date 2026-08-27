@@ -74,8 +74,20 @@ const PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   nameBody: 'You can rename it any time.',
   reachVerb: 'Reach',
   reachNoun: 'voters by phone banking',
+  // ENG-10957: a real 91k list had 27% of contacts with no phone at all —
+  // the reach count is correct but reads as a bug next to the list size the
+  // candidate knows, so spell the delta out.
+  reachableOfTotalLine: (reachable, total) =>
+    `${reachable.toLocaleString()} of this list's ${total.toLocaleString()} contacts have a phone number and will be included.`,
   unitCostLabel: '',
 }
+
+// Count-only overlay on the in-flow builder count (same wiring as robocall's
+// { hasLandline: true }): the freeze keeps only people with a dialable
+// number (pickDialNumber), so the running total must count cell OR landline
+// rather than every matching voter (ENG-10957). The saved list itself stays
+// overlay-free and reusable by other channels.
+const PHONE_BANKING_COUNT_OVERLAY = { hasAnyPhone: true }
 
 interface PhoneBankingFlowProps {
   open: boolean
@@ -124,6 +136,7 @@ export const PhoneBankingFlow = ({
     open,
     active: stepId === 'who',
     reachabilityKey: 'phoneBanking',
+    countOverlay: PHONE_BANKING_COUNT_OVERLAY,
   })
   const { reset: resetAudience } = audience
 
@@ -459,6 +472,7 @@ export const PhoneBankingFlow = ({
             onStartBuilder={audience.startBuilder}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
+            selectedListTotal={audience.selectedListTotal}
             pricePerContact={PRICE_PER_CONTACT}
             builderFilters={audience.builderFilters}
             onBuilderFiltersChange={audience.setBuilderFilters}
@@ -512,11 +526,7 @@ export const PhoneBankingFlow = ({
           reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep
-          response={createResponse}
-          audienceLabel={audienceLabel}
-          reachableCount={audience.reachableCount}
-        />
+        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
       ) : null}
     </OutreachFlowShell>
   )

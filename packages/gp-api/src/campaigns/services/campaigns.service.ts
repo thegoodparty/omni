@@ -902,7 +902,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return this.model.deleteMany(args)
   }
 
-  async launch(campaign: Campaign) {
+  async launch(campaign: Campaign, opts?: { trackCampaign?: boolean }) {
     const { id, organizationSlug, data: campaignData, isActive } = campaign
 
     if (
@@ -934,7 +934,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       },
     })
 
-    await this.crm.trackCampaign(id)
+    if (opts?.trackCampaign !== false) {
+      await this.crm.trackCampaign(id)
+    }
 
     return true
   }

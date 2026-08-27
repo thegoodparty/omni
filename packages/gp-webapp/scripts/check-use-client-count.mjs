@@ -274,7 +274,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-25: 605 -> 606 for campaign-manager/GetOnBallotCard.tsx — the
 // ballot-access prompt card reads the campaign from context and persists its
 // own skip in localStorage, so it can't render on the server.
-const BASELINE = 606
+// 2026-08-26: 606 -> 607 for outreach/v2/robocall/RobocallReviewStep.tsx — the
+// pre-send review step owns the saved-recording playback (audio play/pause
+// state), so it can't render on the server; matches its sibling robocall steps.
+const BASELINE = 607
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

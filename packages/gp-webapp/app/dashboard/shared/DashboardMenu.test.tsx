@@ -12,6 +12,10 @@ const links = ({
   nativeEnabled = false,
   districtResolvable = true,
   proAccess = true,
+  // Door knocking is entered from the outreach hub's channel tile, so the nav
+  // entry only survives for the cohort that hasn't got the hub yet. Default it
+  // off so every case below reads as "would the link be offered at all".
+  outreachHubEnabled = false,
 }: {
   serveAccessEnabled?: boolean
   isElectedOffice?: boolean
@@ -23,6 +27,7 @@ const links = ({
   nativeEnabled?: boolean
   districtResolvable?: boolean
   proAccess?: boolean
+  outreachHubEnabled?: boolean
 } = {}) =>
   getDashboardMenuItems(
     serveAccessEnabled,
@@ -32,7 +37,13 @@ const links = ({
     campaignStoryEnabled,
     communityIssuesEnabled,
     ordinancesEnabled,
-    { ecanvasserConnected, nativeEnabled, districtResolvable, proAccess },
+    {
+      ecanvasserConnected,
+      nativeEnabled,
+      districtResolvable,
+      proAccess,
+      outreachHubEnabled,
+    },
   )
 
 const hasDoorKnocking = (options: Parameters<typeof links>[0] = {}): boolean =>
@@ -342,5 +353,42 @@ describe('getDashboardMenuItems — Door Knocking nav gating', () => {
     expect(
       hasDoorKnocking({ ecanvasserConnected: true, proAccess: false }),
     ).toBe(true)
+  })
+})
+
+describe('getDashboardMenuItems — Door Knocking moves under Voter Outreach', () => {
+  // The product call: door knocking is a channel of Voter Outreach, not a peer
+  // of it. The hub's tile is the entry, and it is the only one that can carry a
+  // saved list across as `?listId=`.
+  it('drops the item once the outreach hub carries the channel tile', () => {
+    expect(
+      hasDoorKnocking({ nativeEnabled: true, outreachHubEnabled: true }),
+    ).toBe(false)
+  })
+
+  it('drops the legacy item for an integrated org on the hub too', () => {
+    expect(
+      hasDoorKnocking({ ecanvasserConnected: true, outreachHubEnabled: true }),
+    ).toBe(false)
+  })
+
+  // `voter-outreach-v2` and `native-door-knocking` are separate experiments and
+  // an unassigned flag reads off, so a candidate can be on the native pilot
+  // while their outreach tab is still the legacy page — which has no
+  // door-knocking tile. Withdrawing the entry from them would leave no route
+  // into the feature at all.
+  it('keeps the item while the outreach tab is still the legacy page', () => {
+    expect(
+      hasDoorKnocking({ nativeEnabled: true, outreachHubEnabled: false }),
+    ).toBe(true)
+    expect(
+      hasDoorKnocking({ ecanvasserConnected: true, outreachHubEnabled: false }),
+    ).toBe(true)
+  })
+
+  // The hub does not rescue an org that had no business following the link:
+  // reachability is still decided first, so this can only ever remove an entry.
+  it('does not add the item for an org that never qualified', () => {
+    expect(hasDoorKnocking({ outreachHubEnabled: true })).toBe(false)
   })
 })

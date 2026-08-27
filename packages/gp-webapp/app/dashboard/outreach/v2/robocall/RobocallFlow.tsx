@@ -22,19 +22,27 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
 import { RobocallComposeStep } from './RobocallComposeStep'
+import { RobocallReviewStep } from './RobocallReviewStep'
 import { useRobocallRecorder } from './useRobocallRecorder'
 import { useRobocallAudioUpload } from './useRobocallAudioUpload'
 import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
 
-// Steps grow as later slices land (compliance, review + pay). For now: pick a
-// purpose, pick/build the audience, choose when it goes out, record/compose the
-// message, then a placeholder for the not-yet-built remainder.
-type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'placeholder'
+// Steps grow as later slices land (pay). For now: pick a purpose, pick/build
+// the audience, choose when it goes out, record/compose the message, review the
+// pre-send summary, then a placeholder for the not-yet-built payment step.
+type StepId =
+  | 'purpose'
+  | 'audience'
+  | 'schedule'
+  | 'compose'
+  | 'review'
+  | 'placeholder'
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'schedule',
   'compose',
+  'review',
   'placeholder',
 ]
 
@@ -43,6 +51,7 @@ const STEP_TITLES: Record<StepId, string> = {
   audience: 'Who are you calling?',
   schedule: 'When should it go out?',
   compose: 'What do you want to say?',
+  review: 'Review your campaign',
   placeholder: 'Robocall is coming soon',
 }
 
@@ -480,7 +489,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
         : stepId === 'compose'
           ? {
               label: 'Continue',
-              onClick: () => setStepId('placeholder'),
+              onClick: () => setStepId('review'),
               // Advancing requires a saved recording that also passed the
               // compliance check — the audio is the deliverable, and it must
               // carry the spoken disclosures.
@@ -488,7 +497,14 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
                 recorder.status !== 'saved' ||
                 complianceMutation.data?.passed !== true,
             }
-          : null
+          : stepId === 'review'
+            ? {
+                // The pay step (a sibling slice) lands here next; for now the
+                // review's primary CTA advances to the end placeholder.
+                label: 'Continue to payment',
+                onClick: () => setStepId('placeholder'),
+              }
+            : null
 
   return (
     <OutreachFlowShell
@@ -578,6 +594,18 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           complianceVerdict={complianceMutation.data ?? null}
           complianceError={complianceMutation.isError}
           onRetryCompliance={retryCompliance}
+        />
+      ) : stepId === 'review' ? (
+        <RobocallReviewStep
+          campaignName={campaignName}
+          audienceName={audience.selectedList?.name ?? 'your list'}
+          reachCount={audience.reachableCount ?? 0}
+          pricePerContact={PRICE_PER_CONTACT}
+          scheduledAt={scheduledAt}
+          timeZone={timeZone}
+          callbackNumber={callbackNumber}
+          recording={recorder.recording}
+          script={script}
         />
       ) : (
         <div className="space-y-2 py-8 text-center">
