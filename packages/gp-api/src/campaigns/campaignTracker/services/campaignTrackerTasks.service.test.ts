@@ -5,6 +5,7 @@ import {
   ExperimentRunStatus,
 } from '../../../generated/prisma'
 import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
+import { BALLOT_ACCESS_TASK_TITLES } from './staticTrackerTasks.util'
 import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
 
@@ -163,6 +164,110 @@ describe('CampaignTrackerTasksService.dispatchGeneration', () => {
     const p = firstOrThrow(h.experimentRuns.dispatchRun.mock.calls)[0].params
     expect(p.campaign_plan).toBeNull()
     expect(p.campaign_story).toBeNull()
+  })
+})
+
+describe('CampaignTrackerTasksService.materializeStaticTasks', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+  })
+
+  const titlesFromFirstCreateMany = () =>
+    firstOrThrow(
+      h.prisma.campaignTrackerTask.createMany.mock.calls,
+    )[0].data.map((row: { title: string }) => row.title)
+
+  it('omits the ballot-access rows for a candidate already on the ballot', async () => {
+    await h.service.materializeStaticTasks(
+      campaign({ ballotStatus: 'on-ballot' }),
+    )
+    const titles = titlesFromFirstCreateMany()
+    for (const title of BALLOT_ACCESS_TASK_TITLES) {
+      expect(titles).not.toContain(title)
+    }
+  })
+
+  it('includes the ballot-access rows when no answer was ever given', async () => {
+    await h.service.materializeStaticTasks(campaign({ ballotStatus: null }))
+    const titles = titlesFromFirstCreateMany()
+    for (const title of BALLOT_ACCESS_TASK_TITLES) {
+      expect(titles).toContain(title)
+    }
+  })
+})
+
+describe('CampaignTrackerTasksService.reconcileBallotAccessTasks', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+    // The static rows already exist, so reconcile is past its pre-bootstrap
+    // guard in every case below.
+    h.prisma.campaignTrackerTask.count.mockResolvedValue(31)
+  })
+
+  const withStatus = (ballotStatus: string | null) =>
+    campaign({ details: { raceId: 'race-abc' }, ballotStatus })
+
+  it('removes the ballot-access rows once the candidate is on the ballot', async () => {
+    await h.service.reconcileBallotAccessTasks(withStatus('on-ballot'))
+    expect(h.prisma.campaignTrackerTask.deleteMany).toHaveBeenCalledWith({
+      where: {
+        campaignId: 42,
+        isDefaultTask: true,
+        title: { in: BALLOT_ACCESS_TASK_TITLES },
+      },
+    })
+    expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
+  })
+
+  it.each(['qualified-not-filed', 'considering', 'testing', null])(
+    'adds the missing ballot-access rows for %s',
+    async (status) => {
+      await h.service.reconcileBallotAccessTasks(withStatus(status))
+      expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
+      const { data } = firstOrThrow(
+        h.prisma.campaignTrackerTask.createMany.mock.calls,
+      )[0]
+      expect(data.map((row: { title: string }) => row.title).sort()).toEqual(
+        [...BALLOT_ACCESS_TASK_TITLES].sort(),
+      )
+    },
+  )
+
+  it('adds only the rows that are missing', async () => {
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce([
+      { title: BALLOT_ACCESS_TASK_TITLES[0] },
+    ])
+    await h.service.reconcileBallotAccessTasks(withStatus('considering'))
+    const { data } = firstOrThrow(
+      h.prisma.campaignTrackerTask.createMany.mock.calls,
+    )[0]
+    expect(data.map((row: { title: string }) => row.title)).toEqual([
+      BALLOT_ACCESS_TASK_TITLES[1],
+    ])
+  })
+
+  it('writes nothing when every ballot-access row is already there', async () => {
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce(
+      BALLOT_ACCESS_TASK_TITLES.map((title) => ({ title })),
+    )
+    await h.service.reconcileBallotAccessTasks(withStatus('considering'))
+    expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('does nothing before the static rows are materialized', async () => {
+    h.prisma.campaignTrackerTask.count.mockResolvedValue(0)
+    await h.service.reconcileBallotAccessTasks(withStatus('on-ballot'))
+    expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
+    expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
+  })
+
+  it('runs on every generation, so a later status change is picked up', async () => {
+    await h.service.dispatchGeneration(withStatus('on-ballot'), 'weekly')
+    expect(h.prisma.campaignTrackerTask.deleteMany).toHaveBeenCalled()
+    expect(h.experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
   })
 })
 

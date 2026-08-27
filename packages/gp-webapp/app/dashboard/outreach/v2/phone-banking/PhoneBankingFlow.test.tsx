@@ -979,6 +979,64 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  // ENG-10960: the step recommends reaching all voters, so the builder must
+  // allow exactly that — zero filters selected → Continue enables once the
+  // count settles, and the created list carries no criteria.
+  it('builds an all-voters audience with no filters selected — Continue enables and the list persists criteria-free', async () => {
+    mockDraft()
+    mockCount(50)
+    const createListCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      createListCalls.push(body)
+      return { status: 200, data: { id: 99, name: 'All voters' } }
+    })
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Continue \(50\)/ }),
+      ).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: /Continue \(50\)/ }))
+
+    expect(
+      (await screen.findAllByText('Name your list')).length,
+    ).toBeGreaterThan(0)
+    await user.type(screen.getByLabelText('List name'), 'All voters')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
+
+    await screen.findAllByText('Write your call script')
+    const body = createListCalls[0]
+    expect(body).toMatchObject({ name: 'All voters' })
+    // No criteria: nothing the user didn't select may be sent as true, and
+    // the optional narrowing arrays stay absent.
+    const truthyKeys = Object.entries(body ?? {})
+      .filter(([key, value]) => key !== 'name' && value === true)
+      .map(([key]) => key)
+    expect(truthyKeys).toEqual([])
+    expect(body).not.toHaveProperty('supportStatus')
+    expect(body).not.toHaveProperty('precincts')
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(createCalls[0]?.voterFileFilterId).toBe(99)
+  })
+
   it('notifies onSaved with the outreach id and name so the hub history can update without a refetch', async () => {
     mockDraft()
     api.mock('POST /v1/phone-banking/lists', {
