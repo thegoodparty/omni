@@ -156,7 +156,7 @@ See `gp-ai-projects/campaign_plan_lambda/README.md` for full setup instructions 
 To set up your AWS CLI locally, run the following script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thegoodparty/gp-api/master/scripts/aws-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/thegoodparty/omni/main/packages/gp-api/scripts/aws-setup.sh | bash
 ```
 
 ## Contracts Package (`@goodparty_org/contracts`)
