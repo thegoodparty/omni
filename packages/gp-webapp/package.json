@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "ai-rules:update": "npm --prefix ../.. run ai-rules:update",
-    "build": "next build && serwist build serwist.config.mjs",
+    "build": "npm run build:contracts && next build && serwist build serwist.config.mjs",
+    "build:contracts": "npx tsx ../contracts/scripts/ensure-built.cli.ts",
     "check:use-client": "node scripts/check-use-client-count.mjs",
     "check:legacy-fetch": "node scripts/check-legacy-fetch-count.mjs",
     "build-local": "cross-env NODE_ENV=production NEXT_PUBLIC_APP_BASE=http://localhost:4000 NEXT_PUBLIC_API_BASE=http://localhost:3000 next build && serwist build serwist.config.mjs",
@@ -24,7 +25,7 @@
     "test": "vitest run",
     "test:e2e": "cd e2e-tests && npx playwright install chromium && npx playwright test --config=\"$PWD/playwright.config.ts\" tests/ --reporter=list",
     "test:watch": "vitest",
-    "types": "npx tsc"
+    "types": "npm run build:contracts && npx tsc"
   },
   "dependencies": {
     "@amplitude/experiment-js-client": "^1.16.2",
