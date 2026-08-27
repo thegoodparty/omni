@@ -270,7 +270,7 @@ describe('VoterDoorKnockingService', () => {
           maritalStatus: 'Likely Married',
           hasChildrenUnder18: 'Yes',
           veteranStatus: 'Yes',
-          homeowner: 'Likely',
+          homeowner: 'Homeowner',
           businessOwner: 'Yes',
           levelOfEducation: 'Graduate Degree',
           estimatedIncomeAmount: 82000,
@@ -494,6 +494,54 @@ describe('VoterDoorKnockingService', () => {
       const [address] = result.addresses
       expect(address?.targets).toEqual([])
       expect(address?.otherResidents).toHaveLength(1)
+    })
+
+    // A route freezes its keys once, so it holds the format that was current
+    // when it was knocked. Lists knocked before the key moved to the file's
+    // AddressLine are still being walked, and they have to keep resolving —
+    // missing them all would read at the door as everyone having moved away.
+    describe('routes frozen under the legacy component key', () => {
+      const LEGACY_KEY = '1200|W|ELM|ST||3B|62704'
+      const legacyDto = {
+        districtId: DISTRICT_ID,
+        addressKeys: [LEGACY_KEY],
+        targetPersonIds: [TARGET_ID],
+      }
+
+      it('matches them on the component key they were built from', async () => {
+        mockClient.$queryRaw.mockResolvedValueOnce([])
+
+        await service.residents(legacyDto as never)
+
+        const sql = lastQuerySql()
+        expect(sql.strings.join('?')).toContain('PrefixDirection')
+        expect(sql.values).toContainEqual([LEGACY_KEY])
+      })
+
+      // Callers look their own stored keys up in the result. Returning the
+      // current-format key for a legacy request would miss every address.
+      it('hands the key back in the format the caller asked with', async () => {
+        mockClient.$queryRaw.mockResolvedValueOnce([
+          residentRow(TARGET_ID, LEGACY_KEY),
+        ])
+
+        const result = await service.residents(legacyDto as never)
+
+        expect(result.addresses[0]?.addressKey).toBe(LEGACY_KEY)
+      })
+
+      // The predicate here is computed and non-sargable (peopleDb/AGENTS.md),
+      // so compiling both key expressions for every request would put a second
+      // seven-column CONCAT_WS on the module's most fragile scan. A request
+      // carries one format, and only that format's expression is built.
+      it('compiles one key expression, not both', async () => {
+        mockClient.$queryRaw.mockResolvedValueOnce([])
+        await service.residents(dto as never)
+
+        expect(lastQuerySql().strings.join('?')).not.toContain(
+          'PrefixDirection',
+        )
+      })
     })
   })
 

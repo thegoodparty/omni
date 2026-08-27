@@ -7,6 +7,14 @@ name: gpbot CI drive
 # exited. The implement instruction ends at "Post the PR link to ClickUp when
 # done", and nothing came after that.
 #
+# TWO THINGS ARE DRIVEN, not one. The same PR also carried a correct
+# high-severity Cursor Bugbot finding that nobody ever answered: Bugbot posts a
+# COMMENTED review rather than CHANGES_REQUESTED so it never blocks, and
+# delegate's approval satisfies the ruleset on its own. The PR merged with the
+# thread still open and the regression reached main (fixed later in #1431). So a
+# green board is not the end of this workflow's job — an unanswered finding is
+# work too, on the same budget. See clickup_bot/ci_triage.py.
+#
 # WHY THIS IS AN EVENT AND NOT PART OF THE AGENT RUN: `E2E` waits on a full gp-api
 # preview deploy before its suite starts and routinely takes ~45 minutes, which is
 # the agent's entire DEFAULT_DEADLINE_SECONDS (engineer_agent/agent/config.py).
@@ -256,9 +264,58 @@ jobs:
 
             failing="$(jq -c --arg bad "$FAILED_CONCLUSIONS" \
               '[.[] | select(.conclusion as $c | ($bad | split(",")) | index($c))]' <<<"$checks")"
-            if [ "$(jq 'length' <<<"$failing")" = "0" ]; then
-              echo "all checks green"; echo "::endgroup::"; continue
-            fi
+            echo "failing checks: $(jq 'length' <<<"$failing")"
+
+            # A GREEN BOARD IS NO LONGER AN EXIT. Review threads are gathered on
+            # every pass, and the triage decides which of the two — checks or
+            # findings — is this pass's work.
+            #
+            # `comments(first: 1)` identifies the thread: the author of the
+            # FIRST comment is who raised it, which is what the author filter
+            # judges. The second selection is a separate question — whether a
+            # person has since joined the thread, in which case the bot must not
+            # talk over them. __typename is used rather than a name pattern
+            # because it is the only reliable way to tell a Bot account from a
+            # User.
+            #
+            # `first: 100` on that second selection, GitHub's maximum, because
+            # it is the ONLY defence against answering into a live conversation
+            # and truncation fails in the wrong direction: a human reply past
+            # the cap reads as no human at all, and nothing downstream would
+            # catch it.
+            #
+            # FAILS TOWARD "NOTHING FOUND": a GraphQL error yields an empty list,
+            # so an API blip costs a pass of latency rather than a fix run
+            # launched against evidence nobody gathered. The 30-minute schedule
+            # comes back.
+            # The $owner/$name/$pr inside the query below are GraphQL variables
+            # bound by the -f/-F flags, not shell expansions. Letting the shell
+            # interpolate them is exactly the bug the single quotes prevent.
+            # shellcheck disable=SC2016
+            threads="$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO##*/}" -F pr="$pr" -f query='
+              query($owner: String!, $name: String!, $pr: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $pr) {
+                    reviewThreads(first: 100) {
+                      nodes {
+                        id
+                        isResolved
+                        isOutdated
+                        raisedBy: comments(first: 1) { nodes { author { login } body } }
+                        participants: comments(first: 100) { nodes { author { __typename } } }
+                      }
+                    }
+                  }
+                }
+              }' --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | {
+                        id: .id,
+                        resolved: .isResolved,
+                        outdated: .isOutdated,
+                        author: (.raisedBy.nodes[0].author.login // ""),
+                        excerpt: (.raisedBy.nodes[0].body // ""),
+                        human_replied: ([.participants.nodes[].author.__typename] | index("User") != null)
+                      }]' 2>/dev/null || echo '[]')"
+            echo "review threads: $(jq 'length' <<<"${threads:-[]}")"
 
             # Enrich each failure with the two things the classifier judges on:
             # whether main is red for the same check, and the tail of the job log.
@@ -300,9 +357,9 @@ jobs:
               --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- gpbot-ci-drive -->")))] | last')"
             comment_id="$(jq -r 'if . == null then "" else .id end' <<<"${marker:-null}")"
 
-            decision="$(jq -n --argjson checks "$enriched" \
+            decision="$(jq -n --argjson checks "$enriched" --argjson findings "${threads:-[]}" \
               --arg body "$(jq -r 'if . == null then "" else .body end' <<<"${marker:-null}")" \
-              '{checks: $checks, state_comment: (if $body == "" then null else $body end)}' \
+              '{checks: $checks, findings: $findings, state_comment: (if $body == "" then null else $body end)}' \
               | python3 "$triage")" || { echo "::error::triage failed for #$pr"; echo "::endgroup::"; continue; }
 
             action="$(jq -r .action <<<"$decision")"
@@ -330,7 +387,7 @@ jobs:
                   echo "::endgroup::"; continue
                 fi
                 ;;
-              fix)
+              fix|fix-findings)
                 # The ClickUp task is recovered from the branch's custom_id
                 # prefix (ENG-1234/gp-bot_...), the same route
                 # gpbot-pr-triage.yml uses.
@@ -354,12 +411,28 @@ jobs:
             # cap. If this job dies between the two, the round is recorded as
             # spent and at worst the PR loses one attempt; recording it after
             # would let a crash-looping drive spend the same round forever.
+            #
+            # AND THE ACTION IS ABANDONED IF THE WRITE FAILS. This block runs
+            # under `set -uo pipefail` without `-e`, so a failed gh call would
+            # otherwise be swallowed and the case below would act anyway: the
+            # round spent, nothing recorded, and the next pass reading the
+            # pre-increment counters and deciding the same thing again. The
+            # ordering above is only a cap while a failed write stops the
+            # action, so the guard is what makes the comment above true.
             body="$(jq -r .comment_body <<<"$decision")"
             if [ -n "$comment_id" ]; then
               gh api -X PATCH "repos/$REPO/issues/comments/$comment_id" -f body="$body" >/dev/null
             else
               gh api -X POST "repos/$REPO/issues/$pr/comments" -f body="$body" >/dev/null
-            fi
+            fi || {
+              # RED, like the other two failure paths. Skipping the action is
+              # the safe half; without this the step still exits 0, so a GitHub
+              # API failure that persists would have the drive skip every PR on
+              # every pass while reporting success and telling nobody.
+              echo "::error::could not record state for #$pr; not spending the round"
+              action_failed=1
+              echo "::endgroup::"; continue
+            }
 
             case "$action" in
               rerun)
@@ -373,20 +446,24 @@ jobs:
                 done <<<"$run_ids"
                 ;;
 
-              fix)
+              fix|fix-findings)
                 # Launching goes through the Lambda so the fix run reuses the one
                 # audited path to Fargate — trigger_fargate_task — rather than a
                 # second, less-scrutinised one wired straight to ECS from CI.
                 # task_id was resolved above, before the counter was spent.
                 #
-                # Only an integer and a validated id cross this boundary. Check
-                # names, step names and log text are deliberately left out: they
-                # come from CI output and would otherwise reach a system prompt.
+                # Only an integer, a validated id and a fixed enum cross this
+                # boundary. Check names, step names, log text and review-comment
+                # bodies are all deliberately left out: they come from CI output
+                # or from another model, and would otherwise reach a system
+                # prompt. The agent fetches its own evidence with `gh`.
+                mode=checks
+                [ "$action" = "fix-findings" ] && mode=findings
                 aws lambda invoke \
                   --function-name "$LAMBDA_FUNCTION" \
                   --cli-binary-format raw-in-base64-out \
-                  --payload "$(jq -nc --arg t "$task_id" --argjson p "$pr" \
-                      '{gpbot_ci_fix: true, clickup_task_id: $t, pr_number: $p}')" \
+                  --payload "$(jq -nc --arg t "$task_id" --argjson p "$pr" --arg m "$mode" \
+                      '{gpbot_ci_fix: true, clickup_task_id: $t, pr_number: $p, mode: $m}')" \
                   --cli-read-timeout 120 \
                   /tmp/ci-fix-response.json > /tmp/ci-fix-meta.json
                 cat /tmp/ci-fix-meta.json /tmp/ci-fix-response.json
@@ -405,7 +482,7 @@ jobs:
                 fi
                 ;;
 
-              report|escalate)
+              report|escalate|hold)
                 # The established route to the humans who triage these bugs.
                 # Degrades quietly when the channel or token is unset so this
                 # workflow can land before that wiring is confirmed.
@@ -413,19 +490,31 @@ jobs:
                   # jq assembles the text so a summary containing quotes or
                   # backslashes cannot break out of the JSON, and so no line of
                   # it has to sit at column 0 inside this block scalar.
+                  # One neutral headline for all three terminal actions. The
+                  # summary immediately under it already says whether the PR is
+                  # red, broken on main, or carrying an unanswered finding, and
+                  # a headline that guessed wrong would be worse than none.
                   jq -n --arg channel "$CHANNEL" \
                     --arg url "$(jq -r .url <<<"$pr_json")" \
                     --arg pr "$pr" \
                     --arg summary "$(jq -r .summary <<<"$decision")" \
                     '{channel: $channel,
-                      text: ("*gpbot could not get <" + $url + "|#" + $pr + "> green.*\n" + $summary
-                             + "\nThe bot has stopped driving it. Closing the PR is a fine outcome if the fix is not worth it.")}' \
+                      text: ("*gpbot stopped driving <" + $url + "|#" + $pr + ">.*\n" + $summary
+                             + "\nClosing the PR is a fine outcome if the fix is not worth it.")}' \
                     | curl -sSf -X POST https://slack.com/api/chat.postMessage \
                         -H "Authorization: Bearer $SLACK_TOKEN" \
                         -H 'Content-type: application/json; charset=utf-8' \
                         --data @- \
                     | tee /dev/stderr | jq -e '.ok' > /dev/null \
-                    || echo "::error::could not announce #$pr in Slack"
+                    || {
+                      # THE STEP MUST GO RED, for the same reason the fix branch
+                      # does. The marker comment is already written and marks the
+                      # PR escalated, so the next pass decides `none` and never
+                      # tries again: a swallowed failure here is a human who is
+                      # never told, on a PR the bot has stopped driving.
+                      echo "::error::could not announce #$pr in Slack"
+                      action_failed=1
+                    }
                 fi
                 ;;
             esac

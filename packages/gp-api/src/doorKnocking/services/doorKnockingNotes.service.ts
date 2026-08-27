@@ -88,6 +88,9 @@ export class DoorKnockingNotesService extends createPrismaBase(
         body: row.body,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
+        // Door-knocking note attribution is out of scope for ENG-10946; this
+        // reader doesn't join the actor, so every entry renders authorless.
+        actorName: null,
       })
       byPersonId.set(row.personId, group)
     }

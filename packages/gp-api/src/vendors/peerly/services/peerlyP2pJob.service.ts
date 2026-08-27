@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Injectable,
 } from '@nestjs/common'
+import { isAxiosError } from 'axios'
 import { formatISO } from 'date-fns'
 import { Headers } from 'http-constants-ts'
 import { Readable } from 'stream'
@@ -152,6 +153,28 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     } catch (error) {
       this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
+    }
+  }
+
+  // Peerly has no DELETE verb for jobs: cancellation is a status write on
+  // DELETE /1to1/jobs/{id} (204). The endpoint is documented but missing
+  // from Peerly's llms.txt index
+  // (https://api-docs.peerly.com/reference/delete-1to1-sms-job). See
+  // scratch/voter-outreach/research/peerly-job-cancel.md.
+  async deleteJob(jobId: string): Promise<void> {
+    try {
+      this.logger.debug(`Deleting P2P job ${jobId}`)
+      await this.peerlyHttpService.delete(`/1to1/jobs/${jobId}`)
+    } catch (error) {
+      // Already-deleted is the desired state, not a failure: cancel retries
+      // after a refund failure re-run this delete, and treating the 404 as
+      // fatal would strand the row pending with the vendor job already gone.
+      if (isAxiosError(error) && error.response?.status === 404) {
+        this.logger.debug(`P2P job ${jobId} already deleted; treating as done`)
+        return
+      }
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
     }
   }
 

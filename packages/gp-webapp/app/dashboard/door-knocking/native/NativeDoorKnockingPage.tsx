@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
-import { ArrowLeftIcon, Button, IconButton } from '@styleguide'
+import { ArrowLeftIcon, Button, DownloadIcon, IconButton } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
@@ -35,6 +35,7 @@ import DoorKnockingManageView from './DoorKnockingManageView'
 import TurfDetailsDrawer from './TurfDetailsDrawer'
 import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
+import { useLiveLocation } from './useLiveLocation'
 import { useWalkCompletion } from './walkCompletion'
 import type { PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
@@ -52,6 +53,11 @@ const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
 interface NativeDoorKnockingPageProps {
   pathname: string
   campaign: Campaign | null
+  // A saved list carried in on `?listId=`, handed straight to the create
+  // flow. Deliberately NOT read by anything on the landing map: it names the
+  // audience a walk will be cut from, and the map's own scope is the rail's
+  // `selectedTurf`, which is a turf and not a list.
+  preselectedListId?: number
 }
 
 // The orchestrator for the four door-knocking surfaces (Wave 1B). What stays
@@ -63,6 +69,7 @@ interface NativeDoorKnockingPageProps {
 export default function NativeDoorKnockingPage({
   pathname,
   campaign,
+  preselectedListId,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   // Win-only filters are hidden for an elected-office org, matching the CRM
@@ -86,6 +93,15 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
+  // Which carried list has already been handed to the create flow. Kept here
+  // because the flow itself is unmounted between opens while `?listId=` stays
+  // in the address bar, so this is the only place that can remember. Compared
+  // by id rather than a boolean so a SECOND arrival still counts: coming back
+  // to the hub and pressing the tile again with a different list re-renders
+  // this page with the new id, which is not the spent one.
+  const [spentPreselectId, setSpentPreselectId] = useState<number>()
+  const carriedListId =
+    preselectedListId === spentPreselectId ? undefined : preselectedListId
   const [filters, setFilters] = useState<VoterFileFilters>({})
   const [ring, setRing] = useState<PolygonRing | null>(null)
   // The create-list surface's half of the canvas: draw tokens, the point count
@@ -94,6 +110,14 @@ export default function NativeDoorKnockingPage({
   // The walk surface's half of the canvas: pins, the path, and a tapped pin as
   // a request to open that door.
   const walkMap = useWalkMapSession(walkTurf)
+  // "My live location": one watch, read by the map that draws the dot and by
+  // the walk control that switched it on. Opt-in and off by default — turning
+  // it on is what asks the browser for permission, so nobody gets an
+  // unsolicited prompt — and it lives here rather than in the canvas because
+  // the canvas is shared by all three modes while the control is the walk's
+  // alone, exactly as in the design canvas.
+  const [locationEnabled, setLocationEnabled] = useState(false)
+  const location = useLiveLocation(locationEnabled)
   // Landing-map legend filter: chip clicks narrow the dots to those statuses,
   // within the selected list when there is one. Deliberately inert while the
   // create flow is open — the flow's own filter draft drives the preview there.
@@ -160,8 +184,8 @@ export default function NativeDoorKnockingPage({
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
 
   // Only the outlines the rail says are shown. Hiding is display-only: the dots
-  // are the pack's and are unaffected, and the rows keep their Details, PDF and
-  // Knock affordances — a quiet ring is not an archived list.
+  // are the pack's and are unaffected, and the rows keep every affordance they
+  // had — a quiet ring is not an archived list.
   const visibleTurfs = useMemo(
     () => (turfsQuery.data ?? []).filter((turf) => !hiddenTurfIds.has(turf.id)),
     [turfsQuery.data, hiddenTurfIds],
@@ -380,10 +404,18 @@ export default function NativeDoorKnockingPage({
     // out would reopen its sheet on the next walk, and the coach mark is
     // per-walk because each one starts on an unfamiliar route.
     walkMap.reset()
+    // And the GPS radio with it. The only control that can turn this on is in
+    // the walk's own row, so leaving it on would keep a watch running for a
+    // surface with no way to see it and no way to stop it.
+    setLocationEnabled(false)
   }
 
   const changeFlowStep = (next: CreateFlowStep) => {
     if (next === 'draw' && flowStep === 'filters') draw.startDrawing()
+    // Confirm covers most of the map, so the shape being confirmed has to be
+    // put back into the band it leaves — asked for on arrival, not on every
+    // change to the ring, which is the canvasser's own aim while they draw.
+    if (next === 'confirm') draw.frameDrawing()
     setFlowStep(next)
     setSelectedTurf(null)
   }
@@ -425,6 +457,9 @@ export default function NativeDoorKnockingPage({
           openStopRequest={walkMap.openStopRequest}
           selectedStopId={walkMap.selectedStopId}
           onSelectStop={walkMap.selectStop}
+          liveLocation={location}
+          liveLocationEnabled={locationEnabled}
+          onToggleLiveLocation={setLocationEnabled}
         />
       )
     }
@@ -498,6 +533,11 @@ export default function NativeDoorKnockingPage({
           }
         }}
         onShowDetails={setDetailsTurf}
+        // The last hop of the empty rail's Create list button. The same state
+        // setter the header's own Create list button calls, so the two buttons
+        // are one gesture with one implementation — and without it the rail
+        // falls back to naming a button it cannot press.
+        onCreateList={() => setFlowStep('filters')}
         onKnockTurf={(turf) => {
           // Knock is idempotent: a knocked turf opens its existing route,
           // an unknocked one confirms mode/loop and builds it.
@@ -514,10 +554,48 @@ export default function NativeDoorKnockingPage({
     <DashboardLayout
       pathname={pathname}
       campaign={campaign}
-      wrapperClassName="!p-0 flex flex-col"
+      // This page is a full-bleed map with a floating card over it, so it has
+      // to be EXACTLY the height left by the dashboard chrome — scrolling
+      // belongs inside the card, never on the document.
+      //
+      // `min-h-0` is what makes that true without naming a number. The wrapper
+      // is `flex-1` inside `SidebarInset`, which is `flex-1` inside
+      // `SidebarProvider`'s `min-h-svh` row; a flex item's default
+      // `min-height: auto` lets its CONTENT set the floor, so anything the
+      // layout put beside this page pushed the document past the window (see
+      // the chat spacer below). With the floor removed the
+      // chain resolves the other way — the row settles at `min-h-svh` and the
+      // wrapper takes what the chrome above it leaves, whatever that is at
+      // this width. It replaces an `h-[calc(100dvh-4rem)]` on the child below,
+      // which hard-coded the mobile top bar's height and was wrong at `lg`,
+      // where that bar is `lg:hidden`: the map ended 64px short of the bottom
+      // of the window on every desktop.
+      //
+      // This is also what makes `DashboardLayout`'s own siblings behave. When
+      // the campaign-story flag is on, `DashboardCampaignManagerChat` renders
+      // an in-flow `h-24` spacer next to this page, reserving room for its
+      // fixed footer bar. Against a child with a hard viewport height that
+      // spacer was 96px of pure overflow and the page scrolled by exactly
+      // that; against `h-full` it is honoured INSIDE the window instead — the
+      // map stops 96px short and the bar sits in the gap rather than over the
+      // map. Nothing here reaches into the layout every dashboard page shares.
+      //
+      // `overflow-hidden` is the guard for the case that reservation cannot be
+      // met: if a sibling ever exceeds the window the map is squeezed to
+      // nothing rather than the document growing a scrollbar again.
+      //
+      // `svh` rather than `dvh` is inherited from `SidebarProvider`, and is
+      // the right value here: `svh` is the viewport with mobile browser chrome
+      // at its largest, so the page is whole in every chrome state — and since
+      // the document can no longer scroll, the chrome never retracts, which
+      // leaves `dvh` permanently equal to `svh` on this page anyway.
+      wrapperClassName="!p-0 flex min-h-0 flex-col overflow-hidden"
     >
-      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex h-full w-full flex-col">
+        {/* `shrink-0`: the column is now exactly the height of the window, so
+            the header is the one row in it that must never be squeezed to buy
+            the map space. */}
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             {walkTurf && (
               <IconButton aria-label="Back to the map" onClick={endWalk}>
@@ -528,6 +606,26 @@ export default function NativeDoorKnockingPage({
               {walkTurf ? walkTurf.name : 'Door knocking'}
             </h1>
           </div>
+          {/* The walk's paper, where the canvas keeps it: the header action
+              beside the list's name, not a chip in the control row below the
+              map. It is called PDF because that is what it is — the same file
+              the saved-list row and the details drawer already offer under
+              that name, so the product has one printable artefact with one
+              name rather than a "Print list" on the walk and a "PDF"
+              everywhere else. The offline story is unchanged: a canvasser
+              walking out of signal takes paper, and this is a plain link to a
+              route handler, so it costs this bundle nothing. */}
+          {walkTurf && (
+            <a
+              href={`/dashboard/door-knocking/print/${walkTurf.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted/50"
+            >
+              <DownloadIcon size={16} aria-hidden="true" />
+              PDF
+            </a>
+          )}
           {!flowStep && !walkTurf && (
             <Button
               size="small"
@@ -588,6 +686,15 @@ export default function NativeDoorKnockingPage({
                 startDrawToken={draw.startDrawToken}
                 clearDrawToken={draw.clearDrawToken}
                 undoDrawToken={draw.undoDrawToken}
+                // The confirm step's colour pick, on the boundary it is a pick
+                // about — state the map reads, so it lives up here.
+                drawColor={draw.drawColor}
+                frameDrawToken={draw.frameDrawToken}
+                frameDrawBottomPct={draw.frameDrawBottomPct}
+                // The confirm step shows a band of the map as a picture and
+                // shields it, so the buttons in that band would be dead ones.
+                controlsHidden={flowStep === 'confirm'}
+                location={location}
                 onPolygonChange={setRing}
                 onDrawPointCount={draw.onPointCount}
                 onRoutePinClick={walkMap.onPinTap}
@@ -613,9 +720,13 @@ export default function NativeDoorKnockingPage({
               drawPointCount={draw.pointCount}
               onUndoPoint={draw.undoPoint}
               onClearPoints={draw.clearPoints}
+              color={draw.drawColor}
+              onColorChange={draw.onDrawColorChange}
               onSaved={handleSaved}
               isElectedOfficial={isElectedOfficial}
               unpreviewableKeys={unpreviewableKeys}
+              preselectedListId={carriedListId}
+              onPreselectApplied={() => setSpentPreselectId(preselectedListId)}
             />
           )}
         </div>

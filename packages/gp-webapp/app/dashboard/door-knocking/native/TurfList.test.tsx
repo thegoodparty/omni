@@ -1,6 +1,7 @@
 import { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -43,6 +44,22 @@ const turf = (overrides: Partial<DoorKnockingTurf>): DoorKnockingTurf => ({
   updatedAt: new Date('2026-07-21T00:00:00Z'),
   ...overrides,
 })
+
+// Enough of a decoded pack for the rail to call it decoded — the empty card
+// only asks whether one is in the cache, never what is in it.
+const pack = {
+  manifest: {
+    version: 1,
+    generatedAt: '2026-08-20T12:00:00Z',
+    counts: { people: 4, households: 3, dots: 2 },
+    dims: [{ key: 'party', values: ['Unknown', 'Democratic', 'Republican'] }],
+    arrays: [],
+  },
+  positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
+  personToHousehold: new Uint32Array([0, 0, 1, 2]),
+  householdToDot: new Uint32Array([0, 0, 1]),
+  dimPlanes: new Map([['party', new Uint8Array([1, 1, 1, 2])]]),
+}
 
 const renderList = (props: Partial<ComponentProps<typeof TurfList>> = {}) =>
   render(
@@ -102,7 +119,7 @@ describe('TurfList', () => {
   // not compute them: the details sheet one tap away derives its own from the
   // route payload, and a rail that disagreed with it would be worse than a
   // rail with no numbers on it at all.
-  it('prints doors and the logged pair on a knocked list', async () => {
+  it('prints the two populations as meta figures, each naming its own noun', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [
@@ -119,21 +136,50 @@ describe('TurfList', () => {
 
     renderList()
 
-    // Two figures, not one ratio: doors and people are different
-    // populations, and the logged pair is people over people — the same
-    // quantity the details sheet labels "People logged". They are two meta
-    // items on the card rather than one sentence, each naming its own
-    // quantity for a screen reader.
+    // The canvas's two figures, in its order: doors and people are different
+    // populations, so they are two items rather than one ratio.
     expect(await screen.findByText('24')).toHaveTextContent('24 doors')
-    expect(screen.getByText('8 of 31')).toHaveTextContent(
-      '8 of 31 people logged',
-    )
-    // Never the prototype's people-over-doors pairing.
-    expect(screen.queryByText(/8 of 24/)).toBeNull()
-    expect(screen.queryByText(/knocked/i)).toBeNull()
+    expect(screen.getByText('31')).toHaveTextContent('31 people')
+  })
+
+  // The canvas leads the card with its progress figure as an uppercase overline
+  // above the name, and that placement is the point — it is the first thing
+  // read on a rail a candidate scans to pick tonight's list.
+  it('leads the card with the progress figure, above the name', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({
+          id: 2,
+          name: 'Riverside loop',
+          locked: true,
+          doorCount: 24,
+          peopleCount: 31,
+          loggedCount: 8,
+        }),
+      ],
+    })
+
+    renderList()
+
+    // People over people, never the canvas's people-over-doors pairing: the
+    // numerator is `loggedCount`, which counts people, so a `doorCount`
+    // denominator would break the stops/doors/people rule in one sentence.
+    const overline = await screen.findByText(/8 \/ 31 people logged/)
+    expect(overline).toBeInTheDocument()
+    expect(screen.queryByText(/8 \/ 24/)).toBeNull()
+
+    // Above the name, not below it — `compareDocumentPosition` rather than a
+    // class assertion, because the ordering is the behaviour.
+    const name = screen.getByRole('button', { name: 'Riverside loop' })
+    expect(
+      overline.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
     // The word is "logged": not-home, inaccessible and refused all count
     // toward it, and none of them is a conversation.
     expect(screen.queryByText(/reached/i)).toBeNull()
+    expect(screen.queryByText(/doors knocked/i)).toBeNull()
   })
 
   // An unlocked list has no route, so there is nothing to count — and a zero
@@ -152,9 +198,9 @@ describe('TurfList', () => {
     expect(screen.queryByText(/^0 /)).toBeNull()
   })
 
-  // "8 of 31 logged" leaves its noun to the visible column layout, which a
-  // screen reader has none of — and the three numbers on this surface are
-  // exactly the ones that must never be confused for each other.
+  // A meta figure is a numeral beside an icon, so its noun exists only for a
+  // screen reader — and the numbers on this surface are exactly the ones that
+  // must never be confused for each other.
   it('names the population for a screen reader', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
@@ -163,19 +209,21 @@ describe('TurfList', () => {
           id: 2,
           locked: true,
           doorCount: 1,
-          peopleCount: 3,
-          loggedCount: 2,
+          peopleCount: 1,
+          loggedCount: 1,
         }),
       ],
     })
 
     renderList()
 
-    // The visible figures are a numeral beside an icon; the noun is only in
-    // the full text content, which is what a screen reader announces. It is
-    // singular on one door, because "1 doors" reads as a bug in the count.
-    expect(await screen.findByText('1')).toHaveTextContent('1 door')
-    expect(screen.getByText('2 of 3')).toHaveTextContent('2 of 3 people logged')
+    // Singular on one, because "1 doors" reads as a bug in the count. Both
+    // figures read "1", so they are matched together and their nouns compared.
+    await screen.findByRole('button', { name: 'Elm St & 5th' })
+    expect(screen.getAllByText('1').map((node) => node.textContent)).toEqual([
+      '1 door',
+      '1 person',
+    ])
   })
 
   // Tapping the name is what scopes the map, the count line and the legend to
@@ -217,6 +265,78 @@ describe('TurfList', () => {
     expect(screen.getByText('Saved lists')).toBeInTheDocument()
   })
 
+  // The card describes the one thing there is to do on this screen, so the
+  // control belongs in it — pointing at a button elsewhere on the page was the
+  // next version of having no explanation at all.
+  it('offers Create list from inside the empty card', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+    const onCreateList = vi.fn()
+
+    renderList({ onCreateList })
+
+    const create = await screen.findByRole('button', { name: 'Create list' })
+    expect(create).toBeEnabled()
+    // The card no longer sends anyone looking for a button somewhere else.
+    expect(screen.queryByText(/Create list.*above/)).toBeNull()
+
+    fireEvent.click(create)
+    expect(onCreateList).toHaveBeenCalledTimes(1)
+  })
+
+  // The same expression the page header's Create list button is disabled on,
+  // read off the same query. The two open the same flow, and the flow's who
+  // step reports "No matching households" without a pack — so a card that let
+  // you in early would tell a brand-new candidate their district is empty.
+  it('keeps the empty card’s Create list disabled until the pack decodes', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    const onCreateList = vi.fn()
+
+    renderList({ onCreateList })
+
+    const create = await screen.findByRole('button', { name: 'Create list' })
+    expect(create).toBeDisabled()
+
+    fireEvent.click(create)
+    expect(onCreateList).not.toHaveBeenCalled()
+
+    // An observer, not a one-shot cache read: a pack that lands while the
+    // empty rail is on screen has to bring the button to life.
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create list' })).toBeEnabled(),
+    )
+  })
+
+  // The pack is the page's, and it is tens of megabytes. The rail reads it to
+  // agree with the header button, never to fetch it.
+  it('fetches no pack of its own to decide that', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+
+    renderList({ onCreateList: vi.fn() })
+
+    await screen.findByRole('button', { name: 'Create list' })
+    expect(
+      fetchSpy.mock.calls.filter(([input]) => String(input).includes('/pack')),
+    ).toHaveLength(0)
+    fetchSpy.mockRestore()
+  })
+
+  // Without a handler there is no flow to open, so the card keeps the pointer
+  // it had rather than rendering a button that does nothing.
+  it('points at the header button when there is no create handler', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    testQueryClient.setQueryData(['door-knocking-pack'], pack)
+
+    renderList()
+
+    expect(await screen.findByText(/No lists yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create list' })).toBeNull()
+    expect(screen.getByText(/above to make your first one/)).toBeInTheDocument()
+  })
+
   it('shows a placeholder while the lists load', () => {
     // Never settles, so the rail stays in its pending state.
     api.mock('GET /v1/door-knocking/turfs', () => new Promise(() => undefined))
@@ -242,10 +362,11 @@ describe('TurfList', () => {
     await waitFor(() => expect(container).toBeEmptyDOMElement())
   })
 
-  // The walk list on paper used to be reachable only from inside a walk, which
-  // meant finding it required already having done the thing you wanted paper
-  // for. Only a locked list has a route to put on paper.
-  it('offers the PDF on a locked list and not on an unknocked one', async () => {
+  // The canvas's card has no PDF affordance, and this one had grown a third
+  // footer control that pushed Details and Knock — the two the canvas leads
+  // with — into the corner of a 384px rail. Paper is still reachable from the
+  // walk; it is not a per-row control here.
+  it('puts no PDF affordance on the card', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [
@@ -256,9 +377,25 @@ describe('TurfList', () => {
 
     renderList()
 
-    const link = await screen.findByRole('link', { name: 'PDF' })
-    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/2/pdf')
-    expect(screen.getAllByRole('link')).toHaveLength(1)
+    await screen.findByRole('button', { name: 'Elm St & 5th' })
+    expect(screen.queryByRole('link', { name: 'PDF' })).toBeNull()
+    // Not merely unlabelled — the card carries no link at all.
+    expect(screen.queryAllByRole('link')).toHaveLength(0)
+  })
+
+  // The canvas puts a footprint on its primary CTA, and the rail is scanned
+  // rather than read: the icon is what makes Knock findable among a dozen rows
+  // of identically shaped buttons.
+  it('marks the Knock CTA with the canvas shoes icon', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 1, name: 'Elm St & 5th' })],
+    })
+
+    renderList()
+
+    const knock = await screen.findByRole('button', { name: 'Knock' })
+    expect(knock.querySelector('svg.lucide-footprints')).toBeInTheDocument()
   })
 
   // Every ring rendered at once and always, so a dozen lists were a dozen
@@ -291,11 +428,10 @@ describe('TurfList', () => {
     )
   })
 
-  // The rail is where a candidate compares lists, so per-list controls belong
-  // on the row. Delete used to live only inside the details sheet, which is
-  // two clicks from the row it acts on and covers that row while it is open —
-  // and the walkthrough reported the feature as missing entirely.
-  it('offers delete on the row, named for its own list', async () => {
+  // Delete belongs behind the overflow menu, as it does in the canvas: it is
+  // the only control on this card that destroys anything, and exposed it was a
+  // red trash icon a brushed thumb away from the row it names.
+  it('keeps delete behind the overflow menu, not on the card', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [
@@ -304,37 +440,44 @@ describe('TurfList', () => {
       ],
     })
 
+    const user = userEvent.setup()
     renderList()
 
-    // Named per list rather than a column of identical trash icons — and a
-    // different name from the details sheet's own trigger, which is mounted at
-    // the same time on the page.
+    await screen.findByRole('button', { name: 'Elm St & 5th' })
+    expect(screen.queryByRole('menuitem', { name: /Delete/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
+
+    // The menu button is named per list rather than a column of identical
+    // kebabs, so a rail of a dozen rows doesn't read as one repeated control.
+    await user.click(
+      screen.getByRole('button', { name: 'More options for Elm St & 5th' }),
+    )
     expect(
-      await screen.findByRole('button', { name: 'Delete Elm St & 5th list' }),
-    ).toBeEnabled()
-    expect(
-      screen.getByRole('button', { name: 'Delete Riverside loop list' }),
-    ).toBeEnabled()
+      await screen.findByRole('menuitem', { name: 'Delete list' }),
+    ).toBeInTheDocument()
+    // Only the opened row's menu, never both.
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
   })
 
-  // Delete now works at every stage — an unlocked list is hard-deleted, a
-  // knocked one tombstoned — so the confirmation dialog is the guard and the
-  // trigger stays live. It used to render disabled with the lock as the
-  // reason, which is no longer true of delete.
-  it('offers delete on a knocked list too, and warns that the route is kept', async () => {
+  // Delete works at every stage — an unlocked list is hard-deleted, a knocked
+  // one tombstoned — so the confirmation dialog is the guard.
+  it('warns that a knocked list keeps its route', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [turf({ id: 2, name: 'Riverside loop', locked: true })],
     })
 
+    const user = userEvent.setup()
     renderList()
 
-    const trigger = await screen.findByRole('button', {
-      name: 'Delete Riverside loop list',
-    })
-    expect(trigger).toBeEnabled()
-
-    fireEvent.click(trigger)
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'More options for Riverside loop',
+      }),
+    )
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete list' }),
+    )
 
     // The two deletes destroy very different amounts, so the confirmation
     // says which one is about to run.
@@ -343,7 +486,10 @@ describe('TurfList', () => {
     ).toBeInTheDocument()
   })
 
-  it('deletes from the row after confirmation and tells the page', async () => {
+  // The menu unmounts its own content the moment an item is selected, so a
+  // confirmation rendered inside it would be torn down before it could ever
+  // appear. This is the regression that pattern invites, asserted directly.
+  it('survives the menu closing on select', async () => {
     let deletedId: string | undefined
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
@@ -354,14 +500,25 @@ describe('TurfList', () => {
       return { status: 200, data: undefined }
     })
     const onDeletedTurf = vi.fn()
+    const user = userEvent.setup()
 
     renderList({ onDeletedTurf })
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Delete Elm St & 5th list' }),
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'More options for Elm St & 5th',
+      }),
     )
-    // The confirm lives in the dialog, so the row's trigger alone must not
-    // delete a list out from under someone who brushed a trash icon.
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete list' }),
+    )
+
+    // The menu is gone and the confirmation is up.
+    await waitFor(() =>
+      expect(screen.queryAllByRole('menuitem')).toHaveLength(0),
+    )
+    expect(await screen.findByText(/removed for good/)).toBeInTheDocument()
+    // Opening the confirm alone must not delete a list out from under someone.
     expect(deletedId).toBeUndefined()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
@@ -374,7 +531,7 @@ describe('TurfList', () => {
 
   // Hiding quiets an outline; it does not archive a list. The row keeps every
   // affordance so a hidden list is still one Knock away.
-  it('keeps Details, PDF and Knock on a hidden list', async () => {
+  it('keeps Details and Knock on a hidden list', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [turf({ id: 2, name: 'Riverside loop', locked: true })],
@@ -386,7 +543,6 @@ describe('TurfList', () => {
       await screen.findByRole('button', { name: 'Details' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Knock' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'PDF' })).toBeInTheDocument()
   })
 })
 

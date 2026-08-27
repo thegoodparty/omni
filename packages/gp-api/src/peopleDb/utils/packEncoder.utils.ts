@@ -1,6 +1,9 @@
 import {
+  CONTACTS_MADE_BUCKETS,
+  CONTACTS_MADE_DIM_KEY,
   DOOR_KNOCK_STATUSES,
   DoorKnockingPackManifest,
+  DoorKnockingPackRequest,
   INCOME_RANGE_MAPPING,
   PEOPLE_FILTER_VALUE_ENUMS,
 } from '@goodparty_org/contracts'
@@ -41,7 +44,7 @@ const UNKNOWN = 'Unknown'
 // corresponding list filter would match.
 const invertMapper = (
   filterKey: keyof typeof PEOPLE_FILTER_VALUE_ENUMS,
-  mapper: (value: string) => string | null,
+  mapper: (value: string) => string | string[] | null,
 ): { values: string[]; rawToByte: Map<string, number> } => {
   const values = [UNKNOWN]
   const rawToByte = new Map<string, number>()
@@ -49,8 +52,15 @@ const invertMapper = (
     if (value === UNKNOWN) continue
     const raw = mapper(value)
     if (raw === null) continue
+    // homeowner's 'Yes' maps to two raw values (ENG-10947's Homeowner/
+    // Probable Home Owner fold), but the pack encodes one byte per person —
+    // it can't represent an OR of two buckets under one wire value, so it
+    // keeps its pre-fold behavior and inverts only the first (see
+    // voterFilterPreview.ts's homeownerYes comment for the disclosed gap).
+    const rawForByte = Array.isArray(raw) ? raw[0] : raw
+    if (rawForByte === undefined) continue
     values.push(value)
-    rawToByte.set(raw, values.length - 1)
+    rawToByte.set(rawForByte, values.length - 1)
   }
   return { values, rawToByte }
 }
@@ -151,8 +161,33 @@ export const statusesToBytes = (
   )
 }
 
+// personId -> contacts-made bucket byte (index into CONTACTS_MADE_BUCKETS).
+// `null` is "gp-api could not answer", and the encoder omits the plane for it
+// — distinct from an empty map, which is an organization that has contacted
+// nobody and whose plane is a legitimate wall of bucket 0.
+export type PackContactsMade = Map<string, number> | null
+
+export const contactsMadeToBytes = (
+  entries: DoorKnockingPackRequest['contactsMade'],
+): PackContactsMade =>
+  entries === undefined
+    ? null
+    : new Map(entries.map(({ personId, bucket }) => [personId, bucket]))
+
 export class PackEncoder {
-  private readonly dotIndex = new Map<string, number>()
+  // Keyed lat -> lng -> dot rather than on a `${lat}|${lng}` string. Building
+  // that string was 261ms of a 628k-row build — the single most expensive
+  // thing the encoder did, more than every dimension plane put together —
+  // because it allocates a string per person to look up a number. Two numeric
+  // Map probes cost 85ms and dedupe identically: the coordinates are already
+  // parsed float8s, so equal coordinates are equal numbers.
+  //
+  // A single numeric key would be faster still, and is not available: packing
+  // two 1e6-scaled coordinates into one float64 needs ~56 bits of mantissa and
+  // there are 53, so the product silently collides — and a dot-key collision
+  // merges two unrelated rooftops into one door.
+  private readonly dotIndex = new Map<number, Map<number, number>>()
+  private dotCount = 0
   private readonly householdIndex = new Map<string, number>()
   private positions = new Float32Array(128 * 1024)
   private positionsLength = 0
@@ -161,7 +196,10 @@ export class PackEncoder {
   private peopleCount = 0
   private readonly dims: DimPlane[]
 
-  constructor(statusByPersonId: PackStatuses) {
+  constructor(
+    statusByPersonId: PackStatuses,
+    contactsMadeByPersonId: PackContactsMade = null,
+  ) {
     const mapped: DimPlane[] = MAPPED_DIMS.map(([key, mapperKey, column]) => {
       const { values, rawToByte } = invertMapper(
         mapperKey,
@@ -254,14 +292,36 @@ export class PackEncoder {
         bytes: new GrowableU8(),
       },
     ]
+    // The second campaign-specific plane, and the only conditional one. It is
+    // pushed after the district-scoped dims for the same reason canvassStatus
+    // is: everything above this line is a pure function of the district, so a
+    // cached shared build can be copied and only the tail rewritten.
+    //
+    // Omitted rather than zero-filled when gp-api has no answer — a plane of
+    // zeros claims every person has never been contacted, which is a stronger
+    // and more wrong statement than having no plane at all. Absent, the dim
+    // never reaches the manifest, and the client's own unpreviewable-filter
+    // machinery names the filter it cannot shade.
+    if (contactsMadeByPersonId) {
+      this.dims.push({
+        key: CONTACTS_MADE_DIM_KEY,
+        values: [...CONTACTS_MADE_BUCKETS],
+        encode: (row) => contactsMadeByPersonId.get(row.id) ?? 0,
+        bytes: new GrowableU8(),
+      })
+    }
   }
 
   add(row: PackRow): void {
-    const dotKey = `${row.lat}|${row.lng}`
-    let dot = this.dotIndex.get(dotKey)
+    let atLat = this.dotIndex.get(row.lat)
+    if (atLat === undefined) {
+      atLat = new Map<number, number>()
+      this.dotIndex.set(row.lat, atLat)
+    }
+    let dot = atLat.get(row.lng)
     if (dot === undefined) {
-      dot = this.dotIndex.size
-      this.dotIndex.set(dotKey, dot)
+      dot = this.dotCount++
+      atLat.set(row.lng, dot)
       if (this.positionsLength + 2 > this.positions.length) {
         const next = new Float32Array(this.positions.length * 2)
         next.set(this.positions)
@@ -301,7 +361,7 @@ export class PackEncoder {
     const counts = {
       people: this.peopleCount,
       households: this.householdIndex.size,
-      dots: this.dotIndex.size,
+      dots: this.dotCount,
     }
     const pad4 = (n: number) => Math.ceil(n / 4) * 4
 

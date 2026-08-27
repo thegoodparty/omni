@@ -1,25 +1,36 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   ArchiveIcon,
   Button,
   CheckCircleIcon,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  EllipsisVerticalIcon,
   EyeIcon,
   EyeOffIcon,
+  FootprintsIcon,
   HouseIcon,
   IconButton,
   RefreshIcon,
+  Trash2Icon,
   UsersRoundIcon,
 } from '@styleguide'
+import { HistoryStatusText } from 'app/dashboard/outreach/v2/channelMeta'
 import { ListCard, type ListCardMetaItem } from 'app/dashboard/shared/ListCard'
 import { turfsQueryOptions } from './turfQueries'
+import { voterPackQueryOptions } from './useVoterPack'
 import DeleteTurfControl from './DeleteTurfControl'
 import {
   canArchiveTurf,
   canCompleteTurf,
   turfStage,
+  turfStatusLabel,
   useTurfLifecycle,
 } from './turfLifecycle'
 
@@ -41,6 +52,12 @@ interface TurfListProps {
   // focus, hidden set), which would otherwise go on masking the map to a ring
   // the refetched rail no longer contains.
   onDeletedTurf: (turf: DoorKnockingTurf) => void
+  // The empty state's Create list button was pressed. The rail reports the
+  // gesture and never the consequence — the create flow is the orchestrator's,
+  // so what "open it" means stays there. Optional: without a handler the card
+  // has no button to offer and points at the header's Create list instead,
+  // which is what it did before there was one.
+  onCreateList?: () => void
 }
 
 export default function TurfList({
@@ -51,8 +68,20 @@ export default function TurfList({
   onShowDetails,
   onKnockTurf,
   onDeletedTurf,
+  onCreateList,
 }: TurfListProps) {
   const turfsQuery = useQuery(turfsQueryOptions)
+  // Read-only observer on the page's own pack, `enabled: false` so this rail
+  // never triggers a second tens-of-MB download of what the page already
+  // fetches and gates the whole feature on — the same read the who step's list
+  // picker makes, for the same reason. It exists so the empty state's Create
+  // list button can be disabled on `!packQuery.data`, the identical expression
+  // the header's Create list button is disabled on: two buttons that open the
+  // same flow must not disagree about when they work, and the only way to
+  // guarantee that without a prop is to read the same query. An observer
+  // rather than `getQueryData` because the button has to come alive if the
+  // pack lands while an empty rail is on screen.
+  const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
 
   const turfs = turfsQuery.data ?? []
 
@@ -87,17 +116,40 @@ export default function TurfList({
 
   // The first screen a new candidate sees. Rendering nothing left the rail
   // with a heading, status chips and no explanation of what a list is or how
-  // to get one — the only way forward being a button in the page header that
-  // nothing on this side pointed at.
+  // to get one. Explaining it and then pointing at a button elsewhere on the
+  // page was the next version of the same problem: the card describes the one
+  // thing there is to do here, so it is where the control belongs — the
+  // canvas's own `emptyCard` puts a Create list button inside it.
   if (turfs.length === 0) {
     return (
       <section className="flex flex-col gap-1.5">
         <h2 className="text-sm font-semibold">Saved lists</h2>
-        <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-          No lists yet. Use <span className="font-medium">Create list</span>{' '}
-          above to pick who you want to reach and draw the streets you want to
-          walk — saved lists show up here, ready to knock.
-        </p>
+        <div className="flex flex-col gap-3 rounded-md border border-dashed border-border p-3">
+          <p className="text-sm text-muted-foreground">
+            No lists yet. Pick who you want to reach and draw the streets you
+            want to walk — the list shows up here, ready to knock.
+          </p>
+          {onCreateList ? (
+            // Disabled on exactly what the header's Create list is disabled
+            // on. The flow's who step reads the same pack, and without it
+            // reports "No matching households" — so a button that opened the
+            // flow early would tell a brand-new candidate their district is
+            // empty rather than that we are still loading it.
+            <Button
+              size="small"
+              className="self-end"
+              disabled={!packQuery.data}
+              onClick={onCreateList}
+            >
+              Create list
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Use <span className="font-medium">Create list</span> above to make
+              your first one.
+            </p>
+          )}
+        </div>
       </section>
     )
   }
@@ -132,10 +184,10 @@ export default function TurfList({
         ) : (
           <>
             {/* The row's affordances are not equally discoverable: Details,
-                Knock, PDF, delete and the eye all announce themselves, while
-                tapping the NAME is what scopes the map, the voter count and
-                the status legend to that list — and beside that many controls,
-                a name reads as a label rather than a target. */}
+                Knock, the eye and the overflow menu all announce themselves,
+                while tapping the NAME is what scopes the map, the voter count
+                and the status legend to that list — and beside that many
+                controls, a name reads as a label rather than a target. */}
             <p className="text-xs text-muted-foreground">
               Tap a list to highlight it on the map, or Knock to start at the
               first door.
@@ -181,32 +233,37 @@ function TurfRow({
 }: TurfRowProps) {
   const stage = turfStage(turf)
   const lifecycle = useTurfLifecycle(turf)
+  // The row outlives its own delete trigger, which is a menu item inside a
+  // Radix menu that unmounts its content on select — so the open state has to
+  // live here rather than inside `DeleteTurfControl`.
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
-  // Both figures come from gp-api, which derives them from the frozen route the
+  // The figures come from gp-api, which derives them from the frozen route the
   // details sheet reads — the rail and the sheet reporting one list differently
   // is worse than the rail reporting nothing, which is why this is not computed
   // here. Null on an unlocked list, which has no route and so nothing to count;
   // a zero would claim a walked, empty list.
+  //
+  // The canvas's two population figures, in its order and with its icons. Its
+  // third item is a route-duration estimate, which this rail has no way to
+  // report: `GET /turfs` answers with one batched aggregate and carries no
+  // route, and a per-list `serve` fan-out to time each walk is exactly the cost
+  // that decision exists to avoid.
+  const { doorCount, peopleCount, loggedCount } = turf
   const meta: ListCardMetaItem[] =
-    turf.doorCount !== null &&
-    turf.peopleCount !== null &&
-    turf.loggedCount !== null
+    doorCount !== null && peopleCount !== null && loggedCount !== null
       ? [
-          // Doors and people are two different populations, so they are two
-          // figures rather than one ratio — the logged pair is people over
-          // people, the "People logged" quantity the details sheet states, and
-          // deliberately not the prototype's `8 / 24 doors knocked`.
           {
             key: 'doors',
             icon: <HouseIcon size={14} />,
-            value: turf.doorCount.toLocaleString(),
-            label: turf.doorCount === 1 ? 'door' : 'doors',
+            value: doorCount.toLocaleString(),
+            label: doorCount === 1 ? 'door' : 'doors',
           },
           {
-            key: 'logged',
+            key: 'people',
             icon: <UsersRoundIcon size={14} />,
-            value: `${turf.loggedCount.toLocaleString()} of ${turf.peopleCount.toLocaleString()}`,
-            label: 'people logged',
+            value: peopleCount.toLocaleString(),
+            label: peopleCount === 1 ? 'person' : 'people',
           },
         ]
       : []
@@ -226,10 +283,13 @@ function TurfRow({
       controls={
         <>
           {/* Named for the list, so a rail of a dozen of these doesn't read as
-              a dozen identical buttons to a screen reader. */}
+              a dozen identical buttons to a screen reader. The one control on
+              this card the canvas does not have: its map draws every ring at
+              once, and a dozen overlapping outlines is what this quiets. */}
           <IconButton
             variant="ghost"
             size="small"
+            className="text-muted-foreground"
             aria-label={
               hidden
                 ? `Show ${turf.name} on the map`
@@ -240,30 +300,46 @@ function TurfRow({
           >
             {hidden ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
           </IconButton>
-          {/* Per-list controls belong on the rail, which is where a candidate
-              compares lists — delete lived only inside the details sheet, two
-              clicks from the row it acts on. */}
+          {/* Delete sits behind the overflow menu, as it does in the canvas.
+              Exposed on the card it was a red trash icon one brushed thumb from
+              the row it names, competing for the corner with the eye — and it
+              is the only control here that destroys anything. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton
+                variant="ghost"
+                size="small"
+                className="text-muted-foreground"
+                aria-label={`More options for ${turf.name}`}
+              >
+                <EllipsisVerticalIcon size={16} />
+              </IconButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => setDeleteOpen(true)}
+              >
+                <Trash2Icon />
+                Delete list
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* Rendered outside the menu on purpose: the menu takes its own
+              children down on select, and the confirmation has to outlive the
+              gesture that asked for it. */}
           <DeleteTurfControl
             turf={turf}
             locked={turf.locked}
             onDeleted={onDeletedTurf}
-            compact
+            trigger="none"
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
           />
         </>
       }
       actions={
         <>
-          {/* Paper without opening the walk first. Only a locked list has a
-              route to print, and the file is built by a route handler — so this
-              is a plain link, and costs this bundle nothing. */}
-          {turf.locked && (
-            <a
-              href={`/dashboard/door-knocking/print/${turf.id}/pdf`}
-              className="rounded-full border border-border px-3 py-1.5 text-xs font-medium underline-offset-2 hover:bg-muted/50 hover:underline"
-            >
-              PDF
-            </a>
-          )}
           <Button
             size="small"
             variant="ghost"
@@ -297,6 +373,7 @@ function TurfRow({
             </Button>
           ) : (
             <Button size="small" onClick={() => onKnockTurf(turf)}>
+              <FootprintsIcon size={14} />
               Knock
             </Button>
           )}
@@ -330,20 +407,42 @@ function TurfRow({
   )
 }
 
-// The eyebrow is the list's lifecycle stage, not its progress: the numbers moved
-// into the meta row below the name, where their icons name the two populations
-// the counts must never be confused for each other.
+// The overline above the name, and the canvas's own branch: a finished list
+// states that it is finished, and every other list reports its progress there.
+//
+// **The progress figure is the canvas's presentation and position, and
+// deliberately not its noun.** The canvas prints `8 / 24 doors knocked`; on our
+// data that would pair a people-derived numerator with a door denominator — the
+// stops/doors/people rule broken in one sentence, and the reason these figures
+// were moved off this line in the first place. The canvas is not making that
+// mistake, because its own numbers are households over households; we would be.
+// `loggedCount` counts people, so the denominator is `peopleCount` and the
+// words are the ones `TurfDetailsSheet` already uses for this exact quantity.
+// It sets to the same length, so the overline is the same shape.
+//
+// "Logged", never "reached" or "knocked": not-home, inaccessible and refused
+// all count toward it, and none of them is a conversation.
 function StageEyebrow({ turf }: { turf: DoorKnockingTurf }) {
   const stage = turfStage(turf)
-  if (stage === 'active') return null
+
+  // `HistoryStatusText` rather than a local badge — the details drawer states
+  // this same list's status through it, and the canvas's `statusIndicator` is
+  // the same thing: a check in `primary`, sentence case, beside the word.
+  if (stage !== 'active') {
+    return (
+      <div className="mb-1.5 flex">
+        <HistoryStatusText label={turfStatusLabel(turf)} />
+      </div>
+    )
+  }
+
+  // Null on an unlocked list, which has no route and so nothing to count.
+  if (turf.loggedCount === null || turf.peopleCount === null) return null
+
   return (
-    <p className="mb-0.5 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {stage === 'archived' ? (
-        <ArchiveIcon size={12} />
-      ) : (
-        <CheckCircleIcon size={12} />
-      )}
-      {stage === 'archived' ? 'Archived' : 'Done'}
+    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.03em] text-muted-foreground">
+      {turf.loggedCount.toLocaleString()} / {turf.peopleCount.toLocaleString()}{' '}
+      people logged
     </p>
   )
 }

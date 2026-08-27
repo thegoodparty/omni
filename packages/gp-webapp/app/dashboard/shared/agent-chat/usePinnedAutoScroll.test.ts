@@ -57,4 +57,22 @@ describe('usePinnedAutoScroll', () => {
     rerender({ tick: 2 })
     expect(el.scrollTop).toBe(1000)
   })
+
+  it('releases the pin when a user scroll lands between two follow-scrolls', () => {
+    const { el, result, rerender } = setup()
+    rerender({ tick: 1 })
+
+    // Scroll events are coalesced and delivered at the end of the frame, so a
+    // scroll-up mid-stream is followed by the next reveal tick's follow-scroll
+    // BEFORE onScroll has reported anything. The follow-scroll must not clobber
+    // the position the user just moved to.
+    el.scrollTop = 200
+    rerender({ tick: 2 })
+    expect(el.scrollTop).toBe(200)
+
+    // The user's scroll event lands late, and later ticks keep hands off.
+    result.current.onScroll()
+    rerender({ tick: 3 })
+    expect(el.scrollTop).toBe(200)
+  })
 })

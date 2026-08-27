@@ -93,6 +93,7 @@ const createResponse = {
   entryCount: 12,
   personCount: 42,
   outreachId: 9,
+  hasMore: false,
 }
 
 const user = userEvent.setup()
@@ -413,12 +414,12 @@ describe('PhoneBankingFlow', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Only the first ~1,200 contacts will be included; 800 won't be called.",
+        'Up to 1,200 contacts will be included in this campaign. Contacts already called in an earlier campaign from this list are excluded automatically — if more remain afterward, create another campaign with this same list to continue.',
       ),
     ).toBeInTheDocument()
   })
 
-  it('states both numbers on the download step when the audience was truncated', async () => {
+  it('shows no reconciliation numbers on a batch that exhausts the audience, even when the list-level count is larger', async () => {
     mockDraft()
     mockSavedLists([{ id: 3, name: 'Huge list' }])
     mockListDetail(2000)
@@ -439,9 +440,83 @@ describe('PhoneBankingFlow', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
+    await screen.findAllByText('Your call sheet is ready')
+    // reachableCount (2,000) counts the whole saved list including prior
+    // batches, so with hasMore: false the server says nothing remains — no
+    // frozen-from arithmetic and no next-batch prompt.
+    expect(screen.queryByText(/contacts frozen from/)).not.toBeInTheDocument()
     expect(
-      await screen.findByText('1,200 contacts frozen from 2,000 reachable.'),
+      screen.queryByText(/More reachable contacts remain/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers the next-batch path on the download step when contacts remain', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Huge list' }])
+    mockListDetail(2000)
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: { ...createResponse, personCount: 1200, hasMore: true },
+    })
+    openFlow()
+    await advanceToWho()
+    await pickSavedListAndContinue('Huge list')
+    await screen.findAllByText('Write your call script')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/picks up where this one left off/),
     ).toBeInTheDocument()
+  })
+
+  it('offers the next-batch path even when the reachable count is unavailable', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Huge list' }])
+    mockListDetail(null)
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: { ...createResponse, personCount: 1200, hasMore: true },
+    })
+    openFlow()
+    await advanceToWho()
+
+    // A null reachability leaf disables the picker's Continue, so reach the
+    // download step through the builder path instead — reachableCount stays
+    // null there, which is exactly the non-truncated branch under test.
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
+      ).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+    await screen.findAllByText('Name your list')
+    await user.type(screen.getByLabelText('List name'), 'My audience')
+    mockCreateList(99, 'My audience')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
+    await screen.findAllByText('Write your call script')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/More reachable contacts remain in this list/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/contacts frozen from/)).not.toBeInTheDocument()
   })
 
   it('shows no reconciliation copy on the download step when the audience was not truncated', async () => {
@@ -521,6 +596,133 @@ describe('PhoneBankingFlow', () => {
         },
       ]),
     )
+  })
+
+  it('sends trimmed instructions on Regenerate and Improve with AI, omitting them when blank', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await advanceToScript()
+
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+    expect(draftCalls[0]).not.toHaveProperty('instructions')
+
+    await user.type(
+      screen.getByLabelText('Instructions for the AI'),
+      '  mention the school levy  ',
+    )
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await waitFor(() => expect(draftCalls).toHaveLength(2))
+    expect(draftCalls[1]).toMatchObject({
+      instructions: 'mention the school levy',
+    })
+
+    const textarea = screen.getByLabelText('Call script')
+    await user.clear(textarea)
+    await user.type(textarea, 'My own words')
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+    await waitFor(() => expect(draftCalls).toHaveLength(3))
+    expect(draftCalls[2]).toMatchObject({
+      currentDraft: 'My own words',
+      instructions: 'mention the school levy',
+    })
+  })
+
+  it('sends previousDraft on Regenerate and on a tone change, omitting it on first generation', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await advanceToScript()
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).toHaveValue(
+        draftFor({ purpose: 'introduce', tone: 'warm' }),
+      ),
+    )
+    // First generation has nothing to reject.
+    expect(draftCalls[0]).not.toHaveProperty('previousDraft')
+
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await waitFor(() => expect(draftCalls).toHaveLength(2))
+    expect(draftCalls[1]).toMatchObject({
+      previousDraft: draftFor({ purpose: 'introduce', tone: 'warm' }),
+    })
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    const scriptBeforeToneChange = (
+      screen.getByLabelText('Call script') as HTMLTextAreaElement
+    ).value
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    await waitFor(() => expect(draftCalls).toHaveLength(3))
+    expect(draftCalls[2]).toMatchObject({
+      tone: 'direct',
+      previousDraft: scriptBeforeToneChange,
+    })
+  })
+
+  it('omits previousDraft on a tone change after the candidate manually edited the script, so their edits are never told to diverge from', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await advanceToScript()
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    expect(draftCalls).toHaveLength(1)
+
+    const textarea = screen.getByLabelText('Call script')
+    await user.clear(textarea)
+    await user.type(textarea, 'My hand-edited script')
+
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    await waitFor(() => expect(draftCalls).toHaveLength(2))
+    expect(draftCalls[1]).toMatchObject({ tone: 'direct' })
+    expect(draftCalls[1]).not.toHaveProperty('previousDraft')
+
+    // A later tone change, with no further edits since that AI draft
+    // landed, goes back to sending previousDraft — the guard is per-edit,
+    // not sticky for the rest of the session.
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).toHaveValue(
+        draftFor({ purpose: 'introduce', tone: 'direct' }),
+      ),
+    )
+    await user.click(screen.getByRole('radio', { name: /Urgent/ }))
+    await waitFor(() => expect(draftCalls).toHaveLength(3))
+    expect(draftCalls[2]).toMatchObject({
+      tone: 'urgent',
+      previousDraft: draftFor({ purpose: 'introduce', tone: 'direct' }),
+    })
+  })
+
+  it('clears instructions on a purpose re-pick, so the immediate draft for the new purpose omits them', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await advanceToScript()
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+
+    await user.type(
+      screen.getByLabelText('Instructions for the AI'),
+      'mention the school levy',
+    )
+
+    // script -> who -> purpose (picker mode keeps the pick on the first Back,
+    // then resets on the second — see PhoneBankingFlow's handleBack).
+    await user.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
+
+    await user.click(screen.getByText('Persuade likely voters'))
+
+    await waitFor(() => expect(draftCalls).toHaveLength(2))
+    expect(draftCalls[1]).toMatchObject({ purpose: 'persuade', tone: 'warm' })
+    expect(draftCalls[1]).not.toHaveProperty('instructions')
+
+    await pickSavedListAndContinue('Likely Dems')
+    await screen.findAllByText('Write your call script')
+    expect(screen.getByLabelText('Instructions for the AI')).toHaveValue('')
   })
 
   it('auto-suggests the campaign name from the purpose on the script step, and an empty name blocks Continue', async () => {
@@ -628,6 +830,95 @@ describe('PhoneBankingFlow', () => {
     expect(screen.getByText('Political party')).toBeInTheDocument()
   })
 
+  // ENG-10948: phone banking dials whichever number a voter has (cell first),
+  // so the cell phone/landline filter groups need to read as optional
+  // narrowing rather than a reachability requirement.
+  it('explains any-phone dialing above the filter builder', async () => {
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    expect(
+      (await screen.findAllByText('Build a voter list')).length,
+    ).toBeGreaterThan(0)
+
+    expect(
+      screen.getByText(
+        'Phone banking calls whichever number a voter has, cell first. The cell phone and landline filters are optional narrowing.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('applies the any-phone overlay to the builder count but never to the saved list', async () => {
+    mockDraft()
+    const countBodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/contacts/count', ({ body }) => {
+      countBodies.push(body)
+      return { status: 200, data: { count: 50 } }
+    })
+    const createListCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      createListCalls.push(body)
+      return { status: 200, data: { id: 99, name: 'My audience' } }
+    })
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
+      ).toBeEnabled(),
+    )
+    expect(countBodies.at(-1)).toMatchObject({
+      partyDemocrat: true,
+      hasAnyPhone: true,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+    await screen.findAllByText('Name your list')
+    await user.type(screen.getByLabelText('List name'), 'My audience')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
+    await screen.findAllByText('Write your call script')
+
+    expect(createListCalls[0]).toMatchObject({ partyDemocrat: true })
+    expect(createListCalls[0]).not.toHaveProperty('hasAnyPhone')
+  })
+
+  it("shows how many of the list's contacts have a phone number when some don't", async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'All voters' }])
+    mockListDetail(10)
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('All voters'))
+
+    expect(
+      await screen.findByText(
+        "10 of this list's 20 contacts have a phone number and will be included.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('omits the phone-number delta when every contact has a phone', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'All voters' }])
+    mockListDetail(20)
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('All voters'))
+    await screen.findByRole('button', { name: /Continue \(20\)/ })
+
+    expect(screen.queryByText(/have a phone number/)).not.toBeInTheDocument()
+  })
+
   it('builds a custom audience via the builder → naming sub-states, persists it, and sends its id', async () => {
     mockDraft()
     mockCount(50)
@@ -686,6 +977,64 @@ describe('PhoneBankingFlow', () => {
       EVENTS.Outreach.PhoneBanking.ListCreated,
       expect.objectContaining({ filtersApplied: true }),
     )
+  })
+
+  // ENG-10960: the step recommends reaching all voters, so the builder must
+  // allow exactly that — zero filters selected → Continue enables once the
+  // count settles, and the created list carries no criteria.
+  it('builds an all-voters audience with no filters selected — Continue enables and the list persists criteria-free', async () => {
+    mockDraft()
+    mockCount(50)
+    const createListCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      createListCalls.push(body)
+      return { status: 200, data: { id: 99, name: 'All voters' } }
+    })
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Continue \(50\)/ }),
+      ).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: /Continue \(50\)/ }))
+
+    expect(
+      (await screen.findAllByText('Name your list')).length,
+    ).toBeGreaterThan(0)
+    await user.type(screen.getByLabelText('List name'), 'All voters')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
+
+    await screen.findAllByText('Write your call script')
+    const body = createListCalls[0]
+    expect(body).toMatchObject({ name: 'All voters' })
+    // No criteria: nothing the user didn't select may be sent as true, and
+    // the optional narrowing arrays stay absent.
+    const truthyKeys = Object.entries(body ?? {})
+      .filter(([key, value]) => key !== 'name' && value === true)
+      .map(([key]) => key)
+    expect(truthyKeys).toEqual([])
+    expect(body).not.toHaveProperty('supportStatus')
+    expect(body).not.toHaveProperty('precincts')
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(createCalls[0]?.voterFileFilterId).toBe(99)
   })
 
   it('notifies onSaved with the outreach id and name so the hub history can update without a refetch', async () => {

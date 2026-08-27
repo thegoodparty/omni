@@ -15,7 +15,6 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
-import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -64,12 +63,30 @@ const PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   pickerBody: 'We recommend reaching all voters to increase awareness.',
   filtersTitle: 'Build a voter list',
   filtersBody: 'Pick filters to define who this campaign reaches.',
+  // ENG-10948: phone banking dials whichever number a voter has (cell first,
+  // see phoneBankingList.service.ts's pickDialNumber) rather than requiring
+  // one — without this, the Cell phone/Landline filter groups read as a
+  // reachability requirement instead of the optional narrowing they are.
+  filtersHint:
+    'Phone banking calls whichever number a voter has, cell first. The cell phone and landline filters are optional narrowing.',
   nameTitle: 'Name your list',
   nameBody: 'You can rename it any time.',
   reachVerb: 'Reach',
   reachNoun: 'voters by phone banking',
+  // ENG-10957: a real 91k list had 27% of contacts with no phone at all —
+  // the reach count is correct but reads as a bug next to the list size the
+  // candidate knows, so spell the delta out.
+  reachableOfTotalLine: (reachable, total) =>
+    `${reachable.toLocaleString()} of this list's ${total.toLocaleString()} contacts have a phone number and will be included.`,
   unitCostLabel: '',
 }
+
+// Count-only overlay on the in-flow builder count (same wiring as robocall's
+// { hasLandline: true }): the freeze keeps only people with a dialable
+// number (pickDialNumber), so the running total must count cell OR landline
+// rather than every matching voter (ENG-10957). The saved list itself stays
+// overlay-free and reusable by other channels.
+const PHONE_BANKING_COUNT_OVERLAY = { hasAnyPhone: true }
 
 interface PhoneBankingFlowProps {
   open: boolean
@@ -92,6 +109,14 @@ export const PhoneBankingFlow = ({
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
+  // Tracks whether the box holds unmodified AI output vs. candidate-typed
+  // text — same purpose as SocialFlow's manuallyEdited, scoped narrower:
+  // phone banking has no per-tone memory/Undo, so this only gates whether a
+  // tone change is allowed to send the current text as previousDraft (an
+  // explicit Regenerate click still does, since that's the candidate asking
+  // to discard whatever's on screen).
+  const [scriptManuallyEdited, setScriptManuallyEdited] = useState(false)
+  const [instructions, setInstructions] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
   // Whether the candidate has manually changed the sheet count — gates the
   // audience-derived default below so it never clobbers a deliberate choice.
@@ -110,6 +135,7 @@ export const PhoneBankingFlow = ({
     open,
     active: stepId === 'who',
     reachabilityKey: 'phoneBanking',
+    countOverlay: PHONE_BANKING_COUNT_OVERLAY,
   })
   const { reset: resetAudience } = audience
 
@@ -145,8 +171,8 @@ export const PhoneBankingFlow = ({
       trackEvent(EVENTS.Outreach.PhoneBanking.ListCreated, {
         product: 'phoneBanking',
         // Always true now: every audience is a saved VoterFileFilter (picked
-        // or just built) — the filter-less "All voters" default is gone
-        // (ENG-10930). Kept for analytics-schema continuity.
+        // or just built) — even an all-voters list built with no criteria
+        // (ENG-10960) persists as one. Kept for analytics-schema continuity.
         filtersApplied: true,
         listSize: response.personCount,
       })
@@ -168,6 +194,8 @@ export const PhoneBankingFlow = ({
     setPurpose(null)
     setTone('warm')
     setScript('')
+    setScriptManuallyEdited(false)
+    setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
     setName('')
@@ -211,25 +239,42 @@ export const PhoneBankingFlow = ({
   // Requests an AI script draft for the given purpose/tone; with
   // currentDraft it polishes that text in place (Improve with AI) instead
   // of writing fresh — the one generated path allowed for the custom
-  // purpose, mirroring SocialFlow's requestDraft.
+  // purpose, mirroring SocialFlow's requestDraft. previousDraft rides only
+  // on a fresh generation (Regenerate / a tone change) — it tells the model
+  // what the candidate just rejected so a re-roll actually varies
+  // (ENG-10937). instructionsOverride is the candidate's own freeform
+  // steering and applies on either path (ENG-10936); it defaults to the
+  // current instructions state, but handleSelectPurpose must pass '' — it
+  // resets instructions in the same tick, and the state update hasn't
+  // flushed yet when the immediate draft request fires, so reading the
+  // instructions closure here would still send the value from before the
+  // reset.
   const requestDraft = (
     nextPurpose: PhoneBankingPurpose | null,
     nextTone: SocialTone,
     currentDraft?: string,
+    previousDraft?: string,
+    instructionsOverride: string = instructions,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    const trimmedInstructions = instructionsOverride.trim()
     draftMutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(previousDraft === undefined ? {} : { previousDraft }),
+        ...(trimmedInstructions === ''
+          ? {}
+          : { instructions: trimmedInstructions }),
       },
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           setScript(generated)
+          setScriptManuallyEdited(false)
         },
       },
     )
@@ -237,27 +282,41 @@ export const PhoneBankingFlow = ({
 
   const handleSelectPurpose = (selected: PhoneBankingPurpose) => {
     setPurpose(selected)
-    // Reset tone/script state on every purpose pick (including re-picks after
-    // Back), not just the first one — otherwise picking 'custom' after
-    // viewing another purpose's script carries that script over instead of
-    // starting blank (custom skips the draft call, so nothing else clears
-    // it), and the tone pill can show a stale selection that doesn't match
-    // the newly requested draft's tone.
+    // Reset tone/script/instructions state on every purpose pick (including
+    // re-picks after Back), not just the first one — otherwise picking
+    // 'custom' after viewing another purpose's script carries that script
+    // over instead of starting blank (custom skips the draft call, so
+    // nothing else clears it), the tone pill can show a stale selection that
+    // doesn't match the newly requested draft's tone, and stale instructions
+    // typed for the old purpose would silently ride along on the new one's
+    // draft request.
     setTone('warm')
     setScript('')
+    setScriptManuallyEdited(false)
+    setInstructions('')
     setStepId('who')
-    requestDraft(selected, 'warm')
+    requestDraft(selected, 'warm', undefined, undefined, '')
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
     setTone(nextTone)
     if (!purpose || purpose === 'custom') return
-    requestDraft(purpose, nextTone)
+    // A tone change is not the candidate asking to discard their edits —
+    // only send previousDraft (and so invite the model to diverge) when the
+    // box still holds an unmodified AI generation. An explicit Regenerate
+    // click below is a discard request, so it always sends the current text.
+    requestDraft(
+      purpose,
+      nextTone,
+      undefined,
+      scriptManuallyEdited ? undefined : script.trim() || undefined,
+    )
   }
 
   const handleScriptChange = (value: string) => {
     setScript(value)
+    setScriptManuallyEdited(true)
     if (draftMutation.isError) resetDraftMutation()
   }
 
@@ -304,11 +363,6 @@ export const PhoneBankingFlow = ({
     setStepId(previous)
   }
 
-  const hasBuilderSelection = hasAnyVoterFileSelection(
-    audience.builderFilters,
-    audience.builderSupportStatus,
-  )
-
   const dirty = !saved && purpose !== null
 
   const createErrorMessage = createMutation.isError
@@ -326,12 +380,14 @@ export const PhoneBankingFlow = ({
             ? 'Continue'
             : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
           onClick: () => audience.setMode('name'),
+          // No minimum-filter gate (ENG-10960): the step recommends reaching
+          // all voters, and an empty filter set builds exactly that list —
+          // the backend accepts a criteria-less saved filter.
           disabled:
-            !hasBuilderSelection ||
             audience.builderCounting ||
             audience.builderZeroMatch ||
             audience.builderCapError,
-          loading: hasBuilderSelection && audience.builderCounting,
+          loading: audience.builderCounting,
         }
       : audience.mode === 'name'
         ? {
@@ -411,10 +467,14 @@ export const PhoneBankingFlow = ({
             onStartBuilder={audience.startBuilder}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
+            selectedListTotal={audience.selectedListTotal}
             pricePerContact={PRICE_PER_CONTACT}
             builderFilters={audience.builderFilters}
             onBuilderFiltersChange={audience.setBuilderFilters}
             builderSupportStatus={audience.builderSupportStatus}
+            builderPrecincts={audience.builderPrecincts}
+            onBuilderPrecinctsChange={audience.setBuilderPrecincts}
+            precinctOptions={audience.precinctOptions}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}
@@ -442,7 +502,11 @@ export const PhoneBankingFlow = ({
           onToneChange={handleToneChange}
           script={script}
           onScriptChange={handleScriptChange}
-          onRegenerate={() => requestDraft(purpose, tone)}
+          instructions={instructions}
+          onInstructionsChange={setInstructions}
+          onRegenerate={() =>
+            requestDraft(purpose, tone, undefined, script.trim() || undefined)
+          }
           onImprove={() => requestDraft(purpose, tone, script.trim())}
           canImprove={script.trim().length > 0 && !draftMutation.isPending}
           isDrafting={draftMutation.isPending}
@@ -457,11 +521,7 @@ export const PhoneBankingFlow = ({
           reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep
-          response={createResponse}
-          audienceLabel={audienceLabel}
-          reachableCount={audience.reachableCount}
-        />
+        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
       ) : null}
     </OutreachFlowShell>
   )

@@ -437,13 +437,6 @@ const TaskFlow = ({
             role="button"
             tabIndex={0}
             className="mt-4 flex items-center justify-end"
-            onClick={() => {
-              // NOTE: this text link form is only used on the Voter File Detail page
-              trackEvent(
-                EVENTS.VoterData.FileDetail.LearnTakeAction.ClickSchedule,
-                { type },
-              )
-            }}
           >
             <span className="mr-2">Schedule Today</span>
             <IoArrowForward />

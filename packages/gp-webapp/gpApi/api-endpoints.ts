@@ -30,9 +30,11 @@ import type {
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
   SummarySource,
+  CancelOutreachResponse,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
   OutreachDetail,
+  OutreachReceipt,
   SocialDraftRequest,
   SocialDraftResponse,
   SocialGenerateRequest,
@@ -46,8 +48,14 @@ import type {
   RobocallScriptDraftResponse,
   RobocallAudioPresignRequest,
   RobocallAudioPresignResponse,
+  RobocallNumberResponse,
+  RobocallComplianceRequest,
+  RobocallComplianceVerdict,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
+  PeoplePrecinctsResponse,
+  SmsDraftRequest,
+  SmsDraftResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -280,6 +288,22 @@ export type APIEndpoints = {
     Response: OutreachArchiveResponse
   }
 
+  // Cancel-before-send (SMS): permanent — deletes the Peerly job and issues
+  // the automatic Stripe refund (refunded=false on free-texts campaigns).
+  // Campaign-scoped; only `pending` (scheduled) rows are cancelable.
+  'POST /v1/outreach/:id/cancel': {
+    Request: {}
+    Response: CancelOutreachResponse
+  }
+
+  // Live Stripe receipt for a paid SMS campaign (success screen + details
+  // drawer's "View receipt"). Amount is in DOLLARS. 404 on free-texts rows
+  // (no checkout session recorded); 502 when Stripe is unreachable.
+  'GET /v1/outreach/:id/receipt': {
+    Request: {}
+    Response: OutreachReceipt
+  }
+
   // Synchronous, stateless: one structured LLM call writes the compose-step
   // draft from purpose + tone (candidate name/office come from the session).
   // With currentDraft it polishes that text in place instead (Improve with
@@ -296,6 +320,14 @@ export type APIEndpoints = {
   'POST /v1/outreach/social/generate': {
     Request: SocialGenerateRequest
     Response: SocialGenerateResponse
+  }
+
+  // SMS sibling of the social draft endpoint: writes/polishes only the
+  // message BODY — the flow wraps it in the system-owned identification
+  // intro and opt-out footer client-side before submission.
+  'POST /v1/outreach/sms/draft': {
+    Request: SmsDraftRequest
+    Response: SmsDraftResponse
   }
 
   // Persists the social campaign atomically (spine row + satellite +
@@ -326,6 +358,23 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/audio/presign': {
     Request: RobocallAudioPresignRequest
     Response: RobocallAudioPresignResponse
+  }
+
+  // Rents a fresh CallHub caller-ID number for this robocall. The candidate
+  // reads the returned number aloud as the callback number, so it's rented
+  // before the disclosure draft. Pro-gated. Empty request body.
+  'POST /v1/outreach/robocall/number': {
+    Request: Record<string, never>
+    Response: RobocallNumberResponse
+  }
+
+  // Fail-closed compliance gate for the recorded audio: transcribes the clip
+  // and verifies the candidate self-ID, organization, and callback number are
+  // spoken. Returns the verdict (passed + per-check + issues). Pro-gated; 502
+  // on a transcription/LLM failure.
+  'POST /v1/outreach/robocall/compliance': {
+    Request: RobocallComplianceRequest
+    Response: RobocallComplianceVerdict
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of
@@ -911,6 +960,11 @@ export type APIEndpoints = {
     // unfiltered district.
     Request: { segment?: number }
     Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/precincts': {
+    Request: {}
+    Response: PeoplePrecinctsResponse
   }
 
   'GET /v1/contacts/:personId/notes': {

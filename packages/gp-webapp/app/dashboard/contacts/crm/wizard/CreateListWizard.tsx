@@ -19,6 +19,7 @@ import {
 } from '../shared/voterFileFilterTransform.util'
 import BranchStep, { type ListWizardBranch } from './BranchStep'
 import VoterFileStep from './VoterFileStep'
+import { usePrecinctOptions } from './usePrecinctOptions'
 import ActivityStep, {
   blankActivityCondition,
   isActivityStepValid,
@@ -79,6 +80,17 @@ export default function CreateListWizard({
   const [demographicFilters, setDemographicFilters] =
     useState<VoterFileFilters>({})
   const [supportStatus, setSupportStatus] = useState<SupportStatusRollup[]>([])
+  const [precincts, setPrecincts] = useState<string[]>([])
+  // Gated on `open` because this component never unmounts — CrmContactsPage
+  // always renders it and only toggles `open` — so an ungated fetch ran on
+  // every contacts page load for every Win user, whether or not they opened
+  // the wizard. In prod that produced a 29% error rate on the endpoint (a
+  // non-Pro page load 400s on the Pro gate) while the sibling count queries,
+  // which gate the same way, took zero. `voterDataUnavailable` for the same
+  // reason the count does: an org with no resolvable district can only 400.
+  const precinctOptions = usePrecinctOptions(
+    open && !isElectedOfficial && !voterDataUnavailable,
+  )
   const [activityConditions, setActivityConditions] = useState<
     WizardActivityCondition[]
   >(() => [blankActivityCondition()])
@@ -105,6 +117,7 @@ export default function CreateListWizard({
     setBranch(null)
     setDemographicFilters({})
     setSupportStatus([])
+    setPrecincts([])
     setActivityConditions([blankActivityCondition()])
     setName('')
     setOpenSession((session) => session + 1)
@@ -141,6 +154,7 @@ export default function CreateListWizard({
       return {
         ...transformVoterFileFiltersForBackend(demographicFilters),
         ...(supportStatus.length ? { supportStatus } : {}),
+        ...(precincts.length ? { precincts } : {}),
       }
     }
     if (activeBranch === 'activity') {
@@ -149,14 +163,20 @@ export default function CreateListWizard({
       }
     }
     return {}
-  }, [activeBranch, demographicFilters, supportStatus, activityConditions])
+  }, [
+    activeBranch,
+    demographicFilters,
+    supportStatus,
+    precincts,
+    activityConditions,
+  ])
 
   // ENG-10751: an empty voter-file selection would just recreate the
   // pre-built "All voters" list, so zero filters blocks the build (reversing
   // the ENG-10725 valid-unfiltered-submission stance).
   const isConditionsStepValid =
     activeBranch === 'voterFile'
-      ? hasAnyVoterFileSelection(demographicFilters, supportStatus)
+      ? hasAnyVoterFileSelection(demographicFilters, supportStatus, precincts)
       : activeBranch === 'activity'
         ? isActivityStepValid(activityConditions)
         : false
@@ -461,6 +481,9 @@ export default function CreateListWizard({
           onFiltersChange={setDemographicFilters}
           supportStatus={supportStatus}
           onSupportStatusChange={setSupportStatus}
+          precincts={precincts}
+          onPrecinctsChange={setPrecincts}
+          precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
         />
       )}

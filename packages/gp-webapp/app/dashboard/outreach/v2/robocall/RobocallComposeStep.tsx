@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import {
   ROBOCALL_SCRIPT_MAX_LENGTH,
+  type RobocallComplianceVerdict,
   SOCIAL_TONE_VALUES,
   type SocialTone,
 } from '@goodparty_org/contracts'
@@ -60,6 +61,12 @@ interface RobocallComposeStepProps {
   isDrafting: boolean
   isDraftError: boolean
   audienceName: string
+  // The rented caller-ID number the candidate must read aloud (the drafted
+  // script includes it). Null while renting or if renting failed.
+  callbackNumber: string | null
+  isRentingNumber: boolean
+  rentError: boolean
+  onRetryNumber: () => void
   recorder: RobocallRecorder
   maxSeconds: number
   // Save uploads the recording to S3, then marks it saved; while it runs the
@@ -67,6 +74,13 @@ interface RobocallComposeStepProps {
   onSaveRecording: () => void
   isUploading: boolean
   uploadError: string | null
+  // Compliance gate on the saved recording: while checking, a spinner; a
+  // verdict with passed=false lists the issues to re-record against; an error
+  // (transcription/LLM failure) offers a retry.
+  complianceChecking: boolean
+  complianceVerdict: RobocallComplianceVerdict | null
+  complianceError: boolean
+  onRetryCompliance: () => void
 }
 
 export const RobocallComposeStep = ({
@@ -79,11 +93,19 @@ export const RobocallComposeStep = ({
   isDrafting,
   isDraftError,
   audienceName,
+  callbackNumber,
+  isRentingNumber,
+  rentError,
+  onRetryNumber,
   recorder,
   maxSeconds,
   onSaveRecording,
   isUploading,
   uploadError,
+  complianceChecking,
+  complianceVerdict,
+  complianceError,
+  onRetryCompliance,
 }: RobocallComposeStepProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -109,103 +131,186 @@ export const RobocallComposeStep = ({
         body="Read the script below into your microphone. We'll play it for your recipients."
       />
 
-      {!isCustomPurpose && (
-        <FilterPillGroup
-          type="single"
-          value={tone}
-          onValueChange={(value) => value && onToneChange(value as SocialTone)}
-        >
-          {SOCIAL_TONE_VALUES.map((t) => (
-            <FilterPill key={t} value={t} className="gap-1.5">
-              {TONE_ICONS[t]}
-              {TONE_LABELS[t]}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
+      {!callbackNumber && isRentingNumber && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2Icon className="size-4 animate-spin" />
+          Getting your callback number…
+        </p>
       )}
 
-      {!isCustomPurpose && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
-            Suggested for {audienceName}
-          </p>
-          <Button
-            type="button"
-            variant="link"
-            size="small"
-            className="h-auto gap-1.5 px-0 no-underline"
-            disabled={isDrafting}
-            onClick={onRegenerate}
-          >
-            {isDrafting ? (
-              <Loader2Icon className="size-4 animate-spin" />
-            ) : (
-              <RefreshIcon className="size-4" />
-            )}
-            Regenerate
-          </Button>
-        </div>
-      )}
-
-      {isDraftError && (
+      {!callbackNumber && rentError && (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
-            We couldn&apos;t draft your script just now. Try again, or write
-            your own.
+            We couldn&apos;t get a callback number just now. Your recording
+            needs one, so try again.
           </p>
-          <Button type="button" size="small" onClick={onRegenerate}>
+          <Button type="button" size="small" onClick={onRetryNumber}>
             Try again
           </Button>
         </Card>
       )}
 
-      <Card className="gap-2 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Read this on your recording
-        </p>
-        {isCustomPurpose ? (
-          <Textarea
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            placeholder="Write your script…"
-            aria-label="Robocall script"
-            maxLength={ROBOCALL_SCRIPT_MAX_LENGTH}
-            className="min-h-[120px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
+      {/* The number gates the whole body: the script must carry the spoken
+          disclosure with it, so there's nothing to draft, tone, or record
+          until it's rented. */}
+      {callbackNumber && (
+        <>
+          {!isCustomPurpose && (
+            <FilterPillGroup
+              type="single"
+              value={tone}
+              onValueChange={(value) =>
+                value && onToneChange(value as SocialTone)
+              }
+            >
+              {SOCIAL_TONE_VALUES.map((t) => (
+                <FilterPill key={t} value={t} className="gap-1.5">
+                  {TONE_ICONS[t]}
+                  {TONE_LABELS[t]}
+                </FilterPill>
+              ))}
+            </FilterPillGroup>
+          )}
+
+          {!isCustomPurpose && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Suggested for {audienceName}
+              </p>
+              <Button
+                type="button"
+                variant="link"
+                size="small"
+                className="h-auto gap-1.5 px-0 no-underline"
+                disabled={isDrafting}
+                onClick={onRegenerate}
+              >
+                {isDrafting ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <RefreshIcon className="size-4" />
+                )}
+                Regenerate
+              </Button>
+            </div>
+          )}
+
+          {isDraftError && (
+            <Card className="items-start gap-3 border-destructive p-4">
+              <p className="text-sm text-foreground">
+                We couldn&apos;t draft your script just now. Try again, or write
+                your own.
+              </p>
+              <Button type="button" size="small" onClick={onRegenerate}>
+                Try again
+              </Button>
+            </Card>
+          )}
+
+          <Card className="gap-2 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Read this on your recording
+            </p>
+            {isCustomPurpose ? (
+              <Textarea
+                value={draft}
+                onChange={(e) => onDraftChange(e.target.value)}
+                placeholder="Write your script…"
+                aria-label="Robocall script"
+                maxLength={ROBOCALL_SCRIPT_MAX_LENGTH}
+                className="min-h-[120px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
+              />
+            ) : isDrafting && !draft.trim() ? (
+              <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+                <Loader2Icon className="size-4 animate-spin" />
+                Drafting your script…
+              </p>
+            ) : (
+              <p
+                data-vaul-no-drag
+                className="select-text whitespace-pre-wrap text-base leading-relaxed text-foreground"
+              >
+                {draft}
+              </p>
+            )}
+            <p
+              data-vaul-no-drag
+              className="select-text text-xs text-muted-foreground"
+            >
+              Your recording must say who paid for the call and include this
+              callback number: {callbackNumber}.
+            </p>
+          </Card>
+
+          <p className="text-xs text-muted-foreground">
+            Your recording must be {maxSeconds} seconds or less — anything
+            longer will be removed.
+          </p>
+
+          <RecordBar
+            recorder={recorder}
+            maxSeconds={maxSeconds}
+            playing={playing}
+            onTogglePlay={togglePlay}
+            audioRef={audioRef}
+            onAudioPlay={() => setPlaying(true)}
+            onAudioPause={() => setPlaying(false)}
+            fileInputRef={fileInputRef}
+            onSave={onSaveRecording}
+            isUploading={isUploading}
           />
-        ) : isDrafting && !draft.trim() ? (
-          <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-            <Loader2Icon className="size-4 animate-spin" />
-            Drafting your script…
-          </p>
-        ) : (
-          <p className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
-            {draft}
-          </p>
-        )}
-      </Card>
 
-      <p className="text-xs text-muted-foreground">
-        Your recording must be {maxSeconds} seconds or less — anything longer
-        will be removed.
-      </p>
+          {(recorder.error || uploadError) && (
+            <p className="text-sm text-destructive">
+              {recorder.error ?? uploadError}
+            </p>
+          )}
 
-      <RecordBar
-        recorder={recorder}
-        maxSeconds={maxSeconds}
-        playing={playing}
-        onTogglePlay={togglePlay}
-        audioRef={audioRef}
-        onAudioPlay={() => setPlaying(true)}
-        onAudioPause={() => setPlaying(false)}
-        fileInputRef={fileInputRef}
-        onSave={onSaveRecording}
-        isUploading={isUploading}
-      />
+          {complianceChecking && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2Icon className="size-4 animate-spin" />
+              Checking your recording…
+            </p>
+          )}
 
-      {(recorder.error || uploadError) && (
-        <p className="text-sm text-destructive">
-          {recorder.error ?? uploadError}
-        </p>
+          {complianceError && (
+            <Card className="items-start gap-3 border-destructive p-4">
+              <p className="text-sm text-foreground">
+                We couldn&apos;t check your recording just now. Try again.
+              </p>
+              <Button type="button" size="small" onClick={onRetryCompliance}>
+                Try again
+              </Button>
+            </Card>
+          )}
+
+          {complianceVerdict && !complianceVerdict.passed && (
+            <Card className="items-start gap-2 border-destructive p-4">
+              <p className="text-sm font-medium text-foreground">
+                Your recording is missing:
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {complianceVerdict.issues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+              <p className="text-sm text-muted-foreground">
+                Re-record with all of these and we&apos;ll check again.
+              </p>
+            </Card>
+          )}
+
+          {complianceVerdict?.passed && (
+            <Card className="gap-1 border-success p-4">
+              <p className="text-sm font-medium text-foreground">
+                Your recording has everything it needs.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                It names you, who paid for the call, and the callback number.
+              </p>
+            </Card>
+          )}
+        </>
       )}
     </div>
   )

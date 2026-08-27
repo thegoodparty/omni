@@ -107,11 +107,19 @@ jobs:
   # named exactly "Validate"; this job preserves that name while the real work
   # fans out across the checks + sharded test jobs. It is green iff all of its
   # needs succeeded, so it gates merge on Checks plus every Test shard.
+  # `if: always()` + the explicit failure step matter: without them a failed
+  # need leaves this job SKIPPED, and the ruleset treats a skipped required
+  # check as satisfied, so auto-merge lands red PRs.
   validate:
     name: Validate
     needs: [checks, test]
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      - if: needs.checks.result != 'success' || needs.test.result != 'success'
+        run: |
+          echo "checks=${{ needs.checks.result }} test=${{ needs.test.result }}"
+          exit 1
       - run: echo "checks + all test shards passed"
 
   # Intentionally no needs: validate — the preview deploy runs in parallel with
@@ -202,6 +210,44 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
           CANDIDATE_PASSWORD: ${{ secrets.CANDIDATE_PASSWORD }}
+
+      # Pulumi reports success from its own resource spec, not from the task set
+      # actually running. A deploy that exhausts the 10m steady-state wait leaves
+      # the spec updated and — with deploymentCircuitBreaker.rollback false — the
+      # previous task still serving. The next `pulumi up` then finds nothing to
+      # change and exits 0 against a service that never rolled over. Without this
+      # step that mismatch stays invisible here and surfaces ~20m later as a
+      # gp-webapp "E2E Wait" failure blaming a deploy that reported green, which
+      # sends you re-running the one job that cannot fix it.
+      - name: Verify the preview is serving this commit
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          SERVICE_URL: ${{ steps.pulumi.outputs.service_url }}
+        run: |
+          BASE="${SERVICE_URL:-https://pr-${{ github.event.number }}.preview.goodparty.org}"
+          BASE="${BASE%/}"
+          echo "Confirming $BASE is serving $EXPECTED_SHA"
+          got=""
+          for i in $(seq 1 18); do
+            # --max-time keeps a hung container (accepted TCP, no response) from
+            # parking the runner: `|| true` only catches non-zero exits, not a
+            # curl that never returns, and this job sets no timeout-minutes.
+            got="$(curl -fsS --max-time 8 "$BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            if [ "$got" = "$EXPECTED_SHA" ]; then
+              echo "preview serving $EXPECTED_SHA"
+              exit 0
+            fi
+            echo "  attempt $i/18: serving ${got:-<unreachable>}"
+            sleep 10
+          done
+          echo "Pulumi succeeded but the service never rolled over to this commit."
+          echo "Re-running this job will not help: Pulumi compares its own resource"
+          echo "spec, which the timed-out attempt already updated, so it exits 0"
+          echo "without re-rolling. Push a commit — an empty one is enough — so the"
+          echo "image tag changes and ECS is given a genuinely new task definition."
+          echo "::error::gp-api preview is serving ${got:-nothing} but this run built $EXPECTED_SHA; ECS did not roll over. Re-running this job is a no-op — push a commit to force a new image tag and a fresh rollout."
+          exit 1
 
       - name: Add preview summary
         if: steps.pulumi.outputs.service_url != ''

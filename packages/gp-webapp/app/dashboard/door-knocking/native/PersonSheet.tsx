@@ -9,10 +9,12 @@ import {
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 import {
+  BadgeCheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CircleUserRoundIcon,
   ClipboardListIcon,
+  FileTextIcon,
   HouseIcon,
   IconButton,
   MapPinIcon,
@@ -20,7 +22,7 @@ import {
   XMarkIcon,
 } from '@styleguide'
 import SheetSectionHeader from './SheetSectionHeader'
-import { demographicFacts } from './demographicFacts'
+import { demographicFacts, voterDemographicFacts } from './demographicFacts'
 import RecordKnockForm from './RecordKnockForm'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
@@ -34,6 +36,7 @@ import {
   STATUS_LABELS,
   targetMarker,
 } from './statusPresentation'
+import { supportAsOf, supportStatus } from './supportPresentation'
 
 const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
   <span
@@ -51,6 +54,93 @@ const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
 const ResidentMarker = ({ marker }: { marker: string }) => (
   <span className="shrink-0 text-xs font-medium text-warning">{marker}</span>
 )
+
+// The canvas's `panelField`: label over value, one column, both at the same
+// size. Two columns fitted more rows onto a phone, but a grid of pairs reads as
+// a table to be cross-referenced rather than as a profile to be scanned, and
+// the canvas draws every card in this panel as a single column.
+const FactRow = ({ label, value }: { label: string; value: string }) => (
+  <div>
+    <p className="text-sm text-muted-foreground">{label}</p>
+    <p className="text-sm font-medium">{value}</p>
+  </div>
+)
+
+const FactCard = ({
+  icon,
+  title,
+  facts,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>
+  title: string
+  facts: Array<{ label: string; value: string }>
+}) => (
+  <section className="mb-4 rounded-lg border border-border">
+    <SheetSectionHeader icon={icon} title={title} />
+    <div className="flex flex-col gap-4 p-4">
+      {facts.map(({ label, value }) => (
+        <FactRow key={label} label={label} value={value} />
+      ))}
+    </div>
+  </section>
+)
+
+// The canvas's "Voter support" card: where this resident stands, stated as a
+// current fact. Without it the panel went from the header straight to the form,
+// so a canvasser walking up to a door a teammate knocked last week could only
+// find out by scrolling to the activity feed and reading a row — at the one
+// moment they are deciding what to open with.
+//
+// **It states support and nothing else.** `supportStatus` is silent for every
+// status that carries no support signal (never knocked, not home, inaccessible,
+// refused, not a voter), because a card is a claim and those are all doors with
+// no answer behind them; an empty card, or one reading "Support unknown", would
+// turn the absence of an observation into one. The date is the same rule again:
+// it comes off the resident's own activity history when a row there states this
+// support answer, and the line is simply absent when nothing does — the status
+// on the payload carries no timestamp of its own and inventing one would date a
+// stance to whenever the walk happened to be served.
+//
+// **Will-vote is deliberately not here.** The canvas card carries a second line
+// for it and `RecordKnockForm` asks the question, but the answer only lives in
+// the CRM interaction — nothing derives it onto `knockStatus` the way support
+// is derived, so the panel has no current value to state. Recorded as still
+// open in `AGENTS.md` rather than approximated from the most recent knock,
+// which would quietly report one canvasser's answer as the resident's standing
+// position.
+//
+// ADR 0007 and 0008: withheld for a flagged resident. That is `targetMarker`'s
+// rule at panel scale — the marker REPLACES the status rather than sitting
+// beside it, and "Supporter" over a door whose footer says "asked not to be
+// visited again" is exactly the pair of answers to one question the rule exists
+// to prevent. It used to be withheld structurally, by living inside the footer
+// branch that also withholds the script and the form; the card now sits in the
+// body where the canvas draws it, so the footer's flag control is resolved once
+// and the body renders this card only when there is none. Still one predicate,
+// just named instead of implied — see `flagControl` below.
+const VoterSupportCard = ({
+  target,
+  status,
+}: {
+  target: RoutePayloadTarget
+  status: DoorKnockStatus
+}) => {
+  const support = supportStatus(status)
+  if (!support) return null
+  const asOf = supportAsOf(target, support)
+  return (
+    <section className="mb-4 rounded-lg border border-border">
+      <SheetSectionHeader icon={BadgeCheckIcon} title="Voter support" />
+      <div className="p-4">
+        <p className="flex items-center gap-2 text-sm font-medium">
+          <StatusDot status={support} />
+          {STATUS_LABELS[support]}
+        </p>
+        {asOf && <p className="text-sm text-muted-foreground">As of {asOf}</p>}
+      </div>
+    </section>
+  )
+}
 
 interface PersonSheetProps {
   stop: RoutePayloadStop
@@ -112,7 +202,7 @@ const digitsOnly = (phone: string): string => phone.replace(/\D/g, '')
 
 const PhoneRow = ({ label, phone }: { label: string; phone: string }) => (
   <div>
-    <p className="text-xs text-muted-foreground">{label}</p>
+    <p className="text-sm text-muted-foreground">{label}</p>
     {/* Tappable: the point of a number at the door is calling it from the
         phone already in the canvasser's hand. */}
     <a className="underline" href={`tel:${digitsOnly(phone)}`}>
@@ -160,6 +250,25 @@ export default function PersonSheet({
     (address) => address.otherResidents,
   )
 
+  // ADR 0007 and 0008, resolved once for the whole sheet. A flagged door has
+  // nothing to say and nothing to log, so the footer swaps the script, the form
+  // and the two follow-ups for the flag's own control — and the body's support
+  // card is withheld by the presence of that control rather than by a second
+  // reading of the same two fields, which is what would drift.
+  const flagControl = target.doNotKnock ? (
+    <DoNotKnockControl
+      key={target.stopTargetId}
+      target={target}
+      onChanged={onDoNotKnockChanged}
+    />
+  ) : target.notAVoterReason ? (
+    <NotAVoterControl
+      key={target.stopTargetId}
+      target={target}
+      onChanged={onNotAVoterChanged}
+    />
+  ) : null
+
   return (
     <>
       <button
@@ -174,8 +283,14 @@ export default function PersonSheet({
             {/* The canvas's panel header: back, the stop's number, the person,
                 forward. Both chevrons are rendered at every position and
                 disabled at the ends, so the pair keeps its place in the row
-                and the header does not reflow as the canvasser walks. */}
+                and the header does not reflow as the canvasser walks.
+                `ghost` and not the default fill: three filled circles around
+                the name made the chrome the loudest thing on a panel whose
+                subject is the person, and the canvas draws all three as plain
+                glyphs. The hit target is the IconButton's either way, which is
+                the part that matters at a doorstep. */}
             <IconButton
+              variant="ghost"
               aria-label="Previous door"
               disabled={onOpenPreviousStop === null}
               onClick={() => onOpenPreviousStop?.()}
@@ -191,23 +306,29 @@ export default function PersonSheet({
               <h2 className="truncate text-xl font-semibold">
                 {target.name ?? 'Name unavailable'}
               </h2>
+              {/* The age alone, as the canvas draws it. Party used to share
+                  this line; it is a voter-file attribute like registration and
+                  turnout, so it sits with those in the Voter demographics card
+                  and the subtitle is left to identify the person. */}
               <p className="text-sm text-muted-foreground">
-                {[
-                  target.age !== null ? `${target.age} years old` : null,
-                  target.politicalParty,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || 'No details on file'}
+                {target.age !== null
+                  ? `${target.age} years old`
+                  : 'No details on file'}
               </p>
             </div>
             <IconButton
+              variant="ghost"
               aria-label="Next door"
               disabled={onOpenNextStop === null}
               onClick={() => onOpenNextStop?.()}
             >
               <ChevronRightIcon size={18} />
             </IconButton>
-            <IconButton aria-label="Close person details" onClick={onClose}>
+            <IconButton
+              variant="ghost"
+              aria-label="Close person details"
+              onClick={onClose}
+            >
               <XMarkIcon size={18} />
             </IconButton>
           </div>
@@ -263,10 +384,10 @@ export default function PersonSheet({
               icon={CircleUserRoundIcon}
               title="Contact information"
             />
-            <div className="flex flex-col gap-3 p-4 text-sm">
+            <div className="flex flex-col gap-4 p-4 text-sm">
               <div>
-                <p className="text-xs text-muted-foreground">Address</p>
-                <p>{stop.displayAddress}</p>
+                <p className="text-sm text-muted-foreground">Address</p>
+                <p className="font-medium">{stop.displayAddress}</p>
               </div>
               {target.cellPhone && (
                 <PhoneRow label="Cell phone" phone={target.cellPhone} />
@@ -280,7 +401,7 @@ export default function PersonSheet({
               {!target.cellPhone &&
                 !target.landline &&
                 !target.mayHaveMoved && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     No phone number on file.
                   </p>
                 )}
@@ -301,21 +422,22 @@ export default function PersonSheet({
                 <MapPinIcon size={16} /> Open in Maps
               </a>
               {target.mayHaveMoved && (
-                <p className="text-xs text-warning">
+                <p className="text-sm text-warning">
                   May have moved since this route was built.
                 </p>
               )}
             </div>
           </section>
 
-          {/* ADR 0011. Second in the body, above the demographic profile,
-              because it is the only card here a canvasser reads BEFORE they
-              knock: "dog in the yard, use the side gate" is the archetypal
-              note, and putting it under eleven rows the comment below
-              correctly calls reference material scanned mid-conversation is
-              putting it where nobody standing at a gate will find it. Contact
-              information keeps the top because the address and Open in Maps
-              are what get someone to the door in the first place.
+          {/* ADR 0011. Second in the body, above the profile cards, because it
+              is the only card here a canvasser reads BEFORE they knock: "dog in
+              the yard, use the side gate" is the archetypal note, and putting
+              it under a dozen rows the comments below correctly call reference
+              material scanned mid-conversation is putting it where nobody
+              standing at a gate will find it. Contact information keeps the top
+              because the address and Open in Maps are what get someone to the
+              door in the first place. The canvas puts Notes second from last;
+              this position is the ADR's and outranks it.
 
               In the scrolling body rather than the footer fragment, for the
               same reason the activity feed is, and it is the same argument
@@ -347,36 +469,9 @@ export default function PersonSheet({
             onDeleted={(noteId) => onNoteDeleted(target.personId, noteId)}
           />
 
-          {/* The prototype's demographic profile, scoped to `target` so
-              switching resident switches the card — these are facts about one
-              person, and the resident switcher above is the only thing that
-              should change them.
-
-              Deliberately plain label-over-value rows: no badges and no
-              per-row icons, because eleven decorated rows read as eleven
-              things to act on when they are reference material a canvasser
-              scans mid-conversation. Two columns because eleven single-column
-              rows push the Household card and the activity feed off a phone
-              screen entirely.
-
-              **Targets only, and screen only.** Other residents behind the
-              same door stay name-only in the Household card below, and both
-              paper surfaces omit all of this — see the AGENTS.md note. */}
-          <section className="mb-4 rounded-lg border border-border">
-            <SheetSectionHeader
-              icon={ClipboardListIcon}
-              title="Demographic information"
-            />
-            <div className="grid grid-cols-2 gap-3 p-4 text-sm">
-              {demographicFacts(target).map(({ label, value }) => (
-                <div key={label}>
-                  <p className="text-xs text-muted-foreground">{label}</p>
-                  <p className="font-medium">{value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
+          {/* Above the three profile cards, where the canvas puts it. Who else
+              is behind this door is a fact about the door, and it is read
+              before the knock; the profile below is read during it. */}
           <section className="mb-4 rounded-lg border border-border">
             <SheetSectionHeader icon={HouseIcon} title="Household" />
             <div className="flex flex-col gap-2 p-4 text-sm">
@@ -415,6 +510,43 @@ export default function PersonSheet({
             </div>
           </section>
 
+          {/* The canvas's three profile cards, in its order: the voter-file
+              registration facts, then where this resident stands, then the
+              personal profile. We drew the first and third as one grid with
+              support pinned in the footer, which put "is this person on the
+              roll" and "do they have children" in adjacent cells of the same
+              table — two different kinds of claim, read as one list.
+
+              All three are scoped to `target`, so switching resident switches
+              them: these are facts about one person, and the switcher in the
+              header is the only thing that should change them.
+
+              Deliberately plain label-over-value rows: no badges and no per-row
+              icons, because a decorated row reads as a thing to act on when
+              this is reference material a canvasser scans mid-conversation.
+
+              **Targets only, and screen only.** Other residents behind the same
+              door stay name-only in the Household card above, and both paper
+              surfaces omit all of it — see the AGENTS.md note. */}
+          <FactCard
+            icon={ClipboardListIcon}
+            title="Voter demographics"
+            facts={voterDemographicFacts(target)}
+          />
+
+          {flagControl === null && (
+            <VoterSupportCard target={target} status={statusFor(target)} />
+          )}
+
+          {/* `FileTextIcon` where the canvas uses `folder-open`, which the
+              styleguide does not export. Adding it is a styleguide change, not
+              a door-knocking one. */}
+          <FactCard
+            icon={FileTextIcon}
+            title="Demographic information"
+            facts={demographicFacts(target)}
+          />
+
           {/* ADR 0009. Scoped to `target`, so switching resident switches the
               feed — two people behind one door disagree, and attributing a
               housemate's refusal to whoever answered is worse than showing
@@ -444,25 +576,16 @@ export default function PersonSheet({
           {/* ADR 0007 and 0008. The script and the form are withheld rather
               than disabled: a flagged door has nothing to say and nothing to
               log, and an inert set of pills invites someone to work out why
-              they don't respond. Do-not-knock is checked first because it is
-              the stronger instruction — it is about the door, not the
-              resident. */}
-          {target.doNotKnock ? (
-            <DoNotKnockControl
-              key={target.stopTargetId}
-              target={target}
-              onChanged={onDoNotKnockChanged}
-            />
-          ) : target.notAVoterReason ? (
-            <NotAVoterControl
-              key={target.stopTargetId}
-              target={target}
-              onChanged={onNotAVoterChanged}
-            />
-          ) : (
+              they don't respond. `flagControl` is resolved above, where
+              do-not-knock is checked first because it is the stronger
+              instruction — it is about the door, not the resident. */}
+          {flagControl ?? (
             <>
               {/* Above the form, because it's what the canvasser says before
-                  there is anything to log. */}
+                  there is anything to log. The canvas draws talking points as
+                  the first card in the scrolling body instead; pinned here it
+                  stays readable while the answers are being tapped, which is
+                  when a canvasser is still talking. */}
               <DoorScript intro={script.intro} issues={script.issues} />
               <h3 className="text-base font-semibold">Log this door</h3>
               <RecordKnockForm

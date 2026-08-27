@@ -16,8 +16,7 @@ import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
-import LiveLocationControl from './LiveLocationControl'
-import { LiveLocationFix, useLiveLocation } from './useLiveLocation'
+import { LiveLocation, LiveLocationFix } from './useLiveLocation'
 
 // Dots and legend chips share one palette (statusPresentation.ts) so they
 // cannot disagree; indexes match DOOR_KNOCK_STATUSES order (the status
@@ -25,9 +24,17 @@ import { LiveLocationFix, useLiveLocation } from './useLiveLocation'
 const STATUS_COLORS: Array<[number, number, number, number]> =
   DOOR_KNOCK_STATUSES.map((status) => [...STATUS_RGB[status], 210])
 const UNMATCHED_COLOR: [number, number, number, number] = [190, 195, 200, 60]
-// The demo's action blue for the in-progress boundary.
-const DRAW_BLUE: [number, number, number, number] = [19, 81, 216, 255]
-const DRAW_BLUE_FILL: [number, number, number, number] = [19, 81, 216, 40]
+// The in-progress boundary's hue is the confirm step's pick; its strengths are
+// this canvas's, so a tinted ring can never come out stronger or weaker than
+// the saved rings it is being cut alongside.
+const DRAW_LINE_ALPHA = 255
+const DRAW_FILL_ALPHA = 40
+// Breathing room around a framed shape, in pixels — a ring flush against the
+// edge of the band reads as a shape running off the map.
+const FRAME_MARGIN = 24
+// However much of the map a step claims to cover, a fit needs something left to
+// land in.
+const MAX_FRAME_COVERAGE_PCT = 90
 // "You are here": the same action blue, muted when the fix is too coarse to
 // trust, so a bad fix reads as a guess rather than a claim.
 const LOCATION_BLUE: [number, number, number, number] = [19, 81, 216, 255]
@@ -39,14 +46,40 @@ const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
 // used one-handed on a phone in the street, so the tap target has to clear the
 // ~44px a thumb needs rather than the ~24px the pin is drawn at.
 const PIN_TAP_RADIUS = 12
-// The selected stop's halo. This is `--primary` (#1e63ec) as a literal, because
-// it has to match the `ring-primary` the walk list draws on the same stop's
-// numeral and nothing on this canvas can read a CSS variable — the pin fills
-// and the numerals beside it are fixed hex for the same reason. Deliberately
-// NOT the draw blue two constants up, which is a different shade and belongs to
-// a mode this one can never be on screen with; one selection has one colour on
-// both halves, and a near-miss would read as two different marks.
-const SELECTION_BLUE: [number, number, number, number] = [30, 99, 236, 255]
+// The design system's primary blue, as channels deck.gl can take. `--primary`
+// resolves `--theme-primary` -> `--color-brand-blue-500` -> `--goodparty-blue-500`,
+// which is `#1e63ec` in `packages/styleguide/src/design-tokens.css`; that chain
+// is where this number comes from and `pins the token` in the test file is what
+// keeps it honest. Written out rather than read at runtime because nothing on
+// this canvas can reach a CSS variable — the pin fills and the numerals beside
+// them are fixed hex for the same reason.
+//
+// It is ONE constant because two things on this canvas wear this exact blue and
+// they must not drift apart, or be mistaken for each other. See the note on
+// `MATCH_BLUE` for why they can never share a screen.
+const PRIMARY_BLUE: [number, number, number] = [30, 99, 236]
+// The selected stop's halo, in `--primary` because it has to match the
+// `ring-primary` the walk list draws on the same stop's numeral: one selection
+// has one colour on both halves, and a near-miss would read as two different
+// marks. Deliberately NOT the draw blue above, which is a different shade and
+// belongs to a mode this one can never be on screen with.
+const SELECTION_BLUE: [number, number, number, number] = [...PRIMARY_BLUE, 255]
+// A dot whose stop has somebody matching the filter the list is being cut
+// around — but only while that list is being drawn. Off the create flow this
+// canvas colours a matched dot by its KNOCK STATUS, which is the vocabulary the
+// rail's legend chips print beside their counts, so a flat blue there would
+// leave seven chips describing colours no longer on the map.
+//
+// Inside the flow neither of those is true: the page renders the manage rail as
+// `null` for the whole flow, so there is no legend to contradict, and there are
+// no route pins, so `SELECTION_BLUE` — the same blue, by the same token — is
+// not on screen to be confused with it. That is what makes one token safe for
+// both, and it is a claim about WHEN each is drawn rather than a coincidence,
+// so `drawing` below is what has to stay true for it.
+//
+// The alpha is `STATUS_COLORS`', so entering the flow restates which dots
+// matter without the whole plane changing weight underfoot.
+const MATCH_BLUE: [number, number, number, number] = [...PRIMARY_BLUE, 210]
 // Drawn as a ring OUTSIDE the pin rather than a change to the pin itself: the
 // fill already carries the stop's status and the stroke already carries whether
 // anyone there is knockable, so those are both spoken for. Same reasoning as the
@@ -107,6 +140,31 @@ interface VoterMapCanvasProps {
   // corrects itself by dragging again, so the ring stays the whole history
   // instead of becoming an edit stack.
   undoDrawToken: number
+  // What the in-progress boundary is drawn in. A prop because the confirm step
+  // picks it: a candidate choosing the colour their list will be drawn in has
+  // nothing to judge it by unless the shape on screen is already wearing it.
+  drawColor: string
+  // Bump to fit the camera around the drawn ring. A request rather than a
+  // reaction to the ring, because the ring changes on every tap and drag while
+  // the canvasser is the one framing it — this is only ever pressed by a step
+  // that has just covered part of the map and needs the shape back in view.
+  frameDrawToken: number
+  // How much of the map's own height that step is covering, so the fit lands in
+  // the band that is left rather than centring the ring behind the chrome. Read
+  // when the token bumps, not on its own: dragging the sheet further open must
+  // uncover more map, not re-aim the camera mid-gesture.
+  frameDrawBottomPct: number
+  // Whether the zoom and compass buttons are worth offering. A step that shows
+  // a band of the map as a picture shields it from taps, and a shielded "+" is
+  // a control that answers nothing — so the step that puts the shield up takes
+  // the buttons down with it.
+  controlsHidden?: boolean
+  // Where the canvasser is, when they have asked to be shown. A reading and not
+  // a switch: this canvas draws the dot, the walk owns the control that turns it
+  // on (the canvas prototype puts "My live location" in the walk's control row
+  // and offers it on no other surface), and the page holds the watch because it
+  // is the one thing that outlives both.
+  location: LiveLocation
   onPolygonChange: (ring: PolygonRing | null) => void
   // Fires with the vertex count as points are placed (0 on start/clear) —
   // the page uses it to dismiss the draw instructions on the first click.
@@ -147,16 +205,29 @@ const hexToRgba = (
   alpha,
 ]
 
+// `drawing` is the create flow, and it changes what a MATCHED dot means. Off
+// the flow a matched dot is a door with a knock history, so it carries its
+// status; the question on screen is how the walking is going. Inside the flow
+// nothing has been knocked yet — the filter was picked two steps ago and the
+// only question is whether this boundary encloses the people it selected, which
+// a seven-colour status plane answers by making the matched dots look like
+// seven different kinds of thing. So the flow flattens them to one.
+//
+// Unmatched stays the same grey either way: "not who you asked for" is the one
+// reading both surfaces share.
 const buildColors = (
   filterResult: FilterResult,
   dotCount: number,
+  drawing: boolean,
 ): Uint8Array => {
   const colors = new Uint8Array(dotCount * 4)
   for (let i = 0; i < dotCount; i++) {
     const matched = (filterResult.matchedPerDot[i] ?? 0) > 0
     const status = filterResult.statusPerDot[i] ?? 255
     const color = matched
-      ? (STATUS_COLORS[status] ?? STATUS_COLORS[0])
+      ? drawing
+        ? MATCH_BLUE
+        : (STATUS_COLORS[status] ?? STATUS_COLORS[0])
       : UNMATCHED_COLOR
     const offset = i * 4
     colors[offset] = color?.[0] ?? 0
@@ -244,6 +315,31 @@ export const packOpeningCenter = (
   return [positions[best * 2] ?? 0, positions[best * 2 + 1] ?? 0]
 }
 
+// The box around a ring, for the two things this canvas frames: a saved list's
+// outline and the shape someone has just drawn. One helper because a fit is a
+// fit — the difference between them is the padding it is given, not the box.
+const ringBounds = (
+  ring: PolygonRing | ReadonlyArray<readonly number[]>,
+): [[number, number], [number, number]] | null => {
+  if (ring.length === 0) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const point of ring) {
+    const x = point[0] ?? 0
+    const y = point[1] ?? 0
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+  return [
+    [minX, minY],
+    [maxX, maxY],
+  ]
+}
+
 // Shortest distance from `point` to the segment a-b. Longitude is scaled by
 // cos(latitude) first because a degree of longitude is only ~0.75 of a degree
 // of latitude at US latitudes — compared in raw degrees, a tall narrow ring's
@@ -304,6 +400,11 @@ export default function VoterMapCanvas({
   startDrawToken,
   clearDrawToken,
   undoDrawToken,
+  drawColor,
+  frameDrawToken,
+  frameDrawBottomPct,
+  controlsHidden = false,
+  location,
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
@@ -312,6 +413,12 @@ export default function VoterMapCanvas({
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // The basemap's first symbol layer, resolved from the style once it loads.
+  // State rather than a ref because the layers below have to be rebuilt with
+  // it — until it arrives they carry no `beforeId` and draw on top, which is
+  // the pre-existing behaviour and so is a safe thing to be doing for the one
+  // frame before the style is in.
+  const [labelBeforeId, setLabelBeforeId] = useState<string | undefined>()
   // The mount effect's one read of the pack is the opening view, which — like
   // initialZoom beside it — is a mount-time fact and not a controlled camera.
   // Depending on the object instead tied the map's lifetime to the pack's
@@ -325,6 +432,13 @@ export default function VoterMapCanvas({
   // unreliable on maplibre): every click appends a point and the shape
   // closes itself from whatever points exist — there is no finish gesture.
   const drawActiveRef = useRef(false)
+  // The same fact as `drawActiveRef`, kept a second time as state on purpose.
+  // The ref is what the map's own event handlers read: they are registered once
+  // at mount and close over their scope forever, so they need a box to look
+  // inside rather than a value. The dot colours are the other kind of consumer
+  // — the overlay effect has to RE-RUN when this flips, and a ref cannot ask it
+  // to. Both are written in the same two effects below, so they cannot disagree.
+  const [drawing, setDrawing] = useState(false)
   const [drawPoints, setDrawPoints] = useState<PolygonRing>([])
   const drawPointsRef = useRef<PolygonRing>([])
   // Ring indexes in the order they were placed. The array used to BE that
@@ -342,9 +456,11 @@ export default function VoterMapCanvas({
   onDrawPointCountRef.current = onDrawPointCount
   const onRoutePinClickRef = useRef(onRoutePinClick)
   onRoutePinClickRef.current = onRoutePinClick
-  // Opt-in: nothing is watched until the canvasser asks to be shown.
-  const [locationEnabled, setLocationEnabled] = useState(false)
-  const location = useLiveLocation(locationEnabled)
+  // Read when a framing is asked for, never depended on: dragging the sheet
+  // further open changes how much is covered, and re-aiming the camera in the
+  // middle of that gesture would fight the hand doing it.
+  const frameBottomPctRef = useRef(frameDrawBottomPct)
+  frameBottomPctRef.current = frameDrawBottomPct
   const locationFix = location.fix
 
   useEffect(() => {
@@ -355,17 +471,37 @@ export default function VoterMapCanvas({
       style: `https://maps.geoapify.com/v1/styles/osm-liberty/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
       center: [-98, 39],
       zoom: 4,
-      attributionControl: { compact: true },
+      // Added by hand below so it can be placed; maplibre's default is the
+      // bottom-RIGHT corner, which on this page is under the rail.
+      attributionControl: false,
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
+    // Left, because the right half of this map is spoken for. The manage
+    // surface floats its rail over the map as an inset card pinned
+    // `lg:inset-y-4 lg:right-4 lg:w-96`, so every corner on the right is
+    // behind it above `lg` — all three zoom-stack buttons were drawn, looked
+    // pressable, and could not be clicked at 1024px or wider, and the
+    // attribution was covered with them. The left half is the only part of
+    // the map nothing floats over at any width.
+    map.addControl(new maplibregl.NavigationControl(), 'top-left')
+    map.addControl(
+      new maplibregl.AttributionControl({ compact: true }),
+      'bottom-left',
+    )
 
     // osm-liberty ships transit overlays and 3D building extrusions we
     // don't want on a canvassing map. Transit hides entirely; buildings
     // keep their footprints but flatten (height 0) — canvassers want to see
     // building outlines when zoomed in, just not in 3D.
     map.on('style.load', () => {
+      let firstSymbol: string | undefined
       for (const layer of map.getStyle().layers ?? []) {
+        // Read off the loaded style rather than hard-coded: the id is the
+        // basemap's, and a style change would silently put the dots back on
+        // top of the labels if this named one.
+        if (layer.type === 'symbol' && firstSymbol === undefined) {
+          firstSymbol = layer.id
+        }
         if (layer.type === 'fill-extrusion') {
           map.setPaintProperty(layer.id, 'fill-extrusion-height', 0)
           map.setPaintProperty(layer.id, 'fill-extrusion-base', 0)
@@ -375,9 +511,17 @@ export default function VoterMapCanvas({
           map.setLayoutProperty(layer.id, 'visibility', 'none')
         }
       }
+      // A style with no symbol layer at all leaves this undefined, and the
+      // data plane goes back on top of everything — which is where it was.
+      setLabelBeforeId(firstSymbol)
     })
 
-    const overlay = new MapboxOverlay({ layers: [] })
+    // Interleaved, so the dots render INTO the basemap's layer stack instead of
+    // as one canvas over the whole of it. Overlaid, every deck layer sits above
+    // every maplibre layer, which is what was burying the city and street names
+    // under a whole-district pack. See `labelBeforeId` below for which layers
+    // then go under the labels and which stay above them.
+    const overlay = new MapboxOverlay({ layers: [], interleaved: true })
     map.addControl(overlay as unknown as maplibregl.IControl)
     overlayRef.current = overlay
 
@@ -546,10 +690,34 @@ export default function VoterMapCanvas({
     const overlay = overlayRef.current
     if (!overlay) return
     const dotCount = pack.manifest.counts.dots
+    // Only the hue crosses the seam. The strengths stay this canvas's, so the
+    // ring being cut can't come out bolder or fainter than the saved ones it is
+    // being compared against.
+    const drawLine = hexToRgba(drawColor, DRAW_LINE_ALPHA)
+    const drawFill = hexToRgba(drawColor, DRAW_FILL_ALPHA)
+    // `beforeId` is @deck.gl/mapbox's `LayerOverlayProps`, which the package
+    // neither exports from its entry point nor merges into deck's own
+    // `LayerProps` — so it is spread in rather than written as a key, and
+    // named here rather than deep-imported out of the package's dist.
+    const underLabels: { beforeId?: string } = { beforeId: labelBeforeId }
     overlay.setProps({
       layers: [
+        // The two layers below the labels, and they are contiguous on purpose:
+        // deck.gl buckets consecutive layers sharing a `beforeId` into one
+        // maplibre custom layer, so keeping them adjacent is what preserves
+        // "turf fill under dots" inside the basemap stack.
+        //
+        // A saved list's fill is 40/255 wash and its outline is district
+        // context, both of which are the same kind of thing as the dots: the
+        // ambient plane a canvasser reads a street name ACROSS. Everything
+        // after these two — the ring being drawn, the route, the pins, their
+        // numerals and the live-location dot — deliberately keeps no
+        // `beforeId` and stays above the labels, because each is either being
+        // manipulated right now or is the thing the canvasser is navigating
+        // by, and a place name is never worth covering one of those.
         new PolygonLayer<DoorKnockingTurf>({
           id: 'saved-turfs',
+          ...underLabels,
           data: turfs,
           getPolygon: (turf) => turf.geoPoly.coordinates[0] ?? [],
           // An archived list draws at a fraction of its own strength rather
@@ -566,12 +734,13 @@ export default function VoterMapCanvas({
         }),
         new ScatterplotLayer({
           id: 'voter-dots',
+          ...underLabels,
           data: {
             length: dotCount,
             attributes: {
               getPosition: { value: pack.positions, size: 2 },
               getFillColor: {
-                value: buildColors(filterResult, dotCount),
+                value: buildColors(filterResult, dotCount, drawing),
                 size: 4,
               },
             },
@@ -585,8 +754,8 @@ export default function VoterMapCanvas({
           id: 'draw-preview',
           data: drawPoints.length >= 3 ? [drawPoints] : [],
           getPolygon: (ring) => ring,
-          getFillColor: DRAW_BLUE_FILL,
-          getLineColor: DRAW_BLUE,
+          getFillColor: drawFill,
+          getLineColor: drawLine,
           lineWidthMinPixels: 2.5,
           pickable: false,
         }),
@@ -594,7 +763,9 @@ export default function VoterMapCanvas({
           id: 'draw-vertices',
           data: drawPoints,
           getPosition: (point) => point,
-          getFillColor: DRAW_BLUE,
+          // The vertices wear the pick too: they are corners of the same
+          // boundary, and a blue handle on a green ring reads as two shapes.
+          getFillColor: drawLine,
           getLineColor: [255, 255, 255, 255],
           stroked: true,
           lineWidthMinPixels: 1.5,
@@ -759,16 +930,25 @@ export default function VoterMapCanvas({
     routeLoop,
     routeGeometry,
     drawPoints,
+    drawColor,
     locationFix,
     location.approximate,
+    labelBeforeId,
+    drawing,
   ])
 
   // One recenter per time the canvasser turns location on: they asked where
   // they are, so show them — but only on that first fix, so the camera is
   // never yanked away from the route mid-walk as fixes keep arriving.
+  //
+  // "Turned on" is read off the status rather than off the switch, because the
+  // switch now lives on another surface: `off` is exactly the state the hook
+  // returns to when it is flipped back, so the arming and the disarming are the
+  // same one line they were when this component held the boolean.
   const recenteredRef = useRef(false)
+  const locationOff = location.status === 'off'
   useEffect(() => {
-    if (!locationEnabled) {
+    if (locationOff) {
       recenteredRef.current = false
       return
     }
@@ -778,29 +958,12 @@ export default function VoterMapCanvas({
       center: [locationFix.lng, locationFix.lat],
       duration: 600,
     })
-  }, [locationEnabled, locationFix])
+  }, [locationOff, locationFix])
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return
-    const ring = focusTurf.geoPoly.coordinates[0] ?? []
-    if (ring.length === 0) return
-    let minX = Infinity
-    let minY = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    for (const [x, y] of ring) {
-      if (x < minX) minX = x
-      if (x > maxX) maxX = x
-      if (y < minY) minY = y
-      if (y > maxY) maxY = y
-    }
-    mapRef.current.fitBounds(
-      [
-        [minX, minY],
-        [maxX, maxY],
-      ],
-      { padding: 64 },
-    )
+    const bounds = ringBounds(focusTurf.geoPoly.coordinates[0] ?? [])
+    if (bounds) mapRef.current.fitBounds(bounds, { padding: 64 })
   }, [focusTurf])
 
   // Fit once per distinct route: refit when the pin set actually changes,
@@ -839,6 +1002,7 @@ export default function VoterMapCanvas({
     if (startDrawToken === 0) return
     endDragRef.current?.()
     drawActiveRef.current = true
+    setDrawing(true)
     drawPointsRef.current = []
     addOrderRef.current = []
     setDrawPoints([])
@@ -873,12 +1037,50 @@ export default function VoterMapCanvas({
     onPolygonChangeRef.current(next.length >= 3 ? next : null)
   }, [undoDrawToken])
 
+  // Put the shape back in view for a step that has just covered part of the
+  // map. The map fills its container, so uncovering a strip of it reveals
+  // whatever streets happen to be up there while the ring stays centred behind
+  // the chrome — the covered band has to reach the camera, and maplibre already
+  // takes one as padding. An offset centre would mean redoing the zoom
+  // arithmetic `fitBounds` does anyway, and getting it wrong on any ring wider
+  // than it is tall.
+  useEffect(() => {
+    if (frameDrawToken === 0) return
+    const map = mapRef.current
+    const bounds = ringBounds(drawPointsRef.current)
+    if (!map || !bounds) return
+    const height = map.getCanvas().clientHeight
+    const covered = Math.round(
+      (height *
+        Math.max(
+          0,
+          Math.min(MAX_FRAME_COVERAGE_PCT, frameBottomPctRef.current),
+        )) /
+        100,
+    )
+    map.fitBounds(bounds, {
+      padding: {
+        top: FRAME_MARGIN,
+        // Never more than the canvas can spare: a container that has not been
+        // measured yet (or a percentage against a short one) would otherwise
+        // ask for padding taller than the map and get no fit at all.
+        bottom: Math.min(
+          FRAME_MARGIN + covered,
+          Math.max(FRAME_MARGIN, height - FRAME_MARGIN * 3),
+        ),
+        left: FRAME_MARGIN,
+        right: FRAME_MARGIN,
+      },
+    })
+  }, [frameDrawToken])
+
   useEffect(() => {
     if (clearDrawToken === 0) return
     // Finish any in-flight vertex drag first — nulling the index without
     // ending the drag would leave dragPan disabled for the session.
     endDragRef.current?.()
     drawActiveRef.current = false
+    setDrawing(false)
     drawPointsRef.current = []
     addOrderRef.current = []
     setDrawPoints([])
@@ -899,13 +1101,18 @@ export default function VoterMapCanvas({
   }
 
   return (
-    <div className="relative h-full w-full">
+    // maplibre owns the navigation stack's DOM, so it goes away by CSS rather
+    // than by not being added — dropping and re-adding the control on a step
+    // change would rebuild it mid-session. The rule rides this wrapper and not
+    // the map container below it: maplibre writes its own classes onto that
+    // node after mount, and a className React rewrites on every flip of
+    // `controlsHidden` would take `maplibregl-map` with it.
+    <div
+      className={`relative h-full w-full ${
+        controlsHidden ? '[&_.maplibregl-ctrl-top-left]:hidden' : ''
+      }`}
+    >
       <div ref={containerRef} className="h-full w-full" />
-      <LiveLocationControl
-        location={location}
-        enabled={locationEnabled}
-        onToggle={setLocationEnabled}
-      />
     </div>
   )
 }

@@ -80,6 +80,8 @@ export const ACTIVITY_CONDITION_CHANNEL_ACTIONS: Record<
     'voicemail',
     'wrong_number',
     'refused',
+    'disconnected',
+    'hung_up',
     'support_yes',
     'support_unsure',
     'support_no',
@@ -104,6 +106,8 @@ export const ACTIVITY_CONDITION_ACTION_LABELS: Record<
   voicemail: 'Voicemail',
   wrong_number: 'Wrong Number',
   refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung Up',
 }
 
 // Door-knock interactions carry no outreach linkage at all — gp-api rejects

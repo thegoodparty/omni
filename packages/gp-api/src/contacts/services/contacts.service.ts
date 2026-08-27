@@ -14,6 +14,7 @@ import {
   type SupportStatusRollup,
   type UpdateContactStatusInput,
   type VoterLikelihood,
+  type PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import {
   ContactStatusField,
@@ -712,6 +713,26 @@ export class ContactsService {
   // saved segment would and reads only the people-api total — resultsPerPage: 1
   // so no real rows are loaded. Pro-gated like search/named segments: a non-pro
   // requester only ever sees the base-list preview, never an arbitrary count.
+  // Win-only, like political party and contacts-made: precinct is an
+  // electoral subdivision of a race, and an elected official serves the whole
+  // district regardless of which precinct someone votes in. Rejected before
+  // the pro gate so a non-pro Serve org gets the "not available" reason
+  // rather than the upsell one, matching updateContactStatus.
+  async getPrecincts(
+    organization: Organization,
+  ): Promise<PeoplePrecinctsResponse> {
+    if (this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        'Precinct filtering is not available for this organization',
+      )
+    }
+    await this.assertProAccess(organization)
+
+    return this.withOrgDistrictResolution(organization, ({ districtId }) =>
+      this.voterQueryService.findPrecincts(districtId),
+    )
+  }
+
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,
@@ -990,9 +1011,8 @@ export class ContactsService {
   // Demographics + reachable-by-channel counts + outreach history for a
   // saved list's detail page (ENG-10706). Unlike countContacts (an unsaved,
   // in-progress filter set), segment here is always a persisted
-  // VoterFileFilter id, so a cross-org/unknown id 404s instead of silently
-  // falling back to "no filter" the way the segmentToFilters seam does for
-  // the list/count/download paths.
+  // VoterFileFilter id, so a cross-org/unknown id 404s — the same way
+  // resolveCustomSegment now does for the list/download paths.
   async getListDetail(
     { segment }: ListDetailContactsDTO,
     organization: Organization,
@@ -1595,12 +1615,10 @@ export class ContactsService {
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return { filters: builtInFilters, empty: false }
 
-    const customSegment =
-      await this.voterFileFilterService.findByIdAndOrganizationSlug(
-        parseInt(resolvedSegment),
-        organization.slug,
-      )
-    if (!customSegment) return { filters: {}, empty: false }
+    const customSegment = await this.resolveCustomSegment(
+      resolvedSegment,
+      organization,
+    )
     this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
 
     const { filters: baseFilters, idOverrides } =
@@ -1691,13 +1709,38 @@ export class ContactsService {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
     if (this.resolveBuiltInSegment(resolvedSegment)) return undefined
 
-    const customSegment =
-      await this.voterFileFilterService.findByIdAndOrganizationSlug(
-        parseInt(resolvedSegment),
-        organization.slug,
-      )
+    const customSegment = await this.resolveCustomSegment(
+      resolvedSegment,
+      organization,
+    )
 
-    return customSegment?.search ?? undefined
+    return customSegment.search ?? undefined
+  }
+
+  // A segment that is neither a built-in name nor a saved list this org owns is
+  // a bad reference, not "no filter". Resolving it to an empty FilterObject
+  // meant a typo'd, deleted or cross-org id served — and let the CSV export
+  // stream — the org's entire district, with a 200. getListDetail has always
+  // thrown here; the list/download paths now agree with it.
+  //
+  // Number() rather than parseInt(): parseInt('12abc') is 12, so a malformed
+  // segment used to resolve whichever list carried that numeric prefix.
+  private async resolveCustomSegment(
+    resolvedSegment: string,
+    organization: Organization,
+  ): Promise<VoterFileFilter> {
+    const segmentId = Number(resolvedSegment)
+    const customSegment = Number.isInteger(segmentId)
+      ? await this.voterFileFilterService.findByIdAndOrganizationSlug(
+          segmentId,
+          organization.slug,
+        )
+      : null
+
+    if (!customSegment) {
+      throw new NotFoundException('List not found')
+    }
+    return customSegment
   }
 
   // Only the built-in door-knocking channel de-dupes by household; custom and

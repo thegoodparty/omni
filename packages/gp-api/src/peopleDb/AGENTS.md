@@ -118,9 +118,11 @@ Two traps when touching this:
 `utils/statementTimeout.util.ts` wraps a query in
 `$transaction([SET LOCAL statement_timeout = '25000ms', <query>])` and maps
 SQLSTATE 57014 to a `GatewayTimeoutException`. **Any new `$queryRaw` that can
-touch a Voter partition goes through it.** The one deliberate exception is
-`voterDownload.service.ts`, which runs a minutes-long COPY on its own pool and
-sets `statement_timeout = 0` explicitly.
+touch a Voter partition goes through it.** Two deliberate exceptions, both of
+which set their own timeout rather than skipping the idea:
+`voterDownload.service.ts` runs a minutes-long COPY on its own pool with
+`statement_timeout = 0`, and `utils/cursorScan.util.ts` uses 45s per fetch
+(below).
 
 This is not belt-and-braces on top of `socket_timeout=60`. The two do
 materially different things, and the difference is the whole point:
@@ -153,6 +155,69 @@ path — `VoterDoorKnockingService.residents()` — rode the socket timeout to 6
 simply never retrofitted. Note what the fix does and does not do: it makes that
 failure **faster, cheaper and attributable**. It does not make it less likely.
 
+## Never keyset-paginate a joined scan — `cursorScan.util.ts`
+
+A result set too large to hold in memory wants pagination, and for a **joined**
+scan that instinct is a trap. `voterPack.service.ts` read a district in
+50,000-row pages ordered by `v."id"`, and the page predicate reached only the
+`Voter` side of the merge join: nothing restricted `DistrictVoter`, so every
+page re-walked the district from the start to reach its merge position. 58k DV
+rows scanned on page 0, 407k on page 6 — quadratic in district size.
+
+Measured on a 628k-row reproduction (`docs/perf/voter-pack-profile.md`):
+
+| | keyset, 13 statements | one statement, one cursor |
+| --- | ---: | ---: |
+| blocks touched | 14,058,235 | 120,976 |
+| read from storage | **11.5 GB** | 945 MB |
+| Postgres execution | 5,389 ms | 2,072 ms |
+
+**11.5 GB read to return a 16 MB response.** Use `scanUnderCursor` instead: one
+statement, declared once, read `CURSOR_FETCH_SIZE` rows at a time. The plan
+runs once, memory stays bounded, and the caller's `AbortSignal` is checked
+between fetches so a scan nobody is reading stops.
+
+Three things about it are not tuning:
+
+- **`SET LOCAL cursor_tuple_fraction = 1`.** A cursor tells the planner a page
+  will do, which is how it justifies a fast-start plan — the shape this exists
+  to escape. These scans always drain.
+- **45s per fetch, not 25s.** The statement clock is armed per `FETCH`, not for
+  the cursor's lifetime (verified against Postgres 16), and the *first* fetch
+  pays for the whole plan's startup where a keyset page paid only for its own
+  slice. 45s still sits under the webapp's 90s deadline, so Postgres kills a
+  pathological plan before the browser gives up on it.
+- **Do not add `ORDER BY` back** unless a consumer genuinely needs order. For
+  the pack nothing can observe it, and sorting a district is not free.
+
+## The two direction columns cannot hold a direction
+
+`Residence_Addresses_PrefixDirection` and `Residence_Addresses_SuffixDirection`
+are **INTEGER** in the mirror (`prisma-people/schema/Voter.prisma`), as are their
+`Mailing_` twins, while every other address component is TEXT. The L2 file spells
+them `N`/`S`/`E`/`W`; the data-platform loader `try_cast`s each to `int`
+(`dbt/project/models/marts/people_api/m_people_api__voter.sql`, and
+`INTEGER_COLUMNS` in `write__l2_databricks_to_gp_api.py`), which in Spark yields
+NULL rather than an error. **Every residence directional in people-db is
+therefore NULL, silently.** Nothing in this repo can recover them.
+
+**Do not read either column.** Anything needing a street line reads
+`Residence_Addresses_AddressLine`, which is TEXT and holds the whole line,
+directions included — the stop's frozen `displayAddress` and the door-knocking
+unit key both do.
+
+The cost of getting this wrong is not cosmetic. The unit key used to compose the
+line from components, so with both directionals permanently empty `1234 S Main
+St` and `1234 N Main St` in one ZIP keyed identically and were **one door** to
+`residents()`, which merged two households' rosters. Salt Lake City is where it
+is impossible to miss: the grid puts the information in the directions, so
+`1234 S 5678 W` keyed — and printed on the walk sheet — as `1234 5678`.
+
+Fixing this properly is a data-platform change (the column type, upstream). If it
+ever lands, the components become usable again, but there is no reason to go
+back to them: AddressLine is one column instead of five and already carries the
+CASS-standardized spelling.
+
 ## Door-knocking's address-key predicate is non-sargable (latent fragility)
 
 `residents()` filters on
@@ -167,6 +232,15 @@ Contrast `evaluate()` directly above it: same key in the SELECT list, but its
 scan is bounded by a bbox (`buildBboxSql`) on indexed lat/long columns. It uses
 the computed key for output, not to constrain the scan. `residents()` uses it to
 constrain the scan, and that is the difference.
+
+One request compiles **one** key expression, not both. A route freezes all of
+its keys in a single transaction, so a `residents()` call carries either the
+current three-column key or the legacy seven-column one and `residentsKeySql`
+picks accordingly — a request from a route frozen since the key changed now pays
+strictly less here than it used to, and one frozen before pays exactly what it
+always did. Don't "simplify" that into an unconditional `OR` of the two: it would
+put a second seven-column `CONCAT_WS` on every row of this scan for a branch that
+is never both.
 
 This is a **latent fragility, not a live defect**. Measured reality as of
 2026-08-20: a two-second median on this endpoint, ten consecutive 200s for the
@@ -279,6 +353,7 @@ Keep new tests in this module to that pattern — don't reach for
 | `services/voterDensity.service.ts`      | Voter-density heat-map cells (read-only, precomputed H3 centroids)    |
 | `schemas/filters.schema.ts`             | Zod filter input schema                                               |
 | `utils/statementTimeout.util.ts`        | `runUnderStatementTimeout` — the 25s guard every query goes through   |
+| `utils/cursorScan.util.ts`              | `scanUnderCursor` — one statement, read in chunks (never keyset a join) |
 | `utils/filters.sql.util.ts`             | `buildVoterFiltersSql` — filter → SQL translation, incl. id-set cap   |
 | `utils/buildVoterWhereSql.util.ts`      | WHERE-clause SQL builders, incl. `stateEquals`                        |
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |

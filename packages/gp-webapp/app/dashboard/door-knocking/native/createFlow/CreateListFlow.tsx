@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   AlertDialog,
@@ -25,8 +25,13 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { unpreviewableDisclosureLabels } from './voterFilterPreview'
 import {
+  unpreviewableDisclosureLabels,
+  unpreviewableDisclosureSentence,
+} from './voterFilterPreview'
+import { withoutUnshadeableCriteria } from '../savedListFilters'
+import {
+  CONFIRM_PEEK_TOP_PCT,
   flowStage,
   previousStage,
   stageStep,
@@ -112,6 +117,12 @@ interface CreateListFlowProps {
   // so both are requests, not edits made here.
   onUndoPoint: () => void
   onClearPoints: () => void
+  // The colour the confirm step's swatches are picking. Not this component's
+  // `useState` any more: the ring being judged against it is drawn by the map,
+  // the map outlives this panel, and the pick has to reach it. The swatches and
+  // the tick are still drawn here — this owns the control, not the answer.
+  color: string
+  onColorChange: (color: string) => void
   // Saved-flow completion: clear the drawing (and optionally exit).
   onSaved: (drawAnother: boolean) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
@@ -121,6 +132,20 @@ interface CreateListFlowProps {
   // Selected filter option keys the map preview can't narrow by, so the drawn
   // shape shows more people than the list will target.
   unpreviewableKeys: string[]
+  // A saved list the candidate arrived on `?listId=` with, from the outreach
+  // hub's door-knocking tile. Undefined is the ordinary flow.
+  preselectedListId?: number
+  // Reported once the arrival has actually been applied, so the page above can
+  // spend it. This flow is unmounted every time the create surface closes, so
+  // it cannot remember on its own that the id has already been used.
+  onPreselectApplied?: () => void
+  // Which saved list the who step is currently attached to. The draft is
+  // booleans, and a list's support-status, activity and precinct clauses are
+  // not, so the surface above cannot assemble the address-preview request from
+  // `filters` alone. The id travels rather than the clauses because the
+  // surface already holds the picker's rows, and resolving a list in two
+  // places is two chances to disagree about what it carries.
+  onSelectedListChange?: (listId: number | null) => void
 }
 
 const STAGE_META: Record<CreateFlowStage, { title: string; caption: string }> =
@@ -215,13 +240,17 @@ export default function CreateListFlow({
   drawPointCount,
   onUndoPoint,
   onClearPoints,
+  color,
+  onColorChange,
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
+  preselectedListId,
+  onPreselectApplied,
+  onSelectedListChange,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
-  const [color, setColor] = useState<string>(TURF_COLORS[0])
   // The three pre-draw stages the orchestrator cannot see: its `filters` step
   // is this flow's purpose → who → name phase, and which of the three is on
   // screen is nobody else's business. Survives Back from the draw step
@@ -233,6 +262,58 @@ export default function CreateListFlow({
   const [savedListId, setSavedListId] = useState<number | null>(null)
   const [savedName, setSavedName] = useState('')
   const [discardOpen, setDiscardOpen] = useState(false)
+
+  // Choosing a list is two writes that have to happen together: the id here,
+  // and the list's own filters lifted into the page's draft so the pills and
+  // the map say what the list says. Named once because there are now two ways
+  // to choose one — the who step's radio, and the `?listId=` preselect below
+  // — and a second copy of the pair is a second chance for them to diverge.
+  const selectList = useCallback(
+    (listId: number | null) => {
+      setSavedListId(listId)
+      onFiltersChange(
+        listId === null
+          ? {}
+          : (savedLists.find((list) => list.id === listId)?.filters ?? {}),
+      )
+    },
+    [onFiltersChange, savedLists],
+  )
+
+  // A list carried in from the outreach hub's door-knocking tile, so "start a
+  // walk from this list" arrives with it already picked instead of asking for
+  // it again.
+  //
+  // It waits for the picker's own rows rather than trusting the param, which
+  // is what makes every bad id degrade to the ordinary flow rather than to a
+  // radio group pointing at a row that isn't there: an id that is malformed,
+  // deleted, archived or another org's simply never matches, because these
+  // rows come from this org's `GET /v1/voters/voter-file/filters`. The ref
+  // makes it a seed and not a binding — pick something else and the arrival
+  // is spent, not re-applied when the lists refetch.
+  //
+  // The ref only covers this mount, and closing the flow unmounts it while
+  // `?listId=` stays in the address bar, so the page above is told the moment
+  // the id is used. Without that, dismissing and pressing Create list again
+  // would keep snapping back to the carried list, and a candidate who arrived
+  // from the hub could never start a clean flow without leaving the page.
+  const preselectApplied = useRef(false)
+  useEffect(() => {
+    if (preselectApplied.current || preselectedListId === undefined) return
+    if (!savedLists.some((list) => list.id === preselectedListId)) return
+    preselectApplied.current = true
+    selectList(preselectedListId)
+    onPreselectApplied?.()
+  }, [preselectedListId, savedLists, selectList, onPreselectApplied])
+
+  // Reported from the state rather than from each of the three places that
+  // writes it — the radio, the preselect, and the two ways of leaving a list
+  // behind. A fourth writer is easy to add and easy to forget to announce,
+  // and the surface above pays for a missed one by previewing an audience the
+  // list would not knock.
+  useEffect(() => {
+    onSelectedListChange?.(savedListId)
+  }, [savedListId, onSelectedListChange])
 
   const stage = flowStage(step, preDrawStage)
 
@@ -248,10 +329,13 @@ export default function CreateListFlow({
   // from the who step onward, because nothing after it can edit either input.
   const needsName = savedListId === null && activeFilterCount > 0
 
-  // Filters step only: a drawer that pulls down to any height so the dots
-  // stay visible and recolor live while pills are toggled. sheetTopPct is
-  // how far down the sheet's top edge sits (0 = full screen).
-  const [sheetTopPct, setSheetTopPct] = useState(0)
+  // A drawer that pulls down to any height, on the steps where the map is the
+  // feedback: the who step's pills recolor the dots live and the confirm step's
+  // swatches recolor the ring. sheetTopPct is how far down the sheet's top edge
+  // sits (0 = full screen).
+  const [sheetTopPct, setSheetTopPct] = useState(() =>
+    stage === 'confirm' ? CONFIRM_PEEK_TOP_PCT : 0,
+  )
   const sheetRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{
     pointerId: number
@@ -259,8 +343,11 @@ export default function CreateListFlow({
     startPct: number
     moved: boolean
   } | null>(null)
+  // Every step opens at its own height, and confirm is the one that opens
+  // already uncovered: a colour picker that needs a gesture in front of it
+  // before the ring can be judged is the hidden map with an extra step.
   useEffect(() => {
-    setSheetTopPct(0)
+    setSheetTopPct(stage === 'confirm' ? CONFIRM_PEEK_TOP_PCT : 0)
   }, [stage])
   const handleDragStart = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -496,7 +583,18 @@ export default function CreateListFlow({
     continueLabel = 'No doors in this area'
   }
 
-  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
+  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
+    unpreviewableDisclosureLabels(unpreviewableKeys),
+    savedListId !== null,
+  )
+
+  // Both confirm buttons run the same mutation and both go dead while it is in
+  // flight, so "Saving…" rides the one that was PRESSED rather than the one
+  // that leads: telling a candidate who chose to exit that the flow is saving
+  // and drawing another would name a decision they did not make. `variables` is
+  // the `drawAnother` argument, and it is undefined until something is sent.
+  const saveBlocked = name.trim().length === 0 || save.isPending
+  const savingBranch = save.isPending ? save.variables : undefined
 
   const discardDialog = (
     <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
@@ -603,12 +701,9 @@ export default function CreateListFlow({
                   shortfall the exact counts don't have, and the party mix is
                   a breakdown of the superset's people that would no longer
                   add up to the people figure above it. */}
-                {!exactCounts && unpreviewableLabels.length > 0 && (
+                {!exactCounts && unpreviewableDisclosure && (
                   <p className="text-xs text-muted-foreground">
-                    The map can&rsquo;t shade by{' '}
-                    {unpreviewableLabels.join(', ')} yet, so these counts
-                    include people that filter will exclude. Your saved list
-                    still applies it when you knock.
+                    {unpreviewableDisclosure}
                   </p>
                 )}
                 {!exactCounts && (turfStats?.partyMix.length ?? 0) > 0 && (
@@ -719,7 +814,14 @@ export default function CreateListFlow({
                       view. */}
                     <ul className="mt-2 divide-y divide-border">
                       {addressPreview.locations.map((location, index) => (
-                        <li key={index} className="py-2">
+                        <li
+                          key={index}
+                          // `block` because globals.css gives every `<li>`
+                          // inside a `data-slot` element `display: flex`, which
+                          // would put the "N doors at one location" heading and
+                          // the doors it introduces on one line.
+                          className="block py-2"
+                        >
                           {location.doors.length > 1 && (
                             <p className="text-xs font-medium">
                               {location.doors.length} doors at one location
@@ -760,225 +862,269 @@ export default function CreateListFlow({
     )
   }
 
-  // The who step is the one that peeks: its pills recolor the dots underneath
-  // live, so the map is worth uncovering. Purpose is a card list and name is a
-  // text field — pulling either down reveals a map nothing on screen changes.
-  const peekable = stage === 'who'
+  // A step peeks when something on it changes what the map is drawing, because
+  // then the map is the feedback and covering it takes the feedback away. Two
+  // steps qualify and they qualify for the same reason: the who step's pills
+  // recolour the dots live, and the confirm step's swatches recolour the ring
+  // the list will be drawn in. Purpose is a card list and name is a text field
+  // — pulling either down reveals a map nothing on screen changes.
+  //
+  // Confirm is the one that opens uncovered rather than waiting to be dragged,
+  // and it is also the only one whose band is a picture rather than a canvas:
+  // the drawing session is still live at that point, so a tap on the revealed
+  // strip would splice a vertex into the very shape being confirmed, with no
+  // Undo on this step to take it back.
+  const peekable = stage === 'who' || stage === 'confirm'
   const pulled = peekable && sheetTopPct > 0
   return (
-    <div
-      ref={sheetRef}
-      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col bg-background ${
-        pulled ? 'rounded-t-xl border-t border-border shadow-lg' : ''
-      }`}
-      style={{ top: peekable ? `${sheetTopPct}%` : 0 }}
-    >
-      {peekable && (
-        <button
-          type="button"
-          aria-label={
-            pulled ? 'Expand the filters' : 'Pull down to see the map'
-          }
-          className="flex w-full touch-none items-center justify-center py-2"
-          onPointerDown={handleDragStart}
-          onPointerMove={handleDragMove}
-          onPointerUp={handleDragEnd}
-          onPointerCancel={handleDragEnd}
-        >
-          <span className="h-1.5 w-12 rounded-full bg-muted" />
-        </button>
+    <>
+      {stage === 'confirm' && (
+        <div
+          id="confirm-map-band"
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 z-20"
+          style={{ height: `${sheetTopPct}%` }}
+        />
       )}
-      <StepHeader
-        stage={stage}
-        needsName={needsName}
-        onBack={previousStage(stage, needsName) ? back : null}
-        onClose={requestClose}
-      />
-      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-          {stage === 'purpose' && (
-            <PurposeStep
-              selected={purpose}
-              onSelect={(next) => {
-                setPurpose(next)
-                goToStage('who')
-              }}
-            />
-          )}
+      <div
+        ref={sheetRef}
+        className={`absolute inset-x-0 bottom-0 z-20 flex flex-col bg-background ${
+          pulled ? 'rounded-t-xl border-t border-border shadow-lg' : ''
+        }`}
+        style={{ top: peekable ? `${sheetTopPct}%` : 0 }}
+      >
+        {peekable && (
+          <button
+            type="button"
+            aria-label={
+              pulled
+                ? stage === 'confirm'
+                  ? 'Expand the list details'
+                  : 'Expand the filters'
+                : 'Pull down to see the map'
+            }
+            className="flex w-full touch-none items-center justify-center py-2"
+            onPointerDown={handleDragStart}
+            onPointerMove={handleDragMove}
+            onPointerUp={handleDragEnd}
+            onPointerCancel={handleDragEnd}
+          >
+            <span className="h-1.5 w-12 rounded-full bg-muted" />
+          </button>
+        )}
+        <StepHeader
+          stage={stage}
+          needsName={needsName}
+          onBack={previousStage(stage, needsName) ? back : null}
+          onClose={requestClose}
+        />
+        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+            {stage === 'purpose' && (
+              <PurposeStep
+                selected={purpose}
+                onSelect={(next) => {
+                  setPurpose(next)
+                  goToStage('who')
+                }}
+              />
+            )}
 
-          {stage === 'who' && (
-            <WhoStep
-              filters={filters}
-              onFiltersChange={(next) => {
-                // Editing a pill is leaving the named list behind: the draft
-                // is no longer that list, so the offer to save it as a new one
-                // comes back and the stepper grows the fifth step with it.
-                setSavedListId(null)
-                onFiltersChange(next)
-              }}
-              savedLists={savedLists}
-              allContactsHouseholds={allContactsHouseholds}
-              selectedListId={savedListId}
-              onSelectList={(listId) => {
-                setSavedListId(listId)
-                onFiltersChange(
-                  listId === null
-                    ? {}
-                    : (savedLists.find((list) => list.id === listId)?.filters ??
-                        {}),
-                )
-              }}
-              isElectedOfficial={isElectedOfficial}
-            />
-          )}
+            {stage === 'who' && (
+              <WhoStep
+                filters={filters}
+                onFiltersChange={(next) => {
+                  // Editing a pill is leaving the named list behind: the draft
+                  // is no longer that list, so the offer to save it as a new one
+                  // comes back and the stepper grows the fifth step with it.
+                  // The list's own support-status, activity and precinct
+                  // clauses leave with it — nothing can carry them onto the new
+                  // list, so a draft that kept their marks would go on
+                  // disclosing a filter that list will never apply.
+                  setSavedListId(null)
+                  onFiltersChange(withoutUnshadeableCriteria(next))
+                }}
+                savedLists={savedLists}
+                allContactsHouseholds={allContactsHouseholds}
+                selectedListId={savedListId}
+                onSelectList={selectList}
+                isElectedOfficial={isElectedOfficial}
+              />
+            )}
 
-          {stage === 'name' && (
-            <NameStep
-              value={savedName}
-              onChange={setSavedName}
-              districtHouseholds={districtHouseholds}
-            />
-          )}
+            {stage === 'name' && (
+              <NameStep
+                value={savedName}
+                onChange={setSavedName}
+                districtHouseholds={districtHouseholds}
+              />
+            )}
 
-          {stage === 'confirm' && (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <Label
-                  htmlFor="turf-name"
-                  className="text-xs font-semibold uppercase tracking-wide"
-                >
-                  Route name
-                </Label>
-                <Input
-                  id="turf-name"
-                  value={name}
-                  maxLength={MAX_TURF_NAME_LENGTH}
-                  placeholder="Name this list"
-                  onChange={(e) => {
-                    nameTouched.current = true
-                    setName(e.target.value)
-                  }}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wide">
-                  List color
-                </Label>
-                <div className="flex gap-2.5">
-                  {TURF_COLORS.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      aria-label={turfColorLabel(option)}
-                      aria-pressed={color === option}
-                      className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
-                        color === option
-                          ? 'border-foreground'
-                          : 'border-transparent'
-                      }`}
-                      style={{ backgroundColor: option }}
-                      onClick={() => setColor(option)}
-                    >
-                      {/* The canvas's tick inside the chosen swatch. The ring
+            {stage === 'confirm' && (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <Label
+                    htmlFor="turf-name"
+                    className="text-xs font-semibold uppercase tracking-wide"
+                  >
+                    Route name
+                  </Label>
+                  <Input
+                    id="turf-name"
+                    value={name}
+                    maxLength={MAX_TURF_NAME_LENGTH}
+                    placeholder="Name this list"
+                    onChange={(e) => {
+                      nameTouched.current = true
+                      setName(e.target.value)
+                    }}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wide">
+                    List color
+                  </Label>
+                  <div className="flex gap-2.5">
+                    {TURF_COLORS.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        aria-label={turfColorLabel(option)}
+                        aria-pressed={color === option}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
+                          color === option
+                            ? 'border-foreground'
+                            : 'border-transparent'
+                        }`}
+                        style={{ backgroundColor: option }}
+                        onClick={() => onColorChange(option)}
+                      >
+                        {/* The canvas's tick inside the chosen swatch. The ring
                           alone carries the choice in a second colour cue, on a
                           control whose whole content is colour — and the tick
                           inverts with the swatch it sits on, since a white one
                           is invisible on half this palette. */}
-                      {color === option && (
-                        <CheckCircleIcon
-                          size={16}
-                          aria-hidden="true"
-                          style={{ color: turfColorTick(option) }}
-                        />
-                      )}
-                    </button>
-                  ))}
+                        {color === option && (
+                          <CheckCircleIcon
+                            size={16}
+                            aria-hidden="true"
+                            style={{ color: turfColorTick(option) }}
+                          />
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-baseline justify-between border-t border-border pt-4">
-                <span className="text-sm font-semibold">This list</span>
-                <span className="text-sm tabular-nums text-muted-foreground">
-                  {doors.toLocaleString()} doors · {stops.toLocaleString()}{' '}
-                  stops · {people.toLocaleString()} voters
-                </span>
-              </div>
-              {save.isError && (
-                <p className="text-sm text-destructive">
-                  Saving failed — check the shape and try again.
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-      {/* The purpose step has no footer: choosing a card is the advance, so a
-          CTA under it would be a second way to do the same thing, disabled
-          until the first one was used. */}
-      {stage !== 'purpose' && (
-        <div className="border-t border-border bg-background px-4 py-4 sm:px-6">
-          <div className="mx-auto flex w-full max-w-2xl flex-wrap justify-center gap-3">
-            {stage === 'who' && (
-              <>
-                {/* No polygon exists yet, so district-wide is the only honest
-                    denominator here — and with the count now inside the CTA,
-                    this line is what still says which denominator it is. */}
-                <p className="flex-1 self-center text-sm text-muted-foreground">
-                  Across your whole district. You&rsquo;ll draw the area to
-                  knock next.
-                </p>
-                <Button
-                  variant="ghost"
-                  disabled={activeFilterCount === 0}
-                  onClick={() => {
-                    setSavedListId(null)
-                    onFiltersChange({})
-                  }}
-                >
-                  Reset filters
-                </Button>
-                <Button
-                  className="w-full max-w-xs"
-                  disabled={districtHouseholds === 0}
-                  onClick={() => goToStage(needsName ? 'name' : 'draw')}
-                >
-                  {districtHouseholds === 0
-                    ? 'No matching households'
-                    : `Continue (${districtHouseholds.toLocaleString()} households)`}
-                </Button>
-              </>
-            )}
-            {stage === 'name' && (
-              <Button
-                className="w-full max-w-xs"
-                disabled={savedName.trim().length === 0}
-                onClick={() => goToStage('draw')}
-              >
-                Continue
-              </Button>
-            )}
-            {stage === 'confirm' && (
-              <>
-                <Button
-                  className="flex-1"
-                  disabled={name.trim().length === 0 || save.isPending}
-                  onClick={() => save.mutate(false)}
-                >
-                  {save.isPending ? 'Saving…' : 'Save and exit'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  className="flex-1"
-                  disabled={name.trim().length === 0 || save.isPending}
-                  onClick={() => save.mutate(true)}
-                >
-                  Save and draw another
-                </Button>
+                <div className="flex items-baseline justify-between border-t border-border pt-4">
+                  <span className="text-sm font-semibold">This list</span>
+                  <span className="text-sm tabular-nums text-muted-foreground">
+                    {doors.toLocaleString()} doors · {stops.toLocaleString()}{' '}
+                    stops · {people.toLocaleString()} voters
+                  </span>
+                </div>
+                {save.isError && (
+                  <p className="text-sm text-destructive">
+                    Saving failed — check the shape and try again.
+                  </p>
+                )}
               </>
             )}
           </div>
         </div>
-      )}
-      {discardDialog}
-    </div>
+        {/* The purpose step has no footer: choosing a card is the advance, so a
+          CTA under it would be a second way to do the same thing, disabled
+          until the first one was used. */}
+        {stage !== 'purpose' && (
+          <div className="border-t border-border bg-background px-4 py-4 sm:px-6">
+            <div className="mx-auto flex w-full max-w-2xl flex-wrap justify-center gap-3">
+              {stage === 'who' && (
+                <>
+                  {/* No polygon exists yet, so district-wide is the only honest
+                    denominator here — and with the count now inside the CTA,
+                    this line is what still says which denominator it is. */}
+                  <p className="flex-1 self-center text-sm text-muted-foreground">
+                    Across your whole district. You&rsquo;ll draw the area to
+                    knock next.
+                  </p>
+                  <Button
+                    variant="ghost"
+                    disabled={activeFilterCount === 0}
+                    onClick={() => {
+                      setSavedListId(null)
+                      onFiltersChange({})
+                    }}
+                  >
+                    Reset filters
+                  </Button>
+                  {/* The count in the CTA is the pack's, and the pack cannot
+                    shade every way a saved list narrows — a list cut by
+                    support status or prior outreach previews as the whole
+                    district here. That gap used to appear for the first time
+                    on the draw step, two moves after the number that provoked
+                    it, so a candidate starting from a 256-person list read
+                    the district figure as their list being ignored. Same
+                    sentence, same helper: it belongs beside the first count it
+                    describes. `w-full` puts it on its own line under the
+                    wrapping row rather than squeezing the CTA. */}
+                  {unpreviewableDisclosure && (
+                    <p className="w-full text-xs text-muted-foreground">
+                      {unpreviewableDisclosure}
+                    </p>
+                  )}
+                  <Button
+                    className="w-full max-w-xs"
+                    disabled={districtHouseholds === 0}
+                    onClick={() => goToStage(needsName ? 'name' : 'draw')}
+                  >
+                    {districtHouseholds === 0
+                      ? 'No matching households'
+                      : `Continue (${districtHouseholds.toLocaleString()} households)`}
+                  </Button>
+                </>
+              )}
+              {stage === 'name' && (
+                <Button
+                  className="w-full max-w-xs"
+                  disabled={savedName.trim().length === 0}
+                  onClick={() => goToStage('draw')}
+                >
+                  Continue
+                </Button>
+              )}
+              {stage === 'confirm' && (
+                <>
+                  {/* Drawing another leads, because both buttons save and the
+                    difference between them is only what happens next — and the
+                    expected next move for a candidate who has sat down to cut
+                    turf is the second shape, not the door out. */}
+                  <Button
+                    className="flex-1"
+                    disabled={saveBlocked}
+                    onClick={() => save.mutate(true)}
+                  >
+                    {savingBranch === true
+                      ? 'Saving…'
+                      : 'Save and draw another'}
+                  </Button>
+                  {/* `outline` and not `secondary`: the styleguide's secondary is
+                    a filled tonal button, so the pair would read as two equally
+                    weighted calls to action and leading with one of them would
+                    say nothing. */}
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={saveBlocked}
+                    onClick={() => save.mutate(false)}
+                  >
+                    {savingBranch === false ? 'Saving…' : 'Save and exit'}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+        {discardDialog}
+      </div>
+    </>
   )
 }

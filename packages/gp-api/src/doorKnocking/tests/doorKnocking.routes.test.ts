@@ -1,12 +1,19 @@
+import { Readable } from 'node:stream'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
   ROUTE_TARGET_ACTIVITY_LIMIT,
   ROUTE_TARGET_NOTE_LIMIT,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
 import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
@@ -52,12 +59,18 @@ const person = (
   displayAddress: `${index} W Elm St`,
 })
 
-// Production addressKey format — the serve payload's frozen address is the
-// key's first segment.
-// Production unit-key format: HOUSE|PREFIXDIR|STREET|DESIGNATOR|SUFFIXDIR|
-// APT|ZIP (DOOR_KNOCKING_UNIT_KEY_COLUMNS order) — exercises the 7-segment
-// address rendering, apartment suffix included.
+// A key in the format routes froze under before the unit key moved to the
+// file's AddressLine: HOUSE|PREFIXDIR|STREET|DESIGNATOR|SUFFIXDIR|APT|ZIP
+// (DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS order). Lists knocked under it are
+// still being walked, so serve still has to render one.
 const PIPED_KEY = '1200|W|ELM|ST||3B|62704'
+
+// Current production unit-key format: ADDRESSLINE|APT|ZIP
+// (DOOR_KNOCKING_UNIT_KEY_COLUMNS order). Deliberately a Salt Lake City grid
+// address — on a grid the cardinal directions carry most of the address, so
+// this is the case where losing them turns a findable corner into two bare
+// numbers a canvasser cannot navigate to.
+const GRID_KEY = '1234 S 5678 W|3B|84116'
 
 // Three distinct coordinates inside the polygon, two people sharing one of
 // them (dedupes to one stop), plus one person inside the bbox but OUTSIDE
@@ -1225,7 +1238,7 @@ describe('door-knocking routes', () => {
               maritalStatus: 'Likely Married',
               hasChildrenUnder18: 'Yes',
               veteranStatus: 'Yes',
-              homeowner: 'Likely',
+              homeowner: 'Homeowner',
               businessOwner: null,
               levelOfEducation: 'Graduate Degree',
               estimatedIncomeAmount: 82000,
@@ -1312,6 +1325,38 @@ describe('door-knocking routes', () => {
       expect(dedupedAddress?.otherResidents).toEqual([{ name: 'Teo Vega' }])
     })
 
+    // The reported bug, at the boundary the walk-list PDF reads. Every printed
+    // surface renders the address off this payload field, so a direction lost
+    // here is a direction lost on paper — and on a grid that is the difference
+    // between a specific corner of Salt Lake City and the unfindable "1234
+    // 5678". The apartment still has to survive alongside it.
+    it('keeps the cardinal directions in a served address', async () => {
+      const turf = await createTurf()
+      stubVendors({
+        people: [
+          person(1, 41.9, -87.65, GRID_KEY),
+          person(3, 41.901, -87.651),
+          person(4, 41.902, -87.652),
+        ],
+        residents: { addresses: [] },
+      })
+      expect((await knock(turf.id)).status).toBe(201)
+
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      const address = (
+        res.data.stops as Array<{
+          addresses: Array<{ addressKey: string; address: string }>
+        }>
+      )
+        .flatMap((stop) => stop.addresses)
+        .find((entry) => entry.addressKey === GRID_KEY)
+      expect(address?.address).toBe('1234 S 5678 W Apt 3B')
+    })
+
     it('carries the demographic profile onto a live target', async () => {
       const { res } = await knockAndServe()
 
@@ -1327,7 +1372,7 @@ describe('door-knocking routes', () => {
         maritalStatus: 'Likely Married',
         hasChildrenUnder18: 'Yes',
         veteranStatus: 'Yes',
-        homeowner: 'Likely',
+        homeowner: 'Homeowner',
         // Presence-only: absent stays null, never 'No'.
         businessOwner: null,
         levelOfEducation: 'Graduate Degree',
@@ -1704,6 +1749,7 @@ describe('door-knocking routes', () => {
             occurredAt: new Date('2026-07-01T10:00:00Z'),
             outcome: 'answered',
             supportAnswer: 'supporter',
+            actorUserId: service.user.id,
           },
         })
         await service.prisma.contactStatusEvent.create({
@@ -1734,7 +1780,12 @@ describe('door-knocking routes', () => {
           data: { fromLabel: 'Off', toLabel: 'On' },
         })
         expect(history?.[3]).toMatchObject({
-          data: { outcome: 'answered', supportAnswer: 'supporter' },
+          data: {
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+            actorName: 'Johnny Goodparty',
+            actorUserId: service.user.id,
+          },
         })
       })
 
@@ -3167,7 +3218,31 @@ describe('door-knocking routes', () => {
     })
   })
   describe('pack', () => {
-    it('proxies the binary and threads org knock statuses', async () => {
+    const packBytes = Buffer.from([1, 2, 3, 4])
+
+    // Reads the streaming envelope: magic, then frames, and returns the
+    // payload of the pack frame. Mirrors the webapp's packDecoder.
+    const unwrapPack = (body: Buffer) => {
+      expect(body.subarray(0, PACK_STREAM_MAGIC_BYTES).toString('ascii')).toBe(
+        PACK_STREAM_MAGIC,
+      )
+      let offset = PACK_STREAM_MAGIC_BYTES
+      while (offset + PACK_STREAM_FRAME_HEADER_BYTES <= body.byteLength) {
+        const kind = body.readUInt32LE(offset)
+        const payloadBytes = body.readUInt32LE(offset + 4)
+        const start = offset + PACK_STREAM_FRAME_HEADER_BYTES
+        if (kind === PACK_STREAM_FRAME_KINDS.pack) {
+          return body.subarray(start, start + payloadBytes)
+        }
+        offset =
+          start +
+          Math.ceil(payloadBytes / PACK_STREAM_ALIGNMENT) *
+            PACK_STREAM_ALIGNMENT
+      }
+      throw new Error('no pack frame in the response')
+    }
+
+    it('proxies the binary and threads both campaign planes', async () => {
       const personId = '77777777-1111-1111-1111-111111111111'
       await service.prisma.contactInteractionDoorKnock.create({
         data: {
@@ -3178,7 +3253,6 @@ describe('door-knocking routes', () => {
           supportAnswer: 'supporter',
         },
       })
-      const packBytes = Buffer.from([1, 2, 3, 4])
       let packRequest: DoorKnockingPackRequest | undefined
       vi.spyOn(
         service.app.get(DoorKnockingPeopleApiService),
@@ -3196,11 +3270,163 @@ describe('door-knocking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toContain('application/octet-stream')
-      expect(Buffer.from(res.data as ArrayBuffer)).toEqual(packBytes)
+      expect(unwrapPack(Buffer.from(res.data as ArrayBuffer))).toEqual(
+        packBytes,
+      )
       expect(packRequest?.knockStatuses).toEqual([
         { personId, status: 'supporter' },
       ])
+      // The same knock, counted by the OTHER campaign plane. Both are read in
+      // gp-api and shipped with the request, so the district scan below stays
+      // a pure function of districtId.
+      expect(packRequest?.contactsMade).toEqual([{ personId, bucket: 1 }])
       expect(packRequest?.districtId).toBe(DISTRICT_ID)
+    })
+
+    // Absent, not empty: an empty array is an organization that has contacted
+    // nobody, which the map CAN shade. This org has contacted somebody and
+    // gp-api simply could not describe them all, which it must not silently
+    // render as "nobody has been contacted".
+    it('omits the contacts-made plane past the cap rather than truncating', async () => {
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: ['a', 'b', 'c'].map((seed) => ({
+          organizationSlug: orgSlug,
+          personId: `7777777${seed === 'a' ? 1 : seed === 'b' ? 2 : 3}-1111-1111-1111-111111111111`,
+          occurredAt: new Date('2026-07-10T10:00:00Z'),
+          outcome: 'answered' as const,
+        })),
+      })
+      vi.spyOn(
+        service.app.get(ContactsMadeResolutionService),
+        'contactsMadeBuckets',
+      ).mockResolvedValue(null)
+      let packRequest: DoorKnockingPackRequest | undefined
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockImplementation((request: DoorKnockingPackRequest) => {
+        packRequest = request
+        return Promise.resolve(packBytes)
+      })
+
+      await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(packRequest).toBeDefined()
+      expect(packRequest?.contactsMade).toBeUndefined()
+    })
+
+    // The production defect, at the wire: the route used to await the whole
+    // build before sending anything, so the socket stayed idle for the length
+    // of a district scan and the gateway killed it at 120s with no status
+    // written. With the build held open below, a route that still buffered
+    // would never send headers and this request would never resolve.
+    it('sends the response head before the build has finished', async () => {
+      let finishBuild: (pack: Buffer) => void = () => undefined
+      let buildSettled = false
+      const packSpy = vi
+        .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
+        .mockImplementation(
+          () =>
+            new Promise<Buffer>((resolve) => {
+              finishBuild = (pack) => {
+                buildSettled = true
+                resolve(pack)
+              }
+            }),
+        )
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'stream',
+        validateStatus: () => true,
+      })
+      const body = res.data as Readable
+      const chunks: Buffer[] = []
+      const firstChunk = new Promise<void>((resolve) =>
+        body.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+          resolve()
+        }),
+      )
+      const ended = new Promise<void>((resolve) =>
+        body.once('end', () => resolve()),
+      )
+
+      expect(res.status).toBe(200)
+      await firstChunk
+      expect(buildSettled).toBe(false)
+      expect(
+        chunks[0]?.subarray(0, PACK_STREAM_MAGIC_BYTES).toString('ascii'),
+      ).toBe(PACK_STREAM_MAGIC)
+
+      // The head lands ahead of the people-db call, not just ahead of its
+      // result, so wait for the build to actually be in flight before
+      // releasing it.
+      await vi.waitFor(() => expect(packSpy).toHaveBeenCalled())
+      finishBuild(packBytes)
+      await ended
+      expect(unwrapPack(Buffer.concat(chunks))).toEqual(packBytes)
+    })
+
+    // A build that dies after the head is out cannot be an HTTP error, so the
+    // envelope has to carry the failure instead — otherwise the browser reads
+    // a truncated 200 as an empty district.
+    it('carries a post-head build failure as an error frame', async () => {
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockRejectedValue(new Error('people-db is down'))
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(200)
+      const body = Buffer.from(res.data as ArrayBuffer)
+      expect(() => unwrapPack(body)).toThrow('no pack frame')
+      expect(body.readUInt32LE(PACK_STREAM_MAGIC_BYTES)).toBe(
+        PACK_STREAM_FRAME_KINDS.error,
+      )
+    })
+
+    // Cancellation is wired to the response stream's `close`, which assumes
+    // Fastify destroys the stream it is sending when the client goes away. It
+    // does, but that is a fact about the adapter rather than about this code,
+    // so it is pinned here: without it the district scan outlives the browser
+    // and the next attempt contends with a build nobody is waiting for.
+    it('aborts the build when the client hangs up', async () => {
+      let buildSignal: AbortSignal | undefined
+      // Restored at the end: this build never resolves, and a later test that
+      // walks every gated route would hang on it.
+      const packSpy = vi
+        .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
+        .mockImplementation((_request, signal) => {
+          buildSignal = signal
+          return new Promise<Buffer>(() => undefined)
+        })
+
+      const abort = new AbortController()
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'stream',
+        signal: abort.signal,
+        validateStatus: () => true,
+      })
+      await new Promise<void>((resolve) =>
+        (res.data as Readable).once('data', () => resolve()),
+      )
+      await vi.waitFor(() => expect(buildSignal).toBeDefined())
+
+      abort.abort()
+
+      await vi.waitFor(() => expect(buildSignal?.aborted).toBe(true))
+      packSpy.mockRestore()
     })
   })
 

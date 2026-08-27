@@ -1,3 +1,4 @@
+import type { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 /**
  * Shared type definitions for helper utilities and domain models
  * Based on Prisma schema definitions
@@ -106,6 +107,15 @@ export interface RunningAgainst {
   description: string
 }
 
+// Onboarding's "Are you already on the ballot?" answer. Persisted on the
+// campaign.ballotStatus column; data.onboarding keeps a copy as part of the
+// whole-answers snapshot, but that is an archive, not a read path.
+export type BallotStatus =
+  | 'on-ballot'
+  | 'qualified-not-filed'
+  | 'considering'
+  | 'testing'
+
 export interface CampaignDetails {
   state?: string
   ballotLevel?: string
@@ -177,6 +187,7 @@ export interface TcrCompliance {
   updatedAt: Date | string
   campaignId: number
   peerlyIdentityId?: string | null
+  peerlyCvStatus?: PeerlyCvVerificationStatus | null
   peerlyRegistrationLink?: string | null
   peerlyIdentityProfileLink?: string | null
   peerly10DLCBrandSubmissionKey?: string | null
@@ -211,6 +222,14 @@ export interface CampaignData {
   adminUserEmail?: string
   hubspotId?: string
   name?: string
+  onboarding?: OnboardingAnswersSnapshot
+}
+
+// The subset of the onboarding answers snapshot this app reads back off
+// data.onboarding. Not the full answers object — add fields as readers need
+// them.
+export interface OnboardingAnswersSnapshot {
+  ballotStatus?: BallotStatus
 }
 
 export interface HubSpotUpdates {
@@ -460,6 +479,7 @@ export interface Campaign {
   isDemo: boolean
   didWin?: boolean | null
   primaryResult?: 'won' | 'lost' | null
+  ballotStatus?: BallotStatus | null
   dateVerified?: Date | string | null
   tier?: CampaignTier | null
   formattedAddress?: string | null

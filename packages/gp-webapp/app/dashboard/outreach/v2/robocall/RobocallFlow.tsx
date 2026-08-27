@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
   type SocialTone,
 } from '@goodparty_org/contracts'
@@ -21,19 +22,27 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
 import { RobocallComposeStep } from './RobocallComposeStep'
+import { RobocallReviewStep } from './RobocallReviewStep'
 import { useRobocallRecorder } from './useRobocallRecorder'
 import { useRobocallAudioUpload } from './useRobocallAudioUpload'
 import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
 
-// Steps grow as later slices land (compliance, review + pay). For now: pick a
-// purpose, pick/build the audience, choose when it goes out, record/compose the
-// message, then a placeholder for the not-yet-built remainder.
-type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'placeholder'
+// Steps grow as later slices land (pay). For now: pick a purpose, pick/build
+// the audience, choose when it goes out, record/compose the message, review the
+// pre-send summary, then a placeholder for the not-yet-built payment step.
+type StepId =
+  | 'purpose'
+  | 'audience'
+  | 'schedule'
+  | 'compose'
+  | 'review'
+  | 'placeholder'
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'schedule',
   'compose',
+  'review',
   'placeholder',
 ]
 
@@ -42,6 +51,7 @@ const STEP_TITLES: Record<StepId, string> = {
   audience: 'Who are you calling?',
   schedule: 'When should it go out?',
   compose: 'What do you want to say?',
+  review: 'Review your campaign',
   placeholder: 'Robocall is coming soon',
 }
 
@@ -115,26 +125,47 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // Stale-response guard: a tone switch / regenerate bumps this, and a draft
   // response is discarded unless it's still the latest request.
   const draftRequestRef = useRef(0)
+  // Latest purpose, read inside the rent onSuccess (which closes over the
+  // render that started the rent) so a purpose change while renting doesn't
+  // draft the old purpose — the fresh goToCompose drafts the new one instead.
+  const purposeRef = useRef(purpose)
+  purposeRef.current = purpose
   const recorder = useRobocallRecorder(MAX_RECORDING_SECONDS)
   const { reset: resetRecorder } = recorder
   const audioUpload = useRobocallAudioUpload()
   const { reset: resetAudioUpload } = audioUpload
   const isCustomPurpose = purpose === 'custom'
 
+  // The fail-closed compliance gate: once a recording is uploaded, transcribe
+  // it and verify the spoken disclosures. Continue is blocked until it passes.
+  const complianceMutation = useMutation({
+    mutationFn: async (input: RobocallComplianceRequest) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/robocall/compliance',
+        input,
+      )
+      return data
+    },
+  })
+  const { mutate: runCompliance, reset: resetCompliance } = complianceMutation
+
   // Save commits the recording: upload it to S3 first, and only mark it saved
-  // (which unlocks Continue) once the upload succeeds. The stored key rides in
-  // audioUpload.key for the send-creation step.
+  // once the upload succeeds; the compliance check then runs off that saved
+  // status (see the effect below).
   const handleSaveRecording = async () => {
     const rec = recorder.recording
     if (!rec) return
-    const key = await audioUpload.uploadAudio(rec.blob)
-    if (key) recorder.save()
+    const uploaded = await audioUpload.uploadAudio(rec.blob)
+    if (uploaded) recorder.save()
   }
 
-  // Re-recording (status back to idle) drops any prior upload key/error.
+  // Re-recording (status back to idle) drops any prior upload + verdict.
   useEffect(() => {
-    if (recorder.status === 'idle') resetAudioUpload()
-  }, [recorder.status, resetAudioUpload])
+    if (recorder.status === 'idle') {
+      resetAudioUpload()
+      resetCompliance()
+    }
+  }, [recorder.status, resetAudioUpload, resetCompliance])
 
   const draftMutation = useMutation({
     mutationFn: async (input: RobocallScriptDraftRequest) => {
@@ -147,14 +178,38 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   })
   const { mutate: runDraft } = draftMutation
 
+  // The rented CallHub caller-ID number the candidate reads aloud. Rented once
+  // on entering compose so the draft can carry the required "paid for by" +
+  // callback-number disclosure; held in flow state and reused across redrafts.
+  const [callbackNumber, setCallbackNumber] = useState<string | null>(null)
+  const rentMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/robocall/number',
+        {},
+      )
+      return data.phoneNumber
+    },
+  })
+  const { mutate: runRent, reset: resetRent } = rentMutation
+
   // Fire an AI script draft; a superseded response is discarded. Custom
-  // purpose writes its own script, so it never drafts.
-  const requestDraft = (p: RobocallPurpose, t: SocialTone) => {
+  // purpose writes its own script, so it never drafts. A callbackNumber makes
+  // the draft end with the spoken disclosure.
+  const requestDraft = (
+    p: RobocallPurpose,
+    t: SocialTone,
+    callback: string | null,
+  ) => {
     if (p === 'custom') return
     const requestId = draftRequestRef.current + 1
     draftRequestRef.current = requestId
     runDraft(
-      { purpose: p, tone: t },
+      {
+        purpose: p,
+        tone: t,
+        ...(callback ? { callbackNumber: callback } : {}),
+      },
       {
         onSuccess: (draft) => {
           if (requestId === draftRequestRef.current) setScript(draft)
@@ -189,11 +244,38 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setNow(new Date())
     setTone('warm')
     setScript('')
+    setCallbackNumber(null)
+    resetRent()
+    resetCompliance()
     draftRequestRef.current = 0
     resetRecorder()
     resetAudioUpload()
     resetAudience()
-  }, [open, resetAudience, resetRecorder, resetAudioUpload])
+  }, [
+    open,
+    resetAudience,
+    resetRecorder,
+    resetAudioUpload,
+    resetRent,
+    resetCompliance,
+  ])
+
+  // Run the compliance check once a recording is saved (uploaded). Keyed on the
+  // saved object key, so a fresh re-record re-checks and nothing else re-fires.
+  // The check is an audio-content gate (name/org/callback derived or verified
+  // server-side), so it needs only the recording — never the rented number.
+  useEffect(() => {
+    if (
+      recorder.status === 'saved' &&
+      audioUpload.key &&
+      audioUpload.contentType
+    ) {
+      runCompliance({
+        audioKey: audioUpload.key,
+        contentType: audioUpload.contentType,
+      })
+    }
+  }, [recorder.status, audioUpload.key, audioUpload.contentType, runCompliance])
 
   // Validate against the combined UTC instant so it's tz-correct: the send must
   // be at least 48h out. `earliest` (now + lead) drives both the "earliest
@@ -213,6 +295,18 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const invalidateRecording = () => {
     resetRecorder()
     resetAudioUpload()
+    resetCompliance()
+  }
+
+  // Re-run the check after a transient (transcription/LLM) failure, reusing the
+  // already-uploaded recording.
+  const retryCompliance = () => {
+    if (audioUpload.key && audioUpload.contentType) {
+      runCompliance({
+        audioKey: audioUpload.key,
+        contentType: audioUpload.contentType,
+      })
+    }
   }
 
   const handleSelectPurpose = (selected: RobocallPurpose) => {
@@ -291,25 +385,50 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     }
   }
 
-  const goToCompose = () => {
-    // Kick off the first AI draft on entry (non-custom, and only if we don't
-    // already have one from a prior visit to this step).
+  // First AI draft on entry (non-custom, and only if we don't already have one
+  // from a prior visit). Custom writes its own words, so it never drafts — but
+  // it still needs the rented number to read aloud, shown in the compose step.
+  const draftIfNeeded = (callback: string | null) => {
     if (purpose && purpose !== 'custom' && !script.trim()) {
-      requestDraft(purpose, tone)
+      requestDraft(purpose, tone, callback)
     }
+  }
+
+  const rentCallbackNumber = () => {
+    // Don't fire a second billable rent while one is in flight (Back to
+    // schedule then Continue again before the first resolves).
+    if (rentMutation.isPending) return
+    const rentedForPurpose = purpose
+    runRent(undefined, {
+      onSuccess: (number) => {
+        setCallbackNumber(number)
+        // A purpose change while renting must not draft the old purpose.
+        if (purposeRef.current === rentedForPurpose) draftIfNeeded(number)
+      },
+    })
+  }
+
+  const goToCompose = () => {
     setStepId('compose')
+    // Rent the caller-ID number once, then draft with it so the script carries
+    // the disclosure. A revisit reuses the number already in hand.
+    if (callbackNumber) {
+      draftIfNeeded(callbackNumber)
+      return
+    }
+    rentCallbackNumber()
   }
 
   const handleToneChange = (t: SocialTone) => {
     setTone(t)
-    if (purpose) requestDraft(purpose, t)
+    if (purpose) requestDraft(purpose, t, callbackNumber)
     // The new draft supersedes the script a recording was read against.
     invalidateRecording()
   }
 
   const handleRegenerate = () => {
     if (purpose) {
-      requestDraft(purpose, tone)
+      requestDraft(purpose, tone, callbackNumber)
       invalidateRecording()
     }
   }
@@ -317,6 +436,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const hasBuilderSelection = hasAnyVoterFileSelection(
     audience.builderFilters,
     audience.builderSupportStatus,
+    audience.builderPrecincts,
   )
 
   const dirty = purpose !== null
@@ -369,12 +489,22 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
         : stepId === 'compose'
           ? {
               label: 'Continue',
-              onClick: () => setStepId('placeholder'),
-              // Advancing requires a saved recording — the script alone
-              // isn't the deliverable; the audio is.
-              disabled: recorder.status !== 'saved',
+              onClick: () => setStepId('review'),
+              // Advancing requires a saved recording that also passed the
+              // compliance check — the audio is the deliverable, and it must
+              // carry the spoken disclosures.
+              disabled:
+                recorder.status !== 'saved' ||
+                complianceMutation.data?.passed !== true,
             }
-          : null
+          : stepId === 'review'
+            ? {
+                // The pay step (a sibling slice) lands here next; for now the
+                // review's primary CTA advances to the end placeholder.
+                label: 'Continue to payment',
+                onClick: () => setStepId('placeholder'),
+              }
+            : null
 
   return (
     <OutreachFlowShell
@@ -409,6 +539,9 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
             builderFilters={audience.builderFilters}
             onBuilderFiltersChange={audience.setBuilderFilters}
             builderSupportStatus={audience.builderSupportStatus}
+            builderPrecincts={audience.builderPrecincts}
+            onBuilderPrecinctsChange={audience.setBuilderPrecincts}
+            precinctOptions={audience.precinctOptions}
             onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}
@@ -448,11 +581,31 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           audienceName={audience.selectedList?.name ?? 'your list'}
+          callbackNumber={callbackNumber}
+          isRentingNumber={rentMutation.isPending}
+          rentError={rentMutation.isError}
+          onRetryNumber={rentCallbackNumber}
           recorder={recorder}
           maxSeconds={MAX_RECORDING_SECONDS}
           onSaveRecording={handleSaveRecording}
           isUploading={audioUpload.isUploading}
           uploadError={audioUpload.error}
+          complianceChecking={complianceMutation.isPending}
+          complianceVerdict={complianceMutation.data ?? null}
+          complianceError={complianceMutation.isError}
+          onRetryCompliance={retryCompliance}
+        />
+      ) : stepId === 'review' ? (
+        <RobocallReviewStep
+          campaignName={campaignName}
+          audienceName={audience.selectedList?.name ?? 'your list'}
+          reachCount={audience.reachableCount ?? 0}
+          pricePerContact={PRICE_PER_CONTACT}
+          scheduledAt={scheduledAt}
+          timeZone={timeZone}
+          callbackNumber={callbackNumber}
+          recording={recorder.recording}
+          script={script}
         />
       ) : (
         <div className="space-y-2 py-8 text-center">

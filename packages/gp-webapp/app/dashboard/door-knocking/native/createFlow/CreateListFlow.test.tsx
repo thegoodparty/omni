@@ -6,6 +6,7 @@ import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CreateListFlow from './CreateListFlow'
+import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -48,6 +49,8 @@ const baseProps = {
   drawPointCount: 3,
   onUndoPoint: vi.fn(),
   onClearPoints: vi.fn(),
+  color: '#2563eb',
+  onColorChange: vi.fn(),
   onSaved: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
@@ -568,7 +571,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="draw" unpreviewableKeys={[]} />,
     )
-    expect(screen.queryByText(/can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
 
     rerender(
       <CreateListFlow
@@ -586,7 +589,9 @@ describe('CreateListFlow', () => {
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          new RegExp(`can’t shade by ${label}`).test(element.textContent ?? ''),
+          new RegExp(`can’t yet shade by ${label}`).test(
+            element.textContent ?? '',
+          ),
       ),
     ).toBeInTheDocument()
   })
@@ -605,11 +610,39 @@ describe('CreateListFlow', () => {
     const disclosure = screen.getByText(
       (_, element) =>
         element?.tagName === 'P' &&
-        /can’t shade by/.test(element.textContent ?? ''),
+        /can’t yet shade by/.test(element.textContent ?? ''),
     )
     // Named once, however many of its buckets are selected.
     expect(disclosure.textContent).toContain(
-      'can’t shade by Prior contacts made yet',
+      'can’t yet shade by Prior contacts made,',
+    )
+  })
+
+  // Two unshadeable filters used to be comma-joined into a sentence written
+  // for one — "shade by 65+, Prior contacts made yet, so these counts include
+  // people that filter will exclude" — which reads as a typo rather than as a
+  // list. The wiring, not the joining, is what this asserts; the joins
+  // themselves are covered in voterFilterPreview.test.ts.
+  it('joins two unshadeable filters with or, and pluralises around them', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        unpreviewableKeys={['age65Plus', 'contactsMade0']}
+      />,
+    )
+
+    const disclosure = screen.getByText(
+      (_, element) =>
+        element?.tagName === 'P' &&
+        /can’t yet shade by/.test(element.textContent ?? ''),
+    )
+    // "Your list", not "Your saved list": this renders the draw step of a
+    // from-scratch list, so there is no saved list to name.
+    expect(disclosure.textContent).toBe(
+      'The map can’t yet shade by 65+ or Prior contacts made, so these counts ' +
+        'include people those filters will exclude. Your list still ' +
+        'applies them when you knock.',
     )
   })
 
@@ -704,6 +737,14 @@ describe('CreateListFlow', () => {
     expect(screen.getByText('1200 W Elm St Apt 1')).toBeInTheDocument()
     expect(screen.getByText('1200 W Elm St Apt 2')).toBeInTheDocument()
     expect(screen.getByText('14 N Oak Ave')).toBeInTheDocument()
+    // globals.css gives every `<li>` inside a `data-slot` element `display:
+    // flex`, which ran the "N doors at one location" heading into the first
+    // address. jsdom has no layout, so this asserts the override is present
+    // rather than its effect; the rendered proof is in the PR's screenshots.
+    const location = screen
+      .getByText('2 doors at one location')
+      .closest('li') as HTMLElement
+    expect(location.className.split(/\s+/)).toContain('block')
   })
 
   // The rule this feature has already broken once: one quantity gets one
@@ -727,7 +768,7 @@ describe('CreateListFlow', () => {
     )
 
     expect(screen.getByText('9')).toBeInTheDocument()
-    expect(screen.getByText(/The map can’t shade by/)).toBeInTheDocument()
+    expect(screen.getByText(/The map can’t yet shade by/)).toBeInTheDocument()
 
     rerender(
       <CreateListFlow
@@ -756,7 +797,7 @@ describe('CreateListFlow', () => {
     expect(screen.queryByText('9')).toBeNull()
     expect(screen.queryByText('14')).toBeNull()
     expect(screen.queryByText('22')).toBeNull()
-    expect(screen.queryByText(/The map can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
     // What the preview does still owe the reader: these are suppressed
     // already, so a shorter walk than this is not the expectation.
     expect(screen.getByText(/already out/)).toBeInTheDocument()
@@ -893,6 +934,150 @@ describe('CreateListFlow', () => {
     expect(
       screen.queryByRole('button', { name: 'See the addresses' }),
     ).toBeNull()
+  })
+
+  // CHANGED DELIBERATELY (Voter Outreach 2.0): the canvas makes "Save and draw
+  // another" the primary and "Save and exit" the outline one beside it, and we
+  // were exactly inverted. Both buttons do the same two things either way;
+  // which one leads is the flow's claim about the expected next move, and the
+  // canvas assumes a candidate cutting several evenings in one sitting.
+  it('leads the confirm step with Save and draw another', () => {
+    render(<CreateListFlow {...baseProps} step="confirm" />)
+
+    const [first, second] = screen.getAllByRole('button', { name: /^Save and/ })
+    expect(first).toHaveTextContent('Save and draw another')
+    expect(second).toHaveTextContent('Save and exit')
+    // The pairing is a filled primary against the styleguide's `outline`, not
+    // its `secondary` — `secondary` is a filled tonal button, so the two would
+    // read as equally weighted and the swap would have said nothing.
+    expect(first).toHaveClass('bg-primary')
+    expect(second).toHaveClass('bg-transparent')
+    expect(second).not.toHaveClass('bg-secondary')
+  })
+
+  // Both buttons run the same mutation, so `isPending` cannot say which. The
+  // label belongs to the button that was PRESSED rather than to whichever one
+  // leads: a candidate who chose to exit would otherwise watch the other button
+  // claim their write.
+  it('says Saving… on the button that was pressed', async () => {
+    let release: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', async () => {
+      await held
+      return { status: 200 as const, data: savedTurf }
+    })
+    const onSaved = vi.fn()
+
+    render(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    const exit = screen.getByRole('button', { name: 'Save and exit' })
+    fireEvent.click(exit)
+
+    await waitFor(() => expect(exit).toHaveTextContent('Saving…'))
+    // The primary keeps its own label and goes dead with it: one write is in
+    // flight, and it is not this one.
+    const primary = screen.getByRole('button', {
+      name: 'Save and draw another',
+    })
+    expect(primary).toBeDisabled()
+
+    release!()
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+  })
+
+  // The defect this closes: the confirm sheet was opaque and full height, so a
+  // candidate picked the colour their list would be drawn in with the map — and
+  // the boundary they had just drawn — hidden behind it.
+  it('opens the confirm step over a band of the map', () => {
+    const { rerender } = renderAtWho()
+
+    // The who step still opens covered; pulling it down is the candidate's own
+    // gesture there.
+    expect(
+      screen.getByRole('button', { name: 'Pull down to see the map' })
+        .parentElement,
+    ).toHaveStyle({ top: '0%' })
+    expect(document.getElementById('confirm-map-band')).toBeNull()
+
+    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+
+    expect(
+      screen.getByRole('button', { name: 'Expand the list details' })
+        .parentElement,
+    ).toHaveStyle({ top: '30%' })
+    // The uncovered strip is a picture and not a canvas: the drawing session is
+    // still live on this step, so a tap that reached the map would splice a
+    // vertex into the shape being confirmed, with no Undo here to take it back.
+    expect(document.getElementById('confirm-map-band')).toHaveStyle({
+      height: '30%',
+    })
+  })
+
+  // The colour is the page's now, because the shared canvas draws the ring in
+  // it — the swatch is a request, the same shape Undo and Clear have.
+  it('reports the colour pick upward, and saves the one it is handed', async () => {
+    let turfBody: unknown = null
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    const onColorChange = vi.fn()
+    const onSaved = vi.fn()
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        onColorChange={onColorChange}
+        onSaved={onSaved}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Green' }))
+    expect(onColorChange).toHaveBeenCalledWith('#16a34a')
+    // Nothing moved here: the flow holds no colour of its own, so the tick is
+    // still on Blue until the page hands the pick back down.
+    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        color="#16a34a"
+        onColorChange={onColorChange}
+        onSaved={onSaved}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Green' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    // The colour the map was tinted with is the colour the turf is filed under.
+    expect(turfBody).toMatchObject({ color: '#16a34a' })
   })
 
   // gp-api 400s a contacts-made selection from an elected-office org
@@ -1084,6 +1269,113 @@ describe('CreateListFlow steps', () => {
 
     expect(screen.getByRole('radio', { name: /^Precinct 2/ })).toBeTruthy()
     expect(screen.getByRole('radio', { name: /^All contacts/ })).toBeTruthy()
+  })
+
+  // The reported defect, at the step it was reported from. A persuasion list
+  // is narrowed by support status, and the pack has no plane for it — so
+  // starting from a 256-person list put the whole district in the Continue
+  // button and said nothing about why. The count itself cannot be fixed here
+  // (the map genuinely cannot shade that clause), so the step has to say so:
+  // an undisclosed superset is what made this read as the list being ignored.
+  it('discloses, on the who step, a picked list’s unshadeable clauses', () => {
+    const { rerender } = renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      unpreviewableKeys: [],
+    })
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
+
+    // Pick the row for real rather than posting the lifted draft in as props:
+    // the sentence names the picked list, so a test that never picks one is
+    // asserting wording the flow cannot actually reach.
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners/ }),
+    )
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        savedLists={savedLists}
+        districtHouseholds={12_000}
+        filters={{ supportStatus: true }}
+        unpreviewableKeys={['supportStatus']}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Continue (12,000 households)' }),
+    ).toBeEnabled()
+    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
+      'The map can’t yet shade by Support status, so these counts include ' +
+        'people that filter will exclude. Your saved list still applies it ' +
+        'when you knock.',
+    )
+  })
+
+  // The same sentence, one step earlier in the decision: a candidate who
+  // builds a list from scratch and picks 65+ has an unshadeable selection and
+  // no list to attribute it to. Citing "your saved list" there describes
+  // something that does not exist; dropping the promise instead would end the
+  // sentence on "that filter will exclude", which reads as the filter being
+  // ignored. Both halves are checked because fixing either one alone is a
+  // regression in the other.
+  it('does not cite a saved list on the who step when none is picked', () => {
+    renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      filters: { age65Plus: true },
+      unpreviewableKeys: ['age65Plus'],
+    })
+
+    const disclosure = screen.getByText(/The map can’t yet shade by/)
+    expect(disclosure).toHaveTextContent('Your list still applies it when you')
+    expect(disclosure).not.toHaveTextContent('saved list')
+  })
+
+  // Picking a list is two writes that have to happen together, and the second
+  // one is what the preview reads. A list whose only narrowing is a clause the
+  // draft cannot hold must still arrive marked, or the who step has nothing to
+  // disclose and the map shades the district.
+  it('lifts a picked list’s whole draft, marks and all', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists: [
+        {
+          id: 4,
+          name: 'Persuasion walk list',
+          households: 12_000,
+          filters: { supportStatus: true },
+        },
+      ],
+      onFiltersChange,
+    })
+
+    fireEvent.click(screen.getByRole('radio', { name: /Persuasion walk list/ }))
+
+    expect(onFiltersChange).toHaveBeenCalledWith({ supportStatus: true })
+  })
+
+  // Editing a pill leaves the named list behind, so its own clauses go with
+  // it: nothing can carry them onto the new list the flow is now offering to
+  // save, and a disclosure about a filter that list will not apply is a lie in
+  // the other direction.
+  it('drops the marks when a pill edit leaves the named list behind', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists,
+      filters: { supportStatus: true, partyDemocrat: true },
+      onFiltersChange,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Republican' }))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.not.objectContaining({ supportStatus: expect.anything() }),
+    )
+    expect(onFiltersChange.mock.calls.at(-1)?.[0]).toMatchObject({
+      partyDemocrat: true,
+      partyRepublican: true,
+    })
   })
 
   // What adopting OutreachFlowShell would have bought, built here instead:
@@ -1371,5 +1663,173 @@ describe('CreateListFlow steps', () => {
       />,
     )
     expect(screen.getByLabelText('List name')).toHaveValue('Homeowners')
+  })
+})
+
+// The other end of the outreach hub's door-knocking tile: a candidate who
+// pressed "Door knocking" with a list selected arrives on `?listId=` and must
+// not be asked for that list a second time. The param is never trusted — the
+// picker's own rows are, because they are the only thing that knows which
+// lists this org still has.
+describe('CreateListFlow preselected list', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  const savedLists: SavedListOption[] = [
+    { id: 4, name: 'Precinct 2 homeowners', households: 820, filters: {} },
+    {
+      id: 9,
+      name: 'Super voters',
+      households: 1_240,
+      filters: { partyDemocrat: true },
+    },
+  ]
+
+  it('opens the who step on the carried list, with its filters in the draft', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 9, onFiltersChange })
+
+    expect(
+      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /All contacts/ }),
+    ).not.toBeChecked()
+    // Seeded exactly as a click on the row seeds it — the pills and the map
+    // say what the list says, not what the draft happened to hold.
+    expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
+    // And starting from a named list is the alternative to naming one, so the
+    // conditional name step is gone for the same reason it is after a click.
+    expect(screen.getByText('Step 2 of 4')).toBeInTheDocument()
+  })
+
+  // The four ways a query param can be wrong that survive the parser — an id
+  // that is simply not one of this org's lists (deleted, archived, another
+  // org's, or invented) — all land here, and all of them must be nothing more
+  // than a missed preselection.
+  it('falls back to the ordinary flow when the id names no list of yours', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({
+      savedLists,
+      preselectedListId: 12_345,
+      filters: { partyDemocrat: true },
+      onFiltersChange,
+    })
+
+    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+    expect(onFiltersChange).not.toHaveBeenCalled()
+    // Unfiltered by a list, so the flow still offers to save the draft as one.
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+  })
+
+  it('leaves the flow untouched with no list carried in', () => {
+    const onFiltersChange = vi.fn()
+    renderAtWho({ savedLists, onFiltersChange })
+
+    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+    expect(onFiltersChange).not.toHaveBeenCalled()
+  })
+
+  // This flow is unmounted every time the create surface closes, so it cannot
+  // remember that the arrival is spent. Reporting the moment it lands is what
+  // lets the page above stop offering it back — and it is reported only when
+  // the id really was applied, so a bad one leaves the page still holding it
+  // for the rows that may yet arrive.
+  it('reports the carried list the moment it is applied, and not before', () => {
+    const onPreselectApplied = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 9, onPreselectApplied })
+
+    expect(onPreselectApplied).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports nothing when the carried list names no list of yours', () => {
+    const onPreselectApplied = vi.fn()
+    renderAtWho({ savedLists, preselectedListId: 12_345, onPreselectApplied })
+
+    expect(onPreselectApplied).not.toHaveBeenCalled()
+  })
+
+  // The picker is populated by a query, so an empty first render is the
+  // ordinary case rather than a refusal — the preselect has to wait for it
+  // instead of deciding the id is bad.
+  it('applies the carried list once the picker’s rows arrive', () => {
+    const onFiltersChange = vi.fn()
+    const props = { ...baseProps, preselectedListId: 9, onFiltersChange }
+
+    const { rerender } = render(
+      <CreateListFlow {...props} step="filters" savedLists={[]} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+
+    rerender(
+      <CreateListFlow {...props} step="filters" savedLists={savedLists} />,
+    )
+
+    expect(
+      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
+    ).toBeChecked()
+    expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
+  })
+
+  // A seed, not a binding: the arrival is spent once applied, so a refetch
+  // that hands back a fresh array cannot put the candidate's own pick back.
+  it('does not re-apply over a list the candidate picked instead', () => {
+    const props = { ...baseProps, savedLists, preselectedListId: 9 }
+    const { rerender } = render(<CreateListFlow {...props} step="filters" />)
+    fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
+    )
+    expect(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
+    ).toBeChecked()
+
+    rerender(
+      <CreateListFlow
+        {...props}
+        step="filters"
+        savedLists={savedLists.map((list) => ({ ...list }))}
+      />,
+    )
+
+    expect(
+      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
+    ).toBeChecked()
+  })
+
+  // The whole point of carrying it: the turf attaches to the list the
+  // candidate arrived with, rather than to a near-identical copy of it.
+  it('attaches the turf to the carried list without copying it', async () => {
+    let filterPosts = 0
+    let turfBody: unknown = null
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      filterPosts += 1
+      return { status: 200, data: { id: 999 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    const onSaved = vi.fn()
+    const props = { ...baseProps, savedLists, preselectedListId: 9, onSaved }
+
+    const { rerender } = renderAtWho(props)
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Continue \(1,500 households\)$/ }),
+    )
+
+    rerender(<CreateListFlow {...props} step="confirm" />)
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    expect(filterPosts).toBe(0)
+    expect(turfBody).toMatchObject({ voterFileFilterId: 9 })
   })
 })

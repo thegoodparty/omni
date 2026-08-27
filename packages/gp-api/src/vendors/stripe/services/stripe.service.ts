@@ -87,8 +87,26 @@ export class StripeService {
     })
   }
 
+  // Full refund of a completed one-time payment (cancel-before-send).
+  // Callers pass a stable idempotency key so a retried cancel can never
+  // refund twice.
+  async refundPaymentIntent(paymentIntentId: string, idempotencyKey: string) {
+    return await this.stripe.refunds.create(
+      { payment_intent: paymentIntentId },
+      { idempotencyKey },
+    )
+  }
+
   async retrieveCheckoutSession(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
+  }
+
+  // Receipt read: card brand/last4 and the hosted receipt URL live on the
+  // payment intent's latest charge, which plain retrieve leaves as an id.
+  async retrieveCheckoutSessionWithCharge(sessionId: string) {
+    return await this.stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent.latest_charge'],
+    })
   }
 
   // Returns the session's terminal disposition: a completed session means a
@@ -236,6 +254,10 @@ export class StripeService {
     const session = await this.stripe.checkout.sessions.create({
       ui_mode: 'custom',
       mode: 'payment',
+      // Explicit list: Stripe's automatic set adds BNPL options (Klarna,
+      // Affirm) that are off-brand for campaign charges (product call,
+      // Aug 19). Card, bank debit, and Amazon Pay stay.
+      payment_method_types: ['card', 'us_bank_account', 'amazon_pay'],
       ...(customerId
         ? { customer: customerId }
         : email

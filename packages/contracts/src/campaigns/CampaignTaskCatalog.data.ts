@@ -12,13 +12,18 @@ import { voterContactSendOffsetDays } from './VoterContactSchedule.data'
 // Text/robocall send timing comes from VOTER_CONTACT_SCHEDULE — the canonical
 // contact cadence shared with the plan document — never inline offsets.
 
+// The category whose tasks only apply to a candidate who is not on the ballot
+// yet. gp-api filters these rows out of the tracker for a candidate who has
+// already filed, so the entries below must carry exactly this string.
+export const BALLOT_ACCESS_CATEGORY = 'Ballot access'
+
 export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
   // ----- Pre-launch -----
   {
     id: 'begin-ballot-access',
     phase: 'preLaunch',
     type: 'static',
-    category: 'Ballot access',
+    category: BALLOT_ACCESS_CATEGORY,
     title: 'Begin Ballot Access Period',
     description:
       'The date you can start collecting signatures to get on the ballot.',
@@ -35,7 +40,7 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     id: 'submit-ballot-access-signatures',
     phase: 'preLaunch',
     type: 'static',
-    category: 'Ballot access',
+    category: BALLOT_ACCESS_CATEGORY,
     title: 'Submit your Ballot Access Signatures',
     description:
       'Turn in your valid signatures to secure your place on the ballot.',

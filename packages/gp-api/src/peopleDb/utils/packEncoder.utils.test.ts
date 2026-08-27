@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { DoorKnockingPackManifestSchema } from '@goodparty_org/contracts'
-import { PackEncoder, PackRow, statusesToBytes } from './packEncoder.utils'
+import {
+  contactsMadeToBytes,
+  PackEncoder,
+  PackRow,
+  statusesToBytes,
+} from './packEncoder.utils'
 
 const row = (overrides: Partial<PackRow>): PackRow => ({
   id: '11111111-1111-1111-1111-111111111111',
@@ -157,5 +162,88 @@ describe('PackEncoder', () => {
     const encoder = new PackEncoder(new Map())
     const { manifest } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
     expect(manifest.counts).toEqual({ people: 0, households: 0, dots: 0 })
+  })
+
+  // Two rooftops that agree to six decimals and differ past them are two
+  // houses, and merging them puts a canvasser at the wrong door. The dot index
+  // is keyed on the coordinates themselves for this reason: any scheme that
+  // packs a pair of scaled coordinates into one number runs out of mantissa
+  // (~56 bits needed, 53 available) and collides silently.
+  it('keeps rooftops that differ past six decimals apart', () => {
+    const encoder = new PackEncoder(new Map())
+    encoder.add(row({ id: 'a', lat: 41.9000001, lng: -87.65, hhKey: 'A' }))
+    encoder.add(row({ id: 'b', lat: 41.9000002, lng: -87.65, hhKey: 'B' }))
+    // Same latitude, different longitude: the second half of the key has to
+    // separate them too.
+    encoder.add(row({ id: 'c', lat: 41.9000001, lng: -87.6500001, hhKey: 'C' }))
+    // And an exact repeat of the first is the same dot, not a third one.
+    encoder.add(row({ id: 'd', lat: 41.9000001, lng: -87.65, hhKey: 'D' }))
+
+    const { manifest, u32 } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+
+    expect(manifest.counts.dots).toBe(3)
+    expect(u32('householdToDot')).toEqual([0, 1, 2, 0])
+  })
+
+  describe('the contactsMade plane', () => {
+    const people = ['a', 'b', 'c'].map((id) => row({ id, hhKey: id }))
+
+    const encode = (
+      contactsMade: Parameters<typeof contactsMadeToBytes>[0],
+    ) => {
+      const encoder = new PackEncoder(
+        new Map(),
+        contactsMadeToBytes(contactsMade),
+      )
+      for (const person of people) encoder.add(person)
+      return decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+    }
+
+    it('buckets the people gp-api named and leaves the rest at zero', () => {
+      const { manifest, u8 } = encode([
+        { personId: 'b', bucket: 3 },
+        { personId: 'c', bucket: 5 },
+      ])
+
+      const values = manifest.dims.find((d) => d.key === 'contactsMade')!.values
+      expect(u8('dim:contactsMade').map((byte) => values[byte])).toEqual([
+        '0',
+        '3',
+        '5+',
+      ])
+    })
+
+    // The two absences are different facts and the pack says which: an org
+    // that has contacted nobody can be shaded ("0 prior contacts" is
+    // everyone), while an org gp-api could not describe cannot be — and the
+    // client's disclosure names the filter only in the second case.
+    it('ships an all-zero plane for an organization with no outreach', () => {
+      const { manifest, u8 } = encode([])
+
+      expect(manifest.dims.map((d) => d.key)).toContain('contactsMade')
+      expect(u8('dim:contactsMade')).toEqual([0, 0, 0])
+    })
+
+    it('omits the dim entirely when gp-api had no answer', () => {
+      const { manifest } = encode(undefined)
+
+      expect(manifest.dims.map((d) => d.key)).not.toContain('contactsMade')
+      expect(manifest.arrays.map((a) => a.name)).not.toContain(
+        'dim:contactsMade',
+      )
+    })
+
+    // The cacheable half of the build is every plane above the two
+    // campaign-specific ones, and it is identified positionally rather than by
+    // name. A dim inserted between them would move bytes a per-district cache
+    // means to reuse (docs/perf/voter-pack-headroom.md).
+    it('keeps both campaign planes last, in order', () => {
+      const { manifest } = encode([])
+
+      expect(manifest.dims.slice(-2).map((d) => d.key)).toEqual([
+        'canvassStatus',
+        'contactsMade',
+      ])
+    })
   })
 })

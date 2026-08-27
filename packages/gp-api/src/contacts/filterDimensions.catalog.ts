@@ -22,8 +22,16 @@ import {
 // The webapp wizard renders a parallel expression of this knowledge in
 // packages/gp-webapp/app/dashboard/contacts/ (filters.config.ts and
 // crm/shared/*), which cannot be imported across packages — keep labels
-// aligned with it by eye. Precinct and top-issue are deliberately absent
-// (blocked dimensions; adding them later is additive).
+// aligned with it by eye.
+//
+// Precinct is filterable in the wizard but is deliberately NOT listed here.
+// Every dimension in this catalog carries its complete value vocabulary, and
+// precinct has none: its values are enumerated per district by
+// GET /v1/contacts/precincts (a precinct number is only unique within its
+// county, and the same district can hold anywhere from 0 to 579 of them).
+// Advertising the dimension without its values would invite the assistant to
+// invent precinct names that match nobody. Listing it needs a tool that can
+// enumerate them first. Top-issue remains absent as a blocked dimension.
 
 export type FilterDimensionMode = 'win' | 'serve' | 'both'
 
@@ -124,6 +132,8 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   voicemail: 'Voicemail',
   wrong_number: 'Wrong Number',
   refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung Up',
 }
 
 // All five values (ENG-10837): `undecided`/`refused` (ENG-10833) exist only
@@ -300,16 +310,18 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   },
   {
     key: 'homeowner',
-    label: 'Homeowner',
+    label: 'Homeownership',
     kind: 'boolean-group',
     modes: 'both',
-    // Column is Homeowner_Probability_Model; every value including 'Yes'
-    // comes out of that model, not a deed record.
+    // Column is Homeowner_Probability_Model; every value including
+    // 'Homeowner' comes out of that model, not a deed record. 'Homeowner'
+    // folds in the model's Probable Home Owner bucket (ENG-10947) —
+    // homeownerLikely is a legacy wire key still accepted from saved
+    // filters, but no longer offered as its own option.
     provenance: 'modeled',
     values: [
-      { key: 'homeownerYes', label: 'Yes' },
-      { key: 'homeownerLikely', label: 'Likely' },
-      { key: 'homeownerNo', label: 'No' },
+      { key: 'homeownerYes', label: 'Homeowner' },
+      { key: 'homeownerNo', label: 'Renter' },
       { key: 'homeownerUnknown', label: 'Unknown' },
     ],
   },

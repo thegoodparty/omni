@@ -125,7 +125,11 @@ export default function ElectionFiling(): React.JSX.Element {
         queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY }),
         queryClient.invalidateQueries({ queryKey: TCR_COMPLIANCE_QUERY_KEY }),
       ])
-      router.push('/dashboard/account')
+      // Land on the design's submitted-for-verification confirmation
+      // (PIN expectations) instead of bouncing to account settings.
+      router.push(
+        '/dashboard/profile/texting-compliance/verification-submitted',
+      )
     } catch {
       setHasSubmissionError(true)
       trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {

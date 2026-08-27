@@ -86,7 +86,13 @@ runs:
 
         PULL_ARGS=(--yes --token "$VERCEL_TOKEN")
         BUILD_ARGS=(--token "$VERCEL_TOKEN")
-        DEPLOY_ARGS=(--prebuilt --token "$VERCEL_TOKEN")
+        # --archive=tgz uploads .vercel/output as one compressed file instead
+        # of thousands of individual ones. Vercel's `api-upload-paid` quota
+        # counts files, not deploys, and a Next.js build output (function
+        # bundles carry their own traced node_modules) is tens of thousands of
+        # them — enough parallel PRs exhausted the 40k/24h account ceiling on
+        # 2026-08-25 and blocked every preview deploy in the repo.
+        DEPLOY_ARGS=(--prebuilt --archive=tgz --token "$VERCEL_TOKEN")
 
         if [ "$TARGET" = "production" ]; then
           PULL_ARGS+=(--environment=production)

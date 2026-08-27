@@ -15,6 +15,7 @@ import type {
   SupportStatusRollup,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
@@ -31,6 +32,12 @@ export interface OutreachAudienceCopy {
   pickerBody: string
   filtersTitle: string
   filtersBody: string
+  // Optional clarifying copy rendered above the filter groups, for a channel
+  // whose dial/send logic needs explaining beyond the filter labels
+  // themselves (e.g. phone banking calls whichever number a voter has, so
+  // the cell/landline filters read as narrowing, not a reachability
+  // requirement). Omitted entirely for channels with nothing to add.
+  filtersHint?: string
   nameTitle: string
   nameBody: string
   // Verb + noun for the reachable-count line, so the channel controls the whole
@@ -38,6 +45,12 @@ export interface OutreachAudienceCopy {
   // "Reach"/"supporters with landlines", SMS "Message"/"supporters".
   reachVerb: string
   reachNoun: string
+  // Optional reachable-of-total delta under the reach line, rendered only
+  // when the list holds MORE people than this channel can reach — the list
+  // size a candidate knows (and sees in the CRM) includes contacts with no
+  // phone, so without this the smaller reach count reads as a bug
+  // (ENG-10957). Channels with nothing to explain omit it.
+  reachableOfTotalLine?: (reachableCount: number, totalCount: number) => string
   // Unit-cost line, e.g. "Each call costs".
   unitCostLabel: string
 }
@@ -56,6 +69,9 @@ interface OutreachAudienceStepProps {
   // server-side, in which case we show "couldn't count" rather than zero.
   reachableCount: number | null
   reachableLoading: boolean
+  // The saved list's total people count, for copy.reachableOfTotalLine.
+  // Optional so channels without the delta line pass nothing.
+  selectedListTotal?: number | null
   // 0 for a free channel (phone banking) — the cost line and the per-contact
   // rate are omitted entirely rather than rendering "for $0.00".
   pricePerContact: number
@@ -63,6 +79,9 @@ interface OutreachAudienceStepProps {
   builderFilters: VoterFileFilters
   onBuilderFiltersChange: (filters: VoterFileFilters) => void
   builderSupportStatus: SupportStatusRollup[]
+  builderPrecincts: string[]
+  onBuilderPrecinctsChange: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   onBuilderSupportStatusChange: (value: SupportStatusRollup[]) => void
   builderName: string
   onBuilderNameChange: (name: string) => void
@@ -92,10 +111,14 @@ export const OutreachAudienceStep = ({
   onStartBuilder,
   reachableCount,
   reachableLoading,
+  selectedListTotal = null,
   pricePerContact,
   builderFilters,
   onBuilderFiltersChange,
   builderSupportStatus,
+  builderPrecincts,
+  onBuilderPrecinctsChange,
+  precinctOptions,
   onBuilderSupportStatusChange,
   builderName,
   onBuilderNameChange,
@@ -133,11 +156,17 @@ export const OutreachAudienceStep = ({
           title={copy.filtersTitle}
           body={copy.filtersBody}
         />
+        {copy.filtersHint && (
+          <p className="text-sm text-muted-foreground">{copy.filtersHint}</p>
+        )}
         <VoterFileStep
           filters={builderFilters}
           onFiltersChange={onBuilderFiltersChange}
           supportStatus={builderSupportStatus}
           onSupportStatusChange={onBuilderSupportStatusChange}
+          precincts={builderPrecincts}
+          onPrecinctsChange={onBuilderPrecinctsChange}
+          precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
         />
       </div>
@@ -186,6 +215,19 @@ export const OutreachAudienceStep = ({
                     )}
                   </p>
                 )}
+                {active &&
+                  !reachableLoading &&
+                  reachableCount !== null &&
+                  selectedListTotal !== null &&
+                  selectedListTotal > reachableCount &&
+                  copy.reachableOfTotalLine && (
+                    <p className="text-sm text-muted-foreground">
+                      {copy.reachableOfTotalLine(
+                        reachableCount,
+                        selectedListTotal,
+                      )}
+                    </p>
+                  )}
               </div>
               <ChevronDownIcon
                 className={cn(

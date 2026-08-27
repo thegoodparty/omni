@@ -91,6 +91,8 @@ export {
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
   DOOR_KNOCKING_UNIT_KEY_COLUMNS,
+  DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS,
+  isLegacyDoorKnockingUnitKey,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
 } from './people/Person.schema'
@@ -360,7 +362,10 @@ export {
   type CampaignTaskDefinition,
 } from './campaigns/CampaignTaskCatalog.schema'
 
-export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+export {
+  BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_TASK_CATALOG,
+} from './campaigns/CampaignTaskCatalog.data'
 
 export {
   VOTER_CONTACT_SCHEDULE,
@@ -741,6 +746,7 @@ export {
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
   PhoneBankingScriptDraftRequestSchema,
   type PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponseSchema,
@@ -757,6 +763,10 @@ export {
   type RobocallScriptDraftResponse,
 } from './outreach/RobocallScript.schema'
 export {
+  RobocallNumberResponseSchema,
+  type RobocallNumberResponse,
+} from './outreach/RobocallNumber.schema'
+export {
   ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
   ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequestSchema,
@@ -765,6 +775,8 @@ export {
   type RobocallAudioPresignResponse,
 } from './outreach/RobocallAudio.schema'
 export {
+  RobocallComplianceRequestSchema,
+  type RobocallComplianceRequest,
   RobocallComplianceChecksSchema,
   type RobocallComplianceChecks,
   RobocallComplianceVerdictSchema,
@@ -776,6 +788,26 @@ export {
   OutreachArchiveResponseSchema,
   type OutreachArchiveResponse,
 } from './outreach/OutreachArchive.schema'
+export {
+  CancelOutreachResponseSchema,
+  type CancelOutreachResponse,
+} from './outreach/OutreachCancel.schema'
+export {
+  OutreachReceiptSchema,
+  type OutreachReceipt,
+} from './outreach/OutreachReceipt.schema'
+
+export {
+  SMS_PURPOSE_VALUES,
+  SmsPurposeSchema,
+  type SmsPurpose,
+  SMS_COMPOSED_MAX_LENGTH,
+  SMS_BODY_MAX_LENGTH,
+  SmsDraftRequestSchema,
+  type SmsDraftRequest,
+  SmsDraftResponseSchema,
+  type SmsDraftResponse,
+} from './outreach/OutreachSms.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -786,11 +818,22 @@ export {
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
+  createPrecinctFilterSchema,
+  PRECINCT_PAIR_DELIMITER,
+  encodePrecinctPair,
+  decodePrecinctPair,
   PeopleFiltersSchema,
   type PeopleFilters,
   IdOverridesSchema,
   type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  PrecinctOptionSchema,
+  type PrecinctOption,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
+} from './people/PeoplePrecincts.schema'
 
 export {
   MAX_OVERLAP_SAVED_FILTER_SETS,
@@ -833,8 +876,17 @@ export {
 export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
+  CONTACTS_MADE_DIM_KEY,
+  CONTACTS_MADE_BUCKETS,
+  PACK_CONTACTS_MADE_MAX,
+  PACK_FORMAT_REVISION,
   PACK_ARRAY_TYPES,
   PACK_CORE_ARRAYS,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
   DoorKnockingPackDimSchema,
   type DoorKnockingPackDim,
   DoorKnockingPackArraySchema,
@@ -852,6 +904,8 @@ export {
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,
   type DoorKnockingTurf,
+  DoorKnockingOutreachDetailSchema,
+  type DoorKnockingOutreachDetail,
   DoorKnockingArchiveRequestSchema,
   type DoorKnockingArchiveRequest,
   DoorKnockingKnockRequestSchema,
@@ -945,3 +999,16 @@ export {
 } from './phoneBanking/PhoneBankingList.schema'
 
 export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'
+
+export {
+  TEST_FIXTURE_STATE_VALUES,
+  TestFixtureStateSchema,
+  type TestFixtureState,
+  TestFixtureCookiesSchema,
+  TestFixtureUserResponseSchema,
+  type TestFixtureUserResponse,
+  TestFixtureSessionResponseSchema,
+  type TestFixtureSessionResponse,
+  DeleteTestFixtureUsersResponseSchema,
+  type DeleteTestFixtureUsersResponse,
+} from './testFixtures/testFixtures.schema'

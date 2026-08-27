@@ -2,7 +2,12 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { DoorKnockingMode, DoorKnockingTurf } from '@goodparty_org/contracts'
+import {
+  DOOR_KNOCK_STATUSES,
+  DoorKnockingMode,
+  DoorKnockingTurf,
+  DoorKnockStatus,
+} from '@goodparty_org/contracts'
 import {
   ArchiveIcon,
   Button,
@@ -38,7 +43,10 @@ import {
 } from './turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from './walkEstimate'
 import { estimateTravelSeconds } from './travelMode'
-import { unpreviewableDisclosureLabels } from './createFlow/voterFilterPreview'
+import {
+  unpreviewableDisclosureLabels,
+  unpreviewableDisclosureSentence,
+} from './createFlow/voterFilterPreview'
 import type { DimSlice, PolygonStats } from './filterEngine'
 import { ageBucketLabel, routeAudienceMix } from './audienceMix'
 import DeleteTurfControl, { LOCKED_TURF_MESSAGE } from './DeleteTurfControl'
@@ -48,6 +56,11 @@ import {
   turfStatusLabel,
   useTurfLifecycle,
 } from './turfLifecycle'
+import {
+  knockStatusCounts,
+  STATUS_DOT_COLORS,
+  STATUS_LABELS,
+} from './statusPresentation'
 import { countDoors, knockableTargets } from '../routeCounts'
 
 // The age field's own options plus the retired overlapping ranges ENG-10752
@@ -178,6 +191,80 @@ const Breakdown = ({
     </div>
   )
 }
+
+// How the walk went, one row per canvass status. A SIBLING of `Breakdown`
+// rather than a colour prop on it, because the two differ in more than paint:
+//
+//   - its rows are a fixed vocabulary (`DOOR_KNOCK_STATUSES`), so a status
+//     nobody recorded renders at zero. `Breakdown` returns null on a zero total
+//     and floors every bar to a visible sliver precisely BECAUSE its sources
+//     drop empty buckets, so it can never be handed one. Teaching it to
+//     sometimes floor and sometimes not is two behaviours in one component,
+//     decided by a caller.
+//   - the colour is the legend's, carried by a dot as well as the bar — the
+//     same `STATUS_DOT_COLORS` the map dots, the walk's strip and the landing
+//     chips use, so one outcome is one colour everywhere in the feature. A
+//     party or age bucket has no colour of its own to be wrong about.
+//   - its denominator is a figure stated elsewhere on this sheet (the People
+//     stat), not the slices' own sum, so the rows sum to a number the candidate
+//     can already see rather than to themselves.
+//
+// Counts come from `knockStatusCounts`, shared with `WalkView` — the walk and
+// this drawer report one frozen route, and a second local bucketing is how they
+// would come to disagree.
+const StatusBreakdown = ({
+  counts,
+  total,
+}: {
+  counts: Record<DoorKnockStatus, number>
+  total: number
+}) => (
+  <ul className="flex flex-col gap-1.5">
+    {DOOR_KNOCK_STATUSES.map((status) => {
+      const people = counts[status]
+      const percent = total > 0 ? Math.round((people / total) * 100) : 0
+      // Zero is a real answer here, unlike in `Breakdown` — "nobody refused"
+      // is worth printing as `0 · 0%` with an empty bar. What still has to be
+      // floored is a NON-empty bucket that rounds away: one refusal in 400
+      // doors is not "0%", and a bar of no width beside a count of 1 reads as
+      // a rendering fault rather than as a small number.
+      const percentLabel = people > 0 && percent === 0 ? '<1' : String(percent)
+      const barWidth = people > 0 ? Math.max(percent, 1) : 0
+      return (
+        <li key={status} className="flex flex-col gap-1">
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="flex min-w-0 items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
+              />
+              <span className="truncate">{STATUS_LABELS[status]}</span>
+            </span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {`${people.toLocaleString()} · ${percentLabel}%`}
+            </span>
+          </div>
+          {/* Decorative, like every other bar on this sheet: the row above
+              already reads "12 · 30%", so the bar is a picture of that
+              sentence and not a second claim. */}
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          >
+            <span
+              className="block h-full rounded-full"
+              style={{
+                width: `${barWidth}%`,
+                backgroundColor: STATUS_DOT_COLORS[status],
+              }}
+            />
+          </span>
+        </li>
+      )
+    })}
+  </ul>
+)
 
 interface TurfDetailsSheetProps {
   turf: DoorKnockingTurf
@@ -345,7 +432,9 @@ export default function TurfDetailsSheet({
   // "about" belongs to the pre-route branch only.
   const approximate = (count: number) =>
     liveTurf.locked ? count.toLocaleString() : `About ${count.toLocaleString()}`
-  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
+  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
+    unpreviewableDisclosureLabels(unpreviewableKeys),
+  )
   // Only the pre-route counts are the pack's, and only a settled count can be
   // qualified — a skeleton and an 'Unavailable' have nothing to be about.
   const discloseApproximation =
@@ -368,6 +457,21 @@ export default function TurfDetailsSheet({
     ? false
     : routeFailed || preRouteFailed || (!liveTurf.locked && !listStats)
   const audiencePending = routePending || preRoutePending
+
+  // What the walk actually produced, per status. Off the frozen route only —
+  // the landing rail's seven chips are the pack's superset over this list's
+  // polygon (which is why they say "About") and can be describing a different
+  // list entirely, since Details opens on any row rather than on the selected
+  // scope. Two quantities that legitimately differ, so this is not that rail
+  // reported twice; see UI-DRIFT-REVIEW.md § 6.
+  const statusCounts = route ? knockStatusCounts(route.stops) : null
+  // ADR 0008's follow-up is optional, so `not_a_voter` is a status a resident
+  // can carry with no reason recorded — and it is the reason, not the status,
+  // that drops them from `knockableTargets`. So this bucket is the doors logged
+  // "not a voter" whose "what happened?" is still unanswered, which is worth a
+  // line only when there are any: it is the one row whose count moves when
+  // somebody answers a question rather than when somebody knocks a door.
+  const unresolvedNotAVoter = statusCounts?.not_a_voter ?? 0
 
   const builtMode = route?.route.mode ?? null
   const shownMode = travelModeView ?? builtMode
@@ -714,19 +818,17 @@ export default function TurfDetailsSheet({
               the worse misunderstanding. */}
           {discloseApproximation && (
             <p className="text-xs text-muted-foreground">
-              About, because the map can&rsquo;t show every filter this list
-              applies, and knocking also skips anyone marked do-not-knock or
-              &ldquo;not a voter&rdquo; — so you&rsquo;ll walk fewer doors than
-              this.
+              &ldquo;About,&rdquo; because the map can&rsquo;t show every filter
+              this list applies, and knocking also skips anyone marked
+              do-not-knock or &ldquo;not a voter&rdquo; — so you&rsquo;ll walk
+              fewer doors than this.
             </p>
           )}
           {/* The draw step's own sentence, from the same helper, so the
               filter isn't named one way while drawing and another here. */}
-          {discloseApproximation && unpreviewableLabels.length > 0 && (
+          {discloseApproximation && unpreviewableDisclosure && (
             <p className="text-xs text-muted-foreground">
-              The map can&rsquo;t shade by {unpreviewableLabels.join(', ')} yet,
-              so these counts include people that filter will exclude. Your
-              saved list still applies it when you knock.
+              {unpreviewableDisclosure}
             </p>
           )}
         </DetailsSection>
@@ -767,6 +869,62 @@ export default function TurfDetailsSheet({
                   raw ages are bucketed onto the same ones, so one formatter
                   serves both branches. */}
               <Breakdown title="Age" slices={ageMix} format={ageBucketLabel} />
+            </>
+          )}
+        </DetailsSection>
+        {/* Below Audience rather than above it, and that ordering is the same
+            argument Audience's own placement makes: the two disclosure lines at
+            the foot of Overview qualify the pack's numbers, and Audience is the
+            section they qualify, so nothing may come between them. This section
+            needs no such adjacency — it is the frozen route's own outcomes,
+            exact and unhedged, which is why it exists at all. */}
+        <DetailsSection title="How the walk went">
+          {routePending ? (
+            <p className="py-0.5">
+              <span className="block h-4 w-40 animate-pulse rounded bg-muted" />
+              <span className="sr-only">Loading</span>
+            </p>
+          ) : routeFailed ? (
+            // The word the stats above use, and no second account of why:
+            // Overview already prints the one explanation, and a sheet that
+            // gives a single failure two wordings teaches a candidate to read
+            // them as two failures.
+            <p className="text-sm text-muted-foreground">
+              Unavailable — no outcomes to show.
+            </p>
+          ) : !statusCounts ? (
+            // Reachable only on a genuinely unlocked list, exactly like the
+            // stats above: lockedness IS the frozen route, so the two states
+            // where a locked list has no route yet are the two branches above
+            // and never this one.
+            <p className="text-sm text-muted-foreground">
+              Not knocked yet — outcomes arrive once someone walks this list.
+            </p>
+          ) : targets.length === 0 ? (
+            // The same distinction the Audience section draws, for the same
+            // reason: the table is built over knockable people, so a route with
+            // none is a fully flagged list rather than an empty one.
+            <p className="text-sm text-muted-foreground">
+              Everyone in this list is marked do-not-knock or &ldquo;not a
+              voter&rdquo;, so there are no outcomes to report.
+            </p>
+          ) : (
+            <>
+              {/* Naming the denominator once, in the vocabulary the stat above
+                  already uses. "logged" and never "reached": three of these
+                  seven outcomes are doors where nobody spoke to anybody. */}
+              <p className="text-xs text-muted-foreground">
+                {`All ${targets.length.toLocaleString()} people this list targets, by what was logged at their door.`}
+              </p>
+              <StatusBreakdown counts={statusCounts} total={targets.length} />
+              {unresolvedNotAVoter > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  &ldquo;Not a voter&rdquo; counts doors where that was logged
+                  and nobody has said yet whether they moved or died. Answering
+                  that takes the resident out of this list&rsquo;s people count
+                  altogether, the same as marking a door do-not-knock.
+                </p>
+              )}
             </>
           )}
         </DetailsSection>

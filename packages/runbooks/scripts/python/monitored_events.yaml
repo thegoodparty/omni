@@ -26,6 +26,7 @@ watched_families:
   - win_pro_upgrade
   - win_outreach_scheduling
   - win_voter_outreach
+  - win_voter_data
   - serve
 
 events:
@@ -116,6 +117,11 @@ events:
 # Behaviors (DATA-2316): what we are trying to measure, and which events instrument it.
 # Absorbs the events: key above over time — a watchlist row is the degenerate case of a
 # behavior with one surface and one instrument. Coverage is derived, never written here.
+#
+# Every instrumented_by below is monitored exactly as an events: row is (DATA-2290): the
+# monitor unions the two keys, and a behavior's okr: anchors each of its instruments. So
+# never add an events: row for an event named here — validation rule 8 rejects it, and it
+# would be redundant anyway.
 #
 #   id:            stable snake_case key
 #   question:      the plain-English thing this behavior lets us answer

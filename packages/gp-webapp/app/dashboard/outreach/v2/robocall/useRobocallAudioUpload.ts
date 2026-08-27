@@ -16,11 +16,18 @@ const normalizeMime = (blobType: string): AllowedMime | null => {
 
 export interface RobocallAudioUpload {
   // Uploads the blob to S3 via a presigned POST; resolves the stored object
-  // key on success or null on failure (with `error` set).
-  uploadAudio: (blob: Blob) => Promise<string | null>
+  // key + the content type it was uploaded with on success (so the caller can
+  // chain the compliance check without a stale-state read), or null on failure
+  // (with `error` set).
+  uploadAudio: (
+    blob: Blob,
+  ) => Promise<{ key: string; contentType: AllowedMime } | null>
   isUploading: boolean
   error: string | null
   key: string | null
+  // The normalized MIME the object was uploaded with, held so the compliance
+  // check can declare the same content type. Set alongside `key` on success.
+  contentType: AllowedMime | null
   reset: () => void
 }
 
@@ -28,17 +35,19 @@ export const useRobocallAudioUpload = (): RobocallAudioUpload => {
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [key, setKey] = useState<string | null>(null)
+  const [contentType, setContentType] = useState<AllowedMime | null>(null)
 
   const reset = useCallback(() => {
     setIsUploading(false)
     setError(null)
     setKey(null)
+    setContentType(null)
   }, [])
 
   const uploadAudio = useCallback(async (blob: Blob) => {
     setError(null)
-    const contentType = normalizeMime(blob.type)
-    if (!contentType) {
+    const mime = normalizeMime(blob.type)
+    if (!mime) {
       setError("We couldn't read that audio format. Try re-recording.")
       return null
     }
@@ -46,7 +55,7 @@ export const useRobocallAudioUpload = (): RobocallAudioUpload => {
     try {
       const { data } = await clientRequest(
         'POST /v1/outreach/robocall/audio/presign',
-        { contentType },
+        { contentType: mime },
       )
       // S3 presigned POST: submit the policy fields, then the file last.
       const form = new FormData()
@@ -55,7 +64,8 @@ export const useRobocallAudioUpload = (): RobocallAudioUpload => {
       const res = await fetch(data.url, { method: 'POST', body: form })
       if (!res.ok) throw new Error(`S3 upload failed: ${res.status}`)
       setKey(data.key)
-      return data.key
+      setContentType(mime)
+      return { key: data.key, contentType: mime }
     } catch {
       setError("We couldn't upload your recording. Try again.")
       return null
@@ -64,5 +74,5 @@ export const useRobocallAudioUpload = (): RobocallAudioUpload => {
     }
   }, [])
 
-  return { uploadAudio, isUploading, error, key, reset }
+  return { uploadAudio, isUploading, error, key, contentType, reset }
 }

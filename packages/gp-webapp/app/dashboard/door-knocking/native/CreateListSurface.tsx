@@ -9,10 +9,13 @@ import {
 import {
   addressPreviewQueryOptions,
   savedListsQueryOptions,
+  TURF_COLORS,
 } from './turfQueries'
 import { voterPackQueryOptions } from './useVoterPack'
+import { savedListUnshadeableCriteria } from './savedListFilters'
 import CreateListFlow from './createFlow/CreateListFlow'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
+import { CONFIRM_PEEK_TOP_PCT } from './createFlow/createFlowSteps'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PolygonRing } from './VoterMapCanvas'
 import type { PolygonStats } from './filterEngine'
@@ -23,6 +26,13 @@ import type { PolygonStats } from './filterEngine'
 // is a request TO the canvas or a fact FROM it — the canvas owns the ring
 // itself, so Undo and Clear are asks rather than edits made in the flow.
 //
+// The chosen list colour is a request of the same kind, which is why it moved
+// up here out of the confirm step's own `useState`: the ring the candidate is
+// judging the colour against is drawn by the canvas, and by this directory's
+// rule state the map reads cannot live in a component the page unmounts. So is
+// the framing — a step that covers part of the map asks for the shape back in
+// view, and the canvas is the only thing holding the camera.
+//
 // Kept beside the panel because both halves are one surface's contract: an
 // agent changing what the draw step asks of the map changes this file, and the
 // orchestrator only ever spreads the result onto `VoterMapCanvas`.
@@ -30,15 +40,30 @@ export const useCreateListDraw = (step: CreateFlowStep | null) => {
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [undoDrawToken, setUndoDrawToken] = useState(0)
+  const [frameDrawToken, setFrameDrawToken] = useState(0)
   const [pointCount, setPointCount] = useState(0)
   const [hintDismissed, setHintDismissed] = useState(false)
+  const [drawColor, setDrawColor] = useState<string>(TURF_COLORS[0])
 
   return {
     startDrawToken,
     clearDrawToken,
     undoDrawToken,
+    frameDrawToken,
     pointCount,
     onPointCount: setPointCount,
+    // The colour the confirm step is picking, drawn on the ring it is picking it
+    // for. Also handed back down to the flow, which renders the swatches.
+    drawColor,
+    onDrawColorChange: setDrawColor,
+    // What the confirm sheet covers, since the peek is stated as the fraction it
+    // leaves uncovered. Read off the sheet's own constant so its height and the
+    // camera's padding cannot come to describe different bands.
+    frameDrawBottomPct: 100 - CONFIRM_PEEK_TOP_PCT,
+    // Entering a step that covers part of the map: put the shape in what is
+    // left. Not fired by the ring changing — the canvasser is the one framing it
+    // while they draw.
+    frameDrawing: () => setFrameDrawToken((token) => token + 1),
     // A first-run coach mark, so it is gone the moment a point exists.
     hintVisible: step === 'draw' && !hintDismissed && pointCount === 0,
     dismissHint: () => setHintDismissed(true),
@@ -56,7 +81,13 @@ export const useCreateListDraw = (step: CreateFlowStep | null) => {
     clearPoints: () => setStartDrawToken((token) => token + 1),
     undoPoint: () => setUndoDrawToken((token) => token + 1),
     // Leaving the flow entirely: empty the shape rather than restart a session.
-    clearDrawing: () => setClearDrawToken((token) => token + 1),
+    // The colour resets with it, which the confirm step used to get for free by
+    // being unmounted — this hook outlives the flow, so what the unmount did has
+    // to be said out loud. Same asymmetry `hiddenTurfIds` records on the page.
+    clearDrawing: () => {
+      setClearDrawToken((token) => token + 1)
+      setDrawColor(TURF_COLORS[0])
+    },
   }
 }
 
@@ -141,6 +172,12 @@ export interface CreateListSurfaceProps {
   // Undo / Clear are requests to the canvas, which owns the in-progress ring.
   onUndoPoint: () => void
   onClearPoints: () => void
+  // The colour the confirm step's picker is on. Up on the page for the same
+  // reason the ring is: the canvas tints the boundary with it, and a candidate
+  // choosing the colour their list will be drawn in with the map hidden is the
+  // defect this closes. The flow still draws the swatches and reports the pick.
+  color: string
+  onColorChange: (color: string) => void
   onSaved: (drawAnother: boolean) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
@@ -149,6 +186,14 @@ export interface CreateListSurfaceProps {
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
   unpreviewableKeys: string[]
+  // A saved list the candidate arrived with (`?listId=`), for the who step's
+  // picker to open on. Passed through rather than resolved here: the picker's
+  // rows are the only honest test of whether the id still names one of this
+  // org's lists, and they are built one component down.
+  preselectedListId?: number
+  // Raised once the who step has taken the carried list, so the page can stop
+  // handing it back on the next open of this flow.
+  onPreselectApplied?: () => void
 }
 
 export default function CreateListSurface({
@@ -163,10 +208,40 @@ export default function CreateListSurface({
   drawPointCount,
   onUndoPoint,
   onClearPoints,
+  color,
+  onColorChange,
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
+  preselectedListId,
+  onPreselectApplied,
 }: CreateListSurfaceProps) {
+  // The who step's list picker. Both reads are the page's own queries by key,
+  // so this costs nothing: the saved lists are already warm (the rail resolves
+  // every turf's filter through them) and the pack is `enabled: false` because
+  // fetching one is emphatically not this surface's job — the page owns it,
+  // gates the whole feature on it, and disables the button that opens this
+  // flow until it has decoded. Reading it through an observer rather than
+  // `getQueryData` is what makes the counts appear if it lands late.
+  //
+  // Above the preview rather than below it because the preview request now
+  // reads from it: a picked list's clauses are part of what is asked.
+  const savedListsQuery = useQuery(savedListsQueryOptions)
+  const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
+  const audience = useMemo(
+    () => audienceOptions(savedListsQuery.data, packQuery.data ?? null),
+    [savedListsQuery.data, packQuery.data],
+  )
+  // Which list the who step is on, resolved against the same rows the picker
+  // is drawn from. The flow owns the choice and reports the id; the row it
+  // names is looked up once, here, so the preview cannot come to disagree
+  // with the picker about what a list carries.
+  const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  const selectedList = useMemo(
+    () => savedListsQuery.data?.find((list) => list.id === selectedListId),
+    [savedListsQuery.data, selectedListId],
+  )
+
   // The shape the candidate asked for addresses about (ADR 0010). Not a
   // boolean, because it is what makes an answer belong to one ring: a preview
   // is fetched for the shape that was on screen when it was asked for, and a
@@ -187,9 +262,19 @@ export default function CreateListSurface({
         : previewRing
     return { type: 'Polygon' as const, coordinates: [closed] }
   }, [previewRing])
+  // The draft plus whatever the draft cannot hold. `filters` is booleans, and
+  // a saved list's support-status, activity and precinct clauses are not — so
+  // assembling this request from the draft alone asked gp-api about the whole
+  // district inside the ring, and the draw step printed that as the exact
+  // count the route would be built from (ADR 0010's whole point is that these
+  // counts are the knock's own). The pack cannot shade those clauses and says
+  // so; this endpoint CAN evaluate them, and does.
   const previewFilters = useMemo(
-    () => transformVoterFileFiltersForBackend(filters),
-    [filters],
+    () => ({
+      ...transformVoterFileFiltersForBackend(filters),
+      ...savedListUnshadeableCriteria(selectedList),
+    }),
+    [filters, selectedList],
   )
   const previewQuery = useQuery({
     ...addressPreviewQueryOptions(
@@ -210,20 +295,6 @@ export default function CreateListSurface({
   // refetches on its own: re-asking is the candidate's press.
   const previewCurrent = previewRing !== null && previewRing === ring
   const addressPreview = previewCurrent ? (previewQuery.data ?? null) : null
-
-  // The who step's list picker. Both reads are the page's own queries by key,
-  // so this costs nothing: the saved lists are already warm (the rail resolves
-  // every turf's filter through them) and the pack is `enabled: false` because
-  // fetching one is emphatically not this surface's job — the page owns it,
-  // gates the whole feature on it, and disables the button that opens this
-  // flow until it has decoded. Reading it through an observer rather than
-  // `getQueryData` is what makes the counts appear if it lands late.
-  const savedListsQuery = useQuery(savedListsQueryOptions)
-  const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
-  const audience = useMemo(
-    () => audienceOptions(savedListsQuery.data, packQuery.data ?? null),
-    [savedListsQuery.data, packQuery.data],
-  )
 
   return (
     <CreateListFlow
@@ -262,6 +333,8 @@ export default function CreateListSurface({
       drawPointCount={drawPointCount}
       onUndoPoint={onUndoPoint}
       onClearPoints={onClearPoints}
+      color={color}
+      onColorChange={onColorChange}
       onSaved={(drawAnother) => {
         // A saved list is finished business, so the next shape is asked about
         // from scratch — same rule as backing out to the filters.
@@ -270,6 +343,9 @@ export default function CreateListSurface({
       }}
       isElectedOfficial={isElectedOfficial}
       unpreviewableKeys={unpreviewableKeys}
+      preselectedListId={preselectedListId}
+      onPreselectApplied={onPreselectApplied}
+      onSelectedListChange={setSelectedListId}
     />
   )
 }

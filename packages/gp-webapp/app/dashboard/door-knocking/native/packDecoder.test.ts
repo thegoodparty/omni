@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { decodePack } from './packDecoder'
+import {
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
+} from '@goodparty_org/contracts'
+import { decodePack, PackStreamError } from './packDecoder'
 import {
   canvassStatusCounts,
   DimSelections,
@@ -11,7 +18,7 @@ import {
 // Hand-built pack matching the wire framing: 4 people, 3 households, 2 dots,
 // three dims (party, age, canvassStatus). Mirrors the people-api encoder
 // layout.
-const buildFixture = (): ArrayBuffer => {
+const buildPack = (): ArrayBuffer => {
   const counts = { people: 4, households: 3, dots: 2 }
   const positions = new Float32Array([-87.65, 41.9, -87.66, 41.91])
   const personToHousehold = new Uint32Array([0, 0, 1, 2])
@@ -96,6 +103,47 @@ const buildFixture = (): ArrayBuffer => {
   return buffer
 }
 
+type Frame = { kind: number; payload: ArrayBuffer }
+
+const padded = (byteLength: number) =>
+  Math.ceil(byteLength / PACK_STREAM_ALIGNMENT) * PACK_STREAM_ALIGNMENT
+
+// The streaming envelope gp-api writes: magic first, then frames. Built here
+// rather than imported so the decoder is tested against the framing the
+// contract describes, not against the producer's own code.
+const envelope = (frames: Frame[]): ArrayBuffer => {
+  const total =
+    PACK_STREAM_MAGIC_BYTES +
+    frames.reduce(
+      (sum, f) =>
+        sum + PACK_STREAM_FRAME_HEADER_BYTES + padded(f.payload.byteLength),
+      0,
+    )
+  const buffer = new ArrayBuffer(total)
+  const bytes = new Uint8Array(buffer)
+  const view = new DataView(buffer)
+  bytes.set(new TextEncoder().encode(PACK_STREAM_MAGIC), 0)
+  let offset = PACK_STREAM_MAGIC_BYTES
+  for (const frame of frames) {
+    view.setUint32(offset, frame.kind, true)
+    view.setUint32(offset + 4, frame.payload.byteLength, true)
+    bytes.set(
+      new Uint8Array(frame.payload),
+      offset + PACK_STREAM_FRAME_HEADER_BYTES,
+    )
+    offset += PACK_STREAM_FRAME_HEADER_BYTES + padded(frame.payload.byteLength)
+  }
+  return buffer
+}
+
+// A heartbeat ahead of the pack, as a slow build produces: the decoder has to
+// walk past it rather than assume the pack starts at a fixed offset.
+const buildFixture = (): ArrayBuffer =>
+  envelope([
+    { kind: PACK_STREAM_FRAME_KINDS.heartbeat, payload: new ArrayBuffer(0) },
+    { kind: PACK_STREAM_FRAME_KINDS.pack, payload: buildPack() },
+  ])
+
 describe('decodePack', () => {
   it('mounts typed-array views at the manifest offsets', () => {
     const pack = decodePack(buildFixture())
@@ -118,16 +166,49 @@ describe('decodePack', () => {
   })
 
   it('throws on a pack missing a core array', () => {
-    const buffer = buildFixture()
+    const pack = buildPack()
     // Corrupt the manifest: rename positions.
-    const manifestBytes = new DataView(buffer).getUint32(0, true)
+    const manifestBytes = new DataView(pack).getUint32(0, true)
     const json = new TextDecoder().decode(
-      new Uint8Array(buffer, 4, manifestBytes),
+      new Uint8Array(pack, 4, manifestBytes),
     )
     const broken = json.replace('"positions"', '"positionsX"')
-    const brokenBuffer = buffer.slice(0)
-    new Uint8Array(brokenBuffer).set(new TextEncoder().encode(broken), 4)
-    expect(() => decodePack(brokenBuffer)).toThrow()
+    new Uint8Array(pack).set(new TextEncoder().encode(broken), 4)
+    expect(() =>
+      decodePack(
+        envelope([{ kind: PACK_STREAM_FRAME_KINDS.pack, payload: pack }]),
+      ),
+    ).toThrow()
+  })
+
+  // gp-api starts writing before it starts building, so a build that fails
+  // afterwards arrives as a truncated 200. Reading that as an empty district
+  // would show a canvasser a map with no doors on it and no error.
+  it('rejects a response that ended before the pack arrived', () => {
+    const truncated = envelope([
+      { kind: PACK_STREAM_FRAME_KINDS.heartbeat, payload: new ArrayBuffer(0) },
+    ])
+
+    expect(() => decodePack(truncated)).toThrow(PackStreamError)
+    expect(() => decodePack(truncated)).toThrow(/ended before/)
+  })
+
+  it('surfaces the failure the server put in the envelope', () => {
+    const message = 'The voter map could not be built. Please try again.'
+    const failed = envelope([
+      {
+        kind: PACK_STREAM_FRAME_KINDS.error,
+        payload: new TextEncoder().encode(message).buffer as ArrayBuffer,
+      },
+    ])
+
+    expect(() => decodePack(failed)).toThrow(message)
+  })
+
+  // gp-api and gp-webapp do not deploy atomically, and an envelope-less body
+  // is simply the pack itself.
+  it('still decodes a body with no envelope', () => {
+    expect(decodePack(buildPack()).manifest.counts.people).toBe(4)
   })
 })
 

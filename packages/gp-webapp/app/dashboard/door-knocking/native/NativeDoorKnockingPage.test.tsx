@@ -81,6 +81,11 @@ vi.mock('./VoterMapCanvas', () => ({
     routePins,
     selectedStopId,
     initialZoom,
+    drawColor,
+    frameDrawToken,
+    frameDrawBottomPct,
+    controlsHidden,
+    location,
     onPolygonChange,
     onDrawPointCount,
     onRoutePinClick,
@@ -90,6 +95,11 @@ vi.mock('./VoterMapCanvas', () => ({
     routePins: Array<{ stopId: number; seq: number }>
     selectedStopId: number | null
     initialZoom?: number
+    drawColor: string
+    frameDrawToken: number
+    frameDrawBottomPct: number
+    controlsHidden?: boolean
+    location: { status: string }
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
     onRoutePinClick?: (pin: { stopId: number }) => void
@@ -115,6 +125,22 @@ vi.mock('./VoterMapCanvas', () => ({
         routePins.find((pin) => pin.stopId === selectedStopId)?.seq ?? null,
       )}
       data-initial-zoom={String(initialZoom)}
+      // The colour the in-progress boundary is drawn in. It is the confirm
+      // step's pick, which is why it has to arrive here at all: a candidate
+      // choosing the colour their list will be drawn in has nothing to judge it
+      // by unless the shape on screen is already wearing it.
+      data-draw-color={drawColor}
+      // Bumped by a step that has just covered part of the map, with the covered
+      // fraction beside it so the fit lands in the band that is left.
+      data-frame={String(frameDrawToken)}
+      data-frame-bottom={String(frameDrawBottomPct)}
+      // The band the confirm step uncovers is shielded from taps, so the map's
+      // own buttons standing in it would be dead ones.
+      data-controls-hidden={String(Boolean(controlsHidden))}
+      // The canvasser's own position, read from the page's watch. The switch
+      // for it is the walk's, so this attribute is how a press on the walk's
+      // pill is shown to have reached the map that draws the dot.
+      data-location-status={location.status}
     >
       <button
         type="button"
@@ -143,9 +169,22 @@ vi.mock('./VoterMapCanvas', () => ({
     </div>
   ),
 }))
+// The real layout is a sidebar shell this suite has no use for, but the class
+// it is asked to put on its content wrapper is part of what this page decides
+// — it is how the page gets a height — so the stub keeps it readable.
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  default: ({
+    children,
+    wrapperClassName,
+  }: {
+    children: ReactNode
+    wrapperClassName?: string
+  }) => (
+    <div data-testid="dashboard-wrapper" className={wrapperClassName}>
+      {children}
+    </div>
+  ),
 }))
 vi.mock('app/dashboard/shared/useDistrictResolution', () => ({
   useDistrictResolution: () => ({ isUnresolvable: false }),
@@ -494,7 +533,7 @@ describe('NativeDoorKnockingPage landing rail', () => {
 
     const disclosure = screen.getByText((_, element) => {
       if (element?.tagName !== 'P') return false
-      return /can’t shade by 65\+ yet/.test(element.textContent ?? '')
+      return /can’t yet shade by 65\+,/.test(element.textContent ?? '')
     })
     expect(disclosure.textContent).toContain('still applies it when you knock')
   })
@@ -503,7 +542,183 @@ describe('NativeDoorKnockingPage landing rail', () => {
     renderPage([{ id: 7, partyDemocrat: true }])
     await selectTurf()
 
-    expect(screen.queryByText(/can’t shade by/)).toBeNull()
+    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
+  })
+
+  // The last hop of the empty rail's Create list button (#1452 wired it as far
+  // as the manage view and stopped at the fence). Without it the rail falls
+  // back to naming a button it cannot press, which is what the empty state did
+  // before and is indistinguishable from the feature not existing.
+  it('opens the create flow from the empty rail’s own button', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    // Two buttons open one flow, so the rail's is scoped away from the
+    // header's rather than matched by name alone.
+    const rail = document.getElementById('door-knocking-rail') as HTMLElement
+    const create = await waitFor(() => {
+      const button = within(rail).getByRole('button', { name: 'Create list' })
+      expect(button).toBeEnabled()
+      return button
+    })
+
+    fireEvent.click(create)
+
+    expect(await screen.findByText(/Introduce myself/)).toBeInTheDocument()
+    // And no fallback copy standing in for the wiring.
+    expect(screen.queryByText(/Use Create list above/)).toBeNull()
+  })
+
+  // The far end of the outreach hub's door-knocking tile. The whole chain is
+  // asserted here — page prop through the surface into the flow's own picker
+  // — because every link in it is a plain pass-through and a pass-through is
+  // exactly what a refactor drops without failing a unit test.
+  it('opens the create flow on the list carried in on ?listId=', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        { id: 7, name: 'Precinct 2 homeowners' },
+        { id: 8, name: 'Super voters', partyDemocrat: true },
+      ],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+        preselectedListId={8}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    const rail = document.getElementById('door-knocking-rail') as HTMLElement
+    const create = await waitFor(() => {
+      const button = within(rail).getByRole('button', { name: 'Create list' })
+      expect(button).toBeEnabled()
+      return button
+    })
+    fireEvent.click(create)
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+
+    expect(
+      await screen.findByRole('radio', { name: /^Super voters/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /^Precinct 2 homeowners/ }),
+    ).not.toBeChecked()
+    // The list's own filters reached the draft, so the map under the step is
+    // shading the audience the walk will actually be cut from: one of the
+    // fixture's four people is Democratic.
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-people',
+        '1',
+      ),
+    )
+  })
+
+  // The arrival is a seed, not a setting. `?listId=` stays in the address bar
+  // and the flow is unmounted between opens, so without spending the id here a
+  // candidate who dismissed the carried list would have it snap back on every
+  // reopen and could never cut a different audience without leaving the page.
+  it('does not carry the list back into a second open of the flow', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        { id: 7, name: 'Precinct 2 homeowners' },
+        { id: 8, name: 'Super voters', partyDemocrat: true },
+      ],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+        preselectedListId={8}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    // Looked up per open: the flow replaces the rail outright, so the node
+    // holding the button after a close is not the one that held it before.
+    const openFlow = async () => {
+      const button = await waitFor(() => {
+        const rail = document.getElementById(
+          'door-knocking-rail',
+        ) as HTMLElement
+        const found = within(rail).getByRole('button', { name: 'Create list' })
+        expect(found).toBeEnabled()
+        return found
+      })
+      fireEvent.click(button)
+      fireEvent.click(
+        await screen.findByRole('button', { name: /Introduce myself/ }),
+      )
+    }
+
+    await openFlow()
+    expect(
+      await screen.findByRole('radio', { name: /^Super voters/ }),
+    ).toBeChecked()
+
+    // A picked list makes the session dirty, so leaving goes through the
+    // discard prompt — the same door a candidate takes to start over.
+    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }))
+
+    await openFlow()
+    expect(
+      await screen.findByRole('radio', { name: /^All contacts/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /^Super voters/ }),
+    ).not.toBeChecked()
+  })
+
+  // A stale bookmark, a list deleted in the CRM since, or another org's id:
+  // the param is not trusted, so all of them are a missed preselection and
+  // nothing else.
+  it('opens the ordinary create flow when the carried list is not one of yours', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 7, name: 'Precinct 2 homeowners' }],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+        preselectedListId={12_345}
+      />,
+    )
+    await screen.findByText(/No lists yet/)
+
+    const rail = document.getElementById('door-knocking-rail') as HTMLElement
+    const create = await waitFor(() => {
+      const button = within(rail).getByRole('button', { name: 'Create list' })
+      expect(button).toBeEnabled()
+      return button
+    })
+    fireEvent.click(create)
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+
+    expect(
+      await screen.findByRole('radio', { name: /^All contacts/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: /^Precinct 2 homeowners/ }),
+    ).not.toBeChecked()
   })
 
   // A legend that narrowed with its own chip would zero the other six counts
@@ -920,6 +1135,58 @@ const mockPreview = () => {
   })
 }
 
+// This page is a full-bleed map with a floating card over it, which only works
+// if the DOCUMENT is exactly the height the dashboard chrome leaves and all the
+// scrolling happens inside the card. jsdom has no layout, so these assert the
+// height contract rather than its effect — the rendered proof (no page scroll
+// at 1440×900 and 390×844, with and without the campaign-manager chat bar) is
+// in the PR's screenshots.
+describe('NativeDoorKnockingPage page height', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  // The wrapper is `flex-1` inside two more flex boxes, and a flex item's
+  // default `min-height: auto` lets its content set the floor. Without
+  // `min-h-0` anything the layout renders beside this page pushed the document
+  // past the window — which is exactly what happened: the campaign-manager
+  // chat's in-flow `h-24` spacer scrolled the landing map by 96px.
+  it('asks the layout for a wrapper that cannot be pushed past the window', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    const wrapper = screen.getByTestId('dashboard-wrapper')
+    expect(wrapper).toHaveClass('min-h-0', 'overflow-hidden', 'flex-col')
+  })
+
+  // It used to be `h-[calc(100dvh-4rem)]`, hard-coding the mobile top bar's
+  // height. That bar is `lg:hidden`, so above `lg` it subtracted a bar that
+  // was not there and the map stopped 64px short of the bottom of the window
+  // on every desktop. Filling the wrapper is right at every width, because
+  // measuring the chrome is the layout's job and not this page's.
+  it('fills that wrapper instead of guessing the chrome above it', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    const column = screen.getByTestId('dashboard-wrapper')
+      .firstElementChild as HTMLElement
+    expect(column.className.split(/\s+/)).toContain('h-full')
+    expect(column.className).not.toContain('100dvh')
+  })
+
+  // The column is now exactly the window's height, so the header is the one
+  // row in it that must never be squeezed to buy the map space.
+  it('keeps the page header from being squeezed', async () => {
+    renderPage()
+    const heading = await screen.findByRole('heading', {
+      name: 'Door knocking',
+    })
+
+    const header = heading.parentElement?.parentElement as HTMLElement
+    expect(header.className.split(/\s+/)).toContain('shrink-0')
+  })
+})
+
 describe('NativeDoorKnockingPage small-screen shell', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -1069,6 +1336,58 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(advance)
 
     expect(screen.getByLabelText('Route name')).toBeInTheDocument()
+  })
+
+  // The seam crossing this change is about: the colour picker sits in the flow,
+  // the ring it describes is drawn by the canvas, and the canvas outlives the
+  // flow — so the pick travels up to the page and back down as a canvas prop.
+  // The confirm step also covers most of the map, so the page asks for the shape
+  // to be re-framed into the band it leaves.
+  it('tints the map with the colour the confirm step is picking', async () => {
+    drawSession.placed = []
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    openFlowAndDraw()
+
+    const map = screen.getByTestId('voter-map')
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    // Drawing frames nothing: the canvasser is the one aiming the camera while
+    // they place points.
+    expect(map).toHaveAttribute('data-frame', '0')
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Continue \(\d+ doors\)/ }),
+    )
+
+    // Entering confirm asks for one fit, against the 70% the sheet covers, and
+    // takes the map's buttons down: the band it uncovers is shielded from taps,
+    // so a "+" standing in it is one that answers nothing.
+    expect(map).toHaveAttribute('data-frame', '1')
+    expect(map).toHaveAttribute('data-frame-bottom', '70')
+    expect(map).toHaveAttribute('data-controls-hidden', 'true')
+    expect(map).toHaveAttribute('data-draw-color', '#2563eb')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Green' }))
+
+    expect(map).toHaveAttribute('data-draw-color', '#16a34a')
+    // And the picker follows the page's answer, so the tick and the ring are one
+    // fact rather than two.
+    expect(screen.getByRole('button', { name: 'Green' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    // Leaving the flow puts the colour back: this state now outlives the step
+    // that owns it, so what unmounting used to do has to be done by hand.
+    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(map).toHaveAttribute('data-draw-color', '#2563eb')
+    // And the map is a map again, not a picture.
+    expect(map).toHaveAttribute('data-controls-hidden', 'false')
   })
 
   // What the walkthrough asked for: the actual houses, at the one moment the
@@ -1296,6 +1615,110 @@ describe('NativeDoorKnockingPage walk map', () => {
     await screen.findByText(/voters in your district with a mapped address/)
 
     expect(screen.queryByText('Tap a pin to log the door.')).toBeNull()
+  })
+
+  // The canvas puts the walk's paper in the page header and calls it PDF. Ours
+  // called it "Print list" and hid it in the chip row under the map, pointing
+  // at the HTML print sheet — so the same artefact had two names depending on
+  // which surface you asked from. It opens in its own tab, because the walk in
+  // progress must not be navigated away from.
+  it('offers the walk’s PDF from the header, beside the list’s name', async () => {
+    await startWalk()
+
+    // The header row: the list's name, the way back, and the paper.
+    const header = () =>
+      screen.getByRole('heading', { name: /Elm St & 5th|Door knocking/ })
+        .parentElement?.parentElement as HTMLElement
+
+    const link = within(header()).getByRole('link', { name: 'PDF' })
+    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/1/pdf')
+    expect(link).toHaveAttribute('target', '_blank')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    // Outside a walk the header has nothing to print — no list is open. The
+    // details drawer carries its own, per list and only once that list is
+    // locked; the rail row's was removed in #1455 as ours, not the canvas's.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create list' })).toBeVisible(),
+    )
+    expect(within(header()).queryByRole('link', { name: 'PDF' })).toBeNull()
+  })
+})
+
+// One watch, two readers. The map draws the dot and outlives the walk; the
+// control that turns it on is the walk's alone, exactly as in the canvas —
+// which offers "My live location" in the walk's control row and on no other
+// surface. So the state is the orchestrator's and both halves read it.
+describe('NativeDoorKnockingPage live location', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    // jsdom has no geolocation, and the control hides itself without one.
+    Object.defineProperty(navigator, 'geolocation', {
+      value: { watchPosition: vi.fn(), clearWatch: vi.fn() },
+      configurable: true,
+    })
+    Object.defineProperty(window, 'isSecureContext', {
+      value: true,
+      configurable: true,
+    })
+  })
+
+  it('reaches the map from the walk’s own control', async () => {
+    await startWalk()
+
+    const map = screen.getByTestId('voter-map')
+    expect(map).toHaveAttribute('data-location-status', 'off')
+
+    fireEvent.click(screen.getByRole('button', { name: 'My live location' }))
+
+    // `locating` is the watch running with no fix yet — the stub never calls
+    // back, which is also what an unanswered permission prompt looks like.
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-location-status',
+        'locating',
+      ),
+    )
+  })
+
+  // Leaving is the only way out of a walk, and the walk row is the only place
+  // the switch exists — so a watch left running would keep the GPS radio warm
+  // for a surface with no way to see it and no way to stop it.
+  it('stops watching on the way out of the walk', async () => {
+    await startWalk()
+    fireEvent.click(screen.getByRole('button', { name: 'My live location' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-location-status',
+        'locating',
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-location-status',
+        'off',
+      ),
+    )
+  })
+
+  // The landing map and the create flow have no such control. A candidate
+  // drawing turfs at a desk is never asked for their position, and the refusal
+  // is structural rather than a habit: there is no button to press.
+  it('offers no location control outside a walk', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    expect(
+      screen.queryByRole('button', { name: 'My live location' }),
+    ).toBeNull()
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-location-status',
+      'off',
+    )
   })
 })
 

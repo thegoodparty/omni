@@ -34,6 +34,10 @@ const getJobResponseSchema = z.object({
   // malformed end_date must 502 the poll, not silently parse to Invalid
   // Date and pin the outreach in_progress forever.
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  // The not-started guard is start_date-future for the same reason: a
+  // missing start_date would parse to Invalid Date and silently skip the
+  // pending hold, ratcheting a future-scheduled job to in_progress.
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 })
 
 export class GetJobResponseDto extends createZodDto(getJobResponseSchema) {}

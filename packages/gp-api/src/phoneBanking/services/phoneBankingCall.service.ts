@@ -34,6 +34,7 @@ type RowInput = {
   supportAnswer: SupportAnswer | null
   willVote: WillVoteAnswer | null
   note: string | null
+  actorUserId: number
 }
 
 // Two-int form of pg_advisory_xact_lock: (namespace, listId). 'pb' in ASCII.
@@ -58,6 +59,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     listId: number,
     organizationSlug: string,
     input: RecordPhoneBankingCall,
+    actorUserId: number,
   ): Promise<RecordPhoneBankingCallResponse> {
     const list = await this.client.phoneBankingList.findFirst({
       where: { id: listId, organizationSlug },
@@ -83,7 +85,15 @@ export class PhoneBankingCallService extends createPrismaBase(
 
     const occurredAt = new Date()
     const { rows, envelopeCompleted } = await this.client.$transaction((tx) =>
-      this.applyOutcome(tx, organizationSlug, listId, entry, input, occurredAt),
+      this.applyOutcome(
+        tx,
+        organizationSlug,
+        listId,
+        entry,
+        input,
+        occurredAt,
+        actorUserId,
+      ),
     )
 
     // The DB-level upserts above are done; the likelihood override write has
@@ -115,6 +125,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     entry: EntryWithPersons,
     input: RecordPhoneBankingCall,
     occurredAt: Date,
+    actorUserId: number,
   ): Promise<{
     rows: ContactInteractionPhoneBanking[]
     envelopeCompleted: boolean
@@ -134,10 +145,12 @@ export class PhoneBankingCallService extends createPrismaBase(
       )
     }
 
-    // personId present = person-attributed: an answered conversation, or a
-    // `refused` that means "answered but refused to engage" (logged on the
-    // person who picked up, never fanned out). personId absent = a
-    // number-level dial result that fans out to the whole household.
+    // personId present = person-attributed: an answered conversation, a
+    // `refused` that means "answered but refused to engage", or a `hung_up`
+    // attributed to the person who ended the call (logged on that person
+    // alone, never fanned out). personId absent = a number-level dial
+    // result (including a bare refused/hung_up with no identified person,
+    // or a dead-line disconnected) that fans out to the whole household.
     if (input.personId !== undefined) {
       const { personId } = input
       rows.push(
@@ -150,6 +163,7 @@ export class PhoneBankingCallService extends createPrismaBase(
           supportAnswer: input.supportAnswer ?? null,
           willVote: input.willVote ?? null,
           note: input.note ?? null,
+          actorUserId,
         }),
       )
 
@@ -162,6 +176,7 @@ export class PhoneBankingCallService extends createPrismaBase(
             entry,
             personId,
             occurredAt,
+            actorUserId,
           )),
         )
       }
@@ -177,11 +192,17 @@ export class PhoneBankingCallService extends createPrismaBase(
             supportAnswer: null,
             willVote: null,
             note: input.note ?? null,
+            actorUserId,
           }),
         )
       }
 
-      if (input.outcome === PhoneBankCallOutcome.wrong_number) {
+      // Disconnected mirrors wrong_number: a dead line, so the phone is
+      // suppressed the same way ("do not call again" on the call sheet).
+      if (
+        input.outcome === PhoneBankCallOutcome.wrong_number ||
+        input.outcome === PhoneBankCallOutcome.disconnected
+      ) {
         await tx.phoneBankingSuppressedPhone.upsert({
           where: {
             organizationSlug_phone: { organizationSlug, phone: entry.phone },
@@ -213,6 +234,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     entry: EntryWithPersons,
     excludePersonId: string,
     occurredAt: Date,
+    actorUserId: number,
   ): Promise<ContactInteractionPhoneBanking[]> {
     const householdPersonIds = entry.persons
       .map((person) => person.personId)
@@ -229,6 +251,7 @@ export class PhoneBankingCallService extends createPrismaBase(
         supportAnswer: null,
         willVote: null,
         note: null,
+        actorUserId,
       })),
       skipDuplicates: true,
     })
@@ -304,7 +327,7 @@ export class PhoneBankingCallService extends createPrismaBase(
         field: ContactStatusField.voter_likelihood,
         toValue,
         source: ContactStatusSource.phone_banking,
-        actorUserId: null,
+        actorUserId: row.actorUserId,
         sourceId: `${row.id}:${row.updatedAt.toISOString()}`,
         fallbackFromValue: null,
       })

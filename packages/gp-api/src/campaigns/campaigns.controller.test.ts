@@ -106,6 +106,7 @@ const campaignDefaults = {
   isDemo: false,
   didWin: null,
   primaryResult: null,
+  ballotStatus: null,
   dateVerified: null,
   tier: null,
   formattedAddress: null,
@@ -647,6 +648,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
         { data: { foo: 'bar' } },
+        true,
+        undefined,
+        undefined,
+        { resetStaleElectionResults: true },
       )
     })
 
@@ -662,6 +667,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
         { canDownloadFederal: false },
+        true,
+        undefined,
+        undefined,
+        { resetStaleElectionResults: true },
       )
     })
 
@@ -677,6 +686,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
         { canDownloadFederal: true },
+        true,
+        undefined,
+        undefined,
+        { resetStaleElectionResults: true },
       )
     })
 
@@ -699,6 +712,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockOtherCampaign.id,
         { data: { foo: 'bar' } },
+        true,
+        undefined,
+        undefined,
+        {},
       )
     })
 
@@ -721,6 +738,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockOtherCampaign.id,
         { data: { foo: 'bar' } },
+        true,
+        undefined,
+        undefined,
+        {},
       )
     })
 
@@ -759,6 +780,10 @@ describe('CampaignsController', () => {
             pledged: true,
           },
         },
+        true,
+        undefined,
+        undefined,
+        {},
       )
 
       // Campaign-scoped facts ride the org-scoped group(), not the user
@@ -790,6 +815,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockOtherCampaign.id,
         { data: { foo: 'bar' } },
+        true,
+        undefined,
+        undefined,
+        {},
       )
 
       expect(analyticsService.identify).not.toHaveBeenCalled()
@@ -819,6 +848,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockOtherCampaign.id,
         { details: { city: 'Springfield' } },
+        true,
+        undefined,
+        undefined,
+        {},
       )
 
       expect(analyticsService.group).toHaveBeenCalledWith(5, 'campaign-200', {
@@ -882,6 +915,10 @@ describe('CampaignsController', () => {
       expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
         mockCampaign.id,
         { data: { currentStep: 'goals' } },
+        true,
+        undefined,
+        undefined,
+        { resetStaleElectionResults: true },
       )
       expect(result).toEqual(mockCampaign)
     })

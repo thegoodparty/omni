@@ -10,9 +10,22 @@ import {
 // 5 means "5+" (>= 5 logged interactions). Mirrors
 // CONTACTS_MADE_BUCKET_FIELDS in voterFileFilter.utils.ts.
 export type ContactsMadeBucket = 0 | 1 | 2 | 3 | 4 | 5
-type NonZeroContactsMadeBucket = Exclude<ContactsMadeBucket, 0>
+export type NonZeroContactsMadeBucket = Exclude<ContactsMadeBucket, 0>
 
 const NON_ZERO_BUCKETS: readonly NonZeroContactsMadeBucket[] = [1, 2, 3, 4, 5]
+
+// A GROUP BY only produces rows for people with at least one interaction, so
+// every count reaching this is >= 1; 5 is the terminal ">= 5" bucket.
+const toBucket = (contacts: number): NonZeroContactsMadeBucket =>
+  contacts <= 1
+    ? 1
+    : contacts === 2
+      ? 2
+      : contacts === 3
+        ? 3
+        : contacts === 4
+          ? 4
+          : 5
 
 // A contacts-made selection either collapses onto the shared `id`
 // in/notIn operator (buckets excluding 0, or {0} alone) or needs the
@@ -65,6 +78,69 @@ export class ContactsMadeResolutionService extends createPrismaBase(
       HAVING ${Prisma.join(havingClauses, ' OR ')}
     `)
     return new Set(rows.map((row) => row.personId))
+  }
+
+  // Every contacted person's bucket, for the door-knocking pack's
+  // contacts-made plane. Same UNION ALL and same GROUP BY as the resolution
+  // path above — one grouped scan, bucketed in SQL — so a person's bucket on
+  // the map and their bucket at knock time come from one statement rather
+  // than two that can drift. People with no interactions are absent by
+  // construction (nothing groups for them), which is also the plane's
+  // default byte.
+  //
+  // Returns `null` past `limit` instead of a truncated list. A short list
+  // reads the dropped people as bucket 0, and "0 prior contacts" is the
+  // bucket a candidate is most likely to be selecting — a preview that
+  // silently added never-contacted-looking doors to that list would be
+  // exactly the superset this plane exists to remove.
+  //
+  // Callers pass MAX_RESOLVED_ID_SET_SIZE, which buys an invariant rather
+  // than just a size bound: this list is exactly the `notIn` set that
+  // `{0}`-alone resolves to, and every other selection resolves to a SUBSET
+  // of it. So **a pack that carries the plane is a pack whose every
+  // contacts-made selection also survives `assertUnderCap` below** — the map
+  // can never shade a cohort that then 400s at knock time. The converse is
+  // allowed and honest: past the limit some individual buckets still resolve
+  // while the plane is gone, and those previews fall back to the webapp's
+  // unpreviewable-filter disclosure.
+  async contactsMadeBuckets(
+    organizationSlug: string,
+    limit: number,
+  ): Promise<Array<{
+    personId: string
+    bucket: NonZeroContactsMadeBucket
+  }> | null> {
+    const rows = await this.client.$queryRaw<
+      { personId: string; contacts: bigint }[]
+    >(Prisma.sql`
+      SELECT person_id AS "personId", COUNT(*) AS "contacts"
+      FROM (
+        SELECT person_id FROM contact_interaction_text
+        WHERE organization_slug = ${organizationSlug}
+        UNION ALL
+        SELECT person_id FROM contact_interaction_robocall
+        WHERE organization_slug = ${organizationSlug}
+        UNION ALL
+        SELECT person_id FROM contact_interaction_door_knock
+        WHERE organization_slug = ${organizationSlug}
+        UNION ALL
+        SELECT person_id FROM contact_interaction_phone_banking
+        WHERE organization_slug = ${organizationSlug}
+      ) all_interactions
+      GROUP BY person_id
+      LIMIT ${limit + 1}
+    `)
+    if (rows.length > limit) {
+      this.logger.warn(
+        { organizationSlug, cap: limit },
+        'contacts-made plane skipped: too many contacted people for one pack',
+      )
+      return null
+    }
+    return rows.map((row) => ({
+      personId: row.personId,
+      bucket: toBucket(Number(row.contacts)),
+    }))
   }
 
   // Decision table (selection S subseteq {0,1,2,3,4,5}):

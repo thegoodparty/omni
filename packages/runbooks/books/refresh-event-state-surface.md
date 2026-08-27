@@ -54,6 +54,11 @@ Questions come from the ClickUp Analytics Questions list, not from the sheet.
 surfaceless stubs (uncovered until someone enumerates where the behavior happens), and the
 write-back pushes each question's answer state and last-checked date back onto its task.
 
+Declaring an event as a behavior's `instrumented_by` also puts it under the health monitor
+(DATA-2290): `analytics_event_health.load_monitored_events` unions `events:` with every
+behavior instrument, and a behavior's `okr:` anchors each of its instruments. `load_watchlist`
+stays the literal reader of `events:` because validation rule 8 compares against it.
+
 The accept gate is the list's `stage` dropdown (`proposed` / `accepted` / `retired`), not the
 native task status — the Data Team space enforces a shared status group, so the list cannot
 carry its own statuses. Native status means nothing to the loop; Closed tasks drop out because

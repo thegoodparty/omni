@@ -13,12 +13,20 @@ import {
   hasAnyVoterFileSelection,
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
+import PrecinctFilter from './PrecinctFilter'
+import type { PrecinctOptionsResult } from './usePrecinctOptions'
 
 interface VoterFileStepProps {
   filters: VoterFileFilters
   onFiltersChange: (filters: VoterFileFilters) => void
   supportStatus: SupportStatusRollup[]
   onSupportStatusChange: (value: SupportStatusRollup[]) => void
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  // Fetched by the caller, not here: this component stays dumb (same reason
+  // isElectedOfficial is resolved upstream), and both callers already own a
+  // React Query context that a bare render of this component does not.
+  precinctOptions: PrecinctOptionsResult
   isElectedOfficial: boolean
 }
 
@@ -63,6 +71,9 @@ export default function VoterFileStep({
   onFiltersChange,
   supportStatus,
   onSupportStatusChange,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   isElectedOfficial,
 }: VoterFileStepProps) {
   // Political party doesn't apply to an elected official's constituent file —
@@ -106,43 +117,71 @@ export default function VoterFileStep({
     onFiltersChange(updated)
   }
 
-  const hasAnySelection = hasAnyVoterFileSelection(filters, supportStatus)
+  const hasAnySelection = hasAnyVoterFileSelection(
+    filters,
+    supportStatus,
+    precincts,
+  )
 
   const handleClearFilters = () => {
     onFiltersChange({})
     onSupportStatusChange([])
+    onPrecinctsChange([])
   }
 
   const renderField = (field: {
     key: string
     label: string
     options: Array<{ key: string; label: string }>
-  }) => (
-    <div key={field.key} className="flex flex-col gap-2">
-      <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
-        {sentenceCase(field.label)}
-      </h4>
-      <ToggleGroup
-        type="multiple"
-        value={selectedOptionsForField(field.options)}
-        onValueChange={(values) =>
-          handleFieldValueChange(field.options, values)
-        }
-        aria-label={field.label}
-        className="flex flex-wrap gap-2"
-      >
-        {field.options.map((option) => (
-          <ToggleGroupItem
-            key={option.key}
-            value={option.key}
-            className={PILL_TOGGLE_ITEM_CLASSNAME}
-          >
-            {option.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
-  )
+  }) => {
+    const selectedOptions = selectedOptionsForField(field.options)
+    const allSelected = selectedOptions.length === field.options.length
+
+    return (
+      <div key={field.key} className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
+            {sentenceCase(field.label)}
+          </h4>
+          {field.options.length > 1 && (
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="h-auto border-none p-0 text-xs"
+              onClick={() =>
+                handleFieldValueChange(
+                  field.options,
+                  allSelected ? [] : field.options.map((option) => option.key),
+                )
+              }
+            >
+              {allSelected ? 'Clear' : 'Select all'}
+            </Button>
+          )}
+        </div>
+        <ToggleGroup
+          type="multiple"
+          value={selectedOptions}
+          onValueChange={(values) =>
+            handleFieldValueChange(field.options, values)
+          }
+          aria-label={field.label}
+          className="flex flex-wrap gap-2"
+        >
+          {field.options.map((option) => (
+            <ToggleGroupItem
+              key={option.key}
+              value={option.key}
+              className={PILL_TOGGLE_ITEM_CLASSNAME}
+            >
+              {option.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -161,12 +200,44 @@ export default function VoterFileStep({
         )}
       </div>
 
+      {/* First group on the step, per the locked prototype: Precinct sits
+          above Prior contacts made. */}
+      {!isElectedOfficial && (
+        <PrecinctFilter
+          options={precinctOptions.options}
+          selected={precincts}
+          onChange={onPrecinctsChange}
+          isLoading={precinctOptions.isLoading}
+          isError={precinctOptions.isError}
+          onRetry={precinctOptions.refetch}
+        />
+      )}
+
       {!isElectedOfficial &&
         contactsMadeField &&
         renderField(contactsMadeField)}
 
       <div className="flex flex-col gap-2">
-        <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
+        <div className="flex items-center justify-between">
+          <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
+          <Button
+            type="button"
+            variant="link"
+            size="small"
+            className="h-auto border-none p-0 text-xs"
+            onClick={() =>
+              onSupportStatusChange(
+                supportStatus.length === SUPPORT_STATUS_OPTIONS.length
+                  ? []
+                  : SUPPORT_STATUS_OPTIONS.map((option) => option.value),
+              )
+            }
+          >
+            {supportStatus.length === SUPPORT_STATUS_OPTIONS.length
+              ? 'Clear'
+              : 'Select all'}
+          </Button>
+        </div>
         <ToggleGroup
           type="multiple"
           value={supportStatus}

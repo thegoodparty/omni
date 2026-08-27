@@ -224,6 +224,14 @@ export const convertVoterFileFilterToFilters = (
         const values = value.map(String)
         filters['voterStatus'] =
           values.length === 1 ? { eq: values[0] } : { in: values }
+      } else if (key === 'precincts') {
+        // Explicit rather than falling through to the generic array branch:
+        // the persisted column is `precincts` but the filter key is
+        // `precinct`, and the filter accepts only `in` — the generic branch
+        // would emit `{ eq }` for a single selection, which
+        // PeopleFiltersSchema strips, silently widening the audience to the
+        // whole district.
+        filters['precinct'] = { in: value.map(String) }
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull

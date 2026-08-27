@@ -271,7 +271,25 @@ import { dirname, join, relative } from 'node:path'
 // the confirm-then-mutate flow (useDuplicateList's mutation + its pending
 // state) for the duplicate-list AlertDialog — same shape as its siblings
 // RenameListDialog/DeleteListDialog, both already client components.
-const BASELINE = 605
+// 2026-08-25: 605 -> 606 for campaign-manager/GetOnBallotCard.tsx — the
+// ballot-access prompt card reads the campaign from context and persists its
+// own skip in localStorage, so it can't render on the server.
+// 2026-08-24: 600 -> 606 for Voter Outreach 2.0 phase 2 (rebased onto main):
+// the SMS drawer flow (flow + five step components) — interactive wizard
+// surfaces (mutations, flow state, Stripe payment mount) that can't be server
+// components. Same +6 previously recorded against the pre-merge phase 1
+// baseline (580 -> 586).
+// 2026-08-24: 606 -> 605 — SmsAudienceStep deleted in favor of the shared
+// OutreachAudienceStep (v2/audience/), which robocall already counts.
+// 2026-08-26: merge reconciliation — main's 606 plus this branch's SMS
+// flow surfaces (+6 client files) minus its SmsAudienceStep deletion (-1)
+// = 611.
+// 2026-08-26: 606 -> 607 for outreach/v2/robocall/RobocallReviewStep.tsx — the
+// pre-send review step owns the saved-recording playback (audio play/pause
+// state), so it can't render on the server; matches its sibling robocall steps.
+// 2026-08-27: merge reconciliation — 611 (this branch's SMS surfaces) plus
+// main's RobocallReviewStep (+1) = 612.
+const BASELINE = 612
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

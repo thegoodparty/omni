@@ -31,6 +31,17 @@ many district texts go into one `create_embeddings` call when building the
 universe (default 100) -- the two are unrelated knobs for unrelated
 workloads, not one shared setting.
 
+Before either query embedding or the LLM runs, each office is classified on
+its BallotReady geography fields (`mtfcc`, `geo_id`, the `sub_area` pair,
+`is_judicial`, `has_unknown_boundaries`): a party-committee seat or a
+judicial office the state's universe cannot serve at the right level
+abstains outright, and everything else has its candidate pool narrowed to
+the types its geography can actually be, before the frozen top-13/slot-11
+mechanics rank it. `SCHOOL_WHOLE_ASSERTION_ENABLED` gates only the school
+family's whole-jurisdiction denial off by default; the holdout adjudicates
+flipping it. No field asserts a match on its own -- narrowing the pool and
+adding prompt context is the whole extent of it.
+
 ## Terminal-outcome contract
 
 A run produces two outcomes and no third -- this module writes nothing, so
@@ -71,7 +82,7 @@ indistinguishable from one that worked.
 driven by hand, or by the cutover runbook, which lives with the ticket rather
 than here.
 
-The label check that SPEC 3.5 requires -- re-testing every matched label
+The publication-time label check -- re-testing every matched label
 against a freshly rebuilt universe just before publication -- is deliberately
 **not** here. It has to run after the warehouse rebuild in cutover step 5,
 which this module cannot do, and dbt already ships the generic test for it

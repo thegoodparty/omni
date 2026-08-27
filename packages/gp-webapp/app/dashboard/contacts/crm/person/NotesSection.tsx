@@ -145,6 +145,7 @@ const NoteRow: React.FC<NoteRowProps> = ({
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {formatNoteDate(note.updatedAt)}
+          {note.actorName ? ` · ${note.actorName}` : ''}
         </p>
         <div className="flex gap-1 shrink-0">
           <IconButton

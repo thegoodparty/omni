@@ -7,11 +7,14 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { DistrictService } from '../services/district.service'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import {
   AggregatesDTO,
@@ -28,8 +31,9 @@ import type { DbxStatement } from './databricksVoterSql.util'
 import {
   buildAggregatesSql,
   buildCountSql,
-  buildDistrictSql,
   buildOverlapCountSql,
+  buildPrecinctsSql,
+  MAX_PRECINCT_OPTIONS,
   buildPageSql,
   buildPersonSql,
   buildSampleSql,
@@ -101,24 +105,25 @@ export class DatabricksVoterService {
   constructor(
     private readonly logger: PinoLogger,
     private readonly client: PeopleDbxStatementClient,
+    private readonly districtService: DistrictService,
   ) {
     this.logger.setContext(DatabricksVoterService.name)
   }
 
+  // Resolved from Postgres, never from Databricks. Postgres is the system of
+  // record for the District table and the mart's copy is downstream of it, so
+  // both answer the same thing -- but a keyed single-row read costs ~4ms there
+  // against a measured p90 of 8.6s on the warehouse, where it sat at the head
+  // of every voter read. It was also the slowest statement we issued: 329 calls
+  // in 24h, 11 of them over 10s, purely to learn three strings the caller could
+  // have handed us.
   async resolveDistrict(districtId: string): Promise<DbxDistrict> {
     const cached = this.districts.get(districtId)
     if (cached) return cached
-    const { rows } = await this.run(buildDistrictSql(districtId))
-    const [row] = rows
-    if (!row) {
-      throw new NotFoundException(`District not found for id=${districtId}`)
-    }
-    const [id, state, type, name] = row
-    if (!id || !state || !type || !name) {
-      throw new NotFoundException(`District ${districtId} is incomplete`)
-    }
+    const { type, name, state } =
+      await this.districtService.findDistrictById(districtId)
     const district: DbxDistrict = {
-      districtId: id,
+      districtId,
       state,
       districtType: type,
       districtName: name,
@@ -214,6 +219,25 @@ export class DatabricksVoterService {
       throw new NotFoundException(`Person with ID ${id} not found`)
     }
     return transformToPersonOutput(toDbPerson(columnNames, row))
+  }
+
+  async findPrecincts(districtId: string): Promise<PeoplePrecinctsResponse> {
+    const district = await this.resolveDistrict(districtId)
+    const { rows } = await this.run(buildPrecinctsSql({ district }))
+    // The statement asks for one row past the cap purely so this comparison
+    // can tell a full list from a clipped one; that extra row is dropped.
+    const truncated = rows.length > MAX_PRECINCT_OPTIONS
+    const options = (
+      truncated ? rows.slice(0, MAX_PRECINCT_OPTIONS) : rows
+    ).map((row) => ({
+      county: row[0] ?? '',
+      // A SQL NULL precinct is the Unknown bucket. Normalised to '' here so
+      // the wire shape stays a plain string and encode/decode round-trips
+      // it, rather than making every consumer handle a nullable.
+      precinct: row[1] ?? '',
+      voters: Number(row[2] ?? 0),
+    }))
+    return PeoplePrecinctsResponseSchema.parse({ options, truncated })
   }
 
   async findPeople(dto: ListPeopleDTO) {

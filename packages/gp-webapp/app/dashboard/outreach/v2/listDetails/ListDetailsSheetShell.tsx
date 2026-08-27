@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import {
   Drawer,
   DrawerBody,
@@ -32,6 +32,9 @@ interface ListDetailsSheetShellProps {
   header: ReactNode
   children: ReactNode
   footer?: ReactNode
+  // A caller whose confirm dialogs portal outside the drawer content needs
+  // this to keep those clicks from dismissing the sheet mid-action.
+  onInteractOutside?: ComponentProps<typeof DrawerContent>['onInteractOutside']
 }
 
 export const ListDetailsSheetShell = ({
@@ -41,6 +44,7 @@ export const ListDetailsSheetShell = ({
   header,
   children,
   footer,
+  onInteractOutside,
 }: ListDetailsSheetShellProps) => (
   <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
     <DrawerContent
@@ -48,6 +52,7 @@ export const ListDetailsSheetShell = ({
       // The close lives inside the 608px content column (top right), not on
       // the sheet corner — same anatomy as the flow sheets.
       closeClassName="hidden"
+      onInteractOutside={onInteractOutside}
     >
       <DrawerHandle />
       {/* asChild, so the drawer's accessible name is a span rather than the
@@ -60,8 +65,9 @@ export const ListDetailsSheetShell = ({
         </DrawerTitle>
       </DrawerHeader>
       {/* Desktop top padding clears the close button, which sits inside the
-          content column rather than on the sheet corner. */}
-      <div className="px-4 pt-6 pb-4 lg:px-6 lg:pt-14">
+          content column rather than on the sheet corner. The hairline under
+          the title block is the canvas's header divider. */}
+      <div className="border-b border-border px-4 pt-6 pb-4 lg:px-6 lg:pt-14">
         <div className="mx-auto flex w-full max-w-[608px] items-start justify-between gap-2">
           {header}
           <DrawerClose className="inline-flex size-10 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none">

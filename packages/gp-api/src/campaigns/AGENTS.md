@@ -35,4 +35,5 @@ This module is `@Global` — `CampaignsService` is available without re-importin
 - Module is `@Global` — adding a service here exposes it app-wide. Don't re-export from another module.
 - `WebsitesModule` uses `forwardRef(() => CampaignsModule)` to break a cycle (campaigns imports `WebsitesModule` directly). Adding new cross-edges risks a circular-import surprise; prefer routing the dependency through `payments` or `organizations` if possible.
 - `organizationSlug` is the foreign key, not `organizationId`. Cascade-delete is on the slug.
+- **`CampaignDetailsSchema` is an allowlist that _strips_, not rejects.** A `details.*` key that isn't declared there is dropped silently and the request still returns 200 — that is how `details.ballotStatus` was lost for three months after `.passthrough()` came off. Adding a details field means adding it to that schema in the same change; a new field should be a column instead (Rule 25).
 - Several services here import from `@goodparty_org/contracts` (e.g. `CampaignLaunchStatus`). When changing those enums, follow `docs/contracts.md` — the SDK and `gp-admin` consume them.
