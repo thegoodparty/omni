@@ -29,6 +29,7 @@ import {
   unpreviewableDisclosureLabels,
   unpreviewableDisclosureSentence,
 } from './voterFilterPreview'
+import { withoutUnshadeableCriteria } from '../savedListFilters'
 import {
   CONFIRM_PEEK_TOP_PCT,
   flowStage,
@@ -138,6 +139,13 @@ interface CreateListFlowProps {
   // spend it. This flow is unmounted every time the create surface closes, so
   // it cannot remember on its own that the id has already been used.
   onPreselectApplied?: () => void
+  // Which saved list the who step is currently attached to. The draft is
+  // booleans, and a list's support-status, activity and precinct clauses are
+  // not, so the surface above cannot assemble the address-preview request from
+  // `filters` alone. The id travels rather than the clauses because the
+  // surface already holds the picker's rows, and resolving a list in two
+  // places is two chances to disagree about what it carries.
+  onSelectedListChange?: (listId: number | null) => void
 }
 
 const STAGE_META: Record<CreateFlowStage, { title: string; caption: string }> =
@@ -239,6 +247,7 @@ export default function CreateListFlow({
   unpreviewableKeys,
   preselectedListId,
   onPreselectApplied,
+  onSelectedListChange,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -296,6 +305,15 @@ export default function CreateListFlow({
     selectList(preselectedListId)
     onPreselectApplied?.()
   }, [preselectedListId, savedLists, selectList, onPreselectApplied])
+
+  // Reported from the state rather than from each of the three places that
+  // writes it — the radio, the preselect, and the two ways of leaving a list
+  // behind. A fourth writer is easy to add and easy to forget to announce,
+  // and the surface above pays for a missed one by previewing an audience the
+  // list would not knock.
+  useEffect(() => {
+    onSelectedListChange?.(savedListId)
+  }, [savedListId, onSelectedListChange])
 
   const stage = flowStage(step, preDrawStage)
 
@@ -567,6 +585,7 @@ export default function CreateListFlow({
 
   const unpreviewableDisclosure = unpreviewableDisclosureSentence(
     unpreviewableDisclosureLabels(unpreviewableKeys),
+    savedListId !== null,
   )
 
   // Both confirm buttons run the same mutation and both go dead while it is in
@@ -918,8 +937,12 @@ export default function CreateListFlow({
                   // Editing a pill is leaving the named list behind: the draft
                   // is no longer that list, so the offer to save it as a new one
                   // comes back and the stepper grows the fifth step with it.
+                  // The list's own support-status, activity and precinct
+                  // clauses leave with it — nothing can carry them onto the new
+                  // list, so a draft that kept their marks would go on
+                  // disclosing a filter that list will never apply.
                   setSavedListId(null)
-                  onFiltersChange(next)
+                  onFiltersChange(withoutUnshadeableCriteria(next))
                 }}
                 savedLists={savedLists}
                 allContactsHouseholds={allContactsHouseholds}
@@ -1033,6 +1056,21 @@ export default function CreateListFlow({
                   >
                     Reset filters
                   </Button>
+                  {/* The count in the CTA is the pack's, and the pack cannot
+                    shade every way a saved list narrows — a list cut by
+                    support status or prior outreach previews as the whole
+                    district here. That gap used to appear for the first time
+                    on the draw step, two moves after the number that provoked
+                    it, so a candidate starting from a 256-person list read
+                    the district figure as their list being ignored. Same
+                    sentence, same helper: it belongs beside the first count it
+                    describes. `w-full` puts it on its own line under the
+                    wrapping row rather than squeezing the CTA. */}
+                  {unpreviewableDisclosure && (
+                    <p className="w-full text-xs text-muted-foreground">
+                      {unpreviewableDisclosure}
+                    </p>
+                  )}
                   <Button
                     className="w-full max-w-xs"
                     disabled={districtHouseholds === 0}

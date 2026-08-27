@@ -362,7 +362,10 @@ export {
   type CampaignTaskDefinition,
 } from './campaigns/CampaignTaskCatalog.schema'
 
-export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+export {
+  BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_TASK_CATALOG,
+} from './campaigns/CampaignTaskCatalog.data'
 
 export {
   VOTER_CONTACT_SCHEDULE,
@@ -785,6 +788,26 @@ export {
   OutreachArchiveResponseSchema,
   type OutreachArchiveResponse,
 } from './outreach/OutreachArchive.schema'
+export {
+  CancelOutreachResponseSchema,
+  type CancelOutreachResponse,
+} from './outreach/OutreachCancel.schema'
+export {
+  OutreachReceiptSchema,
+  type OutreachReceipt,
+} from './outreach/OutreachReceipt.schema'
+
+export {
+  SMS_PURPOSE_VALUES,
+  SmsPurposeSchema,
+  type SmsPurpose,
+  SMS_COMPOSED_MAX_LENGTH,
+  SMS_BODY_MAX_LENGTH,
+  SmsDraftRequestSchema,
+  type SmsDraftRequest,
+  SmsDraftResponseSchema,
+  type SmsDraftResponse,
+} from './outreach/OutreachSms.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
