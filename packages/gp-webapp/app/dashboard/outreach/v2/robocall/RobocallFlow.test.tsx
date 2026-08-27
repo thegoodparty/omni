@@ -289,6 +289,20 @@ const gotoCompose = async (purposeLabel = 'Persuade likely voters') => {
   await screen.findByText(/Read the script below into your microphone/)
 }
 
+// Compose -> record + save (passes compliance via the beforeEach mock) ->
+// Continue, landing on the review ("Review your campaign") step.
+const gotoReview = async (purposeLabel = 'Persuade likely voters') => {
+  await gotoCompose(purposeLabel)
+  mockAudioUpload()
+  await userEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const continueBtn = screen.getByRole('button', { name: 'Continue' })
+  await waitFor(() => expect(continueBtn).toBeEnabled())
+  await userEvent.click(continueBtn)
+  await screen.findByRole('button', { name: 'Continue to payment' })
+}
+
 describe('RobocallFlow', () => {
   // useElectedOffice fires on mount (no enable guard); 404 => not an elected
   // official (data null), exercising the hook's real 404->null branch.
@@ -702,7 +716,10 @@ describe('RobocallFlow', () => {
     const continueBtn = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(continueBtn).toBeEnabled())
     await userEvent.click(continueBtn)
-    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+    // Advancing lands on the review step, not the placeholder.
+    expect(
+      await screen.findByRole('button', { name: 'Continue to payment' }),
+    ).toBeInTheDocument()
   })
 
   it('keeps the recording uncommitted when the S3 upload fails', async () => {
@@ -1115,5 +1132,46 @@ describe('RobocallFlow', () => {
     // No spurious re-fire from the effect's dependency array.
     await waitFor(() => expect(calls).toBe(1))
     expect(calls).toBe(1)
+  })
+
+  it('shows the review summary after a saved recording', async () => {
+    await gotoReview()
+
+    // The pre-send summary reads back the audience, its reachable count, the
+    // rented caller-ID number, and the estimated cost (80 * $0.045 = $3.60).
+    expect(
+      screen.getByRole('heading', { name: 'Review your campaign', level: 3 }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Renters in 98103')).toBeInTheDocument()
+    expect(screen.getByText('80')).toBeInTheDocument()
+    expect(screen.getByText('Caller ID number')).toBeInTheDocument()
+    expect(screen.getByText('+12025550147')).toBeInTheDocument()
+    expect(screen.getByText('Estimated cost')).toBeInTheDocument()
+    expect(screen.getByText('$3.60')).toBeInTheDocument()
+    // The saved recording is playable and the read script is shown back.
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Hi, this is Alex, and I am running for City Council.'),
+    ).toBeInTheDocument()
+  })
+
+  it('advances from review to the payment placeholder', async () => {
+    await gotoReview()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Continue to payment' }),
+    )
+    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+  })
+
+  it('returns to compose from review, keeping the saved recording', async () => {
+    await gotoReview()
+    await userEvent.click(screen.getByLabelText('Back'))
+
+    // Back lands on compose with the saved clip intact (no re-record needed).
+    expect(
+      await screen.findByText(/Read the script below into your microphone/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Recording saved')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 })

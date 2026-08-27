@@ -200,12 +200,13 @@ export class DoorKnockingServeService extends createPrismaBase(
       )
       return {
         addressKey,
-        // Frozen at the lock: rendered from the key's own components —
-        // never re-derived from live data, so the walk view matches what
-        // was routed. The unit key is HOUSE|PREFIXDIR|STREET|DESIGNATOR|
-        // SUFFIXDIR|APT|ZIP (DOOR_KNOCKING_UNIT_KEY_COLUMNS order).
-        // An all-NULL-components key renders to '' — fall back to the
-        // stop's frozen display line rather than serving a blank address.
+        // Frozen at the lock: rendered from the key's own segments — never
+        // re-derived from live data, so the walk view matches what was
+        // routed. The unit key is ADDRESSLINE|APT|ZIP
+        // (DOOR_KNOCKING_UNIT_KEY_COLUMNS order); `renderUnitAddress` also
+        // handles the component-composed keys older routes froze.
+        // An all-empty key renders to '' — fall back to the stop's frozen
+        // display line rather than serving a blank address.
         address: renderUnitAddress(addressKey) || stopDisplayAddress,
         targets: group.map((target) => {
           const livePerson = liveTargetsById.get(target.personId)

@@ -91,6 +91,8 @@ export {
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
   DOOR_KNOCKING_UNIT_KEY_COLUMNS,
+  DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS,
+  isLegacyDoorKnockingUnitKey,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
 } from './people/Person.schema'
@@ -871,6 +873,10 @@ export {
 export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
+  CONTACTS_MADE_DIM_KEY,
+  CONTACTS_MADE_BUCKETS,
+  PACK_CONTACTS_MADE_MAX,
+  PACK_FORMAT_REVISION,
   PACK_ARRAY_TYPES,
   PACK_CORE_ARRAYS,
   PACK_STREAM_ALIGNMENT,

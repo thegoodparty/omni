@@ -6,12 +6,16 @@ import {
   DoorKnockingResidentsResponse,
   DoorKnockingResidentsResponseSchema,
   DoorKnockingResidentTarget,
+  isLegacyDoorKnockingUnitKey,
 } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/people-prisma'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { DistrictService } from './district.service'
 import { DATABASE_SCHEMA } from './voterQuery.service'
-import { buildDoorKnockingAddressKeySql } from '../utils/doorKnockingAddressKey.util'
+import {
+  buildDoorKnockingAddressKeySql,
+  buildLegacyDoorKnockingAddressKeySql,
+} from '../utils/doorKnockingAddressKey.util'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.util'
 import { resolveDistrict } from '../utils/resolveDistrict.util'
 import {
@@ -58,6 +62,48 @@ const EMPTY_FILTERS: FilterData = {
   filters: [],
   filterValues: {},
   filterOperators: {},
+}
+
+// How `residents()` matches the keys a route froze, and which key it hands
+// back. A route freezes all of its keys in one transaction, so in practice a
+// request is entirely current-format or entirely legacy and exactly one key
+// expression is ever compiled — which is the point. This query's cost lives in
+// a computed, non-sargable predicate (peopleDb/AGENTS.md), so the legacy branch
+// is selected rather than OR'd in: a request from a route frozen after the key
+// changed pays strictly less than it did before (three columns, not seven), and
+// one frozen before pays exactly what it always did. The mixed branch below is
+// defensive and should be unreachable.
+//
+// The projection matters as much as the predicate. Callers look their own
+// stored keys up in the result, so a legacy request has to come back keyed the
+// legacy way — return the current key for it and every address silently misses,
+// which reads at the door as the whole route having moved away.
+const residentsKeySql = (addressKeys: string[]) => {
+  const currentSql = buildDoorKnockingAddressKeySql('v')
+  const legacyKeys = addressKeys.filter(isLegacyDoorKnockingUnitKey)
+
+  if (legacyKeys.length === 0) {
+    return {
+      matchSql: Prisma.sql`${currentSql} = ANY(${addressKeys}::text[])`,
+      keySql: currentSql,
+    }
+  }
+
+  const legacySql = buildLegacyDoorKnockingAddressKeySql('v')
+  const currentKeys = addressKeys.filter(
+    (key) => !isLegacyDoorKnockingUnitKey(key),
+  )
+  if (currentKeys.length === 0) {
+    return {
+      matchSql: Prisma.sql`${legacySql} = ANY(${legacyKeys}::text[])`,
+      keySql: legacySql,
+    }
+  }
+
+  return {
+    matchSql: Prisma.sql`(${currentSql} = ANY(${currentKeys}::text[]) OR ${legacySql} = ANY(${legacyKeys}::text[]))`,
+    keySql: Prisma.sql`CASE WHEN ${currentSql} = ANY(${currentKeys}::text[]) THEN ${currentSql} ELSE ${legacySql} END`,
+  }
 }
 
 type EvaluateRow = {
@@ -229,6 +275,7 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
     const { state, effectiveDistrictId, joinClause } = await this.resolveScope(
       dto.districtId,
     )
+    const { matchSql, keySql } = residentsKeySql(dto.addressKeys)
     const whereClause = buildVoterWhereSql({
       state,
       districtId: effectiveDistrictId,
@@ -238,7 +285,7 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
         // cap below is sized against the rooftop-only roster, and a unit's
         // non-rooftop rows would inflate rows toward a spurious rejection.
         ROOFTOP_ONLY,
-        Prisma.sql`${buildDoorKnockingAddressKeySql('v')} = ANY(${dto.addressKeys}::text[])`,
+        matchSql,
       ],
     })
 
@@ -277,7 +324,7 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
         v."Estimated_Income_Amount_Int",
         v."Language_Code",
         v."EthnicGroups_EthnicGroup1Desc",
-        ${buildDoorKnockingAddressKeySql('v')} AS "addressKey"
+        ${keySql} AS "addressKey"
       FROM ${VOTER_TABLE} v
       ${joinClause}
       ${whereClause}

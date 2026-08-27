@@ -26,6 +26,27 @@ only mutable record — one row per knock on a person.
 | `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
 | `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
+### `addressKey` — the unit key, and the format that came before it
+
+`door_knocking_stop_target.addressKey` names the knockable door. It is
+`ADDRESSLINE|APT|ZIP` (`DOOR_KNOCKING_UNIT_KEY_COLUMNS`), normalized
+`UPPER(TRIM(COALESCE(col::text, '')))` per segment: the CRM household key plus
+the one component that separates a unit from its building.
+
+Routes frozen before that hold a seven-segment key composed from the file's
+parsed components instead. Two of those components were the cardinal directions,
+and the columns they came from are INTEGER in the mirror and so always NULL — see
+peopleDb/AGENTS.md § *The two direction columns cannot hold a direction* for the
+mechanism. A legacy key therefore never captured an `S` or a `W`, and nothing can
+recover them from one: **a list knocked before the fix keeps printing its
+addresses without directions until it is re-knocked**, because the key is frozen
+and re-freezing is what re-reads the file.
+
+Both formats stay readable. `renderUnitAddress` tells them apart by segment count
+and `residents()` looks a route up by whichever format it froze, so an in-flight
+list keeps resolving to live phone numbers and household context. Door counts are
+computed from the stored keys and so do not move for any existing route.
+
 The route-created activity event (one per target at freeze) is deferred to
 the interaction-write PR alongside the vocabulary resolution — it should
 follow the `ContactInteraction*` convention (`occurredAt`, idempotency
@@ -105,13 +126,13 @@ across three services.
 **One path deliberately opts out**, and it reads like an oversight, so it is
 pinned by a test. `doorKnockingInteraction.service.ts` resolves an
 already-issued `stopTargetId` so a canvasser can record what happened at a
-door, and it does *not* require the turf to be alive. The phone snapshots the
+door, and it does _not_ require the turf to be alive. The phone snapshots the
 route and syncs later, so a list deleted mid-walk would turn every queued write
 into a 404 and discard work that was actually done — and these rows hang off
 the organization rather than the turf, so they outlive the list by design. The
 org scope still applies, so nothing resolves across a tenant. Contrast the
 knock freeze, which does filter: that one bills a Geoapify route. The rule is
-that `activeTurfScope` guards anything that *hands out* a turf or its route,
+that `activeTurfScope` guards anything that _hands out_ a turf or its route,
 not anything that records against one already handed out.
 
 **Archived rows are still returned by `GET turfs`.** They carry `archivedAt`
@@ -510,13 +531,67 @@ whose correction someone will later want to trace.
 `GET /v1/door-knocking/pack` (gp-api), served in-process by `src/peopleDb/`.
 Built per request from people_db, **still never stored** — see "Why it is
 still built per request" below: positions + person→household→dot index arrays
-+ one byte per person per dimension (SoA). Dim buckets are derived by
-inverting `src/peopleDb`'s `VALUE_MAPPERS`, so pack filtering can't drift from
-list-filter semantics. The `canvassStatus` plane is encoded from the org-wide
-latest-per-person statuses gp-api ships with the request (`(personId, status)`
-only — no PII), so the proxy never patches bytes. Map-minimal SELECT: no
-AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
-`registered` computed as `(StateVoterID IS NOT NULL)`.
+
+- one byte per person per dimension (SoA). Dim buckets are derived by
+  inverting `src/peopleDb`'s `VALUE_MAPPERS`, so pack filtering can't drift from
+  list-filter semantics. Map-minimal SELECT: no AddressLine, accuracy in WHERE
+  only (v1 = `GeoMatchRooftop` only), `registered` computed as
+  `(StateVoterID IS NOT NULL)`.
+
+### Two planes are the campaign's, and the line matters
+
+Every dim above describes a **voter**, and the scan that produces them is a
+pure function of `districtId` and the voter mirror. Two are not:
+`canvassStatus` and `contactsMade` describe what **this organization** has
+done, and neither can be read from people_db at all.
+
+Both follow one shape. `DoorKnockingPackService` (gp-api) reads the org's own
+tables, ships `(personId, byte)` pairs with the request — no names, no
+outcomes beyond the bucket, no PII — and `PackEncoder` joins them as the last
+two planes while it walks the district. **The proxy never patches bytes**, and
+the district scan never learns the organization's slug.
+
+That ordering is not tidiness. The [headroom
+profile](perf/voter-pack-headroom.md) found the expensive 22.5 s of a 23 s
+build depends only on `districtId`; a per-district cache is the one change
+that reaches "a few seconds", and it works by copying a shared build and
+rewriting the tail. **A per-organization read that moved into
+`VoterPackService` would delete that possibility.** Add a campaign-specific
+dim by appending a plane here, never by joining anything org-scoped into the
+scan.
+
+|                | `canvassStatus`                                                   | `contactsMade`                                                     |
+| -------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Buckets        | `DOOR_KNOCK_STATUSES`                                             | `'0'`…`'5+'` (`CONTACTS_MADE_BUCKETS`)                             |
+| Byte 0 means   | not knocked                                                       | never contacted                                                    |
+| Source         | latest ANSWER-bearing `contact_interaction_door_knock` per person | `COUNT(*)` over all four `contact_interaction_*` tables per person |
+| Always present | yes                                                               | **no** — see below                                                 |
+
+**`contactsMade` counts interaction ROWS, from
+`ContactsMadeResolutionService.contactsMadeBuckets`** — the same `UNION ALL`
+and the same `GROUP BY person_id` the filter's own resolution runs, so a
+person's bucket on the map is the bucket the filter will put them in. A second
+count written here would be a second answer to one question. Three
+consequences of that definition worth knowing before changing it: a
+three-attempt door-knock sync counts as three, a text and a knock on one
+person sum across channels, and outcome is irrelevant.
+
+**Only contacted people are on the wire**, because bucket 0 is the plane's
+default and everyone else is bucket 0. So the array is bounded by the
+campaign's own outreach rather than by the district — usually a rounding error
+against 611,000 rows.
+
+**Past `PACK_CONTACTS_MADE_MAX` the plane is omitted, not truncated.** The cap
+is `MAX_RESOLVED_ID_SET_SIZE` (100,000), deliberately the same number at which
+resolving a contacts-made filter for a real query gives up: above it the
+filter cannot be applied at knock time either. Truncating would read the
+dropped people as "0 prior contacts", which is the bucket candidates select
+most and the one answer that must never be invented. Absent, the dim never
+reaches the manifest, and the webapp's existing unpreviewable-filter
+disclosure names the filter it cannot shade — the same path any missing dim
+takes. **An empty array is not the same thing**: it is an organization that
+has contacted nobody, whose map genuinely can shade "0 prior contacts" as
+everyone.
 
 ### It was slow because the pagination was quadratic
 
@@ -531,11 +606,11 @@ bigger district made it worse than proportionally worse.
 Measured (`docs/perf/voter-pack-profile.md`, 628k-row dataset reproducing the
 production pack size to within 0.9%):
 
-| | keyset, 13 statements | one statement, one cursor |
-| --- | ---: | ---: |
-| blocks touched | 14,058,235 | 120,976 |
-| read from storage | **11.5 GB** | 945 MB |
-| Postgres execution | 5,389 ms | 2,072 ms |
+|                    | keyset, 13 statements | one statement, one cursor |
+| ------------------ | --------------------: | ------------------------: |
+| blocks touched     |            14,058,235 |                   120,976 |
+| read from storage  |           **11.5 GB** |                    945 MB |
+| Postgres execution |              5,389 ms |                  2,072 ms |
 
 **11.5 GB of storage reads to return a 16 MB response**, and 72% of the
 request's wall clock was the Node process sitting idle on the people-db socket.
@@ -579,7 +654,7 @@ requests in the seven days to 2026-08-25 died exactly there, logging
 `responseTimeMs: 119999, statusCode: null`. Nobody saw an error, because React
 Query's retry eventually won; the candidate saw a spinner for 165 seconds.
 
-The cursor makes the build faster; it does not make it *bounded*. A slow
+The cursor makes the build faster; it does not make it _bounded_. A slow
 people-db still produces a long quiet gap, and the streaming envelope is what
 removes the cliff rather than moving it.
 
@@ -673,12 +748,12 @@ instead of 136) for a 49% smaller payload at zero encode cost, gated on
 transfer being a real problem. Measured against the alternative on a 628k-row
 pack:
 
-| | payload | cost |
-| --- | ---: | ---: |
-| raw (today) | 15.88 MB | — |
-| bit-packed planes | 8.09 MB | 3 files in lockstep, client decode unmeasured |
-| gzip level 1 | 4.89 MB | 90 ms |
-| brotli quality 4 | **4.00 MB** | 95 ms |
+|                   |     payload |                                          cost |
+| ----------------- | ----------: | --------------------------------------------: |
+| raw (today)       |    15.88 MB |                                             — |
+| bit-packed planes |     8.09 MB | 3 files in lockstep, client decode unmeasured |
+| gzip level 1      |     4.89 MB |                                         90 ms |
+| brotli quality 4  | **4.00 MB** |                                         95 ms |
 
 The planes are low-cardinality bytes, which is exactly what a general-purpose
 compressor eats: **transport compression is a bigger win than bit-packing, for
@@ -703,7 +778,7 @@ should be argued as field usability rather than latency. See
 **The encoder's remaining headroom is small.** Its dot index is now keyed on
 the coordinates as numbers rather than on a `${lat}|${lng}` string, which was
 261ms of a 628k-row build — the most expensive single thing it did. What is
-left is a numeric *household* key, which needs a real numeric household id
+left is a numeric _household_ key, which needs a real numeric household id
 from Postgres. `hashtext` is 32-bit and at ~293k households that
 is ~10 expected collisions per district — each one merging two unrelated
 families into one door — so it is not shippable, and `hashtextextended` comes

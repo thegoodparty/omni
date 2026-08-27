@@ -93,6 +93,53 @@ describe('filtersToDimSelections', () => {
     )
     expect(selections.size).toBe(0)
   })
+
+  // Prior contacts made is the campaign's own outreach history rather than a
+  // voter attribute, so it rides a plane gp-api joins per organization. The
+  // bucket names ARE the pill labels, so nothing translates between them.
+  describe('prior contacts made', () => {
+    const withPlane = {
+      ...manifest,
+      dims: [
+        ...manifest.dims,
+        { key: 'contactsMade', values: ['0', '1', '2', '3', '4', '5+'] },
+      ],
+    } as typeof manifest
+
+    it('shades the selected buckets when the pack carries the plane', () => {
+      const selections = filtersToDimSelections(
+        { contactsMade0: true, contactsMade5Plus: true },
+        withPlane,
+      )
+      expect(selections.get('contactsMade')).toEqual(new Set([0, 5]))
+      expect(
+        unpreviewableFilterKeys({ contactsMade0: true }, withPlane),
+      ).toEqual([])
+    })
+
+    // The plane is omitted for an organization with more contacted people
+    // than one pack can describe (PACK_CONTACTS_MADE_MAX). That org's pills
+    // fall back to the disclosure — which is why the group's fallback label
+    // survives the plane shipping.
+    it('falls back to the disclosure when the pack has no plane', () => {
+      expect(
+        filtersToDimSelections({ contactsMade0: true }, manifest).size,
+      ).toBe(0)
+      expect(
+        unpreviewableFilterKeys({ contactsMade0: true }, manifest),
+      ).toEqual(['contactsMade0'])
+    })
+  })
+
+  // A key whose buckets are all missing must add NO entry rather than an
+  // empty set: an empty set allows nothing, which would shade an empty map
+  // for a filter the pack simply cannot express.
+  it('never leaves a dim with an empty allowed set', () => {
+    const selections = filtersToDimSelections({ age65Plus: true }, manifest)
+    for (const allowed of selections.values()) {
+      expect(allowed.size).toBeGreaterThan(0)
+    }
+  })
 })
 
 // The sentence was written for exactly one filter and then had a

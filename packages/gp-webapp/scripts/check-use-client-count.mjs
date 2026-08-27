@@ -284,7 +284,12 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-26: merge reconciliation — main's 606 plus this branch's SMS
 // flow surfaces (+6 client files) minus its SmsAudienceStep deletion (-1)
 // = 611.
-const BASELINE = 611
+// 2026-08-26: 606 -> 607 for outreach/v2/robocall/RobocallReviewStep.tsx — the
+// pre-send review step owns the saved-recording playback (audio play/pause
+// state), so it can't render on the server; matches its sibling robocall steps.
+// 2026-08-27: merge reconciliation — 611 (this branch's SMS surfaces) plus
+// main's RobocallReviewStep (+1) = 612.
+const BASELINE = 612
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
