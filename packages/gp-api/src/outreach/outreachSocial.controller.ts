@@ -9,12 +9,16 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  CancelOutreachResponse,
+  CancelOutreachResponseSchema,
   OutreachArchiveRequest,
   OutreachArchiveRequestSchema,
   OutreachArchiveResponse,
   OutreachArchiveResponseSchema,
   OutreachDetail,
   OutreachDetailSchema,
+  OutreachReceipt,
+  OutreachReceiptSchema,
   SocialDraftRequest,
   SocialDraftRequestSchema,
   SocialDraftResponse,
@@ -133,6 +137,29 @@ export class OutreachSocialController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<OutreachDetail> {
     return this.socialService.findDetail(campaign.id, id)
+  }
+
+  // Campaign-scoped like finalize: cancel moves the owning campaign's money
+  // and vendor job, so the org-level archive posture does not apply.
+  @Post(':id/cancel')
+  @ResponseSchema(CancelOutreachResponseSchema)
+  async cancel(
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<CancelOutreachResponse> {
+    return this.outreachService.cancelOutreach(id, campaign.id)
+  }
+
+  // Campaign-scoped like cancel: the receipt is the paying campaign's
+  // payment record. 404 when the row has no recorded checkout session
+  // (free-texts sends never write one).
+  @Get(':id/receipt')
+  @ResponseSchema(OutreachReceiptSchema)
+  receipt(
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<OutreachReceipt> {
+    return this.outreachService.getOutreachReceipt(id, campaign.id)
   }
 
   // Org-scoped, like the phone-banking list's own DELETE — an outreach row

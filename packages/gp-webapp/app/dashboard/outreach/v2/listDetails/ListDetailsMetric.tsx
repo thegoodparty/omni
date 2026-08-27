@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Card, Eyebrow, FilterPill, FilterPillGroup } from '@styleguide'
+import { Badge, Card, Eyebrow } from '@styleguide'
 
 // The Overview grid's cell, shared by both list details drawers. It is the
 // union of what the two surfaces needed rather than the intersection: the
@@ -94,16 +94,23 @@ export const FilterGroup = ({
 }) => (
   <div className="space-y-1.5">
     <p className="text-xs font-medium text-muted-foreground">{title}</p>
-    {/* Labels repeat across fields — 'Unknown' is an option on eleven of the
-        voter-file fields — so the label alone is not a stable key even inside
-        one group. */}
-    <FilterPillGroup type="multiple" value={values}>
+    {/* Purely presentational, so plain Badges rather than toggle pills —
+        nothing here should read as clickable, and the canvas draws them in
+        the outlined resting state, not the toggled-on fill. Labels repeat
+        across fields — 'Unknown' is an option on eleven of the voter-file
+        fields — so the label alone is not a stable key even inside one
+        group. */}
+    <div className="flex flex-wrap gap-2">
       {values.map((label, index) => (
-        <FilterPill key={`${label}-${index}`} value={label}>
+        <Badge
+          key={`${label}-${index}`}
+          shape="pill"
+          className="border-border bg-transparent px-3 py-1.5 text-sm font-medium text-foreground"
+        >
           {label}
-        </FilterPill>
+        </Badge>
       ))}
-    </FilterPillGroup>
+    </div>
   </div>
 )
 

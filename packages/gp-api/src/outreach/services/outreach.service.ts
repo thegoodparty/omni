@@ -1,11 +1,16 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+import {
+  OutreachReceipt,
+  P2P_SCRIPT_MAX_LENGTH,
+} from '@goodparty_org/contracts'
 import {
   Campaign,
+  Outreach,
   OutreachStatus,
   OutreachType,
   User,
@@ -17,6 +22,7 @@ import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
@@ -50,6 +56,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly materializationService: OutreachMaterializationService,
     private readonly s3: S3Service,
+    private readonly stripeService: StripeService,
   ) {
     super()
   }
@@ -149,6 +156,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         name,
         didState,
         didNpaSubset,
+        // The payload's offset-annotated datetime starts with the user's
+        // local calendar day; the DateTime column loses that offset, and
+        // finalize needs the local day for Peerly's start/end dates.
+        scheduledLocalDate: createOutreachDto.date?.slice(0, 10),
       },
       imageUrl,
       peerlyIdentityId,
@@ -475,7 +486,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         name: outreach.name ?? undefined,
         didState: outreach.didState ?? undefined,
         didNpaSubset: outreach.didNpaSubset,
-        scheduledDate: outreach.date?.toISOString(),
+        // Legacy drafts created before scheduledLocalDate existed carry
+        // only the UTC instant, whose sliced day is one late for evening
+        // US sends — unscheduled (Peerly holds P2P jobs for canvassers
+        // anyway) beats a wrong-day send for that transient set.
+        scheduledDate: outreach.scheduledLocalDate ?? undefined,
       })
     } catch (err) {
       throw new OutreachStepError('peerlyJobCreation', err)
@@ -537,7 +552,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   /** Persists a single outreach record. Used by both non-P2P and P2P flows. */
   private async createRecord(
     campaign: Campaign,
-    createOutreachDto: CreateOutreachSchema,
+    // scheduledLocalDate is server-derived at draft creation, never client
+    // input — hence the widening rather than a schema field.
+    createOutreachDto: CreateOutreachSchema & { scheduledLocalDate?: string },
     imageUrl?: string,
     identityId?: string,
   ) {
@@ -577,6 +594,190 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       where: { id },
       select: { id: true, archivedAt: true },
     })
+  }
+
+  // Durable payment link for cancel-before-send. Idempotent by shape (same
+  // session id on every webhook retry); scoped to the paying campaign like
+  // finalize, since outreachId rides in client-influenced metadata.
+  async recordCheckoutSession(
+    outreachId: number,
+    campaignId: number,
+    checkoutSessionId: string,
+  ): Promise<void> {
+    await this.model.updateMany({
+      where: { id: outreachId, campaignId },
+      data: { stripeCheckoutSessionId: checkoutSessionId },
+    })
+  }
+
+  /**
+   * Cancel-before-send (product decision: permanent, vendor job deleted,
+   * automatic refund). Cancelable = status `pending` only: that is the
+   * scheduled-not-started state finalize leaves a paid campaign in;
+   * `in_progress`/`completed` rows have sent messages and are not
+   * refundable here.
+   *
+   * Ordering is the failure policy. The row is CLAIMED first (finalize's
+   * updateMany-as-CAS pattern, `pending` → `canceled`), so the hourly
+   * completion sweep can never advance it mid-cancel — canceled rows are
+   * outside the sweep's candidate set. The vendor delete runs second — if
+   * it fails, the claim is reverted and the user keeps their campaign. The
+   * refund runs third — if IT fails, the claim is reverted too, so the row
+   * deliberately reads `pending`: the cancel CTA stays live, and a retry
+   * re-runs every step safely (the claim is atomic, the vendor delete
+   * treats already-deleted as done, and the refund's idempotency key is
+   * stable per outreach, so it can neither be lost nor doubled).
+   */
+  async cancelOutreach(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<{ outreach: Outreach; refunded: boolean }> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (outreach.status === OutreachStatus.canceled) {
+      return { outreach, refunded: false }
+    }
+    if (outreach.status !== OutreachStatus.pending) {
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
+
+    const claimed = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending },
+      data: { status: OutreachStatus.canceled },
+    })
+    if (claimed.count === 0) {
+      const current = await this.model.findFirstOrThrow({
+        where: { id: outreachId, campaignId },
+      })
+      if (current.status === OutreachStatus.canceled) {
+        return { outreach: current, refunded: false }
+      }
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
+
+    // A revert failure must never replace the error that triggered it: the
+    // row would sit `canceled` with the cancel unfinished, and the
+    // idempotent early-return would make every retry silently succeed —
+    // for the refund path, with the user's money never returned.
+    const revertClaim = async (cause: string) => {
+      try {
+        await this.model.update({
+          where: { id: outreachId },
+          data: { status: OutreachStatus.pending },
+        })
+      } catch (revertErr) {
+        this.logger.error(
+          { err: revertErr },
+          `revertClaim failed for outreach ${outreachId} after ${cause}; ` +
+            'row is stuck canceled with the cancel unfinished — manual ' +
+            'intervention required',
+        )
+      }
+    }
+
+    if (outreach.projectId) {
+      try {
+        await this.peerlyP2pJobService.deleteJob(outreach.projectId)
+      } catch (error) {
+        await revertClaim('vendor delete failure')
+        throw error
+      }
+    }
+
+    let refunded = false
+    if (outreach.stripeCheckoutSessionId) {
+      try {
+        const session = await this.stripeService.retrieveCheckoutSession(
+          outreach.stripeCheckoutSessionId,
+        )
+        const paymentIntentId =
+          typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : session.payment_intent?.id
+        if (paymentIntentId) {
+          await this.stripeService.refundPaymentIntent(
+            paymentIntentId,
+            `outreach-cancel-${outreachId}`,
+          )
+          refunded = true
+        }
+      } catch (error) {
+        this.logger.error(
+          { err: error },
+          `Refund failed canceling outreach ${outreachId}; claim reverted so cancel can retry`,
+        )
+        await revertClaim('refund failure')
+        throw new BadGatewayException(
+          'The refund could not be processed. Try canceling again.',
+        )
+      }
+    }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId, campaignId },
+    })
+    return { outreach: updated, refunded }
+  }
+
+  /**
+   * Live receipt read for a paid campaign. No local payment snapshot
+   * exists — the row only stores the checkout session id — so the card and
+   * receipt URL come from Stripe on every read. Free-texts rows never
+   * record a session, so they 404 here; a Stripe failure is a 502, never
+   * an empty receipt.
+   */
+  async getOutreachReceipt(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<OutreachReceipt> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach?.stripeCheckoutSessionId) {
+      throw new NotFoundException('No receipt for this outreach')
+    }
+    let session: Awaited<
+      ReturnType<StripeService['retrieveCheckoutSessionWithCharge']>
+    >
+    try {
+      session = await this.stripeService.retrieveCheckoutSessionWithCharge(
+        outreach.stripeCheckoutSessionId,
+      )
+    } catch (error) {
+      this.logger.error(
+        { err: error },
+        `Receipt read failed for outreach ${outreachId}`,
+      )
+      throw new BadGatewayException('Could not load the receipt from Stripe')
+    }
+    const paymentIntent =
+      typeof session.payment_intent === 'object' ? session.payment_intent : null
+    const charge =
+      paymentIntent && typeof paymentIntent.latest_charge === 'object'
+        ? paymentIntent.latest_charge
+        : null
+    const card = charge?.payment_method_details?.card
+    // A session without an amount is not a $0 receipt — the UI reads 0 as
+    // "Free". The documented contract is 502-or-real-receipt.
+    if (session.amount_total == null) {
+      throw new BadGatewayException(
+        'Stripe session has no amount; receipt unavailable',
+      )
+    }
+    return {
+      // DOLLARS, matching the checkout-session endpoint convention.
+      amount: session.amount_total / 100,
+      cardBrand: card?.brand ?? null,
+      cardLast4: card?.last4 ?? null,
+      receiptUrl: charge?.receipt_url ?? null,
+      paidAt: charge?.created
+        ? new Date(charge.created * 1000).toISOString()
+        : null,
+    }
   }
 
   async findByCampaignId(campaignId: number) {

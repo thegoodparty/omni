@@ -22,6 +22,7 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import type {
   CampaignGeographyInput,
   ResolveP2pJobGeographyServices,
@@ -161,6 +162,10 @@ describe('OutreachService', () => {
         {
           provide: S3Service,
           useValue: { getFileBytesWithContentType: mockGetFileBytes },
+        },
+        {
+          provide: StripeService,
+          useValue: {},
         },
         OutreachService,
       ],

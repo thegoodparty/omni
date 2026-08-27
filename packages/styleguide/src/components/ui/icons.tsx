@@ -49,6 +49,7 @@ export {
   Footprints as FootprintsIcon,
   Globe as GlobeIcon,
   GripVertical as GripVerticalIcon,
+  Image as ImageIcon,
   Info as InfoIcon,
   LayoutDashboard as LayoutDashboardIcon,
   NotebookPen as NotebookPenIcon,
@@ -127,4 +128,10 @@ export {
   Users as UsersIcon,
   Video as VideoIcon,
   Youtube as YoutubeIcon,
+  Bookmark as BookmarkIcon,
+  Receipt as ReceiptIcon,
+  ShieldAlert as ShieldAlertIcon,
+  Hash as HashIcon,
+  Radio as RadioIcon,
+  UserMinus as UserMinusIcon,
 } from 'lucide-react'

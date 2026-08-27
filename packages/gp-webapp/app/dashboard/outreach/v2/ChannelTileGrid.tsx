@@ -12,6 +12,7 @@ import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreac
 import { useVoterOutreachV2SocialFlag } from '@shared/experiments/voterOutreachV2SocialFlag'
 import { useVoterOutreachV2RobocallFlag } from '@shared/experiments/voterOutreachV2RobocallFlag'
 import { useVoterOutreachV2PhoneBankingFlag } from '@shared/experiments/voterOutreachV2PhoneBankingFlag'
+import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
@@ -22,6 +23,7 @@ interface ChannelTileGridProps {
   tcrCompliance?: TcrCompliance
   preselectedListId?: number
   onCreateSocial: () => void
+  onCreateSms: () => void
   onCreateRobocall: () => void
   onCreatePhoneBanking: () => void
 }
@@ -44,6 +46,7 @@ export const ChannelTileGrid = ({
   tcrCompliance,
   preselectedListId,
   onCreateSocial,
+  onCreateSms,
   onCreateRobocall,
   onCreatePhoneBanking,
 }: ChannelTileGridProps) => {
@@ -53,10 +56,9 @@ export const ChannelTileGrid = ({
   const [flowType, setFlowType] = useState<OutreachType | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
-  // The social tile is its own divergence point: flag on opens the new
-  // social flow, off (or unsettled) launches the legacy socialMedia
-  // TaskFlow — the same fallback shape every other channel gets until its
-  // phase swaps the tile target.
+  // Each tile is its own divergence point: flag on opens the new flow,
+  // off (or unsettled) launches the legacy TaskFlow — the same fallback
+  // shape every channel gets until its phase swaps the tile target.
   const socialV2 = useVoterOutreachV2SocialFlag()
   // The robocall tile's own swap: flag on opens the new robocall flow, off
   // (or unsettled) falls through to the legacy robocall TaskFlow — same shape
@@ -77,6 +79,8 @@ export const ChannelTileGrid = ({
   const { data: electedOffice, isPending: electedOfficePending } =
     useElectedOffice()
   const canUseProFeatures = !!isPro || !!electedOffice
+  // The SMS tile's own swap, checked after the text gate passes.
+  const smsV2 = useVoterOutreachV2SmsFlag()
 
   // Consume-once preselected list (ENG-10762 conventions, mirrored from
   // OutreachCreateCards): the deep-link strip's router.replace re-runs the
@@ -113,6 +117,10 @@ export const ChannelTileGrid = ({
     }
     if (type === OUTREACH_TYPES.text) {
       if (!runTextGate()) return
+      if (smsV2.ready && smsV2.enabled) {
+        onCreateSms()
+        return
+      }
       setFlowType(type)
       return
     }

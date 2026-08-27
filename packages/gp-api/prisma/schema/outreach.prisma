@@ -22,6 +22,7 @@ enum OutreachStatus {
   in_progress
   completed
   pending_payment
+  canceled
 }
 
 model Outreach {
@@ -39,6 +40,11 @@ model Outreach {
   script                            String?                            @db.Text
   message                           String?
   date                              DateTime?
+  // The user's local calendar day for the send ("YYYY-MM-DD"), captured
+  // from the offset-annotated create payload. `date` is a UTC instant, so
+  // deriving the day from it at finalize time shifts evening sends onto
+  // the next day for US timezones — Peerly needs the local day.
+  scheduledLocalDate                String?                            @map("scheduled_local_date")
   imageUrl                          String?                            @map("image_url")
   voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")
@@ -61,6 +67,10 @@ model Outreach {
   textCount                         Int?                               @map("text_count")
   billableTextCount                 Int?                               @map("billable_text_count")
   campaignPlanDueDate               String?                            @map("campaign_plan_due_date")
+  // The paid checkout session that funded this outreach, written at
+  // finalize. Cancel-before-send resolves its payment intent for the
+  // automatic refund; free-texts redemptions never set it.
+  stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill.
   organizationSlug                  String?                            @map("organization_slug")

@@ -10,16 +10,19 @@ import {
   type Outreach,
 } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { OutreachComposeDeepLink } from 'app/dashboard/outreach/components/OutreachComposeDeepLink'
+import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 import type { OutreachDetail } from '@goodparty_org/contracts'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { ChannelTileGrid } from './ChannelTileGrid'
 import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import { SocialFlow } from './social/SocialFlow'
 import { RobocallFlow } from './robocall/RobocallFlow'
 import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
+import { SmsFlow } from './sms/SmsFlow'
 import { useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -48,6 +51,7 @@ const OutreachHubContent = ({
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
+  const [smsFlowOpen, setSmsFlowOpen] = useState(false)
   const seedOutreachDetail = useSeedOutreachDetail()
 
   // The save response is the created row: seed the detail cache (so the
@@ -84,6 +88,13 @@ const OutreachHubContent = ({
     ])
   }
 
+  // Payment finalizes server-side (Peerly job, status flip), so the new row
+  // only exists after a refetch — same as the legacy purchase completion.
+  const handleSmsScheduled = async () => {
+    const { data } = await clientRequest('GET /v1/outreach', {})
+    setOutreaches(data ?? [])
+  }
+
   // Consume-once (ENG-10769 conventions): strip the param, open the drawer
   // if the id resolves; the ref keeps an already-consumed id from reopening
   // while still accepting a new deep link arriving while mounted.
@@ -109,6 +120,7 @@ const OutreachHubContent = ({
         tcrCompliance={tcrCompliance}
         preselectedListId={preselectedListId}
         onCreateSocial={() => setSocialFlowOpen(true)}
+        onCreateSms={() => setSmsFlowOpen(true)}
         onCreateRobocall={() => setRobocallFlowOpen(true)}
         onCreatePhoneBanking={() => setPhoneBankingFlowOpen(true)}
       />
@@ -126,18 +138,28 @@ const OutreachHubContent = ({
         onClose={() => setPhoneBankingFlowOpen(false)}
         onSaved={handlePhoneBankingSaved}
       />
+      <SmsFlow
+        open={smsFlowOpen}
+        onClose={() => setSmsFlowOpen(false)}
+        tcrCompliance={tcrCompliance}
+        onScheduled={handleSmsScheduled}
+      />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
       </Suspense>
       <OutreachHistoryTable
         rows={outreaches ?? []}
         onRowClick={setDetailsRow}
+        notCleared={
+          tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
+        }
       />
       <OutreachDetailsDrawer
         row={detailsRow}
         onOpenChange={(open) => {
           if (!open) setDetailsRow(null)
         }}
+        tcrCompliance={tcrCompliance}
       />
     </div>
   )
