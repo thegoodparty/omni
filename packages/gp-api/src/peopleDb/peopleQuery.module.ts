@@ -9,6 +9,7 @@ import { VoterPackService } from './services/voterPack.service'
 import { ShadowReadService } from './shadowRead.service'
 import { DatabricksVoterService } from './databricks/databricksVoter.service'
 import { DatabricksVoterDownloadService } from './databricks/databricksVoterDownload.service'
+import { DatabricksVoterPackService } from './databricks/databricksVoterPack.service'
 import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client'
 import { VoterDensityService } from './services/voterDensity.service'
 
@@ -17,6 +18,7 @@ import { VoterDensityService } from './services/voterDensity.service'
     PeopleDbxStatementClient,
     DatabricksVoterService,
     DatabricksVoterDownloadService,
+    DatabricksVoterPackService,
     ShadowReadService,
     DistrictService,
     StatsService,

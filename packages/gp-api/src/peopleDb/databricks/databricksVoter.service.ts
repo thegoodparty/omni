@@ -39,8 +39,17 @@ import {
   buildSampleSql,
   buildVoterColumnsSql,
   HOUSEHOLD_PAGE_COLUMNS,
+  buildDoorKnockingEvaluateSql,
+  buildDoorKnockingResidentsSql,
+  DOOR_KNOCKING_RESIDENT_COLUMNS,
   type DbxDistrict,
+  type DbxEvaluateRow,
+  type DbxResidentRow,
 } from './databricksVoterSql.util'
+import {
+  DoorKnockingEvaluateDTO,
+  DoorKnockingResidentsDTO,
+} from '../schemas/doorKnocking.schema'
 import {
   buildDistrictStatsSql,
   mapDistrictStatsRow,
@@ -90,6 +99,22 @@ const NUMERIC_LIST_COLUMNS = new Set<string>([
   'Age_Int',
   'Estimated_Income_Amount_Int',
 ])
+
+const NUMERIC_RESIDENT_COLUMNS = new Set<string>([
+  'Age_Int',
+  'Estimated_Income_Amount_Int',
+])
+
+const toRecord = (
+  columns: readonly string[],
+  row: Array<string | null>,
+): Record<string, string | null> => {
+  const record: Record<string, string | null> = {}
+  columns.forEach((column, index) => {
+    record[column] = row[index] ?? null
+  })
+  return record
+}
 
 @Injectable()
 export class DatabricksVoterService {
@@ -351,6 +376,75 @@ export class DatabricksVoterService {
     return rows
       .map((row) => toDbPerson(columnNames, row))
       .map(transformToPersonOutput)
+  }
+
+  // Both door-knocking reads return ROWS, not a finished response. The cap
+  // check and the roster shaping stay in VoterDoorKnockingService so the
+  // reject-rather-than-truncate guard and the display mapping have one
+  // implementation across both engines rather than two that can drift.
+  async doorKnockingEvaluateRows(
+    dto: DoorKnockingEvaluateDTO,
+  ): Promise<DbxEvaluateRow[]> {
+    const district = await this.resolveDistrict(dto.districtId)
+    const { columns, rows } = await this.run(
+      buildDoorKnockingEvaluateSql({
+        district,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        bbox: dto.bbox,
+        maxPeople: dto.maxPeople,
+        excludePersonIds: dto.excludePersonIds,
+      }),
+    )
+    return rows.map((row) => {
+      const record = toRecord(columns, row)
+      return {
+        id: String(record.id),
+        firstName: record.firstName ?? null,
+        lastName: record.lastName ?? null,
+        lat: Number(record.lat),
+        lng: Number(record.lng),
+        addressKey: String(record.addressKey),
+        displayAddress: record.displayAddress ?? '',
+      }
+    })
+  }
+
+  async doorKnockingResidentRows(
+    dto: DoorKnockingResidentsDTO,
+    residentsCap: number,
+  ): Promise<DbxResidentRow[]> {
+    const district = await this.resolveDistrict(dto.districtId)
+    const { columns, rows } = await this.run(
+      buildDoorKnockingResidentsSql({
+        district,
+        addressKeys: dto.addressKeys,
+        residentsCap,
+      }),
+    )
+    return rows.map((row) => {
+      const record = toRecord(columns, row)
+      const resident: Record<string, string | number | boolean | null> = {
+        id: String(record.id),
+        firstName: record.firstName ?? null,
+        lastName: record.lastName ?? null,
+        cellPhone: record.cellPhone ?? null,
+        landline: record.landline ?? null,
+        addressKey: String(record.addressKey),
+        // JSON_ARRAY renders a boolean as the text 'true'/'false'.
+        registered: record.registered === 'true',
+      }
+      for (const column of DOOR_KNOCKING_RESIDENT_COLUMNS) {
+        const value = record[column] ?? null
+        resident[column] =
+          value !== null && NUMERIC_RESIDENT_COLUMNS.has(column)
+            ? Number(value)
+            : value
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      return resident as DbxResidentRow
+    })
   }
 
   private async run(statement: DbxStatement) {
