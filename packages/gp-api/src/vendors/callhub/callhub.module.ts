@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios'
 import { Module } from '@nestjs/common'
 import { CallhubBulkImportService } from './services/callhubBulkImport.service'
+import { CallhubCampaignReportService } from './services/callhubCampaignReport.service'
 import { CallhubDncService } from './services/callhubDnc.service'
 import { CallhubErrorHandlingService } from './services/callhubErrorHandling.service'
 import { CallhubHttpService } from './services/callhubHttp.service'
@@ -21,6 +22,7 @@ import { CallhubPhonebookService } from './services/callhubPhonebook.service'
     CallhubPhonebookService,
     CallhubBulkImportService,
     CallhubDncService,
+    CallhubCampaignReportService,
   ],
   exports: [
     CallhubNumbersService,
@@ -28,6 +30,7 @@ import { CallhubPhonebookService } from './services/callhubPhonebook.service'
     CallhubPhonebookService,
     CallhubBulkImportService,
     CallhubDncService,
+    CallhubCampaignReportService,
   ],
 })
 export class CallhubModule {}
