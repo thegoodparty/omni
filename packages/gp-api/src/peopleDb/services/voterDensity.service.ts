@@ -1,13 +1,23 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { GatewayTimeoutException, Inject, Injectable } from '@nestjs/common'
 import { Prisma } from '../../generated/people-prisma'
 import { DatabricksVoterDensityService } from '../databricks/databricksVoterDensity.service'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
-import { ShadowReadService } from '../shadowRead.service'
+import {
+  COMPARISON_STATEMENT_TIMEOUT_MS,
+  ShadowReadService,
+} from '../shadowRead.service'
 import { hash32 } from '../util/hash.util'
+import {
+  isStatementTimeoutError,
+  STATEMENT_TIMEOUT_MS,
+} from '../utils/statementTimeout.util'
 
 // The app selects a resolution per request; res 8 is the default the
 // data-team handoff documents when none is given.
 const DEFAULT_RESOLUTION = 8
+
+const TIMEOUT_MESSAGE =
+  'The voter density map took too long to load. Please try again.'
 
 /** A single precomputed heat-map cell: an H3 centroid and its voter count. */
 export interface VoterDensityCell {
@@ -100,28 +110,57 @@ export class VoterDensityService extends createPeopleDbBase(
     districtId: string,
     resolution: number,
   ): Promise<VoterDensityResult> {
-    // The cells and their coverage meta are independent reads on the same key;
-    // fetch them together.
-    const [rows, meta] = await Promise.all([
-      this.model.findMany({
-        where: { districtId, resolution },
-        select: { lat: true, lng: true, voterCount: true },
-        // Deterministic order keeps responses stable across identical requests.
-        orderBy: [{ lat: Prisma.SortOrder.asc }, { lng: Prisma.SortOrder.asc }],
-      }),
-      this.client.districtVoterDensityMeta.findUnique({
-        where: { districtId_resolution: { districtId, resolution } },
-        select: { coverage: true },
-      }),
-    ])
+    // These are model-level reads, so they cannot go through
+    // runUnderStatementTimeout, which takes raw SQL. The SET LOCAL rides in the
+    // same batch transaction instead: Prisma runs a batch on one connection, so
+    // the ceiling scopes to exactly these queries. Comparison-only reads take
+    // the tighter one, since a slow shadow must not hold a pooled connection
+    // open when nothing is waiting on its answer.
+    const timeoutMs = this.shadow.enabled
+      ? COMPARISON_STATEMENT_TIMEOUT_MS
+      : STATEMENT_TIMEOUT_MS
+    const startedAt = Date.now()
+    try {
+      // The cells and their coverage meta are independent reads on the same
+      // key. They serialize here rather than running concurrently, which is the
+      // cost of sharing one transaction's timeout.
+      const [, rows, meta] = await this.client.$transaction([
+        // SET takes no bind parameters, and the interval is a compile-time
+        // constant, so Prisma.raw is safe.
+        this.client.$executeRaw(
+          Prisma.raw(`SET LOCAL statement_timeout = '${timeoutMs}ms'`),
+        ),
+        this.model.findMany({
+          where: { districtId, resolution },
+          select: { lat: true, lng: true, voterCount: true },
+          // Deterministic order keeps responses stable across identical
+          // requests.
+          orderBy: [
+            { lat: Prisma.SortOrder.asc },
+            { lng: Prisma.SortOrder.asc },
+          ],
+        }),
+        this.client.districtVoterDensityMeta.findUnique({
+          where: { districtId_resolution: { districtId, resolution } },
+          select: { coverage: true },
+        }),
+      ])
 
-    return {
-      coverage: meta?.coverage ?? null,
-      cells: rows.map((r) => ({
-        lat: r.lat,
-        lng: r.lng,
-        count: r.voterCount,
-      })),
+      return {
+        coverage: meta?.coverage ?? null,
+        cells: rows.map((r) => ({
+          lat: r.lat,
+          lng: r.lng,
+          count: r.voterCount,
+        })),
+      }
+    } catch (error) {
+      if (!isStatementTimeoutError(error)) throw error
+      this.logger.error(
+        { err: error, elapsedMs: Date.now() - startedAt },
+        'people-db query exceeded the statement timeout',
+      )
+      throw new GatewayTimeoutException(TIMEOUT_MESSAGE)
     }
   }
 }

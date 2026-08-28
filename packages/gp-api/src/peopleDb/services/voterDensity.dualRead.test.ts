@@ -25,6 +25,8 @@ describe('VoterDensityService dual read', () => {
   let mockPrisma: {
     districtVoterDensity: { findMany: ReturnType<typeof vi.fn> }
     districtVoterDensityMeta: { findUnique: ReturnType<typeof vi.fn> }
+    $executeRaw: ReturnType<typeof vi.fn>
+    $transaction: ReturnType<typeof vi.fn>
   }
   let findVoterDensity: ReturnType<typeof vi.fn>
   let compared: CompareArgs | null
@@ -35,6 +37,8 @@ describe('VoterDensityService dual read', () => {
     mockPrisma = {
       districtVoterDensity: { findMany: vi.fn().mockResolvedValue([]) },
       districtVoterDensityMeta: { findUnique: vi.fn().mockResolvedValue(null) },
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     }
     findVoterDensity = vi.fn().mockResolvedValue({ coverage: 0.9, cells: [] })
     shadow = {
@@ -95,6 +99,21 @@ describe('VoterDensityService dual read', () => {
     expect(mockPrisma.districtVoterDensity.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { districtId: DISTRICT_ID, resolution: 9 },
+      }),
+    )
+  })
+
+  it('gives the comparison arm the tighter 8s ceiling', async () => {
+    // Nothing waits on the shadow's answer, so it must not hold a pooled
+    // connection for the 25s a served read gets.
+    await service.getVoterDensity(DISTRICT_ID)
+    await compared?.comparison()
+
+    expect(mockPrisma.$executeRaw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        strings: expect.arrayContaining([
+          "SET LOCAL statement_timeout = '8000ms'",
+        ]),
       }),
     )
   })

@@ -8,12 +8,18 @@ describe('VoterDensityService', () => {
   let mockPrisma: {
     districtVoterDensity: { findMany: ReturnType<typeof vi.fn> }
     districtVoterDensityMeta: { findUnique: ReturnType<typeof vi.fn> }
+    $executeRaw: ReturnType<typeof vi.fn>
+    $transaction: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
     mockPrisma = {
       districtVoterDensity: { findMany: vi.fn() },
       districtVoterDensityMeta: { findUnique: vi.fn() },
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      // The reads ride in a batch transaction with the SET LOCAL, so the mock
+      // settles the batch the way Prisma does.
+      $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     }
 
     service = new VoterDensityService()
