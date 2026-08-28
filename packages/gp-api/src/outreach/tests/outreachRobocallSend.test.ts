@@ -88,6 +88,7 @@ const createDraft = async ({
   authorizationIntentId = 'pi_1',
   authorizedAmountInCents,
   withCaptureBefore = false,
+  compliancePassed = true,
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
@@ -95,6 +96,7 @@ const createDraft = async ({
   authorizationIntentId?: string | null
   authorizedAmountInCents?: number
   withCaptureBefore?: boolean
+  compliancePassed?: boolean
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -114,6 +116,7 @@ const createDraft = async ({
       billableCount: 100,
       amountInCents: 450,
       settleState,
+      ...(compliancePassed ? { compliancePassedAt: new Date() } : {}),
       ...(staged ? { callhubCampaignPkStr: 'vb_1' } : {}),
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(authorizedAmountInCents != null ? { authorizedAmountInCents } : {}),
@@ -273,6 +276,25 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     expect(satellite.authorizationIntentId).toBeNull()
+  })
+
+  it('NEVER dials a draft with no compliance pass: reverts and alerts, no launch', async () => {
+    // Belt-and-suspenders under the create gate: a dialing draft whose
+    // compliancePassedAt is null must not dial. Nothing launched, the hold is
+    // fine, so the claim reverts to authorized and a CRITICAL alert fires.
+    const outreachId = await createDraft({ compliancePassed: false })
+    const errorSpy = loggerErrorSpy()
+
+    await send.startCampaign(outreachId)
+
+    expect(launchSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    expect(satellite.dialedAt).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId, dialingCampaignPkStr: 'vb_1' }),
+      expect.stringContaining('CRITICAL'),
+    )
   })
 
   it('NEVER dials twice: a concurrent double-start launches exactly once', async () => {

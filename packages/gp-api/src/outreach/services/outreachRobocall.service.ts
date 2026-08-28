@@ -13,6 +13,7 @@ import {
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import { RobocallComplianceResultService } from './robocallComplianceResult.service'
 import {
   Campaign,
   Organization,
@@ -39,6 +40,7 @@ export class OutreachRobocallService extends createPrismaBase(
   constructor(
     private readonly contacts: ContactsService,
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly complianceResults: RobocallComplianceResultService,
   ) {
     super()
   }
@@ -107,6 +109,16 @@ export class OutreachRobocallService extends createPrismaBase(
     const existing = await this.findExistingDraft(campaign.id, input.audioKey)
     if (existing) return existing
 
+    // COMPLIANCE GATE (money/legal): a paid draft can only be created for audio
+    // that passed the server-side compliance check. The client UI runs the check
+    // first, but a crafted request must not skip it, so require a persisted
+    // PASSING verdict for this audioKey. The passing timestamp is mirrored onto
+    // the satellite below so the dial step has a durable per-draft fact.
+    const compliance = await this.complianceResults.findPassing(input.audioKey)
+    if (!compliance) {
+      throw new BadRequestException('Robocall audio has not passed compliance')
+    }
+
     // A past send time can never dial at CallHub, so a paid draft on it would
     // be money taken for a robocall that never sends. Reject before the
     // people-db round trip.
@@ -148,6 +160,7 @@ export class OutreachRobocallService extends createPrismaBase(
             callbackNumber: input.callbackNumber,
             billableCount,
             amountInCents,
+            compliancePassedAt: compliance.checkedAt,
             settleState: RobocallSettleState.pending_payment,
           },
         })

@@ -361,6 +361,13 @@ describe('POST /v1/outreach/robocall/compliance', () => {
     })
     expect(args).not.toHaveProperty('callbackNumber')
     expect(args.organizationName).toContain('City Council')
+
+    // The verdict is persisted keyed by audioKey so createDraft can enforce it.
+    const stored =
+      await service.prisma.robocallComplianceResult.findUniqueOrThrow({
+        where: { audioKey: 'robocall/997/clip.webm' },
+      })
+    expect(stored.passed).toBe(true)
   })
 
   it('returns a failing verdict with the issues', async () => {
@@ -380,6 +387,50 @@ describe('POST /v1/outreach/robocall/compliance', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.passed).toBe(false)
     expect(res.data.issues).toHaveLength(2)
+
+    // A failing verdict is persisted too — the create gate reads `passed`, so a
+    // failing row is on record and cannot satisfy it.
+    const stored =
+      await service.prisma.robocallComplianceResult.findUniqueOrThrow({
+        where: { audioKey: 'robocall/997/clip.webm' },
+      })
+    expect(stored.passed).toBe(false)
+  })
+
+  it('overwrites the stored verdict when the audio is re-checked', async () => {
+    checkRecording.mockResolvedValueOnce({
+      passed: false,
+      checks: {
+        hasSelfIdentification: false,
+        hasOrganization: false,
+        hasCallbackNumber: false,
+      },
+      transcript: 'Silence.',
+      issues: ['State your name.'],
+    })
+    const first = await postCompliance(validCompliancePayload)
+    expect(first.data.passed).toBe(false)
+
+    // The candidate re-records and re-checks the SAME key: the row is upserted,
+    // so the latest verdict is the only one on record for the create gate.
+    checkRecording.mockResolvedValueOnce({
+      passed: true,
+      checks: {
+        hasSelfIdentification: true,
+        hasOrganization: true,
+        hasCallbackNumber: true,
+      },
+      transcript: 'Hi, this is Jane Doe, running for City Council...',
+      issues: [],
+    })
+    const second = await postCompliance(validCompliancePayload)
+    expect(second.data.passed).toBe(true)
+
+    const rows = await service.prisma.robocallComplianceResult.findMany({
+      where: { audioKey: 'robocall/997/clip.webm' },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.passed).toBe(true)
   })
 
   it('rejects an audio key from another campaign without checking', async () => {
