@@ -153,10 +153,11 @@ export class CampaignTcrComplianceController {
       'issue). Calls with any earlier stage return 422; calls with ' +
       'generic or template content return 400. ' +
       'No request body is needed: gp-api reads the EIN, committee name, ' +
-      'office level, election filing details, contact email and phone, ' +
-      "and website host from the candidate's saved compliance record — " +
-      'just call it for the current campaign. gp-api re-validates the ' +
-      'saved filing URL and returns 400 if it is a goodparty.org page, ' +
+      'candidate name, office level, election filing details, contact ' +
+      "email and phone, and website host from the candidate's saved " +
+      'compliance record — just call it for the current campaign. ' +
+      'gp-api re-validates the saved filing URL and returns 400 if it ' +
+      'is a goodparty.org page, ' +
       "the candidate's own campaign website, or (for non-federal " +
       'candidates) an FEC filing URL (CampaignVerify rejects all of ' +
       'those); the candidate must correct their saved filing details ' +

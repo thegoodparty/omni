@@ -793,6 +793,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       officeLevel,
       fecCommitteeId,
       committeeType,
+      candidateName,
       manualAddress,
     } = tcrComplianceCreatePayload
 
@@ -969,6 +970,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             officeLevel,
             fecCommitteeId: fecCommitteeId ?? null,
             committeeType: committeeType,
+            candidateName: candidateName ?? null,
             ...manualFilingAddressColumns(manualAddress),
           },
           user,
@@ -1147,6 +1149,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       officeLevel: existing.officeLevel,
       fecCommitteeId,
       committeeType: existing.committeeType,
+      candidateName: existing.candidateName,
       websiteDomain: hostname,
       // A record created from a manual address entry carries its structured
       // components; passing them through makes the Peerly submits read them

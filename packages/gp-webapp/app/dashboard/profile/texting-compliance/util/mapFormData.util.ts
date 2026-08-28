@@ -30,6 +30,7 @@ interface FormData {
   address: Address
   manualAddress?: ManualAddress
   campaignCommitteeName: string
+  candidateName: string
   website: string
   electionFilingLink: string
   email: string
@@ -45,6 +46,7 @@ interface MappedFormData {
   formattedAddress?: string
   manualAddress?: ManualAddress
   committeeName: string
+  candidateName: string
   websiteDomain?: string
   filingUrl: string
   email: string
@@ -99,6 +101,7 @@ export const mapFormData = ({
   address: { place_id, formatted_address },
   manualAddress,
   campaignCommitteeName,
+  candidateName,
   website,
   electionFilingLink,
   email,
@@ -118,6 +121,7 @@ export const mapFormData = ({
     ? { placeId: place_id, formattedAddress: formatted_address }
     : { manualAddress }),
   committeeName: campaignCommitteeName,
+  candidateName,
   websiteDomain: website || undefined,
   filingUrl: electionFilingLink,
   email,

@@ -137,6 +137,9 @@ const seedCampaign = (details: CampaignDetails | null) =>
 // too because the agentic Peerly submission derives the candidate's postal
 // address from it (a blank address otherwise fails several paid steps later).
 const fillValidNonFederalForm = () => {
+  fireEvent.change(screen.getByLabelText('Candidate name'), {
+    target: { value: 'Jane Smith' },
+  })
   fireEvent.change(screen.getByLabelText('Campaign committee name'), {
     target: { value: 'Friends of Jane' },
   })
@@ -191,6 +194,8 @@ describe('getInitialFilingDetailsState', () => {
     // Filing contact info must be entered fresh to match the official filing.
     expect(state.email).toBe('')
     expect(state.phone).toBe('')
+    // No source to prefill from; must be entered fresh, same as email/phone.
+    expect(state.candidateName).toBe('')
   })
 })
 
@@ -230,6 +235,7 @@ describe('FilingDetailsStep', () => {
       screen.getByText('What are your campaign filing details?'),
     ).toBeInTheDocument()
     expect(screen.getByText(/it will take much longer/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Candidate name')).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign committee name')).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign filing link')).toBeInTheDocument()
     // Email + phone (PIN delivery) and the filing address (Peerly postal
@@ -281,6 +287,7 @@ describe('FilingDetailsStep', () => {
     expect(mockSubmit).toHaveBeenCalledWith(
       apiRoutes.campaign.tcrCompliance.createAgentic,
       expect.objectContaining({
+        candidateName: 'Jane Smith',
         campaignCommitteeName: 'Friends of Jane',
         electionFilingLink: 'https://example.com/filing',
         officeLevel: 'local',
@@ -331,6 +338,7 @@ describe('FilingDetailsStep', () => {
     for (const item of screen.getAllByRole('listitem')) {
       expect(item).toHaveClass('list-item')
     }
+    expect(screen.getByText('Candidate Name')).toBeInTheDocument()
     expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
     // Email + phone (PIN delivery) and the filing address (Peerly postal
     // address) are all required, so the empty form lists all three.
@@ -401,6 +409,9 @@ describe('FilingDetailsStep', () => {
 
   it('submits a manually entered address (PO Box) as structured components', async () => {
     render(<FilingDetailsStep />)
+    fireEvent.change(screen.getByLabelText('Candidate name'), {
+      target: { value: 'Jane Smith' },
+    })
     fireEvent.change(screen.getByLabelText('Campaign committee name'), {
       target: { value: 'Friends of Jane' },
     })
@@ -576,6 +587,9 @@ describe('FilingDetailsStep', () => {
     seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Federal' })
     render(<FilingDetailsStep />)
 
+    fireEvent.change(screen.getByLabelText('Candidate name'), {
+      target: { value: 'Jane Smith' },
+    })
     fireEvent.change(screen.getByLabelText('Campaign committee name'), {
       target: { value: 'Friends of Jane' },
     })

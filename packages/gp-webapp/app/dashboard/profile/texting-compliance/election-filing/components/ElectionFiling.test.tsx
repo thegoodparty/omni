@@ -313,4 +313,8 @@ describe('getInitialFormState — filing contact info not auto-filled (ENG-10290
     expect(state.email).toBe('')
     expect(state.phone).toBe('')
   })
+
+  it('leaves candidateName blank — no source to prefill from', () => {
+    expect(getInitialFormState(campaign).candidateName).toBe('')
+  })
 })

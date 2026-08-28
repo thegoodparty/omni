@@ -156,6 +156,7 @@ describe('CampaignTcrComplianceController', () => {
     const tcrComplianceDto = {
       ein: '12-3456789',
       committeeName: 'Test Committee',
+      candidateName: 'Jane Candidate',
       websiteDomain: 'example.com',
       filingUrl: 'https://fec.gov/filing',
       email: 'test@example.com',
@@ -203,6 +204,7 @@ describe('CampaignTcrComplianceController', () => {
     const agenticDto = {
       ein: '12-3456789',
       committeeName: 'Test Committee',
+      candidateName: 'Jane Candidate',
       filingUrl: 'https://example.com/filing',
       email: 'test@example.com',
       phone: '5555555555',

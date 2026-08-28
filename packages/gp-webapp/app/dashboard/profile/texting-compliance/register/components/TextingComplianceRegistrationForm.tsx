@@ -41,6 +41,7 @@ import type { FormDataState } from '@shared/hooks/useFormData'
 export type ValidationField =
   | 'electionFilingLink'
   | 'campaignCommitteeName'
+  | 'candidateName'
   | 'officeLevel'
   | 'ein'
   | 'phone'
@@ -66,6 +67,7 @@ type ValidationMessages = Record<ValidationField, string>
 export const fieldDisplayNames: ValidationMessages = {
   electionFilingLink: 'Election Filing Link',
   campaignCommitteeName: 'Campaign Committee Name',
+  candidateName: 'Candidate Name',
   officeLevel: 'Office Level',
   ein: 'EIN',
   phone: 'Filing Phone',
@@ -88,6 +90,8 @@ export const getValidationMessage = (
         : 'Enter a valid URL with a path (e.g., https://example.com/candidates)',
     campaignCommitteeName:
       'Your official committee name (e.g., "Smith for Council")',
+    candidateName:
+      "The candidate's own name, as it appears on the election filing",
     officeLevel: 'Select an option',
     ein: "Enter your campaign's real EIN (XX-XXXXXXX) — placeholder values aren't accepted",
     phone: 'Valid US phone number as it appears on your election filing',
@@ -316,6 +320,7 @@ export const validateRegistrationForm = (
   const {
     electionFilingLink,
     campaignCommitteeName,
+    candidateName,
     officeLevel,
     ein,
     phone,
@@ -329,6 +334,7 @@ export const validateRegistrationForm = (
 
   const electionFilingLinkValue = getStringValue(electionFilingLink)
   const campaignCommitteeNameValue = getStringValue(campaignCommitteeName)
+  const candidateNameValue = getStringValue(candidateName)
   const officeLevelValue = getStringValue(officeLevel)
   const einValue = getStringValue(ein)
   const phoneValue = getStringValue(phone)
@@ -354,6 +360,7 @@ export const validateRegistrationForm = (
       isURL(electionFilingLinkValue) &&
       urlIncludesPath(electionFilingLinkValue),
     campaignCommitteeName: isFilled(campaignCommitteeNameValue),
+    candidateName: isFilled(candidateNameValue),
     officeLevel: ['federal', 'state', 'local'].includes(officeLevelValue),
     ein: checkEinSanity(einValue).valid,
     phone: phoneRequired ? isMobilePhone(phoneValue, 'en-US') : true,
@@ -445,6 +452,7 @@ const TextingComplianceRegistrationForm = ({
   const {
     electionFilingLink,
     campaignCommitteeName,
+    candidateName,
     officeLevel,
     ein,
     phone,
@@ -600,6 +608,15 @@ const TextingComplianceRegistrationForm = ({
             </SelectContent>
           </Select>
         </div>
+        <TextField
+          label="Candidate Name"
+          placeholder="Jane Smith"
+          fullWidth
+          required
+          error={showError('candidateName')}
+          value={getStringValue(candidateName)}
+          onChange={(e) => handleChange({ candidateName: e.target.value })}
+        />
         <TextField
           label="Campaign Committee Name"
           placeholder="Jane for Council"

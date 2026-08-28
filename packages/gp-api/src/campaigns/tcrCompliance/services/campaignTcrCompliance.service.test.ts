@@ -99,6 +99,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
   const basePayload = {
     ein: '12-3456789',
     committeeName: 'Test Committee',
+    candidateName: 'Jane Candidate',
     filingUrl: 'https://example.com/filing',
     email: 'test@example.com',
     phone: '5555555555',

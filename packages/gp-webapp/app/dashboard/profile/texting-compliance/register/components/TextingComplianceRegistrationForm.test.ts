@@ -7,6 +7,7 @@ const baseValidFormData = (
 ): FormDataState => ({
   electionFilingLink: 'https://example.gov/filings/123',
   campaignCommitteeName: 'Jane for Council',
+  candidateName: 'Jane Smith',
   officeLevel: 'local',
   ein: '12-3456780',
   phone: '5555550123',
@@ -37,6 +38,21 @@ describe('validateRegistrationForm', () => {
         baseValidFormData({ website: 'not a url' }),
       )
       expect(result.validations.website).toBe(false)
+    })
+  })
+
+  describe('candidateName (ENG-10964)', () => {
+    it('rejects an empty candidateName', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ candidateName: '' }),
+      )
+      expect(result.validations.candidateName).toBe(false)
+      expect(result.isValid).toBe(false)
+    })
+
+    it('accepts a filled candidateName', () => {
+      const result = validateRegistrationForm(baseValidFormData())
+      expect(result.validations.candidateName).toBe(true)
     })
   })
 
