@@ -524,8 +524,10 @@ describe('VoterDoorKnockingService', () => {
 
         await service.residents(legacyDto as never)
 
+        // HouseNumber tells the two expressions apart. The direction columns
+        // no longer can: the legacy builder pins those two segments empty.
         const sql = lastQuerySql()
-        expect(sql.strings.join('?')).toContain('PrefixDirection')
+        expect(sql.strings.join('?')).toContain('HouseNumber')
         expect(sql.values).toContainEqual([LEGACY_KEY])
       })
 
@@ -549,9 +551,7 @@ describe('VoterDoorKnockingService', () => {
         mockClient.$queryRaw.mockResolvedValueOnce([])
         await service.residents(dto as never)
 
-        expect(lastQuerySql().strings.join('?')).not.toContain(
-          'PrefixDirection',
-        )
+        expect(lastQuerySql().strings.join('?')).not.toContain('HouseNumber')
       })
     })
   })

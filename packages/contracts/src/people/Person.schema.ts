@@ -39,20 +39,19 @@ export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
 // residents cap). This is that key plus the one component that names the
 // knockable unit. Same normalization recipe.
 //
-// The AddressLine is load-bearing rather than a convenience. The obvious
-// alternative — compose the line from the file's parsed components, which is
-// what DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did — cannot carry a
-// cardinal direction, because `Residence_Addresses_PrefixDirection` and
-// `Residence_Addresses_SuffixDirection` are INTEGER columns in the people-db
-// mirror. The loader `try_cast`s them, so every 'N'/'S'/'E'/'W' in the source
-// file lands as NULL and no consumer of those two columns can ever see one.
-// AddressLine is TEXT and holds the whole line, directions included.
+// AddressLine rather than the file's parsed components, which is what
+// DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below composed. Those components could
+// not carry a cardinal direction while `Residence_Addresses_PrefixDirection`
+// and `Residence_Addresses_SuffixDirection` were INTEGER in the people-db
+// mirror: the loader `try_cast`ed them, so every 'N'/'S'/'E'/'W' landed as
+// NULL. That made it a de-duplication defect and not only a display one — with
+// both direction components empty, `1234 S Main St` and `1234 N Main St` in one
+// ZIP produced byte-identical keys and were one door, and in grid-addressed
+// Salt Lake City `1234 S 5678 W` keyed as `1234 5678`.
 //
-// That made this a de-duplication defect and not only a display one: with both
-// direction components permanently empty, `1234 S Main St` and `1234 N Main St`
-// in one ZIP produced byte-identical keys and were one door. Grid-addressed
-// cities are where it bites hardest — in Salt Lake City the directions carry
-// most of the address, and `1234 S 5678 W` keyed as `1234 5678`.
+// The mirror now serves both as TEXT, so the components would compose correctly
+// today. There is still no reason to go back to them: AddressLine is one column
+// instead of five and already carries the CASS-standardized spelling.
 export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
   'Residence_Addresses_AddressLine',
   'Residence_Addresses_ApartmentNum',
@@ -66,6 +65,11 @@ export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
 // way, and it is not a fallback for the current key: a request carries one
 // format or the other, never a mixture, because a route freezes all of its
 // keys at once.
+//
+// A stored key's two direction segments are empty, and stay empty however the
+// mirror types those columns — `buildLegacyDoorKnockingAddressKeySql` pins them
+// rather than reading them, so a key frozen under the old INTEGER mirror still
+// recomputes byte-identically now that the columns hold real directions.
 export const DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS = [
   'Residence_Addresses_HouseNumber',
   'Residence_Addresses_PrefixDirection',

@@ -29,10 +29,10 @@ const unitKeyOf = (voter: VoterRow): string =>
     .map(NORMALIZE)
     .join('|')
 
-// The legacy key, evaluated the way the mirror actually evaluates it. The two
-// direction columns are INTEGER there — the loader `try_cast`s them, so a
-// source value of 'S' or 'W' lands as NULL — and this fixture models that by
-// never supplying them, because no row can.
+// The legacy key, evaluated the way the mirror actually evaluates it. Its two
+// direction segments are empty whatever the row holds — they were empty when
+// these keys were frozen and the builder pins them so they stay that way — and
+// this fixture models that with a literal null in each of the two positions.
 const legacyKeyOf = (voter: VoterRow): string =>
   [
     voter.Residence_Addresses_HouseNumber,
@@ -150,7 +150,20 @@ describe('the legacy component key it replaced', () => {
     const text = buildLegacyDoorKnockingAddressKeySql('v').strings.join('?')
 
     expect(text).toContain('v."Residence_Addresses_HouseNumber"::text')
-    expect(text).toContain('v."Residence_Addresses_PrefixDirection"::text')
-    expect(text).toContain('v."Residence_Addresses_SuffixDirection"::text')
+    expect(text).toContain('v."Residence_Addresses_StreetName"::text')
+    expect(text).toContain('v."Residence_Addresses_Zip"::text')
+  })
+
+  // The columns are TEXT in the mirror now and hold real directions. Reading
+  // them here would recompute a seven-segment key that no frozen route matches,
+  // which reads at the door as every stop on the list having moved away.
+  it('pins its two direction segments empty', () => {
+    const sql = buildLegacyDoorKnockingAddressKeySql('v')
+    const text = sql.strings.join('?')
+
+    expect(text).not.toContain('PrefixDirection')
+    expect(text).not.toContain('SuffixDirection')
+    // Five of the seven segments read a column; the other two are literals.
+    expect(text.match(/COALESCE/g)?.length).toBe(5)
   })
 })

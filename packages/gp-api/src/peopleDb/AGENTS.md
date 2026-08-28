@@ -266,33 +266,28 @@ Three things about it are not tuning:
 - **Do not add `ORDER BY` back** unless a consumer genuinely needs order. For
   the pack nothing can observe it, and sorting a district is not free.
 
-## The two direction columns cannot hold a direction
+## The legacy door-knocking key pins its two direction segments empty
 
-`Residence_Addresses_PrefixDirection` and `Residence_Addresses_SuffixDirection`
-are **INTEGER** in the mirror (`prisma-people/schema/Voter.prisma`), as are their
-`Mailing_` twins, while every other address component is TEXT. The L2 file spells
-them `N`/`S`/`E`/`W`; the data-platform loader `try_cast`s each to `int`
-(`dbt/project/models/marts/people_api/m_people_api__voter.sql`, and
-`INTEGER_COLUMNS` in `write__l2_databricks_to_gp_api.py`), which in Spark yields
-NULL rather than an error. **Every residence directional in people-db is
-therefore NULL, silently.** Nothing in this repo can recover them.
+`Residence_Addresses_PrefixDirection`, `Residence_Addresses_SuffixDirection` and
+their `Mailing_` twins were **INTEGER** in the mirror while the component-composed
+door-knocking key was in use. The L2 file spells them `N`/`S`/`E`/`W`, so the
+data-platform `try_cast` to `int` returned NULL for every one of them and every
+directional in people-db was silently empty. They are TEXT now and carry real
+values.
 
-**Do not read either column.** Anything needing a street line reads
-`Residence_Addresses_AddressLine`, which is TEXT and holds the whole line,
-directions included — the stop's frozen `displayAddress` and the door-knocking
-unit key both do.
+That leaves one live constraint. Keys frozen under the old mirror hold two empty
+direction segments, so `buildLegacyDoorKnockingAddressKeySql` emits `''` for
+those two positions instead of reading the columns. Read them there and a
+pre-existing route's stored `DoorKnockingStopTarget.address_key` stops matching
+its recomputed key, and `residents()` returns nothing for a canvasser mid-walk.
+`renderUnitAddress` prints such a key without its direction for the same reason:
+`1234 S 5678 W` still reads `1234 5678` until the list is re-knocked, and there
+is nothing in the key to recover it from.
 
-The cost of getting this wrong is not cosmetic. The unit key used to compose the
-line from components, so with both directionals permanently empty `1234 S Main
-St` and `1234 N Main St` in one ZIP keyed identically and were **one door** to
-`residents()`, which merged two households' rosters. Salt Lake City is where it
-is impossible to miss: the grid puts the information in the directions, so
-`1234 S 5678 W` keyed — and printed on the walk sheet — as `1234 5678`.
-
-Fixing this properly is a data-platform change (the column type, upstream). If it
-ever lands, the components become usable again, but there is no reason to go
-back to them: AddressLine is one column instead of five and already carries the
-CASS-standardized spelling.
+Nothing new is keyed by components. Anything needing a street line reads
+`Residence_Addresses_AddressLine`, which holds the whole line, directions
+included — one column instead of five, already CASS-standardized. That is what
+the stop's frozen `displayAddress` and the current unit key both use.
 
 ## Door knocking runs on both engines — the guards are shared, the SQL is not
 
