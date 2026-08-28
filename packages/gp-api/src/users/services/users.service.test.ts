@@ -1,4 +1,5 @@
 import { useTestService } from '@/test-service'
+import { randomUUID } from 'crypto'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
 import {
@@ -1528,6 +1529,18 @@ describe('UsersService', () => {
           createdAt: subDays(new Date(), 2),
         },
       })
+      const oldFixture = await service.prisma.user.create({
+        data: {
+          email: `qa-${randomUUID()}@goodparty.org`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
+      const oldStaffAlias = await service.prisma.user.create({
+        data: {
+          email: `qa-team-${suffix}@goodparty.org`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
 
       await usersService.deleteTestUsers()
 
@@ -1535,10 +1548,18 @@ describe('UsersService', () => {
         await service.prisma.user.findUnique({ where: { id: oldTest.id } }),
       ).toBeNull()
       expect(
+        await service.prisma.user.findUnique({ where: { id: oldFixture.id } }),
+      ).toBeNull()
+      expect(
         await service.prisma.user.findUnique({ where: { id: recentTest.id } }),
       ).not.toBeNull()
       expect(
         await service.prisma.user.findUnique({ where: { id: oldReal.id } }),
+      ).not.toBeNull()
+      expect(
+        await service.prisma.user.findUnique({
+          where: { id: oldStaffAlias.id },
+        }),
       ).not.toBeNull()
     })
 
@@ -1558,11 +1579,24 @@ describe('UsersService', () => {
           createdAt: oldCreatedAt,
           emailAddresses: [{ emailAddress: `r${i}@example.com` }],
         }) as never
+      const fixtureUser = (i: number) =>
+        ({
+          id: `clerk_fixture_${i}`,
+          createdAt: oldCreatedAt,
+          emailAddresses: [
+            { emailAddress: `qa-${randomUUID()}@goodparty.org` },
+          ],
+        }) as never
+      const staffAlias = {
+        id: 'clerk_staff_alias',
+        createdAt: oldCreatedAt,
+        emailAddresses: [{ emailAddress: 'qa-team@goodparty.org' }],
+      } as never
 
-      // Page 1 (full): 3 test users + 497 non-test.
+      // Page 1 (full): 2 test users + 1 fixture user + 497 non-test.
       const pageOne = [
         testUser(1),
-        testUser(2),
+        fixtureUser(2),
         testUser(3),
         ...Array.from({ length: 497 }, (_, i) => realUser(i)),
       ]
@@ -1571,8 +1605,8 @@ describe('UsersService', () => {
         testUser(4),
         ...Array.from({ length: 499 }, (_, i) => realUser(500 + i)),
       ]
-      // Page 3 (short): 1 test user + 1 non-test -> loop stops.
-      const pageThree = [testUser(5), realUser(9999)]
+      // Page 3 (short): 1 test user + 1 staff qa- alias (kept) -> loop stops.
+      const pageThree = [testUser(5), staffAlias]
 
       const getUserList = vi
         .spyOn(clerkClient.users, 'getUserList')
@@ -1589,7 +1623,7 @@ describe('UsersService', () => {
 
       expect(deleteUser.mock.calls.map((c) => c[0])).toEqual([
         'clerk_test_1',
-        'clerk_test_2',
+        'clerk_fixture_2',
         'clerk_test_3',
         'clerk_test_4',
         'clerk_test_5',
