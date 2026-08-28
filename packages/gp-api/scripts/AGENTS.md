@@ -11,7 +11,6 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 
 | Path                                                              | Purpose                                                                                                                            |
 | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `build-contracts.ts`                                              | Skips contract rebuild when `dist/` is fresher than `src/`; runs on `start:dev`, `build`, etc.                                     |
 | `check-pending-migrations.ts`                                     | Boots-time warning banner if `prisma migrate status` reports unapplied migrations                                                  |
 | `generate-route-types.ts`                                         | Walks `src/**/*.controller.ts` and emits a route-name → method/path map                                                            |
 | `generate-agent-job-types.ts`                                     | Compiles `packages/runbooks/experiments/*/manifest.json` schemas → `src/generated/agent-job-contracts.ts` (local read, no S3)      |
@@ -36,6 +35,6 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 ## Gotchas
 
 - `check-pending-migrations.ts` swallows non-pending errors silently — that's intentional (no DB locally is fine), don't "fix" it to throw.
-- `build-contracts.ts` skips when `dist/` is newer; if you've edited contracts and the build appears stale, delete `contracts/dist/` to force a rebuild.
+- The contracts rebuild guard moved to `packages/contracts/scripts/ensure-built.ts`, shared by every consumer rather than living here. `npm run build:contracts` still calls it. It skips when `dist/` is newer than the contracts sources, so if you've edited contracts and the build looks stale, delete `contracts/dist/` to force a rebuild.
 - `generate-agent-job-types.ts` reads experiment manifests straight from `packages/runbooks/experiments/` (no AWS creds, no S3 sync) and reflects the current branch. It is **not** run in CI; output must be committed. Run it after editing any `manifest.json`.
 - One-off backfills accumulate. Move clearly-dead scripts out (or delete) when their migration is complete — Rule 20 (Remove Code Completely) applies here too.

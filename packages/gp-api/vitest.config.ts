@@ -32,7 +32,10 @@ export default defineConfig({
     },
   },
   test: {
-    globalSetup: ['./src/test-global-setup.ts'],
+    globalSetup: [
+      '../contracts/scripts/vitest-global-setup.ts',
+      './src/test-global-setup.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],

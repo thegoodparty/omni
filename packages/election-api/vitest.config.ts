@@ -21,7 +21,10 @@ export default defineConfig({
   test: {
     // Builds the Postgres schema template once per run so integration suites
     // (useTestService) can clone it instead of replaying every migration.
-    globalSetup: ['./src/test-global-setup.ts'],
+    globalSetup: [
+      '../contracts/scripts/vitest-global-setup.ts',
+      './src/test-global-setup.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],
