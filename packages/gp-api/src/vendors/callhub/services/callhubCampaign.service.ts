@@ -42,6 +42,16 @@ interface CreateVoiceBroadcastParams {
   scheduledStart: Date
 }
 
+// The create response plus the dial window this service scheduled. The window
+// is COMPUTED (start = the requested scheduledStart, expiration = start +
+// EXPIRATION_WINDOW_DAYS), not read back from CallHub's echoed `schedule`, so a
+// staging caller that mirrors the window never lands null columns on a
+// successful create.
+export interface CreateVbCampaignResult extends CreateVbCampaignResponse {
+  startingDate: Date
+  expirationDate: Date
+}
+
 // Creates a CallHub voice broadcast in a scheduled, PAUSED (not-launched)
 // state, wiring together the pieces the earlier robocall slices produce (loaded
 // phonebook, rented caller-ID number, uploaded audio) plus a send time.
@@ -59,13 +69,15 @@ export class CallhubCampaignService {
 
   async createVoiceBroadcast(
     params: CreateVoiceBroadcastParams,
-  ): Promise<CreateVbCampaignResponse> {
+  ): Promise<CreateVbCampaignResult> {
     if (!isAfter(params.scheduledStart, new Date())) {
       throw new BadRequestException(
         'Voice broadcast must be scheduled in the future',
       )
     }
 
+    const startingDate = params.scheduledStart
+    const expirationDate = addDays(startingDate, EXPIRATION_WINDOW_DAYS)
     const body: CreateVbCampaignBody = {
       name: params.name,
       phonebooks: [params.phonebookPkStr],
@@ -76,12 +88,12 @@ export class CallhubCampaignService {
       callerid_options: { callerid: params.callerId.replace(/\D/g, '') },
       schedule: {
         startingdate: formatInTimeZone(
-          params.scheduledStart,
+          startingDate,
           SCHEDULE_TZ,
           CALLHUB_DATE_FORMAT,
         ),
         expirationdate: formatInTimeZone(
-          addDays(params.scheduledStart, EXPIRATION_WINDOW_DAYS),
+          expirationDate,
           SCHEDULE_TZ,
           CALLHUB_DATE_FORMAT,
         ),
@@ -108,7 +120,11 @@ export class CallhubCampaignService {
     // as a schema error, not a retryable BadGatewayException the caller would
     // treat as a transient vendor failure.
     const data = await this.postCampaign(body)
-    return CreateVbCampaignResponseSchema.parse(data)
+    return {
+      ...CreateVbCampaignResponseSchema.parse(data),
+      startingDate,
+      expirationDate,
+    }
   }
 
   private async postCampaign(body: CreateVbCampaignBody) {
