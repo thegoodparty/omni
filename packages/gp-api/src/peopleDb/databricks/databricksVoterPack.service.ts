@@ -95,12 +95,27 @@ export class DatabricksVoterPackService {
       const { firstChunk } = await this.client.startCsvExport(
         buildPackSql({ district }),
       )
+      // The next chunk's link and download are started BEFORE the current one
+      // is parsed, so the network and the CSV parse overlap instead of taking
+      // turns. Drained strictly in series, a 698,649-row district measured
+      // 22.6s of drain against 736ms of query -- of which ~6.5s was link round
+      // trips waiting on nothing. Two chunks in memory rather than one.
       let chunk: PeopleDbxCsvChunk | null = firstChunk
-      while (chunk && !signal?.aborted) {
-        await this.pumpChunk(chunk, encoder)
-        chunk = chunk.nextChunkLink
-          ? await this.client.fetchCsvChunk(chunk.nextChunkLink)
-          : null
+      let body = this.readChunk(chunk)
+      try {
+        while (chunk && !signal?.aborted) {
+          const ahead: Promise<PeopleDbxCsvChunk> | null = chunk.nextChunkLink
+            ? this.client.fetchCsvChunk(chunk.nextChunkLink)
+            : null
+          await this.parseChunk(await body, encoder)
+          chunk = ahead ? await ahead : null
+          body = chunk
+            ? this.readChunk(chunk)
+            : Promise.resolve(Buffer.alloc(0))
+        }
+      } finally {
+        // An abandoned read-ahead must not surface as an unhandled rejection.
+        void body.catch(() => undefined)
       }
     } catch (err) {
       if (err instanceof PeopleDbxTimeoutError) {
@@ -117,10 +132,7 @@ export class DatabricksVoterPackService {
     return encoder.toBuffer(new Date().toISOString())
   }
 
-  private async pumpChunk(
-    chunk: PeopleDbxCsvChunk,
-    encoder: PackEncoder,
-  ): Promise<void> {
+  private async readChunk(chunk: PeopleDbxCsvChunk): Promise<Buffer> {
     const response = await fetch(chunk.externalLink)
     if (!response.ok) {
       // Classified, not bare: presigned chunk links expire in ~15 minutes, so
@@ -131,8 +143,10 @@ export class DatabricksVoterPackService {
         `CSV chunk fetch failed with ${response.status}`,
       )
     }
-    const body = Buffer.from(await response.arrayBuffer())
+    return Buffer.from(await response.arrayBuffer())
+  }
 
+  private async parseChunk(body: Buffer, encoder: PackEncoder): Promise<void> {
     // Headers are pinned to the projection rather than read off the file, so
     // a column's position is decided by the SELECT and not by parsing. Only
     // chunk 0 carries a header line (which is what lets the CSV download

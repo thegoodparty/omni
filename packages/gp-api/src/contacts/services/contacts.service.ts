@@ -1098,38 +1098,25 @@ export class ContactsService {
       await this.withOrgDistrictResolution(
         organization,
         async (districtParams) => {
-          // Resolve the load-bearing base tile FIRST, before firing the four
-          // channel scans. All five aggregates run the same DistrictVoter->Voter
-          // membership scan (they differ only by an extra has-phone/has-address
-          // predicate), and only `base` is load-bearing — a rejected base throws
-          // below regardless. Under the people-db statement-timeout incidents a
-          // failing list-detail otherwise launches 5 concurrent scans (x2 with
-          // the fenced retry), 4 of which are pure collateral load the moment
-          // base fails and can't render anything. Gating the channels on base
-          // keeps a failing request to a single scan family instead of amplifying
-          // the exact overload that's tripping the timeout. Healthy path is
-          // unchanged: base resolves fast, then the four channels still settle
-          // INDEPENDENTLY (ENG-10806) so one slow channel can't blank the others.
-          const [baseResult] = await Promise.allSettled([
+          // All five run at once. They differ only by a has-phone/has-address
+          // predicate, and they settle INDEPENDENTLY (ENG-10806) so one slow
+          // channel cannot blank the others.
+          //
+          // This used to resolve `base` first and gate the four channels on it,
+          // to stop a failing list-detail launching five concurrent scans while
+          // people-db was tripping its statement timeout. Databricks serves
+          // these now, where the cost is a fixed per-statement floor rather
+          // than scan load, so serialising cost ~660ms at the median for
+          // nothing. The load protection did not go away with the gate: the
+          // Postgres comparison arm is capped inside ShadowReadService, so it
+          // still runs at the old concurrency no matter how wide this fans out.
+          const settled = await Promise.allSettled([
             this.fetchPeopleAggregates(
               districtParams,
               baseFilters,
               idOverrides,
               contactsMadeIdOverrides,
             ),
-          ])
-          if (baseResult.status === 'rejected') {
-            // Reuse the rejected base as the channel placeholders: the route
-            // throws on base below before any channel value is read.
-            return [
-              baseResult,
-              baseResult,
-              baseResult,
-              baseResult,
-              baseResult,
-            ] as const
-          }
-          const channels = await Promise.allSettled([
             this.fetchPeopleAggregates(
               districtParams,
               { ...baseFilters, hasCellPhone: true },
@@ -1159,7 +1146,13 @@ export class ContactsService {
               contactsMadeIdOverrides,
             ),
           ])
-          return [baseResult, ...channels] as const
+          return settled as [
+            (typeof settled)[0],
+            (typeof settled)[0],
+            (typeof settled)[0],
+            (typeof settled)[0],
+            (typeof settled)[0],
+          ]
         },
       )
 

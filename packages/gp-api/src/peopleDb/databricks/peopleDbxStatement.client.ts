@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
@@ -87,6 +88,17 @@ const tokenResponseSchema = z.object({
 })
 
 type StatementResponse = z.infer<typeof statementResponseSchema>
+
+// Statement ids for whatever runs inside the current async context. The dual
+// read logs them so a slow request in Loki can be joined to Databricks query
+// history, where the wait-before-compilation actually shows up. Threading an
+// id back through every builder and service signature would have touched six
+// call sites to carry a diagnostic; this stays out of the shapes entirely.
+export const statementIdCollector = new AsyncLocalStorage<string[]>()
+
+const recordStatementId = (id?: string): void => {
+  if (id) statementIdCollector.getStore()?.push(id)
+}
 
 export type PeopleDbxRows = {
   columns: string[]
@@ -185,6 +197,7 @@ export class PeopleDbxStatementClient {
       on_wait_timeout: 'CONTINUE',
     })
     const settled = await this.awaitCompletion(config, first, startedAt)
+    recordStatementId(settled.statement_id)
     const columns =
       settled.manifest?.schema?.columns.map((column) => column.name) ?? []
     const rows = [...(settled.result?.data_array ?? [])]
@@ -221,6 +234,7 @@ export class PeopleDbxStatementClient {
     if (!link) {
       throw new Error('Databricks CSV export returned no first chunk')
     }
+    recordStatementId(settled.statement_id)
     return {
       statementId: settled.statement_id ?? '',
       totalRows: settled.manifest?.total_row_count ?? 0,

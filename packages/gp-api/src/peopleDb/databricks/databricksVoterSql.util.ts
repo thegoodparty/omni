@@ -649,18 +649,6 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
   return `WHERE ${parts.join(' AND ')}`
 }
 
-// The voter table's column set, used to validate a district `type` before it is
-// interpolated as an identifier. Filtered by grant, so it also proves the
-// principal can see the table at all.
-export const buildVoterColumnsSql = (): DbxStatement => {
-  const bag = createBag()
-  const sql =
-    `SELECT column_name FROM ${PEOPLE_DBX_CATALOG}.information_schema.columns` +
-    ` WHERE table_schema = ${bag.bind(PEOPLE_DBX_SCHEMA)}` +
-    ` AND table_name = ${bag.bind(VOTER_TABLE_NAME)}`
-  return { sql, params: bag.params }
-}
-
 export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
   const bag = createBag()
   const sql =

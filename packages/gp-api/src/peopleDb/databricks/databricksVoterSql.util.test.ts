@@ -16,7 +16,6 @@ import {
   buildSampleSql,
   buildScopeSql,
   buildSearchSql,
-  buildVoterColumnsSql,
   buildVoterFiltersSql,
   buildPersonSql,
   createBag,
@@ -85,7 +84,6 @@ describe('buildScopeSql', () => {
       buildPageSql({ ...scope, columns: ['id'], take: 1, skip: 0 }),
       buildOverlapCountSql({ ...scope, savedFilterSets: [] }),
       buildCsvSql(scope),
-      buildVoterColumnsSql(),
     ]
 
     const qualified = new RegExp(
@@ -99,16 +97,6 @@ describe('buildScopeSql', () => {
         expect(table).toBe(VOTER_TABLE)
       }
     }
-
-    // The column list is the one statement that reads a catalog view, and it
-    // names no voter table at all: the table it asks about is a bound value.
-    const columns = buildVoterColumnsSql()
-    expect(columns.sql).toContain('information_schema.columns')
-    expect(columns.sql).not.toContain(VOTER_TABLE)
-    expect(columns.params.map(({ value }) => value)).toEqual([
-      PEOPLE_DBX_SCHEMA,
-      VOTER_TABLE.split('.').at(-1),
-    ])
   })
 
   it('drops the district predicate for a state-named State district', () => {
