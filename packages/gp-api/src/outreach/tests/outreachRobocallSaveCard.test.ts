@@ -93,6 +93,9 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
     expect(setupArgs.customer).toBe('cus_test_new')
     expect(setupArgs.usage).toBe('off_session')
     expect(setupArgs.payment_method_types).toEqual(['card'])
+    // Customer-scoped idempotency key so refresh/retry reuses the intent.
+    const setupOpts = setupIntentsCreate.mock.calls[0]?.[1]
+    expect(setupOpts.idempotencyKey).toBe('setup-intent-cus_test_new')
 
     const persisted = await service.prisma.user.findUniqueOrThrow({
       where: { id: service.user.id },

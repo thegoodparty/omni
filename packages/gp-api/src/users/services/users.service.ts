@@ -414,11 +414,13 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   ): Promise<boolean> {
     const updatedCount = await this.client.$executeRaw`
       UPDATE "user"
-      SET meta_data = jsonb_set(
-        COALESCE(meta_data, '{}'::jsonb),
-        '{customerId}',
-        to_jsonb(${customerId}::text)
-      )
+      SET
+        meta_data = jsonb_set(
+          COALESCE(meta_data, '{}'::jsonb),
+          '{customerId}',
+          to_jsonb(${customerId}::text)
+        ),
+        updated_at = NOW()
       WHERE id = ${userId}
         AND meta_data->>'customerId' IS NULL
     `
