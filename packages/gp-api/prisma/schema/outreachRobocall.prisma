@@ -22,6 +22,11 @@ enum RobocallSettleState {
   // append-only ADD VALUE migration produces.
   hold_pending
   hold_failed
+  // The single-owner claim held while an authorized draft's CallHub voice-
+  // broadcast campaign is being staged (created PAUSED, not dialed). Transient:
+  // a successful stage releases the row back to authorized with its CallHub
+  // campaign pk_str set. Appended for the same append-only ADD VALUE reason.
+  staging
 }
 
 model OutreachRobocall {
