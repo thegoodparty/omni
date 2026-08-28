@@ -101,16 +101,27 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     const candidates = await this.model.findMany({
       where: {
         callhubCampaignPkStr: null,
-        outreach: {
-          outreachType: OutreachType.robocall,
-          date: { gte: now, lte: addHours(now, ROBOCALL_STAGING_LEAD_HOURS) },
-        },
+        outreach: { outreachType: OutreachType.robocall },
         OR: [
-          { settleState: RobocallSettleState.authorized },
+          // In-window authorized drafts: stage close to send, since the rented
+          // caller-ID number gets spam-flagged if it sits idle too long.
+          {
+            settleState: RobocallSettleState.authorized,
+            outreach: {
+              date: {
+                gte: now,
+                lte: addHours(now, ROBOCALL_STAGING_LEAD_HOURS),
+              },
+            },
+          },
           // Reclaim a draft stranded in `staging` by a crashed run (real hold
-          // reserved, otherwise invisible — its filter and claim both require an
-          // eligible state). Older-than-stale only, so a slow healthy run is
-          // never re-driven.
+          // reserved, otherwise invisible). Older-than-stale only, so a slow
+          // healthy run is never re-driven. NO date guard here on purpose: a
+          // draft authorized close to its send can go stale only after sendAt
+          // has passed, so a date filter would leave it permanently stuck in
+          // `staging`. A reclaim whose send has passed fails createVoiceBroadcast
+          // and reverts to `authorized`, where a later reconciliation/START
+          // slice releases the hold — it must never stay invisible in `staging`.
           {
             settleState: RobocallSettleState.staging,
             updatedAt: { lt: staleCutoff },

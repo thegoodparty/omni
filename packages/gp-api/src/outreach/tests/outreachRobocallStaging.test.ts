@@ -345,6 +345,23 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
   })
 
+  it('reclaims a stale staging row even after its send has passed', async () => {
+    // A draft authorized close to send can go stale only once sendAt is in the
+    // past. The reclaim branch must carry no send-window filter, or the row is
+    // stuck in `staging` forever with a live hold and no recovery.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      sendInHours: -1,
+    })
+    await ageStagingRow(outreachId, 45)
+
+    await staging.sweepRobocallStaging()
+
+    // The sweep must still SELECT it (createVbSpy is mocked, so it doesn't hit
+    // the real past-send guard); the point is that it is no longer invisible.
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('continues past a failing draft and stages the rest', async () => {
     const a = await createDraft({ sendInHours: 1 })
     const b = await createDraft({ sendInHours: 1 })
