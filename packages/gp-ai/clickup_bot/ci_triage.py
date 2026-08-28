@@ -15,6 +15,19 @@ posts a COMMENTED review, never CHANGES_REQUESTED, so it never blocks, and one
 approval satisfies the ruleset. So an unresolved, unanswered Bugbot thread is
 driven here too, on the same budget as a failing check.
 
+THE THIRD HALF: a PR can stop being mergeable without any check going red and
+without anyone reviewing it, simply because main moved underneath it. Nothing
+reports that. GitHub shows a conflicted PR as green if its checks passed, the
+approval stays valid, and the only visible difference is a disabled merge
+button — so a bot PR that nobody is watching rots quietly. A conflicted branch
+is therefore work too, and it is settled BEFORE checks and findings, because
+neither a green board nor an answered thread can merge a branch that conflicts.
+
+Being merely BEHIND main is deliberately NOT driven. The repository's ruleset
+sets strict_required_status_checks_policy false, so an out-of-date branch still
+merges; updating one on every push to main would spend a full CI cycle per bot
+PR per merge to change nothing about whether it can land.
+
 delegate-reviewer's own findings are deliberately NOT driven here. It withholds
 approval until its blockers are fixed, which already gates the merge, and it
 runs a reply-and-re-review protocol (`delegate review`) that a second automated
@@ -70,6 +83,7 @@ UNKNOWN = "unknown"
 ACTION_RERUN = "rerun"
 ACTION_FIX = "fix"
 ACTION_FIX_FINDINGS = "fix-findings"
+ACTION_FIX_CONFLICTS = "fix-conflicts"
 ACTION_REPORT = "report"
 ACTION_ESCALATE = "escalate"
 ACTION_HOLD = "hold"
@@ -319,6 +333,30 @@ def open_findings(findings: Any) -> list[dict]:
     return result
 
 
+def is_conflicted(mergeability: Any) -> bool:
+    """Whether the branch conflicts with its base, from `gh pr view`'s two fields.
+
+    ONLY AN EXPLICIT "CONFLICTING" COUNTS, and the default direction here is the
+    opposite of open_findings' because the cost is the opposite. GitHub computes
+    mergeability lazily: a PR that has just been pushed to, or one GitHub has not
+    got round to, reports UNKNOWN for a few seconds. Treating UNKNOWN — or a
+    missing field, or a shape we do not recognise — as conflicted would point an
+    agent at a branch that merges perfectly well, which is both a wasted fix run
+    and a pointless commit on a PR a human is about to merge.
+
+    Erring the other way is nearly free: the drive comes back every 30 minutes,
+    and a real conflict does not go away on its own.
+
+    `merge_state` is read only for the sentence a human sees. `mergeable` is the
+    authoritative field, and deriving the verdict from one signal rather than
+    OR-ing two avoids acting on the window where they disagree.
+    """
+    if not isinstance(mergeability, dict):
+        return False
+    value = mergeability.get("mergeable")
+    return isinstance(value, str) and value.strip().upper() == "CONFLICTING"
+
+
 def _coerce_count(value: Any) -> int:
     # A hand-edited or drifted marker comment must not crash the drive, and must
     # not read as "nothing spent yet" either — that would silently uncap the
@@ -388,13 +426,19 @@ def render_state(state: dict) -> str:
     return "<!-- gpbot-ci-state: " + json.dumps(state, sort_keys=True) + " -->"
 
 
-def decide(checks: Any, state: Any, findings: Any = None, now: float | None = None) -> dict:
+def decide(checks: Any, state: Any, findings: Any = None, mergeability: Any = None, now: float | None = None) -> dict:
     """Turn classified failures plus what has already been spent into one action.
 
     One action for the whole PR, not one per check: a re-run re-runs every failed
     job at once, and an agent run is pointed at the PR rather than at a single
     check. Ordering is cheap-first — a re-run that clears the board costs no model
     spend and no code change.
+
+    CONFLICTS ARE SETTLED FIRST, then checks, then findings. A conflicted branch
+    cannot merge however green it is, so re-running its checks or answering its
+    review threads spends CI minutes and model tokens to arrive at a PR that
+    still cannot land. Resolving the conflict pushes a commit, which re-runs the
+    checks anyway — so the cheaper-looking order is also the wasteful one.
 
     CHECKS ARE SETTLED BEFORE FINDINGS. A run that answers a finding pushes code
     that has to pass CI anyway, so paying for one while the board is red spends
@@ -403,6 +447,17 @@ def decide(checks: Any, state: Any, findings: Any = None, now: float | None = No
     `now` is injected so the in-flight window below is exercised by tests at
     fixed instants rather than by whatever the clock happens to say.
     """
+    conflicted = is_conflicted(mergeability)
+    decision = _decide(checks, state, findings, conflicted, now)
+    # Stamped once on the way out rather than by each branch, for the same
+    # reason next_state exists: eleven branches each restating the whole shape
+    # is eleven chances to omit a field, and an omitted `conflicted` would drop
+    # the conflict from the summary a human reads on escalation.
+    decision["conflicted"] = conflicted
+    return decision
+
+
+def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, now: float | None) -> dict:
     now = time.time() if now is None else now
     if not isinstance(state, dict):
         state = {}
@@ -435,7 +490,7 @@ def decide(checks: Any, state: Any, findings: Any = None, now: float | None = No
     classifications = [classify_check(check) for check in (checks if isinstance(checks, list) else [])]
     unanswered = open_findings(findings)
 
-    if not classifications and not unanswered:
+    if not classifications and not unanswered and not conflicted:
         # next_state is INERT on every ACTION_NONE branch. gpbot-ci-drive.yml
         # `continue`s on `none` before it reaches the comment write, so nothing
         # here is ever persisted and this cannot clear or set a flag. It is
@@ -447,7 +502,7 @@ def decide(checks: Any, state: Any, findings: Any = None, now: float | None = No
         # A human deletes the marker comment to hand it back.
         return {
             "action": ACTION_NONE,
-            "reason": "no failing checks and no unanswered review findings",
+            "reason": "the branch merges cleanly, no failing checks and no unanswered review findings",
             "classifications": [],
             "findings": [],
             "next_state": next_state(escalated=already_escalated),
@@ -481,10 +536,54 @@ def decide(checks: Any, state: Any, findings: Any = None, now: float | None = No
             "next_state": next_state(),
         }
 
+    if conflicted:
+        return _decide_conflicts(classifications, unanswered, fixes, now, next_state)
+
     if classifications:
         return _decide_checks(classifications, unanswered, reruns, fixes, now, next_state)
 
     return _decide_findings(unanswered, attempted, fixes, now, classifications, next_state)
+
+
+def _decide_conflicts(classifications: list, unanswered: list, fixes: int, now: float, next_state: Any) -> dict:
+    """What to do about a branch that no longer merges into main.
+
+    NO CHEAP MOVE COMES FIRST HERE, unlike a failing check. A re-run is worth
+    trying on a red board because a flake clears for free; there is no
+    equivalent for a conflict, because "conflicting" is precisely the answer git
+    already gave when it tried to merge the two. So the first move is the
+    expensive one.
+
+    NO SEPARATE ATTEMPT LEDGER either, unlike findings. A finding can stay open
+    forever after a run that declined to act on it, so it needs its ids banked
+    to stop it buying a run on every pass. A conflict cannot: a run that
+    resolves it makes it disappear, and one that does not leaves the same
+    conflict for the shared fix budget to bound. That budget is the whole cap —
+    at most MAX_FIX_RUNS attempts, then a human.
+
+    A conflict that reappears because main moved again is a genuinely new
+    conflict, and it draws on the same budget rather than a fresh one. That is
+    deliberately strict: a bot PR that keeps colliding with main is one a human
+    should look at, not one to keep paying to rebase.
+    """
+    if fixes < MAX_FIX_RUNS:
+        return {
+            "action": ACTION_FIX_CONFLICTS,
+            "reason": (
+                f"the branch conflicts with main and cannot merge as it stands (fix run {fixes + 1} of {MAX_FIX_RUNS})"
+            ),
+            "classifications": classifications,
+            "findings": unanswered,
+            "next_state": next_state(fixes=fixes + 1, fix_started_at=int(now)),
+        }
+
+    return {
+        "action": ACTION_ESCALATE,
+        "reason": f"the branch still conflicts with main after {fixes} fix run(s); it needs a human",
+        "classifications": classifications,
+        "findings": unanswered,
+        "next_state": next_state(escalated=True),
+    }
 
 
 def _decide_checks(
@@ -640,7 +739,10 @@ def render_summary(decision: dict) -> str:
     with the observation rather than the verdict — "the runner killed the job"
     is actionable, "classified as infra" is not.
     """
-    lines = [f"{c['name']}: {c['evidence']}" for c in decision.get("classifications", [])]
+    # Listed first because it is the one item that makes every other line moot:
+    # a conflicted branch does not merge however the checks read.
+    lines = ["the branch conflicts with main and cannot merge"] if decision.get("conflicted") else []
+    lines += [f"{c['name']}: {c['evidence']}" for c in decision.get("classifications", [])]
     # Findings are listed even when the decision was about a check, because a
     # human reading a Slack escalation needs to see everything still outstanding
     # on the PR, not only the half that produced the verdict.
@@ -661,6 +763,7 @@ def render_comment(decision: dict) -> str:
         ACTION_RERUN: "Re-running the failed checks.",
         ACTION_FIX: "Starting a run to fix this.",
         ACTION_FIX_FINDINGS: "Starting a run to answer the review findings.",
+        ACTION_FIX_CONFLICTS: "Starting a run to resolve the conflicts with `main`.",
         ACTION_REPORT: "Stopping: this is already broken on `main`.",
         ACTION_ESCALATE: "Stopping and handing this to a human.",
         ACTION_HOLD: "Stopping: the review findings need a human.",
@@ -704,6 +807,10 @@ def main() -> int:
     `findings` is every review thread on the PR, unfiltered. Which ones count is
     a judgement (see open_findings), so the workflow hands over what it gathered
     and decides nothing.
+
+    `mergeability` is `gh pr view`'s mergeable and mergeStateStatus verbatim, on
+    the same principle: whether UNKNOWN means "fine" is a judgement, and it is
+    made in is_conflicted where a test can pin it.
     """
     try:
         payload = json.load(sys.stdin)
@@ -718,7 +825,7 @@ def main() -> int:
     if state is None:
         state = parse_state(payload.get("state_comment"))
 
-    decision = decide(payload.get("checks"), state, payload.get("findings"))
+    decision = decide(payload.get("checks"), state, payload.get("findings"), payload.get("mergeability"))
     decision["comment_body"] = render_comment(decision)
     decision["summary"] = render_summary(decision)
 

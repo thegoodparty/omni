@@ -347,8 +347,8 @@ run exits there. If CI then failed, nothing happened. PR #1306 was opened
 
 `.github/workflows/gpbot-ci-drive.yml` closes that gap. It fires when a CI
 workflow completes, waits until every check on a `[GP-Bot]` PR has resolved, and
-then acts on whichever of two things is outstanding: a red check, or a review
-finding nobody answered.
+then acts on whichever of three things is outstanding: a branch that no longer
+merges, a red check, or a review finding nobody answered.
 
 **Triage comes before action, and that ordering is the whole design.** Most
 bot-PR check failures we have actually observed were infrastructure, not
@@ -374,6 +374,42 @@ the trade: a flake clears for free, and a real regression comes back with
 evidence that it is deterministic. The taxonomy and the round caps are lifted
 from `.claude/skills/ship-pr/SKILL.md` "Phase 3" — this automates a judgement
 humans already make here rather than inventing a new one.
+
+### A branch that stops merging
+
+Green checks do not mean mergeable. `main` moves, the branch starts conflicting,
+and every signal the drive reads still says the PR is fine: checks passed,
+approval standing, no open findings. The only visible difference is a greyed-out
+merge button on a PR nobody is watching. Nothing reported that.
+
+So a conflicted branch is work too, and it is settled **before** checks and
+findings. A conflicted PR cannot land however green it is, so re-running its
+checks or answering its threads first spends CI minutes and model tokens to
+arrive at a PR that still cannot merge — and the merge that resolves the
+conflict re-runs the checks anyway.
+
+There is no cheap first move here, unlike a red check. A re-run is worth trying
+on a flake because it clears for free; "conflicting" is already git's answer to
+having tried. So the first move is the expensive one, drawn from the same fix-run
+budget.
+
+**Only an explicit `CONFLICTING` counts**, and this default runs opposite to the
+findings one. GitHub computes mergeability lazily and reports `UNKNOWN` until it
+has — asking is what triggers the computation, so the workflow asks up to three
+times before giving up and passing `UNKNOWN` through. Reading `UNKNOWN` as
+conflicted would point an agent at a branch that merges perfectly well: a wasted
+run and a pointless merge commit on a PR a human was about to merge. Erring the
+other way costs 30 minutes, and a real conflict does not clear on its own.
+
+**Being merely `BEHIND` `main` is not driven.** The `main` ruleset sets
+`strict_required_status_checks_policy` false, so an out-of-date branch still
+merges; updating one on every push to `main` would spend a full CI cycle per bot
+PR per merge to change nothing about whether it can land.
+
+There is no separate attempt ledger, unlike findings. A finding can stay open
+forever after a run that declined to act on it, so its ids have to be banked. A
+conflict cannot: a run that resolves it makes it disappear, and one that does not
+leaves the same conflict for the shared budget to bound.
 
 ### Unanswered review findings
 
@@ -422,8 +458,10 @@ ignore would fail in the direction that just cost us a production regression.
 | Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
 | Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
 
-The fix-run budget is **shared** between failing checks and review findings,
-because what it bounds is money rather than either activity on its own.
+The fix-run budget is **shared** between conflicts, failing checks and review
+findings, because what it bounds is money rather than any one activity. A PR
+that keeps colliding with `main` after spending it is one a human should look
+at, not one to keep paying to rebase.
 
 Both are **per-PR and cumulative for the life of the PR**, deliberately not
 per-commit. A fix run pushes a commit, and resetting on a new commit would let a
@@ -480,17 +518,18 @@ one audited route to Fargate. `mode` picks the instruction:
 |---|---|---|
 | `checks` (the default when absent) | `ci-fix` | `CI_FIX_INSTRUCTION` |
 | `findings` | `findings-fix` | `FINDINGS_FIX_INSTRUCTION` |
+| `conflicts` | `conflicts-fix` | `CONFLICTS_FIX_INSTRUCTION` |
 
 An unrecognised mode is a 400, not a default — quietly running the CI
 instruction against a request that asked for something else points an agent at
 work nobody asked for. Neither label is `analyze`, which keeps both out of the
-analyze→implement escalation, and neither is in `TAG_CONFIG`: a ClickUp tag must
+analyze→implement escalation, and none is in `TAG_CONFIG`: a ClickUp tag must
 never be able to launch a run that pushes to an arbitrary PR. The dedup claim is
-keyed on `ci-fix` for **both** modes, because they push to the same branch and a
-claim keyed per-mode could not see that collision.
+keyed on `ci-fix` for **every** mode, because they all push to the same branch
+and a claim keyed per-mode could not see that collision.
 
 **Only the PR number, the ClickUp task id and that fixed enum cross the
-boundary** — an integer, a character-class-checked id, and one of two literals.
+boundary** — an integer, a character-class-checked id, and one of three literals.
 Check names, step names, log text and review-comment bodies are all left out on
 purpose. The first three originate in CI output; the last is written by another
 model, in a thread anyone who can comment on the repo may add to. Interpolating
@@ -498,10 +537,10 @@ any of them into a system prompt would make every failing build and every review
 comment a prompt-injection surface. The agent holds `gh` and fetches its own
 evidence.
 
-Both instructions forbid, in order of how much damage they do: weakening a test
-to make it pass (deleting, skipping, loosening an assertion, or adding a retry
-to hide a real failure), merging, opening a second PR, and working outside the
-thing they were sent for.
+All three instructions forbid, in order of how much damage they do: weakening a
+test to make it pass (deleting, skipping, loosening an assertion, or adding a
+retry to hide a real failure), merging, opening a second PR, and working outside
+the thing they were sent for.
 
 `CI_FIX_INSTRUCTION` additionally tells the agent to check `main` and change
 nothing if the failure is infra or pre-existing — a second line of the same
@@ -519,6 +558,16 @@ say it could not be judged. Whichever it does, it replies and then resolves the
 thread — and it must **never resolve a thread it has not answered**, because
 resolving is the record that a finding was dealt with. An unanswered thread left
 open is a fine outcome; it goes to a human.
+
+`CONFLICTS_FIX_INSTRUCTION` says **merge `main`, never rebase**, because a
+rebase needs a force-push, and force-pushing a reviewed branch marks every
+review thread on it outdated — silently clearing the findings the section above
+exists to answer. Its real subject is the resolution itself: both sides of a
+conflict are somebody's intended change, and taking one side wholesale deletes
+work already on `main` while CI stays green, because nothing tests for the
+change that was dropped. So `--ours`/`--theirs` on a whole file is called out as
+almost never right, and a collision the agent cannot judge is a `git merge
+--abort` and a comment rather than a guess.
 
 **Nothing in this feature merges anything.** `gpbot-ci-drive.yml` carries the
 same header contract as `gpbot-pr-triage.yml`: the bot getting CI green is not
