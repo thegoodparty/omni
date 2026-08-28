@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { addDays, getUnixTime } from 'date-fns'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
 import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
@@ -73,8 +73,6 @@ beforeEach(async () => {
     data: { metaData: { customerId: 'cus_test' } },
   })
 })
-
-afterEach(() => vi.restoreAllMocks())
 
 const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 
