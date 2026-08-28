@@ -127,5 +127,18 @@ model TcrCompliance {
   cvNeverReachedAlertedAt DateTime? @map("cv_never_reached_alerted_at")
   profileStalledAlertedAt DateTime? @map("profile_stalled_alerted_at")
 
+  // Pre-submission validation gate (ENG-10965): set when the filing URL /
+  // candidate-name check fails before Peerly Campaign Verify submission —
+  // status stays `submitted` (this is a hold, not a rejection) so the record
+  // keeps re-entering the normal dispatch/resume paths once cleared.
+  // cvValidationFailedAt also doubles as the once-only claim for the internal
+  // Slack alert, mirroring pinSentDetectedAt / cvInReviewEscalatedAt.
+  // Correcting filingUrl/candidateName clears both (createAgentic); an admin
+  // override (cvValidationOverriddenAt) lets submission proceed despite an
+  // unresolved failure.
+  cvValidationFailedAt       DateTime? @map("cv_validation_failed_at")
+  cvValidationFailureReasons String[]  @default([]) @map("cv_validation_failure_reasons")
+  cvValidationOverriddenAt   DateTime? @map("cv_validation_overridden_at")
+
   @@map("tcr_compliance")
 }

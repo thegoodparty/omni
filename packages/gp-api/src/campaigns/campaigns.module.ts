@@ -3,6 +3,7 @@ import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { CronModule } from '@/cron/cron.module'
+import { LlmModule } from '@/llm/llm.module'
 import { forwardRef, Global, Module } from '@nestjs/common'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { ElectionsModule } from 'src/elections/elections.module'
@@ -36,6 +37,7 @@ import { CampaignTrackerDispatchService } from './campaignTracker/services/campa
 import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './tcrCompliance/services/campaignTcrCompliance.service'
+import { CvPreSubmissionValidationService } from './tcrCompliance/services/cvPreSubmissionValidation.service'
 import { Nightly10DlcReportService } from './tcrCompliance/services/nightly10DlcReport.service'
 import { CvStatusPollService } from './tcrCompliance/services/cvStatusPoll.service'
 import { ComplianceStateService } from './tcrCompliance/services/complianceState.service'
@@ -73,6 +75,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     AgentExperimentsModule,
     ElectedOfficeModule,
     CronModule,
+    LlmModule,
   ],
   controllers: [
     CampaignsController,
@@ -96,6 +99,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTrackerDispatchService,
     AiGenerationService,
     CampaignTcrComplianceService,
+    CvPreSubmissionValidationService,
     ComplianceStateService,
     Nightly10DlcReportService,
     CvStatusPollService,
