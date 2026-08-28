@@ -781,6 +781,131 @@ curl -s -H "Authorization: $CLICKUP_API_KEY" \
   "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[].events'
 ```
 
+## The weekly digest
+
+The section above ends on the failure the error alarm cannot see. This is the
+answer to it: `.github/workflows/gpbot-weekly-digest.yml` posts one message to
+`#bugs` every Monday at 15:00 UTC summarising the completed Monday–Sunday week.
+
+```
+gpbot — week of Aug 17–23
+Coverage: 6 of 7 tagged bugs analyzed — 1 missed: DATA-2336
+Median time to analysis: 7.3 min
+Verdicts: 3 fix · 3 no-code-change · 1 needs-human → 4 tickets kept off the eng queue
+PRs: 3 opened · 1 merged · 0 closed unmerged · ⚠️ 1 open past 48h with no human review: #1306
+Cost: $38.00 this week · $3.71 median per analysis
+```
+
+**Coverage leads, not merges.** "How many bugs did the bot fix" is the wrong
+headline twice over. It misprices a triage system whose main output is a written
+root cause — of the seven verdicts recorded after escalation went live, four
+concluded there was no code fix to make — and it invites gaming, because "PRs
+merged" is a number you improve by opening PRs against tickets that are not code
+bugs, which is the exact thing `escalation.py` exists to prevent. Coverage is
+also where this system has actually failed, and failed silently.
+
+**It posts on a quiet week**, unlike `gpbot-stale-pr-alert.yml`, which stays
+silent when it finds nothing. That is right for a nag and wrong here: a missing
+digest is indistinguishable from a broken digest, and the Jul 31 – Aug 14 outage
+is what "everything looks fine" looks like.
+
+**Raw counts, never percentages.** Three genuinely autonomous bug-fix PRs is not
+a base anyone can compute a rate on, and a percentage that reaches Slack reaches
+a board deck by Thursday.
+
+**No engineering-time-saved estimate.** The arithmetic needs a per-ticket human
+diagnosis time and nothing records one (`time_estimate` and `time_spent` are
+empty on all 180 gpbot-touched tasks), so the honest range spans 4x. A weekly
+message that restarts an argument about its own inputs stops being read.
+
+### Where each line comes from
+
+| Source | Used for | Auth |
+|---|---|---|
+| ClickUp `GET /team/{id}/task?tags[]=gpbot-analyze` plus `/task/{id}/comment` | Coverage and latency | `secrets.CLICKUP_API_TOKEN` |
+| `gh pr list` | PRs opened / merged / closed unmerged, and open past 48h with no human review | `github.token` |
+| `aws logs filter-log-events --filter-pattern GPBOT_METRIC` | Verdicts, deflections and cost | OIDC via `vars.AWS_ROLE_ARN` |
+
+Tickets are bucketed by **creation** date, not by when they were analyzed —
+that is the only bucketing under which a ticket nobody looked at appears at all.
+The analysis itself is not required to fall inside the window, so a Sunday-night
+bug analyzed on Monday counts as covered rather than as a miss.
+
+Bot PRs are identified by title `[GP-Bot]` **or** head branch containing
+`/gp-bot_`, the same two signals as `gpbot-ci-drive.yml`. Both are applied to
+every open PR; the historical half of the query can only search on the title,
+because GitHub's `head:` qualifier matches whole branch names (`head:gp-bot`
+returns nothing) and a date-bounded scan of everything truncates silently — a
+seven-day `updated:>=` search hit the 200-result cap with the oldest hit three
+days old. The gap is therefore a *closed* PR carrying a bot branch and no bot
+title, which the implement instruction does not produce.
+
+### A source that failed says so
+
+**"0 missed" from a coverage check that never ran is worse than no message at
+all.** Every gather step writes `null` before it makes a call, so a step that
+dies leaves the source absent rather than empty, and the module renders that
+line as `unavailable`. The cost line never reads `$0` because CloudWatch was
+unreachable. Three states are distinguished on purpose:
+
+| State | Cost line |
+|---|---|
+| Query answered, runs found | `$38.00 this week · $3.71 median per analysis` |
+| Query answered, nothing found | `no runs recorded this week` — on a week with analyses, this means the metric line has stopped flowing |
+| Query failed | `unavailable` |
+
+A comments fetch that fails takes the **whole** ClickUp source down rather than
+that one ticket, because a ticket with no comments reads as un-analyzed: a
+single dropped response would otherwise invent a miss and name an innocent
+ticket in Slack.
+
+The workflow posts a degraded digest **and then goes red** — the message is
+worth having, and so is somebody noticing the gap.
+
+### `GPBOT_METRIC`, and why the agent emits it
+
+`engineer_agent/agent/metrics.py` logs one line at the end of every run:
+
+```
+GPBOT_METRIC {"task_id","label","verdict","status","cost_usd","duration_s","escalation"}
+```
+
+Before it existed, the verdict and the cost had to be scraped out of prose
+across two log groups and joined on an 8-character run id, and rewording either
+log line would have broken every query silently. Now the whole query is one
+`filter-log-events` call — no Insights query to start and poll, and no join.
+Retention on `/ecs/engineer-agent-prod` is 400 days, so a digest that runs late
+still finds its week.
+
+Three things about the line are load-bearing:
+
+- **The verdict is `parse_verdict`'s**, the same function that gates escalation,
+  so the digest reports the verdicts the system actually acted on rather than a
+  second reading of the same text.
+- **`escalation` is the outcome string, not a boolean.** A `fix` verdict that
+  ended in `disabled`, `already queued` or `escalation failed` is a ticket the
+  bot decided to fix and then did not, which is invisible in ClickUp and in
+  GitHub alike.
+- **An unknown number is `null`, never `0`.** The digest sums costs; one absent
+  cost silently coerced to zero would understate the week with nothing anywhere
+  to say so.
+
+The field names are a contract with `clickup_bot/weekly_digest.py`. Adding a
+field is free; renaming or removing one drops a line from the Monday message and
+nothing goes red.
+
+### Changing it
+
+The judgement lives in `clickup_bot/weekly_digest.py` as pure functions over
+JSON — no network, no clients — on the same contract as `ci_triage.py`: the
+workflow gathers facts and pipes one JSON blob in, the module decides what they
+mean. `clickup_bot/tests/test_weekly_digest.py` pins the whole message against
+the week of 2026-08-17 as recorded in the gpbot metrics report, so a change that
+alters a number has to say so in the diff.
+
+To try it without posting, run the workflow manually with `dry_run` checked and
+optionally a `week_start`; the rendered message goes to the job summary.
+
 ## Environment Variables
 
 Set by terraform (`infrastructure/environments/prod/clickup-bot/`), not by hand.
