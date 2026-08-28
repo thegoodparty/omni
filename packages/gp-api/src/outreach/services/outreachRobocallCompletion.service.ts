@@ -87,6 +87,10 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     // recorded, never discarded.
     const aborted = status === CALLHUB_VB_STATUS.ABORT
 
+    // null = unknown (read failed, or CallHub has not reported the count yet):
+    // leave the run in `dialed` and poll again — never settle on an unknown
+    // count. A number (including a genuine 0) proceeds through the stability
+    // gate below.
     const count = await this.readCompletedCount(pkStr)
     if (count == null) return
 
@@ -124,11 +128,16 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   // Reads the actual completed/billable call count for the finished run. Uses
   // credits_usage `voice_calls` (dialed calls) scoped per-campaign by the
   // campaign pk_str — the billable-count source the send-chain notes name, and
-  // what the capture slice charges. Returns null on a read failure so the caller
-  // leaves the row in `dialed` to retry, rather than recording a bogus count.
+  // what the capture slice charges. Returns null in two "unknown" cases so the
+  // caller leaves the row in `dialed` to poll again: a read failure, AND a
+  // null/absent voice_calls, which means CallHub has NOT reported the count yet
+  // — NOT zero completed calls. Settling a really-dialed run at 0 would capture
+  // nothing and never bill the candidate's real dials. A genuine numeric 0 (an
+  // all-suppressed run) IS a real count and passes through to settle.
   private async readCompletedCount(pkStr: string): Promise<number | null> {
     try {
-      return (await this.credits.getVoiceCampaignUsage(pkStr)).voice_calls ?? 0
+      const usage = await this.credits.getVoiceCampaignUsage(pkStr)
+      return usage.voice_calls ?? null
     } catch (err) {
       this.logger.error(
         { err, campaignPkStr: pkStr },

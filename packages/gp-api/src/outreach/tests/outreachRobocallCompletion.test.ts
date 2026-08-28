@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { BadGatewayException } from '@nestjs/common'
 import { addDays, addHours } from 'date-fns'
+import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
@@ -185,6 +186,63 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
     // 100 === 100 → stable, settle.
     await completion.pollCompletion(outreachId, 'vb_1')
     satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.settling)
+    expect(satellite.completedCallCount).toBe(100)
+  })
+
+  it('does NOT settle at 0 when CallHub has not reported the count (null)', async () => {
+    const outreachId = await createDraft()
+    // END, but the count has not populated yet — a null voice_calls means
+    // "unknown", NOT zero. Settling here would capture nothing on a run that
+    // actually dialed.
+    usageSpy.mockResolvedValue({ voice_calls: null, voice_billsec: null })
+
+    await completion.pollCompletion(outreachId, 'vb_1')
+    await completion.pollCompletion(outreachId, 'vb_1')
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    // Never recorded as a real 0 — left null to poll again.
+    expect(satellite.completedCallCount).toBeNull()
+  })
+
+  it('settles at a genuine numeric 0 (a real all-suppressed run)', async () => {
+    const outreachId = await createDraft()
+    // A real 0 (every number suppressed) is a valid, stable count — distinct
+    // from a not-yet-reported null.
+    usageSpy.mockResolvedValue({ voice_calls: 0, voice_billsec: 0 })
+
+    await completion.pollCompletion(outreachId, 'vb_1')
+    expect((await readSatellite(outreachId)).completedCallCount).toBe(0)
+
+    await completion.pollCompletion(outreachId, 'vb_1')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.settling)
+    expect(satellite.completedCallCount).toBe(0)
+  })
+
+  it('elects a single settler when two polls race the same stable run', async () => {
+    const outreachId = await createDraft()
+    // Prime the stability snapshot so one further poll is settle-eligible.
+    await completion.pollCompletion(outreachId, 'vb_1')
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+
+    const infoSpy = vi.spyOn(
+      (completion as unknown as { logger: PinoLogger }).logger,
+      'info',
+    )
+
+    await Promise.all([
+      completion.pollCompletion(outreachId, 'vb_1'),
+      completion.pollCompletion(outreachId, 'vb_1'),
+    ])
+
+    // The dialed → settling CAS elects exactly one settler: a single transition,
+    // logged once, even when two runners race the same draft in one slot.
+    expect(infoSpy).toHaveBeenCalledTimes(1)
+    const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.settling)
     expect(satellite.completedCallCount).toBe(100)
   })
