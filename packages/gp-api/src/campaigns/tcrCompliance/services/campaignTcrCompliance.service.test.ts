@@ -99,6 +99,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
   const basePayload = {
     ein: '12-3456789',
     committeeName: 'Test Committee',
+    candidateName: 'Jane Candidate',
     filingUrl: 'https://example.com/filing',
     email: 'test@example.com',
     phone: '5555555555',
@@ -1477,6 +1478,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     campaignId: campaign.id,
     ein: '12-3456789',
     committeeName: 'Jane for Springfield',
+    candidateName: 'Jane Doe',
     websiteDomain: '',
     filingUrl: 'https://sos.example.gov/filing/jane',
     phone: '5555555555',
@@ -1836,6 +1838,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         email: existingRecord.email,
         phone: existingRecord.phone,
         officeLevel: existingRecord.officeLevel,
+        candidateName: existingRecord.candidateName,
       }),
       user,
       campaign,

@@ -26,6 +26,12 @@ model TcrCompliance {
   ein            String
   postalAddress  String
   committeeName  String               @map("committee_name")
+  // The candidate's own name, distinct from the account holder's name — a
+  // campaign manager often signs up under their own name, but the filing
+  // uses the candidate's. Nullable because records created before this
+  // column existed have none; the Campaign Verify submission falls back to
+  // the account holder's name in that case (peerlyIdentity.service.ts).
+  candidateName  String?              @map("candidate_name")
   websiteDomain  String               @map("website_domain")
   filingUrl      String               @map("filing_url")
   phone          String

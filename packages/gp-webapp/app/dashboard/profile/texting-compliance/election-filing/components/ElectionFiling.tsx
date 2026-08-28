@@ -239,6 +239,7 @@ export const getInitialFormState = (
   return {
     electionFilingLink: '',
     campaignCommitteeName: details.campaignCommittee || '',
+    candidateName: '',
     officeLevel: '',
     ein: details.einNumber || '',
     phone: '',

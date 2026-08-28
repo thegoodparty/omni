@@ -87,6 +87,7 @@ export const getInitialFilingDetailsState = (
   return {
     electionFilingLink: '',
     campaignCommitteeName: details.campaignCommittee || '',
+    candidateName: '',
     officeLevel: ballotLevelToOfficeLevel(details.ballotLevel),
     ein: details.einNumber || '',
     phone: '',
@@ -124,6 +125,7 @@ const FilingDetailsForm = ({
   const {
     officeLevel,
     campaignCommitteeName,
+    candidateName,
     electionFilingLink,
     email,
     phone,
@@ -240,6 +242,15 @@ const FilingDetailsForm = ({
       )}
 
       <div className="flex flex-col gap-6">
+        <TextField
+          label="Candidate Name"
+          placeholder="Jane Smith"
+          fullWidth
+          required
+          error={showError('candidateName')}
+          value={getStringValue(candidateName)}
+          onChange={(e) => handleChange({ candidateName: e.target.value })}
+        />
         <TextField
           label="Campaign committee name"
           placeholder="Jane for Council"
