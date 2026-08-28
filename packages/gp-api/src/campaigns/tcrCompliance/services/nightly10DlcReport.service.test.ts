@@ -11,6 +11,7 @@ import { SlackService } from '../../../vendors/slack/services/slack.service'
 import {
   SlackChannel,
   SlackMessageBlock,
+  SlackMessageType,
 } from '../../../vendors/slack/slackService.types'
 import { EASTERN_TIMEZONE } from '../../../shared/util/date.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -134,6 +135,22 @@ const vendorCalls = (mockSlackMessage: ReturnType<typeof vi.fn>) =>
       SlackChannel,
     ][]
   ).filter(([, channel]) => channel === SlackChannel.sharedGoodpartyPeerly10Dlc)
+
+// The main nightly report shares the bot10DlcCompliance channel with the
+// once-only case 1 / case 3a alerts (ENG-10966), but only the report itself
+// carries a HEADER block — filter on that instead of call position, since a
+// test may invoke the handler more than once.
+const internalAlertCalls = (mockSlackMessage: ReturnType<typeof vi.fn>) =>
+  (
+    mockSlackMessage.mock.calls as [
+      { blocks: SlackMessageBlock[] },
+      SlackChannel,
+    ][]
+  ).filter(
+    ([{ blocks }, channel]) =>
+      channel === SlackChannel.bot10DlcCompliance &&
+      !blocks.some((block) => block.type === SlackMessageType.HEADER),
+  )
 
 describe('Nightly10DlcReportService', () => {
   let service: Nightly10DlcReportService
@@ -534,8 +551,8 @@ describe('Nightly10DlcReportService', () => {
     })
   })
 
-  describe('handleNightlyReport — CV never reached, case 1 (ENG-10795)', () => {
-    it('lists a record submitted 4d ago with a live CV status still null', async () => {
+  describe('handleNightlyReport — CV never reached, case 1 (ENG-10795, ENG-10966)', () => {
+    it('fires a one-time internal alert for a record submitted 4d ago with a live CV status still null, and drops the old report section', async () => {
       queueFindManyResults(mockModel.findMany, [
         [],
         [],
@@ -558,15 +575,32 @@ describe('Nightly10DlcReportService', () => {
       })
 
       expect(result).toBe(true)
-      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+      const [{ blocks: reportBlocks }] = mockSlack.message.mock.calls[0] as [
         { blocks: SlackMessageBlock[] },
       ]
-      const text = blocksText(blocks)
-      expect(text).toContain('Never reached CampaignVerify')
-      expect(text).toContain('never-reached-camp (campaign 700)')
-      expect(text).toContain('identity ident-700')
-      expect(text).toContain('submitted 4d ago')
-      expect(text).toContain('1 stuck')
+      const reportText = blocksText(reportBlocks)
+      // The accumulating report section is gone — this is not a nightly
+      // digest entry, and it must not inflate the stuck header either.
+      expect(reportText).not.toContain('Never reached CampaignVerify')
+      expect(reportText).not.toContain('never-reached-camp')
+      expect(reportText).toContain('no campaigns stuck')
+
+      const alerts = internalAlertCalls(mockSlack.message)
+      expect(alerts).toHaveLength(1)
+      const [{ blocks: alertBlocks }] = alerts[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      const alertText = blocksText(alertBlocks)
+      expect(alertText).toContain('never-reached-camp (campaign 700)')
+      expect(alertText).toContain('Peerly identity: ident-700')
+      expect(alertText).toContain('Submitted 4d ago')
+      expect(alertText).toContain('CV never reached')
+      expect(alertText).not.toContain('candidate-email@example.com')
+      expect(mockModel.updateMany).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-case1', cvNeverReachedAlertedAt: null },
+        data: { cvNeverReachedAlertedAt: expect.any(Date) },
+      })
     })
 
     it('falls back to createdAt when peerlySubmissionStartedAt is null', async () => {
@@ -590,12 +624,88 @@ describe('Nightly10DlcReportService', () => {
 
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
-      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+      const [{ blocks }] = internalAlertCalls(mockSlack.message)[0] as [
         { blocks: SlackMessageBlock[] },
+        SlackChannel,
       ]
       const text = blocksText(blocks)
       expect(text).toContain('fallback-camp (campaign 701)')
-      expect(text).toContain('submitted 4d ago')
+      expect(text).toContain('Submitted 4d ago')
+    })
+
+    it('does not re-fire across two consecutive handler runs (once-only)', async () => {
+      const record = proRecord('tcr-case1c', 'repeat-camp', 702, {
+        peerlyIdentityId: 'ident-702',
+        peerlySubmissionStartedAt: subDays(new Date(), 4),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+        [],
+      ])
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+        [],
+      ])
+      // First run's claim succeeds; the second run's claim finds the row
+      // already claimed (updateMany's WHERE no longer matches) — mirrors the
+      // real DB behavior without needing to thread state through the mock.
+      mockModel.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+      await service.handleNightlyReport({ reportDate: '2026-07-11' })
+
+      expect(internalAlertCalls(mockSlack.message)).toHaveLength(1)
+    })
+
+    it('rolls back the claim when the internal alert post fails, so the next run retries', async () => {
+      const record = proRecord('tcr-case1d', 'retry-camp', 703, {
+        peerlyIdentityId: 'ident-703',
+        peerlySubmissionStartedAt: subDays(new Date(), 4),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+        [],
+      ])
+      mockSlack.message
+        .mockResolvedValueOnce('ok') // internal report post succeeds
+        .mockResolvedValueOnce(undefined) // case 1 alert post fails
+
+      const result = await service.handleNightlyReport({
+        reportDate: '2026-07-10',
+      })
+
+      expect(result).toBe(true)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'tcr-case1d', cvNeverReachedAlertedAt: null },
+        data: { cvNeverReachedAlertedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'tcr-case1d', cvNeverReachedAlertedAt: expect.any(Date) },
+        data: { cvNeverReachedAlertedAt: null },
+      })
     })
 
     it('queries a 13-hour threshold with the null-CV / submitted / has-identity filter', async () => {
@@ -897,8 +1007,8 @@ describe('Nightly10DlcReportService', () => {
     })
   })
 
-  describe('handleNightlyReport — PIN verified but stalled, case 3a (ENG-10795)', () => {
-    it('lists a record whose profile has sat pending since the last poll (2d ago)', async () => {
+  describe('handleNightlyReport — PIN verified but stalled, case 3a (ENG-10795, ENG-10966)', () => {
+    it('fires a one-time internal alert for a record whose profile has sat pending since the last poll (2d ago), and drops the old report section', async () => {
       queueFindManyResults(mockModel.findMany, [
         [],
         [],
@@ -923,15 +1033,187 @@ describe('Nightly10DlcReportService', () => {
       })
 
       expect(result).toBe(true)
-      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+      const [{ blocks: reportBlocks }] = mockSlack.message.mock.calls[0] as [
         { blocks: SlackMessageBlock[] },
       ]
-      const text = blocksText(blocks)
-      expect(text).toContain('CV token/approve never completed')
-      expect(text).toContain('stalled-camp (campaign 800)')
-      expect(text).toContain('identity ident-800')
-      expect(text).toContain('profile pending 2d')
-      expect(text).toContain('1 stuck')
+      const reportText = blocksText(reportBlocks)
+      expect(reportText).not.toContain('CV token/approve never completed')
+      expect(reportText).not.toContain('stalled-camp')
+      expect(reportText).toContain('no campaigns stuck')
+
+      const alerts = internalAlertCalls(mockSlack.message)
+      expect(alerts).toHaveLength(1)
+      const [{ blocks: alertBlocks }] = alerts[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      const alertText = blocksText(alertBlocks)
+      expect(alertText).toContain('stalled-camp (campaign 800)')
+      expect(alertText).toContain('Peerly identity: ident-800')
+      expect(alertText).toContain('Profile pending 2d')
+      expect(alertText).toContain('PIN verified, profile stalled')
+      expect(mockModel.updateMany).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-case3a', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+    })
+
+    it('does not re-fire across two consecutive handler runs (once-only)', async () => {
+      const record = proRecord('tcr-case3a-repeat', 'repeat3a-camp', 801, {
+        peerlyIdentityId: 'ident-801',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+      ])
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+      ])
+      mockModel.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+      await service.handleNightlyReport({ reportDate: '2026-07-11' })
+
+      expect(internalAlertCalls(mockSlack.message)).toHaveLength(1)
+    })
+
+    // ENG-10966 review-round finding: unlike case 1, `pending` can recur for
+    // real — Peerly's finalized -> pending reopening (retrieveCampaignVerifyToken
+    // / submit-cv-pin retry) means a row alerted once can genuinely stall
+    // again. cvStatusPoll.service.ts's pollProfileStatus clears
+    // profileStalledAlertedAt whenever the profile leaves `pending` (covered
+    // in cvStatusPoll.service.test.ts); this test names the trigger on this
+    // side — once that clear has happened and the profile is later observed
+    // back in `pending` past the 20h floor, the alert must fire again.
+    it('re-alerts after a real re-stall once the profile has left and re-entered pending', async () => {
+      // Run 1: first stall. profileStalledAlertedAt starts null (never
+      // alerted) and gets claimed. The two runs' findMany results are queued
+      // and consumed one run at a time — queuing both up front would let
+      // run 1's unused 10th (deferredDispatchCandidates) call default-slot
+      // siphon the first value meant for run 2, shifting every later result
+      // by one position.
+      const firstStall = proRecord('tcr-case3a-recur', 'recur3a-camp', 803, {
+        peerlyIdentityId: 'ident-803',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+        profileStalledAlertedAt: null,
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [firstStall],
+        [],
+        [],
+      ])
+      mockModel.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      // Run 2: the profile left `pending` in between (cleared the claim —
+      // proven separately in cvStatusPoll.service.test.ts) and has now
+      // re-entered `pending` past the 20h floor as a fresh, unrelated stall.
+      // profileStalledAlertedAt is null again — that's the observable state
+      // the clear-on-progress write leaves behind.
+      const secondStall = proRecord('tcr-case3a-recur', 'recur3a-camp', 803, {
+        peerlyIdentityId: 'ident-803',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 3),
+        profileStalledAlertedAt: null,
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [secondStall],
+        [],
+        [],
+      ])
+      // The second claim also finds the column null and succeeds — the
+      // second run is not a duplicate of the first, it's a distinct
+      // incident.
+      mockModel.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-17' })
+
+      const alerts = internalAlertCalls(mockSlack.message)
+      expect(alerts).toHaveLength(2)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'tcr-case3a-recur', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'tcr-case3a-recur', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+    })
+
+    it('rolls back the claim when the internal alert post fails, so the next run retries', async () => {
+      const record = proRecord('tcr-case3a-retry', 'retry3a-camp', 802, {
+        peerlyIdentityId: 'ident-802',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+      ])
+      mockSlack.message
+        .mockResolvedValueOnce('ok') // internal report post succeeds
+        .mockResolvedValueOnce(undefined) // case 3a alert post fails
+
+      const result = await service.handleNightlyReport({
+        reportDate: '2026-07-10',
+      })
+
+      expect(result).toBe(true)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'tcr-case3a-retry', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          id: 'tcr-case3a-retry',
+          profileStalledAlertedAt: expect.any(Date),
+        },
+        data: { profileStalledAlertedAt: null },
+      })
     })
 
     it('queries a 20-hour threshold with the VERIFIED / profile-pending filter', async () => {
@@ -972,7 +1254,11 @@ describe('Nightly10DlcReportService', () => {
   })
 
   describe('handleNightlyReport — stuck count aggregation', () => {
-    it('counts both new sections toward the header stuck count', async () => {
+    // ENG-10966: cases 1 and 3a moved from accumulating report sections to
+    // one-time internal pings, so they must no longer inflate the nightly
+    // header total — the header now tracks only ongoing recurring digest
+    // entries.
+    it('does not count case 1 / case 3a alerts toward the header stuck total', async () => {
       queueFindManyResults(mockModel.findMany, [
         [],
         [],
@@ -1003,7 +1289,8 @@ describe('Nightly10DlcReportService', () => {
         { blocks: SlackMessageBlock[] },
       ]
       const text = blocksText(blocks)
-      expect(text).toContain('2 stuck')
+      expect(text).toContain('no campaigns stuck')
+      expect(internalAlertCalls(mockSlack.message)).toHaveLength(2)
     })
   })
 

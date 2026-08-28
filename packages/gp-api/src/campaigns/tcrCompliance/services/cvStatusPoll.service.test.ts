@@ -43,6 +43,7 @@ const scanRecord = (
   peerlyProfileStatusChangedAt: null,
   cvInReviewEscalatedAt: null,
   finalizeStalledEscalatedAt: null,
+  profileStalledAlertedAt: null,
   updatedAt: subDays(new Date(), 1),
   campaign: {
     id: campaignId,
@@ -419,6 +420,9 @@ describe('CvStatusPollService', () => {
         data: {
           peerlyProfileStatus: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
           peerlyProfileStatusChangedAt: expect.any(Date),
+          // Leaving `pending` clears the claim unconditionally, even though
+          // it was already null here (mirrors finalizeStalledEscalatedAt).
+          profileStalledAlertedAt: null,
         },
       })
     })
@@ -444,6 +448,37 @@ describe('CvStatusPollService', () => {
           peerlyProfileStatus: PEERLY_PROFILE_STATUS_FINALIZED,
           peerlyProfileStatusChangedAt: expect.any(Date),
           finalizeStalledEscalatedAt: null,
+        },
+      })
+    })
+
+    // ENG-10966 review-round finding: the nightly report's case 3a alert
+    // claims this column once-only, but `pending` can genuinely recur —
+    // Peerly's finalized -> pending reopening (retrieveCampaignVerifyToken /
+    // submit-cv-pin retry) means a row alerted once can stall again for
+    // real, so the claim must reset when the profile leaves `pending` or
+    // that second stall would never re-alert.
+    it('clears profileStalledAlertedAt when the profile leaves pending', async () => {
+      const record = scanRecord('tcr-v', 9, {
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        profileStalledAlertedAt: subDays(new Date(), 2),
+      })
+      mockModel.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([record])
+      mockPeerly.getIdentityProfile.mockResolvedValueOnce({
+        profile: { status: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE },
+      })
+
+      await service.runScan('slot')
+
+      expect(mockModel.update).toHaveBeenCalledWith({
+        where: { id: 'tcr-v' },
+        data: {
+          peerlyProfileStatus: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
+          peerlyProfileStatusChangedAt: expect.any(Date),
+          profileStalledAlertedAt: null,
         },
       })
     })
@@ -482,6 +517,8 @@ describe('CvStatusPollService', () => {
         data: {
           peerlyProfileStatus: null,
           peerlyProfileStatusChangedAt: expect.any(Date),
+          // Leaving `pending` (even via a 404 clear) resets the claim.
+          profileStalledAlertedAt: null,
         },
       })
     })
