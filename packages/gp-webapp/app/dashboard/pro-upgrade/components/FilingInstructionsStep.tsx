@@ -16,6 +16,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import { useTakeoverActive } from 'app/dashboard/shared/takeover/TakeoverShell'
 import WizardStepFooter from './WizardStepFooter'
 import WizardHeading from './WizardHeading'
 
@@ -44,6 +45,7 @@ const InstructionRow = ({
 )
 
 const FilingInstructionsStep = (): React.JSX.Element => {
+  const takeover = useTakeoverActive()
   const router = useRouter()
   const { goToPreviousStep } = useProUpgradeWizard()
   const { errorSnackbar, successSnackbar } = useSnackbar()
@@ -126,8 +128,16 @@ const FilingInstructionsStep = (): React.JSX.Element => {
     <div>
       <WizardHeading
         proBadge
-        title="You're not eligible for Pro yet, but here's how to file for this election"
-        subtitle="Once done, you can come right back and we'll have everything ready to go. In the meantime, you still have access to our free campaign tools."
+        title={
+          takeover
+            ? 'Texting is not available yet'
+            : "You're not eligible for Pro yet, but here's how to file for this election"
+        }
+        subtitle={
+          takeover
+            ? 'Texting is only available for candidates who have officially filed. Once you have filed with your election authority, come back to set up texting.'
+            : "Once done, you can come right back and we'll have everything ready to go. In the meantime, you still have access to our free campaign tools."
+        }
       />
 
       <div className="rounded-xl border border-base-border">

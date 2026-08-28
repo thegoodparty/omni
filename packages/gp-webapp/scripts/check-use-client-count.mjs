@@ -294,7 +294,10 @@ import { dirname, join, relative } from 'node:path'
 // it), WizardHeading (branches on the takeover context). All three are
 // interactive chrome around existing client wizards and can't render on the
 // server.
-const BASELINE = 615
+// 2026-08-27: 615 -> 616 for pro-upgrade/components/takeoverProContent.tsx —
+// the takeover step furniture (select cards with selection handlers) shared
+// by the design-parity step variants.
+const BASELINE = 616
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Button,
   ProBadge,
@@ -24,6 +24,15 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 import { useTakeoverActive } from 'app/dashboard/shared/takeover/TakeoverShell'
 import WizardStepFooter from './WizardStepFooter'
 import WizardHeading from './WizardHeading'
+import {
+  GATHER_ROWS,
+  IconRowList,
+  PRO_GATE_COPY,
+  ProLockBadge,
+  ProValueList,
+  UpgradeVerifySteps,
+  WhyWeAskAlert,
+} from './takeoverProContent'
 
 interface ComparisonRow {
   label: string
@@ -85,6 +94,12 @@ const ValuePropStep = (): React.JSX.Element => {
   const takeover = useTakeoverActive()
   const router = useRouter()
   const { goToNextStep } = useProUpgradeWizard()
+  // The channel the gated tile was clicked on (?channel=sms|phone-banking|…).
+  // Design channels get the design's pause screen + gather overview here;
+  // anything else keeps the generic Free-vs-Pro pitch below as the fallback.
+  const channel = useSearchParams()?.get('channel') ?? null
+  const gateCopy = channel ? PRO_GATE_COPY[channel] : undefined
+  const [gateScreen, setGateScreen] = useState<'pause' | 'overview'>('pause')
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropViewed)
@@ -98,6 +113,57 @@ const ValuePropStep = (): React.JSX.Element => {
   const handleMaybeLater = () => {
     trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropMaybeLater)
     router.push('/dashboard')
+  }
+
+  if (takeover && gateCopy) {
+    if (gateScreen === 'pause') {
+      // Design PRO_COPY pause screen (channel-specific pitch): badge + lock,
+      // headline/subhead, the Upgrade-then-Verify mini progress, PRO_CARDS.
+      return (
+        <div className="flex flex-col items-center gap-5 pt-4 text-center">
+          <ProLockBadge />
+          <div className="flex max-w-[460px] flex-col gap-2">
+            <h1 className="text-2xl font-semibold">{gateCopy.headline}</h1>
+            <p className="text-base text-muted-foreground">
+              {gateCopy.subhead}
+            </p>
+          </div>
+          <UpgradeVerifySteps />
+          <div className="w-full">
+            <ProValueList />
+          </div>
+          <WizardStepFooter
+            primary={{
+              label: gateCopy.cta,
+              onClick: () => setGateScreen('overview'),
+            }}
+            back={{ label: 'Maybe later', onClick: handleMaybeLater }}
+          />
+        </div>
+      )
+    }
+    // Design sgBody 'overview': what to have ready before the upgrade.
+    return (
+      <div>
+        <WizardHeading
+          proBadge
+          title="Let's gather a few things to unlock Pro"
+          subtitle="Have this information available to verify your campaign"
+        />
+        <IconRowList rows={GATHER_ROWS} />
+        <p className="mt-5 text-sm text-muted-foreground">
+          Ready when you are.
+        </p>
+        <WhyWeAskAlert>
+          Carriers require these details before a campaign can send text
+          messages.
+        </WhyWeAskAlert>
+        <WizardStepFooter
+          primary={{ label: 'Continue', onClick: handleGetPro }}
+          back={{ onClick: () => setGateScreen('pause') }}
+        />
+      </div>
+    )
   }
 
   return (

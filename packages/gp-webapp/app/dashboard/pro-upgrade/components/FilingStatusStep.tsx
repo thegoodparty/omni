@@ -10,8 +10,10 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { PRO_UPGRADE_STEP, type ProUpgradeStep } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import { useTakeoverActive } from 'app/dashboard/shared/takeover/TakeoverShell'
 import WizardStepFooter from './WizardStepFooter'
 import WizardHeading from './WizardHeading'
+import { TakeoverSelectCard, WhyWeAskAlert } from './takeoverProContent'
 
 interface FilingStatusOption {
   // Persisted to campaign.details.hasFiledForRace; read back by the wizard
@@ -45,9 +47,13 @@ const OPTIONS: FilingStatusOption[] = [
 
 const FilingStatusStep = (): React.JSX.Element => {
   const { goToStep, goToPreviousStep } = useProUpgradeWizard()
+  const takeover = useTakeoverActive()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
   const [submitting, setSubmitting] = useState(false)
+  // Takeover mode selects first and advances on Continue (design ballot step);
+  // the legacy chrome keeps navigate-on-click below.
+  const [selectedFiled, setSelectedFiled] = useState<boolean | null>(null)
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.FilingStatusViewed)
@@ -80,6 +86,61 @@ const FilingStatusStep = (): React.JSX.Element => {
     // discarded; if router.push fails silently the buttons re-enable so the
     // candidate can retry instead of being stuck on a disabled screen.
     setSubmitting(false)
+  }
+
+  if (takeover) {
+    // Design sgBody 'ballot': select-then-Continue instead of navigate-on-
+    // click, the design's copy, and the why-alert. Yes skips the guidance
+    // interstitial (the takeover entry already showed the gather overview)
+    // and goes straight to the EIN step, matching the design's step order.
+    const selectedOption = OPTIONS.find((o) => o.hasFiled === selectedFiled)
+    return (
+      <div>
+        <WizardHeading
+          proBadge
+          title="Are you officially filed?"
+          subtitle="This confirms you can be verified for texting."
+        />
+
+        <div className="flex flex-col gap-3">
+          <TakeoverSelectCard
+            selected={selectedFiled === true}
+            onClick={() => setSelectedFiled(true)}
+            disabled={submitting}
+            title="Yes"
+            description="I have filed with my election authority."
+          />
+          <TakeoverSelectCard
+            selected={selectedFiled === false}
+            onClick={() => setSelectedFiled(false)}
+            disabled={submitting}
+            title="No"
+            description="I have not filed yet."
+          />
+        </div>
+
+        <WhyWeAskAlert>
+          Only candidates who have officially filed can be verified with the
+          carriers.
+        </WhyWeAskAlert>
+
+        <WizardStepFooter
+          back={{ onClick: goToPreviousStep }}
+          primary={{
+            label: 'Continue',
+            disabled: !selectedOption || submitting,
+            onClick: () => {
+              if (!selectedOption) return
+              void handleSelect(
+                selectedOption.hasFiled
+                  ? { ...selectedOption, nextStep: PRO_UPGRADE_STEP.EIN }
+                  : selectedOption,
+              )
+            },
+          }}
+        />
+      </div>
+    )
   }
 
   return (

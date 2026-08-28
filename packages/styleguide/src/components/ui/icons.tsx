@@ -43,6 +43,8 @@ export {
   DollarSign as DollarSignIcon,
   Download as DownloadIcon,
   ExternalLink as ExternalLinkIcon,
+  CreditCard as CreditCardIcon,
+  FileBadge as FileBadgeIcon,
   FileText as FileTextIcon,
   Filter as FilterIcon,
   Flag as FlagIcon,
@@ -51,6 +53,7 @@ export {
   GripVertical as GripVerticalIcon,
   Image as ImageIcon,
   Info as InfoIcon,
+  List as ListIcon,
   LayoutDashboard as LayoutDashboardIcon,
   NotebookPen as NotebookPenIcon,
   Link2 as Link2Icon,
@@ -134,4 +137,5 @@ export {
   Hash as HashIcon,
   Radio as RadioIcon,
   UserMinus as UserMinusIcon,
+  Wrench as WrenchIcon,
 } from 'lucide-react'

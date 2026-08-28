@@ -24,8 +24,10 @@ import {
 import { CHANNEL_META } from './channelMeta'
 
 // Outreach entries open the Pro upgrade wizard in its takeover chrome
-// (?src=outreach — see ProUpgradeWizard's fork).
-const PRO_UPGRADE_TAKEOVER_ENTRY = `${PRO_UPGRADE_BASE_PATH}?src=${PRO_UPGRADE_TAKEOVER_SRC}`
+// (?src=outreach — see ProUpgradeWizard's fork); ?channel picks the
+// channel-specific pitch copy on the entry screen (PRO_GATE_COPY).
+const proUpgradeTakeoverEntry = (channel: string): string =>
+  `${PRO_UPGRADE_BASE_PATH}?src=${PRO_UPGRADE_TAKEOVER_SRC}&channel=${channel}`
 
 interface ChannelTileGridProps {
   tcrCompliance?: TcrCompliance
@@ -132,7 +134,7 @@ export const ChannelTileGrid = ({
         // branch (Pro, not approved) still runs through the gate's modal.
         if (!isPro) {
           trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
-          router.push(PRO_UPGRADE_TAKEOVER_ENTRY)
+          router.push(proUpgradeTakeoverEntry('sms'))
           return
         }
         if (!runTextGate()) return
@@ -152,7 +154,7 @@ export const ChannelTileGrid = ({
       // settle rather than redirecting a Serve org that will resolve true.
       if (!canUseProFeatures && !electedOfficePending) {
         trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
-        router.push(PRO_UPGRADE_TAKEOVER_ENTRY)
+        router.push(proUpgradeTakeoverEntry('phone-banking'))
         return
       }
       onCreatePhoneBanking()
