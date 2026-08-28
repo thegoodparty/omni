@@ -403,6 +403,30 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     return updatedCount === 1
   }
 
+  // Set-if-absent CAS on the Stripe customerId: the write lands only when no
+  // customerId is stored yet, so concurrent first-time card-vault requests can
+  // never each persist a different customer. Raw SQL because a conditional
+  // single-key JSON write can't be expressed as a Prisma merge (mirrors
+  // compareAndSwapCheckoutSessionId).
+  async setCustomerIdIfAbsent(
+    userId: number,
+    customerId: string,
+  ): Promise<boolean> {
+    const updatedCount = await this.client.$executeRaw`
+      UPDATE "user"
+      SET
+        meta_data = jsonb_set(
+          COALESCE(meta_data, '{}'::jsonb),
+          '{customerId}',
+          to_jsonb(${customerId}::text)
+        ),
+        updated_at = NOW()
+      WHERE id = ${userId}
+        AND meta_data->>'customerId' IS NULL
+    `
+    return updatedCount === 1
+  }
+
   async patchUserMetaData(
     userId: number,
     newMetaData: PrismaJson.UserMetaData,
