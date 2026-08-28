@@ -178,6 +178,8 @@ export {
 export {
   PeopleAggregatesResponseSchema,
   type PeopleAggregatesResponse,
+  PeopleListDetailAggregatesResponseSchema,
+  type PeopleListDetailAggregatesResponse,
 } from './people/PeopleAggregates.schema'
 
 export { EmailSchema } from './shared/Email.schema'

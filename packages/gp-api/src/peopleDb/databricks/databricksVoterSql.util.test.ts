@@ -8,6 +8,7 @@ import { ALL_KNOWN_PARTY_VALUES } from '../utils/politicalParty.rules'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 import {
   buildAggregatesSql,
+  buildListDetailAggregatesSql,
   buildCountSql,
   buildCsvSql,
   buildOverlapCountSql,
@@ -81,6 +82,7 @@ describe('buildScopeSql', () => {
     const statements = [
       buildCountSql(scope),
       buildAggregatesSql(scope),
+      buildListDetailAggregatesSql(scope),
       buildPageSql({ ...scope, columns: ['id'], take: 1, skip: 0 }),
       buildOverlapCountSql({ ...scope, savedFilterSets: [] }),
       buildCsvSql(scope),
@@ -492,6 +494,71 @@ describe('aggregate and page queries', () => {
     expect(sql).toContain('COUNT(*) AS count')
     expect(sql).toContain('AVG(v.`Age_Int`) AS avgAge')
     expect(sql).toContain('AVG(v.`Estimated_Income_Amount_Int`) AS avgIncome')
+  })
+
+  // The whole list-detail payload from one scan. Each channel's COUNT_IF has
+  // to compile to the same predicate the equivalent filter key does, or a
+  // reachability tile stops describing the list a user can actually build.
+  it('emits demographics plus one conditional count per channel', () => {
+    const { sql, params } = buildListDetailAggregatesSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+    })
+
+    expect(sql).toBe(
+      'SELECT COUNT(*) AS count,' +
+        ' AVG(v.`Age_Int`) AS avgAge,' +
+        ' AVG(v.`Estimated_Income_Amount_Int`) AS avgIncome,' +
+        ' COUNT_IF(v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL)' +
+        ' AS sms,' +
+        ' COUNT_IF(v.`VoterTelephones_LandlineFormatted` IS NOT NULL)' +
+        ' AS robocall,' +
+        ' COUNT_IF((v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL' +
+        ' OR v.`VoterTelephones_LandlineFormatted` IS NOT NULL))' +
+        ' AS phoneBanking,' +
+        ' COUNT_IF((v.`Residence_Addresses_AddressLine` IS NOT NULL' +
+        " AND v.`Residence_Addresses_AddressLine` != ''))" +
+        ' AS doorKnocking' +
+        ` FROM ${VOTER_TABLE} v` +
+        ' WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
+    )
+    expect(params).toEqual([
+      { name: 'p0', value: 'CA', type: 'STRING' },
+      { name: 'p1', value: '29', type: 'STRING' },
+    ])
+  })
+
+  // The five statements this replaced each AND'd one channel's filter key
+  // into the scope. Pin each COUNT_IF to what that key still compiles to, so
+  // a change to the filter vocabulary cannot silently leave a tile behind.
+  it('counts each channel on the same predicate its filter key builds', () => {
+    const { sql } = buildListDetailAggregatesSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+    })
+
+    const channelByFilterKey: Record<string, string> = {
+      hasCellPhone: 'sms',
+      hasLandline: 'robocall',
+      hasAnyPhone: 'phoneBanking',
+      hasAddress: 'doorKnocking',
+    }
+    for (const [key, channel] of Object.entries(channelByFilterKey)) {
+      const predicate = buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ [key]: true }),
+      )
+      expect(sql).toContain(`COUNT_IF(${predicate}) AS ${channel}`)
+    }
+  })
+
+  it('does not de-duplicate by household — the aggregates path never has', () => {
+    const { sql } = buildListDetailAggregatesSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+    })
+
+    expect(sql).not.toContain('DISTINCT')
   })
 
   it('orders a page by id and applies LIMIT/OFFSET', () => {

@@ -11,6 +11,8 @@ import { ElectionApiDistrictService } from '../services/electionApiDistrict.serv
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
+  PeopleListDetailAggregatesResponse,
+  PeopleListDetailAggregatesResponseSchema,
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
   PeoplePrecinctsResponseSchema,
@@ -30,6 +32,7 @@ import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import type { DbxStatement } from './databricksVoterSql.util'
 import {
   buildAggregatesSql,
+  buildListDetailAggregatesSql,
   buildCountSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
@@ -185,6 +188,30 @@ export class DatabricksVoterService {
       count: Number(row?.[0] ?? 0),
       avgAge: row?.[1] == null ? null : Number(row[1]),
       avgIncome: row?.[2] == null ? null : Number(row[2]),
+    })
+  }
+
+  async getListDetailAggregates(
+    dto: AggregatesDTO,
+  ): Promise<PeopleListDetailAggregatesResponse> {
+    const district = await this.resolveDistrict(dto.districtId)
+    const { rows } = await this.run(
+      buildListDetailAggregatesSql({
+        district,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      }),
+    )
+    const [row] = rows
+    return PeopleListDetailAggregatesResponseSchema.parse({
+      count: Number(row?.[0] ?? 0),
+      avgAge: row?.[1] == null ? null : Number(row[1]),
+      avgIncome: row?.[2] == null ? null : Number(row[2]),
+      sms: Number(row?.[3] ?? 0),
+      robocall: Number(row?.[4] ?? 0),
+      phoneBanking: Number(row?.[5] ?? 0),
+      doorKnocking: Number(row?.[6] ?? 0),
     })
   }
 

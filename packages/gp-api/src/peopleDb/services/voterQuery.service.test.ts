@@ -4,6 +4,7 @@ import { Prisma } from '../../generated/people-prisma'
 import { VoterQueryService } from './voterQuery.service'
 import type { PeopleDbService } from '../peopleDb.service'
 import { FilterData } from '../schemas/filters.schema'
+import { aggregatesSchema } from '../schemas/people.schema'
 import { MAX_PRECINCT_OPTIONS } from '../databricks/databricksVoterSql.util'
 
 const makeDbPerson = (overrides: Record<string, unknown> = {}) =>
@@ -856,6 +857,163 @@ describe('VoterQueryService', () => {
       const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       expect(sql).toContain('FROM "green"."Voter" v')
       expect(sql).not.toContain('DistrictVoter')
+    })
+  })
+
+  // GET /v1/contacts/list-detail used to issue five aggregates per request.
+  // Databricks answers it in one statement now; this arm deliberately still
+  // issues the same five, so the dual-read comparison stays like-for-like and
+  // people-db load is unchanged by the consolidation.
+  describe('getListDetailAggregates', () => {
+    const DISTRICT_ID = '0e5bafca-93a9-86a5-2522-f373979720df'
+
+    const aggRow = (count: number) => [
+      { count: BigInt(count), avgAge: 30, avgIncome: 15000 },
+    ]
+
+    const rawCallOf = (call: unknown) => {
+      const arg =
+        (call as { strings?: readonly string[]; values?: unknown[] }) ?? {}
+      return {
+        sql: arg.strings ? arg.strings.join('?') : '',
+        values: arg.values ?? [],
+      }
+    }
+
+    const queueRows = (times: number) => {
+      for (let i = 0; i < times; i += 1) {
+        mockClient.$queryRaw.mockResolvedValueOnce(aggRow(1))
+      }
+    }
+
+    it('combines the base and four channel counts into one payload', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce(aggRow(999))
+        .mockResolvedValueOnce(aggRow(777))
+        .mockResolvedValueOnce(aggRow(222))
+        .mockResolvedValueOnce(aggRow(555))
+        .mockResolvedValueOnce(aggRow(111))
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      // Distinct counts per channel so a mis-wired channel fails here rather
+      // than passing on a coincidentally equal number.
+      expect(result).toEqual({
+        count: 999,
+        avgAge: 30,
+        avgIncome: 15000,
+        sms: 777,
+        robocall: 222,
+        phoneBanking: 555,
+        doorKnocking: 111,
+      })
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(5)
+    })
+
+    it('issues the same five queries the separate aggregates calls did', async () => {
+      const channelFilters = [
+        {},
+        { hasCellPhone: true },
+        { hasLandline: true },
+        { hasAnyPhone: true },
+        { hasAddress: true },
+      ]
+      for (const filters of channelFilters) {
+        mockClient.$queryRaw.mockResolvedValueOnce(aggRow(1))
+        await service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID, filters }),
+        )
+      }
+      const expected = mockClient.$queryRaw.mock.calls.map((call) =>
+        rawCallOf(call[0]),
+      )
+      mockClient.$queryRaw.mockClear()
+
+      queueRows(5)
+      await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(
+        mockClient.$queryRaw.mock.calls.map((call) => rawCallOf(call[0])),
+      ).toEqual(expected)
+    })
+
+    it('does not double a channel predicate the base filters already carry', async () => {
+      const filters = { hasCellPhone: true }
+      queueRows(1)
+      await service.getAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID, filters }),
+      )
+      const expectedCellphone = rawCallOf(
+        mockClient.$queryRaw.mock.calls[0]?.[0],
+      )
+      mockClient.$queryRaw.mockClear()
+
+      queueRows(5)
+      await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID, filters }),
+      )
+
+      // The base already filters on hasCellPhone, so the sms query is the base
+      // query unchanged — not the base query with a second copy of the same
+      // predicate AND-ed on.
+      expect(rawCallOf(mockClient.$queryRaw.mock.calls[0]?.[0])).toEqual(
+        expectedCellphone,
+      )
+      expect(rawCallOf(mockClient.$queryRaw.mock.calls[1]?.[0])).toEqual(
+        expectedCellphone,
+      )
+    })
+
+    it('runs the five serially when the answer is comparison-only', async () => {
+      ;(
+        service as unknown as {
+          shadow: { enabled: boolean; compare: (args: never) => unknown }
+        }
+      ).shadow = {
+        enabled: true,
+        compare: (args: never) =>
+          (args as unknown as { comparison: () => unknown }).comparison(),
+      }
+      let inFlight = 0
+      let peakInFlight = 0
+      mockClient.$queryRaw.mockImplementation(async () => {
+        inFlight += 1
+        peakInFlight = Math.max(peakInFlight, inFlight)
+        await new Promise((resolve) => setImmediate(resolve))
+        inFlight -= 1
+        return aggRow(1)
+      })
+
+      await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      // MAX_CONCURRENT_COMPARISONS bounds comparisons, not the statements
+      // inside one, so a parallel fan-out here would multiply that cap by five.
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(5)
+      expect(peakInFlight).toBe(1)
+    })
+
+    it('runs the five in parallel when Postgres is serving the request', async () => {
+      let inFlight = 0
+      let peakInFlight = 0
+      mockClient.$queryRaw.mockImplementation(async () => {
+        inFlight += 1
+        peakInFlight = Math.max(peakInFlight, inFlight)
+        await new Promise((resolve) => setImmediate(resolve))
+        inFlight -= 1
+        return aggRow(1)
+      })
+
+      await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(peakInFlight).toBe(5)
     })
   })
 

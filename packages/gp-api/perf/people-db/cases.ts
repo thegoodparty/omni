@@ -31,9 +31,10 @@ export const QUERY_DESCRIPTIONS: Record<QueryType, string> = {
     'One query, and the load-bearing one: it has to aggregate the whole ' +
     'filtered set, not just a page of it.',
   'list-detail':
-    'One whole GET /v1/contacts/list-detail: the base tile resolved first, ' +
-    'then its three channel tiles in parallel. Four aggregates, not one, so ' +
-    'reading count alone understates a real request by roughly 4x.',
+    'One whole GET /v1/contacts/list-detail. Databricks answers it in one ' +
+    'conditional-aggregate statement; the Postgres arm measured here still ' +
+    'runs the base tile plus one aggregate per channel, so reading count ' +
+    'alone understates a real request by roughly 5x.',
   search: 'Name search across the district, served by a trigram index.',
   sample: 'A random sample of contacts, used to seed lists and previews.',
   overlap:
