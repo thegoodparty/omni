@@ -54,6 +54,14 @@ describe('validateRegistrationForm', () => {
       const result = validateRegistrationForm(baseValidFormData())
       expect(result.validations.candidateName).toBe(true)
     })
+
+    it('rejects a whitespace-only candidateName (backend trims before its min-length check)', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ candidateName: '   ' }),
+      )
+      expect(result.validations.candidateName).toBe(false)
+      expect(result.isValid).toBe(false)
+    })
   })
 
   describe('EIN sanity (shared by register + agentic flows)', () => {

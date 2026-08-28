@@ -360,7 +360,7 @@ export const validateRegistrationForm = (
       isURL(electionFilingLinkValue) &&
       urlIncludesPath(electionFilingLinkValue),
     campaignCommitteeName: isFilled(campaignCommitteeNameValue),
-    candidateName: isFilled(candidateNameValue),
+    candidateName: isFilled(candidateNameValue.trim()),
     officeLevel: ['federal', 'state', 'local'].includes(officeLevelValue),
     ein: checkEinSanity(einValue).valid,
     phone: phoneRequired ? isMobilePhone(phoneValue, 'en-US') : true,
