@@ -5,13 +5,26 @@ import type {
   RobocallAuthorizeStatus,
   RobocallScriptDraftRequest,
 } from '@goodparty_org/contracts'
+import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
-import { api } from 'helpers/test-utils/api-mocking'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { RobocallFlow } from './RobocallFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
+}))
+
+// PaymentPortalButton (the reused billing-portal affordance in the pay step)
+// reads useSnackbar, which throws outside a SnackbarProvider — the minimal test
+// render has none. A no-op stand-in keeps the real button so the portal-session
+// call still fires and can be asserted.
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    errorSnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
 }))
 
 // MediaRecorder / getUserMedia don't exist in jsdom, so replace the recorder
@@ -1642,5 +1655,83 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Recording saved')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  it('opens the Stripe billing portal from the pay form to manage cards', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+
+    // The reused portal-session call (POST /payments/purchase/portal-session)
+    // is a legacy route, not a typed APIEndpoints key, so it's mocked as a raw
+    // MSW handler rather than through api.mock.
+    let portalCalls = 0
+    mswServer.use(
+      http.post('*/payments/purchase/portal-session', () => {
+        portalCalls += 1
+        return HttpResponse.json({
+          redirectUrl: 'https://billing.stripe.test/session/1',
+        })
+      }),
+    )
+
+    // PaymentPortalButton redirects via window.location.href; capture it so
+    // jsdom doesn't attempt an unimplemented navigation.
+    const hrefSetter = vi.fn()
+    const originalLocation = window.location
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        get href() {
+          return 'http://localhost/'
+        },
+        set href(value: string) {
+          hrefSetter(value)
+        },
+      },
+    })
+
+    try {
+      await gotoReview()
+      await enterPay()
+
+      const manage = await screen.findByRole('button', {
+        name: /Manage payment methods/,
+      })
+      await userEvent.click(manage)
+
+      await waitFor(() => expect(portalCalls).toBe(1))
+      await waitFor(() =>
+        expect(hrefSetter).toHaveBeenCalledWith(
+          'https://billing.stripe.test/session/1',
+        ),
+      )
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      })
+    }
+  })
+
+  it('surfaces the billing portal link on the decline retry card', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    mockAuthorize('hold_failed', null, 'hold_failed')
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+    await screen.findByText('Your card was declined')
+
+    // A declined candidate can both retry with a new card and reach the portal
+    // to remove the failed one.
+    expect(
+      screen.getByRole('button', { name: 'Try another card' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Manage payment methods/ }),
+    ).toBeInTheDocument()
   })
 })
