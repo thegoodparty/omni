@@ -131,6 +131,23 @@ const sectionToBlock = ({ title, lines }: ReportSection): SlackMessageBlock => {
 const campaignRef = (record: RecordWithCampaign) =>
   `• ${record.campaign.slug} (campaign ${record.campaignId})`
 
+// Internal channel, so campaign slug/ID (useful for triage) is fine here —
+// unlike vendorEscalationMessage below, which is read by Peerly.
+const internalStallAlertMessage = ({
+  record,
+  caseLabel,
+  detail,
+}: {
+  record: RecordWithCampaign
+  caseLabel: string
+  detail: string
+}) =>
+  `*10DLC stalled registration — ${caseLabel} (one-time alert)*\n` +
+  `${campaignRef(record)}\n` +
+  `Peerly identity: ${record.peerlyIdentityId}\n` +
+  `${detail}\n` +
+  'This is an engineering bug on our side — needs a one-time fix, not a nightly nudge.'
+
 // Vendor-appropriate content only: identity ID + committee name is enough
 // for Peerly to look up the record — no candidate email/phone, no internal
 // campaign IDs, no gp-admin links.
@@ -524,30 +541,6 @@ export class Nightly10DlcReportService extends createPrismaBase(
         ),
       },
       {
-        title:
-          '🛑 Never reached CampaignVerify (>13h, likely our submit pipeline)',
-        lines: neverReachedCv.map((record) => {
-          const submittedAt =
-            record.peerlySubmissionStartedAt ?? record.createdAt
-          return (
-            `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-            `submitted ${differenceInCalendarDays(now, submittedAt)}d ago`
-          )
-        }),
-      },
-      {
-        title:
-          '🛑 PIN verified but CV token/approve never completed (our side)',
-        lines: profileStalled.map((record) => {
-          const changedAt =
-            record.peerlyProfileStatusChangedAt ?? record.updatedAt
-          return (
-            `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-            `profile pending ${differenceInCalendarDays(now, changedAt)}d`
-          )
-        }),
-      },
-      {
         title: '⚠️ Escalated to Peerly: CV IN_REVIEW >3 business days',
         lines: inReviewToEscalate.map(
           (record) =>
@@ -727,6 +720,10 @@ export class Nightly10DlcReportService extends createPrismaBase(
     // shared vendor channel once, not nightly (ENG-10796).
     await this.escalateInReviewStalls(inReviewToEscalate, now)
     await this.escalateWaitingToFinalizeStalls(waitingToFinalizeToEscalate, now)
+    // Cases 1 and 3a (ENG-10966): our own engineering bugs, so they ping the
+    // internal channel once instead of relisting in this report every night.
+    await this.alertCvNeverReached(neverReachedCv, now)
+    await this.alertProfileStalled(profileStalled, now)
 
     this.logger.info(
       {
@@ -739,6 +736,125 @@ export class Nightly10DlcReportService extends createPrismaBase(
       '[10DLC nightly report] Posted',
     )
     return true
+  }
+
+  // Once-only claim on cvNeverReachedAlertedAt before pinging the internal
+  // engineering channel (case 1, ENG-10966) — an identity minted but the CV
+  // never showed a status is our submit pipeline dropping the request, not a
+  // vendor stall or a candidate wait, so it needs a person to look once
+  // rather than reappear in every nightly report. Never cleared: a null CV
+  // status can't recur on a fixed row (see the schema comment).
+  private async alertCvNeverReached(records: RecordWithCampaign[], now: Date) {
+    for (const record of records) {
+      const claimedAt = new Date()
+      const claim = await this.model.updateMany({
+        where: { id: record.id, cvNeverReachedAlertedAt: null },
+        data: { cvNeverReachedAlertedAt: claimedAt },
+      })
+      if (claim.count === 0) {
+        continue
+      }
+
+      const submittedAt = record.peerlySubmissionStartedAt ?? record.createdAt
+      const posted = await this.slack.message(
+        {
+          blocks: [
+            mrkdwnSection(
+              internalStallAlertMessage({
+                record,
+                caseLabel: 'CV never reached',
+                detail:
+                  `Submitted ${differenceInCalendarDays(now, submittedAt)}d ` +
+                  'ago; CampaignVerify has never shown a status — the ' +
+                  'submission likely never reached Peerly.',
+              }),
+            ),
+          ],
+        },
+        SlackChannel.bot10DlcCompliance,
+      )
+      if (posted !== undefined) {
+        continue
+      }
+
+      // If this rollback itself fails, the claim stays set forever with no
+      // alert ever sent — log loudly so it's visible rather than silently
+      // stranding the record unalerted.
+      try {
+        await this.model.updateMany({
+          where: { id: record.id, cvNeverReachedAlertedAt: claimedAt },
+          data: { cvNeverReachedAlertedAt: null },
+        })
+        this.logger.error(
+          { tcrComplianceId: record.id },
+          '[10DLC nightly report] CV-never-reached alert post failed; ' +
+            'claim rolled back for retry',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[10DLC nightly report] CV-never-reached alert post failed and ' +
+            'the claim rollback also failed; record is stuck unalerted ' +
+            'until repaired',
+        )
+      }
+    }
+  }
+
+  // Same once-only claim/rollback pattern as alertCvNeverReached, on
+  // profileStalledAlertedAt (case 3a, ENG-10966).
+  private async alertProfileStalled(records: RecordWithCampaign[], now: Date) {
+    for (const record of records) {
+      const claimedAt = new Date()
+      const claim = await this.model.updateMany({
+        where: { id: record.id, profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: claimedAt },
+      })
+      if (claim.count === 0) {
+        continue
+      }
+
+      const changedAt = record.peerlyProfileStatusChangedAt ?? record.updatedAt
+      const posted = await this.slack.message(
+        {
+          blocks: [
+            mrkdwnSection(
+              internalStallAlertMessage({
+                record,
+                caseLabel: 'PIN verified, profile stalled',
+                detail:
+                  `Profile pending ${differenceInCalendarDays(now, changedAt)}d; ` +
+                  'the PIN was verified but we never minted/attached the ' +
+                  'CV token or never called /approve.',
+              }),
+            ),
+          ],
+        },
+        SlackChannel.bot10DlcCompliance,
+      )
+      if (posted !== undefined) {
+        continue
+      }
+
+      try {
+        await this.model.updateMany({
+          where: { id: record.id, profileStalledAlertedAt: claimedAt },
+          data: { profileStalledAlertedAt: null },
+        })
+        this.logger.error(
+          { tcrComplianceId: record.id },
+          '[10DLC nightly report] Profile-stalled alert post failed; ' +
+            'claim rolled back for retry',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[10DLC nightly report] Profile-stalled alert post failed and ' +
+            'the claim rollback also failed; record is stuck unalerted ' +
+            'until repaired',
+        )
+      }
+    }
   }
 
   // Once-only claim on cvInReviewEscalatedAt before posting to the shared

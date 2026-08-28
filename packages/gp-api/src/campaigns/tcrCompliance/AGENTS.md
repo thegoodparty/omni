@@ -272,27 +272,19 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   never matches null). Nudge-style like awaiting-PIN, not counted as stuck —
   the fix is candidate action, and the sweep dispatches automatically once
   the profile is completed.
-- **Ten failure sections**, all scoped to `campaign.isPro` (pre-payment records
+- **Seven failure sections**, all scoped to `campaign.isPro` (pre-payment records
   intentionally sit idle) and excluding internal accounts (user email
   ending `@goodparty.org` / `@test.goodparty.org` — staff walk this flow
   in prod and their stuck records are noise): submission never completed (>24h after kickoff,
   with agentic run status), kickoff `error`, Peerly/CV `rejected`, active
   billing block (within `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES`), domain
   purchase never completed (post-cutoff `registrantVerifiedAt` NULL — see
-  the legacy-domain gotcha below), CV never reached (ENG-10795 case 1: identity
-  minted, `submitted` 13+ hours ago — one full scan cycle plus margin, since
-  CV creates the request at `Requested` synchronously on submission
-  (confirmed with Peerly/Nate 2026-08-17), so a scan-observed null past that
-  window is a dropped submission, not propagation lag — `peerlyCvStatus`
-  still null; disjoint from "submission never completed", which is
-  `peerlyIdentityId: null` and never even reached Peerly),
-  PIN-verified-but-stalled (ENG-10795 case 3a:
-  `peerlyCvStatus` `VERIFIED` + `peerlyProfileStatus` `pending` past a 20h
-  floor — i.e. the pair observed across multiple scan slots, filtering
-  out records still mid-PIN-flow), the two vendor-escalation
+  the legacy-domain gotcha below), the two vendor-escalation
   mirror sections (ENG-10796 cases 2 and 3b — see below), and an awaiting-PIN
   > 7d nudge section that is reported but not counted as stuck. Sections cap
-  > at 25 rows with an explicit `…and N more`.
+  > at 25 rows with an explicit `…and N more`. Cases 1 and 3a (ENG-10795) are
+  > detected here too but no longer render as a section — see "One-time
+  > internal alerts" below.
 - **The awaiting-PIN nudge is `peerlyCvStatus = APPROVED` only (ENG-10866).**
   It used to be `{ not: null, notIn: [VERIFIED] }`, which swept in `REQUESTED`
   and `IN_REVIEW` and printed `PIN out Nd` for records where CampaignVerify had
@@ -370,6 +362,32 @@ list the same escalation-eligible set every night while still stuck, each
 line suffixed `(escalated <date>)` from the claim column, or
 `escalation pending` if the claim is still null. They count toward the
 header's stuck total.
+
+### One-time internal alerts for our own bugs (ENG-10966)
+
+Cases 1 and 3a (ENG-10795) — CV never reached and PIN-verified-but-profile-
+stalled — are **our** engineering bugs, not a vendor stall or a candidate
+wait, so nobody needs to be reminded nightly. They used to render as
+accumulating report sections; they still get detected in the same
+`handleNightlyReport` queries with the same age floors (13h / 20h), but
+instead of relisting every night they fire a one-time ping to
+`SlackChannel.bot10DlcCompliance` (the internal engineering channel, so the
+message can carry the campaign slug/ID for triage — no vendor-appropriate
+redaction needed) and are dropped from `failureSections` entirely.
+
+**Once-only per record**, same claim/rollback shape as the vendor escalation
+above: an atomic `updateMany WHERE cvNeverReachedAlertedAt IS NULL` (resp.
+`profileStalledAlertedAt`) claims the record before the Slack post; a failed
+post rolls the claim back (scoped to the exact timestamp) so the next
+nightly run retries. Unlike the vendor-escalation columns, **these are never
+cleared on progress** — a null CV status or a pending profile can't
+legitimately recur on the same row once it's fixed, so there's no "leaving
+the state" transition to reset on. `alertCvNeverReached` /
+`alertProfileStalled` run after the internal report posts, alongside (but
+independent of) the vendor escalations.
+
+Neither alert counts toward the header's stuck total any more — removing the
+section removed their contribution to `stuckCount` along with it.
 
 ## `submitToPeerlyForAgent` notes
 
