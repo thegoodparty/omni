@@ -37,7 +37,6 @@ import {
   buildPageSql,
   buildPersonSql,
   buildSampleSql,
-  buildVoterColumnsSql,
   HOUSEHOLD_PAGE_COLUMNS,
   buildDoorKnockingEvaluateSql,
   buildDoorKnockingResidentsSql,
@@ -100,6 +99,9 @@ const NUMERIC_LIST_COLUMNS = new Set<string>([
   'Estimated_Income_Amount_Int',
 ])
 
+// L2 district-type columns are word characters only -- all 181 in use match.
+const SAFE_IDENTIFIER = /^[A-Za-z0-9_]+$/
+
 const NUMERIC_RESIDENT_COLUMNS = new Set<string>([
   'Age_Int',
   'Estimated_Income_Amount_Int',
@@ -122,10 +124,6 @@ export class DatabricksVoterService {
   // resolves the same district four times over, so caching saves three round
   // trips per request rather than shaving a query.
   private readonly districts = new Map<string, DbxDistrict>()
-  // The district `type` is interpolated as an identifier, so it is checked
-  // against the voter table's real column set rather than a pattern. Fetched
-  // once per process: the schema does not change under a running task.
-  private voterColumns: Set<string> | null = null
 
   constructor(
     private readonly logger: PinoLogger,
@@ -154,32 +152,22 @@ export class DatabricksVoterService {
       // all, which is why the Postgres path drops the district predicate.
       useVoterOnlyPath: type === STATE_DISTRICT_TYPE && name === state,
     }
-    if (!district.useVoterOnlyPath) {
-      const columns = await this.ensureVoterColumns()
-      if (!columns.has(type)) {
-        throw new InternalServerErrorException(
-          `District ${districtId} has type "${type}", which is not a column ` +
-            'on the voter table',
-        )
-      }
+    // `type` is spliced into the SQL as a column IDENTIFIER, which cannot be a
+    // bound parameter, so it is checked before it gets there. It arrives from
+    // election-api's District table rather than from a caller, so this guards
+    // our own ingest rather than user input -- and a character class is the
+    // whole of that guard: a value that fails it cannot form valid SQL. This
+    // used to query information_schema on every process to confirm the column
+    // existed too, which answered a different question at the cost of an
+    // uncached metadata round trip on the first voter read of every task.
+    if (!district.useVoterOnlyPath && !SAFE_IDENTIFIER.test(type)) {
+      throw new InternalServerErrorException(
+        `District ${districtId} has type "${type}", which is not a usable ` +
+          'column name on the voter table',
+      )
     }
     this.districts.set(districtId, district)
     return district
-  }
-
-  private async ensureVoterColumns(): Promise<Set<string>> {
-    if (this.voterColumns) return this.voterColumns
-    const { rows } = await this.run(buildVoterColumnsSql())
-    const columns = new Set(
-      rows
-        .map(([name]) => name)
-        .filter((name): name is string => typeof name === 'string'),
-    )
-    if (columns.size === 0) {
-      throw new BadGatewayException(UNAVAILABLE_MESSAGE)
-    }
-    this.voterColumns = columns
-    return columns
   }
 
   async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {

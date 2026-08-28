@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { statementIdCollector } from './databricks/peopleDbxStatement.client'
 import { DatabricksVoterService } from './databricks/databricksVoter.service'
 import { resolvePeopleDbxConfig } from './databricks/peopleDbx.config'
 
@@ -17,6 +18,7 @@ type DualReadLog = {
   pgFingerprint: string | null
   agrees: boolean | null
   dbxFailed: boolean
+  statementIds: string[]
   pgError: string | null
 }
 
@@ -27,12 +29,20 @@ const DUAL_READ_MESSAGE = 'people-db dual read'
 // connection open when nothing is waiting on its answer.
 export const COMPARISON_STATEMENT_TIMEOUT_MS = 8_000
 
+// Two at a time across the process. The number is the old list-detail gate's
+// shape rather than a tuned value: it kept a failing request to a single scan
+// family instead of five, and this keeps that property without holding the
+// authoritative arm back.
+const MAX_CONCURRENT_COMPARISONS = 2
+
 @Injectable()
 export class ShadowReadService {
   // PinoLogger, not @nestjs/common's Logger: only Pino's (object, message)
   // signature puts these fields at the top level of the log line, and the
   // whole point of the comparison is being able to aggregate them in LogQL.
   private warnedUnresolved = false
+  private comparisonsInFlight = 0
+  private readonly comparisonWaiters: Array<() => void> = []
 
   constructor(
     private readonly logger: PinoLogger,
@@ -84,14 +94,20 @@ export class ShadowReadService {
   }): Promise<A> {
     const comparisonSettled = this.timeComparison(args.comparison)
     const startedAt = performance.now()
+    // Collected per operation, not per statement: `list` issues a count and a
+    // page, and an export issues a submit plus its chunk fetches.
+    const statementIds: string[] = []
     try {
-      const value = await args.authoritative()
+      const value = await statementIdCollector.run(statementIds, () =>
+        args.authoritative(),
+      )
       void this.report(
         args,
         performance.now() - startedAt,
         value,
         false,
         comparisonSettled,
+        statementIds,
       )
       return value
     } catch (err) {
@@ -101,17 +117,24 @@ export class ShadowReadService {
         null,
         true,
         comparisonSettled,
+        statementIds,
       )
       throw err
     }
   }
 
+  // The comparison arm never blocks a response -- compare() awaits only the
+  // authoritative side -- so its cost is database load, not latency. That is
+  // what this cap protects. Callers may now fan out freely on the Databricks
+  // side (list-detail issues five aggregates at once), and without a cap that
+  // would put the same fan-out onto people-db, which is the exact amplification
+  // the list-detail gate used to prevent by serialising both arms together.
   private async timeComparison<C>(
     comparison: () => Promise<C>,
   ): Promise<{ ms: number; value: C | null; error: string | null }> {
     const startedAt = performance.now()
     try {
-      const value = await comparison()
+      const value = await this.withComparisonSlot(comparison)
       return { ms: performance.now() - startedAt, value, error: null }
     } catch (err) {
       return {
@@ -119,6 +142,22 @@ export class ShadowReadService {
         value: null,
         error: err instanceof Error ? err.message : String(err),
       }
+    }
+  }
+
+  // Time spent queued counts toward the comparison's measured duration on
+  // purpose: pgMs should describe what Postgres would cost under this load, not
+  // what one unqueued query costs in isolation.
+  private async withComparisonSlot<C>(work: () => Promise<C>): Promise<C> {
+    while (this.comparisonsInFlight >= MAX_CONCURRENT_COMPARISONS) {
+      await new Promise<void>((resolve) => this.comparisonWaiters.push(resolve))
+    }
+    this.comparisonsInFlight += 1
+    try {
+      return await work()
+    } finally {
+      this.comparisonsInFlight -= 1
+      this.comparisonWaiters.shift()?.()
     }
   }
 
@@ -140,6 +179,7 @@ export class ShadowReadService {
       value: C | null
       error: string | null
     }>,
+    statementIds: string[],
   ): Promise<void> {
     const pg = await comparisonSettled
     const dbxPrint =
@@ -170,6 +210,7 @@ export class ShadowReadService {
       agrees: comparable ? dbxPrint === pgPrint : null,
       dbxFailed,
       pgError: pg.error,
+      statementIds,
     }
     this.logger.info(entry, DUAL_READ_MESSAGE)
   }

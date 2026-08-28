@@ -175,13 +175,14 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     expect(response.status).toBe(500)
   })
 
-  // Load-shedding: the base tile is resolved first and gates the four channel
-  // scans. When base fails, the route can't render anything anyway, so the
-  // channel aggregates are NOT fired — during a people-db statement-timeout
-  // incident this stops a failing list-detail from launching 4 extra doomed
-  // DistrictVoter->Voter scans that only deepen the overload. So getAggregates
-  // runs exactly once on the base-failure path.
-  it('does not fire the channel aggregates when the base aggregate fails', async () => {
+  // The five aggregates fire together. This used to resolve the base tile
+  // first and gate the four channels on it, to keep a failing list-detail from
+  // launching four more doomed scans while people-db was tripping its statement
+  // timeout. Databricks serves these now and charges a fixed per-statement
+  // floor rather than scan load, so the gate cost latency for nothing — the
+  // load protection moved to a cap on the Postgres comparison arm, which no
+  // longer widens with this fan-out. A failing base still fails the route.
+  it('fires every channel aggregate even when the base aggregate fails', async () => {
     const slug = await setupOrg('base-fail-loadshed')
     const spy = vi
       .spyOn(service.app.get(VoterQueryService), 'getAggregates')
@@ -193,6 +194,6 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     })
 
     expect(response.status).toBe(500)
-    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledTimes(5)
   })
 })

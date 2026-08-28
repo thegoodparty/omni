@@ -17,21 +17,10 @@ import {
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
-  type PeopleDbxRows,
 } from './peopleDbxStatement.client'
 
 const DISTRICT_ID = '635757db-1111-4111-8111-111111111111'
 const STATE_DISTRICT_ID = 'aaaaaaaa-1111-4111-8111-111111111111'
-
-// The district `type` is interpolated as an identifier, so resolveDistrict
-// validates it against the voter table's real column set — a second query on
-// every resolution that is not the State-only path.
-const VOTER_COLUMNS = ['id', 'State', 'US_Congressional_District', 'Age_Int']
-
-const columnRows = (): PeopleDbxRows => ({
-  columns: ['column_name'],
-  rows: VOTER_COLUMNS.map((column) => [column]),
-})
 
 describe('DatabricksVoterService', () => {
   let query: ReturnType<typeof vi.fn>
@@ -65,16 +54,15 @@ describe('DatabricksVoterService', () => {
   describe('resolveDistrict', () => {
     it('scopes a normal district on its L2 column, not the junction', async () => {
       stubDistrict('US_Congressional_District', '29')
-      query.mockResolvedValueOnce(columnRows())
 
       const district = await service.resolveDistrict(DISTRICT_ID)
 
       expect(district.districtType).toBe('US_Congressional_District')
       expect(district.districtName).toBe('29')
       expect(district.useVoterOnlyPath).toBe(false)
-      expect(query.mock.calls[0]?.[0].sql).toContain(
-        'information_schema.columns',
-      )
+      // Resolution costs no warehouse query at all now: the district comes from
+      // election-api and the type is validated by shape, not by a lookup.
+      expect(query).not.toHaveBeenCalled()
     })
 
     it('takes the voter-only path for a State district named for its state', async () => {
@@ -90,7 +78,6 @@ describe('DatabricksVoterService', () => {
 
     it('keeps the district predicate for a State district named otherwise', async () => {
       stubDistrict('State', 'Statewide')
-      query.mockResolvedValueOnce(columnRows())
 
       const district = await service.resolveDistrict(DISTRICT_ID)
 
@@ -110,47 +97,28 @@ describe('DatabricksVoterService', () => {
 
     it('resolves a district once and reuses it', async () => {
       stubDistrict('US_Congressional_District', '29')
-      query.mockResolvedValueOnce(columnRows())
 
       await service.resolveDistrict(DISTRICT_ID)
       await service.resolveDistrict(DISTRICT_ID)
 
-      // The column list only, and Postgres asked once rather than per call.
-      expect(query).toHaveBeenCalledTimes(1)
+      expect(query).not.toHaveBeenCalled()
       expect(findDistrictById).toHaveBeenCalledTimes(1)
     })
 
-    // A `type` that is not a column would be interpolated straight into the
-    // statement, so it is refused rather than queried.
-    it('refuses a district whose type is not a voter column', async () => {
-      stubDistrict('Bogus_Column', '29')
-      query.mockResolvedValueOnce(columnRows())
+    // `type` is spliced in as an identifier, so anything that could change the
+    // shape of the statement is refused before it gets there.
+    it('refuses a district type that is not a bare identifier', async () => {
+      stubDistrict('Ward"; DROP TABLE voters --', '29')
 
       await expect(service.resolveDistrict(DISTRICT_ID)).rejects.toThrow(
         InternalServerErrorException,
       )
-    })
-
-    it('fetches the voter column list once and reuses it', async () => {
-      stubDistrict('US_Congressional_District', '29')
-      stubDistrict('State', 'Statewide', STATE_DISTRICT_ID)
-      query.mockResolvedValueOnce(columnRows())
-
-      await service.resolveDistrict(DISTRICT_ID)
-      await service.resolveDistrict(STATE_DISTRICT_ID)
-
-      expect(query).toHaveBeenCalledTimes(1)
-      const columnQueries = query.mock.calls.filter(([statement]) =>
-        String(statement.sql).includes('information_schema.columns'),
-      )
-      expect(columnQueries).toHaveLength(1)
     })
   })
 
   describe('getAggregates', () => {
     beforeEach(() => {
       stubDistrict('US_Congressional_District', '29')
-      query.mockResolvedValueOnce(columnRows())
     })
 
     it('coerces the string row the API returns into numbers', async () => {
@@ -232,7 +200,7 @@ describe('DatabricksVoterService', () => {
   describe('getOverlapCount', () => {
     it('returns the counted overlap', async () => {
       stubDistrict('US_Congressional_District', '29')
-      query.mockResolvedValueOnce(columnRows()).mockResolvedValueOnce({
+      query.mockResolvedValueOnce({
         columns: ['overlap_count'],
         rows: [['1234']],
       })
@@ -265,7 +233,6 @@ describe('DatabricksVoterService', () => {
 
     beforeEach(() => {
       stubDistrict('US_Congressional_District', '29')
-      query.mockResolvedValueOnce(columnRows())
     })
 
     it('runs the count and the page as separate queries', async () => {
@@ -299,9 +266,9 @@ describe('DatabricksVoterService', () => {
       )
 
       expect(result.pagination.totalResults).toBe(0)
-      // The column list + the page, and no count. The district is a Postgres
-      // read, so it is not one of these.
-      expect(query).toHaveBeenCalledTimes(2)
+      // The page alone. The district is resolved off-warehouse and there is no
+      // column probe any more, so the page is the only statement.
+      expect(query).toHaveBeenCalledTimes(1)
     })
 
     it('reports the page it actually fetched', async () => {
@@ -367,7 +334,6 @@ describe('DatabricksVoterService', () => {
   describe('findPerson', () => {
     beforeEach(() => {
       stubDistrict('US_Congressional_District', '29')
-      query.mockResolvedValueOnce(columnRows())
     })
 
     it('returns the person when the id is inside the district', async () => {

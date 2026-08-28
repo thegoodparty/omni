@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { statementIdCollector } from './databricks/peopleDbxStatement.client'
 import { ShadowReadService } from './shadowRead.service'
 
 const ENV_KEYS = [
@@ -131,5 +132,66 @@ describe('ShadowReadService', () => {
       call(() => Promise.reject(new Error('nope')), comparison),
     ).rejects.toThrow('nope')
     expect(comparison).toHaveBeenCalledTimes(1)
+  })
+
+  // The list-detail gate used to bound Postgres load by serialising BOTH arms.
+  // Now the authoritative side fans out freely and only the comparison is
+  // capped, so this is what keeps a five-way fan-out off people-db.
+  it('caps how many postgres comparisons run at once', async () => {
+    configure()
+    let inFlight = 0
+    let peak = 0
+    const release: Array<() => void> = []
+    const comparison = () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      return new Promise<string>((resolve) => {
+        release.push(() => {
+          inFlight -= 1
+          resolve('pg')
+        })
+      })
+    }
+
+    const calls = Array.from({ length: 5 }, () =>
+      call(() => Promise.resolve('dbx'), comparison),
+    )
+    await Promise.all(calls)
+    while (release.length) release.shift()?.()
+
+    expect(peak).toBeLessThanOrEqual(2)
+  })
+
+  // The cap must never reach the response: it bounds database load only.
+  it('does not let a queued comparison delay the databricks answer', async () => {
+    configure()
+    const blocked = new Promise<string>(() => undefined)
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        call(
+          () => Promise.resolve('dbx'),
+          () => blocked,
+        ),
+      ),
+    )
+    expect(results).toEqual(['dbx', 'dbx', 'dbx', 'dbx', 'dbx'])
+  })
+
+  it('logs the statement ids the authoritative read issued', async () => {
+    configure()
+    await call(
+      () => {
+        // compare() runs the authoritative closure inside the collector, which
+        // is what lets the client record ids without threading them back.
+        statementIdCollector.getStore()?.push('01ef-aaa')
+        return Promise.resolve('dbx')
+      },
+      () => Promise.resolve('pg'),
+    )
+    await vi.waitFor(() => expect(logger.info).toHaveBeenCalled())
+    const [entry] = logger.info.mock.calls.at(-1) as [
+      { statementIds: string[] },
+    ]
+    expect(entry.statementIds).toEqual(['01ef-aaa'])
   })
 })
