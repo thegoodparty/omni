@@ -4,6 +4,7 @@ import {
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
+  statementIdCollector,
 } from './peopleDbxStatement.client'
 import type { DbxStatement } from './databricksVoterSql.util'
 import { PEOPLE_DBX_HOSTNAME, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
@@ -400,5 +401,24 @@ describe('PeopleDbxStatementClient', () => {
       // would wedge every later request.
       await expect(client.query(stmt('SELECT 2'))).resolves.toBeDefined()
     })
+  })
+
+  // The statement id is the join key from a slow request in Loki to query
+  // history, so it has to survive the failure paths -- a statement that times
+  // out never settles, and those are the requests worth chasing.
+  it('records the statement id even when the statement fails', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        statement_id: '01ef-timeout',
+        status: { state: 'FAILED', error: { message: 'nope' } },
+      }),
+    )
+
+    const ids: string[] = []
+    await expect(
+      statementIdCollector.run(ids, () => client.query(stmt('SELECT 1'))),
+    ).rejects.toThrow()
+
+    expect(ids).toEqual(['01ef-timeout'])
   })
 })

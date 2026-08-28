@@ -96,6 +96,10 @@ type StatementResponse = z.infer<typeof statementResponseSchema>
 // call sites to carry a diagnostic; this stays out of the shapes entirely.
 export const statementIdCollector = new AsyncLocalStorage<string[]>()
 
+// Recorded at SUBMIT, not on completion: a statement that times out or fails
+// throws before it ever settles, and those are the requests the join key
+// exists to chase. The id is assigned by the submit response, so it is already
+// known by then.
 const recordStatementId = (id?: string): void => {
   if (id) statementIdCollector.getStore()?.push(id)
 }
@@ -196,8 +200,8 @@ export class PeopleDbxStatementClient {
       wait_timeout: '30s',
       on_wait_timeout: 'CONTINUE',
     })
+    recordStatementId(first.statement_id)
     const settled = await this.awaitCompletion(config, first, startedAt)
-    recordStatementId(settled.statement_id)
     const columns =
       settled.manifest?.schema?.columns.map((column) => column.name) ?? []
     const rows = [...(settled.result?.data_array ?? [])]
@@ -225,6 +229,7 @@ export class PeopleDbxStatementClient {
       disposition: 'EXTERNAL_LINKS',
       wait_timeout: '0s',
     })
+    recordStatementId(first.statement_id)
     const settled = await this.awaitCompletion(config, first, startedAt)
     const [link] = settled.result?.external_links ?? []
     // A succeeded export always carries chunk 0, even for an empty result set
@@ -234,7 +239,6 @@ export class PeopleDbxStatementClient {
     if (!link) {
       throw new Error('Databricks CSV export returned no first chunk')
     }
-    recordStatementId(settled.statement_id)
     return {
       statementId: settled.statement_id ?? '',
       totalRows: settled.manifest?.total_row_count ?? 0,
