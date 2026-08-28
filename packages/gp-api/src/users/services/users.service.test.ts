@@ -151,6 +151,66 @@ describe('UsersService', () => {
     })
   })
 
+  describe('setCustomerIdIfAbsent', () => {
+    it('sets the customerId when meta_data is null (COALESCE path)', async () => {
+      const user = await service.prisma.user.create({
+        data: { email: 'sci.null@example.com', firstName: 'S', lastName: 'N' },
+      })
+
+      const won = await usersService.setCustomerIdIfAbsent(user.id, 'cus_new')
+
+      expect(won).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.customerId).toBe('cus_new')
+    })
+
+    it('sets the customerId when absent, preserving other meta_data keys', async () => {
+      const user = await service.prisma.user.create({
+        data: {
+          email: 'sci.absent@example.com',
+          firstName: 'S',
+          lastName: 'A',
+          metaData: { checkoutSessionId: 'cs_keep' },
+        },
+      })
+
+      const won = await usersService.setCustomerIdIfAbsent(user.id, 'cus_new')
+
+      expect(won).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.customerId).toBe('cus_new')
+      expect(updated?.metaData?.checkoutSessionId).toBe('cs_keep')
+    })
+
+    it('refuses when a customerId is already stored, leaving it unchanged', async () => {
+      const user = await service.prisma.user.create({
+        data: {
+          email: 'sci.present@example.com',
+          firstName: 'S',
+          lastName: 'P',
+          metaData: { customerId: 'cus_existing' },
+        },
+      })
+
+      const won = await usersService.setCustomerIdIfAbsent(user.id, 'cus_new')
+
+      expect(won).toBe(false)
+      const unchanged = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(unchanged?.metaData?.customerId).toBe('cus_existing')
+    })
+
+    it('returns false for a non-existent user', async () => {
+      const won = await usersService.setCustomerIdIfAbsent(999999999, 'cus_new')
+      expect(won).toBe(false)
+    })
+  })
+
   describe('user email case-insensitive unique index', () => {
     it('rejects a case-variant duplicate at the DB level', async () => {
       await service.prisma.user.create({
