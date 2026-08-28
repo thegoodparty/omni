@@ -94,10 +94,11 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 6. Filing details. Email and phone are both required (ENG-10483: Peerly
-  // needs both); the filing address is optional. Fill committee, filing link,
-  // email, and phone, and skip the Google-autocomplete address, which is flaky
-  // in e2e and not required for submission.
+  // needs both); the filing address is optional. Fill candidate name,
+  // committee, filing link, email, and phone, and skip the Google-autocomplete
+  // address, which is flaky in e2e and not required for submission.
   await page.waitForURL(/\/dashboard\/pro-upgrade\/filing-details/)
+  await page.getByPlaceholder('Jane Smith').fill('Jane Smith')
   await page.getByPlaceholder('Jane for Council').fill('Jane for Council')
   await page
     .getByPlaceholder('https://')
