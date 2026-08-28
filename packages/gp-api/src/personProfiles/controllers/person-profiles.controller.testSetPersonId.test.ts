@@ -7,6 +7,7 @@ import { PersonIdBackfillService } from '../services/person-id-backfill.service'
 import { PersonLookupService } from '../services/person-lookup.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UsersService } from '@/users/services/users.service'
+import { newFixtureUserEmail } from '@/users/util/users.util'
 import { User } from '../../generated/prisma'
 
 // IS_NON_PROD_DEPLOY is a module-level constant read inside testSetPersonId.
@@ -80,6 +81,22 @@ describe('testSetPersonId', () => {
   it('rejects a non-@test.goodparty.org user', async () => {
     await expect(
       controller.testSetPersonId(testUser({ email: 'candidate@gmail.com' })),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+    expect(users.updateUser).not.toHaveBeenCalled()
+  })
+
+  it('mints a personId for a qa-<uuid>@goodparty.org fixture user', async () => {
+    const result = await controller.testSetPersonId(
+      testUser({ email: newFixtureUserEmail() }),
+    )
+
+    expect(result.personId).toMatch(UUID_RE)
+    expect(users.updateUser).toHaveBeenCalled()
+  })
+
+  it('rejects a staff @goodparty.org user', async () => {
+    await expect(
+      controller.testSetPersonId(testUser({ email: 'qa-team@goodparty.org' })),
     ).rejects.toBeInstanceOf(ForbiddenException)
     expect(users.updateUser).not.toHaveBeenCalled()
   })

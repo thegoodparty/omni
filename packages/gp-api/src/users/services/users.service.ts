@@ -36,7 +36,12 @@ import {
   SIGN_UP_MODE,
 } from '../schemas/CreateUserInput.schema'
 import { hashPassword } from '../util/passwords.util'
-import { TEST_USER_DOMAIN } from '../util/users.util'
+import {
+  FIXTURE_USER_EMAIL_DOMAIN,
+  FIXTURE_USER_EMAIL_PREFIX,
+  isTestUser,
+  TEST_USER_DOMAIN,
+} from '../util/users.util'
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
@@ -831,14 +836,27 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     try {
       const cutoff = subHours(new Date(), 24)
 
-      // 1. Delete DB users.
-      const dbUsers = await this.model.findMany({
+      // 1. Delete DB users. The SQL clauses only prefilter candidates; the
+      // isTestUser pass is what makes the fixture match exact (qa-<uuid>
+      // only), so a real staff alias like qa-team@goodparty.org survives.
+      const candidates = await this.model.findMany({
         where: {
-          email: { endsWith: TEST_USER_DOMAIN },
+          OR: [
+            { email: { endsWith: TEST_USER_DOMAIN } },
+            {
+              email: {
+                startsWith: FIXTURE_USER_EMAIL_PREFIX,
+                endsWith: FIXTURE_USER_EMAIL_DOMAIN,
+              },
+            },
+          ],
           createdAt: { lt: cutoff },
         },
-        select: { id: true },
+        select: { id: true, email: true },
       })
+      const dbUsers = candidates.filter((user) =>
+        isTestUser({ email: user.email }),
+      )
 
       let dbDeleted = 0
       for (const dbUser of dbUsers) {
@@ -879,7 +897,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           (user) =>
             user.createdAt < cutoffMs &&
             user.emailAddresses.some((e) =>
-              e.emailAddress.endsWith(TEST_USER_DOMAIN),
+              isTestUser({ email: e.emailAddress }),
             ),
         )
 
