@@ -93,7 +93,15 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     const claim = await this.model.updateMany({
       where: {
         outreachId,
-        settleState: RobocallSettleState.pending_payment,
+        // A declined draft (hold_failed) re-enters placement with a new card —
+        // that IS the new-card retry. Both states carry no authorizationIntentId
+        // (an already-authorized draft is excluded, so no second hold).
+        settleState: {
+          in: [
+            RobocallSettleState.pending_payment,
+            RobocallSettleState.hold_failed,
+          ],
+        },
         authorizationIntentId: null,
       },
       data: { settleState: RobocallSettleState.hold_pending },
@@ -290,13 +298,21 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   ): Promise<RobocallAuthorizeResponse> {
     const current = await this.findFirst({ where: { outreachId } })
     const settleState = current?.settleState ?? fallback
-    const authorized = settleState === RobocallSettleState.authorized
+    // hold_failed is a distinct status the UI acts on (prompt for a new card);
+    // don't flatten it into 'noop' (a concurrent-placement / already-moved race).
+    const status =
+      settleState === RobocallSettleState.authorized
+        ? 'authorized'
+        : settleState === RobocallSettleState.hold_failed
+          ? 'hold_failed'
+          : 'noop'
     return {
-      status: authorized ? 'authorized' : 'noop',
+      status,
       settleState,
-      authorizedAmountInCents: authorized
-        ? (current?.authorizedAmountInCents ?? null)
-        : null,
+      authorizedAmountInCents:
+        status === 'authorized'
+          ? (current?.authorizedAmountInCents ?? null)
+          : null,
     }
   }
 

@@ -184,6 +184,61 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(messageId).toBe(`${outreachId}:hold_placed`)
   })
 
+  it('retries from hold_failed with a new card and authorizes', async () => {
+    // A declined draft (payAttempt already 1) re-enters placement with a new
+    // card — the CAS must accept hold_failed, and the retry uses a fresh key.
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+    })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_2',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_2',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    const res = await postAuthorize(outreachId, 'pm_2')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('authorized')
+    // Fresh idempotency key off the bumped attempt (2), not the declined 1.
+    expect(paymentIntentsCreate.mock.calls[0]?.[1]?.idempotencyKey).toBe(
+      `robocall-hold-${outreachId}-2`,
+    )
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    expect(satellite.paymentMethodId).toBe('pm_2')
+    expect(satellite.payAttempt).toBe(2)
+  })
+
+  it('502s and reverts without bumping payAttempt on an infra failure', async () => {
+    // A non-decline Stripe/infra error must 502, revert the claim, and leave
+    // payAttempt unchanged so a retry REUSES the same idempotency key (Stripe
+    // replays a possibly-live PI rather than stacking a second hold).
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockRejectedValue(new Error('network down'))
+
+    const res = await postAuthorize(outreachId)
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.payAttempt).toBe(0)
+  })
+
   it('defers when the send is beyond the hold window, placing no hold', async () => {
     const outreachId = await createDraft({ sendInDays: 10 })
 
