@@ -46,10 +46,14 @@ const params = {
 
 describe('CallhubCampaignService', () => {
   let service: CallhubCampaignService
-  let http: { get: ReturnType<typeof vi.fn>; post: ReturnType<typeof vi.fn> }
+  let http: {
+    get: ReturnType<typeof vi.fn>
+    post: ReturnType<typeof vi.fn>
+    put: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
-    http = { get: vi.fn(), post: vi.fn() }
+    http = { get: vi.fn(), post: vi.fn(), put: vi.fn() }
     service = new CallhubCampaignService(
       createMockLogger(),
       http as unknown as CallhubHttpService,
@@ -139,6 +143,39 @@ describe('CallhubCampaignService', () => {
       await expect(
         service.createVoiceBroadcast(params),
       ).rejects.not.toBeInstanceOf(BadGatewayException)
+    })
+  })
+
+  describe('launchVoiceBroadcast', () => {
+    it('STARTs the campaign and returns the parsed status', async () => {
+      const pkStr = '3972682680557897335'
+      http.put.mockResolvedValue({
+        pk_str: pkStr,
+        status: 1,
+        // Extra fields CallHub echoes are stripped by the schema.
+        id: 3972682680557897000,
+      })
+
+      const result = await service.launchVoiceBroadcast(pkStr)
+
+      const [path, body] = http.put.mock.calls[0] ?? []
+      // Trailing slash is load-bearing, and pk_str is interpolated as a STRING
+      // (never coerced — CallHub ids exceed JS's safe-integer range).
+      expect(path).toBe(`/v1/voice_broadcasts/${pkStr}/`)
+      expect(typeof path).toBe('string')
+      // START is status 1 (CALLHUB_VB_STATUS.START), the only field sent.
+      expect(body).toEqual({ status: 1 })
+      expect(result).toEqual({ pk_str: pkStr, status: 1 })
+    })
+
+    it('maps a CallHub launch failure to a 502', async () => {
+      http.put.mockRejectedValue(
+        createAxiosError({ detail: 'campaign not found' }, 404),
+      )
+
+      await expect(
+        service.launchVoiceBroadcast('3972682680557897335'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
     })
   })
 })
