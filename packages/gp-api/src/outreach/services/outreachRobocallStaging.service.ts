@@ -1,10 +1,13 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { addHours, subMinutes } from 'date-fns'
+import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
+import { CALLHUB_MEDIA_MIME_TYPES } from '@/vendors/callhub/schemas/callhubMedia.schema'
 import {
   CallhubCampaignService,
   CreateVbCampaignResult,
@@ -58,6 +61,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     private readonly media: CallhubMediaService,
     private readonly campaigns: CallhubCampaignService,
     private readonly s3: S3Service,
+    private readonly transcode: AudioTranscodeService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -194,15 +198,17 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     const campaignName = `Robocall ${campaign.slug} #${outreachId}`
     let created: CreateVbCampaignResult
     try {
-      // Upload the (format-sensitive) media BEFORE loading the phonebook: an
-      // unsupported audio format fails fast here, before loadAudienceToPhonebook
-      // creates a fresh CallHub phonebook and bulk-imports the audience — real
-      // external state we'd otherwise leak on every sweep pass.
+      // Upload the (format-sensitive) media BEFORE loading the phonebook: a
+      // transcode or upload failure fails fast here, before
+      // loadAudienceToPhonebook creates a fresh CallHub phonebook and
+      // bulk-imports the audience — real external state we'd otherwise leak on
+      // every sweep pass.
       const audio = await this.loadAudio(draft.audioKey)
+      const upload = await this.toCallhubAudio(audio)
       const media = await this.media.uploadMedia({
-        file: audio.bytes,
+        file: upload.bytes,
         fileName: audioFileName(draft.audioKey),
-        mimeType: audio.contentType,
+        mimeType: upload.contentType,
         name: campaignName,
       })
       const phonebook = await this.phonebook.loadAudienceToPhonebook(
@@ -264,6 +270,19 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       )
     }
     return { bytes: object.bytes, contentType: object.contentType }
+  }
+
+  // CallHub's upload accepts only mp3/wav/ogg, but the recorder produces
+  // webm/mp4 in the dominant browsers. Upload a CallHub-accepted recording
+  // as-is; transcode anything else to mp3 first so a real call can play it.
+  private async toCallhubAudio(audio: {
+    bytes: Buffer
+    contentType: string
+  }): Promise<{ bytes: Buffer; contentType: string }> {
+    const accepted: readonly string[] = CALLHUB_MEDIA_MIME_TYPES
+    if (accepted.includes(audio.contentType)) return audio
+    const bytes = await this.transcode.toMp3(audio.bytes, audio.contentType)
+    return { bytes, contentType: MimeTypes.AUDIO_MPEG }
   }
 
   private async revertClaim(outreachId: number): Promise<void> {
