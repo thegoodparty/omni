@@ -2,10 +2,16 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Param,
+  ParseIntPipe,
   Post,
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  RobocallAuthorizeRequest,
+  RobocallAuthorizeRequestSchema,
+  RobocallAuthorizeResponse,
+  RobocallAuthorizeResponseSchema,
   RobocallComplianceRequest,
   RobocallComplianceRequestSchema,
   RobocallComplianceVerdict,
@@ -39,6 +45,7 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
@@ -57,6 +64,7 @@ export class OutreachRobocallController {
   constructor(
     private readonly generationService: OutreachRobocallGenerationService,
     private readonly robocallService: OutreachRobocallService,
+    private readonly holdService: OutreachRobocallHoldService,
     private readonly compliance: RobocallComplianceService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
@@ -158,6 +166,33 @@ export class OutreachRobocallController {
     }
 
     return this.robocallService.createDraft(campaign, organization, input)
+  }
+
+  // Places the pay-time authorization hold (RESERVES REAL MONEY): a
+  // manual-capture Stripe hold on the vaulted card for the server-re-derived
+  // estimate of this scheduled draft. Pro-gated and campaign-scoped like the
+  // siblings. The draft is loaded scoped to the paying campaign inside the
+  // service; the hold, its idempotency, the ceiling, and the capture-window fit
+  // are enforced there.
+  @Post('robocall/:outreachId/authorize')
+  @ResponseSchema(RobocallAuthorizeResponseSchema)
+  async authorize(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+    @Body(new ZodValidationPipe(RobocallAuthorizeRequestSchema))
+    input: RobocallAuthorizeRequest,
+  ): Promise<RobocallAuthorizeResponse> {
+    await this.contacts.assertProAccess(organization)
+
+    return this.holdService.authorizeHold(
+      user,
+      campaign,
+      organization,
+      outreachId,
+      input.paymentMethodId,
+    )
   }
 
   // Fail-closed compliance gate for the recorded audio: transcribe and verify

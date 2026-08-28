@@ -79,7 +79,7 @@ export class OutreachRobocallService extends createPrismaBase(
   // yields a 0 amount, which the payment slices would treat as a fully-covered
   // purchase and settle with no charge. Reject at draft create so that path is
   // never reached.
-  private assertReachableCount(count: number): void {
+  assertReachableCount(count: number): void {
     if (count === 0) {
       throw new BadRequestException(
         'This voter list has no reachable landline numbers to call',

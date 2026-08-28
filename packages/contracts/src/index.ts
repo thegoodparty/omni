@@ -793,6 +793,14 @@ export {
   type RobocallDraftCreateResponse,
 } from './outreach/RobocallPurchase.schema'
 export {
+  RobocallAuthorizeRequestSchema,
+  type RobocallAuthorizeRequest,
+  RobocallAuthorizeStatusSchema,
+  type RobocallAuthorizeStatus,
+  RobocallAuthorizeResponseSchema,
+  type RobocallAuthorizeResponse,
+} from './outreach/RobocallHold.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,

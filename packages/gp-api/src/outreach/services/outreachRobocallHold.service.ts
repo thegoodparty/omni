@@ -1,0 +1,282 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
+import { addDays, addHours, isAfter } from 'date-fns'
+import { RobocallAuthorizeResponse } from '@goodparty_org/contracts'
+import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import {
+  ROBOCALL_HOLD_WINDOW_DAYS,
+  ROBOCALL_PER_RUN_CEILING_CENTS,
+  ROBOCALL_RUN_HOURS,
+  ROBOCALL_SETTLE_MARGIN_HOURS,
+} from '@/shared/util/robocallHold.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import {
+  StripeHoldDeclinedError,
+  StripeService,
+} from '@/vendors/stripe/services/stripe.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
+import {
+  Campaign,
+  Organization,
+  OutreachType,
+  RobocallSettleState,
+  User,
+} from '../../generated/prisma'
+import { OutreachRobocallService } from './outreachRobocall.service'
+
+// Places the pay-time authorization hold on a scheduled robocall draft: a
+// manual-capture Stripe hold for the server-re-derived estimate, off-session on
+// the vaulted card. This RESERVES REAL MONEY. The transition is single-owner:
+// a conditional claim (pending_payment → hold_pending) elects one placer, the
+// Stripe hold runs OUTSIDE any DB transaction, and a second conditional claim
+// (hold_pending → authorized) commits the ids only if nothing moved underneath.
+// No capture, no CallHub, no deferred sweep, no reminder/retry/cancel here.
+@Injectable()
+export class OutreachRobocallHoldService extends createPrismaBase(
+  MODELS.OutreachRobocall,
+) {
+  constructor(
+    private readonly robocallService: OutreachRobocallService,
+    private readonly stripe: StripeService,
+    private readonly analytics: AnalyticsService,
+  ) {
+    super()
+  }
+
+  async authorizeHold(
+    user: User,
+    campaign: Campaign,
+    organization: Organization,
+    outreachId: number,
+    paymentMethodId: string,
+  ): Promise<RobocallAuthorizeResponse> {
+    const draft = await this.findFirst({
+      where: {
+        outreachId,
+        outreach: {
+          campaignId: campaign.id,
+          outreachType: OutreachType.robocall,
+        },
+      },
+      include: { outreach: true },
+    })
+    if (!draft) {
+      throw new NotFoundException('Robocall draft not found for this campaign')
+    }
+
+    const sendAt = draft.outreach.date
+    const voterFileFilterId = draft.outreach.voterFileFilterId
+    if (!sendAt || voterFileFilterId == null) {
+      throw new BadRequestException(
+        'Robocall draft is missing a scheduled send or audience',
+      )
+    }
+
+    // WINDOW: a hold placed too far ahead would expire before the send. Beyond
+    // the window, defer to the daily sweep (a later slice) — place nothing now.
+    if (isAfter(sendAt, addDays(new Date(), ROBOCALL_HOLD_WINDOW_DAYS))) {
+      return {
+        status: 'deferred',
+        settleState: draft.settleState,
+        authorizedAmountInCents: null,
+      }
+    }
+
+    // PLACEMENT CLAIM: elect exactly one placer. Only a pending_payment draft
+    // with no intent yet can transition to hold_pending; a concurrent winner or
+    // an already-advanced draft makes count 0.
+    const claim = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.pending_payment,
+        authorizationIntentId: null,
+      },
+      data: { settleState: RobocallSettleState.hold_pending },
+    })
+    if (claim.count === 0) {
+      return this.currentStateResult(outreachId, draft.settleState)
+    }
+
+    // We own the hold_pending claim. Every failure path from here must release
+    // it (revert to pending_payment) so the draft is never stranded — except a
+    // card decline, which is a terminal hold_failed the caller resolves with a
+    // new card.
+    let estimate: number
+    let customerId: string
+    try {
+      const billableCount = await this.robocallService.deriveBillableCount(
+        organization,
+        voterFileFilterId,
+      )
+      this.robocallService.assertReachableCount(billableCount)
+      estimate = calcRobocallAmountInCents(billableCount)
+
+      // INV-2: a TESTING ceiling. An estimate over it is a human-alert anomaly,
+      // not something to silently authorize.
+      if (estimate > ROBOCALL_PER_RUN_CEILING_CENTS) {
+        this.logger.error(
+          { outreachId, estimate, ceiling: ROBOCALL_PER_RUN_CEILING_CENTS },
+          'robocall estimate over per-run ceiling',
+        )
+        throw new ConflictException(
+          'Robocall estimate exceeds the per-run limit',
+        )
+      }
+
+      customerId = await this.stripe.ensureCustomer(user)
+      const pm = await this.stripe.retrievePaymentMethod(paymentMethodId)
+      if (pm.customer !== customerId) {
+        throw new BadRequestException(
+          'That payment method is not on file for this account',
+        )
+      }
+    } catch (err) {
+      await this.revertClaim(outreachId)
+      throw err
+    }
+
+    // Freeze the estimate into the idempotency key and the metadata so a retry
+    // of THIS attempt can never place a second hold.
+    const attempt = draft.payAttempt + 1
+    let held: { paymentIntentId: string; captureBefore: Date }
+    try {
+      held = await this.stripe.createManualCaptureHold({
+        customerId,
+        paymentMethodId,
+        amountInCents: estimate,
+        robocallId: outreachId,
+        attempt,
+        metadata: {
+          outreachId: String(outreachId),
+          campaignId: String(campaign.id),
+          userId: String(user.id),
+        },
+      })
+    } catch (err) {
+      if (err instanceof StripeHoldDeclinedError) {
+        // A decline is a business outcome, not a 502. Move to the hold_failed
+        // terminal, bump payAttempt, and emit the milestone once.
+        await this.model.updateMany({
+          where: {
+            outreachId,
+            settleState: RobocallSettleState.hold_pending,
+          },
+          data: {
+            settleState: RobocallSettleState.hold_failed,
+            payAttempt: attempt,
+          },
+        })
+        await this.emitMilestone(
+          user.id,
+          outreachId,
+          EVENTS.Robocall.HoldFailed,
+          'hold_failed',
+        )
+        return {
+          status: 'hold_failed',
+          settleState: RobocallSettleState.hold_failed,
+          authorizedAmountInCents: null,
+        }
+      }
+      // Infra failure (502): release the claim so a retry can place the hold.
+      await this.revertClaim(outreachId)
+      throw err
+    }
+
+    // WINDOW-FIT: a hold that expires before the run finishes and can be
+    // captured is unusable. If send + run + settle margin overruns the hold's
+    // capture deadline, void it and release the claim.
+    const captureDeadline = addHours(
+      sendAt,
+      ROBOCALL_RUN_HOURS + ROBOCALL_SETTLE_MARGIN_HOURS,
+    )
+    if (isAfter(captureDeadline, held.captureBefore)) {
+      await this.stripe.voidHold(held.paymentIntentId)
+      await this.revertClaim(outreachId)
+      throw new BadRequestException(
+        'The authorization would expire before the call can be charged',
+      )
+    }
+
+    // SUCCESS CLAIM: commit the hold only if the draft is still the
+    // hold_pending we own. If it moved (a lost race), the hold we placed must
+    // not stand — void it and report the current state.
+    const commit = await this.model.updateMany({
+      where: { outreachId, settleState: RobocallSettleState.hold_pending },
+      data: {
+        settleState: RobocallSettleState.authorized,
+        authorizationIntentId: held.paymentIntentId,
+        authorizedAmountInCents: estimate,
+        captureBefore: held.captureBefore,
+        paymentMethodId,
+        stripeCustomerId: customerId,
+        payAttempt: attempt,
+      },
+    })
+    if (commit.count === 0) {
+      await this.stripe.voidHold(held.paymentIntentId)
+      return this.currentStateResult(outreachId, draft.settleState)
+    }
+
+    await this.emitMilestone(
+      user.id,
+      outreachId,
+      EVENTS.Robocall.HoldPlaced,
+      'hold_placed',
+    )
+    return {
+      status: 'authorized',
+      settleState: RobocallSettleState.authorized,
+      authorizedAmountInCents: estimate,
+    }
+  }
+
+  private async revertClaim(outreachId: number): Promise<void> {
+    await this.model.updateMany({
+      where: { outreachId, settleState: RobocallSettleState.hold_pending },
+      data: { settleState: RobocallSettleState.pending_payment },
+    })
+  }
+
+  // The no-hold-placed result: report the satellite's live state so a caller
+  // that lost the claim (or double-clicked an already-authorized draft) learns
+  // the truth. An already-authorized draft reports authorized + its frozen
+  // amount so a retry reads as success, not a spurious failure.
+  private async currentStateResult(
+    outreachId: number,
+    fallback: RobocallSettleState,
+  ): Promise<RobocallAuthorizeResponse> {
+    const current = await this.findFirst({ where: { outreachId } })
+    const settleState = current?.settleState ?? fallback
+    const authorized = settleState === RobocallSettleState.authorized
+    return {
+      status: authorized ? 'authorized' : 'noop',
+      settleState,
+      authorizedAmountInCents: authorized
+        ? (current?.authorizedAmountInCents ?? null)
+        : null,
+    }
+  }
+
+  // Emits a milestone with a deterministic Segment messageId so a replay dedups
+  // to one email. Called ONLY from a winning transition.
+  private async emitMilestone(
+    userId: number,
+    outreachId: number,
+    event: string,
+    suffix: 'hold_placed' | 'hold_failed',
+  ): Promise<void> {
+    await this.analytics.track(
+      userId,
+      event,
+      { outreachId },
+      undefined,
+      `${outreachId}:${suffix}`,
+    )
+  }
+}

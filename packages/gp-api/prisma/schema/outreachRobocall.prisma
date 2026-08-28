@@ -16,6 +16,12 @@ enum RobocallSettleState {
   cancelled
   disputed
   uncollectable
+  // The single-owner claim held while the pay-time Stripe hold is in flight, and
+  // the terminal for a declined card. Appended (not slotted between
+  // pending_payment and authorized) so the enum order matches what the
+  // append-only ADD VALUE migration produces.
+  hold_pending
+  hold_failed
 }
 
 model OutreachRobocall {

@@ -35,6 +35,10 @@ export class SegmentService {
     event: string,
     properties: SegmentTrackEventProperties = {},
     userContext?: UserContext,
+    // A caller-supplied deterministic id. Segment dedups events sharing a
+    // messageId, so a replayed milestone (e.g. a robocall hold) resolves to a
+    // single downstream email instead of one per retry.
+    messageId?: string,
   ): Promise<TrackParams> {
     try {
       const stringId = String(userId)
@@ -52,6 +56,7 @@ export class SegmentService {
         event,
         userId: stringId,
         properties: truncatedProperties,
+        ...(messageId ? { messageId } : {}),
       }
 
       if (userContext) {

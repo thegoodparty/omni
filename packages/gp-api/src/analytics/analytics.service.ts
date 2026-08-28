@@ -59,6 +59,8 @@ export class AnalyticsService {
     eventName: string,
     properties?: SegmentTrackEventProperties,
     prefetchedUserContext?: UserContext,
+    // Deterministic Segment messageId for dedup (see SegmentService.trackEvent).
+    messageId?: string,
   ) {
     this.logger.debug(
       `[ANALYTICS] Starting event tracking - Event: ${eventName}, User: ${userId}`,
@@ -83,6 +85,7 @@ export class AnalyticsService {
         eventName,
         eventData,
         userContext,
+        messageId,
       )
 
       return result
