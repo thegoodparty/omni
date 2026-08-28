@@ -118,13 +118,19 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // request could have rescheduled this send into the window and advanced
       // the row past pending_payment. Only write while still pending_payment, so
       // we never clobber the chosen card on an already-authorized row.
-      await this.model.updateMany({
+      const persisted = await this.model.updateMany({
         where: { outreachId, settleState: RobocallSettleState.pending_payment },
         data: { paymentMethodId, stripeCustomerId: customerId },
       })
+      // count 0 means the row advanced under us (a concurrent in-window
+      // authorize placed or failed the hold). Report its live state, not a stale
+      // 'deferred' that would tell the client no hold exists when one does.
+      if (persisted.count === 0) {
+        return this.currentStateResult(outreachId, draft.settleState)
+      }
       return {
         status: 'deferred',
-        settleState: draft.settleState,
+        settleState: RobocallSettleState.pending_payment,
         authorizedAmountInCents: null,
       }
     }
@@ -344,23 +350,21 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   // Escalates a draft to the hold_failed terminal + emits the HoldFailed
   // milestone. For the deferred sweep: a permanent off-session PM problem (a
   // stale/foreign or non-card persisted card, which authorizeHold surfaces as a
-  // BadRequestException after reverting its own claim) must move the draft OUT
-  // of the pending_payment candidate set — otherwise every daily sweep re-selects
-  // and silently retries it — and must notify the absent candidate to fix their
-  // card. Mirrors the decline path's terminal; the on-session /authorize does
-  // NOT use this (it throws 400 to the present caller). Idempotent: the CAS
-  // matches only a not-yet-terminal draft, so a repeat sweep is a no-op and the
-  // milestone (deterministic messageId) fires once.
+  // RobocallCardError AFTER reverting its own claim back to pending_payment) must
+  // move the draft OUT of the pending_payment candidate set — otherwise every
+  // daily sweep re-selects and silently retries it — and must notify the absent
+  // candidate to fix their card. The CAS matches ONLY pending_payment (the state
+  // the escalation leaves the row in): a concurrent on-session /authorize can win
+  // the placement claim (pending_payment → hold_pending) with a DIFFERENT valid
+  // card in the gap between the revert and this call, and matching hold_pending
+  // would clobber that legitimate in-flight hold. Decline's own hold_pending →
+  // hold_failed transition is inline in authorizeHold, not here. Idempotent: a
+  // repeat sweep matches 0, so the milestone (deterministic messageId) fires once.
   async markHoldFailed(userId: number, outreachId: number): Promise<void> {
     const failed = await this.model.updateMany({
       where: {
         outreachId,
-        settleState: {
-          in: [
-            RobocallSettleState.pending_payment,
-            RobocallSettleState.hold_pending,
-          ],
-        },
+        settleState: RobocallSettleState.pending_payment,
       },
       data: { settleState: RobocallSettleState.hold_failed },
     })

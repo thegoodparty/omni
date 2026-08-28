@@ -213,7 +213,8 @@ describe('authorize defers and persists the chosen card', () => {
     // Proves the defer-persist is a CAS on settleState = pending_payment. If a
     // concurrent request advances the row (here pre-set to authorized) while the
     // two async Stripe validations run, the persist must not overwrite the card
-    // on the already-authorized row.
+    // on the already-authorized row — AND the return must report the row's live
+    // state, not a stale 'deferred' that would claim no hold exists when one does.
     const outreachId = await createDraft({
       sendInDays: 10,
       settleState: RobocallSettleState.authorized,
@@ -231,10 +232,15 @@ describe('authorize defers and persists the chosen card', () => {
     const res = await postAuthorize(outreachId, 'pm_new')
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.status).toBe('deferred')
+    // The persist CAS matched 0 rows, so the response reflects the live state
+    // (authorized + its frozen amount), never a stale 'deferred'.
+    expect(res.data).toEqual({
+      status: 'authorized',
+      settleState: RobocallSettleState.authorized,
+      authorizedAmountInCents: 450,
+    })
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
-    // The guarded CAS matched no pending_payment row, so the authorized row's
-    // card is left intact — 'pm_new' never overwrote it.
+    // The authorized row's card is left intact — 'pm_new' never overwrote it.
     const satellite = await readSatellite(outreachId)
     expect(satellite.paymentMethodId).toBe('pm_existing')
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
@@ -434,6 +440,28 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     expect(error).not.toBeInstanceOf(RobocallCardError)
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+  })
+
+  it('markHoldFailed does not clobber a concurrently-claimed hold_pending row', async () => {
+    // Between the deferred escalation's revert (→ pending_payment) and its
+    // markHoldFailed call, a concurrent on-session /authorize can win the
+    // placement claim (pending_payment → hold_pending) with a DIFFERENT valid
+    // card. markHoldFailed matches ONLY pending_payment, so it must be a no-op
+    // on that in-flight hold_pending row — never flip a legitimate hold to
+    // hold_failed, and never emit a spurious HoldFailed.
+    const holds = service.app.get(OutreachRobocallHoldService)
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      settleState: RobocallSettleState.hold_pending,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+
+    await holds.markHoldFailed(service.user.id, outreachId)
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_pending)
+    expect(trackSpy).not.toHaveBeenCalled()
   })
 
   it('marks a declined draft hold_failed and does not retry it next sweep', async () => {
