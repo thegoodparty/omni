@@ -27,6 +27,13 @@ enum RobocallSettleState {
   // a successful stage releases the row back to authorized with its CallHub
   // campaign pk_str set. Appended for the same append-only ADD VALUE reason.
   staging
+  // The single-owner claim held while the send slice launches (STARTs) the
+  // staged CallHub campaign — the transient state that guards against dialing
+  // the same run twice. `dialed` is the terminal once the launch has committed
+  // and the broadcast is dialing, awaiting completion. Both appended for the
+  // same append-only ADD VALUE reason.
+  dialing
+  dialed
 }
 
 model OutreachRobocall {
@@ -78,6 +85,9 @@ model OutreachRobocall {
   chargeIntentId         String?             @map("charge_intent_id")
   // How many times settlement has been attempted, to bound retries.
   payAttempt             Int                 @default(0) @map("pay_attempt")
+  // When the CallHub voice-broadcast was launched (START). Stamped by the send
+  // slice at the dialing → dialed commit; null until the run actually dials.
+  dialedAt               DateTime?           @map("dialed_at")
   settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
 
   @@map("outreach_robocall")

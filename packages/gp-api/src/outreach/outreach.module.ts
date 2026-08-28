@@ -37,6 +37,7 @@ import { OutreachRobocallGenerationService } from './services/outreachRobocallGe
 import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
 import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
+import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
 import { RobocallTranscriptionService } from './services/robocallTranscription.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { RobocallPhonebookService } from './services/robocallPhonebook.service'
@@ -91,6 +92,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachRobocallService,
     OutreachRobocallHoldService,
     OutreachRobocallStagingService,
+    OutreachRobocallSendService,
     RobocallTranscriptionService,
     RobocallComplianceService,
     RobocallPhonebookService,

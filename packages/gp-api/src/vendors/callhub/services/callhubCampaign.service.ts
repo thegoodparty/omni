@@ -3,9 +3,12 @@ import { addDays, isAfter } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { PinoLogger } from 'nestjs-pino'
 import {
+  CALLHUB_VB_STATUS,
   CreateVbCampaignBody,
   CreateVbCampaignResponse,
   CreateVbCampaignResponseSchema,
+  LaunchVbCampaignResponse,
+  LaunchVbCampaignResponseSchema,
 } from '../schemas/callhubCampaign.schema'
 import { CallhubErrorHandlingService } from './callhubErrorHandling.service'
 import { CallhubHttpService } from './callhubHttp.service'
@@ -13,6 +16,10 @@ import { CallhubHttpService } from './callhubHttp.service'
 // Trailing slash is load-bearing: POST /v1/vb_campaign (no slash) returns the
 // campaign list instead of creating one.
 const CREATE_PATH = '/v1/vb_campaign/'
+// The per-campaign status endpoint. Trailing slash matters for the same DRF
+// reason as the create path. pk_str is a STRING end-to-end — CallHub ids exceed
+// JS's safe-integer range, so it is never coerced to a number.
+const LAUNCH_PATH_PREFIX = '/v1/voice_broadcasts/'
 // use_contact_tz applies the daily window in each contact's own tz, but a
 // contact whose tz is unknown falls back to this schedule tz. Central keeps
 // that fallback window within legal US calling hours; UTC would fire it at
@@ -127,6 +134,17 @@ export class CallhubCampaignService {
     }
   }
 
+  // Launches a PAUSED voice broadcast: PUT /v1/voice_broadcasts/{pk_str}/ with
+  // status START (1), the transition that actually DIALS. Separate from create
+  // by design — the money/compliance gates that guard a real dial live in the
+  // caller, never here. A CallHub failure surfaces as 502 via the error-handling
+  // wrapper; the response is parsed OUTSIDE the fetch try/catch so a shape
+  // mismatch is a schema error, not a retryable vendor failure.
+  async launchVoiceBroadcast(pkStr: string): Promise<LaunchVbCampaignResponse> {
+    const data = await this.putStatus(pkStr)
+    return LaunchVbCampaignResponseSchema.parse(data)
+  }
+
   private async postCampaign(body: CreateVbCampaignBody) {
     try {
       return await this.http.post(CREATE_PATH, body)
@@ -135,6 +153,20 @@ export class CallhubCampaignService {
         error,
         logger: this.logger,
         customMessage: 'CallHub voice broadcast creation failed',
+      })
+    }
+  }
+
+  private async putStatus(pkStr: string) {
+    try {
+      return await this.http.put(`${LAUNCH_PATH_PREFIX}${pkStr}/`, {
+        status: CALLHUB_VB_STATUS.START,
+      })
+    } catch (error) {
+      return this.errorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        customMessage: 'CallHub voice broadcast launch failed',
       })
     }
   }
