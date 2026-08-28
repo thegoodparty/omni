@@ -16,10 +16,21 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
+import { addDays, fromUnixTime } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
 import { requireEnv } from 'src/shared/util/env.util'
+
+// Thrown by createManualCaptureHold when the card is declined off-session. A
+// declined hold is an expected business outcome (→ hold_failed), not a 502, so
+// it carries its own type the caller can branch on.
+export class StripeHoldDeclinedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StripeHoldDeclinedError'
+  }
+}
 
 const STRIPE_SECRET_KEY = requireEnv('STRIPE_SECRET_KEY')
 const WEBAPP_ROOT_URL = requireEnv('WEBAPP_ROOT_URL')
@@ -185,6 +196,113 @@ export class StripeService {
     return await this.stripe.paymentIntents.update(paymentIntentId, {
       metadata,
     })
+  }
+
+  // Retrieves a saved payment method so the caller can confirm it belongs to
+  // the expected customer before authorizing a charge against it.
+  async retrievePaymentMethod(
+    paymentMethodId: string,
+  ): Promise<Stripe.PaymentMethod> {
+    try {
+      return await this.stripe.paymentMethods.retrieve(paymentMethodId)
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to retrieve Stripe payment method')
+      throw new BadGatewayException('Failed to retrieve Stripe payment method')
+    }
+  }
+
+  // Places a manual-capture authorization hold on the vaulted card off-session
+  // (the candidate is not present). Returns the intent id and the capture
+  // deadline Stripe stamps on the auth. Extended authorization is requested so
+  // the hold outlives the standard ~7-day window when the network supports it;
+  // capture_before is the real deadline, parsed from the response (falling back
+  // to now+7d when Stripe omits it). A card decline is an expected business
+  // outcome, surfaced as StripeHoldDeclinedError so the caller can record
+  // hold_failed rather than a 502; every other failure is infra → 502. The DB
+  // write of the returned ids happens in the caller, outside this try/catch.
+  async createManualCaptureHold({
+    customerId,
+    paymentMethodId,
+    amountInCents,
+    robocallId,
+    attempt,
+    metadata,
+  }: {
+    customerId: string
+    paymentMethodId: string
+    amountInCents: number
+    robocallId: number
+    attempt: number
+    metadata: Record<string, string>
+  }): Promise<{ paymentIntentId: string; captureBefore: Date }> {
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: paymentMethodId,
+          capture_method: 'manual',
+          confirm: true,
+          off_session: true,
+          payment_method_options: {
+            card: { request_extended_authorization: 'if_available' },
+          },
+          metadata,
+        },
+        { idempotencyKey: `robocall-hold-${robocallId}-${attempt}` },
+      )
+    } catch (err) {
+      // An off-session confirm that the card refuses raises StripeCardError
+      // (card_declined, authentication_required, insufficient_funds, …). That
+      // is a business outcome the caller resolves by asking for a new card, not
+      // an infra fault — signal it distinctly so it never becomes a 502.
+      if (err instanceof Stripe.errors.StripeCardError) {
+        throw new StripeHoldDeclinedError(err.message)
+      }
+      this.logger.error({ err }, 'Failed to place robocall authorization hold')
+      throw new BadGatewayException('Failed to place authorization hold')
+    }
+
+    // Verify the auth actually reserved funds before the caller stamps
+    // authorized. A confirmed manual-capture PI that did not reach
+    // requires_capture (requires_action / processing / requires_payment_method
+    // returned WITHOUT throwing) is not a usable hold — treat it as a decline,
+    // not a success the caller would authorize against ("verify before stamping
+    // state").
+    if (intent.status !== 'requires_capture') {
+      throw new StripeHoldDeclinedError(
+        `Hold did not authorize: status ${intent.status}`,
+      )
+    }
+
+    // Stripe returns capture_before (Unix seconds) on a manual-capture auth, but
+    // the SDK type does not expose it. Fall back to the standard ~7-day lifetime
+    // when it is absent so a downstream capture-window check always has a bound.
+    const captureBeforeUnix = (
+      intent as Stripe.PaymentIntent & { capture_before?: number | null }
+    ).capture_before
+    return {
+      paymentIntentId: intent.id,
+      captureBefore: captureBeforeUnix
+        ? fromUnixTime(captureBeforeUnix)
+        : addDays(new Date(), 7),
+    }
+  }
+
+  // Releases an authorization hold (rollback when a placed hold turns out to be
+  // unusable, or when a lost state race means the hold must not stand).
+  // Best-effort: a failed void — Stripe down, or the PI already canceled — must
+  // never block the DB revert that follows it on the caller's rollback path, or
+  // the row would strand in hold_pending. An orphan hold auto-expires within the
+  // auth lifetime, and the later reverse-reconciliation slice reclaims it.
+  async voidHold(paymentIntentId: string): Promise<void> {
+    try {
+      await this.stripe.paymentIntents.cancel(paymentIntentId)
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to void robocall authorization hold')
+    }
   }
 
   // Full refund of a completed one-time payment (cancel-before-send).

@@ -160,6 +160,15 @@ export const EVENTS = {
   Ordinances: {
     QualityLoopCompleted: 'Ordinances - Quality Loop Completed',
   },
+  // Robocall payment milestones (Win, VO 2.0). Server-truth outcomes of the
+  // pay-time authorization hold the browser cannot observe. Each is emitted
+  // only from the winning DB transition with a deterministic Segment messageId
+  // (`<outreachId>:hold_placed` / `<outreachId>:hold_failed`) so a replay
+  // dedups to a single milestone email.
+  Robocall: {
+    HoldPlaced: 'Robocall - Hold Placed',
+    HoldFailed: 'Robocall - Hold Failed',
+  },
 }
 
 export type UserContext = {
