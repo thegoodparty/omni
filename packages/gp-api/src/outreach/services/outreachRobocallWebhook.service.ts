@@ -88,26 +88,5 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
       where: { id: draft.id },
       data: { settleState: RobocallSettleState.disputed },
     })
-
-    // BLOCK-FUTURE-SENDS integration point. `campaignHasDisputedRobocall` below
-    // is the consultable check the draft-create / authorize path can gate on to
-    // refuse a new run for a campaign with a disputed robocall. It is
-    // intentionally NOT wired here: whether ONE disputed run should block ALL of
-    // a campaign's future robocalls (and whether the block belongs at draft
-    // create, at authorize, or both) is a product call. FLAGGED for review.
-  }
-
-  // Consultable block-future-sends check: does this campaign already have a
-  // robocall in the `disputed` terminal? Returns true so the draft-create /
-  // authorize path can refuse a new run. See markDisputedByIntent — not yet
-  // wired into a call site.
-  async campaignHasDisputedRobocall(campaignId: number): Promise<boolean> {
-    const count = await this.model.count({
-      where: {
-        settleState: RobocallSettleState.disputed,
-        outreach: { campaignId },
-      },
-    })
-    return count > 0
   }
 }

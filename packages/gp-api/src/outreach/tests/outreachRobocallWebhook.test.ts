@@ -261,19 +261,4 @@ describe('OutreachRobocallWebhookService', () => {
       )
     })
   })
-
-  describe('campaignHasDisputedRobocall', () => {
-    it('is true once a run for the campaign is disputed, false otherwise', async () => {
-      expect(await webhooks.campaignHasDisputedRobocall(campaign.id)).toBe(
-        false,
-      )
-
-      await createDraft({
-        settleState: RobocallSettleState.disputed,
-        authorizationIntentId: 'pi_hold_1',
-      })
-
-      expect(await webhooks.campaignHasDisputedRobocall(campaign.id)).toBe(true)
-    })
-  })
 })
