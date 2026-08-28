@@ -36,9 +36,9 @@ a CAS failure Slack meant for send attempts.
 | `outreachPhoneBankingGeneration.service.ts`         | Stateless LLM compose for call scripts, same shape as social generation. Per-purpose structure (volunteer opener, why-statement, issue-ID question for `persuade`, real election-day/early-voting dates for `vote-early`/`election-day` — grounded from `campaign.details` and, for `vote-early` only, a live `CampaignsService.fetchLiveRaceTargetMetrics` milestones fetch — with no bracket placeholders anywhere except `[your name]` and the voter-name token (`VOTER_NAME_TOKEN`, contracts), which the caller page interpolates with the active contact's first name); hard-bans SMS/robocall compliance lines (`Reply STOP`, `Paid for by`, callback numbers) since a volunteer reads this live                                                          |
 | `outreachRobocallGeneration.service.ts`             | Stateless LLM compose for the recorded robocall message, same shape again. Differs from phone banking in the opener — a robocall is the CANDIDATE speaking, so the rule is a first-person self-ID (`This is [first name], candidate for [office]`), not a volunteer intro — and in length (about 40-75 words, four or five short sentences, well inside a 60-second recording). Compliance is conditional on the request's `callbackNumber`: with no number the `Paid for by` disclaimer / callback number / opt-out are banned (the number isn't rented until compose); once a number is passed, the script MUST end with the spoken disclosure ("paid for by" + that number), which is what the compliance gate later verifies. Refuses fresh generation for `custom` (improve allowed), like social |
 | `outreachRobocall.service.ts`                       | Persists the robocall draft (`OutreachRobocallService`, `createPrismaBase(MODELS.OutreachRobocall)`): `deriveBillableCount` (the saved list resolved with `hasLandline` forced → people-db total, never a client count), `assertReachableCount` (a 0-landline audience is not purchasable), the future-schedule guard, and `createDraft` (spine `pending_payment` + satellite settleState `pending_payment` in one transaction). No hold/Stripe/CallHub/settlement — the payment/callhub satellite fields stay unset until later slices                                                                                                                                                                                                                                                                                     |
-| `outreachRobocallHold.service.ts`                   | The pay-time authorization hold (`OutreachRobocallHoldService`, `createPrismaBase(MODELS.OutreachRobocall)`): `authorizeHold` places a manual-capture Stripe hold off-session on the vaulted card for the server-re-derived, frozen estimate. Single-owner placement CAS (`pending_payment → hold_pending → authorized`), the $500 `ROBOCALL_PER_RUN_CEILING_CENTS`, the `ROBOCALL_HOLD_WINDOW_DAYS` (3) window, the capture-window fit, the decline-vs-502 split, and the `HoldPlaced`/`HoldFailed` milestones. RESERVES REAL MONEY. See "Robocall payment" below                                                                                                                                                                                                                                                              |
+| `outreachRobocallHold.service.ts`                   | The pay-time authorization hold (`OutreachRobocallHoldService`, `createPrismaBase(MODELS.OutreachRobocall)`): `authorizeHold` places a manual-capture Stripe hold off-session on the vaulted card for the server-re-derived, frozen estimate. Single-owner placement CAS (`pending_payment → hold_pending → authorized`), the $500 `ROBOCALL_PER_RUN_CEILING_CENTS`, the `ROBOCALL_HOLD_WINDOW_DAYS` (3) window, the capture-window fit, the decline-vs-502 split, and the `HoldPlaced`/`HoldFailed` milestones. The success commit ALSO nulls `callhubCampaignPkStr`/dates so a `hold_failed` re-auth (which re-derives the count) forces a fresh re-stage instead of dialing the stale phonebook. RESERVES REAL MONEY. See "Robocall payment" below                                                                                                                                                                                                                                                              |
 | `outreachRobocallStaging.service.ts`                | CallHub campaign staging (`OutreachRobocallStagingService`, `createPrismaBase(MODELS.OutreachRobocall)`): for an `authorized`, unstaged draft whose send is approaching, `stageCampaign` creates the PAUSED CallHub voice-broadcast campaign and persists its `callhubCampaignPkStr` + the COMPUTED `callhubStartingDate`/`callhubExpirationDate` (returned by `createVoiceBroadcast`, never null on success). Single-owner claim CAS (`callhubCampaignPkStr IS NULL` AND [`authorized`, OR `staging` gone stale past `ROBOCALL_STAGING_STALE_MINUTES` — a crashed run's stranded claim, reclaimed] → `staging`), CallHub calls (`uploadMedia` FIRST so a bad audio format fails cheap, THEN `loadAudienceToPhonebook` → `createVoiceBroadcast`) OUTSIDE any DB transaction, commit CAS (`staging → authorized` + fields), revert-to-`authorized` on any failure, and an orphan guard (a committed-nothing race logs the orphaned pk_str — a PAUSED campaign charges nothing; no delete). A `@Cron` sweep (`7,17,27,37,47,57 * * * *`, `EASTERN_TIMEZONE`) stages in-window drafts + reclaims stale staging rows; **prod-only** (`OTEL_SERVICE_ENVIRONMENT`, a rate-limited vendor); no `CronLockService` (the per-record claim makes it idempotent across replicas). STAGING ONLY — no dial/START, no Stripe. See "Robocall payment" below |
-| `outreachRobocallSend.service.ts`                   | Send-time dial (`OutreachRobocallSendService`, `createPrismaBase(MODELS.OutreachRobocall)`): `startCampaign` STARTs a staged, still-paid draft's PAUSED CallHub campaign — the step that DIALS REAL PHONES. The two invariants: (1) NEVER dial twice — a single-owner claim CAS (`authorized` AND `callhubCampaignPkStr IS NOT NULL → dialing`) elects one dialer; a lost launch response is NEVER blind-retried but reconciled against a fresh `CallhubCampaignReportService.getCampaignStatus(pkStr)` read (STARTED → commit `dialed`; PAUSED → revert `authorized`, safe to relaunch; unknown/read-fail → left `dialing` for the stale sweep); the commit CAS (`dialing → dialed` + `dialedAt`) records the launch. (2) NEVER dial unpaid — a FRESH `StripeService.retrievePaymentIntent(authorizationIntentId)` re-read AFTER the claim and BEFORE the launch must read `requires_capture`, else the draft goes `hold_failed` with the authorization fields CLEARED (so the hold service's `authorizationIntentId IS NULL` retry CAS can re-pick it) and does not dial. `CallhubCampaignService.launchVoiceBroadcast(pkStr)` runs OUTSIDE any DB transaction; a Stripe-read failure BEFORE launch reverts `dialing → authorized` and rethrows; a commit-miss logs a CRITICAL alert with the pk_str (no safe un-dial). A compliance-pass gate is a commented integration point ANDed with the live-hold check when that workstream lands. The `@Cron` sweep (`4,14,24,34,44,54 * * * *`, `EASTERN_TIMEZONE`) dials `authorized` + staged arrived drafts AND recovers rows stranded in `dialing` past `ROBOCALL_DIALING_STALE_MINUTES` via the same status read (stale-guarded reclaim CAS elects one recoverer); **prod-only AND behind the `ROBOCALL_SEND_ENABLED` kill-switch** (default OFF — the deliberate enable-switch for the supervised live dial test); no `CronLockService` (the per-record claims make it idempotent across replicas). READS the hold only — no capture/void, no completion poll. See "Robocall payment" below |
+| `outreachRobocallSend.service.ts`                   | Send-time dial (`OutreachRobocallSendService`, `createPrismaBase(MODELS.OutreachRobocall)`): `startCampaign` STARTs a staged, still-paid draft's PAUSED CallHub campaign — the step that DIALS REAL PHONES. The two invariants: (1) NEVER dial twice — a single-owner claim CAS (`authorized` AND `callhubCampaignPkStr IS NOT NULL → dialing`) elects one dialer; a launch commits `dialed` ONLY when its response reads back status `START` (a 200 echoing PAUSE/null/`{}` is not trusted), and a lost response OR a non-STARTED 200 is NEVER blind-retried but reconciled against a fresh `CallhubCampaignReportService.getCampaignStatus(pkStr)` read (STARTED → commit `dialed`; PAUSED → revert `authorized`, safe to relaunch; unknown/read-fail → left `dialing` for the stale sweep); the commit CAS (`dialing → dialed` + `dialedAt`) records the launch. (2) NEVER dial unpaid — a FRESH `StripeService.retrievePaymentIntent(authorizationIntentId)` re-read AFTER the claim and BEFORE the launch must read `requires_capture`, else the draft goes `hold_failed` with the authorization fields CLEARED (so the hold service's `authorizationIntentId IS NULL` retry CAS can re-pick it) and emits `HoldFailed` (messageId `<id>:hold_failed_at_dial`) so the absent candidate gets the reminder email; it does not dial. `CallhubCampaignService.launchVoiceBroadcast(pkStr)` runs OUTSIDE any DB transaction; a Stripe-read failure BEFORE launch reverts `dialing → authorized` and rethrows; a commit-miss logs a CRITICAL alert with the pk_str (no safe un-dial). A compliance-pass gate is a commented integration point ANDed with the live-hold check when that workstream lands. The `@Cron` sweep (`4,14,24,34,44,54 * * * *`, `EASTERN_TIMEZONE`) dials `authorized` + staged arrived drafts AND recovers rows stranded in `dialing` past `ROBOCALL_DIALING_STALE_MINUTES` via the same status read (stale-guarded reclaim CAS elects one recoverer); **prod-only AND behind the `ROBOCALL_SEND_ENABLED` kill-switch** (default OFF — the deliberate enable-switch for the supervised live dial test); no `CronLockService` (the per-record claims make it idempotent across replicas). READS the hold only — no capture/void, no completion poll. See "Robocall payment" below |
 | `outreachRobocallAudio.service.ts`                  | Builds a campaign-scoped object key (`robocall/<campaignId>/<uuid>.<ext>`) and returns a presigned S3 POST (`S3Service.createPresignedUpload`, a `content-length-range` policy capping bytes at `ROBOCALL_AUDIO_MAX_BYTES`), reading the bucket from `ROBOCALL_AUDIO_BUCKET` (throws at construction if unset). Stateless — no row is written                                                                                                                                                                                                                                                                                  |
 | `robocallTranscription.service.ts`                  | Batch AWS Transcribe (`@aws-sdk/client-transcribe`, `StartTranscriptionJob` → poll → read the transcript JSON from S3) for a stored robocall recording. Batch, not the streaming path the mic dictation uses, because a stored webm/mp4/mp3 needs container decoding. Task role needs `transcribe:StartTranscriptionJob`/`GetTranscriptionJob` (granted in `deploy/index.ts`)                                                                                                                                                                                                                                                    |
 | `robocallCompliance.service.ts`                     | Fail-closed compliance gate: transcribes the recording, then verifies via the LLM (temperature 0) that the FCC calling disclosures are actually spoken — candidate self-ID, organization name, callback number. Returns a `RobocallComplianceVerdict` (per-check booleans + transcript + issues). A transcription/LLM failure propagates as 502; it never silently passes. Distinct from the result sweep (ADR 0013) — this is a pre-send audio check, not a disposition writer                                                                                                                                                  |
@@ -96,7 +96,14 @@ This RESERVES REAL MONEY. Invariants, in order:
   (`hold_pending → authorized`) commits the intent id / frozen
   `authorizedAmountInCents` / `captureBefore` / `paymentMethodId` /
   `stripeCustomerId` / `payAttempt`; if it finds nothing (the draft moved
-  mid-placement) the just-placed hold is voided.
+  mid-placement) the just-placed hold is voided. That commit ALSO nulls
+  `callhubCampaignPkStr` / `callhubStartingDate` / `callhubExpirationDate`: a
+  (re)authorization re-derives the billable count, so any previously-staged
+  campaign (a `hold_failed` re-auth) is invalidated — clearing the fields forces
+  the staging sweep (`callhubCampaignPkStr IS NULL`) to re-stage a phonebook
+  matching the new count, so billed amount and dialed audience can't diverge. On
+  a first authorize these are already null (a no-op); the orphaned PAUSED campaign
+  charges nothing and a later reconciliation slice cleans it.
 - **INV-2 testing cap.** The re-derived estimate over
   `ROBOCALL_PER_RUN_CEILING_CENTS` ($500) reverts `hold_pending →
   pending_payment`, logs `error` (human alert), and 409s — no hold. Raise/remove
@@ -124,8 +131,10 @@ This RESERVES REAL MONEY. Invariants, in order:
   Segment messageId (`<outreachId>:hold_placed` / `<outreachId>:hold_failed`) so
   a replay dedups to one email. The emit is best-effort (a Segment failure logs,
   does not rethrow) — the money op already committed, so a lost email must not
-  500 the request onto the noop path. Capture/deferred-sweep/reminder-retry-
-  cancel are later slices.
+  500 the request onto the noop path. The send slice fires `HoldFailed` a second
+  legitimate time when a hold is found dead AT DIAL, under a distinct messageId
+  (`<id>:hold_failed_at_dial`). Capture/deferred-sweep/reminder-retry-cancel are
+  later slices.
 
 **Send (dial time).** `OutreachRobocallSendService.startCampaign` STARTs a
 staged, still-paid draft's PAUSED CallHub campaign — the step that DIALS REAL
@@ -133,16 +142,19 @@ PHONES — behind two absolute invariants:
 
 - **Never dial twice.** A single-owner dial claim CAS (`authorized` AND
   `callhubCampaignPkStr IS NOT NULL → dialing`) elects one dialer; count 0 (a row
-  already `dialing`/`dialed`, or not yet staged) returns. On a SUCCESSFUL launch a
-  commit CAS (`dialing → dialed`, stamping `dialedAt`) records it. **A lost launch
-  response is never blind-retried** — a re-sent START could re-dial the whole
-  audience if the first PUT reached CallHub. Instead the row is reconciled against
-  a fresh `CallhubCampaignReportService.getCampaignStatus(pkStr)` read: **STARTED**
-  → the dial happened → commit `dialed` (idempotent); **PAUSED** → it did not →
-  revert `dialing → authorized`, safe to relaunch next sweep; **read-fail or any
-  other status** → LEAVE the row in `dialing` (never relaunch without a PAUSED
-  read, never mark dialed without a STARTED read) for the stale-dialing sweep, and
-  alert. A commit-miss (the draft moved underneath) means the campaign may be
+  already `dialing`/`dialed`, or not yet staged) returns. A launch commits `dialed`
+  ONLY when its response reads back status `START` — a 200 that echoes PAUSE / null
+  / `{}` (all valid under the nullish response schema) is NOT trusted, and routes
+  through the same reconcile path below rather than blindly stamping `dialed` on a
+  still-PAUSED campaign. On a verified START the commit CAS (`dialing → dialed`,
+  stamping `dialedAt`) records it. **A lost launch response is never blind-retried**
+  — a re-sent START could re-dial the whole audience if the first PUT reached
+  CallHub. A lost response OR a non-STARTED 200 reconciles against a fresh
+  `CallhubCampaignReportService.getCampaignStatus(pkStr)` read: **STARTED** → the
+  dial happened → commit `dialed` (idempotent); **PAUSED** → it did not → revert
+  `dialing → authorized`, safe to relaunch next sweep; **read-fail or any other
+  status** → LEAVE the row in `dialing` (never relaunch without a PAUSED read,
+  never mark dialed without a STARTED read) for the stale-dialing sweep, and alert. A commit-miss (the draft moved underneath) means the campaign may be
   dialing with no `dialed` record — logged CRITICAL with the pk_str; no safe
   un-dial, so no un-launch is attempted. A crash between the claim and the
   commit/revert strands the row in `dialing`; the sweep recovers it (below).
@@ -156,8 +168,11 @@ PHONES — behind two absolute invariants:
   a later re-auth + re-dial of the still-PAUSED staged campaign is safe, and the
   null intent lets the hold service's new-card retry CAS (`authorizationIntentId
   IS NULL`) re-pick it (`hold_failed` is reached from two paths — card decline at
-  authorize, dead hold at dial — and both now leave a null intent). Error-logged;
-  it does NOT dial.
+  authorize, dead hold at dial — and both now leave a null intent). Error-logged,
+  and it emits the `HoldFailed` milestone (best-effort, deterministic messageId
+  `<id>:hold_failed_at_dial` — distinct from the authorize-time
+  `<id>:hold_failed` so both fire once) so the candidate, absent when the sweep
+  runs, gets the "update your card" email. It does NOT dial.
 
 `CallhubCampaignService.launchVoiceBroadcast(pkStr)` (the `PUT
 /v1/voice_broadcasts/{pk_str}/` `status: 1` START — pk_str a STRING end-to-end)
@@ -298,9 +313,10 @@ placement (idempotency key `robocall-hold-<id>-1`, satellite persisted,
 `authorized`, `HoldPlaced` once), the 5-day defer, the INV-2 ceiling → 409 +
 revert, a decline → `hold_failed` + `HoldFailed` (not a 502), a payment method
 not on the customer → 400, a too-short `capture_before` → void + 400, the
-already-authorized/in-flight no-double-hold paths + the lost-commit void, and
-the Pro gate — mocking the private Stripe client, `deriveBillableCount`, and
-`AnalyticsService.track`;
+already-authorized/in-flight no-double-hold paths + the lost-commit void, a
+`hold_failed` re-authorize clearing any prior staged campaign fields (pkStr +
+dates → null), and the Pro gate — mocking the private Stripe client,
+`deriveBillableCount`, and `AnalyticsService.track`;
 `outreachRobocallStaging.test.ts` covers CallHub campaign staging directly on
 the service (no HTTP route): happy-path stages once and persists pk_str + the
 computed window, media uploads before the phonebook is created, an already-staged
@@ -318,9 +334,12 @@ services and `S3Service.getFileBytesWithContentType`;
 (no HTTP route): happy-path launches once (pk_str a string) and commits `dialed`
 + `dialedAt`; NEVER-UNPAID (a non-`requires_capture` hold and a missing intent
 both → `hold_failed` with the authorization fields CLEARED so the hold-retry CAS
-can re-pick it, no launch, alert); NEVER-TWICE (a concurrent double-start launches
-once via the claim CAS); the double-dial guard (launch throws once but CallHub
-reads STARTED → NO second launch, commit `dialed`); a lost launch that reads
+can re-pick it, no launch, alert, and the dead hold at dial emits `HoldFailed`
+once under `<id>:hold_failed_at_dial`); NEVER-TWICE (a concurrent double-start
+launches once via the claim CAS); the double-dial guard (launch throws once but
+CallHub reads STARTED → NO second launch, commit `dialed`); a launch 200 that
+reads back a non-STARTED status → NOT committed dialed, reconciled instead; a
+lost launch that reads
 PAUSED → revert `authorized`, and a subsequent sweep dials it; a lost launch whose
 status read also throws → left `dialing` + alert (not reverted); stale-dialing
 recovery (an aged `dialing` row with CallHub STARTED → `dialed`, with PAUSED →
@@ -329,7 +348,7 @@ recovery (an aged `dialing` row with CallHub STARTED → `dialed`, with PAUSED �
 only arrived drafts once across repeat runs, continues past a failing draft,
 no-ops off prod, and no-ops when `ROBOCALL_SEND_ENABLED` is unset even on prod —
 mocking `CallhubCampaignService.launchVoiceBroadcast`,
-`CallhubCampaignReportService.getCampaignStatus`, and
-`StripeService.retrievePaymentIntent`;
+`CallhubCampaignReportService.getCampaignStatus`,
+`StripeService.retrievePaymentIntent`, and `AnalyticsService.track`;
 `outreachFlow.test.ts` covers the submission contract, the draft-first
 purchase path, and the failure-still-Slacks interceptor behavior.

@@ -216,6 +216,48 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.payAttempt).toBe(2)
   })
 
+  it('clears any prior staged CallHub campaign on a hold_failed re-authorize', async () => {
+    // A re-auth re-derives the billable count from the live voter DB, so a
+    // previously-staged campaign (frozen phonebook) must be invalidated — else
+    // the staging sweep never re-stages and CallHub dials the stale audience.
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+    })
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: {
+        callhubCampaignPkStr: 'vb_stale',
+        callhubStartingDate: addDays(new Date(), 2),
+        callhubExpirationDate: addDays(new Date(), 9),
+      },
+    })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_2',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_reauth',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    const res = await postAuthorize(outreachId, 'pm_2')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('authorized')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    // The stale campaign is cleared so the staging sweep (callhubCampaignPkStr
+    // IS NULL) re-stages a phonebook matching the newly-derived count.
+    expect(satellite.callhubCampaignPkStr).toBeNull()
+    expect(satellite.callhubStartingDate).toBeNull()
+    expect(satellite.callhubExpirationDate).toBeNull()
+  })
+
   it('502s and reverts without bumping payAttempt on an infra failure', async () => {
     // A non-decline Stripe/infra error must 502, revert the claim, and leave
     // payAttempt unchanged so a retry REUSES the same idempotency key (Stripe

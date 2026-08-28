@@ -11,6 +11,8 @@ import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhub
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
@@ -19,6 +21,7 @@ let send: OutreachRobocallSendService
 let launchSpy: ReturnType<typeof vi.spyOn>
 let statusSpy: ReturnType<typeof vi.spyOn>
 let retrieveSpy: ReturnType<typeof vi.spyOn>
+let trackSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -50,6 +53,9 @@ beforeEach(async () => {
   retrieveSpy = vi
     .spyOn(service.app.get(StripeService), 'retrievePaymentIntent')
     .mockResolvedValue(piWith('requires_capture'))
+  trackSpy = vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
 
   const campaignId = 996
   orgSlug = `campaign-${campaignId}`
@@ -183,6 +189,27 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(satellite.dialedAt).toBeNull()
   })
 
+  it('does NOT commit dialed when the launch 200 reads back a non-STARTED status', async () => {
+    const outreachId = await createDraft()
+    // A CallHub 200 that echoes PAUSE (or null/{}) parses through the nullish
+    // schema — trusting the 2xx would record `dialed` on a still-PAUSED campaign.
+    launchSpy.mockResolvedValue({
+      pk_str: 'vb_1',
+      status: CALLHUB_VB_STATUS.PAUSE,
+    })
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    // Reconcile re-reads the real status (PAUSED) and reverts — not committed
+    // dialed, and the launch is not re-sent.
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    expect(statusSpy).toHaveBeenCalledWith('vb_1')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    expect(satellite.dialedAt).toBeNull()
+  })
+
   it('leaves the row in dialing (not reverted) when the status read itself throws', async () => {
     const outreachId = await createDraft()
     const errorSpy = loggerErrorSpy()
@@ -226,6 +253,14 @@ describe('OutreachRobocallSendService.startCampaign', () => {
       expect.objectContaining({ outreachId, paymentIntentStatus: 'canceled' }),
       expect.any(String),
     )
+    // The candidate is not in the app at dial time, so the dead hold emits the
+    // HoldFailed reminder once, with a messageId distinct from the authorize-time
+    // decline so both can fire once each.
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    const [userId, event, , , messageId] = trackSpy.mock.calls[0] ?? []
+    expect(userId).toBe(service.user.id)
+    expect(event).toBe(EVENTS.Robocall.HoldFailed)
+    expect(messageId).toBe(`${outreachId}:hold_failed_at_dial`)
   })
 
   it('NEVER dials unpaid: a draft with no authorization intent fails and no launch', async () => {

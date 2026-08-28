@@ -8,6 +8,8 @@ import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampai
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
@@ -52,6 +54,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     private readonly campaigns: CallhubCampaignService,
     private readonly campaignReport: CallhubCampaignReportService,
     private readonly stripe: StripeService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -147,7 +150,10 @@ export class OutreachRobocallSendService extends createPrismaBase(
     })
     if (claim.count === 0) return
 
-    const draft = await this.findFirst({ where: { outreachId } })
+    const draft = await this.findFirst({
+      where: { outreachId },
+      include: { outreach: { include: { campaign: true } } },
+    })
     if (!draft?.callhubCampaignPkStr) {
       // Unreachable in practice (the claim matched a non-null pk_str), but never
       // launch without a campaign handle — release the claim so a later sweep
@@ -156,6 +162,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
       return
     }
     const pkStr = draft.callhubCampaignPkStr
+    // The candidate to email if the hold turns out dead — the sweep has no user
+    // in scope, so it comes off the draft's campaign.
+    const userId = draft.outreach.campaign.userId
 
     // MONEY RE-CHECK (never dial unpaid — THE critical gate). Re-read the hold
     // from Stripe AFTER winning the claim and BEFORE the launch; the persisted
@@ -163,7 +172,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // `requires_capture` (the hold live and uncaptured) may dial.
     const intentId = draft.authorizationIntentId
     if (!intentId) {
-      await this.markHoldNotLive(outreachId, null)
+      await this.markHoldNotLive(outreachId, userId, null)
       return
     }
     let intent: Stripe.PaymentIntent
@@ -177,7 +186,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
       throw err
     }
     if (intent.status !== 'requires_capture') {
-      await this.markHoldNotLive(outreachId, intent.status)
+      await this.markHoldNotLive(outreachId, userId, intent.status)
       return
     }
 
@@ -188,8 +197,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
 
     // LAUNCH (outside any DB transaction): START the PAUSED campaign so it dials.
     // pk_str stays a STRING end-to-end.
+    let launchStatus: number | null | undefined
     try {
-      await this.campaigns.launchVoiceBroadcast(pkStr)
+      launchStatus = (await this.campaigns.launchVoiceBroadcast(pkStr)).status
     } catch (err) {
       // The launch response was lost (502 / timeout / reset), so we do NOT know
       // whether the START reached CallHub. NEVER blind-retry — a second START
@@ -200,6 +210,19 @@ export class OutreachRobocallSendService extends createPrismaBase(
       this.logger.error(
         { err, outreachId, dialingCampaignPkStr: pkStr },
         'robocall launch response lost; reconciling against CallHub status',
+      )
+      await this.reconcileDialing(outreachId, pkStr)
+      return
+    }
+
+    // A 200 is not proof of a START: CallHub can echo PAUSE / null / {} (all of
+    // which parse through the nullish response schema). Only an explicit STARTED
+    // status commits dialed. Anything else re-reads the real status and resolves
+    // exactly as the lost-response path does, rather than trusting the 2xx.
+    if (launchStatus !== CALLHUB_VB_STATUS.START) {
+      this.logger.error(
+        { outreachId, dialingCampaignPkStr: pkStr, launchStatus },
+        'robocall launch did not read back STARTED; reconciling',
       )
       await this.reconcileDialing(outreachId, pkStr)
       return
@@ -324,6 +347,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // dial time (here) — and both now leave a null intent.
   private async markHoldNotLive(
     outreachId: number,
+    userId: number | null,
     paymentIntentStatus: Stripe.PaymentIntent.Status | null,
   ): Promise<void> {
     await this.model.updateMany({
@@ -339,5 +363,36 @@ export class OutreachRobocallSendService extends createPrismaBase(
       { outreachId, paymentIntentStatus },
       'robocall hold not live at dial time; not dialing',
     )
+    // The candidate is NOT in the app when the sweep runs, so without this
+    // milestone they never learn the hold lapsed and a new-card retry is needed.
+    if (userId != null) {
+      await this.emitHoldFailed(userId, outreachId)
+    }
+  }
+
+  // Emits the HoldFailed milestone for a dead hold caught at dial time, mirroring
+  // the hold service's emitMilestone. Deterministic Segment messageId so a replay
+  // dedups to one email; the `_at_dial` suffix distinguishes this from the
+  // authorize-time decline (`<id>:hold_failed`) so both can legitimately fire
+  // once each. Best-effort: the money-state transition already committed, so a
+  // Segment failure must log and continue, never throw and strand it.
+  private async emitHoldFailed(
+    userId: number,
+    outreachId: number,
+  ): Promise<void> {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Robocall.HoldFailed,
+        { outreachId },
+        undefined,
+        `${outreachId}:hold_failed_at_dial`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, event: EVENTS.Robocall.HoldFailed },
+        'robocall dial-time hold_failed milestone emit failed',
+      )
+    }
   }
 }

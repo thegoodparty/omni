@@ -245,6 +245,17 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         paymentMethodId,
         stripeCustomerId: customerId,
         payAttempt: attempt,
+        // A (re)authorization invalidates any previously-staged CallHub
+        // campaign: this hold prices a freshly-derived billable count, but a
+        // stale campaign would dial the OLD frozen phonebook. Null the campaign
+        // fields so the staging sweep (which claims on `callhubCampaignPkStr IS
+        // NULL`) re-stages a phonebook matching the new count. On a first
+        // authorize these are already null (a no-op); on a hold_failed re-auth
+        // the old PAUSED campaign is orphaned (charges nothing; a later
+        // reconciliation slice cleans paused orphans).
+        callhubCampaignPkStr: null,
+        callhubStartingDate: null,
+        callhubExpirationDate: null,
       },
     })
     if (commit.count === 0) {
