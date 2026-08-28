@@ -12,7 +12,7 @@ Frontend counterpart (the pre-payment wizard that calls these endpoints):
 ## Two callers, same endpoints (the Phase 1 contract)
 
 Both the candidate-facing **Pro upgrade wizard** and the **`compliance_setup` agent**
-(running in gp-ai-projects, reaching gp-api through the broker) hit the _same_ routes —
+(running in gp-ai, reaching gp-api through the broker) hit the _same_ routes —
 there are no agent-only endpoints. The `@McpTool`-decorated methods are what the agent
 calls; the wizard calls the same controller methods over HTTP.
 

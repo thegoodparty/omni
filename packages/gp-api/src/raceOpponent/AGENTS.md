@@ -65,7 +65,7 @@ Every route is owner-scoped (`@UseCampaign`) and gated by **`assertAccess`**
 `race_opponent_collection`, `race_opponent_summary`, `race_opponent_actions`,
 `self_research`, `opponent_research` — manifests in
 `packages/runbooks/experiments/<id>/`. Dispatch goes through
-`ExperimentRunsService` (SQS → gp-ai-projects pmf_engine). In-flight
+`ExperimentRunsService` (SQS → gp-ai pmf_engine). In-flight
 dedup on `ExperimentRun` keyed by type+status prevents double paid runs; the
 auto-dispatch trigger (Pro upgrade) and the daily cron reuse the same guard. Per-row
 lifetime caps (`MAX_SELF_RESEARCH_ATTEMPTS`, `MAX_OPPONENT_RESEARCH_ATTEMPTS`) surface

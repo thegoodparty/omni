@@ -7,7 +7,7 @@ share a goal and almost no code:
 1. **Background agents** — an agent runs unattended, in its own sandbox, for one
    org, and produces a structured **artifact** (a meeting briefing, a community
    issues report, opposition research). Dispatched and reconciled by gp-api;
-   executed in `gp-ai-projects`. **Read [`cap-background-agents.md`](cap-background-agents.md).**
+   executed in `packages/gp-ai`. **Read [`cap-background-agents.md`](cap-background-agents.md).**
 2. **Interactive agents** — a synchronous, streaming chat agent answers a user in
    real time, calling tools as it goes (the Chief of Staff assistant, the briefing
    chat). Built entirely in gp-api on the Vercel `ai` SDK.
@@ -33,7 +33,7 @@ grepping, know the aliases:
 | You hear / read              | In the code it's…                                                                     |
 | ---------------------------- | ------------------------------------------------------------------------------------- |
 | CAP, "the platform"          | nothing — it's an umbrella term, not a module                                         |
-| "agent infrastructure"       | the **PMF Engine** — `gp-ai-projects/pmf_engine` + `broker`                           |
+| "agent infrastructure"       | the **PMF Engine** — `packages/gp-ai/pmf_engine` + `broker`                           |
 | "background agents"          | **experiment runs** — `gp-api/src/agentExperiments`, `ExperimentRun` (Prisma)         |
 | "an experiment"              | a **run-type** (a manifest in S3): `meeting_briefing`, `top_community_issues`, …      |
 | "a run" / "a job"            | one execution of an experiment for one org (`run_id`)                                 |
@@ -45,23 +45,22 @@ grepping, know the aliases:
 whether AI-generated artifacts are good enough to build a product on. The framing
 stuck even though the engine is now generic infrastructure.
 
-## Where the code lives (cross-repo)
+## Where the code lives
 
-CAP spans two repos. `gp-ai-projects` is a **separate external repo**
-(`~/Repos/thegoodparty/gp-ai-projects`), not a package in this monorepo — the agent
-runtime, the broker, and the dispatch/scheduler Lambdas live there in Python. This
-monorepo holds the gp-api transport layer, the products, the SDK/contracts, and the
-eval system (`packages/runbooks`).
+Both halves live in this monorepo. The agent runtime, the broker, and the
+dispatch/scheduler Lambdas are Python under `packages/gp-ai`, a `uv` workspace
+outside the npm workspace graph. The gp-api transport layer, the products, the
+SDK/contracts, and the eval system (`packages/runbooks`) are the TypeScript side.
 
 ```
                  INTERACTIVE                         BACKGROUND
-                 (this repo only)                    (spans both repos)
+                 (gp-api only)                       (gp-api + gp-ai)
 
   user ─chat─▶ gp-api/src/chats ──┐         gp-api/src/agentExperiments
                                   │                    │  dispatchRun()
               gp-api/src/llm      │                    ▼  SQS (agent-dispatch.fifo)
               (LlmService,        │         ┌──────────────────────────────────┐
-               Vercel `ai` SDK)   │         │  gp-ai-projects (external repo)   │
+               Vercel `ai` SDK)   │         │  packages/gp-ai (Python, uv)      │
                     │             │         │   pmf_engine  ──RunTask──▶ runner │
               Anthropic /         │         │   (Lambdas)              (Fargate)│
               Together            │         │       │ every call proxied via    │
@@ -83,7 +82,7 @@ eval system (`packages/runbooks`).
 **Background.** A product module in gp-api (meetings, communityIssues,
 campaignStrategy) decides an org needs an artifact and calls
 `ExperimentRunsService.dispatchRun(...)`. That writes a `QUEUED` `ExperimentRun` row
-and drops a message on an SQS FIFO queue. In `gp-ai-projects`, a dispatch Lambda
+and drops a message on an SQS FIFO queue. In `packages/gp-ai`, a dispatch Lambda
 validates the request against the experiment's S3 manifest and enqueues it in a
 DynamoDB job table; a single-concurrency scheduler Lambda is the only thing that
 launches Fargate tasks, so the live-agent count is an exact, SSM-tunable ceiling.
@@ -114,12 +113,12 @@ a known, growing area of investment.
   bucket from `packages/runbooks`. Defines model, timeout, input/output JSON schemas,
   and Databricks scope.
 - **Run** — one execution of an experiment for one org, identified by `run_id`.
-  Tracked as an `ExperimentRun` in gp-api and a job row in `gp-ai-projects`' DynamoDB.
+  Tracked as an `ExperimentRun` in gp-api and a job row in the PMF Engine's DynamoDB.
 - **Artifact** — the JSON work product a run produces. Stored in S3; gp-api stores
   the **key**, not the body, and re-fetches on demand.
 - **Resource location** — the `{artifactBucket, artifactKey}` pair that points at an
   artifact in S3.
-- **Broker** — the trusted egress proxy in `gp-ai-projects`; the security boundary
+- **Broker** — the trusted egress proxy in `packages/gp-ai`; the security boundary
   for every background run.
 - **Manifest** — the S3-published definition of an experiment.
 - **ICP gate** — "ideal customer profile" gate; automated background dispatch only
@@ -137,4 +136,4 @@ a known, growing area of investment.
 | The gp-api transport layer for runs                     | `packages/gp-api/src/agentExperiments/AGENTS.md`                                             |
 | Writing/running an eval, changing a prompt safely       | `packages/runbooks/books/pmf-eval-system.md`                                                 |
 | Bulk-dispatching a cohort (briefings, community issues) | the `bulk-briefing-cohort` / `bulk-community-issues-cohort` skills                           |
-| The agent runtime, broker, dispatch internals           | `gp-ai-projects/pmf_engine/control_plane/README.md`, `gp-ai-projects/broker/ARCHITECTURE.md` |
+| The agent runtime, broker, dispatch internals           | `packages/gp-ai/pmf_engine/control_plane/README.md`, `packages/gp-ai/broker/ARCHITECTURE.md` |
