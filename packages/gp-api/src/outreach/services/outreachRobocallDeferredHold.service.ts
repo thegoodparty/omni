@@ -1,10 +1,16 @@
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { addDays } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
-import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import {
+  Campaign,
+  Organization,
+  OutreachType,
+  RobocallSettleState,
+  User,
+} from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 
 // Daily, a non-:00 minute distinct from the other robocall crons (staging runs
@@ -91,21 +97,52 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
         continue
       }
       try {
-        await this.holds.authorizeHold(
+        await this.placeDeferredHold(
           user,
           campaign,
           organization,
           draft.outreachId,
-          draft.paymentMethodId,
         )
       } catch (err) {
-        // Per-record isolation: one draft's failure must not abort the rest.
-        // The next daily sweep retries it while it is still in-window.
+        // Per-record isolation: one draft's failure (including a failed
+        // escalation) must not abort the rest. The next daily sweep retries a
+        // draft still in pending_payment while it is still in-window.
         this.logger.error(
           { err, outreachId: draft.outreachId },
           'deferred robocall hold placement failed; continuing sweep',
         )
       }
+    }
+  }
+
+  private async placeDeferredHold(
+    user: User,
+    campaign: Campaign,
+    organization: Organization,
+    outreachId: number,
+  ): Promise<void> {
+    try {
+      // Pass NO paymentMethodId: authorizeHold re-reads the card persisted on
+      // the row AFTER it wins the placement claim, so the sweep can never bill a
+      // card a concurrent re-authorize replaced after this sweep's snapshot.
+      await this.holds.authorizeHold(user, campaign, organization, outreachId)
+    } catch (err) {
+      // A BadRequestException means the persisted card is permanently unusable
+      // (stale/foreign, non-card, or cleared). authorizeHold already reverted
+      // its claim to pending_payment, so without escalation the draft would be
+      // re-selected and retried EVERY daily sweep and the candidate never told.
+      // Move it to hold_failed (leaves the candidate set) + emit HoldFailed so
+      // the absent candidate is emailed to fix their card. Transient/infra
+      // errors rethrow and the next pass retries.
+      if (err instanceof BadRequestException) {
+        await this.holds.markHoldFailed(user.id, outreachId)
+        this.logger.error(
+          { err, outreachId },
+          'deferred robocall hold rejected the card; marked hold_failed',
+        )
+        return
+      }
+      throw err
     }
   }
 }

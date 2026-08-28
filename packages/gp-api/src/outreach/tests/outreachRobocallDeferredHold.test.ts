@@ -9,6 +9,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
@@ -23,6 +24,7 @@ let filterId: number
 let deferred: OutreachRobocallDeferredHoldService
 let deriveSpy: ReturnType<typeof vi.spyOn>
 let authorizeSpy: ReturnType<typeof vi.spyOn>
+let trackSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(async () => {
   const stripe = service.app.get(StripeService)
@@ -46,9 +48,9 @@ beforeEach(async () => {
     service.app.get(OutreachRobocallHoldService),
     'authorizeHold',
   )
-  vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue(
-    undefined as never,
-  )
+  trackSpy = vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
 
   const campaignId = 996
   orgSlug = `campaign-${campaignId}`
@@ -203,6 +205,37 @@ describe('authorize defers and persists the chosen card', () => {
     expect(satellite.paymentMethodId).toBeNull()
     expect(satellite.stripeCustomerId).toBeNull()
   })
+
+  it('persist is pending_payment-guarded: never clobbers an advanced row', async () => {
+    // Proves the defer-persist is a CAS on settleState = pending_payment. If a
+    // concurrent request advances the row (here pre-set to authorized) while the
+    // two async Stripe validations run, the persist must not overwrite the card
+    // on the already-authorized row.
+    const outreachId = await createDraft({
+      sendInDays: 10,
+      settleState: RobocallSettleState.authorized,
+      paymentMethodId: 'pm_existing',
+      stripeCustomerId: 'cus_test',
+      authorizedAmountInCents: 450,
+      authorizationIntentId: 'pi_existing',
+    })
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_new',
+      customer: 'cus_test',
+      type: 'card',
+    })
+
+    const res = await postAuthorize(outreachId, 'pm_new')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('deferred')
+    expect(paymentIntentsCreate).not.toHaveBeenCalled()
+    // The guarded CAS matched no pending_payment row, so the authorized row's
+    // card is left intact — 'pm_new' never overwrote it.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.paymentMethodId).toBe('pm_existing')
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
 })
 
 describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => {
@@ -235,11 +268,56 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
 
     expect(authorizeSpy).toHaveBeenCalledTimes(1)
     expect(paymentIntentsCreate).toHaveBeenCalledTimes(1)
-    // authorizeHold is called with the persisted card, never a guessed default.
-    expect(authorizeSpy.mock.calls[0]?.[4]).toBe('pm_1')
+    // The sweep passes NO paymentMethodId — authorizeHold sources the card from
+    // the row it claimed, so the sweep can't bill a stale snapshot.
+    expect(authorizeSpy.mock.calls[0]?.[4]).toBeUndefined()
+    // The hold is placed against the row's persisted card.
+    expect(paymentIntentsCreate.mock.calls[0]?.[0]?.payment_method).toBe('pm_1')
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.authorizationIntentId).toBe('pi_hold_1')
+    expect(satellite.paymentMethodId).toBe('pm_1')
+  })
+
+  it('bills the row current card, not the pre-claim snapshot', async () => {
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      paymentMethodId: 'pm_old',
+      stripeCustomerId: 'cus_test',
+    })
+    // A concurrent re-authorize replaces the persisted card AFTER the sweep's
+    // findMany snapshot but before the placement re-read. Injected via the
+    // post-claim deriveBillableCount (which runs after the claim, before the
+    // re-read) so the re-read observes the NEW card the candidate just chose.
+    deriveSpy.mockImplementation(async () => {
+      await service.prisma.outreachRobocall.updateMany({
+        where: { outreachId },
+        data: { paymentMethodId: 'pm_new' },
+      })
+      return 100
+    })
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_new',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_new',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    await deferred.sweepDeferredHolds()
+
+    // The hold (and the retrieve validation) use the RE-READ card, never the
+    // stale 'pm_old' snapshot the sweep selected.
+    expect(paymentMethodsRetrieve).toHaveBeenCalledWith('pm_new')
+    expect(paymentIntentsCreate.mock.calls[0]?.[0]?.payment_method).toBe(
+      'pm_new',
+    )
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    expect(satellite.paymentMethodId).toBe('pm_new')
   })
 
   it('skips a draft with no card, out-of-window, or already authorized', async () => {
@@ -265,29 +343,39 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
   })
 
-  it('places no hold when the persisted card is stale/invalid at sweep time', async () => {
+  it('escalates a stale/invalid persisted card to hold_failed and stops retrying', async () => {
     const outreachId = await createDraft({
       sendInDays: 2,
-      paymentMethodId: 'pm_1',
+      paymentMethodId: 'pm_stale',
       stripeCustomerId: 'cus_test',
     })
     deriveSpy.mockResolvedValue(100)
     // The card the candidate chose at schedule time no longer belongs to the
-    // customer (detached / re-vaulted), so authorizeHold's validation fails.
+    // customer (detached / re-vaulted), so authorizeHold's validation throws a
+    // BadRequestException — a permanent PM problem, not a transient failure.
     paymentMethodsRetrieve.mockResolvedValue({
-      id: 'pm_1',
+      id: 'pm_stale',
       customer: 'cus_other',
       type: 'card',
     })
 
     await deferred.sweepDeferredHolds()
 
-    // No hold is ever placed against a wrong/stale card, and the draft is left
-    // in pending_payment (reverted by authorizeHold), never authorized.
+    // No hold is placed against a wrong/stale card, and the draft is escalated
+    // to hold_failed (leaves the pending_payment candidate set) with a single
+    // HoldFailed milestone so the absent candidate is emailed to fix their card.
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
-    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     expect(satellite.authorizationIntentId).toBeNull()
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    expect(trackSpy.mock.calls[0]?.[1]).toBe(EVENTS.Robocall.HoldFailed)
+
+    // A second sweep must not re-select or re-notify: hold_failed is out of the
+    // pending_payment candidate set, so no daily retry storm on a dead card.
+    await deferred.sweepDeferredHolds()
+    expect(authorizeSpy).toHaveBeenCalledTimes(1)
+    expect(trackSpy).toHaveBeenCalledTimes(1)
   })
 
   it('marks a declined draft hold_failed and does not retry it next sweep', async () => {
