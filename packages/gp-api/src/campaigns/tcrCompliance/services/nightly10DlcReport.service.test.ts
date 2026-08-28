@@ -1589,6 +1589,64 @@ describe('Nightly10DlcReportService', () => {
     })
   })
 
+  describe('handleNightlyReport — Peerly contact ping on vendor escalations (ENG-10967)', () => {
+    it('includes the Slack mention when SLACK_PEERLY_CONTACT_MEMBER_ID is set', async () => {
+      vi.stubEnv('SLACK_PEERLY_CONTACT_MEMBER_ID', 'U12345PEERLY')
+      const record = inReviewRecord({
+        peerlyCvStatusChangedAt: subDays(new Date(), 10),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      expect(blocksText(blocks)).toContain('<@U12345PEERLY>')
+    })
+
+    it('omits the mention (no crash) when SLACK_PEERLY_CONTACT_MEMBER_ID is unset', async () => {
+      const record = waitingToFinalizeRecord({
+        peerlyProfileStatusChangedAt: subDays(new Date(), 10),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+      ])
+
+      const result = await service.handleNightlyReport({
+        reportDate: '2026-07-10',
+      })
+
+      expect(result).toBe(true)
+      const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      const text = blocksText(blocks)
+      expect(text).not.toContain('<@')
+      expect(text).toContain('*10DLC vendor escalation*')
+    })
+  })
+
   describe('handleNightlyReport — vendor escalation internal mirror sections (ENG-10796)', () => {
     it('lists escalated records tagged with (escalated <date>) and counts them toward stuck', async () => {
       const escalatedAt = subDays(new Date(), 1)
