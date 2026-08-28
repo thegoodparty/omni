@@ -1302,6 +1302,14 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // Pre-Peerly claim: only one concurrent caller may proceed past this
     // point. The TTL allows re-claim if a prior caller crashed mid-flight
     // without clearing its claim.
+    //
+    // Also scoped to cvValidationFailedAt: null — the mirror image of the
+    // race the failure claim above guards against. This gate runs before
+    // this claim and re-reads nothing from the DB in between, so a
+    // concurrent caller's 'passed' verdict (read before a slower caller's
+    // 'failed' verdict won the failure claim) must not be allowed to win
+    // this claim and submit to Peerly on a now-held record. Whichever claim
+    // lands first — this one or the failure claim above — blocks the other.
     const staleBefore = subMinutes(
       new Date(),
       PEERLY_SUBMISSION_CLAIM_TTL_MINUTES,
@@ -1311,6 +1319,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       where: {
         id: existing.id,
         peerlyIdentityId: null,
+        cvValidationFailedAt: null,
         OR: [
           { peerlySubmissionStartedAt: null },
           { peerlySubmissionStartedAt: { lt: staleBefore } },
@@ -1323,6 +1332,11 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       const current = await this.fetchByCampaignId(campaign.id)
       if (current?.peerlyIdentityId) {
         return this.buildSubmitToPeerlyResponse(current)
+      }
+      if (current?.cvValidationFailedAt) {
+        throw new CvPreSubmissionValidationException(
+          current.cvValidationFailureReasons,
+        )
       }
       throw new ConflictException(
         `A Peerly submission is already in progress for ` +

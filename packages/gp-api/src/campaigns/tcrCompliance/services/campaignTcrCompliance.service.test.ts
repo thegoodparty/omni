@@ -1013,13 +1013,15 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       expect(result).toEqual({ record: held, created: false })
     })
 
-    // Defense-in-depth, not the primary race guard: recordCvValidationFailure's
-    // claim is scoped to peerlyIdentityId: null (see the concurrent-caller
-    // test in the submitToPeerlyForAgent gate suite), so a row can no longer
-    // reach cvValidationFailedAt set while peerlyIdentityId is also set via
-    // the normal gate flow. This guard still protects a row in that shape
-    // from a data repair or a future regression — it's never safe to mutate
-    // filing data on an already-submitted record in place.
+    // Defense-in-depth, not the primary race guard: the failure claim
+    // (peerlyIdentityId: null) and the pre-Peerly submission claim
+    // (cvValidationFailedAt: null) are now mutually exclusive — see the two
+    // concurrent-caller tests in the submitToPeerlyForAgent gate suite — so a
+    // row can no longer reach cvValidationFailedAt set while peerlyIdentityId
+    // is also set via the normal gate flow; this state is genuinely
+    // unreachable there. This guard still protects a row in that shape from a
+    // data repair or a future regression — it's never safe to mutate filing
+    // data on an already-submitted record in place.
     it('does not update a record that already has a Peerly identity, even if it also carries a stale hold', async () => {
       const held = {
         id: 'tcr-held',
@@ -1899,6 +1901,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       where: {
         id: existingRecord.id,
         peerlyIdentityId: null,
+        cvValidationFailedAt: null,
         OR: [
           { peerlySubmissionStartedAt: null },
           { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
@@ -2097,6 +2100,43 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     ).rejects.toThrow('A Peerly submission is already in progress')
 
     expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+  })
+
+  // ENG-10965 blocker fix: the mirror of the failure claim's race guard. A
+  // caller's 'passed' verdict was read before a concurrent caller's 'failed'
+  // verdict won the failure claim — the pre-Peerly claim's WHERE now also
+  // requires cvValidationFailedAt: null, so it matches 0 rows against the
+  // now-held live row and this caller never reaches Peerly either.
+  it('refuses the pre-Peerly claim and surfaces the hold when a concurrent caller already claimed the failure', async () => {
+    mockCvValidation.validate.mockResolvedValue({ outcome: 'passed' })
+    mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
+    const held = {
+      ...existingRecord,
+      cvValidationFailedAt: new Date(),
+      cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+    }
+    mockTcrModel.findUnique
+      .mockResolvedValueOnce(existingRecord)
+      .mockResolvedValueOnce(held)
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign),
+    ).rejects.toThrow(CvPreSubmissionValidationException)
+
+    expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: existingRecord.id,
+        peerlyIdentityId: null,
+        cvValidationFailedAt: null,
+        OR: [
+          { peerlySubmissionStartedAt: null },
+          { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+        ],
+      },
+      data: { peerlySubmissionStartedAt: expect.any(Date) },
+    })
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
   })
 
   it('returns idempotent response when claim is taken because a concurrent call already completed', async () => {

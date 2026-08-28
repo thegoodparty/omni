@@ -512,14 +512,20 @@ the LLM.
   section below. A held record short-circuits on every later attempt (no re-fetch, no
   re-LLM, no re-alert) until cleared. `create()` has no persisted row yet at this point,
   so a failure there is just a synchronous 400/502 to the caller.
-- **The failure claim is scoped to `peerlyIdentityId: null`, not just
-  `cvValidationFailedAt: null`.** `submitToPeerlyForAgent` supports concurrent callers
-  and the gate runs *before* the `peerlySubmissionStartedAt` claim, so a slower caller
-  can still be mid-validation after a faster one already submitted. The atomic
-  `updateMany WHERE cvValidationFailedAt IS NULL AND peerlyIdentityId IS NULL` (mirroring
-  `pinSentDetectedAt`/`cvInReviewEscalatedAt` otherwise) is what stops the slower caller
-  from holding an already-submitted record and firing a false alert — claim count 0, no
-  hold, no Slack.
+- **The two claims are mutually exclusive, in both directions.** The failure claim is
+  scoped to `peerlyIdentityId: null`, not just `cvValidationFailedAt: null` — the gate
+  runs *before* the `peerlySubmissionStartedAt` claim with no re-read in between, so a
+  slower caller can still be mid-validation after a faster one already submitted; the
+  atomic `updateMany WHERE cvValidationFailedAt IS NULL AND peerlyIdentityId IS NULL`
+  (mirroring `pinSentDetectedAt`/`cvInReviewEscalatedAt` otherwise) stops it from holding
+  an already-submitted record and firing a false alert. The mirror image: the
+  `peerlySubmissionStartedAt` claim is scoped to `cvValidationFailedAt: null` too, so a
+  caller whose 'passed' verdict was read before a concurrent caller's 'failed' verdict
+  won the failure claim can't then win the submission claim and submit on a now-held
+  record. Whichever claim lands first blocks the other; the loser's `claim.count === 0`
+  fallback checks `current.cvValidationFailedAt` and throws
+  `CvPreSubmissionValidationException` instead of the generic `ConflictException` when
+  that's the reason.
 - **A transient fetch/LLM failure is not a rejection.** `CvPreSubmissionValidationService.validate`
   returns `{ outcome: 'transient' }` for any fetch or LLM error (or an empty fetched
   body) — never evidence the URL is bad. `assertCvPreSubmissionValid` throws a plain
