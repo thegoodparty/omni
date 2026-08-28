@@ -93,9 +93,6 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
     expect(setupArgs.customer).toBe('cus_test_new')
     expect(setupArgs.usage).toBe('off_session')
     expect(setupArgs.payment_method_types).toEqual(['card'])
-    // Customer-scoped idempotency key so refresh/retry reuses the intent.
-    const setupOpts = setupIntentsCreate.mock.calls[0]?.[1]
-    expect(setupOpts.idempotencyKey).toBe('setup-intent-cus_test_new')
 
     const persisted = await service.prisma.user.findUniqueOrThrow({
       where: { id: service.user.id },
@@ -103,27 +100,38 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
     expect(persisted.metaData?.customerId).toBe('cus_test_new')
   })
 
-  it('loses the CAS race: deletes the orphan and returns the stored winner', async () => {
-    // A concurrent request already stored the winning customerId in the DB,
-    // but this request read its user row before that write, so its in-hand
-    // user still has no customerId and it proceeds to create.
-    await setUserMetaData({ customerId: 'cus_winner' })
-    const staleUser = { ...service.user, metaData: {} }
+  it('loses the CAS race: setup intent targets the stored winner, orphan dropped', async () => {
+    // The auth guard reads the user via model.findUnique (still no customerId),
+    // so the request proceeds to create; the CAS then loses (a concurrent
+    // request persisted first) and the loser re-reads the winner via findUser —
+    // a different method, so mocking it leaves the guard's request user intact.
+    await setUserMetaData({ customerId: undefined })
+    const usersService = service.app.get(UsersService)
+    vi.spyOn(usersService, 'setCustomerIdIfAbsent').mockResolvedValue(false)
+    vi.spyOn(usersService, 'findUser').mockResolvedValue({
+      ...service.user,
+      metaData: { customerId: 'cus_winner' },
+    })
 
-    const stripe = service.app.get(StripeService)
-    vi.spyOn(
-      service.app.get(UsersService),
-      'setCustomerIdIfAbsent',
-    ).mockResolvedValue(false)
     customersCreate.mockResolvedValue({ id: 'cus_orphan' })
-    const customersDel = vi.fn().mockResolvedValue({ deleted: true })
+    setupIntentsCreate.mockResolvedValue({
+      id: 'seti_winner',
+      client_secret: 'seti_winner_secret',
+    })
+    const stripe = service.app.get(StripeService)
     const stripeClient = (stripe as unknown as { stripe: Stripe }).stripe
+    const customersDel = vi.fn().mockResolvedValue({ deleted: true })
     vi.spyOn(stripeClient.customers, 'del').mockImplementation(customersDel)
 
-    const result = await stripe.ensureCustomer(staleUser)
+    const res = await postSaveCard()
 
-    expect(result).toBe('cus_winner')
-    expect(customersCreate).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      clientSecret: 'seti_winner_secret',
+      customerId: 'cus_winner',
+    })
+    // The setup intent is created against the winner, and the orphan is dropped.
+    expect(setupIntentsCreate.mock.calls[0]?.[0]?.customer).toBe('cus_winner')
     expect(customersDel).toHaveBeenCalledWith('cus_orphan')
   })
 

@@ -108,18 +108,16 @@ export class StripeService {
   ): Promise<{ clientSecret: string }> {
     let setupIntent: Stripe.SetupIntent
     try {
-      // Customer-scoped idempotency key so a page refresh / back-nav / retry
-      // reuses the same SetupIntent (stable body — customer + usage + card)
-      // instead of accumulating open intents and abandoning the mounted
-      // Payment Element. Safe here precisely because the body never varies.
-      setupIntent = await this.stripe.setupIntents.create(
-        {
-          customer: customerId,
-          usage: 'off_session',
-          payment_method_types: ['card'],
-        },
-        { idempotencyKey: `setup-intent-${customerId}` },
-      )
+      // A fresh SetupIntent per call, no idempotency key: a customer-scoped key
+      // would, inside Stripe's 24h window, return a since-succeeded intent whose
+      // client_secret the Payment Element refuses to mount — breaking a
+      // retry-after-success or card-replacement flow. Abandoned intents are
+      // cheap and Stripe reaps them.
+      setupIntent = await this.stripe.setupIntents.create({
+        customer: customerId,
+        usage: 'off_session',
+        payment_method_types: ['card'],
+      })
     } catch (err) {
       this.logger.error({ err }, 'Failed to create Stripe setup intent')
       throw new BadGatewayException('Failed to create Stripe setup intent')
