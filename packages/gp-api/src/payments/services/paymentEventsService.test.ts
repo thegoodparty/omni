@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
+import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
 import { PaymentEventsService } from './paymentEventsService'
 
 describe('PaymentEventsService', () => {
@@ -36,6 +37,10 @@ describe('PaymentEventsService', () => {
   const tcrComplianceService = { enqueueAgenticKickoffIfNeeded: vi.fn() }
   const purchaseService = { completeCheckoutSession: vi.fn() }
   const raceOpponentService = { autoCollectOnProUpgrade: vi.fn() }
+  const robocallWebhookService = {
+    cancelNotYetDialedForDetachedPaymentMethod: vi.fn(),
+    markDisputedByIntent: vi.fn(),
+  }
   const moduleRef = { get: vi.fn() }
 
   const mockUser = { id: 1, email: 'test@example.com' } as User
@@ -102,7 +107,15 @@ describe('PaymentEventsService', () => {
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
     campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
     raceOpponentService.autoCollectOnProUpgrade.mockResolvedValue(undefined)
-    moduleRef.get.mockReturnValue(raceOpponentService)
+    robocallWebhookService.cancelNotYetDialedForDetachedPaymentMethod.mockResolvedValue(
+      undefined,
+    )
+    robocallWebhookService.markDisputedByIntent.mockResolvedValue(undefined)
+    moduleRef.get.mockImplementation((token) =>
+      token === OutreachRobocallWebhookService
+        ? robocallWebhookService
+        : raceOpponentService,
+    )
     analytics.trackProPayment.mockResolvedValue(undefined)
     analytics.track.mockResolvedValue(undefined)
     slackService.message.mockResolvedValue(undefined)
@@ -535,6 +548,52 @@ describe('PaymentEventsService', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ userId: mockUser.id }),
         expect.stringContaining('active campaign'),
+      )
+    })
+  })
+
+  describe('handleEvent — payment_method.detached', () => {
+    const detachedEvent = (paymentMethodId: string) =>
+      ({
+        type: WebhookEventType.PaymentMethodDetached,
+        data: { object: { id: paymentMethodId } },
+      }) as unknown as Stripe.PaymentMethodDetachedEvent
+
+    it('cancels not-yet-dialed robocalls bound to the detached card', async () => {
+      await service.handleEvent(detachedEvent('pm_gone'))
+
+      expect(
+        robocallWebhookService.cancelNotYetDialedForDetachedPaymentMethod,
+      ).toHaveBeenCalledExactlyOnceWith('pm_gone')
+    })
+  })
+
+  describe('handleEvent — charge.dispute.created', () => {
+    const disputeEvent = (paymentIntent: string | null) =>
+      ({
+        type: WebhookEventType.ChargeDisputeCreated,
+        data: {
+          object: { id: 'dp_1', charge: 'ch_1', payment_intent: paymentIntent },
+        },
+      }) as unknown as Stripe.ChargeDisputeCreatedEvent
+
+    it('marks the run disputed by the payment intent it maps to', async () => {
+      await service.handleEvent(disputeEvent('pi_hold_1'))
+
+      expect(
+        robocallWebhookService.markDisputedByIntent,
+      ).toHaveBeenCalledExactlyOnceWith('pi_hold_1')
+    })
+
+    it('skips and warns when the dispute carries no payment intent', async () => {
+      await expect(
+        service.handleEvent(disputeEvent(null)),
+      ).resolves.not.toThrow()
+
+      expect(robocallWebhookService.markDisputedByIntent).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ disputeId: 'dp_1' }),
+        expect.stringContaining('no payment_intent'),
       )
     })
   })
