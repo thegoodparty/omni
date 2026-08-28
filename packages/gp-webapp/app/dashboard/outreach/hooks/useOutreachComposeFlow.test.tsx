@@ -103,6 +103,7 @@ describe('useOutreachComposeFlow', () => {
     // seed the cache: this test is about the compliant-Pro pass, not the race.
     testQueryClient.setQueryData(TCR_COMPLIANCE_QUERY_KEY, {
       status: 'approved',
+      peerlyCvStatus: 'VERIFIED',
     })
     renderHarness({ isPro: true }, { type: 'text', due: '2026-02-03' })
     fireEvent.click(screen.getByRole('button', { name: 'launch' }))

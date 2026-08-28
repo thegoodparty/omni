@@ -26,7 +26,13 @@ const Harness = ({ tcrCompliance }: { tcrCompliance?: TcrCompliance }) => {
   )
 }
 
-const approvedCompliance = { status: 'approved' } as TcrCompliance
+// Fully cleared: approved registration AND a VERIFIED CampaignVerify — the
+// gate requires both (2026-08-28 full-gate decision).
+const approvedCompliance = {
+  status: 'approved',
+  peerlyCvStatus: 'VERIFIED',
+} as TcrCompliance
+const approvedUnverifiedCompliance = { status: 'approved' } as TcrCompliance
 const pendingCompliance = { status: 'pending' } as TcrCompliance
 
 const renderHarness = ({
@@ -93,5 +99,19 @@ describe('useTextOutreachGate', () => {
     expect(
       screen.queryByText('Texting registration under review'),
     ).not.toBeInTheDocument()
+  })
+
+  it('blocks an approved campaign whose CampaignVerify is unverified', async () => {
+    renderHarness({
+      isPro: true,
+      tcrCompliance: approvedUnverifiedCompliance,
+    })
+
+    await userEvent.click(screen.getByText('run gate'))
+
+    expect(screen.queryByText('flow opened')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Verify your campaign to start texting'),
+    ).toBeInTheDocument()
   })
 })

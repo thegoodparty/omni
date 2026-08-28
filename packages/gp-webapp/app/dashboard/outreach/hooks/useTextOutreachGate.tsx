@@ -7,6 +7,7 @@ import {
 } from 'app/dashboard/shared/P2PUpgradeModal'
 import { ComplianceModal } from 'app/dashboard/shared/ComplianceModal'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -21,13 +22,19 @@ export const useTextOutreachGate = (
 
   const isTextCompliant =
     tcrCompliance?.status === TCR_COMPLIANCE_STATUS.APPROVED
+  // Full gate (product decision 2026-08-28): scheduling requires Pro + an
+  // approved 10DLC registration + a VERIFIED CampaignVerify — a send from an
+  // unverified campaign would be held by the carriers, so the gate blocks it
+  // up front instead of allowing a schedule-then-hold "Needs compliance" row.
+  const isCvVerified =
+    tcrCompliance?.peerlyCvStatus === PeerlyCvVerificationStatus.VERIFIED
 
   const runTextGate = () => {
     if (!isPro) {
       setShowP2PModal(true)
       return false
     }
-    if (!isTextCompliant) {
+    if (!isTextCompliant || !isCvVerified) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceModalViewed, {
         source,
       })
@@ -58,6 +65,7 @@ export const useTextOutreachGate = (
         {...{
           open: showComplianceModal,
           tcrComplianceStatus: tcrCompliance?.status,
+          cvUnverified: isTextCompliant && !isCvVerified,
           onClose: () => setShowComplianceModal(false),
         }}
       />

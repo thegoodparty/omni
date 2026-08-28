@@ -20,12 +20,18 @@ export { SUBMIT_PIN_PATH, ELECTION_FILING_PATH }
 interface ComplianceModalProps {
   open: boolean
   tcrComplianceStatus?: TcrComplianceStatus | null
+  // True when the registration is approved but CampaignVerify is not yet
+  // VERIFIED — the carriers would hold every send, so scheduling is gated
+  // until verification finishes (product decision 2026-08-28; supersedes the
+  // schedule-then-hold "Needs compliance" model for new sends).
+  cvUnverified?: boolean
   onClose: () => void
 }
 
 export function ComplianceModal({
   open,
   tcrComplianceStatus,
+  cvUnverified = false,
   onClose,
 }: ComplianceModalProps): React.JSX.Element {
   const helpTrailer = (
@@ -52,6 +58,16 @@ export function ComplianceModal({
     description: string | React.ReactNode,
     cta: string,
     ctaHref: string | undefined
+
+  if (tcrComplianceStatus === TCR_COMPLIANCE_STATUS.APPROVED && cvUnverified) {
+    return (
+      <ApprovedUnverifiedModal
+        open={open}
+        onClose={onClose}
+        helpTrailer={helpTrailer}
+      />
+    )
+  }
 
   switch (tcrComplianceStatus) {
     case TCR_COMPLIANCE_STATUS.SUBMITTED:
@@ -138,3 +154,44 @@ export function ComplianceModal({
     </Modal>
   )
 }
+
+// Registration approved, CampaignVerify not VERIFIED: the send would be held
+// by the carriers, so the gate blocks scheduling and points at the
+// verification entry (election-filing, which starts the CampaignVerify leg).
+const ApprovedUnverifiedModal = ({
+  open,
+  onClose,
+  helpTrailer,
+}: {
+  open: boolean
+  onClose: () => void
+  helpTrailer: React.ReactNode
+}): React.JSX.Element => (
+  <Modal
+    open={open}
+    closeCallback={onClose}
+    preventBackdropClose
+    preventEscClose
+  >
+    <div className="p-0 sm:p-2 md:p-8">
+      <H1 className="m-0 sm:whitespace-nowrap">
+        Verify your campaign to start texting
+      </H1>
+      <Body2 className="my-4">
+        Your texting registration is approved. One step remains: carriers
+        require campaign verification before your texts can send. Start
+        verification to finish setup — a PIN will be sent to the contact on your
+        election filing.
+        {helpTrailer}
+      </Body2>
+      <div className="flex justify-between gap-4 mt-8">
+        <Button size="large" variant="neutral" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button asChild size="large">
+          <Link href={ELECTION_FILING_PATH}>Start Verification</Link>
+        </Button>
+      </div>
+    </div>
+  </Modal>
+)
