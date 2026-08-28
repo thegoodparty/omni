@@ -19,7 +19,10 @@ import {
 import { EASTERN_TIMEZONE } from '../../../shared/util/date.util'
 import { INTERNAL_EMAIL_SUFFIXES } from '../../../users/util/users.util'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
-import { PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE } from '../../../vendors/peerly/services/peerly.const'
+import {
+  PEERLY_PROFILE_STATUS_PENDING,
+  PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
+} from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 
@@ -338,6 +341,15 @@ export class CvStatusPollService extends createPrismaBase(
       record.peerlyProfileStatus === PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE
     ) {
       data.finalizeStalledEscalatedAt = null
+    }
+    // Leaving `pending` is progress — finalized -> pending is a real
+    // reopening (submitCvTokenToFinalizedBrand, reached via the re-enterable
+    // retrieveCampaignVerifyToken / submit-cv-pin retry path), so a record
+    // once alerted for case 3a can genuinely re-enter `pending` later. Clear
+    // the claim here or that second real stall would never re-alert
+    // (ENG-10966).
+    if (record.peerlyProfileStatus === PEERLY_PROFILE_STATUS_PENDING) {
+      data.profileStalledAlertedAt = null
     }
     await this.model.update({ where: { id: record.id }, data })
   }

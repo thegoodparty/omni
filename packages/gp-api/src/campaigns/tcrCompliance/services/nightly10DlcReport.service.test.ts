@@ -1097,6 +1097,85 @@ describe('Nightly10DlcReportService', () => {
       expect(internalAlertCalls(mockSlack.message)).toHaveLength(1)
     })
 
+    // ENG-10966 review-round finding: unlike case 1, `pending` can recur for
+    // real — Peerly's finalized -> pending reopening (retrieveCampaignVerifyToken
+    // / submit-cv-pin retry) means a row alerted once can genuinely stall
+    // again. cvStatusPoll.service.ts's pollProfileStatus clears
+    // profileStalledAlertedAt whenever the profile leaves `pending` (covered
+    // in cvStatusPoll.service.test.ts); this test names the trigger on this
+    // side — once that clear has happened and the profile is later observed
+    // back in `pending` past the 20h floor, the alert must fire again.
+    it('re-alerts after a real re-stall once the profile has left and re-entered pending', async () => {
+      // Run 1: first stall. profileStalledAlertedAt starts null (never
+      // alerted) and gets claimed. The two runs' findMany results are queued
+      // and consumed one run at a time — queuing both up front would let
+      // run 1's unused 10th (deferredDispatchCandidates) call default-slot
+      // siphon the first value meant for run 2, shifting every later result
+      // by one position.
+      const firstStall = proRecord('tcr-case3a-recur', 'recur3a-camp', 803, {
+        peerlyIdentityId: 'ident-803',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+        profileStalledAlertedAt: null,
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [firstStall],
+        [],
+        [],
+      ])
+      mockModel.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      // Run 2: the profile left `pending` in between (cleared the claim —
+      // proven separately in cvStatusPoll.service.test.ts) and has now
+      // re-entered `pending` past the 20h floor as a fresh, unrelated stall.
+      // profileStalledAlertedAt is null again — that's the observable state
+      // the clear-on-progress write leaves behind.
+      const secondStall = proRecord('tcr-case3a-recur', 'recur3a-camp', 803, {
+        peerlyIdentityId: 'ident-803',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 3),
+        profileStalledAlertedAt: null,
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [secondStall],
+        [],
+        [],
+      ])
+      // The second claim also finds the column null and succeeds — the
+      // second run is not a duplicate of the first, it's a distinct
+      // incident.
+      mockModel.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-17' })
+
+      const alerts = internalAlertCalls(mockSlack.message)
+      expect(alerts).toHaveLength(2)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'tcr-case3a-recur', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'tcr-case3a-recur', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+    })
+
     it('rolls back the claim when the internal alert post fails, so the next run retries', async () => {
       const record = proRecord('tcr-case3a-retry', 'retry3a-camp', 802, {
         peerlyIdentityId: 'ident-802',

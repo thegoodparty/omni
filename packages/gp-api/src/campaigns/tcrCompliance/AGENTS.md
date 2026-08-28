@@ -379,12 +379,26 @@ redaction needed) and are dropped from `failureSections` entirely.
 above: an atomic `updateMany WHERE cvNeverReachedAlertedAt IS NULL` (resp.
 `profileStalledAlertedAt`) claims the record before the Slack post; a failed
 post rolls the claim back (scoped to the exact timestamp) so the next
-nightly run retries. Unlike the vendor-escalation columns, **these are never
-cleared on progress** — a null CV status or a pending profile can't
-legitimately recur on the same row once it's fixed, so there's no "leaving
-the state" transition to reset on. `alertCvNeverReached` /
-`alertProfileStalled` run after the internal report posts, alongside (but
-independent of) the vendor escalations.
+nightly run retries. `alertCvNeverReached` / `alertProfileStalled` run after
+the internal report posts, alongside (but independent of) the vendor
+escalations.
+
+**The two claim columns don't share a clear-on-progress rule — verify per
+column before touching either:**
+
+- `cvNeverReachedAlertedAt` is **never cleared**. `persistObservedCvStatus`
+  (`cvStatusPoll.service.ts`) refuses to overwrite a stored non-null
+  `peerlyCvStatus` with a later null, so once a real status is observed the
+  column can't go back to null on this row — case 1 can't recur.
+- `profileStalledAlertedAt` **is cleared on progress**, same place
+  `finalizeStalledEscalatedAt` is cleared (`pollProfileStatus`, same file):
+  whenever `peerlyProfileStatus` leaves `pending`. Unlike case 1, `pending`
+  *can* recur for real — Peerly's `finalized → pending` reopening
+  (`submitCvTokenToFinalizedBrand` in `peerlyIdentity.service.ts`, reached
+  through the re-enterable `retrieveCampaignVerifyToken` / `submit-cv-pin`
+  retry path, `campaignTcrCompliance.controller.ts`) means a row alerted once
+  can genuinely stall again later, so the claim must reset or the second
+  real stall would silently never re-alert.
 
 Neither alert counts toward the header's stuck total any more — removing the
 section removed their contribution to `stuckCount` along with it.

@@ -802,7 +802,10 @@ export class Nightly10DlcReportService extends createPrismaBase(
   }
 
   // Same once-only claim/rollback pattern as alertCvNeverReached, on
-  // profileStalledAlertedAt (case 3a, ENG-10966).
+  // profileStalledAlertedAt (case 3a, ENG-10966). Unlike that column, this
+  // one IS cleared on progress — see pollProfileStatus in
+  // cvStatusPoll.service.ts — because a brand can genuinely re-enter
+  // `pending` from `finalized`, so a fixed row must be able to re-alert.
   private async alertProfileStalled(records: RecordWithCampaign[], now: Date) {
     for (const record of records) {
       const claimedAt = new Date()

@@ -106,9 +106,18 @@ model TcrCompliance {
   // (ENG-10966): CV never reached (case 1) and PIN-verified-but-profile-
   // stalled (case 3a) are our own engineering bugs, not vendor stalls or
   // candidate-side waits, so they page a person once instead of repeating
-  // in every nightly report. Unlike the vendor-escalation columns above,
-  // these are never cleared — the underlying state (a null CV status, a
-  // pending profile) can't legitimately recur on the same row once fixed.
+  // in every nightly report.
+  //
+  // cvNeverReachedAlertedAt is never cleared: persistObservedCvStatus
+  // (cvStatusPoll.service.ts) refuses to overwrite a stored non-null
+  // peerlyCvStatus with a later null, so a fixed row can't recur here.
+  //
+  // profileStalledAlertedAt IS cleared on progress (pollProfileStatus,
+  // same file) whenever peerlyProfileStatus leaves `pending` — a brand can
+  // genuinely re-enter `pending` from `finalized` via the token-reopening
+  // path (submitCvTokenToFinalizedBrand, reached through the re-enterable
+  // retrieveCampaignVerifyToken / submit-cv-pin retry), so a fixed row can
+  // stall again for real and must re-alert.
   cvNeverReachedAlertedAt DateTime? @map("cv_never_reached_alerted_at")
   profileStalledAlertedAt DateTime? @map("profile_stalled_alerted_at")
 
