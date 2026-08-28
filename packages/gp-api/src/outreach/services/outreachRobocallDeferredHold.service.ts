@@ -4,17 +4,8 @@ import { addDays } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
-import {
-  Campaign,
-  Organization,
-  OutreachType,
-  RobocallSettleState,
-  User,
-} from '../../generated/prisma'
-import {
-  OutreachRobocallHoldService,
-  RobocallCardError,
-} from './outreachRobocallHold.service'
+import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 
 // Daily, a non-:00 minute distinct from the other robocall crons (staging runs
 // on the 7,17,27,37,47,57 * * * * slot). A daily cadence is plenty: the 3-day
@@ -34,10 +25,13 @@ const isDeferredHoldEnabled = () =>
 // returns `deferred` and places nothing, persisting only the chosen card
 // (paymentMethodId + stripeCustomerId) on the still-pending_payment draft. This
 // daily sweep finds those drafts once their send enters the window and calls
-// OutreachRobocallHoldService.authorizeHold with the SAME card, off-session.
-// It is only the trigger + context loader: authorizeHold owns the placement CAS,
-// the estimate re-derivation, the Stripe hold, the capture-window fit, and the
-// HoldPlaced/HoldFailed milestones — none of that is reimplemented here.
+// OutreachRobocallHoldService.authorizeHold (passing NO card — it re-reads the
+// persisted one after the claim), off-session. It is only the trigger + context
+// loader: authorizeHold owns the placement CAS, the estimate re-derivation, the
+// Stripe hold, the capture-window fit, the HoldPlaced/HoldFailed milestones, AND
+// the atomic hold_failed escalation of a permanent card failure (returned, not
+// thrown) — so this sweep has no separate escalation call that could itself fail
+// and strand a retry storm. None of that is reimplemented here.
 @Injectable()
 export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -100,53 +94,28 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
         continue
       }
       try {
-        await this.placeDeferredHold(
+        // Pass NO paymentMethodId: authorizeHold re-reads the card persisted on
+        // the row AFTER it wins the placement claim (so the sweep can never bill
+        // a card a concurrent re-authorize replaced after this snapshot), and on
+        // the deferred path it escalates a permanent card failure to hold_failed
+        // ATOMICALLY (returning hold_failed, not throwing) — so there is NO
+        // separate fallible escalation here that could strand a retry storm. Only
+        // a transient/non-card error reaches this catch; the draft stays
+        // pending_payment and the next daily pass retries it.
+        await this.holds.authorizeHold(
           user,
           campaign,
           organization,
           draft.outreachId,
         )
       } catch (err) {
-        // Per-record isolation: one draft's failure (including a failed
-        // escalation) must not abort the rest. The next daily sweep retries a
-        // draft still in pending_payment while it is still in-window.
+        // Per-record isolation: one draft's transient failure must not abort the
+        // rest. It stays pending_payment; the next sweep retries it in-window.
         this.logger.error(
           { err, outreachId: draft.outreachId },
           'deferred robocall hold placement failed; continuing sweep',
         )
       }
-    }
-  }
-
-  private async placeDeferredHold(
-    user: User,
-    campaign: Campaign,
-    organization: Organization,
-    outreachId: number,
-  ): Promise<void> {
-    try {
-      // Pass NO paymentMethodId: authorizeHold re-reads the card persisted on
-      // the row AFTER it wins the placement claim, so the sweep can never bill a
-      // card a concurrent re-authorize replaced after this sweep's snapshot.
-      await this.holds.authorizeHold(user, campaign, organization, outreachId)
-    } catch (err) {
-      // A RobocallCardError means the persisted card is permanently unusable
-      // (stale/foreign, non-card, or cleared). authorizeHold already reverted
-      // its claim to pending_payment, so without escalation the draft would be
-      // re-selected and retried EVERY daily sweep and the candidate never told.
-      // Move it to hold_failed (leaves the candidate set) + emit HoldFailed so
-      // the absent candidate is emailed to fix their card. Everything else —
-      // a zero-audience or reschedule-race BadRequestException, or a transient
-      // 502 — rethrows so the draft stays pending_payment for the next pass.
-      if (err instanceof RobocallCardError) {
-        await this.holds.markHoldFailed(user.id, outreachId)
-        this.logger.error(
-          { err, outreachId },
-          'deferred robocall hold rejected the card; marked hold_failed',
-        )
-        return
-      }
-      throw err
     }
   }
 }

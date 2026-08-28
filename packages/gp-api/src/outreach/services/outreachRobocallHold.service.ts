@@ -218,8 +218,18 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         throw new RobocallCardError('Only a card can authorize a robocall hold')
       }
     } catch (err) {
-      // Pre-hold failure: no hold placed, so no idempotency key was consumed.
-      // Revert without bumping payAttempt — the next attempt reuses attempt N+1.
+      // DEFERRED path (no PM passed): a permanent card problem escalates
+      // ATOMICALLY here — the row is the hold_pending we own, so move it straight
+      // to hold_failed + emit HoldFailed and RETURN a hold_failed result. The
+      // sweep never makes a separate escalation call that could itself fail and
+      // strand the row back in pending_payment for an endless retry storm.
+      if (!paymentMethodId && err instanceof RobocallCardError) {
+        return this.transitionToHoldFailed(user.id, outreachId)
+      }
+      // Otherwise — an on-session card error (throw 400 to the present caller to
+      // fix live), or a transient/non-card error on either path — revert to
+      // pending_payment and rethrow. No hold placed, so no idempotency key was
+      // consumed; don't bump payAttempt (the next attempt reuses attempt N+1).
       await this.revertClaim(outreachId)
       throw err
     }
@@ -244,31 +254,11 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     } catch (err) {
       if (err instanceof StripeHoldDeclinedError) {
         // A decline is a business outcome, not a 502. Move to the hold_failed
-        // terminal, bump payAttempt, and emit the milestone once. A future
-        // resolution slice must branch on err.code: `authentication_required`
-        // is a StripeCardError that needs on-session re-auth, not the "update
-        // your card" reminder loop.
-        await this.model.updateMany({
-          where: {
-            outreachId,
-            settleState: RobocallSettleState.hold_pending,
-          },
-          data: {
-            settleState: RobocallSettleState.hold_failed,
-            payAttempt: attempt,
-          },
-        })
-        await this.emitMilestone(
-          user.id,
-          outreachId,
-          EVENTS.Robocall.HoldFailed,
-          'hold_failed',
-        )
-        return {
-          status: 'hold_failed',
-          settleState: RobocallSettleState.hold_failed,
-          authorizedAmountInCents: null,
-        }
+        // terminal, bump payAttempt (a hold attempt WAS made, so the key is
+        // consumed), and emit the milestone once. A future resolution slice must
+        // branch on err.code: `authentication_required` is a StripeCardError that
+        // needs on-session re-auth, not the "update your card" reminder loop.
+        return this.transitionToHoldFailed(user.id, outreachId, attempt)
       }
       // Infra failure (502): no confirmed hold to void. Release the claim
       // WITHOUT bumping payAttempt — a retry reuses the same idempotency key so
@@ -348,33 +338,35 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   }
 
   // Escalates a draft to the hold_failed terminal + emits the HoldFailed
-  // milestone. For the deferred sweep: a permanent off-session PM problem (a
-  // stale/foreign or non-card persisted card, which authorizeHold surfaces as a
-  // RobocallCardError AFTER reverting its own claim back to pending_payment) must
-  // move the draft OUT of the pending_payment candidate set — otherwise every
-  // daily sweep re-selects and silently retries it — and must notify the absent
-  // candidate to fix their card. The CAS matches ONLY pending_payment (the state
-  // the escalation leaves the row in): a concurrent on-session /authorize can win
-  // the placement claim (pending_payment → hold_pending) with a DIFFERENT valid
-  // card in the gap between the revert and this call, and matching hold_pending
-  // would clobber that legitimate in-flight hold. Decline's own hold_pending →
-  // hold_failed transition is inline in authorizeHold, not here. Idempotent: a
-  // repeat sweep matches 0, so the milestone (deterministic messageId) fires once.
-  async markHoldFailed(userId: number, outreachId: number): Promise<void> {
-    const failed = await this.model.updateMany({
-      where: {
-        outreachId,
-        settleState: RobocallSettleState.pending_payment,
+  // The shared hold_pending → hold_failed terminal transition + HoldFailed
+  // emit, used by BOTH the on-session decline path (a real Stripe decline, with
+  // payAttempt bumped to the consumed attempt) and the deferred-sweep atomic
+  // card-failure escalation (a permanent persisted-card problem, no attempt
+  // bumped — no hold was placed). The CAS matches only the hold_pending we own,
+  // so a lost race (the draft moved underneath) writes nothing and emits nothing.
+  private async transitionToHoldFailed(
+    userId: number,
+    outreachId: number,
+    payAttempt?: number,
+  ): Promise<RobocallAuthorizeResponse> {
+    await this.model.updateMany({
+      where: { outreachId, settleState: RobocallSettleState.hold_pending },
+      data: {
+        settleState: RobocallSettleState.hold_failed,
+        ...(payAttempt != null ? { payAttempt } : {}),
       },
-      data: { settleState: RobocallSettleState.hold_failed },
     })
-    if (failed.count === 0) return
     await this.emitMilestone(
       userId,
       outreachId,
       EVENTS.Robocall.HoldFailed,
       'hold_failed',
     )
+    return {
+      status: 'hold_failed',
+      settleState: RobocallSettleState.hold_failed,
+      authorizedAmountInCents: null,
+    }
   }
 
   // Releases the hold_pending claim back to pending_payment. When a PLACED hold

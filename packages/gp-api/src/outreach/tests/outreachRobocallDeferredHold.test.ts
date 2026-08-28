@@ -360,8 +360,10 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     })
     deriveSpy.mockResolvedValue(100)
     // The card the candidate chose at schedule time no longer belongs to the
-    // customer (detached / re-vaulted), so authorizeHold's validation throws a
-    // RobocallCardError — a permanent CARD problem the sweep escalates.
+    // customer (detached / re-vaulted), so authorizeHold's validation hits a
+    // RobocallCardError and — on the deferred path — escalates it to hold_failed
+    // ATOMICALLY inside authorizeHold (returns hold_failed, does not throw), with
+    // no separate sweep-level escalation call that could independently fail.
     paymentMethodsRetrieve.mockResolvedValue({
       id: 'pm_stale',
       customer: 'cus_other',
@@ -411,6 +413,34 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     expect(authorizeSpy).toHaveBeenCalledTimes(2)
   })
 
+  it('does NOT escalate a transient infra failure; stays pending_payment', async () => {
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    // A non-decline Stripe/infra error is a transient 502 in authorizeHold — it
+    // reverts to pending_payment and rethrows. The sweep must NOT terminate the
+    // run: no hold_failed, no HoldFailed; the draft retries next pass.
+    paymentIntentsCreate.mockRejectedValue(new Error('network down'))
+
+    await deferred.sweepDeferredHolds()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(trackSpy).not.toHaveBeenCalled()
+
+    // Re-selectable next pass — nothing terminated it.
+    await deferred.sweepDeferredHolds()
+    expect(authorizeSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('reschedule-race defer branch throws a non-card error (not escalated)', async () => {
     // The sweep calls authorizeHold with NO paymentMethodId. If a reschedule
     // pushed the send back out of the window between the sweep's findMany and
@@ -440,28 +470,6 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     expect(error).not.toBeInstanceOf(RobocallCardError)
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
-  })
-
-  it('markHoldFailed does not clobber a concurrently-claimed hold_pending row', async () => {
-    // Between the deferred escalation's revert (→ pending_payment) and its
-    // markHoldFailed call, a concurrent on-session /authorize can win the
-    // placement claim (pending_payment → hold_pending) with a DIFFERENT valid
-    // card. markHoldFailed matches ONLY pending_payment, so it must be a no-op
-    // on that in-flight hold_pending row — never flip a legitimate hold to
-    // hold_failed, and never emit a spurious HoldFailed.
-    const holds = service.app.get(OutreachRobocallHoldService)
-    const outreachId = await createDraft({
-      sendInDays: 2,
-      settleState: RobocallSettleState.hold_pending,
-      paymentMethodId: 'pm_1',
-      stripeCustomerId: 'cus_test',
-    })
-
-    await holds.markHoldFailed(service.user.id, outreachId)
-
-    const satellite = await readSatellite(outreachId)
-    expect(satellite.settleState).toBe(RobocallSettleState.hold_pending)
-    expect(trackSpy).not.toHaveBeenCalled()
   })
 
   it('marks a declined draft hold_failed and does not retry it next sweep', async () => {
