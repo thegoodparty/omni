@@ -1091,6 +1091,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // alert — mirrors the cvInReviewEscalatedAt / pinSentDetectedAt claim
   // pattern. A failed post rolls the claim back (scoped to the exact
   // timestamp written) so the next attempt retries the alert.
+  //
+  // The claim is scoped to peerlyIdentityId: null in addition to
+  // cvValidationFailedAt: null — submitToPeerlyForAgent supports concurrent
+  // callers, and the gate runs before the peerlySubmissionStartedAt claim, so
+  // a slower caller can reach a failed verdict after a faster one already
+  // submitted (peerlyIdentityId set). Without this, the slower caller would
+  // hold an already-submitted record and fire a false alert.
   private async recordCvValidationFailure(
     existing: TcrCompliance,
     user: User,
@@ -1099,7 +1106,11 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   ): Promise<void> {
     const claimedAt = new Date()
     const claim = await this.model.updateMany({
-      where: { id: existing.id, cvValidationFailedAt: null },
+      where: {
+        id: existing.id,
+        cvValidationFailedAt: null,
+        peerlyIdentityId: null,
+      },
       data: {
         cvValidationFailedAt: claimedAt,
         cvValidationFailureReasons: reasons,
@@ -1505,13 +1516,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       existing?.status === TcrComplianceStatus.rejected
 
     if (existing && !isRetryableFailure) {
-      // Recovery path for a held pre-submission validation failure
-      // (ENG-10965): no Peerly identity exists yet on a held record (the
-      // gate runs before any Peerly call), so updating the corrected filing
-      // data in place is safe. Clear the hold so the next submission attempt
-      // re-validates instead of reusing the stale verdict.
+      // Recovery path for a held pre-submission validation failure or an
+      // admin override (ENG-10965): no Peerly identity exists yet on such a
+      // record (the gate runs before any Peerly call), so updating the
+      // corrected filing data in place is safe. Clear both the hold and the
+      // override so the next submission attempt re-validates instead of
+      // reusing a stale verdict or a stale bypass — an override is scoped to
+      // the data it was granted for; new data must be checked fresh.
       if (
-        existing.cvValidationFailedAt &&
+        (existing.cvValidationFailedAt || existing.cvValidationOverriddenAt) &&
         !existing.peerlyIdentityId &&
         (payload.filingUrl !== existing.filingUrl ||
           payload.candidateName !== existing.candidateName)
@@ -1523,6 +1536,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             candidateName: payload.candidateName,
             cvValidationFailedAt: null,
             cvValidationFailureReasons: [],
+            cvValidationOverriddenAt: null,
           },
         })
         return { record: updated, created: false }

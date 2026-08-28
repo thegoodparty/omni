@@ -139,6 +139,9 @@ export class CampaignTcrComplianceController {
 
   // Admin override for a held pre-submission validation failure (ENG-10965):
   // lets submission proceed to Peerly despite an unresolved failed verdict.
+  // Scoped to the current filing data — createAgentic clears the override
+  // the next time filingUrl/candidateName actually changes, forcing a fresh
+  // validation on the new data rather than letting the old bypass carry over.
   @Post('admin/:campaignId/override-cv-validation')
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.NO_CONTENT)

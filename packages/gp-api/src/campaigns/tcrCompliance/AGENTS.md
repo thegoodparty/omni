@@ -26,7 +26,7 @@ calls; the wizard calls the same controller methods over HTTP.
 | `GET /campaigns/tcr-compliance/admin/:campaignId/compliance-state`                      | `getComplianceStateForCampaign`                                  | gp-admin (M2M)               | Same payload as `mine/compliance-state` for any campaign (`AdminOrM2MGuard`). Backs the user-page 10DLC status/PIN widget.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `POST /campaigns/tcr-compliance/admin/:campaignId/resend-cv-pin`                        | `resendCampaignVerifyPinForCampaign`                             | gp-admin (M2M)               | Staff-triggered CV PIN resend (Peerly `resend_pin`, ENG-10689). Gated on the **live** CV status being `APPROVED`: 409 once `VERIFIED` (PIN already consumed), 422 before a PIN was issued or before any Peerly identity exists. Non-prod short-circuits to success without calling Peerly. Returns 204. Every accepted resend (incl. the non-prod bypass) fires the `CompliancePinResent` Segment event (`triggered_by: 'admin'`) so HubSpot can surface staff resend activity; failures fire nothing.                                                                                                                                                                                                                                                                                                                              |
 | `POST` / `DELETE /campaigns/tcr-compliance/admin/:campaignId/internal-testing-approval` | `grantInternalTestingApproval` / `revokeInternalTestingApproval` | gp-admin (M2M)               | Staff checkbox "treat as 10DLC approved (internal testing)". Grant creates a `TcrCompliance` row with `status: approved` + `internalTestingApprovedAt` and placeholder business fields — **no Peerly identity is ever minted**, so every UI gate passes while the P2P send gate (`requirePeerlyIdentityId`) keeps real sends blocked with a testing-specific 400. Works in all envs, prod included. Only for campaign owners with `@goodparty.org` / `@test.goodparty.org` emails (400 otherwise, enforced server-side); grant 409s if a real compliance row exists, revoke 409s rather than delete one, and both are idempotent. `deriveComplianceStage` short-circuits marker rows to `tcr_approved` (no domain/website footprint). Sweeps ignore marker rows (no `submitted`/`pending` status, no Peerly identity). Returns 204. |
-| `POST /campaigns/tcr-compliance/admin/:campaignId/override-cv-validation`               | `overrideCvValidationForCampaign`                                | gp-admin (M2M)               | Staff override for a held CV pre-submission validation failure (ENG-10965, below) — stamps `cvValidationOverriddenAt` so a later submission attempt bypasses the gate. Returns 204.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /campaigns/tcr-compliance/admin/:campaignId/override-cv-validation`               | `overrideCvValidationForCampaign`                                | gp-admin (M2M)               | Staff override for a held CV pre-submission validation failure (ENG-10965, below) — stamps `cvValidationOverriddenAt` so a later submission attempt bypasses the gate. Scoped to the current filing data: `createAgentic` clears it the next time `filingUrl`/`candidateName` actually changes, so a re-validate is forced on new data rather than the old bypass carrying over. Returns 204.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## The key correctness change: dispatch decoupled from submission
 
@@ -506,30 +506,41 @@ Drive, Facebook, YouTube, goodparty.org, IRS — SSRF-blocked via the same
 the LLM.
 
 - **A failed verdict holds, never rejects.** `submitToPeerlyForAgent` persists
-  `cvValidationFailedAt` + `cvValidationFailureReasons` (an atomic
-  `updateMany WHERE cvValidationFailedAt IS NULL` claim, mirroring
-  `pinSentDetectedAt`/`cvInReviewEscalatedAt`) and posts once to
+  `cvValidationFailedAt` + `cvValidationFailureReasons` and posts once to
   `bot-10dlc-compliance`; `status` stays `submitted` (not `rejected`/`error`) so the
   record keeps the normal recovery/resume semantics instead of the terminal ones in the
   section below. A held record short-circuits on every later attempt (no re-fetch, no
   re-LLM, no re-alert) until cleared. `create()` has no persisted row yet at this point,
   so a failure there is just a synchronous 400/502 to the caller.
+- **The failure claim is scoped to `peerlyIdentityId: null`, not just
+  `cvValidationFailedAt: null`.** `submitToPeerlyForAgent` supports concurrent callers
+  and the gate runs *before* the `peerlySubmissionStartedAt` claim, so a slower caller
+  can still be mid-validation after a faster one already submitted. The atomic
+  `updateMany WHERE cvValidationFailedAt IS NULL AND peerlyIdentityId IS NULL` (mirroring
+  `pinSentDetectedAt`/`cvInReviewEscalatedAt` otherwise) is what stops the slower caller
+  from holding an already-submitted record and firing a false alert — claim count 0, no
+  hold, no Slack.
 - **A transient fetch/LLM failure is not a rejection.** `CvPreSubmissionValidationService.validate`
   returns `{ outcome: 'transient' }` for any fetch or LLM error (or an empty fetched
   body) — never evidence the URL is bad. `assertCvPreSubmissionValid` throws a plain
   `BadGatewayException` for it, which flows through the exact same retry/resume paths a
   502 from Peerly itself would (see `submitToPeerlyForAgent` notes below) — no hold, no
   Slack post, no `peerlySubmissionStartedAt` claim.
-- **Clearing the hold.** `createAgentic` updates `filingUrl`/`candidateName` in place
-  (and clears both hold columns) when an existing, held (`cvValidationFailedAt` set),
-  not-yet-submitted (`peerlyIdentityId` null) record's incoming payload actually differs
-  from what's persisted — safe because no Peerly identity exists yet to reconcile. This
-  is the one case where `createAgentic`'s "existing, non-retryable-failure" branch
-  mutates the row instead of no-op-returning it.
+- **Clearing the hold — and the override.** `createAgentic` updates `filingUrl`/
+  `candidateName` in place (and clears the hold columns *and* `cvValidationOverriddenAt`)
+  when an existing, not-yet-submitted (`peerlyIdentityId` null) record carrying a held
+  failure or an admin override has an incoming payload that actually differs from what's
+  persisted — safe because no Peerly identity exists yet to reconcile. **An override is
+  scoped to the data it was granted for, not to the record**: it applies only until the
+  filing data next changes, at which point it's cleared and the new data must pass the
+  gate fresh. This is the one case where `createAgentic`'s "existing, non-retryable-
+  failure" branch mutates the row instead of no-op-returning it.
 - **Admin override.** `POST admin/:campaignId/override-cv-validation`
   (`overrideCvValidation`) stamps `cvValidationOverriddenAt`, checked first in
   `assertCvPreSubmissionValid` — set, and the gate (and any stale held failure) is
-  bypassed entirely on the next submission attempt.
+  bypassed entirely on the next submission attempt, **until the filing data changes**
+  (see "Clearing the hold — and the override" above), which clears the override and
+  forces a fresh validation.
 
 ## Recovering a rejected record (`tcr_rejected`)
 
