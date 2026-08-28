@@ -19,7 +19,7 @@ export default async function SignUpPage() {
   }
 
   return (
-    <div className="grid min-h-[calc(100vh-64px)] grid-cols-1 lg:grid-cols-[3fr_2fr]">
+    <div className="grid min-h-[calc(100vh-64px)] grid-cols-1 lg:grid-cols-2">
       <div className="flex items-center justify-center bg-white px-6 py-12 lg:order-2 lg:py-16">
         <SignUpForm />
       </div>
