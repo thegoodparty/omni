@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
   type SocialTone,
@@ -23,27 +24,22 @@ import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
 import { RobocallComposeStep } from './RobocallComposeStep'
 import { RobocallReviewStep } from './RobocallReviewStep'
+import { RobocallPayStep } from './RobocallPayStep'
 import { useRobocallRecorder } from './useRobocallRecorder'
 import { useRobocallAudioUpload } from './useRobocallAudioUpload'
 import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
 
-// Steps grow as later slices land (pay). For now: pick a purpose, pick/build
-// the audience, choose when it goes out, record/compose the message, review the
-// pre-send summary, then a placeholder for the not-yet-built payment step.
-type StepId =
-  | 'purpose'
-  | 'audience'
-  | 'schedule'
-  | 'compose'
-  | 'review'
-  | 'placeholder'
+// The full flow: pick a purpose, pick/build the audience, choose when it goes
+// out, record/compose the message, review the pre-send summary, then pay
+// (create the draft, vault the card, authorize the hold).
+type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review' | 'pay'
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'schedule',
   'compose',
   'review',
-  'placeholder',
+  'pay',
 ]
 
 const STEP_TITLES: Record<StepId, string> = {
@@ -52,7 +48,7 @@ const STEP_TITLES: Record<StepId, string> = {
   schedule: 'When should it go out?',
   compose: 'What do you want to say?',
   review: 'Review your campaign',
-  placeholder: 'Robocall is coming soon',
+  pay: 'Payment',
 }
 
 // Hard 48h lead time (the compliance floor the design enforces). No upper
@@ -182,6 +178,11 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // on entering compose so the draft can carry the required "paid for by" +
   // callback-number disclosure; held in flow state and reused across redrafts.
   const [callbackNumber, setCallbackNumber] = useState<string | null>(null)
+  // The authorize outcome, held here (not in the pay step) so it survives Back
+  // out of and back into the pay step — a settled outcome makes re-entry show
+  // the result rather than re-opening the Authorize form.
+  const [payOutcome, setPayOutcome] =
+    useState<RobocallAuthorizeResponse | null>(null)
   const rentMutation = useMutation({
     mutationFn: async () => {
       const { data } = await clientRequest(
@@ -245,6 +246,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setTone('warm')
     setScript('')
     setCallbackNumber(null)
+    setPayOutcome(null)
     resetRent()
     resetCompliance()
     draftRequestRef.current = 0
@@ -499,12 +501,12 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
             }
           : stepId === 'review'
             ? {
-                // The pay step (a sibling slice) lands here next; for now the
-                // review's primary CTA advances to the end placeholder.
                 label: 'Continue to payment',
-                onClick: () => setStepId('placeholder'),
+                onClick: () => setStepId('pay'),
               }
-            : null
+            : // The pay step owns its own submit button (the Stripe confirm
+              // must run inside the Elements context), so the shell shows no CTA.
+              null
 
   return (
     <OutreachFlowShell
@@ -608,15 +610,17 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           script={script}
         />
       ) : (
-        <div className="space-y-2 py-8 text-center">
-          <h3 className="text-xl font-semibold text-foreground">
-            More coming soon
-          </h3>
-          <p className="text-base text-muted-foreground">
-            The rest of the robocall flow (compliance review and payment) is
-            still being built.
-          </p>
-        </div>
+        <RobocallPayStep
+          voterFileFilterId={audience.selectedListId}
+          audioKey={audioUpload.key}
+          callbackNumber={callbackNumber}
+          scheduledAt={scheduledAt}
+          timeZone={timeZone}
+          script={script}
+          campaignName={campaignName}
+          outcome={payOutcome}
+          onOutcome={setPayOutcome}
+        />
       )}
     </OutreachFlowShell>
   )
