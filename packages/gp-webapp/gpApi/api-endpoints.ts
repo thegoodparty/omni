@@ -51,6 +51,11 @@ import type {
   RobocallNumberResponse,
   RobocallComplianceRequest,
   RobocallComplianceVerdict,
+  RobocallDraftCreateRequest,
+  RobocallDraftCreateResponse,
+  RobocallSaveCardIntentResponse,
+  RobocallAuthorizeRequest,
+  RobocallAuthorizeResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
   PeoplePrecinctsResponse,
@@ -375,6 +380,30 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/compliance': {
     Request: RobocallComplianceRequest
     Response: RobocallComplianceVerdict
+  }
+
+  // Draft-first create: persists the pending_payment robocall draft and returns
+  // its outreachId plus the server-derived estimate (billable landline count +
+  // amount) the pay step displays. Idempotent on audioKey. Pro-gated.
+  'POST /v1/outreach/robocall': {
+    Request: RobocallDraftCreateRequest
+    Response: RobocallDraftCreateResponse
+  }
+
+  // Vaults the card off-session: returns a Stripe SetupIntent clientSecret the
+  // pay step mounts a Payment Element against, plus the Stripe customerId.
+  // Pro-gated. Empty request body.
+  'POST /v1/outreach/robocall/save-card-intent': {
+    Request: Record<string, never>
+    Response: RobocallSaveCardIntentResponse
+  }
+
+  // Places the manual-capture authorization hold on the vaulted card for the
+  // server-re-derived estimate. Returns authorized | deferred | hold_failed |
+  // noop with the settle state and (when authorized) the frozen amount.
+  'POST /v1/outreach/robocall/:outreachId/authorize': {
+    Request: RobocallAuthorizeRequest
+    Response: RobocallAuthorizeResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of

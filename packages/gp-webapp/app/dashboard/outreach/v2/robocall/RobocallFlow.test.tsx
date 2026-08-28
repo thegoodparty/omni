@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { RobocallScriptDraftRequest } from '@goodparty_org/contracts'
+import type {
+  RobocallAuthorizeStatus,
+  RobocallScriptDraftRequest,
+} from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { RobocallFlow } from './RobocallFlow'
@@ -119,6 +122,65 @@ vi.mock('app/dashboard/contacts/crm/wizard/NameStep', () => ({
     />
   ),
 }))
+
+// The pay step mounts a Stripe SetupIntent Payment Element and confirms it.
+// jsdom has no Stripe SDK, so stub the classic Elements library: Elements is a
+// passthrough, PaymentElement a marker, and useStripe hands back a confirmSetup
+// spy the tests drive. loadStripe is neutered so module load makes no network
+// call. Mirrors the pro-upgrade PaymentStep test's Stripe stubbing.
+const { confirmSetupMock } = vi.hoisted(() => ({ confirmSetupMock: vi.fn() }))
+
+vi.mock('@stripe/stripe-js', () => ({
+  loadStripe: vi.fn(() => Promise.resolve(null)),
+}))
+
+vi.mock('@stripe/react-stripe-js', () => ({
+  // Surface the clientSecret it mounts against so a test can assert the pay
+  // step remounts on a FRESH SetupIntent after a decline.
+  Elements: ({
+    children,
+    options,
+  }: {
+    children: React.ReactNode
+    options?: { clientSecret?: string }
+  }) => (
+    <div
+      data-testid="stripe-elements"
+      data-client-secret={options?.clientSecret}
+    >
+      {children}
+    </div>
+  ),
+  PaymentElement: () => <div data-testid="payment-element" />,
+  useStripe: () => ({ confirmSetup: confirmSetupMock }),
+  useElements: () => ({}),
+}))
+
+const mockCreateDraft = (
+  amountInCents = 360,
+  outreachId = 42,
+  billableCount = 80,
+) =>
+  api.mock('POST /v1/outreach/robocall', {
+    status: 200,
+    data: { outreachId, billableCount, amountInCents },
+  })
+
+const mockSaveCardIntent = () =>
+  api.mock('POST /v1/outreach/robocall/save-card-intent', {
+    status: 200,
+    data: { clientSecret: 'seti_test_secret', customerId: 'cus_test_123' },
+  })
+
+const mockAuthorize = (
+  status: RobocallAuthorizeStatus,
+  authorizedAmountInCents: number | null,
+  settleState: string,
+) =>
+  api.mock('POST /v1/outreach/robocall/:outreachId/authorize', {
+    status: 200,
+    data: { status, settleState, authorizedAmountInCents },
+  })
 
 const mockSavedLists = () =>
   api.mock('GET /v1/voters/voter-file/filters', {
@@ -303,6 +365,12 @@ const gotoReview = async (purposeLabel = 'Persuade likely voters') => {
   await screen.findByRole('button', { name: 'Continue to payment' })
 }
 
+// Review -> Continue to payment, landing on the pay step. The pay step fires
+// create-draft + save-card-intent on entry, so the caller registers those
+// (and the authorize) mocks before calling.
+const enterPay = async () =>
+  userEvent.click(screen.getByRole('button', { name: 'Continue to payment' }))
+
 describe('RobocallFlow', () => {
   // useElectedOffice fires on mount (no enable guard); 404 => not an elected
   // official (data null), exercising the hook's real 404->null branch.
@@ -313,6 +381,12 @@ describe('RobocallFlow', () => {
     })
     mockRentNumber()
     mockCompliance()
+    // Reset call history + any queued once-implementations between tests, then
+    // re-establish the default success.
+    confirmSetupMock.mockReset()
+    confirmSetupMock.mockResolvedValue({
+      setupIntent: { payment_method: 'pm_test_123' },
+    })
   })
 
   it('opens on the purpose step with the robocall purposes', () => {
@@ -1155,12 +1229,349 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('advances from review to the payment placeholder', async () => {
+  it('advances from review to the pay step and shows the server estimate', async () => {
     await gotoReview()
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    await enterPay()
+
+    // The estimate and Payment Element mount once both server calls resolve.
+    // The amount shown is the server's ($3.60), never a client computation.
+    expect(await screen.findByText('Amount to authorize')).toBeInTheDocument()
+    expect(screen.getByTestId('payment-element')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Authorize \$3\.60/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('More coming soon')).not.toBeInTheDocument()
+  })
+
+  it('creates the draft, vaults the card, authorizes, and shows the authorized amount', async () => {
+    let draftBody: {
+      voterFileFilterId?: number
+      audioKey?: string
+      callbackNumber?: string
+    } | null = null
+    let draftScheduledAt: string | undefined
+    let authorizeBody: { paymentMethodId?: string } | null = null
+
+    api.mock('POST /v1/outreach/robocall', ({ body }) => {
+      draftBody = body
+      draftScheduledAt = body.scheduledAt
+      return {
+        status: 200,
+        data: { outreachId: 42, billableCount: 80, amountInCents: 360 },
+      }
+    })
+    mockSaveCardIntent()
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', ({ body }) => {
+      authorizeBody = body
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 360,
+        },
+      }
+    })
+
+    await gotoReview()
+    await enterPay()
+
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$3\.60/,
+    })
+    await userEvent.click(submit)
+
+    // The success card renders the SERVER's authorized amount.
+    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/charged for the calls actually placed, never more/),
+    ).toBeInTheDocument()
+
+    // create-draft carried the flow's list/audio/number and an offset-annotated
+    // send time (never UTC Z); no client count/amount was ever sent.
+    expect(draftBody).toMatchObject({
+      voterFileFilterId: 1,
+      audioKey: 'robocall/42/clip.webm',
+      callbackNumber: '+12025550147',
+    })
+    expect(draftScheduledAt).toMatch(/T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
+
+    // The card was confirmed and its payment method placed the hold.
+    expect(confirmSetupMock).toHaveBeenCalledWith({
+      elements: {},
+      redirect: 'if_required',
+    })
+    expect(authorizeBody).toEqual({ paymentMethodId: 'pm_test_123' })
+  })
+
+  it('shows the deferred message when the hold is placed later', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    mockAuthorize('deferred', null, 'pending_payment')
+
+    await gotoReview()
+    await enterPay()
     await userEvent.click(
-      screen.getByRole('button', { name: 'Continue to payment' }),
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
     )
-    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+
+    // Accurate to current server behavior: the card is saved, but nothing
+    // asserts a hold will be placed (no PM persisted / no sweep yet).
+    expect(
+      await screen.findByText(/finish setting up payment closer to your send/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Your card is saved')).toBeInTheDocument()
+  })
+
+  it('prompts for another card on a decline and remounts on a FRESH SetupIntent', async () => {
+    mockCreateDraft(360)
+    // Distinct client secrets per call, so the post-decline remount is
+    // verifiably a new SetupIntent (a SetupIntent confirms once).
+    let cardIntentCalls = 0
+    api.mock('POST /v1/outreach/robocall/save-card-intent', () => {
+      cardIntentCalls += 1
+      return {
+        status: 200,
+        data: {
+          clientSecret: `seti_secret_${cardIntentCalls}`,
+          customerId: 'cus_test_123',
+        },
+      }
+    })
+    mockAuthorize('hold_failed', null, 'hold_failed')
+
+    await gotoReview()
+    await enterPay()
+
+    // First mount used the first SetupIntent.
+    expect(await screen.findByTestId('stripe-elements')).toHaveAttribute(
+      'data-client-secret',
+      'seti_secret_1',
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+
+    expect(
+      await screen.findByText('Your card was declined'),
+    ).toBeInTheDocument()
+
+    // Try another card re-fetches a fresh SetupIntent and re-mounts against it.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Try another card' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('stripe-elements')).toHaveAttribute(
+        'data-client-secret',
+        'seti_secret_2',
+      ),
+    )
+    expect(
+      screen.getByRole('button', { name: /Authorize \$3\.60/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('surfaces an inline error when the authorize request fails', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    await gotoReview()
+    await enterPay()
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$3\.60/,
+    })
+    await userEvent.click(submit)
+
+    // A friendly inline message, not a raw error, and still on the form.
+    expect(
+      await screen.findByText(/couldn't authorize your card/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Authorize \$3\.60/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not double-submit: a second submit while one is in flight is a no-op', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', () => {
+      authorizeCalls += 1
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 360,
+        },
+      }
+    })
+
+    // Hold confirmSetup open so a second submit lands while the first is still
+    // confirming.
+    let releaseConfirm!: () => void
+    confirmSetupMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseConfirm = () =>
+          resolve({ setupIntent: { payment_method: 'pm_test_123' } })
+      }),
+    )
+
+    await gotoReview()
+    await enterPay()
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$3\.60/,
+    })
+    await userEvent.click(submit)
+
+    // The button is disabled while in flight, and firing the form submit again
+    // (the internal guard) does not start a second confirm.
+    expect(submit).toBeDisabled()
+    fireEvent.submit(submit.closest('form') as HTMLFormElement)
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+
+    releaseConfirm()
+    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+    expect(authorizeCalls).toBe(1)
+  })
+
+  it('retries after an authorize throw WITHOUT re-confirming the card', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    let lastAuthorizeBody: { paymentMethodId?: string } | null = null
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', ({ body }) => {
+      authorizeCalls += 1
+      lastAuthorizeBody = body
+      if (authorizeCalls === 1)
+        return { status: 500, data: { message: 'boom' } }
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 360,
+        },
+      }
+    })
+
+    await gotoReview()
+    await enterPay()
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$3\.60/,
+    })
+
+    // First attempt: confirmSetup succeeds (card vaulted), then authorize throws.
+    await userEvent.click(submit)
+    expect(
+      await screen.findByText(/couldn't authorize your card/),
+    ).toBeInTheDocument()
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+
+    // Retry: must NOT re-confirm the already-vaulted card (a SetupIntent
+    // confirms once), and must re-authorize with that same payment method.
+    await userEvent.click(
+      screen.getByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+    expect(authorizeCalls).toBe(2)
+    expect(lastAuthorizeBody).toEqual({ paymentMethodId: 'pm_test_123' })
+  })
+
+  it('shows the Stripe error and skips authorize when confirmSetup fails', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', () => {
+      authorizeCalls += 1
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 360,
+        },
+      }
+    })
+    confirmSetupMock.mockResolvedValueOnce({
+      error: { message: 'Your card number is incomplete.' },
+    })
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+
+    expect(
+      await screen.findByText('Your card number is incomplete.'),
+    ).toBeInTheDocument()
+    expect(authorizeCalls).toBe(0)
+  })
+
+  it('shows an error and skips authorize when no payment method comes back', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', () => {
+      authorizeCalls += 1
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 360,
+        },
+      }
+    })
+    confirmSetupMock.mockResolvedValueOnce({
+      setupIntent: { payment_method: null },
+    })
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+
+    expect(
+      await screen.findByText(/couldn't read your saved card/),
+    ).toBeInTheDocument()
+    expect(authorizeCalls).toBe(0)
+  })
+
+  it('renders the create-draft error with a working retry', async () => {
+    let createCalls = 0
+    api.mock('POST /v1/outreach/robocall', () => {
+      createCalls += 1
+      return createCalls === 1
+        ? { status: 500, data: { message: 'boom' } }
+        : {
+            status: 200,
+            data: { outreachId: 42, billableCount: 80, amountInCents: 360 },
+          }
+    })
+    mockSaveCardIntent()
+
+    await gotoReview()
+    await enterPay()
+
+    // The create-draft failure surfaces inline (not a raw error) with a retry.
+    expect(
+      await screen.findByText(/couldn't set up your payment just now/),
+    ).toBeInTheDocument()
+
+    // Try again re-creates the draft and the estimate + form appear.
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Amount to authorize')).toBeInTheDocument()
   })
 
   it('returns to compose from review, keeping the saved recording', async () => {
