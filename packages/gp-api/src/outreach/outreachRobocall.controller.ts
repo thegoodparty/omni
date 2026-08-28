@@ -47,6 +47,7 @@ import { OutreachRobocallGenerationService } from './services/outreachRobocallGe
 import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
+import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
 const candidateName = (user: User): string =>
@@ -66,6 +67,7 @@ export class OutreachRobocallController {
     private readonly robocallService: OutreachRobocallService,
     private readonly holdService: OutreachRobocallHoldService,
     private readonly compliance: RobocallComplianceService,
+    private readonly complianceResults: RobocallComplianceResultService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
@@ -226,12 +228,19 @@ export class OutreachRobocallController {
     const office = await this.resolveOffice(campaign)
     const organizationName = office ? `${name} for ${office}` : name
 
-    return this.compliance.checkRecording({
+    const verdict = await this.compliance.checkRecording({
       audioKey: input.audioKey,
       contentType: input.contentType,
       candidateName: name,
       organizationName,
       userId: String(user.id),
     })
+
+    // Persist the verdict keyed by audioKey so createDraft can enforce a passing
+    // compliance pass server-side (a backstop under the client UI gate). A
+    // re-check upserts, so the latest verdict is the one the create gate reads.
+    await this.complianceResults.recordVerdict(input.audioKey, verdict)
+
+    return verdict
   }
 }

@@ -190,10 +190,21 @@ export class OutreachRobocallSendService extends createPrismaBase(
       return
     }
 
-    // COMPLIANCE HOOK: audio-content compliance verification is a separate
-    // workstream. When it lands, a persisted compliance-pass check is ANDed with
-    // the live-hold gate above — a draft that has not passed compliance must not
-    // dial, exactly as a dead hold must not.
+    // COMPLIANCE GATE (never dial non-compliant — ANDed with the live-hold
+    // re-check above). createDraft already requires a passing compliance verdict
+    // before a draft can exist and stamps compliancePassedAt at that point, so a
+    // dialing draft with a null stamp should be impossible. Belt-and-suspenders:
+    // a crafted write or data anomaly that reaches dial without it must NOT dial.
+    // Nothing has launched, so release the claim back to authorized (never
+    // hold_failed — the hold is fine) and alert CRITICAL for manual review.
+    if (!draft.compliancePassedAt) {
+      await this.revertClaim(outreachId)
+      this.logger.error(
+        { outreachId, dialingCampaignPkStr: pkStr },
+        'CRITICAL robocall reached dial with no compliance pass; not dialing',
+      )
+      return
+    }
 
     // LAUNCH (outside any DB transaction): START the PAUSED campaign so it dials.
     // pk_str stays a STRING end-to-end.

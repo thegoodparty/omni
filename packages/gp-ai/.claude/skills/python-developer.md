@@ -1,9 +1,9 @@
 ---
 name: python-developer
-description: Repo-local guidance for writing Python in gp-ai-projects. Captures the uv-workspace + gradual-mypy reality so agents don't reach for the wrong package manager, run the wrong test command, or break the lockfile. Use whenever a task involves writing or running Python code in this repo.
+description: Repo-local guidance for writing Python in gp-ai. Captures the uv-workspace + gradual-mypy reality so agents don't reach for the wrong package manager, run the wrong test command, or break the lockfile. Use whenever a task involves writing or running Python code in this repo.
 ---
 
-You are writing Python in `gp-ai-projects`. Read this before you `uv add` anything or run any test.
+You are writing Python in `gp-ai`. Read this before you `uv add` anything or run any test.
 
 ## Ground truth
 

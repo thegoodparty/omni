@@ -75,6 +75,17 @@ beforeEach(async () => {
     data: { organizationSlug: orgSlug, name: 'saved list' },
   })
   filterId = filter.id
+
+  // createDraft now requires a persisted PASSING compliance verdict for the
+  // audio it is about to bill for. The default body's audio has cleared it;
+  // the gate-specific cases below use their own keys.
+  await service.prisma.robocallComplianceResult.create({
+    data: {
+      audioKey: `robocall/${CAMPAIGN_ID}/clip.webm`,
+      passed: true,
+      checkedAt: new Date(),
+    },
+  })
 })
 
 const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
@@ -131,6 +142,9 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(spine.robocall?.authorizationIntentId).toBeNull()
     expect(spine.robocall?.capturedAmountInCents).toBeNull()
     expect(spine.robocall?.payAttempt).toBe(0)
+    // The passing compliance verdict is mirrored onto the draft so the dial
+    // step has a durable per-draft fact to gate on.
+    expect(spine.robocall?.compliancePassedAt).not.toBeNull()
   })
 
   // Local calendar day, not the UTC date: an evening local send whose UTC
@@ -273,6 +287,74 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     })
     expect(rows).toBe(1)
     findFirstSpy.mockRestore()
+  })
+
+  // MONEY/LEGAL gate: a paid draft can only be created for audio that passed
+  // the server-side compliance check, backstopping the client UI gate.
+  it('rejects audio with no passing compliance verdict, writing no row', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      // A valid same-campaign key that never cleared compliance.
+      audioKey: `robocall/${CAMPAIGN_ID}/uncleared.webm`,
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toContain('compliance')
+    // The gate rejects before the people-db count is derived.
+    expect(findContactsForFilter).not.toHaveBeenCalled()
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
+
+  it('rejects audio whose compliance verdict FAILED, writing no row', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    await service.prisma.robocallComplianceResult.create({
+      data: {
+        audioKey: `robocall/${CAMPAIGN_ID}/failed.webm`,
+        passed: false,
+        checkedAt: new Date(),
+      },
+    })
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      audioKey: `robocall/${CAMPAIGN_ID}/failed.webm`,
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
+
+  it('stamps compliancePassedAt from the passing verdict at create', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    const checkedAt = new Date('2026-08-20T12:00:00.000Z')
+    await service.prisma.robocallComplianceResult.create({
+      data: {
+        audioKey: `robocall/${CAMPAIGN_ID}/cleared.webm`,
+        passed: true,
+        checkedAt,
+      },
+    })
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      audioKey: `robocall/${CAMPAIGN_ID}/cleared.webm`,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId: res.data.outreachId },
+    })
+    expect(satellite.compliancePassedAt?.toISOString()).toBe(
+      checkedAt.toISOString(),
+    )
   })
 
   it('rejects a non-Pro campaign, writing no row', async () => {

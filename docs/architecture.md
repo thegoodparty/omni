@@ -23,8 +23,8 @@ nothing boring would work.
            Statement API  │           │ HTTP     │ HTTP
              (voter data) ▼           ▼          ▼
                 ┌─────────────┐ ┌──────────────┐ ┌────────────────┐
-                │ Databricks  │ │ election-api │ │ gp-ai-projects │
-                │(mart_gp_api)│ │    (ECS)     │ │  (ext. Python) │
+                │ Databricks  │ │ election-api │ │     gp-ai      │
+                │(mart_gp_api)│ │    (ECS)     │ │  (Python/ECS)  │
                 └─────────────┘ └──────────────┘ └────────────────┘
 ```
 
@@ -41,7 +41,10 @@ nothing boring would work.
   table for. The people-api service is still deployed but frozen, with no repo
   package or CI pipeline in omni.
 - **gp-api -> election-api:** direct HTTP for election/race data.
-- **gp-api -> gp-ai-projects:** HTTP for AI campaign-plan generation (external repo).
+- **gp-api -> the PMF Engine:** SQS dispatch to the background-agent runtime in
+  `packages/gp-ai`, results back on gp-api's result queue. The whole path is
+  documented in `docs/cap-background-agents.md`.
+- **gp-api -> gp-ai:** HTTP for AI campaign-plan generation (`packages/gp-ai`).
 
 ## Auth flows
 
@@ -119,16 +122,6 @@ carry a `context: 'win' | 'serve'` property. Detail:
 
 Some systems live outside this monorepo. Consult them when:
 
-- **gp-ai-projects** (`thegoodparty/gp-ai-projects`) — Python AI/ML pipeline:
-  campaign-plan generation, civic message analysis, HubSpot-DDHQ matching. Read it
-  when changing how gp-api calls AI generation, or when debugging plan output. It
-  also hosts the **PMF Engine runtime**: gp-api's `agentExperiments` module enqueues
-  an `experiment_run` to SQS, which an ingest Lambda places on a DynamoDB priority
-  queue; a scheduler Lambda launches the single-use Fargate agent, whose only egress
-  is a privileged broker service; results come back on gp-api's `{branch}-Queue.fifo`
-  (consumed in `queue/consumer/`, with `communityIssues` a downstream consumer).
-  The experiment playbooks themselves are in-tree at `packages/runbooks/experiments/`.
-  See `packages/gp-api/src/agentExperiments/AGENTS.md`.
 - **gp-marketing** (`thegoodparty/gp-marketing`) — the public marketing site. It
   moved out of gp-webapp; `gp-webapp` is the product app for candidates & elected
   officials, not the marketing site. Marketing changes go there, not here.

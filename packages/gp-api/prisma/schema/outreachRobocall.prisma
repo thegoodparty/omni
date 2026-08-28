@@ -88,6 +88,11 @@ model OutreachRobocall {
   // When the CallHub voice-broadcast was launched (START). Stamped by the send
   // slice at the dialing → dialed commit; null until the run actually dials.
   dialedAt               DateTime?           @map("dialed_at")
+  // When this draft's audio passed the server-side compliance check, mirrored
+  // from the RobocallComplianceResult at create. A hard prerequisite for
+  // dialing: the send slice refuses to launch a draft whose value is null, a
+  // belt-and-suspenders backstop under the create-time gate.
+  compliancePassedAt     DateTime?           @map("compliance_passed_at")
   settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
 
   @@map("outreach_robocall")
