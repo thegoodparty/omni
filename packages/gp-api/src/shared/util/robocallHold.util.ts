@@ -4,10 +4,13 @@
 // the flow at production volume.
 export const ROBOCALL_PER_RUN_CEILING_CENTS = 50000
 
-// How many days ahead of the scheduled send a hold is placed. Strictly less than
-// Stripe's ~7-day authorization lifetime so a hold placed at the window edge
-// still has capture slack before it expires (C3).
-export const ROBOCALL_HOLD_WINDOW_DAYS = 5
+// How many days ahead of the scheduled send a hold is placed. Must be strictly
+// less than Stripe's ~7-day authorization lifetime MINUS the run and the settle
+// margin, so a window-edge hold still clears the capture-window-fit check
+// (send + ROBOCALL_RUN_HOURS + ROBOCALL_SETTLE_MARGIN_HOURS <= capture_before)
+// with slack for capture_before landing slightly under a full 7 days. At 3 days:
+// 3d + 48h + 24h = 6d, which fits even a 6-day capture_before. (C3.)
+export const ROBOCALL_HOLD_WINDOW_DAYS = 3
 
 // How long after the scheduled send the CallHub run may still be dialing before
 // its billable count is final and the hold can be captured.

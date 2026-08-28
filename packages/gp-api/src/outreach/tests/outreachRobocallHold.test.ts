@@ -137,9 +137,11 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     paymentMethodsRetrieve.mockResolvedValue({
       id: 'pm_1',
       customer: 'cus_test',
+      type: 'card',
     })
     paymentIntentsCreate.mockResolvedValue({
       id: 'pi_hold_1',
+      status: 'requires_capture',
       capture_before: captureBeforeUnix(),
     })
 
@@ -213,6 +215,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     paymentMethodsRetrieve.mockResolvedValue({
       id: 'pm_1',
       customer: 'cus_test',
+      type: 'card',
     })
     paymentIntentsCreate.mockRejectedValue(
       new Stripe.errors.StripeCardError({
@@ -245,6 +248,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     paymentMethodsRetrieve.mockResolvedValue({
       id: 'pm_1',
       customer: 'cus_other',
+      type: 'card',
     })
 
     const res = await postAuthorize(outreachId)
@@ -261,10 +265,12 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     paymentMethodsRetrieve.mockResolvedValue({
       id: 'pm_1',
       customer: 'cus_test',
+      type: 'card',
     })
     // capture_before only 3 days out — before send (2d) + 48h run + 24h margin.
     paymentIntentsCreate.mockResolvedValue({
       id: 'pi_short',
+      status: 'requires_capture',
       capture_before: getUnixTime(addDays(new Date(), 3)),
     })
 
@@ -272,6 +278,76 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(paymentIntentsCancel).toHaveBeenCalledWith('pi_short')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    // The voided hold bumps payAttempt so a retry derives a fresh idempotency
+    // key and a new PI instead of idempotent-replaying the canceled one.
+    expect(satellite.payAttempt).toBe(1)
+  })
+
+  it('places the hold at the window edge when capture_before fits', async () => {
+    // Send exactly at the 3-day window edge; capture_before ~7 days out. The
+    // fit check (send 3d + 48h + 24h = 6d) clears a 7-day capture_before, so the
+    // window and the fit are consistent — this is the case FIX 1 restored.
+    const outreachId = await createDraft({ sendInDays: 3 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_edge',
+      status: 'requires_capture',
+      capture_before: getUnixTime(addDays(new Date(), 7)),
+    })
+
+    const res = await postAuthorize(outreachId)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('authorized')
+    expect(paymentIntentsCancel).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
+
+  it('treats a non-requires_capture status as a decline, not a success', async () => {
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    // Confirmed off-session but landed in requires_action (not a usable hold).
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_action',
+      status: 'requires_action',
+      capture_before: captureBeforeUnix(),
+    })
+
+    const res = await postAuthorize(outreachId)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('hold_failed')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
+    expect(satellite.authorizationIntentId).toBeNull()
+  })
+
+  it('rejects a non-card payment method', async () => {
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_bank',
+      customer: 'cus_test',
+      type: 'us_bank_account',
+    })
+
+    const res = await postAuthorize(outreachId, 'pm_bank')
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
   })
@@ -313,6 +389,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     paymentMethodsRetrieve.mockResolvedValue({
       id: 'pm_1',
       customer: 'cus_test',
+      type: 'card',
     })
     // A concurrent actor advances the draft while the Stripe hold is in flight,
     // so the success claim finds nothing to commit and the hold must be voided.
@@ -321,7 +398,11 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
         where: { outreachId },
         data: { settleState: RobocallSettleState.authorized },
       })
-      return { id: 'pi_race', capture_before: captureBeforeUnix() }
+      return {
+        id: 'pi_race',
+        status: 'requires_capture',
+        capture_before: captureBeforeUnix(),
+      }
     })
 
     const res = await postAuthorize(outreachId)

@@ -135,7 +135,18 @@ export class OutreachRobocallHoldService extends createPrismaBase(
           'That payment method is not on file for this account',
         )
       }
+      // Cards only, made explicit: an off-session manual-capture hold on a
+      // non-card PM (e.g. a vaulted bank debit) would not reserve capturable
+      // funds. The vault SetupIntent already pins cards, so this is defense in
+      // depth against a non-card PM reaching the create call.
+      if (pm.type !== 'card') {
+        throw new BadRequestException(
+          'Only a card can authorize a robocall hold',
+        )
+      }
     } catch (err) {
+      // Pre-hold failure: no hold placed, so no idempotency key was consumed.
+      // Revert without bumping payAttempt — the next attempt reuses attempt N+1.
       await this.revertClaim(outreachId)
       throw err
     }
@@ -160,7 +171,10 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     } catch (err) {
       if (err instanceof StripeHoldDeclinedError) {
         // A decline is a business outcome, not a 502. Move to the hold_failed
-        // terminal, bump payAttempt, and emit the milestone once.
+        // terminal, bump payAttempt, and emit the milestone once. A future
+        // resolution slice must branch on err.code: `authentication_required`
+        // is a StripeCardError that needs on-session re-auth, not the "update
+        // your card" reminder loop.
         await this.model.updateMany({
           where: {
             outreachId,
@@ -183,7 +197,10 @@ export class OutreachRobocallHoldService extends createPrismaBase(
           authorizedAmountInCents: null,
         }
       }
-      // Infra failure (502): release the claim so a retry can place the hold.
+      // Infra failure (502): no confirmed hold to void. Release the claim
+      // WITHOUT bumping payAttempt — a retry reuses the same idempotency key so
+      // Stripe replays (recovering a PI that may in fact be live) instead of
+      // stacking a second hold.
       await this.revertClaim(outreachId)
       throw err
     }
@@ -196,8 +213,12 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       ROBOCALL_RUN_HOURS + ROBOCALL_SETTLE_MARGIN_HOURS,
     )
     if (isAfter(captureDeadline, held.captureBefore)) {
+      // We placed a hold that we are now abandoning. Void it (best-effort) and
+      // revert, persisting attempt as the new payAttempt so a retry derives a
+      // FRESH idempotency key (robocall-hold-<id>-<attempt+1>) and a new PI —
+      // reusing the key would idempotent-replay this just-canceled PI.
       await this.stripe.voidHold(held.paymentIntentId)
-      await this.revertClaim(outreachId)
+      await this.revertClaim(outreachId, attempt)
       throw new BadRequestException(
         'The authorization would expire before the call can be charged',
       )
@@ -219,7 +240,13 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       },
     })
     if (commit.count === 0) {
+      // Lost the race: the draft moved out of hold_pending during the Stripe
+      // calls, so the hold we placed must not stand. Void it (best-effort). The
+      // revert bumps payAttempt only if the row is somehow still hold_pending
+      // (a no-op otherwise, since the row is owned by whoever advanced it), so a
+      // fresh key is used should a retry ever place again.
       await this.stripe.voidHold(held.paymentIntentId)
+      await this.revertClaim(outreachId, attempt)
       return this.currentStateResult(outreachId, draft.settleState)
     }
 
@@ -236,10 +263,20 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     }
   }
 
-  private async revertClaim(outreachId: number): Promise<void> {
+  // Releases the hold_pending claim back to pending_payment. When a PLACED hold
+  // was just voided, pass the used attempt as payAttempt so the next attempt
+  // derives a fresh idempotency key; omit it for a pre-hold/infra revert where
+  // the key was not consumed (or must be reused to recover a live PI).
+  private async revertClaim(
+    outreachId: number,
+    payAttempt?: number,
+  ): Promise<void> {
     await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.hold_pending },
-      data: { settleState: RobocallSettleState.pending_payment },
+      data: {
+        settleState: RobocallSettleState.pending_payment,
+        ...(payAttempt != null ? { payAttempt } : {}),
+      },
     })
   }
 
@@ -264,19 +301,29 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   }
 
   // Emits a milestone with a deterministic Segment messageId so a replay dedups
-  // to one email. Called ONLY from a winning transition.
+  // to one email. Called ONLY from a winning transition. Best-effort: the money
+  // op already committed, so a transient Segment failure must not 500 a request
+  // whose hold succeeded — that would push a retry onto the noop path and lose
+  // the email entirely. A lost email is recoverable by the later reminder sweep.
   private async emitMilestone(
     userId: number,
     outreachId: number,
     event: string,
     suffix: 'hold_placed' | 'hold_failed',
   ): Promise<void> {
-    await this.analytics.track(
-      userId,
-      event,
-      { outreachId },
-      undefined,
-      `${outreachId}:${suffix}`,
-    )
+    try {
+      await this.analytics.track(
+        userId,
+        event,
+        { outreachId },
+        undefined,
+        `${outreachId}:${suffix}`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, event },
+        'robocall milestone emit failed',
+      )
+    }
   }
 }

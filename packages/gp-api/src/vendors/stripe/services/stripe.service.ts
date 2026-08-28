@@ -265,6 +265,18 @@ export class StripeService {
       throw new BadGatewayException('Failed to place authorization hold')
     }
 
+    // Verify the auth actually reserved funds before the caller stamps
+    // authorized. A confirmed manual-capture PI that did not reach
+    // requires_capture (requires_action / processing / requires_payment_method
+    // returned WITHOUT throwing) is not a usable hold — treat it as a decline,
+    // not a success the caller would authorize against ("verify before stamping
+    // state").
+    if (intent.status !== 'requires_capture') {
+      throw new StripeHoldDeclinedError(
+        `Hold did not authorize: status ${intent.status}`,
+      )
+    }
+
     // Stripe returns capture_before (Unix seconds) on a manual-capture auth, but
     // the SDK type does not expose it. Fall back to the standard ~7-day lifetime
     // when it is absent so a downstream capture-window check always has a bound.
@@ -281,12 +293,15 @@ export class StripeService {
 
   // Releases an authorization hold (rollback when a placed hold turns out to be
   // unusable, or when a lost state race means the hold must not stand).
+  // Best-effort: a failed void — Stripe down, or the PI already canceled — must
+  // never block the DB revert that follows it on the caller's rollback path, or
+  // the row would strand in hold_pending. An orphan hold auto-expires within the
+  // auth lifetime, and the later reverse-reconciliation slice reclaims it.
   async voidHold(paymentIntentId: string): Promise<void> {
     try {
       await this.stripe.paymentIntents.cancel(paymentIntentId)
     } catch (err) {
       this.logger.error({ err }, 'Failed to void robocall authorization hold')
-      throw new BadGatewayException('Failed to void authorization hold')
     }
   }
 
