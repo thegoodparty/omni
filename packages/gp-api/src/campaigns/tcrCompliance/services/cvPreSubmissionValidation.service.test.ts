@@ -143,6 +143,43 @@ describe('CvPreSubmissionValidationService', () => {
     expect(llm.jsonCompletion).not.toHaveBeenCalled()
   })
 
+  // Delegate review finding: a host that doesn't resolve at all (typo/fake
+  // domain) is a deterministic bad submission, not a transient DNS blip — it
+  // must be held as 'failed', never fall through to the fetch and come back
+  // 'transient' (which would retry indefinitely and never tell anyone).
+  // Deliberately not delegated to the shared assertPublicHostname helper,
+  // which returns silently on empty resolution for its own caller
+  // (verifyLive, checking a domain that may still be DNS-propagating).
+  it('fails when the hostname does not resolve at all, without calling the LLM or fetching', async () => {
+    stubDnsLookup([])
+
+    const result = await service.validate(params)
+
+    expect(result).toEqual({
+      outcome: 'failed',
+      reasons: [
+        'Filing URL host "sos.state.gov" does not resolve to any address',
+      ],
+    })
+    expect(mockedAxiosGet).not.toHaveBeenCalled()
+    expect(llm.jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('fails when DNS resolution itself throws (NXDOMAIN-style failure)', async () => {
+    stubDnsLookup(Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }))
+
+    const result = await service.validate(params)
+
+    expect(result).toEqual({
+      outcome: 'failed',
+      reasons: [
+        'Filing URL host "sos.state.gov" does not resolve to any address',
+      ],
+    })
+    expect(mockedAxiosGet).not.toHaveBeenCalled()
+    expect(llm.jsonCompletion).not.toHaveBeenCalled()
+  })
+
   // Failure class 2/3: name not found / filing not evidenced — LLM-evaluated.
   it('fails with the LLM reasons when the candidate name is not found', async () => {
     llm.jsonCompletion.mockResolvedValue({

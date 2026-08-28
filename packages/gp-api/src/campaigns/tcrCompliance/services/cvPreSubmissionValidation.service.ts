@@ -1,12 +1,14 @@
 import http from 'http'
 import https from 'https'
+import * as dns from 'node:dns'
+import { promisify } from 'node:util'
 import { Injectable } from '@nestjs/common'
 import axios from 'axios'
 import { PinoLogger } from 'nestjs-pino'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
-  assertPublicHostname,
+  isPublicAddress,
   ssrfSafeLookup,
 } from '@/websites/services/websites.service'
 import {
@@ -15,6 +17,8 @@ import {
 } from '@/shared/util/strings.util'
 import { CvPreSubmissionVerdictSchema } from '../schemas/cvPreSubmissionVerdict.schema'
 import { isJunkFilingHost } from '../utils/cvPreSubmissionValidation.util'
+
+const dnsLookup = promisify(dns.lookup)
 
 const FILING_PAGE_FETCH_TIMEOUT_MS = 10_000
 // Bounds prompt size/cost — the LLM only needs enough of the page to find the
@@ -95,9 +99,33 @@ export class CvPreSubmissionValidationService {
       }
     }
 
+    // Deliberately not the shared assertPublicHostname (websites.service.ts):
+    // that helper treats a non-resolving hostname as PASS (returns silently)
+    // because its own caller (verifyLive) checks a domain GoodParty just
+    // purchased, where "doesn't resolve yet" means DNS is still propagating —
+    // a wait, not a failure. A candidate-submitted filing URL has no such
+    // excuse: a host that doesn't resolve at all is a bad submission
+    // (typo/fake domain), not a propagation delay, so it's held as 'failed'
+    // here rather than falling through to fetchFilingPageText and coming
+    // back 'transient' (retried indefinitely, never reported to anyone).
+    let addresses: dns.LookupAddress[]
     try {
-      await assertPublicHostname(hostname)
+      addresses = await dnsLookup(hostname, { all: true })
     } catch {
+      addresses = []
+    }
+    if (addresses.length === 0) {
+      return {
+        outcome: 'failed',
+        reasons: [
+          `Filing URL host "${hostname}" does not resolve to any address`,
+        ],
+      }
+    }
+    const offendingAddress = addresses.find(
+      ({ address }) => !isPublicAddress(address),
+    )
+    if (offendingAddress) {
       return {
         outcome: 'failed',
         reasons: [
