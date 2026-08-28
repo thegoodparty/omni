@@ -16,6 +16,10 @@ const Nav = (): React.JSX.Element => {
     // marketing nav is suppressed here too — pairs with isProductRoute, which
     // already hides the global footer on /serve.
     pathname?.startsWith('/serve') ||
+    // One-time sign-in link redemption: same focused chrome as /serve/welcome,
+    // and showing a marketing "Login" link to someone mid-sign-in is worse than
+    // useless.
+    pathname?.startsWith('/sign-in-link') ||
     // Dev-only surfaces (e.g. the /dev/briefings gallery) reuse dashboard
     // chrome and should not show the marketing nav.
     pathname?.startsWith('/dev')
