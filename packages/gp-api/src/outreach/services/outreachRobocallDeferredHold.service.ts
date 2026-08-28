@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays } from 'date-fns'
+import { addDays, isAfter } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
@@ -13,6 +15,13 @@ import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 // the hold on the next daily pass leaves ample room.
 const ROBOCALL_DEFERRED_HOLD_SWEEP_CRON = '13 8 * * *'
 const ROBOCALL_DEFERRED_HOLD_SWEEP_JOB = 'robocallDeferredHoldSweep'
+
+// Cancel-at-deadline for deferred drafts, every 15 minutes on free minute slots
+// (send :04.., staging :07.., hold-failure cancel :11.., inbound :30,
+// completion :00 are all taken). Runs often so a just-passed send deadline is
+// cancelled + the candidate notified promptly.
+const ROBOCALL_DEFERRED_CANCEL_SWEEP_CRON = '1,16,31,46 * * * *'
+const ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB = 'robocallDeferredCancelSweep'
 
 // Kill-switch, default OFF. This sweep RESERVES REAL MONEY off-session without
 // the candidate present, so it must not auto-run until deliberately enabled —
@@ -31,12 +40,20 @@ const isDeferredHoldEnabled = () =>
 // Stripe hold, the capture-window fit, the HoldPlaced/HoldFailed milestones, AND
 // the atomic hold_failed escalation of a permanent card failure (returned, not
 // thrown) — so this sweep has no separate escalation call that could itself fail
-// and strand a retry storm. None of that is reimplemented here.
+// and strand a retry storm. None of that is reimplemented here. A SECOND @Cron
+// here is the cancel-at-deadline cleanup: a deferred draft whose send passes
+// before a hold is ever placed (the leak when placement stays disabled past the
+// window) is transitioned pending_payment → cancelled + emits Canceled — prod-
+// only but NOT kill-switched, so the drafts stranded by a disabled placement
+// flag are still rescued.
 @Injectable()
 export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
-  constructor(private readonly holds: OutreachRobocallHoldService) {
+  constructor(
+    private readonly holds: OutreachRobocallHoldService,
+    private readonly analytics: AnalyticsService,
+  ) {
     super()
   }
 
@@ -116,6 +133,108 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
           'deferred robocall hold placement failed; continuing sweep',
         )
       }
+    }
+  }
+
+  // Cancel-at-deadline cleanup for deferred drafts whose send passed WITHOUT a
+  // hold ever being placed. Prod-only, but deliberately NOT behind the
+  // ROBOCALL_DEFERRED_HOLD_ENABLED kill-switch: the leak this rescues happens
+  // PRECISELY when placement is disabled (the flag defaults OFF; if it stays off
+  // for >= ROBOCALL_HOLD_WINDOW_DAYS while a deferred draft exists, the send
+  // passes and the placement sweep — which only selects future sends — can never
+  // touch it again). Gating this on the same flag would let those exact stranded
+  // drafts leak forever. Cancel + notify move no money, so nothing to gate.
+  @Cron(ROBOCALL_DEFERRED_CANCEL_SWEEP_CRON, {
+    name: ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepExpiredDeferred(): Promise<void> {
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+
+    const now = new Date()
+    const candidates = await this.model.findMany({
+      where: {
+        settleState: RobocallSettleState.pending_payment,
+        paymentMethodId: { not: null },
+        stripeCustomerId: { not: null },
+        outreach: {
+          outreachType: OutreachType.robocall,
+          // Deadline reached: the send passed and no hold was ever placed.
+          date: { lte: now },
+        },
+      },
+      select: { outreachId: true },
+    })
+
+    for (const { outreachId } of candidates) {
+      try {
+        await this.cancelExpiredDeferred(outreachId)
+      } catch (err) {
+        // Per-record isolation: one draft's failure must not abort the sweep.
+        this.logger.error(
+          { err, outreachId },
+          'deferred robocall cancel failed for a draft; continuing sweep',
+        )
+      }
+    }
+  }
+
+  async cancelExpiredDeferred(outreachId: number): Promise<void> {
+    const draft = await this.findFirst({
+      where: {
+        outreachId,
+        outreach: { outreachType: OutreachType.robocall },
+      },
+      include: { outreach: { include: { campaign: true } } },
+    })
+    if (!draft) return
+
+    const sendAt = draft.outreach.date
+    // Reschedule-race guard: if the candidate pushed the send back into the
+    // future between the sweep's query and now, it is the placement sweep's job
+    // again — do not cancel a still-schedulable draft.
+    if (!sendAt || isAfter(sendAt, new Date())) return
+
+    // CAS: elect a single canceller of this deferred, card-persisted draft. count
+    // 0 means a concurrent runner cancelled it, or a concurrent authorize
+    // advanced it past pending_payment (placed/failed the hold) — either way the
+    // Canceled email fires once. A deferred draft never got a hold, so there is
+    // NO Stripe hold to void; just mark cancelled + email. No Stripe is touched.
+    const claim = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.pending_payment,
+        paymentMethodId: { not: null },
+        stripeCustomerId: { not: null },
+      },
+      data: { settleState: RobocallSettleState.cancelled },
+    })
+    if (claim.count === 0) return
+
+    await this.emitCanceled(draft.outreach.campaign.userId, outreachId)
+  }
+
+  // Best-effort Canceled milestone (deterministic messageId so a replay dedups
+  // to one email). The cancel transition already committed, so a transient
+  // Segment failure must not throw and strand the draft — the row is correctly
+  // cancelled regardless, only the email is lost.
+  private async emitCanceled(
+    userId: number,
+    outreachId: number,
+  ): Promise<void> {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Robocall.Canceled,
+        { outreachId },
+        undefined,
+        `${outreachId}:canceled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'deferred robocall cancel milestone emit failed',
+      )
     }
   }
 }

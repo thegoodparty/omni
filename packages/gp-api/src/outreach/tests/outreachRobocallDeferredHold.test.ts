@@ -570,3 +570,98 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds guard', () => {
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
   })
 })
+
+describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () => {
+  const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
+  const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
+
+  beforeEach(() => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
+    // Deliberately leave ROBOCALL_DEFERRED_HOLD_ENABLED unset: the cancel-
+    // cleanup must run even with placement disabled (that is when the leak
+    // happens).
+    delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
+  })
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+    else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
+    if (originalFlag === undefined) {
+      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
+    } else {
+      process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
+    }
+  })
+
+  it('cancels a deferred draft whose send passed, even with placement off', async () => {
+    const outreachId = await createDraft({
+      sendInDays: -1,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+
+    await deferred.sweepExpiredDeferred()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
+    // The absent candidate is told the run was canceled — exactly once.
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    expect(trackSpy.mock.calls[0]?.[1]).toBe(EVENTS.Robocall.Canceled)
+    expect(trackSpy.mock.calls[0]?.[4]).toBe(`${outreachId}:canceled`)
+  })
+
+  it('does not cancel a deferred draft still in the window', async () => {
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+
+    await deferred.sweepExpiredDeferred()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('cancels once under a concurrent double-run (CAS)', async () => {
+    const outreachId = await createDraft({
+      sendInDays: -1,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+
+    await Promise.all([
+      deferred.sweepExpiredDeferred(),
+      deferred.sweepExpiredDeferred(),
+    ])
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
+    // The single-owner CAS elects one canceller, so the email fires exactly once.
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred guard', () => {
+  const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+    else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
+  })
+
+  it('no-ops off prod', async () => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+    const outreachId = await createDraft({
+      sendInDays: -1,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+
+    await deferred.sweepExpiredDeferred()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+})
