@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { apiRoutes } from 'gpApi/routes'
@@ -137,7 +137,7 @@ const seedCampaign = (details: CampaignDetails | null) =>
 // too because the agentic Peerly submission derives the candidate's postal
 // address from it (a blank address otherwise fails several paid steps later).
 const fillValidNonFederalForm = () => {
-  fireEvent.change(screen.getByLabelText('Candidate name'), {
+  fireEvent.change(screen.getByLabelText('Candidate Name'), {
     target: { value: 'Jane Smith' },
   })
   fireEvent.change(screen.getByLabelText('Campaign committee name'), {
@@ -235,7 +235,7 @@ describe('FilingDetailsStep', () => {
       screen.getByText('What are your campaign filing details?'),
     ).toBeInTheDocument()
     expect(screen.getByText(/it will take much longer/i)).toBeInTheDocument()
-    expect(screen.getByLabelText('Candidate name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Candidate Name')).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign committee name')).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign filing link')).toBeInTheDocument()
     // Email + phone (PIN delivery) and the filing address (Peerly postal
@@ -338,8 +338,11 @@ describe('FilingDetailsStep', () => {
     for (const item of screen.getAllByRole('listitem')) {
       expect(item).toHaveClass('list-item')
     }
-    expect(screen.getByText('Candidate Name')).toBeInTheDocument()
-    expect(screen.getByText('Campaign Committee Name')).toBeInTheDocument()
+    // Scoped to the banner: the input's own label is now also "Candidate
+    // Name" (title case), so an unscoped getByText would match both.
+    const banner = within(bannerHeading.parentElement as HTMLElement)
+    expect(banner.getByText('Candidate Name')).toBeInTheDocument()
+    expect(banner.getByText('Campaign Committee Name')).toBeInTheDocument()
     // Email + phone (PIN delivery) and the filing address (Peerly postal
     // address) are all required, so the empty form lists all three.
     expect(screen.getByText('Filing Email')).toBeInTheDocument()
@@ -409,7 +412,7 @@ describe('FilingDetailsStep', () => {
 
   it('submits a manually entered address (PO Box) as structured components', async () => {
     render(<FilingDetailsStep />)
-    fireEvent.change(screen.getByLabelText('Candidate name'), {
+    fireEvent.change(screen.getByLabelText('Candidate Name'), {
       target: { value: 'Jane Smith' },
     })
     fireEvent.change(screen.getByLabelText('Campaign committee name'), {
@@ -587,7 +590,7 @@ describe('FilingDetailsStep', () => {
     seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Federal' })
     render(<FilingDetailsStep />)
 
-    fireEvent.change(screen.getByLabelText('Candidate name'), {
+    fireEvent.change(screen.getByLabelText('Candidate Name'), {
       target: { value: 'Jane Smith' },
     })
     fireEvent.change(screen.getByLabelText('Campaign committee name'), {

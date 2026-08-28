@@ -243,7 +243,7 @@ const FilingDetailsForm = ({
 
       <div className="flex flex-col gap-6">
         <TextField
-          label="Candidate name"
+          label="Candidate Name"
           placeholder="Jane Smith"
           fullWidth
           required
