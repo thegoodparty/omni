@@ -111,6 +111,28 @@ DEFLECTING_VERDICTS = ("no-code-change", "needs-human")
 # engineer_agent/agent/metrics.py; see that module for why it exists at all.
 METRIC_PREFIX = "GPBOT_METRIC"
 
+# WHY A ZERO FROM CLOUDWATCH IS NOT SELF-EXPLANATORY, and the bug that put this
+# here: the first real run of this digest reported "Verdicts: no analyses
+# recorded" and "Cost: no runs recorded this week" for a week in which seven
+# tickets were demonstrably analyzed. The query had not failed. It succeeded and
+# honestly returned nothing, because GPBOT_METRIC did not exist yet — it ships in
+# the same change as this module, so every week before that deploy looks
+# identical to a week where the bot did nothing.
+#
+# An errored source was already handled. This is the case that slipped through:
+# a healthy source truthfully reporting an absence that is not the absence a
+# reader will infer. So a zero is only believed when something independent
+# agrees the week was quiet, and ClickUp is that something.
+RUNS_UNREACHABLE = "unreachable"
+RUNS_GAP = "gap"
+RUNS_UNCHECKABLE = "uncheckable"
+
+UNAVAILABLE_REASONS = {
+    RUNS_UNREACHABLE: "could not read run metrics from CloudWatch",
+    RUNS_GAP: "no run metrics recorded for this week",
+    RUNS_UNCHECKABLE: "CloudWatch found no run metrics and coverage could not be read to corroborate that",
+}
+
 # Exit code for "the message is on stdout, but at least one source could not be
 # read". The workflow posts the message either way and then goes red, because a
 # digest assembled from two sources out of three is still worth having and the
@@ -280,7 +302,7 @@ def verdicts(runs: Any) -> dict:
     a week of quiet tickets.
     """
     if not isinstance(runs, list):
-        return {"available": False}
+        return {"available": False, "reason": RUNS_UNREACHABLE}
 
     records = _metric_records(runs)
     counts = dict.fromkeys(VERDICTS, 0)
@@ -297,6 +319,10 @@ def verdicts(runs: Any) -> dict:
 
     return {
         "available": True,
+        # How many lines the query actually yielded, which is a different
+        # question from what they said. `summarize` needs it to decide whether a
+        # zero here is a quiet week or a hole in the instrumentation.
+        "records": len(records),
         "counts": counts,
         "deflected": sum(counts[verdict] for verdict in DEFLECTING_VERDICTS),
         "no_verdict": no_verdict,
@@ -316,7 +342,7 @@ def cost(runs: Any) -> dict:
     nothing to say so.
     """
     if not isinstance(runs, list):
-        return {"available": False}
+        return {"available": False, "reason": RUNS_UNREACHABLE}
 
     records = _metric_records(runs)
     total, unpriced, analysis_costs = 0.0, 0, []
@@ -331,7 +357,7 @@ def cost(runs: Any) -> dict:
 
     return {
         "available": True,
-        "runs": len(records),
+        "records": len(records),
         "total_usd": round(total, 2),
         "median_analysis_usd": round(statistics.median(analysis_costs), 2) if analysis_costs else None,
         "unpriced": unpriced,
@@ -438,6 +464,33 @@ def _window(payload: dict) -> tuple[float, float]:
     return start, end
 
 
+def believable_zero(coverage_facts: dict, runs_facts: dict) -> str | None:
+    """Whether "CloudWatch found no runs" may be reported as a quiet week.
+
+    Only ClickUp can settle this, and it is the whole fix for the bug in the
+    header comment on RUNS_GAP. A zero from a healthy query is ambiguous on its
+    own: it means either that nothing ran, or that runs happened and were not
+    recorded. Coverage already knows which — it counted the analyses from the
+    bot's own ticket comments, by a route that touches CloudWatch nowhere.
+
+    Returns None when the zero is believable, otherwise the reason it is not:
+
+        analyses > 0        -> RUNS_GAP, the metric was not being emitted
+        coverage unavailable-> RUNS_UNCHECKABLE, nothing to check the zero against
+        analyses == 0       -> believable; the week really was quiet
+
+    THE QUIET WEEK MUST SURVIVE THIS. Collapsing "nothing happened" into
+    "something is broken" would make the digest cry wolf on exactly the weeks it
+    has the least to say, and a warning that fires on a normal week is one
+    people learn to skip — which is how the message stops being read at all.
+    """
+    if not runs_facts.get("available") or runs_facts.get("records", 0) > 0:
+        return None
+    if not coverage_facts.get("available"):
+        return RUNS_UNCHECKABLE
+    return RUNS_GAP if coverage_facts.get("analyzed", 0) > 0 else None
+
+
 def summarize(payload: Any, now: float | None = None) -> dict:
     """Every fact the message states, with each source's availability attached.
 
@@ -449,12 +502,25 @@ def summarize(payload: Any, now: float | None = None) -> dict:
     start, end = _window(payload)
     now = time.time() if now is None else now
 
+    coverage_facts = coverage(payload.get("tickets"))
+    verdict_facts = verdicts(payload.get("runs"))
+    cost_facts = cost(payload.get("runs"))
+
+    # Both lines are demoted together, because they are one source and it is one
+    # question: if the runs are not there, neither the verdicts nor the money is
+    # knowable, and reporting either as a number would be the same false claim
+    # twice.
+    unbelievable = believable_zero(coverage_facts, verdict_facts)
+    if unbelievable:
+        verdict_facts = {"available": False, "reason": unbelievable}
+        cost_facts = {"available": False, "reason": unbelievable, "analyzed": coverage_facts.get("analyzed")}
+
     return {
         "start": start,
         "end": end,
-        "coverage": coverage(payload.get("tickets")),
-        "verdicts": verdicts(payload.get("runs")),
-        "cost": cost(payload.get("runs")),
+        "coverage": coverage_facts,
+        "verdicts": verdict_facts,
+        "cost": cost_facts,
         "prs": pull_requests(payload.get("prs"), start, end, now),
     }
 
@@ -500,9 +566,13 @@ def _latency_line(facts: dict) -> str | None:
     return f"Median time to analysis: {facts['median_latency_min']} min"
 
 
+def _unavailable(facts: dict) -> str:
+    return UNAVAILABLE_REASONS.get(facts.get("reason"), UNAVAILABLE_REASONS[RUNS_UNREACHABLE])
+
+
 def _verdict_line(facts: dict) -> str:
     if not facts.get("available"):
-        return "Verdicts: *unavailable* — could not read run metrics from CloudWatch."
+        return f"Verdicts: *unavailable* — {_unavailable(facts)}."
     counts = facts["counts"]
     if not any(counts.values()) and not facts["no_verdict"]:
         return "Verdicts: no analyses recorded."
@@ -531,17 +601,17 @@ def _cost_line(facts: dict) -> str:
     if not facts.get("available"):
         # NEVER "$0". A zero here is a claim that the bot ran for free, which is
         # the specific lie this whole availability distinction exists to prevent.
-        return "Cost: *unavailable* — could not read run metrics from CloudWatch."
-    if facts["runs"] == 0:
-        # Distinct from both "$0.00" and "unavailable": the query worked and
-        # found nothing, which on a week with analyses means the metric line has
-        # stopped flowing rather than that the runs were free.
+        return f"Cost: *unavailable* — {_unavailable(facts)}."
+    if facts["records"] == 0:
+        # Reached only once `believable_zero` has confirmed nothing was analyzed
+        # either. Before that check existed this line was how a fortnight of
+        # missing instrumentation would have read.
         return "Cost: no runs recorded this week."
-    if facts["runs"] == facts["unpriced"]:
+    if facts["records"] == facts["unpriced"]:
         # The same lie by a different route. Runs happened and not one of them
         # reported a price, so summing to $0.00 and appending a qualifier would
         # still put a wrong number where a reader's eye goes first.
-        return f"Cost: unknown — {_plural(facts['runs'], 'run')} recorded no cost."
+        return f"Cost: unknown — {_plural(facts['records'], 'run')} recorded no cost."
     line = f"Cost: ${facts['total_usd']:.2f} this week"
     if facts["median_analysis_usd"] is not None:
         line += f" · ${facts['median_analysis_usd']:.2f} median per analysis"
@@ -575,11 +645,50 @@ def render(facts: dict) -> str:
     if latency:
         lines.append(latency)
     lines += [_verdict_line(facts["verdicts"]), _pr_line(facts["prs"]), _cost_line(facts["cost"])]
+    note = _instrumentation_note(facts)
+    if note:
+        lines.append(note)
     return "\n".join(lines)
 
 
+def _instrumentation_note(facts: dict) -> str | None:
+    """Why two lines are missing, said once, in terms a reader can act on.
+
+    Stated on its own rather than repeated into both lines, and it has to give
+    the reader the discriminator rather than just the symptom: the same message
+    means "expected, the metric had not shipped yet" before the deploy and "the
+    metric has stopped flowing" after it, and only a human knows which side of
+    that date the week falls on.
+    """
+    if facts["verdicts"].get("reason") != RUNS_GAP:
+        return None
+    analyzed = facts["coverage"].get("analyzed", 0)
+    return (
+        f"⚠️ {_plural(analyzed, 'ticket')} analyzed but no run metrics exist for this week, so verdicts and "
+        f"cost are missing rather than zero. The agent has only recorded them since {METRIC_PREFIX} shipped — "
+        "an earlier week has none, and a later one means the metric has stopped flowing."
+    )
+
+
 def unavailable_sources(facts: dict) -> list[str]:
-    return [name for name in ("coverage", "verdicts", "prs", "cost") if not facts[name].get("available")]
+    """Which missing lines should also turn the workflow red.
+
+    A KNOWN INSTRUMENTATION GAP DELIBERATELY DOES NOT. Every week before
+    GPBOT_METRIC shipped has this shape, so failing on it would put a red cross
+    on the digest every Monday for a fortnight over a state the message already
+    explains — and a job that is expected to be red is a job whose redness stops
+    meaning anything, which is the same argument that keeps the stale-PR alert
+    quiet on a clean day.
+
+    It is reported where it will actually be read: in the message, in `#bugs`,
+    with the sentence that tells a reader how to tell the rollout from a fault.
+    Everything else here is the workflow failing to do its job and goes red.
+    """
+    return [
+        name
+        for name in ("coverage", "verdicts", "prs", "cost")
+        if not facts[name].get("available") and facts[name].get("reason") != RUNS_GAP
+    ]
 
 
 def main() -> int:

@@ -840,19 +840,47 @@ seven-day `updated:>=` search hit the 200-result cap with the oldest hit three
 days old. The gap is therefore a *closed* PR carrying a bot branch and no bot
 title, which the implement instruction does not produce.
 
-### A source that failed says so
+### A source that failed says so — and so does a source that is merely empty
 
 **"0 missed" from a coverage check that never ran is worse than no message at
 all.** Every gather step writes `null` before it makes a call, so a step that
 dies leaves the source absent rather than empty, and the module renders that
 line as `unavailable`. The cost line never reads `$0` because CloudWatch was
-unreachable. Three states are distinguished on purpose:
+unreachable.
 
-| State | Cost line |
-|---|---|
-| Query answered, runs found | `$38.00 this week · $3.71 median per analysis` |
-| Query answered, nothing found | `no runs recorded this week` — on a week with analyses, this means the metric line has stopped flowing |
-| Query failed | `unavailable` |
+**A healthy query that returns nothing needs the same care**, which the first
+production run of this digest proved the hard way. It reported *"Verdicts: no
+analyses recorded"* and *"Cost: no runs recorded this week"* for a week whose own
+coverage line, three rows above, said seven bugs had been analyzed. CloudWatch
+had not failed. It answered honestly, and the answer was zero because
+`GPBOT_METRIC` had not shipped yet — which is true of every week before the
+deploy, including the first one anybody sees.
+
+So a zero from CloudWatch is only reported as a quiet week when something
+independent agrees the week was quiet. ClickUp is that something: coverage
+counts analyses from the bot's own ticket comments, by a route that touches
+CloudWatch nowhere. Four states, not three:
+
+| CloudWatch | ClickUp | Cost line |
+|---|---|---|
+| Runs found | — | `$38.00 this week · $3.71 median per analysis` |
+| Nothing found | Nothing analyzed either | `no runs recorded this week` |
+| Nothing found | Analyses happened | `unavailable`, plus a note saying why |
+| Nothing found | Could not be read | `unavailable` — nothing to corroborate the zero against |
+| Query failed | — | `unavailable` |
+
+The note names the discriminator, because the symptom alone is not actionable —
+the same empty result is expected before the deploy and a real fault after it:
+
+> ⚠️ 7 tickets analyzed but no run metrics exist for this week, so verdicts and
+> cost are missing rather than zero. The agent has only recorded them since
+> GPBOT_METRIC shipped — an earlier week has none, and a later one means the
+> metric has stopped flowing.
+
+**A genuinely quiet week must still read as quiet.** Collapsing "nothing
+happened" into "something is broken" would make the digest cry wolf on the weeks
+it has least to say, and a warning that fires on a normal week is one people
+learn to skip.
 
 A comments fetch that fails takes the **whole** ClickUp source down rather than
 that one ticket, because a ticket with no comments reads as un-analyzed: a
@@ -860,7 +888,19 @@ single dropped response would otherwise invent a miss and name an innocent
 ticket in Slack.
 
 The workflow posts a degraded digest **and then goes red** — the message is
-worth having, and so is somebody noticing the gap.
+worth having, and so is somebody noticing the gap. The one exception is the
+rollout gap above: it is expected every Monday until `GPBOT_METRIC` has covered
+a full week, and a job that is expected to be red is a job whose redness stops
+meaning anything. It is reported in the message instead, where it will be read.
+
+**One line still has this shape and is not fixed.** If the `gpbot-analyze` tag
+stops being applied, the ClickUp query honestly returns nothing and coverage
+reads *"no bugs were tagged `gpbot-analyze` this week"*. That sentence is
+deliberately about the tagging rather than about the bot, so a reader who knows
+bugs were filed can see it is wrong — but nothing corroborates it. Doing so
+means counting bugs filed into the Bugs lists as a second denominator, which is
+a fourth query and a judgement about which lists count. Worth doing if tagging
+ever slips; it was ~100% across W31–W34.
 
 ### `GPBOT_METRIC`, and why the agent emits it
 

@@ -331,10 +331,10 @@ class TestASourceThatFailedSaysSo:
         assert "PRs: *unavailable*" in digest({**REPORT_PAYLOAD, "prs": None})
 
     def test_a_query_that_worked_and_found_nothing_says_something_different(self):
-        # Three states, not two. An empty CloudWatch result on a week with
-        # analyses means the metric line has stopped flowing, which is a
-        # different problem from the query failing — and from a free week.
-        message = digest({**REPORT_PAYLOAD, "runs": []})
+        # Three states, not two — but only where the zero is believable. A week
+        # with no tickets and no runs is a free week and says so; the same zero
+        # on a week that analyzed something is handled below.
+        message = digest({"window": WINDOW, "tickets": [], "runs": [], "prs": []})
 
         assert "Cost: no runs recorded this week." in message
         assert "unavailable" not in message.split("Cost:")[1]
@@ -344,9 +344,174 @@ class TestASourceThatFailedSaysSo:
         # are all things a half-failed shell pipeline produces, and none of them
         # is evidence of a quiet week.
         for junk in ("", {}, "null", 0):
-            assert coverage(junk) == {"available": False}
-            assert verdicts(junk) == {"available": False}
-            assert cost(junk) == {"available": False}
+            assert coverage(junk)["available"] is False
+            assert verdicts(junk) == {"available": False, "reason": weekly_digest.RUNS_UNREACHABLE}
+            assert cost(junk) == {"available": False, "reason": weekly_digest.RUNS_UNREACHABLE}
+
+
+class TestTheWeekProductionActuallyAnswered:
+    """The digest as CI rendered it for 2026-08-17, before this fix.
+
+    Everything here is from that run: 8 tagged tickets, 7 analyzed, DATA-2336
+    missed (its real ClickUp id), a 6.5 minute median, 3 PRs opened and 2 merged
+    with real timestamps, and zero GPBOT_METRIC lines. The seven analyzed
+    tickets are stand-ins carrying latencies that produce the observed median —
+    the run reported the median, not the individual tickets.
+
+    The message this asserts is the one the team would see on the first Monday
+    after this merges, so it is the assertion most worth breaking loudly.
+    """
+
+    TICKETS = [
+        a_ticket("ENG-10892", datetime(2026, 8, 18, 8, 40, tzinfo=UTC), 4.8),
+        a_ticket("ENG-10893", datetime(2026, 8, 18, 9, 15, tzinfo=UTC), 5.6),
+        a_ticket("ENG-10902", datetime(2026, 8, 19, 10, 20, tzinfo=UTC), 6.2),
+        a_ticket("ENG-10903", datetime(2026, 8, 19, 11, 5, tzinfo=UTC), 6.5),
+        a_ticket("ENG-10905", datetime(2026, 8, 19, 16, 0, tzinfo=UTC), 8.2),
+        a_ticket("ENG-10906", datetime(2026, 8, 19, 17, 30, tzinfo=UTC), 8.5),
+        a_ticket("ENG-10907", datetime(2026, 8, 21, 9, 0, tzinfo=UTC), 11.1),
+        a_ticket(
+            "DATA-2336",
+            datetime(2026, 8, 17, 19, 9, tzinfo=UTC),
+            None,
+            id="86ak1w3tn",
+            url="https://app.clickup.com/t/86ak1w3tn",
+        ),
+    ]
+
+    PRS = [
+        a_pr(
+            1306,
+            "2026-08-18T01:00:40Z",
+            state="MERGED",
+            mergedAt="2026-08-20T16:03:00Z",
+            closedAt="2026-08-20T16:03:00Z",
+        ),
+        a_pr(
+            1307,
+            "2026-08-18T15:43:17Z",
+            state="MERGED",
+            mergedAt="2026-08-19T10:25:39Z",
+            closedAt="2026-08-19T10:25:39Z",
+        ),
+        a_pr(
+            1318,
+            "2026-08-19T14:11:11Z",
+            state="MERGED",
+            mergedAt="2026-08-24T16:05:54Z",
+            closedAt="2026-08-24T16:05:54Z",
+        ),
+    ]
+
+    def test_the_two_false_lines_are_now_reported_as_missing(self):
+        payload = {"window": WINDOW, "tickets": self.TICKETS, "runs": [], "prs": self.PRS}
+
+        assert digest(payload, now=datetime(2026, 8, 28, 15, 0, tzinfo=UTC).timestamp()) == (
+            "*gpbot — week of Aug 17–23*\n"
+            "Coverage: 7 of 8 tagged bugs analyzed — *1 missed*: "
+            "<https://app.clickup.com/t/86ak1w3tn|DATA-2336>\n"
+            "Median time to analysis: 6.5 min\n"
+            "Verdicts: *unavailable* — no run metrics recorded for this week.\n"
+            "PRs: 3 opened · 2 merged · 0 closed unmerged\n"
+            "Cost: *unavailable* — no run metrics recorded for this week.\n"
+            "⚠️ 7 tickets analyzed but no run metrics exist for this week, so verdicts and cost are missing "
+            "rather than zero. The agent has only recorded them since GPBOT_METRIC shipped — an earlier week "
+            "has none, and a later one means the metric has stopped flowing."
+        )
+
+
+class TestAZeroIsOnlyBelievedWhenSomethingCorroboratesIt:
+    """The bug the first production run found.
+
+    That run reported "Verdicts: no analyses recorded" and "Cost: no runs
+    recorded this week" for a week in which ClickUp could see seven analyses,
+    three lines above, in the same message. CloudWatch had not failed — it
+    answered honestly, and the answer was zero because GPBOT_METRIC ships in
+    this same change and did not exist during the window.
+
+    Every week before the deploy has that shape, including the first one the
+    team will be shown. The availability rule only covered a source that
+    errored; this covers a source that is healthy and empty.
+    """
+
+    def test_analyses_with_no_metric_lines_read_as_missing_rather_than_as_zero(self):
+        message = digest({**REPORT_PAYLOAD, "runs": []})
+
+        assert "Verdicts: *unavailable*" in message
+        assert "Cost: *unavailable*" in message
+        assert "no analyses recorded" not in message
+        assert "no runs recorded" not in message
+
+    def test_the_message_says_how_to_tell_a_rollout_from_a_fault(self):
+        # The symptom alone is not actionable: the same empty result is expected
+        # before the deploy and a real failure after it, and only a human knows
+        # which side of that date the week falls on.
+        message = digest({**REPORT_PAYLOAD, "runs": []})
+
+        assert "6 tickets analyzed but no run metrics exist for this week" in message
+        assert "since GPBOT_METRIC shipped" in message
+        assert "stopped flowing" in message
+
+    def test_the_reason_is_given_once_rather_than_in_both_lines(self):
+        message = digest({**REPORT_PAYLOAD, "runs": []})
+
+        assert message.count("GPBOT_METRIC shipped") == 1
+
+    def test_a_genuinely_quiet_week_still_reads_as_quiet(self):
+        # The other half, and the one that must not be lost: a warning that
+        # fires on a normal week is a warning people learn to skip.
+        message = digest({"window": WINDOW, "tickets": [], "runs": [], "prs": []})
+
+        assert "Verdicts: no analyses recorded." in message
+        assert "Cost: no runs recorded this week." in message
+        assert "unavailable" not in message
+        assert "no run metrics" not in message
+
+    def test_a_zero_nothing_can_corroborate_is_not_reported_as_quiet(self):
+        # ClickUp failed, so there is no independent count of analyses to check
+        # the zero against. Reporting a quiet week here would be a guess, and it
+        # is the same guess that produced the bug above.
+        message = digest({**REPORT_PAYLOAD, "tickets": None, "runs": []})
+
+        assert "Verdicts: *unavailable*" in message
+        assert "could not be read to corroborate" in message
+
+    def test_lines_that_all_fail_to_parse_count_as_a_gap_not_a_quiet_week(self):
+        # A shape drift between the emitter and this parser produces zero usable
+        # records from a query that returned plenty, which is a gap by any
+        # reading.
+        message = digest({**REPORT_PAYLOAD, "runs": [{"message": "GPBOT_METRIC {broken"}]})
+
+        assert "Verdicts: *unavailable*" in message
+
+    def test_one_good_line_is_enough_to_believe_the_rest(self):
+        # The check is about whether the metric is flowing at all, not about
+        # whether every run is accounted for. Demanding a line per analysis
+        # would fire on any run that crashed before it could log one.
+        message = digest({**REPORT_PAYLOAD, "runs": [a_run(verdict="fix", cost_usd=3.71)]})
+
+        assert "1 fix · 0 no-code-change · 0 needs-human" in message
+        assert "no run metrics" not in message
+
+
+class TestWhatGoesRed:
+    def test_a_rollout_gap_is_reported_in_the_message_without_failing_the_job(self, monkeypatch, capsys):
+        # A red cross every Monday for a fortnight, over a state the message
+        # already explains, is how a job's redness stops meaning anything.
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({**REPORT_PAYLOAD, "runs": []})))
+
+        code = weekly_digest.main()
+
+        assert code == 0
+        assert "no run metrics exist for this week" in capsys.readouterr().out
+
+    def test_an_unreachable_source_still_fails_the_job(self, monkeypatch, capsys):
+        # A query that errored is the workflow failing to do its job, and it has
+        # no expected-for-a-fortnight period to be patient about.
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({**REPORT_PAYLOAD, "runs": None})))
+
+        assert weekly_digest.main() == EXIT_DEGRADED
+        assert "could not read run metrics from CloudWatch" in capsys.readouterr().out
 
 
 class TestCountsNeverPercentages:
