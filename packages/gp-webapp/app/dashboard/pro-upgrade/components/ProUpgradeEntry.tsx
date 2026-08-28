@@ -23,12 +23,14 @@ import {
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { isCandidateProfileComplete } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
+import { PRO_GATE_COPY } from './takeoverProContent'
 import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import type { Eligibility } from 'gpApi/api-endpoints'
 import {
   deriveProUpgradeStep,
   filingStatusFromDetails,
+  PRO_UPGRADE_STEP,
   proUpgradeStepPath,
 } from '../proUpgradeStep'
 
@@ -39,7 +41,9 @@ const SUPPORT_EMAIL = 'campaignsuccess@goodparty.org'
 // re-derives, landing a returning candidate on the first incomplete step.
 const ProUpgradeEntry = (): React.JSX.Element | null => {
   const router = useRouter()
-  const src = useSearchParams()?.get('src') ?? null
+  const searchParams = useSearchParams()
+  const src = searchParams?.get('src') ?? null
+  const channel = searchParams?.get('channel') ?? null
 
   // Observe the shared campaign query (same key as CampaignProvider, deduped)
   // so step derivation waits for it. Reading campaign from context instead
@@ -118,8 +122,25 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
       pinComplete,
     })
 
+    // A gated-channel entry (?src=outreach&channel=<design channel>) always
+    // opens on the channel pitch + gather overview (value-prop's takeover
+    // screens), regardless of resume progress — the overview's Continue then
+    // re-enters this index without the channel so derivation resumes at the
+    // first incomplete step. Already-Pro still short-circuits to SUCCESS.
+    if (
+      channel &&
+      PRO_GATE_COPY[channel] &&
+      step !== PRO_UPGRADE_STEP.SUCCESS
+    ) {
+      router.replace(
+        `${proUpgradeStepPath(PRO_UPGRADE_STEP.VALUE_PROP, src)}&channel=${encodeURIComponent(channel)}`,
+      )
+      return
+    }
+
     router.replace(proUpgradeStepPath(step, src))
   }, [
+    channel,
     src,
     ready,
     hasError,

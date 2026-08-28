@@ -20,6 +20,10 @@ import {
   XMarkIcon,
 } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  PRO_UPGRADE_BASE_PATH,
+  PRO_UPGRADE_TAKEOVER_SRC,
+} from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 import { useTakeoverActive } from 'app/dashboard/shared/takeover/TakeoverShell'
 import WizardStepFooter from './WizardStepFooter'
@@ -115,6 +119,16 @@ const ValuePropStep = (): React.JSX.Element => {
     router.push('/dashboard')
   }
 
+  // The gather overview's Continue re-enters the wizard index WITHOUT the
+  // channel param: the index forced this pitch open for a gated-channel
+  // arrival regardless of progress, so resuming has to go back through its
+  // derivation instead of blindly stepping to `status` (which a returning
+  // candidate may have already answered).
+  const handleGateContinue = () => {
+    trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropGetPro)
+    router.push(`${PRO_UPGRADE_BASE_PATH}?src=${PRO_UPGRADE_TAKEOVER_SRC}`)
+  }
+
   if (takeover && gateCopy) {
     if (gateScreen === 'pause') {
       // Design PRO_COPY pause screen (channel-specific pitch): badge + lock,
@@ -159,7 +173,7 @@ const ValuePropStep = (): React.JSX.Element => {
           messages.
         </WhyWeAskAlert>
         <WizardStepFooter
-          primary={{ label: 'Continue', onClick: handleGetPro }}
+          primary={{ label: 'Continue', onClick: handleGateContinue }}
           back={{ onClick: () => setGateScreen('pause') }}
         />
       </div>
