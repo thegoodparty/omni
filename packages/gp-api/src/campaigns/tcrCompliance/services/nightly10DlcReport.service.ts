@@ -148,6 +148,14 @@ const internalStallAlertMessage = ({
   `${detail}\n` +
   'This is an engineering bug on our side — needs a one-time fix, not a nightly nudge.'
 
+// Not set in dev/preview (the real Peerly contact's Slack member ID isn't a
+// value we hardcode), so escalations there must render exactly as they did
+// before this ping existed rather than crash or post a broken mention.
+const peerlyContactMention = () => {
+  const memberId = process.env.SLACK_PEERLY_CONTACT_MEMBER_ID
+  return memberId ? `<@${memberId}> ` : ''
+}
+
 // Vendor-appropriate content only: identity ID + committee name is enough
 // for Peerly to look up the record — no candidate email/phone, no internal
 // campaign IDs, no gp-admin links.
@@ -164,7 +172,7 @@ const vendorEscalationMessage = ({
   now: Date
   ask: string
 }) =>
-  `*10DLC vendor escalation*\n` +
+  `${peerlyContactMention()}*10DLC vendor escalation*\n` +
   `Peerly identity: ${record.peerlyIdentityId}\n` +
   `Committee: ${record.committeeName}\n` +
   `${stateLabel} since ${formatDate(since, DateFormats.usDate)} ` +

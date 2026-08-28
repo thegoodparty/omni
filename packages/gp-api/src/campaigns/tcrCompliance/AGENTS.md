@@ -356,6 +356,12 @@ identity ID, committee name, which state it's stuck in, and since-when
 (date + business-day count) — never the candidate's email/phone, no
 internal campaign IDs, no gp-admin links.
 
+**Direct ping to the Peerly contact (ENG-10967).** Both messages are prefixed
+with `<@SLACK_PEERLY_CONTACT_MEMBER_ID>` when that env var is set
+(`peerlyContactMention()`); unset (dev/preview, where the real contact's
+member ID isn't configured) it renders as before — no mention, no crash.
+Never hardcode a real person's Slack member ID; env var only.
+
 **Internal mirror:** two more report sections ("Escalated to Peerly: CV
 IN_REVIEW >3 business days" / "... waiting_to_finalize >3 business days")
 list the same escalation-eligible set every night while still stuck, each
