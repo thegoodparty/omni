@@ -148,9 +148,10 @@ export class DatabricksVoterDownloadService {
   ): Promise<void> {
     let chunk: PeopleDbxCsvChunk | null = first
     let body = this.readChunk(chunk)
+    let ahead: Promise<PeopleDbxCsvChunk> | null = null
     try {
       while (chunk && !isAborted()) {
-        const ahead: Promise<PeopleDbxCsvChunk> | null = chunk.nextChunkLink
+        ahead = chunk.nextChunkLink
           ? this.client.fetchCsvChunk(chunk.nextChunkLink)
           : null
         const current = await body
@@ -158,13 +159,17 @@ export class DatabricksVoterDownloadService {
           await once(gzip, 'drain')
         }
         chunk = ahead ? await ahead : null
+        ahead = null
         body = chunk ? this.readChunk(chunk) : Promise.resolve(Buffer.alloc(0))
       }
     } finally {
-      // An abort can leave the read-ahead in flight with nobody to await it,
-      // and an unhandled rejection takes the process down rather than the
-      // download.
+      // Either read can still be in flight when the loop leaves early -- an
+      // abort, or the other one throwing -- and an unhandled rejection takes
+      // the process down rather than the download. Both are hoisted so this
+      // can reach them: a loop-scoped `ahead` is unreachable by the time
+      // `await body` has thrown.
       void body.catch(() => undefined)
+      void ahead?.catch(() => undefined)
     }
   }
 

@@ -102,20 +102,25 @@ export class DatabricksVoterPackService {
       // trips waiting on nothing. Two chunks in memory rather than one.
       let chunk: PeopleDbxCsvChunk | null = firstChunk
       let body = this.readChunk(chunk)
+      let ahead: Promise<PeopleDbxCsvChunk> | null = null
       try {
         while (chunk && !signal?.aborted) {
-          const ahead: Promise<PeopleDbxCsvChunk> | null = chunk.nextChunkLink
+          ahead = chunk.nextChunkLink
             ? this.client.fetchCsvChunk(chunk.nextChunkLink)
             : null
           await this.parseChunk(await body, encoder)
           chunk = ahead ? await ahead : null
+          ahead = null
           body = chunk
             ? this.readChunk(chunk)
             : Promise.resolve(Buffer.alloc(0))
         }
       } finally {
-        // An abandoned read-ahead must not surface as an unhandled rejection.
+        // Both reads are hoisted so this can reach either one still in flight
+        // when the loop leaves early: a loop-scoped `ahead` is unreachable once
+        // `await body` has thrown, and its rejection would go unhandled.
         void body.catch(() => undefined)
+        void ahead?.catch(() => undefined)
       }
     } catch (err) {
       if (err instanceof PeopleDbxTimeoutError) {
