@@ -1,4 +1,4 @@
-import { GatewayTimeoutException } from '@nestjs/common'
+import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DoorKnockingPackManifestSchema } from '@goodparty_org/contracts'
 import { DatabricksVoterPackService } from './databricksVoterPack.service'
@@ -51,6 +51,11 @@ describe('DatabricksVoterPackService', () => {
     fetchCsvChunk: ReturnType<typeof vi.fn>
   }
   let bodies: Map<string, string>
+  let logger: {
+    setContext: ReturnType<typeof vi.fn>
+    error: ReturnType<typeof vi.fn>
+    warn: ReturnType<typeof vi.fn>
+  }
 
   const request = { districtId: DISTRICT_ID, contactsMade: [] }
 
@@ -71,8 +76,9 @@ describe('DatabricksVoterPackService', () => {
         }),
       ),
     )
+    logger = { setContext: vi.fn(), error: vi.fn(), warn: vi.fn() }
     service = new DatabricksVoterPackService(
-      { setContext: vi.fn(), error: vi.fn(), warn: vi.fn() } as never,
+      logger as never,
       client as never,
       {
         resolveDistrict: vi.fn().mockResolvedValue({
@@ -161,7 +167,10 @@ describe('DatabricksVoterPackService', () => {
     )
   })
 
-  it('fails a chunk fetch rather than silently truncating the pack', async () => {
+  // A presigned chunk link expires in ~15 minutes, so losing one mid-build is
+  // an upstream fetch failure, not a bug in the pack. It has to reach the
+  // caller classified, and be logged on the way, or it is invisible.
+  it('classifies a lost chunk link as a 502 rather than a bare 500', async () => {
     client.startCsvExport.mockResolvedValue({
       firstChunk: { externalLink: 'missing', nextChunkLink: null },
     })
@@ -169,6 +178,20 @@ describe('DatabricksVoterPackService', () => {
       'fetch',
       vi.fn(() => Promise.resolve({ ok: false, status: 403 })),
     )
-    await expect(service.build(request as never)).rejects.toThrow(/403/)
+    await expect(service.build(request as never)).rejects.toThrow(
+      BadGatewayException,
+    )
+  })
+
+  it('logs a lost chunk link rather than failing silently', async () => {
+    client.startCsvExport.mockResolvedValue({
+      firstChunk: { externalLink: 'missing', nextChunkLink: null },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false, status: 403 })),
+    )
+    await expect(service.build(request as never)).rejects.toThrow()
+    expect(logger.error).toHaveBeenCalled()
   })
 })
