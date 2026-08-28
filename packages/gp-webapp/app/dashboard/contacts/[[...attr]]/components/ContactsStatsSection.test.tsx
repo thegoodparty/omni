@@ -55,7 +55,7 @@ describe('ContactsStatsSection — Win vs Serve naming (ENG-10448)', () => {
       />,
     )
 
-    expect(screen.getByText('Total Constituents')).toBeInTheDocument()
-    expect(screen.getByText('% of Constituents')).toBeInTheDocument()
+    expect(screen.getByText('Records Available')).toBeInTheDocument()
+    expect(screen.getByText('% of Total Records')).toBeInTheDocument()
   })
 })
