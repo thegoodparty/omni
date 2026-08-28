@@ -78,8 +78,28 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     }
 
     // WINDOW: a hold placed too far ahead would expire before the send. Beyond
-    // the window, defer to the daily sweep (a later slice) — place nothing now.
+    // the window, defer to the daily sweep — place nothing now, but PERSIST the
+    // card the candidate chose so the sweep bills exactly it, never a guessed
+    // default. Validate the PM the SAME way the immediate path does; a bad PM
+    // must persist nothing. This stores WHICH card to later charge — it places
+    // no hold and moves no money, and the draft stays pending_payment.
     if (isAfter(sendAt, addDays(new Date(), ROBOCALL_HOLD_WINDOW_DAYS))) {
+      const customerId = await this.stripe.ensureCustomer(user)
+      const pm = await this.stripe.retrievePaymentMethod(paymentMethodId)
+      if (pm.customer !== customerId) {
+        throw new BadRequestException(
+          'That payment method is not on file for this account',
+        )
+      }
+      if (pm.type !== 'card') {
+        throw new BadRequestException(
+          'Only a card can authorize a robocall hold',
+        )
+      }
+      await this.model.update({
+        where: { outreachId },
+        data: { paymentMethodId, stripeCustomerId: customerId },
+      })
       return {
         status: 'deferred',
         settleState: draft.settleState,
