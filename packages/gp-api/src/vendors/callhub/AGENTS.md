@@ -16,7 +16,7 @@ HTTP routes of its own.
 | `services/callhubMedia.service.ts` | Multipart audio upload → `media_file_id` |
 | `services/callhubPhonebook.service.ts` | Create phonebook + poll loaded count |
 | `services/callhubBulkImport.service.ts` | Async CSV contact load (no job id) |
-| `services/callhubCampaign.service.ts` | Create + schedule a voice broadcast (never launches) |
+| `services/callhubCampaign.service.ts` | Create + schedule a voice broadcast; `launchVoiceBroadcast` (START) dials it |
 | `services/callhubDnc.service.ts` | DNC list lookup |
 
 ## Gotchas
@@ -33,9 +33,10 @@ HTTP routes of its own.
   slash — the slashless path returns the campaign list) creates the campaign in
   a PAUSED (status 2) state that does NOT dial. Calls are placed only by a
   separate, explicit `PUT /v1/voice_broadcasts/{pk_str}/` with `status: 1`
-  (START). `CallhubCampaignService` deliberately stops at create + schedule and
-  never exposes START — do not add a dial path here without the compliance/pay
-  gates that guard it.
+  (START), exposed as `CallhubCampaignService.launchVoiceBroadcast(pkStr)`. That
+  method only sends the START — the money (live-hold) and compliance gates that
+  MUST precede a real dial live in the caller (`OutreachRobocallSendService`),
+  never here; do not call it from any path that has not passed them.
 - **`vb_campaign` schedule + contact options must be NESTED objects**
   (`schedule{}`, `contact_options{}`). Flat top-level fields are silently
   ignored and the campaign falls back to a dangerous start-now default.

@@ -35,10 +35,14 @@ const ok = <T>(data: T): AxiosResponse<T> =>
 
 describe('CallhubHttpService', () => {
   let service: CallhubHttpService
-  let http: { get: ReturnType<typeof vi.fn>; post: ReturnType<typeof vi.fn> }
+  let http: {
+    get: ReturnType<typeof vi.fn>
+    post: ReturnType<typeof vi.fn>
+    put: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
-    http = { get: vi.fn(), post: vi.fn() }
+    http = { get: vi.fn(), post: vi.fn(), put: vi.fn() }
     service = new CallhubHttpService(
       createMockLogger(),
       http as unknown as HttpService,
@@ -105,5 +109,39 @@ describe('CallhubHttpService', () => {
     await assertion
     // initial attempt + MAX_RETRIES (2)
     expect(http.get).toHaveBeenCalledTimes(3)
+  })
+
+  it('returns the parsed body on a PUT 200', async () => {
+    http.put.mockReturnValue(of(ok({ pk_str: 'vb_1', status: 1 })))
+
+    await expect(
+      service.put('/v1/voice_broadcasts/vb_1/', { status: 1 }),
+    ).resolves.toEqual({ pk_str: 'vb_1', status: 1 })
+    expect(http.put).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a PUT on a 429 throttle, then succeeds', async () => {
+    // A 429 is rejected before the request is processed, so a retry is safe.
+    vi.useFakeTimers()
+    http.put
+      .mockReturnValueOnce(throwError(() => axiosError(429)))
+      .mockReturnValueOnce(of(ok({ pk_str: 'vb_1', status: 1 })))
+
+    const result = service.put('/v1/voice_broadcasts/vb_1/', { status: 1 })
+    await vi.runAllTimersAsync()
+
+    await expect(result).resolves.toEqual({ pk_str: 'vb_1', status: 1 })
+    expect(http.put).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a PUT on a 5xx', async () => {
+    // A state-transitioning PUT (a voice-broadcast START) may already have
+    // executed; retrying could re-trigger the side effect (a double-START).
+    http.put.mockReturnValue(throwError(() => axiosError(500)))
+
+    await expect(
+      service.put('/v1/voice_broadcasts/vb_1/', { status: 1 }),
+    ).rejects.toBeInstanceOf(AxiosError)
+    expect(http.put).toHaveBeenCalledTimes(1)
   })
 })
