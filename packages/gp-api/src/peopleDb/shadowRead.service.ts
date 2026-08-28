@@ -125,10 +125,11 @@ export class ShadowReadService {
 
   // The comparison arm never blocks a response -- compare() awaits only the
   // authoritative side -- so its cost is database load, not latency. That is
-  // what this cap protects. Callers may now fan out freely on the Databricks
-  // side (list-detail issues five aggregates at once), and without a cap that
-  // would put the same fan-out onto people-db, which is the exact amplification
-  // the list-detail gate used to prevent by serialising both arms together.
+  // what this cap protects. It bounds comparisons, not the queries inside one,
+  // so a comparison that needs several Postgres statements to answer what
+  // Databricks answers in one must run them serially rather than in parallel
+  // (getListDetailAggregatesFromPostgres) -- otherwise it multiplies this cap
+  // by its own fan-out and defeats it.
   private async timeComparison<C>(
     comparison: () => Promise<C>,
   ): Promise<{ ms: number; value: C | null; error: string | null }> {

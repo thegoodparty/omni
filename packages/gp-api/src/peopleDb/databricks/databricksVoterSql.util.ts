@@ -130,24 +130,37 @@ const hasIdOverrides = (
   ((idOverrides.include?.length ?? 0) > 0 ||
     (idOverrides.exclude?.length ?? 0) > 0)
 
+// The reachable side of the four has-phone/has-address filter keys, as bare
+// expressions. buildListDetailAggregatesSql counts on these directly, so a
+// reachability tile and a list built from the same filter key compile to the
+// identical predicate and cannot drift apart.
+const isPresentSql = (field: string): string => `${col(field)} IS NOT NULL`
+
+const anyPhonePresentSql = (): string =>
+  `(${isPresentSql('VoterTelephones_CellPhoneFormatted')}` +
+  ` OR ${isPresentSql('VoterTelephones_LandlineFormatted')})`
+
+const addressPresentSql = (): string => {
+  const target = col('Residence_Addresses_AddressLine')
+  return `(${target} IS NOT NULL AND ${target} != '')`
+}
+
 const buildBooleanFilter = (
   field: string,
   op?: FilterOperator,
 ): string | null => {
   if (!op || op.operator !== 'is') return null
-  if (op.value === 'not_null') return `${col(field)} IS NOT NULL`
+  if (op.value === 'not_null') return isPresentSql(field)
   if (op.value === 'null') return `${col(field)} IS NULL`
   return null
 }
 
 const buildHasAnyPhoneFilter = (op?: FilterOperator): string | null => {
   if (!op || op.operator !== 'is') return null
-  const cell = col('VoterTelephones_CellPhoneFormatted')
-  const landline = col('VoterTelephones_LandlineFormatted')
-  if (op.value === 'not_null') {
-    return `(${cell} IS NOT NULL OR ${landline} IS NOT NULL)`
-  }
+  if (op.value === 'not_null') return anyPhonePresentSql()
   if (op.value === 'null') {
+    const cell = col('VoterTelephones_CellPhoneFormatted')
+    const landline = col('VoterTelephones_LandlineFormatted')
     return `(${cell} IS NULL AND ${landline} IS NULL)`
   }
   return null
@@ -155,10 +168,8 @@ const buildHasAnyPhoneFilter = (op?: FilterOperator): string | null => {
 
 const buildHasAddressFilter = (op?: FilterOperator): string | null => {
   if (!op || op.operator !== 'is') return null
+  if (op.value === 'not_null') return addressPresentSql()
   const target = col('Residence_Addresses_AddressLine')
-  if (op.value === 'not_null') {
-    return `(${target} IS NOT NULL AND ${target} != '')`
-  }
   if (op.value === 'null') return `(${target} IS NULL OR ${target} = '')`
   return null
 }
@@ -655,6 +666,35 @@ export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
     `SELECT COUNT(*) AS count,` +
     ` AVG(${col('Age_Int')}) AS avgAge,` +
     ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome` +
+    ` FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+  return { sql, params: bag.params }
+}
+
+// Everything GET /v1/contacts/list-detail needs, from one scan: the same
+// demographics buildAggregatesSql returns, plus one conditional count per
+// reachability channel. Each channel used to be its own statement with the
+// channel's filter key AND'd into the scope, and the five-way fan-out was
+// itself the cost — five statements per request put a median of nine in
+// flight on a four-cluster serverless warehouse, past the point where it
+// provisions new compute and bills a flat 3-5s for the provisioning.
+//
+// No household de-duplication here, because the aggregates path has never
+// had any: COUNT(*) counts voters, and the conditional counts have to count
+// the same population the base count does.
+export const buildListDetailAggregatesSql = (
+  args: DbxScopeArgs,
+): DbxStatement => {
+  const bag = createBag()
+  const cell = isPresentSql('VoterTelephones_CellPhoneFormatted')
+  const landline = isPresentSql('VoterTelephones_LandlineFormatted')
+  const sql =
+    `SELECT COUNT(*) AS count,` +
+    ` AVG(${col('Age_Int')}) AS avgAge,` +
+    ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome,` +
+    ` COUNT_IF(${cell}) AS sms,` +
+    ` COUNT_IF(${landline}) AS robocall,` +
+    ` COUNT_IF(${anyPhonePresentSql()}) AS phoneBanking,` +
+    ` COUNT_IF(${addressPresentSql()}) AS doorKnocking` +
     ` FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
