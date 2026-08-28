@@ -93,6 +93,11 @@ model OutreachRobocall {
   // dialing: the send slice refuses to launch a draft whose value is null, a
   // belt-and-suspenders backstop under the create-time gate.
   compliancePassedAt     DateTime?           @map("compliance_passed_at")
+  // When the last "fix your card" reminder was sent for a hold_failed draft.
+  // The daily reminder sweep stamps this on emit and only re-reminds a draft
+  // whose value is null or older than ~1 day, so it is the primary once/day
+  // guard against a double sweep re-emailing.
+  lastReminderSentAt     DateTime?           @map("last_reminder_sent_at")
   settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
 
   @@map("outreach_robocall")
