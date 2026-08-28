@@ -16,7 +16,7 @@ const ORG_SLUG_HEADER = 'X-Organization-Slug'
 // /v1/contacts/count through the real HTTP pipeline (auth, org resolution,
 // Pro gate, real Postgres contact_interaction_* rows); only the in-process
 // people-db list query itself is stubbed — the SQL composition is unit-tested
-// directly in filters.sql.util.test.ts, and the bucket SQL itself in
+// directly in databricksVoterSql.util.test.ts, and the bucket SQL itself in
 // contactsMadeResolution.service.test.ts.
 describe('POST /v1/contacts/count — contacts-made filter', () => {
   const setupWinProOrg = async (suffix: string) => {

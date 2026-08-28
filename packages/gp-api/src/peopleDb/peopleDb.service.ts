@@ -100,31 +100,23 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
     // ~25 concurrent ones saturate the pool and the rest fail with a pool
     // timeout. The Aurora writer's max_connections is 5000 with a few dozen in
     // use, so this headroom is safe; it stays a bulkhead (not 500) so a burst
-    // of heavy scans can't overrun the 16-vCPU instance. Real fix is making
-    // those queries cheap (see peopleDb/CLAUDE.md § Benchmarks).
+    // of heavy scans can't overrun the 16-vCPU instance.
     url.searchParams.set('connection_limit', '50')
     url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
-    // A backstop, NOT the query ceiling — that is the 25s statement timeout in
-    // utils/statementTimeout.util.ts. This abandons the connection client-side
-    // while the query keeps running on people-db, so anything relying on it is
-    // burning database CPU for 35s after the caller has given up, and surfaces
-    // an unclassifiable `P2010 Code: N/A` instead of SQLSTATE 57014.
+    // A client-side backstop only: it abandons the connection while the query
+    // keeps running on people-db, so anything relying on it burns database CPU
+    // after the caller has given up and surfaces an unclassifiable
+    // `P2010 Code: N/A` rather than SQLSTATE 57014.
     url.searchParams.set('socket_timeout', '60')
 
     // Postgres plans a prepared statement custom for its first 5 executions,
     // then may switch to a generic plan built without the parameter values.
-    // Every filter value here is a bound parameter (see filters.sql.util.ts),
-    // and for a range filter the generic plan assumes default selectivity: it
-    // estimated ~116k rows and inverted the join, scanning every voter in the
-    // state's age/income band and THEN checking district membership instead of
-    // driving from DistrictVoter for the one district. Measured on prod
-    // 2026-08-16 against a 7,828-voter district: executions 1-5 ~140ms,
-    // execution 6 onward ~17,700ms — a ~130x cliff that blows the 25s
-    // statement timeout and was the mechanism behind the list-detail 504s. It
-    // reads as intermittent because it depends on how many times a POOLED
-    // connection has run that statement shape. force_custom_plan re-plans
-    // every execution: single-digit ms of planning against a 17s tail.
+    // For a selective predicate the generic plan can assume default
+    // selectivity and pick a catastrophically wrong shape. It reads as
+    // intermittent because it depends on how many times a POOLED connection
+    // has run that statement shape. force_custom_plan re-plans every
+    // execution: single-digit ms of planning against a multi-second tail.
     // Set by hand rather than via searchParams because URLSearchParams encodes
     // the space in `-c plan_cache_mode=...` as `+`, which libpq does not read
     // as a space.

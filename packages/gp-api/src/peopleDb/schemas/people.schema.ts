@@ -45,7 +45,8 @@ export const listPeopleSchema = withDistrictInput({
     .default(50),
   page: z.coerce.number().int().min(1).max(MAX_PAGE).optional().default(1),
   // Door-knocking de-dupes by physical household: one representative voter per
-  // residence-address composite (see buildHouseholdKeySql). Off → one row per
+  // residence-address composite (see the household key in
+  // databricks/databricksVoterSql.util.ts). Off → one row per
   // voter (the legacy behavior every other channel uses).
   groupByHousehold: z.coerce.boolean().optional().default(false),
   // The phone-list build pages the full audience to completion and never

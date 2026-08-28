@@ -10,7 +10,7 @@ import {
   INCOME_RANGE_MAPPING,
   PEOPLE_FILTER_VALUE_ENUMS,
 } from '@goodparty_org/contracts'
-import { VALUE_MAPPERS } from './filters.sql.util'
+import { VALUE_MAPPERS } from './valueMappers.util'
 import {
   classifyPoliticalParty,
   RULED_POLITICAL_PARTIES,

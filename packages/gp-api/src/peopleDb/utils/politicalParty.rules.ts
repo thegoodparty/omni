@@ -2,7 +2,8 @@ import type { Person } from '@goodparty_org/contracts'
 
 // Single source of truth reconciling how a person's political party is
 // DISPLAYED (mapPoliticalParty in transformToPersonOutput.util.ts) with how it
-// is FILTERED (buildPoliticalPartyFilter in filters.sql.util.ts).
+// is FILTERED (buildPoliticalPartyFilter in
+// databricks/databricksVoterSql.util.ts).
 //
 // `Parties_Description` is a free-text L2 column, but >98% of ~218M rows carry
 // one of a handful of exact values. We classify by EXACT, case- and

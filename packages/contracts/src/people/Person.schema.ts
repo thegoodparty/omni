@@ -126,8 +126,8 @@ export const PersonSchema = z.object({
     .nullable(),
   hasChildrenUnder18: z.enum(['Yes', 'No']).nullable(),
   veteranStatus: z.enum(['Yes']).nullable(),
-  // Probable homeowner folds into 'Homeowner' — see filters.sql.util.ts's
-  // homeowner VALUE_MAPPERS (ENG-10947).
+  // Probable homeowner folds into 'Homeowner' — see the homeowner entry in
+  // peopleDb's VALUE_MAPPERS (ENG-10947).
   homeowner: z.enum(['Homeowner', 'Renter']).nullable(),
   businessOwner: z.enum(['Yes']).nullable(),
   levelOfEducation: z

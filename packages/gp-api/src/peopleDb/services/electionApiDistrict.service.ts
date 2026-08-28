@@ -9,7 +9,13 @@ import { PinoLogger } from 'nestjs-pino'
 import { lastValueFrom } from 'rxjs'
 import { z } from 'zod'
 import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
-import { DistrictById } from './district.service'
+
+export interface DistrictById {
+  id: string
+  type: string
+  name: string
+  state: string
+}
 
 const { ELECTION_API_URL } = process.env
 

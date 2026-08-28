@@ -643,56 +643,28 @@ takes. **An empty array is not the same thing**: it is an organization that
 has contacted nobody, whose map genuinely can shade "0 prior contacts" as
 everyone.
 
-### It was slow because the pagination was quadratic
+### The district is drained in overlapping CSV chunks
 
-The build used to keyset-paginate the district in 50,000-row pages. Every page
-re-ran the whole joined statement, and `v."id" > cursor` reached the `Voter`
-side of the merge join and **not** the `DistrictVoter` side — so nothing
-restricted the inner scan and each page re-walked the district from the start
-to reach its merge position. 58k DV rows scanned on page 0; 407k on page 6.
-The pass was quadratic in district size, which is why widening the flag to a
-bigger district made it worse than proportionally worse.
+The pack is the one voter read that drains a whole district, so it does not
+use the inline JSON path every other query takes:
+`PeopleDbxStatementClient.query` accumulates every chunk before it returns,
+which for 600k rows materializes the entire district in memory at once.
+`DatabricksVoterPackService` instead opens an `EXTERNAL_LINKS` + CSV export and
+parses one chunk into the SoA encoder at a time, dropping it before requesting
+the next link.
 
-Measured (`docs/perf/voter-pack-profile.md`, 628k-row dataset reproducing the
-production pack size to within 0.9%):
+Two things about that drain are load-bearing:
 
-|                    | keyset, 13 statements | one statement, one cursor |
-| ------------------ | --------------------: | ------------------------: |
-| blocks touched     |            14,058,235 |                   120,976 |
-| read from storage  |           **11.5 GB** |                    945 MB |
-| Postgres execution |              5,389 ms |                  2,072 ms |
-
-**11.5 GB of storage reads to return a 16 MB response**, and 72% of the
-request's wall clock was the Node process sitting idle on the people-db socket.
-That also explains the 12.7-43.5s spread better than anything else: a warm
-buffer pool put you at the fast end and an evicted one put you through the
-gateway's ceiling.
-
-So the scan is now **one unordered statement read through a server-side
-cursor** (`peopleDb/utils/cursorScan.util.ts`), measured 2.4-2.8x end to end.
-The cursor is what keeps the memory bound that pagination was there for —
-without it, 628k row objects are live at once (416 MB of JS heap).
-
-Three things about that are load-bearing:
-
-- **`ORDER BY v."id"` is gone, and nothing can see it.** The pack carries no
+- **The next chunk is requested before the current one is parsed**, so the
+  network and the CSV parse overlap instead of taking turns. Drained strictly
+  in series, a 698,649-row district measured 22.6s of drain against 736ms of
+  query — of which ~6.5s was link round trips waiting on nothing. The cost is
+  two chunks in memory rather than one.
+- **There is no `ORDER BY`, and nothing can see that.** The pack carries no
   person identity on the wire: the client walks person → household → dot
   positionally and aggregates (`filterEngine.ts`), saved turfs persist a
   polygon rather than pack indices, and no manifest field names a row. Sorting
-  a district existed only to make a keyset cursor work.
-- **`cursor_tuple_fraction = 1`.** A cursor normally means "show me a page", so
-  the planner optimises for a fast first row — which is how it would justify
-  the merge-join shape this change exists to escape. The scan always drains, so
-  it must be costed whole.
-- **The per-fetch statement timeout is 45s, not the usual 25s.** The clock is
-  armed per `FETCH`, and the first one pays for the whole plan's startup where
-  a keyset page only paid for its own slice. See `peopleDb/AGENTS.md`.
-
-The local plan is a hash join over sequential scans. Production's `Voter` is a
-218M-row partitioned table with different statistics, so **`EXPLAIN` this
-against production before trusting the 116x** — and `pg_stat_statements`'s
-`shared_blks_read` for this query text is the one number that confirms the
-model held.
+  a district is not free, and nothing downstream would notice if it were.
 
 ### The response is also a stream, and that is a separate guarantee
 
@@ -704,8 +676,8 @@ requests in the seven days to 2026-08-25 died exactly there, logging
 `responseTimeMs: 119999, statusCode: null`. Nobody saw an error, because React
 Query's retry eventually won; the candidate saw a spinner for 165 seconds.
 
-The cursor makes the build faster; it does not make it _bounded_. A slow
-people-db still produces a long quiet gap, and the streaming envelope is what
+Chunk overlap makes the build faster; it does not make it _bounded_. A slow
+warehouse still produces a long quiet gap, and the streaming envelope is what
 removes the cliff rather than moving it.
 
 So the response now opens **before** the build starts and stays busy while it
@@ -721,7 +693,8 @@ runs (`doorKnocking/utils/packStream.util.ts`, framing in
 
 The guarantee is the heartbeat, not the streaming: delivering the encoder's
 output incrementally would still go quiet for however long one chunk takes,
-while a timer bounds the idle gap at 15 seconds no matter what people_db does.
+while a timer bounds the idle gap at 15 seconds no matter what the warehouse
+does.
 **The pack's own bytes are untouched** — only its start offset moved, which is
 why the frames are padded to 8 bytes (the manifest's 4-byte-aligned offsets
 stay aligned, and the browser still mounts typed-array views without copying).
@@ -734,16 +707,12 @@ Three consequences worth knowing before changing this:
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
 - **The client's disconnect now cancels the build.** Destroying the response
-  aborts the signal the scan checks between chunks, which relies on Fastify
+  aborts the signal the drain checks between chunks, which relies on Fastify
   destroying the stream it is sending when the socket goes away. It does, and
   `aborts the build when the client hangs up` in `doorKnocking.routes.test.ts`
-  pins that at the wire rather than trusting it. Killing the connection never
-  cancelled the Postgres scan, so a retry used to contend with a build still
-  running for nobody — which is also why the webapp query is `retry: 0` with a
-  90s `AbortSignal.timeout` (under the gateway's ceiling, so the client fails
-  first and visibly).
-- **Every fetch runs under a statement timeout** like every other people-db
-  query (`peopleDb/AGENTS.md`). This query was the last one that didn't.
+  pins that at the wire rather than trusting it. The webapp query is `retry: 0`
+  with a 90s `AbortSignal.timeout` (under the gateway's ceiling, so the client
+  fails first and visibly).
 
 ### Why it is still built per request
 
@@ -754,43 +723,24 @@ magnitude: the rebuild it avoids is 23 s, and one user triggered 19 of them in
 14 days. See [`docs/perf/voter-pack-headroom.md`](./perf/voter-pack-headroom.md)
 for the measurements and the design.
 
-The key invalidates on three inputs, and all three are in reach: the org's knock
-history (queryable), `districtId` (trivial), and the voter data itself. The
-third is not a staleness window somebody has to choose, because **peopleDB is a
-monthly, full-rebuild mirror of Databricks rather than a source of truth**. The
-dbt mart builds it, `people-api-loader` COPYs it into a **brand-new Aurora
-cluster** on an `@monthly` schedule, and the swap is published as an SSM
-parameter update that `PeopleDbUrlProvider` already polls and reports through
-`onChange()` (`PeopleDbService` and `VoterDownloadService` are already
-subscribers). The data is immutable between rebuilds, so the key is `districtId`
-plus the resolved cluster identity, and invalidation is wholesale on that event.
+The key invalidates on three inputs. Two are trivial: the org's knock history
+(queryable) and `districtId`. The third — the voter data itself — is the open
+question, because `mart_gp_api` is a set of pass-through views a dbt rebuild
+replaces with `CREATE OR REPLACE VIEW`, and that rebuild publishes no signal
+this service subscribes to. A design has to pick one up (a mart-level load
+timestamp, or a version the data platform agrees to expose) before the key can
+be trusted; a wall-clock staleness window would be a guess.
 
-The `updated_at` columns on `green."Voter"` and `green."DistrictVoter"` are not
-the handle for this, despite looking like one: the mart header records that they
-carry the L2 `loaded_at`, which makes them a per-load constant rather than a
-per-row change feed.
+The `updated_at` columns on the voter rows are not the handle for this, despite
+looking like one: they carry the L2 `loaded_at`, which makes them a per-load
+constant rather than a per-row change feed.
 
 Note also that `generatedAt` in the manifest changes on every build, so a
 cache has to stabilize it or no two responses ever share an ETag.
 
 ### What is left on the table, and why
 
-Three measured candidates that are **not** in the change that fixed the hang.
-
-**The household key costs ~550ms of people-db CPU per request.**
-`buildHouseholdKeySql`'s `CONCAT_WS`/`UPPER`/`TRIM` is 38% of the single-pass
-execution — more than the `DistrictVoter` join — and it recomputes, on every
-request, a value that never changes. A stored generated column would remove it.
-
-It is not done here because it only pays inside a live build, which caching
-largely removes — not because it is expensive to land. The mirror is rebuilt
-from scratch each month into a fresh cluster, and the loader **already** adds a
-`STORED GENERATED` column absent from the mart — `Voter."geom"`, registered in
-`schema_spec.LOADER_ADDED_COLUMNS`. A precomputed household key is one more
-entry in that list, or one more column in `m_people_api__voter.sql`: no lock, no
-rollout, landing on the next monthly build. The `peopleDb/AGENTS.md` warning
-about expression indexes still applies to anything added to a *running* cluster,
-but not to a column the loader builds.
+Two measured candidates that are **not** in the change that fixed the hang.
 
 **Compressing the response beats bit-packing the planes, and neither is
 done.** The profile recommends bit-packing the dim planes (37 bits per person

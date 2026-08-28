@@ -78,10 +78,9 @@ multi-unit-building structure, which I cannot observe from here. A
 
 Everything ran on Apple M5 Max (18 cores), 36 GB RAM, macOS 25.6.0 (darwin
 arm64), Node 22.12.0. Postgres 16.14 (aarch64) in Docker. The harness imports
-the **production** `PackEncoder`, `buildVoterWhereSql` and
-`buildHouseholdKeySql`, so the SQL text and the encoding work are identical to
-what the service does — only the transport plumbing around them varies between
-candidates.
+the production `PackEncoder` and the service's own SQL builders, so the SQL
+text and the encoding work were identical to what the service did — only the
+transport plumbing around them varied between candidates.
 
 **This is macOS, so there is no `perf stat`.** I used, in its place:
 
@@ -591,8 +590,8 @@ single-pass execution and larger than the `DistrictVoter` join, and it is
 recomputed on every request for data that never changes. A stored generated
 column on `green."Voter"` (or an expression index, if the planner will use it)
 would remove it. I did not prototype this — it needs a migration on a 218 M-row
-table, and `buildHouseholdKeySql` is shared with the list and CSV paths, so the
-blast radius needs thinking about. Flagging it as the next thing to measure
+table, and the household key was shared with the list and CSV paths, so the
+blast radius needed thinking about. Flagging it as the next thing to measure
 after R1, not as a recommendation I have evidence for.
 
 **R4 — Bit-pack the planes, *if* transfer is a measured problem.** **−49%
@@ -679,12 +678,8 @@ model behind this report's ranking is wrong and it should be rerun.
 
 ## Reproducing this
 
-The committed benchmark harness lives in
-[`packages/gp-api/perf/voter-pack/`](../../perf/voter-pack/); its `AGENTS.md`
-covers generating the synthetic dataset and running the driver and client
-benchmarks.
-
-The extra one-off scripts behind this document's ablations — keyset versus
+The benchmark harness behind this document was throwaway measurement code and
+was not kept. Neither were the one-off scripts behind its ablations — keyset versus
 single pass, plan shapes, cold-buffer-pool IO, per-batch block counts, and the
 isolated `--cpu-prof` run — were throwaway measurement code and were not kept.
 If you rebuild them, note what made the originals trustworthy: each imported the

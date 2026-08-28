@@ -104,8 +104,8 @@ export const mapVeteranStatus = (
 }
 
 // Exact-value classification. The value sets live in ./politicalParty.rules so
-// the SQL filter (filters.sql.util.ts) selects exactly the rows that classify
-// here — see that file for the reconciled filter.
+// the filter selects exactly the rows that classify here — see that file for
+// the reconciled filter.
 export const mapPoliticalParty = (
   value: string | null | undefined,
 ): PersonOutputFormat['politicalParty'] => classifyPoliticalParty(value)

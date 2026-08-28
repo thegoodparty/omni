@@ -8,7 +8,7 @@ import {
   type IdOverrides,
 } from '@goodparty_org/contracts'
 import { FilterData, type FilterOperator } from '../schemas/filters.schema'
-import { VALUE_MAPPERS } from '../utils/filters.sql.util'
+import { VALUE_MAPPERS } from '../utils/valueMappers.util'
 import {
   ALL_KNOWN_PARTY_VALUES,
   POLITICAL_PARTY_EXACT_VALUES,
@@ -67,12 +67,10 @@ const ident = (name: string): string => `\`${name.replace(/`/g, '``')}\``
 
 const col = (name: string): string => `v.${ident(name)}`
 
-// The same household key the Postgres path builds (buildHouseholdKeySql), in
-// Spark dialect: each component COALESCE'd so a NULL doesn't void the key,
-// TRIM'd and UPPER'd so formatting differences group together, joined on a
-// delimiter that cannot occur inside a component. Both stores must derive the
-// key identically or their door-knocking counts diverge. Columns come from
-// contracts so the definition stays in lockstep.
+// Each component COALESCE'd so a NULL doesn't void the key, TRIM'd and UPPER'd
+// so formatting differences group together, joined on a delimiter that cannot
+// occur inside a component. Columns come from contracts, so a key composed
+// here matches one a route froze earlier.
 const householdKey = (): string =>
   `concat_ws('|', ${HOUSEHOLD_KEY_RESIDENCE_COLUMNS.map(
     (name) => `upper(trim(coalesce(${col(name)}, '')))`,
@@ -448,9 +446,9 @@ const buildIdFilter = (op?: FilterOperator): string | null => {
   return null
 }
 
-// Mirrors composeIdOverridesClause: the override pair wraps ONLY the clause it
-// is scoped to, never the whole conjunction, so every other filter still
-// applies to an override-included person.
+// The override pair wraps ONLY the clause it is scoped to, never the whole
+// conjunction, so every other filter still applies to an override-included
+// person.
 const composeIdOverridesClause = (
   baseClause: string | null,
   idOverrides: IdOverrides,
@@ -588,10 +586,9 @@ export const getNormalizedPhoneNumber = (phone: string): string | null => {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
 }
 
-// Token splitting matches buildVoterWhereSql exactly so a search resolves to
-// the identical match set in both stores. `lower(col) LIKE` rather than
-// isearch(): the latter is equally fast but its only documentation sits inside
-// a Beta feature page, so we take no dependency on it.
+// `lower(col) LIKE` rather than isearch(): the latter is equally fast but its
+// only documentation sits inside a Beta feature page, so we take no
+// dependency on it.
 //
 // The doubled backslash in `ESCAPE '\\'` is deliberate — it renders as a
 // one-character escape only while spark.sql.parser.escapedStringLiterals is
