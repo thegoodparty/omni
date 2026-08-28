@@ -83,10 +83,12 @@ const createDraft = async ({
   sendInHours = 1,
   settleState = RobocallSettleState.authorized,
   callhubCampaignPkStr,
+  audioExt = 'mp3',
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
   callhubCampaignPkStr?: string
+  audioExt?: string
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -101,7 +103,7 @@ const createDraft = async ({
   await service.prisma.outreachRobocall.create({
     data: {
       outreachId: spine.id,
-      audioKey: `robocall/998/${randomUUID()}.mp3`,
+      audioKey: `robocall/998/${randomUUID()}.${audioExt}`,
       callbackNumber: '+15125550123',
       billableCount: 100,
       amountInCents: 450,
@@ -164,7 +166,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
   })
 
   it('transcodes a webm recording to mp3 before uploading', async () => {
-    const outreachId = await createDraft()
+    const outreachId = await createDraft({ audioExt: 'webm' })
     getBytesSpy.mockResolvedValueOnce({
       bytes: Buffer.from('webm'),
       contentType: MimeTypes.AUDIO_WEBM,
@@ -177,10 +179,14 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
       expect.any(Buffer),
       MimeTypes.AUDIO_WEBM,
     )
-    // The mp3 bytes, tagged audio/mpeg, reach CallHub — not the raw webm.
+    // The mp3 bytes, tagged audio/mpeg, reach CallHub — not the raw webm — and
+    // the filename is swapped to .mp3 so CallHub doesn't reject a
+    // filename/MIME mismatch.
     const uploadArgs = uploadMediaSpy.mock.calls[0]?.[0]
     expect(uploadArgs).toMatchObject({ mimeType: MimeTypes.AUDIO_MPEG })
     expect(uploadArgs?.file).toEqual(Buffer.from('mp3-bytes'))
+    expect(uploadArgs?.fileName).toMatch(/\.mp3$/)
+    expect(uploadArgs?.fileName).not.toMatch(/\.webm$/)
   })
 
   it('uploads a CallHub-accepted recording without transcoding', async () => {
@@ -192,6 +198,8 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     expect(transcodeSpy).not.toHaveBeenCalled()
     const uploadArgs = uploadMediaSpy.mock.calls[0]?.[0]
     expect(uploadArgs).toMatchObject({ mimeType: MimeTypes.AUDIO_MPEG })
+    // Pass-through keeps the original filename.
+    expect(uploadArgs?.fileName).toMatch(/\.mp3$/)
   })
 
   it('reverts the claim and 502s when transcode fails', async () => {

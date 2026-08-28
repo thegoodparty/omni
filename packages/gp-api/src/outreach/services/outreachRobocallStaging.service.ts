@@ -204,10 +204,13 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       // bulk-imports the audience — real external state we'd otherwise leak on
       // every sweep pass.
       const audio = await this.loadAudio(draft.audioKey)
-      const upload = await this.toCallhubAudio(audio)
+      const upload = await this.toCallhubAudio(
+        audio,
+        audioFileName(draft.audioKey),
+      )
       const media = await this.media.uploadMedia({
         file: upload.bytes,
-        fileName: audioFileName(draft.audioKey),
+        fileName: upload.fileName,
         mimeType: upload.contentType,
         name: campaignName,
       })
@@ -275,14 +278,21 @@ export class OutreachRobocallStagingService extends createPrismaBase(
   // CallHub's upload accepts only mp3/wav/ogg, but the recorder produces
   // webm/mp4 in the dominant browsers. Upload a CallHub-accepted recording
   // as-is; transcode anything else to mp3 first so a real call can play it.
-  private async toCallhubAudio(audio: {
-    bytes: Buffer
-    contentType: string
-  }): Promise<{ bytes: Buffer; contentType: string }> {
+  private async toCallhubAudio(
+    audio: { bytes: Buffer; contentType: string },
+    fileName: string,
+  ): Promise<{ bytes: Buffer; contentType: string; fileName: string }> {
     const accepted: readonly string[] = CALLHUB_MEDIA_MIME_TYPES
-    if (accepted.includes(audio.contentType)) return audio
+    if (accepted.includes(audio.contentType)) return { ...audio, fileName }
     const bytes = await this.transcode.toMp3(audio.bytes, audio.contentType)
-    return { bytes, contentType: MimeTypes.AUDIO_MPEG }
+    // CallHub rejects a filename/MIME mismatch, so the transcoded mp3 must
+    // carry an .mp3 filename to match its audio/mpeg content-type — a .webm /
+    // .m4a name here fails the upload, defeating the transcode.
+    return {
+      bytes,
+      contentType: MimeTypes.AUDIO_MPEG,
+      fileName: toMp3FileName(fileName),
+    }
   }
 
   private async revertClaim(outreachId: number): Promise<void> {
@@ -297,3 +307,8 @@ export class OutreachRobocallStagingService extends createPrismaBase(
 // recognizable filename for the CallHub multipart upload.
 const audioFileName = (audioKey: string): string =>
   audioKey.split('/').pop() ?? audioKey
+
+// Swap the extension to .mp3 (keeping the base name) so a transcoded upload's
+// filename matches its audio/mpeg content-type.
+const toMp3FileName = (fileName: string): string =>
+  `${fileName.replace(/\.[^.]+$/, '')}.mp3`

@@ -79,6 +79,25 @@ describe('AudioTranscodeService.toMp3', () => {
     expect(rm).toHaveBeenCalledTimes(1)
   })
 
+  it('stages an m4a recording through a temp input file', async () => {
+    const child = nextChild()
+    // audio/x-m4a is MP4-family (moov at the end) and must not be piped.
+    const promise = service.toMp3(Buffer.from('m4a'), 'audio/x-m4a')
+
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1))
+    expect(writeFile).toHaveBeenCalledTimes(1)
+    const args = spawnArgs()
+    expect(args).not.toContain('pipe:0')
+    expect(args.some((a) => a.startsWith(tmpdir()))).toBe(true)
+    expect(child.stdin.end).toHaveBeenCalledWith()
+
+    child.stdout.emit('data', Buffer.from('mp3'))
+    child.emit('close', 0)
+
+    await expect(promise).resolves.toEqual(Buffer.from('mp3'))
+    expect(rm).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects with a 502 on a non-zero ffmpeg exit', async () => {
     const child = nextChild()
     const promise = service.toMp3(Buffer.from('webm'), MimeTypes.AUDIO_WEBM)

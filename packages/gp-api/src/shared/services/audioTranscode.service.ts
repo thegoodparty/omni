@@ -26,10 +26,14 @@ const MAX_OUTPUT_BYTES = 25 * 1024 * 1024
 // Container formats ffmpeg cannot decode from a non-seekable stdin pipe: the
 // MP4 family stores its moov index at the end, so ffmpeg must seek back to it
 // and fails against a pipe. These are staged through a temp input file;
-// stream-seekable containers (webm/ogg) pipe straight through stdin.
+// stream-seekable containers (webm/ogg) pipe straight through stdin. This is
+// the MP4-family subset of the recorder/upload contract's
+// ROBOCALL_AUDIO_ALLOWED_MIME_TYPES (audio/mp4 from Safari's recorder,
+// audio/x-m4a from the file picker); raw audio/aac isn't an allowed input, so
+// it's deliberately absent.
 const TEMP_FILE_CONTENT_TYPES: readonly string[] = [
   MimeTypes.AUDIO_MP4,
-  MimeTypes.AUDIO_AAC,
+  'audio/x-m4a',
 ]
 
 const PIPE_INPUT = 'pipe:0'
