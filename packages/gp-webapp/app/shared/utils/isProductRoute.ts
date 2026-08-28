@@ -14,6 +14,9 @@ export const isProductRoute = (
   // chrome, so the global site footer should be suppressed here — the same way
   // the win onboarding flow (/onboarding) is treated as a product route.
   const isServePath = pathname?.startsWith('/serve')
+  // One-time sign-in link redemption: the same focused, full-screen chrome as
+  // /serve/welcome, so it gets the same treatment.
+  const isSignInLinkPath = pathname?.startsWith('/sign-in-link')
   // Dev-only surfaces (e.g. the /dev/briefings gallery) reuse dashboard chrome
   // and should not show the global site footer.
   const isDevPath = pathname?.startsWith('/dev')
@@ -24,6 +27,7 @@ export const isProductRoute = (
     isProfilePath ||
     isPollsPath ||
     isServePath ||
+    isSignInLinkPath ||
     isDevPath,
   )
 }

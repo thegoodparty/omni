@@ -102,7 +102,12 @@ export type {
   RaceTargetMetrics,
 } from './types/campaign'
 
-export type { ImpersonateUserInput, ImpersonateUserOutput } from './types/admin'
+export type {
+  CreateSignInLinkInput,
+  CreateSignInLinkOutput,
+  ImpersonateUserInput,
+  ImpersonateUserOutput,
+} from './types/admin'
 
 export type {
   BriefingAdminDateRange,

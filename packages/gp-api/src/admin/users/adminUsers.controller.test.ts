@@ -1,6 +1,7 @@
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { PinoLogger } from 'nestjs-pino'
 import { BadRequestException } from '@nestjs/common'
 import { User, UserRole } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -48,6 +49,7 @@ describe('AdminUsersController', () => {
   let controller: AdminUsersController
   let usersService: UsersService
   let campaignsService: CampaignsService
+  let logger: PinoLogger
 
   beforeEach(() => {
     const usersServiceMock: Partial<UsersService> = {
@@ -58,6 +60,7 @@ describe('AdminUsersController', () => {
       createUser: vi.fn(),
       deleteUser: vi.fn(),
       impersonateUser: vi.fn(),
+      createSignInLink: vi.fn(),
     }
     usersService = usersServiceMock as UsersService
 
@@ -66,12 +69,18 @@ describe('AdminUsersController', () => {
     }
     campaignsService = campaignsServiceMock as CampaignsService
 
-    controller = new AdminUsersController(usersService, createMockLogger())
+    logger = createMockLogger()
+    controller = new AdminUsersController(usersService, logger)
   })
 
   describe('guards', () => {
     it('protects impersonate with AdminOrM2MGuard', () => {
       const guards = getGuards('impersonate')
+      expect(guards).toContain(AdminOrM2MGuard)
+    })
+
+    it('protects createSignInLink with AdminOrM2MGuard', () => {
+      const guards = getGuards('createSignInLink')
       expect(guards).toContain(AdminOrM2MGuard)
     })
 
@@ -241,6 +250,132 @@ describe('AdminUsersController', () => {
         99,
         mockUser.clerkId,
       )
+    })
+  })
+
+  describe('createSignInLink', () => {
+    const expiresAt = '2024-01-01T01:00:00.000Z'
+
+    it('returns a ticketed sign-in URL for the target user', async () => {
+      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
+        mockTargetUser,
+      )
+      vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
+        token: 'signin_token_abc',
+        expiresAt,
+      })
+
+      const req = { user: mockUser } as IncomingRequest
+      const result = await controller.createSignInLink(42, req, {})
+
+      expect(usersService.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: 42 },
+      })
+      expect(usersService.createSignInLink).toHaveBeenCalledWith(
+        mockTargetUser.id,
+      )
+      expect(result.url).toContain('/sign-in-link?__clerk_ticket=')
+      expect(result.url).toContain('signin_token_abc')
+      expect(result.expiresAt).toBe(expiresAt)
+    })
+
+    it('uri-encodes the ticket so a token with URL-unsafe chars survives', async () => {
+      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
+        mockTargetUser,
+      )
+      vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
+        token: 'tok en/with+chars=',
+        expiresAt,
+      })
+
+      const req = { user: mockUser } as IncomingRequest
+      const result = await controller.createSignInLink(42, req, {})
+
+      expect(result.url).toContain(
+        `__clerk_ticket=${encodeURIComponent('tok en/with+chars=')}`,
+      )
+      expect(result.url).not.toContain('tok en/with+chars=')
+    })
+
+    it('never returns the raw token as its own response field', async () => {
+      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
+        mockTargetUser,
+      )
+      vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
+        token: 'signin_token_abc',
+        expiresAt,
+      })
+
+      const req = { user: mockUser } as IncomingRequest
+      const result = await controller.createSignInLink(42, req, {})
+
+      expect(Object.keys(result).sort()).toEqual(['expiresAt', 'url'])
+    })
+
+    it('records the supplied actorEmail in the audit log', async () => {
+      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
+        mockTargetUser,
+      )
+      vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
+        token: 'signin_token_abc',
+        expiresAt,
+      })
+
+      const req = { user: undefined } as IncomingRequest
+      await controller.createSignInLink(42, req, {
+        actorEmail: mockUser.email,
+      })
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetUserId: mockTargetUser.id,
+          targetClerkId: mockTargetUser.clerkId,
+          actorEmail: mockUser.email,
+          actorSource: 'actorEmail',
+          authSource: 'm2m',
+          expiresAt,
+        }),
+        'Created admin sign-in link',
+      )
+    })
+
+    it('falls back to the session clerkId when no actorEmail is supplied', async () => {
+      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
+        mockTargetUser,
+      )
+      vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
+        token: 'signin_token_abc',
+        expiresAt,
+      })
+
+      const req = { user: mockUser } as IncomingRequest
+      await controller.createSignInLink(42, req, {})
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorEmail: null,
+          actorClerkId: mockUser.clerkId,
+          actorSource: 'session',
+          authSource: 'user',
+        }),
+        'Created admin sign-in link',
+      )
+    })
+
+    it('does not require an actorEmail when called via M2M', async () => {
+      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
+        mockTargetUser,
+      )
+      vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
+        token: 'signin_token_abc',
+        expiresAt,
+      })
+
+      const req = { user: undefined } as IncomingRequest
+      const result = await controller.createSignInLink(42, req, {})
+
+      expect(usersService.resolveClerkIdByEmail).not.toHaveBeenCalled()
+      expect(result.url).toContain('/sign-in-link?__clerk_ticket=')
     })
   })
 

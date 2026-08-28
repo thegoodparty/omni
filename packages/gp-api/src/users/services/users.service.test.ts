@@ -925,6 +925,52 @@ describe('UsersService', () => {
       expect(signIn).not.toHaveBeenCalled()
     })
 
+    it('refuses an established Serve account that completed onboarding', async () => {
+      // A Serve (elected-official) account owns an Organization, not a
+      // Campaign, so the campaign gate alone lets it through. Once onboarding
+      // is complete the account is real and must not be reusable.
+      const suffix = uniqueSuffix()
+      const email = `eo-established-${suffix}@example.com`
+      const clerkId = `clerk_established_${suffix}`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Established',
+          lastName: 'Official',
+          name: 'Established Official',
+          clerkId,
+        },
+      })
+      const orgSlug = `org-established-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: orgSlug, ownerId: user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: user.id,
+          organizationSlug: orgSlug,
+          onboardingCompletedAt: new Date(),
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Established',
+          lastName: 'Official',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
     it('refuses a legacy campaign-owning local user with no Clerk identity', async () => {
       // The email matches a campaign-owning local row whose clerkId is null. The
       // gate must run on this pre-existing row BEFORE any Clerk identity is
@@ -1144,6 +1190,101 @@ describe('UsersService', () => {
 
       await expect(
         usersService.impersonateUser(service.user.id, 'user_actor_clerk_id'),
+      ).rejects.toThrow(BadGatewayException)
+    })
+  })
+
+  describe('createSignInLink', () => {
+    let clerkClient: ClerkClient
+
+    beforeEach(() => {
+      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    })
+
+    // clearMocks (not restoreMocks) leaves a spied implementation in place, so
+    // a mocked signInTokens would leak into later suites. Restore after each.
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('returns a sign-in token and an ISO expiry an hour out', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: 'signin_token_abc',
+        } as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      const before = Date.now()
+      const result = await usersService.createSignInLink(service.user.id)
+
+      expect(result.token).toBe('signin_token_abc')
+      expect(clerkClient.signInTokens.createSignInToken).toHaveBeenCalledWith({
+        userId: service.user.clerkId,
+        expiresInSeconds: 3600,
+      })
+      const expiresAt = new Date(result.expiresAt).getTime()
+      expect(result.expiresAt).toBe(new Date(expiresAt).toISOString())
+      expect(expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000)
+      expect(expiresAt).toBeLessThanOrEqual(Date.now() + 3600 * 1000)
+    })
+
+    it('does not embed an actor claim — this is not impersonation', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: 'signin_token_abc',
+        } as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      await usersService.createSignInLink(service.user.id)
+
+      expect(clerkClient.signInTokens.createSignInToken).toHaveBeenCalledWith(
+        expect.not.objectContaining({ actor: expect.anything() }),
+      )
+    })
+
+    it('throws BadRequestException when target user has no clerkId', async () => {
+      const userWithoutClerkId = await service.prisma.user.create({
+        data: {
+          email: 'noclerk-signin@example.com',
+          firstName: 'No',
+          lastName: 'Clerk',
+          clerkId: null,
+        },
+      })
+
+      await expect(
+        usersService.createSignInLink(userWithoutClerkId.id),
+      ).rejects.toThrow('User does not have an associated Clerk ID')
+    })
+
+    it('throws BadGatewayException when the Clerk call fails', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockRejectedValue(
+        new Error('Clerk API unavailable'),
+      )
+
+      await expect(
+        usersService.createSignInLink(service.user.id),
+      ).rejects.toThrow(BadGatewayException)
+      await expect(
+        usersService.createSignInLink(service.user.id),
+      ).rejects.toThrow('Failed to create sign-in link')
+    })
+
+    it('throws BadGatewayException when Clerk returns no token', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: null,
+        } as unknown as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      await expect(
+        usersService.createSignInLink(service.user.id),
       ).rejects.toThrow(BadGatewayException)
     })
   })
