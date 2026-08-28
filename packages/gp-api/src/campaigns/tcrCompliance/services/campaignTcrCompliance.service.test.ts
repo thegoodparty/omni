@@ -38,7 +38,6 @@ import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
-import { getUserFullName } from '../../../users/util/users.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   createMockUser,
@@ -2466,13 +2465,18 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       ).rejects.toThrow(CvPreSubmissionValidationException)
 
       // The claim is atomic on cvValidationFailedAt IS NULL AND
-      // peerlyIdentityId IS NULL (the race-safety condition — see the
-      // concurrent-caller test below), written before the Slack post.
+      // peerlyIdentityId IS NULL AND the submission slot being unclaimed or
+      // stale (the race-safety conditions — see the concurrent-caller tests
+      // below), written before the Slack post.
       expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
         where: {
           id: existingRecord.id,
           cvValidationFailedAt: null,
           peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
         },
         data: {
           cvValidationFailedAt: expect.any(Date),
@@ -2550,6 +2554,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
           id: existingRecord.id,
           cvValidationFailedAt: null,
           peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
         },
         data: {
           cvValidationFailedAt: expect.any(Date),
@@ -2557,6 +2565,91 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         },
       })
       expect(mockSlack.message).not.toHaveBeenCalled()
+    })
+
+    // ENG-10965 blocker fix (round 3): the failure claim must also respect an
+    // ACTIVE in-flight submission claim — mirrors the submission claim's own
+    // TTL semantics exactly, so a live claim blocks the hold but a stale
+    // (crashed) one doesn't block it forever.
+    it('refuses the hold claim while a concurrent submission is actively in flight (fresh peerlySubmissionStartedAt, no identity yet)', async () => {
+      // Models a caller mid-flight to Peerly: it just claimed the
+      // submission slot (well within the TTL) but hasn't persisted
+      // peerlyIdentityId yet — real Postgres would refuse this UPDATE
+      // (neither OR branch matches a fresh, non-stale timestamp), so this
+      // caller's failed verdict must not land a hold or fire an alert while
+      // the in-flight submission might still succeed.
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        peerlySubmissionStartedAt: new Date(),
+      })
+      mockCvValidation.validate.mockResolvedValue({
+        outcome: 'failed',
+        reasons: ['Filing URL is not a valid, public URL'],
+      })
+      mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: existingRecord.id,
+          cvValidationFailedAt: null,
+          peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: {
+          cvValidationFailedAt: expect.any(Date),
+          cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+        },
+      })
+      expect(mockSlack.message).not.toHaveBeenCalled()
+    })
+
+    it('wins the hold claim when a concurrent submission claim is stale (past the TTL, effectively abandoned)', async () => {
+      // Models a crashed caller: it claimed the submission slot but never
+      // persisted peerlyIdentityId, and that claim is now past
+      // PEERLY_SUBMISSION_CLAIM_TTL_MINUTES (5 min) — real Postgres would
+      // match this row on the claim's `{ lt: staleBefore }` branch, so the
+      // hold must not be blocked forever by an abandoned claim.
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        peerlySubmissionStartedAt: subMinutes(new Date(), 10),
+      })
+      mockCvValidation.validate.mockResolvedValue({
+        outcome: 'failed',
+        reasons: ['Filing URL is not a valid, public URL'],
+      })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      // The exact OR shape sent — its `{ lt: staleBefore }` branch is what a
+      // real Postgres UPDATE would match against the stale timestamp above.
+      const claimCall = firstOrThrow(mockTcrModel.updateMany.mock.calls)[0]
+      expect(claimCall).toEqual({
+        where: {
+          id: existingRecord.id,
+          cvValidationFailedAt: null,
+          peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: {
+          cvValidationFailedAt: expect.any(Date),
+          cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+        },
+      })
+      // The claim lands (mock defaults to { count: 1 }), so the hold + alert
+      // proceed — the stale submission claim did not block it forever.
+      expect(mockSlack.message).toHaveBeenCalledTimes(1)
     })
 
     it('does not re-post to Slack on a second failed attempt once already claimed (once-only)', async () => {
@@ -2634,9 +2727,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
 
       expect(mockCvValidation.validate).toHaveBeenCalledWith({
         filingUrl: 'https://sos.state.gov/filings/jane-candidate',
-        // existingRecord carries no candidateName, so the effective
-        // submission name falls back to the account holder's name.
-        submissionName: getUserFullName(user),
+        // existingRecord carries its own candidateName, which takes
+        // precedence over the account-holder fallback.
+        submissionName: existingRecord.candidateName,
       })
       expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
     })

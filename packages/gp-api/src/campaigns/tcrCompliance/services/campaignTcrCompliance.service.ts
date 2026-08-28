@@ -1092,24 +1092,38 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // pattern. A failed post rolls the claim back (scoped to the exact
   // timestamp written) so the next attempt retries the alert.
   //
-  // The claim is scoped to peerlyIdentityId: null in addition to
-  // cvValidationFailedAt: null — submitToPeerlyForAgent supports concurrent
-  // callers, and the gate runs before the peerlySubmissionStartedAt claim, so
-  // a slower caller can reach a failed verdict after a faster one already
-  // submitted (peerlyIdentityId set). Without this, the slower caller would
-  // hold an already-submitted record and fire a false alert.
+  // The claim is also scoped to peerlyIdentityId: null and to the
+  // pre-Peerly submission claim being unclaimed-or-stale — the exact
+  // condition submitToPeerlyForAgent's own claim uses to decide it may
+  // (re)claim peerlySubmissionStartedAt. submitToPeerlyForAgent supports
+  // concurrent callers and this gate runs before that claim, so a slower
+  // caller can reach a failed verdict while a faster one is either (a)
+  // already submitted (peerlyIdentityId set) or (b) actively mid-flight to
+  // Peerly (peerlySubmissionStartedAt fresh) — in both cases this claim must
+  // not land, or the row would carry cvValidationFailedAt and an eventual
+  // peerlyIdentityId together, permanently. A *stale* (crashed, past-TTL)
+  // submission claim must NOT block a real hold forever, so it uses the same
+  // staleBefore threshold as the submission claim's own re-claim check.
   private async recordCvValidationFailure(
     existing: TcrCompliance,
     user: User,
     campaign: Campaign,
     reasons: string[],
   ): Promise<void> {
+    const staleBefore = subMinutes(
+      new Date(),
+      PEERLY_SUBMISSION_CLAIM_TTL_MINUTES,
+    )
     const claimedAt = new Date()
     const claim = await this.model.updateMany({
       where: {
         id: existing.id,
         cvValidationFailedAt: null,
         peerlyIdentityId: null,
+        OR: [
+          { peerlySubmissionStartedAt: null },
+          { peerlySubmissionStartedAt: { lt: staleBefore } },
+        ],
       },
       data: {
         cvValidationFailedAt: claimedAt,

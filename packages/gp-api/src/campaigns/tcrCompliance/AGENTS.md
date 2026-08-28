@@ -512,20 +512,36 @@ the LLM.
   section below. A held record short-circuits on every later attempt (no re-fetch, no
   re-LLM, no re-alert) until cleared. `create()` has no persisted row yet at this point,
   so a failure there is just a synchronous 400/502 to the caller.
-- **The two claims are mutually exclusive, in both directions.** The failure claim is
-  scoped to `peerlyIdentityId: null`, not just `cvValidationFailedAt: null` — the gate
-  runs *before* the `peerlySubmissionStartedAt` claim with no re-read in between, so a
-  slower caller can still be mid-validation after a faster one already submitted; the
-  atomic `updateMany WHERE cvValidationFailedAt IS NULL AND peerlyIdentityId IS NULL`
-  (mirroring `pinSentDetectedAt`/`cvInReviewEscalatedAt` otherwise) stops it from holding
-  an already-submitted record and firing a false alert. The mirror image: the
-  `peerlySubmissionStartedAt` claim is scoped to `cvValidationFailedAt: null` too, so a
-  caller whose 'passed' verdict was read before a concurrent caller's 'failed' verdict
-  won the failure claim can't then win the submission claim and submit on a now-held
-  record. Whichever claim lands first blocks the other; the loser's `claim.count === 0`
-  fallback checks `current.cvValidationFailedAt` and throws
-  `CvPreSubmissionValidationException` instead of the generic `ConflictException` when
-  that's the reason.
+- **The two claims (hold vs. submission) are mutually exclusive across all three
+  columns they touch — `cvValidationFailedAt`, `peerlyIdentityId`, and
+  `peerlySubmissionStartedAt` (with its TTL).** The gate runs *before* the
+  `peerlySubmissionStartedAt` claim with no re-read in between, so a slower concurrent
+  caller can reach a failed verdict while a faster one is anywhere along the submit
+  path — already fully submitted, or actively mid-flight to Peerly. Both claims'
+  `WHERE` clauses are therefore identical except for which field each one sets:
+  `id`, `cvValidationFailedAt: null`, `peerlyIdentityId: null`, AND (`peerlySubmissionStartedAt`
+  is `null` OR older than `PEERLY_SUBMISSION_CLAIM_TTL_MINUTES`) — the exact
+  unclaimed-or-stale condition the submission claim's own re-claim check uses. That
+  symmetry is what makes them mutually exclusive in every direction:
+  - Faster caller **already submitted** (`peerlyIdentityId` set) → the failure claim's
+    `peerlyIdentityId: null` fails to match; no hold, no alert (mirrors
+    `pinSentDetectedAt`/`cvInReviewEscalatedAt` otherwise).
+  - Faster caller is **actively mid-flight** (`peerlySubmissionStartedAt` fresh, no
+    identity yet) → the failure claim's stale-or-null branch fails to match either; no
+    hold, no alert. Once that in-flight submission completes or crashes, the row
+    reaches one of the other resolved cells below.
+  - A crashed caller's submission claim is **stale** (past the TTL) → it does *not*
+    block the failure claim forever, by design: the `lt: staleBefore` branch matches
+    an abandoned claim exactly like the submission claim's own re-claim would.
+  - Symmetrically, a **held** record (`cvValidationFailedAt` set) blocks the submission
+    claim's `cvValidationFailedAt: null` condition, so a caller whose 'passed' verdict
+    was read before a concurrent caller's 'failed' verdict won the failure claim can't
+    then win the submission claim and submit. The loser's `claim.count === 0` fallback
+    checks `current.cvValidationFailedAt` and throws `CvPreSubmissionValidationException`
+    instead of the generic `ConflictException` when that's the reason.
+
+  Net effect: `cvValidationFailedAt` set and `peerlyIdentityId` set can never coexist on
+  the same row — every path into that combination is blocked by one claim or the other.
 - **A transient fetch/LLM failure is not a rejection.** `CvPreSubmissionValidationService.validate`
   returns `{ outcome: 'transient' }` for any fetch or LLM error (or an empty fetched
   body) — never evidence the URL is bad. `assertCvPreSubmissionValid` throws a plain
