@@ -137,6 +137,20 @@ export class CampaignTcrComplianceController {
     await this.tcrComplianceService.revokeInternalTestingApproval(campaignId)
   }
 
+  // Admin override for a held pre-submission validation failure (ENG-10965):
+  // lets submission proceed to Peerly despite an unresolved failed verdict.
+  @Post('admin/:campaignId/override-cv-validation')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async overrideCvValidationForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.overrideCvValidation(campaignId)
+  }
+
   @Post('submit-to-peerly')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)

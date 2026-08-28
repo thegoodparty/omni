@@ -77,6 +77,13 @@ import {
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import { CampaignVerifyPinNotIssuedException } from '../utils/campaignVerifyPinNotIssued.util'
+import { CvPreSubmissionValidationException } from '../utils/cvPreSubmissionValidation.util'
+import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
+import { SlackService } from '../../../vendors/slack/services/slack.service'
+import {
+  SlackChannel,
+  SlackMessageType,
+} from '../../../vendors/slack/slackService.types'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -155,6 +162,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly analytics: AnalyticsService,
     private readonly cronLock: CronLockService,
+    private readonly cvPreSubmissionValidation: CvPreSubmissionValidationService,
+    private readonly slack: SlackService,
   ) {
     super()
   }
@@ -715,6 +724,25 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     await this.model.deleteMany({ where: { id: existing.id } })
   }
 
+  // Admin override for a held pre-submission validation failure (ENG-10965):
+  // lets a staff member let the submission proceed despite an unresolved
+  // failed verdict (e.g. a filing page CampaignVerify itself can reach even
+  // though the LLM couldn't confirm it). assertCvPreSubmissionValid checks
+  // this before the held-failure short-circuit, so it fully bypasses the
+  // gate on every subsequent submission attempt.
+  async overrideCvValidation(campaignId: number) {
+    const existing = await this.fetchByCampaignId(campaignId)
+    if (!existing) {
+      throw new NotFoundException(
+        `TcrCompliance record not found for campaignId=${campaignId}`,
+      )
+    }
+    await this.model.update({
+      where: { id: existing.id },
+      data: { cvValidationOverriddenAt: new Date() },
+    })
+  }
+
   // TODO: Refactor this flow to persist the Peerly Identity ID and other
   //  relevant data in the TCR Compliance record as we go, and then use that to
   //  determine flow progress instead of calling Peerly for everything.
@@ -738,6 +766,24 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       throw new BadRequestException(
         'Campaign must have a domain to create TCR compliance',
       )
+    }
+
+    // Pre-submission validation gate (ENG-10965): no TcrCompliance row exists
+    // yet on this path, so a failure just 400s synchronously — the candidate
+    // corrects the filing details and resubmits, no hold/Slack alert needed.
+    const submissionName =
+      tcrComplianceCreatePayload.candidateName ?? getUserFullName(user)
+    const validationResult = await this.cvPreSubmissionValidation.validate({
+      filingUrl: tcrComplianceCreatePayload.filingUrl,
+      submissionName,
+    })
+    if (validationResult.outcome === 'transient') {
+      throw new BadGatewayException(
+        'CV pre-submission validation is temporarily unavailable; retry shortly',
+      )
+    }
+    if (validationResult.outcome === 'failed') {
+      throw new CvPreSubmissionValidationException(validationResult.reasons)
     }
 
     const peerlyResult = await this.submitToPeerly(
@@ -992,6 +1038,133 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
   }
 
+  // Pre-submission validation gate (ENG-10965): must run before any Peerly
+  // CV submission — catches a junk/unacceptable filing URL, a candidate name
+  // CampaignVerify can't find on the filing page, or a filing that hasn't
+  // commenced, before Peerly ever sees the submission. A held record
+  // (cvValidationFailedAt set) short-circuits without re-running the
+  // fetch/LLM check — cheap, and keeps the once-only Slack claim honest. An
+  // admin override bypasses the gate entirely.
+  private async assertCvPreSubmissionValid(
+    existing: TcrCompliance,
+    user: User,
+    campaign: Campaign,
+  ): Promise<void> {
+    if (existing.cvValidationOverriddenAt) {
+      return
+    }
+    if (existing.cvValidationFailedAt) {
+      throw new CvPreSubmissionValidationException(
+        existing.cvValidationFailureReasons,
+      )
+    }
+
+    // Mirrors exactly the fallback submitCampaignVerifyRequest itself uses —
+    // the candidate's own name, falling back to the account holder's name for
+    // records created before candidateName existed.
+    const submissionName = existing.candidateName ?? getUserFullName(user)
+    const result = await this.cvPreSubmissionValidation.validate({
+      filingUrl: existing.filingUrl,
+      submissionName,
+    })
+
+    if (result.outcome === 'transient') {
+      // A vendor blip is not evidence of a bad URL — never hold or alert on
+      // this outcome. 502 so agent/wizard callers retry later, same as any
+      // other transient Peerly failure.
+      throw new BadGatewayException(
+        'CV pre-submission validation is temporarily unavailable; retry shortly',
+      )
+    }
+    if (result.outcome === 'failed') {
+      await this.recordCvValidationFailure(
+        existing,
+        user,
+        campaign,
+        result.reasons,
+      )
+      throw new CvPreSubmissionValidationException(result.reasons)
+    }
+  }
+
+  // Once-only claim on cvValidationFailedAt before posting the internal Slack
+  // alert — mirrors the cvInReviewEscalatedAt / pinSentDetectedAt claim
+  // pattern. A failed post rolls the claim back (scoped to the exact
+  // timestamp written) so the next attempt retries the alert.
+  private async recordCvValidationFailure(
+    existing: TcrCompliance,
+    user: User,
+    campaign: Campaign,
+    reasons: string[],
+  ): Promise<void> {
+    const claimedAt = new Date()
+    const claim = await this.model.updateMany({
+      where: { id: existing.id, cvValidationFailedAt: null },
+      data: {
+        cvValidationFailedAt: claimedAt,
+        cvValidationFailureReasons: reasons,
+      },
+    })
+    if (claim.count === 0) {
+      return
+    }
+
+    const posted = await this.slack.message(
+      {
+        blocks: [
+          {
+            type: SlackMessageType.HEADER,
+            text: {
+              type: SlackMessageType.PLAIN_TEXT,
+              text:
+                '⛔ CV pre-submission validation failed — 10DLC ' +
+                'registration held',
+              emoji: true,
+            },
+          },
+          {
+            type: SlackMessageType.SECTION,
+            text: {
+              type: SlackMessageType.MRKDWN,
+              text:
+                `*Candidate:* ${getUserFullName(user)} (${user.email})\n` +
+                `*Campaign:* campaignId=${campaign.id}\n` +
+                `*Filing URL:* ${existing.filingUrl}\n` +
+                '*Failed checks:*\n' +
+                reasons.map((reason) => `• ${reason}`).join('\n'),
+            },
+          },
+        ],
+      },
+      SlackChannel.bot10DlcCompliance,
+    )
+    if (posted !== undefined) {
+      return
+    }
+
+    // If this rollback itself fails, the claim stays set forever with no
+    // post ever sent — log loudly so it's visible rather than silently
+    // stranding the record outside every future retry's claim attempt.
+    try {
+      await this.model.updateMany({
+        where: { id: existing.id, cvValidationFailedAt: claimedAt },
+        data: { cvValidationFailedAt: null, cvValidationFailureReasons: [] },
+      })
+      this.logger.error(
+        { tcrComplianceId: existing.id },
+        '[TCR Compliance] CV pre-submission validation alert failed to ' +
+          'post; claim rolled back for retry',
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, tcrComplianceId: existing.id },
+        '[TCR Compliance] CV pre-submission validation alert failed and ' +
+          'the claim rollback also failed; record is stuck unalerted until ' +
+          'repaired',
+      )
+    }
+  }
+
   async submitToPeerlyForAgent(
     user: User,
     campaign: Campaign,
@@ -1108,6 +1281,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         )
       }
     }
+
+    // Pre-submission validation gate (ENG-10965): catches a junk filing URL,
+    // a candidate name CampaignVerify can't find on the filing page, or a
+    // filing that hasn't commenced, before any Peerly call. Runs before the
+    // claim below so a held/transient outcome never claims the record.
+    await this.assertCvPreSubmissionValid(existing, user, campaign)
 
     // Pre-Peerly claim: only one concurrent caller may proceed past this
     // point. The TTL allows re-claim if a prior caller crashed mid-flight
@@ -1326,6 +1505,28 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       existing?.status === TcrComplianceStatus.rejected
 
     if (existing && !isRetryableFailure) {
+      // Recovery path for a held pre-submission validation failure
+      // (ENG-10965): no Peerly identity exists yet on a held record (the
+      // gate runs before any Peerly call), so updating the corrected filing
+      // data in place is safe. Clear the hold so the next submission attempt
+      // re-validates instead of reusing the stale verdict.
+      if (
+        existing.cvValidationFailedAt &&
+        !existing.peerlyIdentityId &&
+        (payload.filingUrl !== existing.filingUrl ||
+          payload.candidateName !== existing.candidateName)
+      ) {
+        const updated = await this.model.update({
+          where: { id: existing.id },
+          data: {
+            filingUrl: payload.filingUrl,
+            candidateName: payload.candidateName,
+            cvValidationFailedAt: null,
+            cvValidationFailureReasons: [],
+          },
+        })
+        return { record: updated, created: false }
+      }
       return { record: existing, created: false }
     }
 
