@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { HttpStatus } from '@nestjs/common'
+import { BadRequestException, HttpStatus } from '@nestjs/common'
 import { addDays, getUnixTime } from 'date-fns'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
@@ -7,7 +7,10 @@ import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
-import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import {
+  OutreachRobocallHoldService,
+  RobocallCardError,
+} from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
@@ -352,7 +355,7 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     deriveSpy.mockResolvedValue(100)
     // The card the candidate chose at schedule time no longer belongs to the
     // customer (detached / re-vaulted), so authorizeHold's validation throws a
-    // BadRequestException — a permanent PM problem, not a transient failure.
+    // RobocallCardError — a permanent CARD problem the sweep escalates.
     paymentMethodsRetrieve.mockResolvedValue({
       id: 'pm_stale',
       customer: 'cus_other',
@@ -376,6 +379,61 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
     await deferred.sweepDeferredHolds()
     expect(authorizeSpy).toHaveBeenCalledTimes(1)
     expect(trackSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT escalate a zero-audience failure; stays pending_payment', async () => {
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+    // A zero-reachable-landline audience makes assertReachableCount throw a
+    // plain BadRequestException (NOT a card problem). The sweep must not
+    // terminate the run: no hold_failed, no HoldFailed email — the draft stays
+    // pending_payment and is re-selectable next pass.
+    deriveSpy.mockResolvedValue(0)
+
+    await deferred.sweepDeferredHolds()
+
+    expect(paymentIntentsCreate).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(trackSpy).not.toHaveBeenCalled()
+
+    // Still a candidate on the next sweep — nothing terminated it.
+    await deferred.sweepDeferredHolds()
+    expect(authorizeSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('reschedule-race defer branch throws a non-card error (not escalated)', async () => {
+    // The sweep calls authorizeHold with NO paymentMethodId. If a reschedule
+    // pushed the send back out of the window between the sweep's findMany and
+    // authorizeHold's read, the defer branch fires with no PM and throws the
+    // plain "payment method required" BadRequestException — NOT a
+    // RobocallCardError. The sweep classifier keys on RobocallCardError, so this
+    // is rethrown (logged, retried), never escalated to hold_failed. Exercised
+    // directly on an out-of-window draft: the same defer branch the race hits.
+    const holds = service.app.get(OutreachRobocallHoldService)
+    const outreachId = await createDraft({
+      sendInDays: 10,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+    const user = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    const organization = await service.prisma.organization.findUniqueOrThrow({
+      where: { slug: orgSlug },
+    })
+
+    const error = await holds
+      .authorizeHold(user, campaign, organization, outreachId)
+      .catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(BadRequestException)
+    expect(error).not.toBeInstanceOf(RobocallCardError)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
   })
 
   it('marks a declined draft hold_failed and does not retry it next sweep', async () => {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { addDays } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -11,7 +11,10 @@ import {
   RobocallSettleState,
   User,
 } from '../../generated/prisma'
-import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import {
+  OutreachRobocallHoldService,
+  RobocallCardError,
+} from './outreachRobocallHold.service'
 
 // Daily, a non-:00 minute distinct from the other robocall crons (staging runs
 // on the 7,17,27,37,47,57 * * * * slot). A daily cadence is plenty: the 3-day
@@ -127,14 +130,15 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
       // card a concurrent re-authorize replaced after this sweep's snapshot.
       await this.holds.authorizeHold(user, campaign, organization, outreachId)
     } catch (err) {
-      // A BadRequestException means the persisted card is permanently unusable
+      // A RobocallCardError means the persisted card is permanently unusable
       // (stale/foreign, non-card, or cleared). authorizeHold already reverted
       // its claim to pending_payment, so without escalation the draft would be
       // re-selected and retried EVERY daily sweep and the candidate never told.
       // Move it to hold_failed (leaves the candidate set) + emit HoldFailed so
-      // the absent candidate is emailed to fix their card. Transient/infra
-      // errors rethrow and the next pass retries.
-      if (err instanceof BadRequestException) {
+      // the absent candidate is emailed to fix their card. Everything else —
+      // a zero-audience or reschedule-race BadRequestException, or a transient
+      // 502 — rethrows so the draft stays pending_payment for the next pass.
+      if (err instanceof RobocallCardError) {
         await this.holds.markHoldFailed(user.id, outreachId)
         this.logger.error(
           { err, outreachId },

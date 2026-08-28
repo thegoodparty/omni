@@ -29,6 +29,15 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallService } from './outreachRobocall.service'
 
+// A card-validation failure on the hold path (foreign / non-card / missing
+// saved card). Extends BadRequestException so on-session /authorize still
+// returns 400, but its distinct type lets the deferred sweep escalate ONLY
+// genuine permanent card problems to hold_failed — a reschedule-race ("payment
+// method required") or a zero-audience BadRequestException stays retryable
+// rather than falsely terminating the run and emailing the candidate about a
+// card that is fine.
+export class RobocallCardError extends BadRequestException {}
+
 // Places the pay-time authorization hold on a scheduled robocall draft: a
 // manual-capture Stripe hold for the server-re-derived estimate, off-session on
 // the vaulted card. This RESERVES REAL MONEY. The transition is single-owner:
@@ -98,14 +107,12 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       const customerId = await this.stripe.ensureCustomer(user)
       const pm = await this.stripe.retrievePaymentMethod(paymentMethodId)
       if (pm.customer !== customerId) {
-        throw new BadRequestException(
+        throw new RobocallCardError(
           'That payment method is not on file for this account',
         )
       }
       if (pm.type !== 'card') {
-        throw new BadRequestException(
-          'Only a card can authorize a robocall hold',
-        )
+        throw new RobocallCardError('Only a card can authorize a robocall hold')
       }
       // CAS-guarded persist: after the two async Stripe validations a concurrent
       // request could have rescheduled this send into the window and advanced
@@ -184,7 +191,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       } else {
         const claimed = await this.findFirst({ where: { outreachId } })
         if (!claimed?.paymentMethodId || !claimed.stripeCustomerId) {
-          throw new BadRequestException(
+          throw new RobocallCardError(
             'No saved card to authorize the deferred robocall hold',
           )
         }
@@ -193,7 +200,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       }
       const pm = await this.stripe.retrievePaymentMethod(holdPaymentMethodId)
       if (pm.customer !== customerId) {
-        throw new BadRequestException(
+        throw new RobocallCardError(
           'That payment method is not on file for this account',
         )
       }
@@ -202,9 +209,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // funds. The vault SetupIntent already pins cards, so this is defense in
       // depth against a non-card PM reaching the create call.
       if (pm.type !== 'card') {
-        throw new BadRequestException(
-          'Only a card can authorize a robocall hold',
-        )
+        throw new RobocallCardError('Only a card can authorize a robocall hold')
       }
     } catch (err) {
       // Pre-hold failure: no hold placed, so no idempotency key was consumed.
