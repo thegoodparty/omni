@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { BadGatewayException } from '@nestjs/common'
 import { addHours, subMinutes } from 'date-fns'
+import { MimeTypes } from 'http-constants-ts'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { RobocallPhonebookService } from '@/outreach/services/robocallPhonebook.service'
+import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -18,6 +20,7 @@ let loadAudienceSpy: ReturnType<typeof vi.spyOn>
 let uploadMediaSpy: ReturnType<typeof vi.spyOn>
 let createVbSpy: ReturnType<typeof vi.spyOn>
 let getBytesSpy: ReturnType<typeof vi.spyOn>
+let transcodeSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -46,8 +49,11 @@ beforeEach(async () => {
     .spyOn(service.app.get(S3Service), 'getFileBytesWithContentType')
     .mockResolvedValue({
       bytes: Buffer.from('audio'),
-      contentType: 'audio/mpeg',
+      contentType: MimeTypes.AUDIO_MPEG,
     })
+  transcodeSpy = vi
+    .spyOn(service.app.get(AudioTranscodeService), 'toMp3')
+    .mockResolvedValue(Buffer.from('mp3-bytes'))
 
   const campaignId = 998
   orgSlug = `campaign-${campaignId}`
@@ -77,10 +83,12 @@ const createDraft = async ({
   sendInHours = 1,
   settleState = RobocallSettleState.authorized,
   callhubCampaignPkStr,
+  audioExt = 'mp3',
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
   callhubCampaignPkStr?: string
+  audioExt?: string
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -95,7 +103,7 @@ const createDraft = async ({
   await service.prisma.outreachRobocall.create({
     data: {
       outreachId: spine.id,
-      audioKey: `robocall/998/${randomUUID()}.mp3`,
+      audioKey: `robocall/998/${randomUUID()}.${audioExt}`,
       callbackNumber: '+15125550123',
       billableCount: 100,
       amountInCents: 450,
@@ -155,6 +163,67 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const uploadOrder = uploadMediaSpy.mock.invocationCallOrder[0] ?? 0
     const phonebookOrder = loadAudienceSpy.mock.invocationCallOrder[0] ?? 0
     expect(uploadOrder).toBeLessThan(phonebookOrder)
+  })
+
+  it('transcodes a webm recording to mp3 before uploading', async () => {
+    const outreachId = await createDraft({ audioExt: 'webm' })
+    getBytesSpy.mockResolvedValueOnce({
+      bytes: Buffer.from('webm'),
+      contentType: MimeTypes.AUDIO_WEBM,
+    })
+
+    await staging.stageCampaign(outreachId)
+
+    expect(transcodeSpy).toHaveBeenCalledTimes(1)
+    expect(transcodeSpy).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      MimeTypes.AUDIO_WEBM,
+    )
+    // The mp3 bytes, tagged audio/mpeg, reach CallHub — not the raw webm — and
+    // the filename is swapped to .mp3 so CallHub doesn't reject a
+    // filename/MIME mismatch.
+    const uploadArgs = uploadMediaSpy.mock.calls[0]?.[0]
+    expect(uploadArgs).toMatchObject({ mimeType: MimeTypes.AUDIO_MPEG })
+    expect(uploadArgs?.file).toEqual(Buffer.from('mp3-bytes'))
+    expect(uploadArgs?.fileName).toMatch(/\.mp3$/)
+    expect(uploadArgs?.fileName).not.toMatch(/\.webm$/)
+  })
+
+  it('uploads a CallHub-accepted recording without transcoding', async () => {
+    // Default S3 stub returns audio/mpeg, already in CALLHUB_MEDIA_MIME_TYPES.
+    const outreachId = await createDraft()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(transcodeSpy).not.toHaveBeenCalled()
+    const uploadArgs = uploadMediaSpy.mock.calls[0]?.[0]
+    expect(uploadArgs).toMatchObject({ mimeType: MimeTypes.AUDIO_MPEG })
+    // Pass-through keeps the original filename.
+    expect(uploadArgs?.fileName).toMatch(/\.mp3$/)
+  })
+
+  it('reverts the claim and 502s when transcode fails', async () => {
+    const outreachId = await createDraft()
+    getBytesSpy.mockResolvedValueOnce({
+      bytes: Buffer.from('webm'),
+      contentType: MimeTypes.AUDIO_WEBM,
+    })
+    transcodeSpy.mockRejectedValueOnce(
+      new BadGatewayException('Audio transcode failed'),
+    )
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+
+    // A transcode failure flows through the existing catch: no upload, no
+    // phonebook, no campaign, and the claim is released back to authorized.
+    expect(uploadMediaSpy).not.toHaveBeenCalled()
+    expect(loadAudienceSpy).not.toHaveBeenCalled()
+    expect(createVbSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    expect(satellite.callhubCampaignPkStr).toBeNull()
   })
 
   it('is idempotent: an already-staged draft is skipped', async () => {
