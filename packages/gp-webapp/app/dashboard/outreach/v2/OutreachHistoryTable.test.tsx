@@ -396,6 +396,79 @@ describe('OutreachHistoryTable — unified history', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('singularizes the supporter count when exactly one supporter is logged', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 12,
+        createdAt: new Date('2026-08-10T00:00:00Z'),
+        updatedAt: new Date('2026-08-10T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'nativePhoneBanking',
+        projectId: null,
+        name: 'GOTV calls',
+        status: 'in_progress',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: null,
+        doorKnockingRouteId: null,
+        phoneBankingListId: 6,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+        phoneBanking: {
+          listId: 6,
+          entriesTotal: 10,
+          entriesCalled: 1,
+          peopleTotal: 16,
+          peopleCalled: 1,
+          byOutcome: {
+            answered: 1,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+            disconnected: 0,
+            hung_up: 0,
+          },
+          supporters: 1,
+          unsure: 0,
+          nonSupporters: 0,
+        },
+      },
+    })
+
+    const rows: HistoryRow[] = [
+      {
+        id: 12,
+        createdAt: '2026-08-10T00:00:00Z',
+        outreachType: 'nativePhoneBanking',
+        name: 'GOTV calls',
+        status: 'in_progress',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      await within(desktopTable()).findByText('1 supporter'),
+    ).toBeInTheDocument()
+    expect(
+      within(desktopTable()).queryByText('1 supporters'),
+    ).not.toBeInTheDocument()
+  })
+
   it('leaves a legacy phoneBanking row rendering n/a and an em-dash', () => {
     const rows: HistoryRow[] = [
       {
