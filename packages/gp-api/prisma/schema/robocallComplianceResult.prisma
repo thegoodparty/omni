@@ -1,0 +1,27 @@
+// The persisted verdict of the server-side robocall compliance check (the
+// audio-content gate: candidate self-ID, organization, callback number). Keyed
+// by audioKey, not by an outreach/draft id, because compliance runs on a
+// recording BEFORE any draft exists — the create step then requires a passing
+// row for the audio it is about to bill for, and the dial step reads the
+// per-draft stamp derived from it. A pass here is a hard prerequisite for
+// creating a paid draft and for dialing, backstopping the client UI gate so a
+// crafted API request can't skip compliance.
+model RobocallComplianceResult {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  // The recorded audio's S3 object key (bucket ROBOCALL_AUDIO_BUCKET). Unique so
+  // the verdict is upserted per recording: a re-check of the same audio
+  // overwrites the prior verdict rather than accumulating rows, and the create
+  // gate can look it up by the key it already holds.
+  audioKey  String   @unique @map("audio_key")
+  // Whether every required disclosure was verified present. Only a true row
+  // satisfies the create gate. A plain boolean (not the issue list) is what the
+  // gates query, so it stays a real, indexable column (Rule 25).
+  passed    Boolean
+  // When the verdict was computed, mirrored onto the draft as compliancePassedAt
+  // at create so the dial step has a durable per-draft fact.
+  checkedAt DateTime @map("checked_at")
+
+  @@map("robocall_compliance_result")
+}
