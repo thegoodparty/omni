@@ -728,7 +728,11 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
   }
   // Cleared compliance keeps the shipped Cancel campaign footer; omitting it
   // reads as verification-pending and swaps to Delete + Start verification.
+  // The drawer reads `status` (not `peerlyCvStatus`) so legacy approved rows
+  // — whose `peerlyCvStatus` column is null forever — aren't misread as
+  // uncleared (ENG-10962).
   const verifiedCompliance = {
+    status: 'approved',
     peerlyCvStatus: 'VERIFIED',
   } as React.ComponentProps<typeof OutreachDetailsDrawer>['tcrCompliance']
   const mockNoReceipt = () =>
@@ -805,6 +809,40 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     ).toBeGreaterThan(0)
     expect(
       screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // ENG-10962 — Carlton Robbins: a legacy-approved tcr_compliance row where
+  // the persisted CV status is null (the peerly_cv_status column was added in
+  // migration 20260725033648 months after his row was created; the poller
+  // excludes `approved` status, so the column stays null forever). The
+  // reporter's compliance status is fully approved and Peerly shows an
+  // active identity, so his scheduled sends must NOT relabel to
+  // "Needs compliance".
+  it('keeps Scheduled on a legacy-approved SMS row (status=approved, peerlyCvStatus=null)', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+
+    const legacyApprovedCompliance = {
+      status: 'approved',
+      peerlyCvStatus: null,
+    } as React.ComponentProps<typeof OutreachDetailsDrawer>['tcrCompliance']
+
+    render(
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={vi.fn()}
+        tcrCompliance={legacyApprovedCompliance}
+      />,
+    )
+
+    // The shipped Cancel campaign footer stays — no verification substitution.
+    expect(
+      await screen.findByRole('button', { name: 'Cancel campaign' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Needs compliance')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Compliance needed before this can send'),
     ).not.toBeInTheDocument()
   })
 
