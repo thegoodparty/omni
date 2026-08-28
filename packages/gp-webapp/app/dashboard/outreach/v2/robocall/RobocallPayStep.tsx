@@ -13,10 +13,22 @@ import { FetchError } from 'ofetch'
 import { formatInTimeZone } from 'date-fns-tz'
 import { type RobocallAuthorizeResponse } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
-import { Loader2Icon } from '@styleguide/components/ui/icons'
+import { ExternalLinkIcon, Loader2Icon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { PaymentPortalButton } from '@shared/PaymentPortalButton'
 import { NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY } from 'appEnv'
 import { Intro } from '../social/Intro'
+
+// Opens the existing Stripe billing portal (the same portal-session call the
+// account-settings button makes) so a candidate can update or remove a saved
+// card without leaving the pay step — the retry-after-decline path and the card
+// form both link to it.
+const ManagePaymentMethodsButton = () => (
+  <PaymentPortalButton variant="link" size="small">
+    Manage payment methods
+    <ExternalLinkIcon className="ml-2 size-4" />
+  </PaymentPortalButton>
+)
 
 // Reuses the existing Stripe wiring (the same publishable-key source and
 // loadStripe singleton the checkout flow uses) rather than a second one.
@@ -268,9 +280,12 @@ export const RobocallPayStep = ({
               Try a different card to authorize this send.
             </p>
           </div>
-          <Button type="button" size="small" onClick={tryAnotherCard}>
-            Try another card
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" size="small" onClick={tryAnotherCard}>
+              Try another card
+            </Button>
+            <ManagePaymentMethodsButton />
+          </div>
         </Card>
       )
     }
@@ -435,6 +450,9 @@ const RobocallPayForm = ({
       >
         Authorize ${formatCents(amountInCents)}
       </Button>
+      <div className="flex justify-center">
+        <ManagePaymentMethodsButton />
+      </div>
     </form>
   )
 }
