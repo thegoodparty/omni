@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { ZodError } from 'zod'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
@@ -71,7 +72,7 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   }
 
   async pollCompletion(outreachId: number, pkStr: string): Promise<void> {
-    const status = await this.readVbStatus(pkStr)
+    const status = await this.readVbStatus(outreachId, pkStr)
     // Not finished: START = still dialing, PAUSE = mid-run, and a read failure
     // (null) or any unrecognized code is unresolved. Leave the row in `dialed`
     // for a later pass and do NOT read the count — spare the rate-limited vendor
@@ -91,7 +92,7 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     // leave the run in `dialed` and poll again — never settle on an unknown
     // count. A number (including a genuine 0) proceeds through the stability
     // gate below.
-    const count = await this.readCompletedCount(pkStr)
+    const count = await this.readCompletedCount(outreachId, pkStr)
     if (count == null) return
 
     // STABILITY (never settle a still-moving count in one pass): settle only
@@ -113,14 +114,14 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   // Reads the CallHub campaign's lifecycle status (a GET, no side effect).
   // Returns null when the read itself fails so the caller treats "unknown"
   // distinctly from a definitive END/ABORT and leaves the row for a later pass.
-  private async readVbStatus(pkStr: string): Promise<number | null> {
+  private async readVbStatus(
+    outreachId: number,
+    pkStr: string,
+  ): Promise<number | null> {
     try {
       return (await this.campaignReport.getCampaignStatus(pkStr)).status
     } catch (err) {
-      this.logger.error(
-        { err, campaignPkStr: pkStr },
-        'robocall CallHub status read failed while polling completion',
-      )
+      this.logCallhubReadFailure(err, outreachId, pkStr, 'status')
       return null
     }
   }
@@ -134,17 +135,46 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   // — NOT zero completed calls. Settling a really-dialed run at 0 would capture
   // nothing and never bill the candidate's real dials. A genuine numeric 0 (an
   // all-suppressed run) IS a real count and passes through to settle.
-  private async readCompletedCount(pkStr: string): Promise<number | null> {
+  private async readCompletedCount(
+    outreachId: number,
+    pkStr: string,
+  ): Promise<number | null> {
     try {
       const usage = await this.credits.getVoiceCampaignUsage(pkStr)
       return usage.voice_calls ?? null
     } catch (err) {
-      this.logger.error(
-        { err, campaignPkStr: pkStr },
-        'robocall credits_usage read failed while polling completion',
-      )
+      this.logCallhubReadFailure(err, outreachId, pkStr, 'credits_usage')
       return null
     }
+  }
+
+  // Both readers return null → the caller leaves the run `dialed` and polls
+  // again. That is right for a TRANSIENT vendor/network error (a 502 from the
+  // http wrapper). But a ZodError is PERMANENT: the credits_usage/status
+  // response shape is wrong for real CallHub data (e.g. a DRF `results[]`
+  // wrapper we have not confirmed) — this is exactly the UNVERIFIED-shape
+  // release-gate concern surfacing. A plain null-and-retry there would re-hit
+  // CallHub every sweep forever, silently, never settling. So a schema mismatch
+  // is logged as a CRITICAL alert to SURFACE it (the row stays `dialed`, but the
+  // alert is the signal); a transient error is logged normally and retried.
+  private logCallhubReadFailure(
+    err: unknown,
+    outreachId: number,
+    pkStr: string,
+    source: string,
+  ): void {
+    if (err instanceof ZodError) {
+      this.logger.error(
+        { err, outreachId, campaignPkStr: pkStr },
+        `CRITICAL robocall CallHub ${source} schema mismatch; run left dialed ` +
+          'and surfaced — response shape is wrong for real data, needs a fix',
+      )
+      return
+    }
+    this.logger.error(
+      { err, outreachId, campaignPkStr: pkStr },
+      `robocall CallHub ${source} read failed while polling; retry next sweep`,
+    )
   }
 
   // Persists the latest observed count so the NEXT poll can confirm stability.

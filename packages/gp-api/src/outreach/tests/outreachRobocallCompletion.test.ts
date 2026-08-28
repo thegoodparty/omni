@@ -3,6 +3,7 @@ import { BadGatewayException } from '@nestjs/common'
 import { addDays, addHours } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ZodError } from 'zod'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
@@ -274,15 +275,50 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
     )
   })
 
-  it('leaves the row dialed when the credits read fails after a terminal status', async () => {
+  it('leaves the row dialed on a TRANSIENT credits failure, logged as a retry (not CRITICAL)', async () => {
     const outreachId = await createDraft()
     usageSpy.mockRejectedValue(new BadGatewayException('credits down'))
+    const errorSpy = vi.spyOn(
+      (completion as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
 
     await completion.pollCompletion(outreachId, 'vb_1')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.dialed)
     expect(satellite.completedCallCount).toBeNull()
+    // A transient 502 is a normal retry, never surfaced as CRITICAL.
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId, campaignPkStr: 'vb_1' }),
+      expect.stringContaining('retry next sweep'),
+    )
+    const messages = errorSpy.mock.calls.map((call) => String(call[1]))
+    expect(messages.some((m) => m.includes('CRITICAL'))).toBe(false)
+  })
+
+  it('SURFACES a CRITICAL alert on a permanent schema mismatch, leaving the run dialed', async () => {
+    const outreachId = await createDraft()
+    // A ZodError = the credits_usage response shape is wrong for real CallHub
+    // data (the UNVERIFIED-shape release-gate concern). It is PERMANENT — a
+    // silent null-and-retry would re-poll forever. It must be surfaced.
+    usageSpy.mockRejectedValue(new ZodError([]))
+    const errorSpy = vi.spyOn(
+      (completion as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await completion.pollCompletion(outreachId, 'vb_1')
+
+    // Still left `dialed` (never settled on unreadable data) — but the alert is
+    // the signal, not an invisible infinite poll.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId, campaignPkStr: 'vb_1' }),
+      expect.stringContaining('CRITICAL'),
+    )
   })
 })
 
