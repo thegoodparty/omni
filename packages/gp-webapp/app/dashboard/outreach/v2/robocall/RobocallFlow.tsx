@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
   type SocialTone,
@@ -177,6 +178,11 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // on entering compose so the draft can carry the required "paid for by" +
   // callback-number disclosure; held in flow state and reused across redrafts.
   const [callbackNumber, setCallbackNumber] = useState<string | null>(null)
+  // The authorize outcome, held here (not in the pay step) so it survives Back
+  // out of and back into the pay step — a settled outcome makes re-entry show
+  // the result rather than re-opening the Authorize form.
+  const [payOutcome, setPayOutcome] =
+    useState<RobocallAuthorizeResponse | null>(null)
   const rentMutation = useMutation({
     mutationFn: async () => {
       const { data } = await clientRequest(
@@ -240,6 +246,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setTone('warm')
     setScript('')
     setCallbackNumber(null)
+    setPayOutcome(null)
     resetRent()
     resetCompliance()
     draftRequestRef.current = 0
@@ -611,6 +618,8 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           timeZone={timeZone}
           script={script}
           campaignName={campaignName}
+          outcome={payOutcome}
+          onOutcome={setPayOutcome}
         />
       )}
     </OutreachFlowShell>

@@ -85,7 +85,20 @@ interface RobocallPayStepProps {
   timeZone: string
   script: string
   campaignName: string
+  // The authorize outcome is lifted into the flow so it survives leaving and
+  // re-entering this step (Back is the only navigation, and it unmounts us).
+  // A settled outcome (authorized/deferred/noop) makes re-entry show the
+  // result instead of re-running create-draft + a fresh SetupIntent and
+  // re-showing the Authorize form after the hold was already placed.
+  outcome: RobocallAuthorizeResponse | null
+  onOutcome: (outcome: RobocallAuthorizeResponse | null) => void
 }
+
+// A settled outcome is one that must not re-open the payment form on re-entry.
+// hold_failed is excluded — the candidate has to be able to retry with another
+// card — so it still runs the money calls and shows the retry affordance.
+const isSettled = (outcome: RobocallAuthorizeResponse | null): boolean =>
+  outcome !== null && outcome.status !== 'hold_failed'
 
 // The pay step (final robocall slice): create the pending_payment draft, vault
 // the card via a SetupIntent Payment Element, then place the authorization hold
@@ -99,9 +112,10 @@ export const RobocallPayStep = ({
   timeZone,
   script,
   campaignName,
+  outcome,
+  onOutcome,
 }: RobocallPayStepProps) => {
   const [clientSecret, setClientSecret] = useState<string | null>(null)
-  const [outcome, setOutcome] = useState<RobocallAuthorizeResponse | null>(null)
   const startedRef = useRef(false)
 
   const createDraftMutation = useMutation({
@@ -154,15 +168,18 @@ export const RobocallPayStep = ({
     !!scheduledAt
   useEffect(() => {
     if (startedRef.current || !hasDetails) return
+    // A settled outcome already exists (re-entry after paying): render the
+    // result, don't re-run the money calls.
+    if (isSettled(outcome)) return
     startedRef.current = true
     createDraft()
     fetchCardIntent()
-  }, [hasDetails, createDraft, fetchCardIntent])
+  }, [hasDetails, outcome, createDraft, fetchCardIntent])
 
   // Try another card: a fresh SetupIntent so the Payment Element fully remounts
   // (a SetupIntent confirms once), and clear the failed outcome.
   const tryAnotherCard = () => {
-    setOutcome(null)
+    onOutcome(null)
     setClientSecret(null)
     fetchCardIntent()
   }
@@ -231,10 +248,10 @@ export const RobocallPayStep = ({
       return (
         <Card className="gap-1 p-4">
           <p className="text-sm font-medium text-foreground">
-            This payment is already being processed
+            Payment for this robocall is already set up
           </p>
           <p className="text-sm text-muted-foreground">
-            Refresh to see its status.
+            There is nothing more to do here. You can close this window.
           </p>
         </Card>
       )
@@ -298,7 +315,7 @@ export const RobocallPayStep = ({
           <RobocallPayForm
             outreachId={draft.outreachId}
             amountInCents={draft.amountInCents}
-            onOutcome={setOutcome}
+            onOutcome={onOutcome}
           />
         </Elements>
       </div>

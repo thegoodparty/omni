@@ -1574,6 +1574,64 @@ describe('RobocallFlow', () => {
     expect(await screen.findByText('Amount to authorize')).toBeInTheDocument()
   })
 
+  it('shows the result on re-entry after authorizing, without re-running the money calls', async () => {
+    let createCalls = 0
+    let cardIntentCalls = 0
+    api.mock('POST /v1/outreach/robocall', () => {
+      createCalls += 1
+      return {
+        status: 200,
+        data: { outreachId: 42, billableCount: 80, amountInCents: 360 },
+      }
+    })
+    api.mock('POST /v1/outreach/robocall/save-card-intent', () => {
+      cardIntentCalls += 1
+      return {
+        status: 200,
+        data: { clientSecret: 'seti_test_secret', customerId: 'cus_test_123' },
+      }
+    })
+    mockAuthorize('authorized', 360, 'authorized')
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(createCalls).toBe(1)
+    expect(cardIntentCalls).toBe(1)
+
+    // Back to review, then re-enter pay: the authorized result shows again —
+    // no Authorize form, and no second create-draft / save-card-intent.
+    await userEvent.click(screen.getByLabelText('Back'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue to payment' }),
+    )
+
+    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Authorize/ }),
+    ).not.toBeInTheDocument()
+    expect(createCalls).toBe(1)
+    expect(cardIntentCalls).toBe(1)
+  })
+
+  it('does not tell the user to refresh on a noop outcome', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    mockAuthorize('noop', null, 'pending_payment')
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+
+    expect(await screen.findByText(/already set up/)).toBeInTheDocument()
+    expect(screen.queryByText(/refresh/i)).not.toBeInTheDocument()
+  })
+
   it('returns to compose from review, keeping the saved recording', async () => {
     await gotoReview()
     await userEvent.click(screen.getByLabelText('Back'))
