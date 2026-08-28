@@ -91,7 +91,7 @@ Candidate context:
  * Stage 1 — Google Search grounded search for civic events in the
  * candidate's area. Ports
  * `SEARCH_PROMPT_FALLBACK` from
- * `gp-ai-projects/campaign_plan_lambda/event_generator.py` with no
+ * `packages/gp-ai/campaign_plan_lambda/event_generator.py` with no
  * behavioral changes — same untrusted-input defenses, same date window.
  */
 export const EVENTS_SEARCH_PROMPT = `Find community events where a political candidate can connect with voters.

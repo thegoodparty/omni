@@ -1,6 +1,6 @@
 # Braintrust Integration
 
-Braintrust provides LLM observability, evaluation, and prompt management for gp-ai-projects.
+Braintrust provides LLM observability, evaluation, and prompt management for gp-ai.
 
 ## Enablement Strategy
 
@@ -18,7 +18,7 @@ This follows the principle of least privilege: services only get credentials the
 
 ## Project Naming
 
-Each folder in gp-ai-projects maps to a Braintrust project. Pass the project name in code:
+Each folder in gp-ai maps to a Braintrust project. Pass the project name in code:
 
 | Folder | Braintrust Project |
 |--------|-------------------|

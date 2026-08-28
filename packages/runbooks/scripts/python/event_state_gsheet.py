@@ -43,7 +43,7 @@ TOKEN_PATH = _default_token_path()
 SHEET_TAB = "events"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]   # read/write (not the readonly default)
 # Reuse the existing GoogleSheets OAuth client registration by default (same env names the
-# gp-ai-projects client uses); override with GP_SHEETS_GOOGLE_* if a dedicated client is set up.
+# gp-ai client uses); override with GP_SHEETS_GOOGLE_* if a dedicated client is set up.
 CLIENT_ID_ENVS = ("GP_SHEETS_GOOGLE_CLIENT_ID", "DDHQ_MATCHER_GOOGLE_CLIENT_ID")
 CLIENT_SECRET_ENVS = ("GP_SHEETS_GOOGLE_CLIENT_SECRET", "DDHQ_MATCHER_GOOGLE_CLIENT_SECRET")
 

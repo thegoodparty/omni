@@ -250,7 +250,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     // when an active or successful schedule run already exists — otherwise a
     // retry spawns a duplicate live run and SQS message. A FAILED-only run is
     // not blocking: the first attempt did not succeed and nothing else
-    // re-dispatches it (a dead run is only marked FAILED by the gp-ai-projects
+    // re-dispatches it (a dead run is only marked FAILED by the gp-ai
     // ECS task-reaper, which does not re-dispatch).
     const existingScheduleRun = await this.client.experimentRun.findFirst({
       where: {
