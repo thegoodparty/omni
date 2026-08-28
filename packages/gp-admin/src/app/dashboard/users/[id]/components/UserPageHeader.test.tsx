@@ -29,6 +29,7 @@ vi.mock('@/components/Toast', () => ({
 
 vi.mock('../../actions', () => ({
   createImpersonationToken: vi.fn(),
+  createSignInLink: vi.fn(),
 }))
 
 vi.mock('@/app/dashboard/campaigns/actions', () => ({
@@ -218,6 +219,37 @@ describe('UserPageHeader', () => {
 
       renderWithUser(mockUser)
 
+      expect(
+        screen.queryByRole('button', { name: /impersonate/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders SignInLinkButton in view mode', () => {
+      renderWithUser(mockUser)
+
+      expect(
+        screen.getByRole('button', { name: /sign-in link/i })
+      ).toBeInTheDocument()
+    })
+
+    it('does not render SignInLinkButton in edit mode', () => {
+      mockUsePathname.mockReturnValue('/dashboard/users/123/edit')
+
+      renderWithUser(mockUser, { isEditMode: true })
+
+      expect(
+        screen.queryByRole('button', { name: /sign-in link/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('still shows SignInLinkButton when ImpersonateButton is hidden', () => {
+      mockHas.mockReturnValue(false)
+
+      renderWithUser(mockUser)
+
+      expect(
+        screen.getByRole('button', { name: /sign-in link/i })
+      ).toBeInTheDocument()
       expect(
         screen.queryByRole('button', { name: /impersonate/i })
       ).not.toBeInTheDocument()

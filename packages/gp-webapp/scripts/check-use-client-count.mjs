@@ -293,7 +293,11 @@ import { dirname, join, relative } from 'node:path'
 // robocall pay step mounts a Stripe SetupIntent Payment Element and owns the
 // draft-create/authorize mutation state, so it can't render on the server;
 // matches its sibling robocall steps.
-const BASELINE = 613
+// 2026-08-28: 613 -> 614 for sign-in-link/SignInLinkContent.tsx — the one-time
+// sign-in link page redeems a Clerk ticket in the browser on click (Clerk
+// hooks, click handler, session state), so it can't render on the server;
+// matches the /serve/welcome and /win/welcome redemption pages.
+const BASELINE = 614
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
