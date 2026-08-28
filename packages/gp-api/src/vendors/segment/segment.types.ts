@@ -164,10 +164,16 @@ export const EVENTS = {
   // pay-time authorization hold the browser cannot observe. Each is emitted
   // only from the winning DB transition with a deterministic Segment messageId
   // (`<outreachId>:hold_placed` / `<outreachId>:hold_failed`) so a replay
-  // dedups to a single milestone email.
+  // dedups to a single milestone email. Reminder (daily "fix your card" while
+  // the send is still ahead, messageId `<outreachId>:reminder:<yyyy-mm-dd>` so
+  // it dedups to one per day) and Canceled (the send deadline passed with the
+  // card never fixed, so the run is cancelled unsent, messageId
+  // `<outreachId>:canceled`) cover the failed-hold follow-up path.
   Robocall: {
     HoldPlaced: 'Robocall - Hold Placed',
     HoldFailed: 'Robocall - Hold Failed',
+    Reminder: 'Robocall - Reminder',
+    Canceled: 'Robocall - Canceled',
   },
 }
 
