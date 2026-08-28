@@ -419,6 +419,24 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     expect(satellite.dialedAt).not.toBeNull()
   })
 
+  it('recovers a stale dialing row: CallHub ABORTED commits dialed', async () => {
+    // ABORT (manual stop, or a partial run) also means the campaign left
+    // PAUSED and dialed — resolve to dialed, never re-dial. How much to bill is
+    // the completion/capture slice's concern, not a reason to re-dial here.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+    })
+    await ageDialingRow(outreachId, 30)
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.ABORT))
+
+    await send.sweepRobocallSend()
+
+    expect(launchSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
   it('recovers a stale dialing row: CallHub PAUSED reverts to authorized', async () => {
     const outreachId = await createDraft({
       settleState: RobocallSettleState.dialing,
