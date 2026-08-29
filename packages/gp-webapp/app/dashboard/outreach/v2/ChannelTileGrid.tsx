@@ -17,17 +17,7 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
-import {
-  PRO_UPGRADE_BASE_PATH,
-  PRO_UPGRADE_TAKEOVER_SRC,
-} from 'app/dashboard/pro-upgrade/proUpgradeStep'
 import { CHANNEL_META } from './channelMeta'
-
-// Outreach entries open the Pro upgrade wizard in its takeover chrome
-// (?src=outreach — see ProUpgradeWizard's fork); ?channel picks the
-// channel-specific pitch copy on the entry screen (PRO_GATE_COPY).
-const proUpgradeTakeoverEntry = (channel: string): string =>
-  `${PRO_UPGRADE_BASE_PATH}?src=${PRO_UPGRADE_TAKEOVER_SRC}&channel=${channel}`
 
 interface ChannelTileGridProps {
   tcrCompliance?: TcrCompliance
@@ -127,14 +117,14 @@ export const ChannelTileGrid = ({
     }
     if (type === OUTREACH_TYPES.text) {
       if (smsV2.ready && smsV2.enabled) {
-        // Upgrade-at-entry with the takeover chrome (design parity): a
-        // non-Pro click goes straight into the Pro upgrade takeover instead
-        // of the legacy marketing modal. Same population the text gate's
-        // isPro branch caught — only the destination changed. The compliance
-        // branch (Pro, not approved) still runs through the gate's modal.
+        // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to
+        // the Pro upgrade wizard instead of the legacy marketing modal, the
+        // same pattern the phone-banking tile set. Pro candidates with an
+        // unfinished registration/verification run through the gate's
+        // status-aware ComplianceModal below.
         if (!isPro) {
           trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
-          router.push(proUpgradeTakeoverEntry('sms'))
+          router.push('/dashboard/pro-upgrade')
           return
         }
         if (!runTextGate()) return
@@ -154,7 +144,7 @@ export const ChannelTileGrid = ({
       // settle rather than redirecting a Serve org that will resolve true.
       if (!canUseProFeatures && !electedOfficePending) {
         trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
-        router.push(proUpgradeTakeoverEntry('phone-banking'))
+        router.push('/dashboard/pro-upgrade')
         return
       }
       onCreatePhoneBanking()

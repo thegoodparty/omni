@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Button,
   ProBadge,
@@ -19,24 +19,9 @@ import {
   MegaphoneIcon,
   XMarkIcon,
 } from '@styleguide/components/ui/icons'
+import Body2 from '@shared/typography/Body2'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import {
-  PRO_UPGRADE_BASE_PATH,
-  PRO_UPGRADE_TAKEOVER_SRC,
-} from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
-import { useTakeoverActive } from 'app/dashboard/shared/takeover/TakeoverShell'
-import WizardStepFooter from './WizardStepFooter'
-import WizardHeading from './WizardHeading'
-import {
-  GATHER_ROWS,
-  IconRowList,
-  PRO_GATE_COPY,
-  ProLockBadge,
-  ProValueList,
-  UpgradeVerifySteps,
-  WhyWeAskAlert,
-} from './takeoverProContent'
 
 interface ComparisonRow {
   label: string
@@ -95,15 +80,8 @@ const ROW_GRID =
   'grid grid-cols-[1fr_64px_64px] md:grid-cols-[1fr_100px_100px] items-center'
 
 const ValuePropStep = (): React.JSX.Element => {
-  const takeover = useTakeoverActive()
   const router = useRouter()
   const { goToNextStep } = useProUpgradeWizard()
-  // The channel the gated tile was clicked on (?channel=sms|phone-banking|…).
-  // Design channels get the design's pause screen + gather overview here;
-  // anything else keeps the generic Free-vs-Pro pitch below as the fallback.
-  const channel = useSearchParams()?.get('channel') ?? null
-  const gateCopy = channel ? PRO_GATE_COPY[channel] : undefined
-  const [gateScreen, setGateScreen] = useState<'pause' | 'overview'>('pause')
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropViewed)
@@ -119,74 +97,14 @@ const ValuePropStep = (): React.JSX.Element => {
     router.push('/dashboard')
   }
 
-  // The gather overview's Continue re-enters the wizard index WITHOUT the
-  // channel param: the index forced this pitch open for a gated-channel
-  // arrival regardless of progress, so resuming has to go back through its
-  // derivation instead of blindly stepping to `status` (which a returning
-  // candidate may have already answered).
-  const handleGateContinue = () => {
-    trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropGetPro)
-    router.push(`${PRO_UPGRADE_BASE_PATH}?src=${PRO_UPGRADE_TAKEOVER_SRC}`)
-  }
-
-  if (takeover && gateCopy) {
-    if (gateScreen === 'pause') {
-      // Design PRO_COPY pause screen (channel-specific pitch): badge + lock,
-      // headline/subhead, the Upgrade-then-Verify mini progress, PRO_CARDS.
-      return (
-        <div className="flex flex-col items-center gap-5 pt-4 text-center">
-          <ProLockBadge />
-          <div className="flex max-w-[460px] flex-col gap-2">
-            <h1 className="text-2xl font-semibold">{gateCopy.headline}</h1>
-            <p className="text-base text-muted-foreground">
-              {gateCopy.subhead}
-            </p>
-          </div>
-          <UpgradeVerifySteps />
-          <div className="w-full">
-            <ProValueList />
-          </div>
-          <WizardStepFooter
-            primary={{
-              label: gateCopy.cta,
-              onClick: () => setGateScreen('overview'),
-            }}
-            back={{ label: 'Maybe later', onClick: handleMaybeLater }}
-          />
-        </div>
-      )
-    }
-    // Design sgBody 'overview': what to have ready before the upgrade.
-    return (
-      <div>
-        <WizardHeading
-          proBadge
-          title="Let's gather a few things to unlock Pro"
-          subtitle="Have this information available to verify your campaign"
-        />
-        <IconRowList rows={GATHER_ROWS} />
-        <p className="mt-5 text-sm text-muted-foreground">
-          Ready when you are.
-        </p>
-        <WhyWeAskAlert>
-          Carriers require these details before a campaign can send text
-          messages.
-        </WhyWeAskAlert>
-        <WizardStepFooter
-          primary={{ label: 'Continue', onClick: handleGateContinue }}
-          back={{ onClick: () => setGateScreen('pause') }}
-        />
-      </div>
-    )
-  }
-
   return (
     <div>
-      <WizardHeading
-        center
-        title="76% of candidates who use Pro win"
-        subtitle="Get $300 of value for $10/mo."
-      />
+      <h1 className="text-center text-[32px] leading-[44px] font-semibold mb-1.5">
+        76% of candidates who use Pro win
+      </h1>
+      <Body2 className="text-center text-base-muted-foreground mb-6">
+        Get $300 of value for $10/mo.
+      </Body2>
 
       <div className="mb-9">
         <div className={`${ROW_GRID} py-2`}>
@@ -243,25 +161,18 @@ const ValuePropStep = (): React.JSX.Element => {
         ))}
       </div>
 
-      {takeover ? (
-        <WizardStepFooter
-          primary={{ label: 'Get Pro for $10/mo', onClick: handleGetPro }}
-          back={{ label: 'Maybe later', onClick: handleMaybeLater }}
-        />
-      ) : (
-        <div className="flex flex-col items-center gap-2">
-          <Button
-            size="large"
-            className="w-full sm:w-auto"
-            onClick={handleGetPro}
-          >
-            Get Pro for $10/mo
-          </Button>
-          <Button variant="ghost" onClick={handleMaybeLater}>
-            Maybe later
-          </Button>
-        </div>
-      )}
+      <div className="flex flex-col items-center gap-2">
+        <Button
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={handleGetPro}
+        >
+          Get Pro for $10/mo
+        </Button>
+        <Button variant="ghost" onClick={handleMaybeLater}>
+          Maybe later
+        </Button>
+      </div>
     </div>
   )
 }

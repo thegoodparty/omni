@@ -11,8 +11,6 @@ import {
 } from '@shared/hooks/CampaignProvider'
 import Confetti from 'app/dashboard/questions/components/Confetti'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useTakeoverActive } from 'app/dashboard/shared/takeover/TakeoverShell'
-import WizardStepFooter from './WizardStepFooter'
 
 // Post-payment, the candidate lands on the Campaign Manager dashboard, where
 // `ProUpgrade3ComplianceCard` surfaces PIN entry (then review/approved/denied as
@@ -35,7 +33,6 @@ const POLL_TIMEOUT_MS = 30000
 // reads the cached `isPro` — is already hidden when the candidate continues,
 // instead of lingering until a manual page refresh.
 const SuccessStep = (): React.JSX.Element => {
-  const takeover = useTakeoverActive()
   const router = useRouter()
   const [pollExpired, setPollExpired] = useState(false)
 
@@ -65,7 +62,7 @@ const SuccessStep = (): React.JSX.Element => {
     <>
       <Confetti />
       <div className="mx-auto flex max-w-[448px] flex-col items-center gap-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-info-light">
+        <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-blue-100">
           <ProBadge size="large" />
         </div>
 
@@ -80,16 +77,9 @@ const SuccessStep = (): React.JSX.Element => {
           </Body2>
         </div>
 
-        {takeover ? (
-          <WizardStepFooter
-            centered
-            primary={{ label: 'Continue', onClick: handleContinue }}
-          />
-        ) : (
-          <Button size="large" className="w-full" onClick={handleContinue}>
-            Continue
-          </Button>
-        )}
+        <Button size="large" className="w-full" onClick={handleContinue}>
+          Continue
+        </Button>
       </div>
     </>
   )

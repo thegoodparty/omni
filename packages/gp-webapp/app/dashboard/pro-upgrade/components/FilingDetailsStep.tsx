@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  Button,
   Label,
   Select,
   SelectContent,
@@ -46,8 +47,6 @@ import {
 import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
 import { PRO_UPGRADE_STEP, proUpgradeStepPath } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
-import WizardStepFooter from './WizardStepFooter'
-import WizardHeading from './WizardHeading'
 
 // The backend createAgentic endpoint validates officeLevel against the
 // federal/state/local enum, and the federal branch additionally requires FEC
@@ -206,11 +205,14 @@ const FilingDetailsForm = ({
 
   return (
     <div>
-      <WizardHeading
-        proBadge
-        title="What are your campaign filing details?"
-        subtitle="If these do not match the details you submitted on your campaign filing or registration, it will take much longer before you can send text messages."
-      />
+      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
+        What are your campaign filing details?
+      </h1>
+      <Body2 className="text-base-muted-foreground mb-6">
+        If these do not match the details you submitted on your campaign filing
+        or registration, it will take much longer before you can send text
+        messages.
+      </Body2>
 
       {attemptedSubmit && !isValid && (
         <StyledAlert severity="error" className="mb-6">
@@ -326,10 +328,25 @@ const FilingDetailsForm = ({
         </div>
       </div>
 
-      <WizardStepFooter
-        back={{ onClick: goToPreviousStep }}
-        primary={{ onClick: handleContinue, loading, disabled: loading }}
-      />
+      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <Button
+          variant="outline"
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={goToPreviousStep}
+        >
+          Back
+        </Button>
+        <Button
+          size="large"
+          className="w-full sm:w-auto"
+          onClick={handleContinue}
+          loading={loading}
+          disabled={loading}
+        >
+          Continue
+        </Button>
+      </div>
     </div>
   )
 }
@@ -343,7 +360,6 @@ const FilingDetailsForm = ({
 const FilingDetailsStep = (): React.JSX.Element => {
   const { goToNextStep } = useProUpgradeWizard()
   const router = useRouter()
-  const src = useSearchParams()?.get('src') ?? null
   const [campaign] = useCampaign()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
@@ -360,9 +376,8 @@ const FilingDetailsStep = (): React.JSX.Element => {
     ready && !checkEinSanity(campaign?.details?.einNumber ?? '').valid
 
   useEffect(() => {
-    if (mustFixEin)
-      router.replace(proUpgradeStepPath(PRO_UPGRADE_STEP.EIN, src))
-  }, [mustFixEin, router, src])
+    if (mustFixEin) router.replace(proUpgradeStepPath(PRO_UPGRADE_STEP.EIN))
+  }, [mustFixEin, router])
 
   // Fire the funnel view event once the form is actually shown (gated behind
   // `ready`), not while the Loading… placeholder is up or while redirecting

@@ -289,15 +289,7 @@ import { dirname, join, relative } from 'node:path'
 // state), so it can't render on the server; matches its sibling robocall steps.
 // 2026-08-27: merge reconciliation — 611 (this branch's SMS surfaces) plus
 // main's RobocallReviewStep (+1) = 612.
-// 2026-08-27: 612 -> 615 for the Voter Outreach 2.0 takeover chrome —
-// TakeoverShell (footer portal slot state), WizardStepFooter (portals into
-// it), WizardHeading (branches on the takeover context). All three are
-// interactive chrome around existing client wizards and can't render on the
-// server.
-// 2026-08-27: 615 -> 616 for pro-upgrade/components/takeoverProContent.tsx —
-// the takeover step furniture (select cards with selection handlers) shared
-// by the design-parity step variants.
-const BASELINE = 616
+const BASELINE = 612
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -247,9 +247,7 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
       target: { value: '98591' },
     })
 
-    await user.click(
-      screen.getByRole('button', { name: /^submit for verification$/i }),
-    )
+    await user.click(screen.getByRole('button', { name: /^submit$/i }))
 
     expect(onSubmit).toHaveBeenCalledTimes(1)
     expect(onSubmit).toHaveBeenCalledWith(
@@ -304,9 +302,7 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
       true,
     )
 
-    await user.click(
-      screen.getByRole('button', { name: /^submit for verification$/i }),
-    )
+    await user.click(screen.getByRole('button', { name: /^submit$/i }))
 
     expect(onSubmit).toHaveBeenCalledTimes(1)
     expect(onSubmit).toHaveBeenCalledWith(
@@ -338,9 +334,7 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
       true,
     )
 
-    await user.click(
-      screen.getByRole('button', { name: /^submit for verification$/i }),
-    )
+    await user.click(screen.getByRole('button', { name: /^submit$/i }))
 
     expect(onSubmit).not.toHaveBeenCalled()
     expect(
