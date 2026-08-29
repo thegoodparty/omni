@@ -141,8 +141,25 @@ export class CallhubCampaignService {
   // wrapper; the response is parsed OUTSIDE the fetch try/catch so a shape
   // mismatch is a schema error, not a retryable vendor failure.
   async launchVoiceBroadcast(pkStr: string): Promise<LaunchVbCampaignResponse> {
-    const data = await this.putStatus(pkStr)
+    const data = await this.putStatus(
+      pkStr,
+      CALLHUB_VB_STATUS.START,
+      'CallHub voice broadcast launch failed',
+    )
     return LaunchVbCampaignResponseSchema.parse(data)
+  }
+
+  // ABORTs a PAUSED voice broadcast: PUT status ABORT (3), a terminal that
+  // stops the campaign from ever dialing. The opposite of launch — it only ever
+  // makes a campaign LESS likely to place calls — so the cleanup sweep uses it
+  // to retire orphaned PAUSED campaigns. A CallHub failure surfaces as 502; the
+  // caller (a background sweep) retries, so no response shape is asserted here.
+  async abortVoiceBroadcast(pkStr: string): Promise<void> {
+    await this.putStatus(
+      pkStr,
+      CALLHUB_VB_STATUS.ABORT,
+      'CallHub voice broadcast abort failed',
+    )
   }
 
   private async postCampaign(body: CreateVbCampaignBody) {
@@ -157,16 +174,18 @@ export class CallhubCampaignService {
     }
   }
 
-  private async putStatus(pkStr: string) {
+  private async putStatus(
+    pkStr: string,
+    status: number,
+    failureMessage: string,
+  ) {
     try {
-      return await this.http.put(`${LAUNCH_PATH_PREFIX}${pkStr}/`, {
-        status: CALLHUB_VB_STATUS.START,
-      })
+      return await this.http.put(`${LAUNCH_PATH_PREFIX}${pkStr}/`, { status })
     } catch (error) {
       return this.errorHandling.handleApiError({
         error,
         logger: this.logger,
-        customMessage: 'CallHub voice broadcast launch failed',
+        customMessage: failureMessage,
       })
     }
   }
