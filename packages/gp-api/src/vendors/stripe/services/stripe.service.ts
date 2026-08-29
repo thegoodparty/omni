@@ -322,6 +322,40 @@ export class StripeService {
     }
   }
 
+  // Finds LIVE (requires_capture) manual-capture holds for a robocall outreach,
+  // by the outreachId metadata createManualCaptureHold stamps. Used by the
+  // hold_pending stale-recovery sweep to locate an orphan hold whose intent id
+  // was never persisted (the placement crashed before its commit). status
+  // requires_capture is unique to a manual-capture auth, so this matches only
+  // genuinely-live robocall holds — a voided one is `canceled`, a captured one
+  // `succeeded`. Stripe search is eventually consistent (a just-placed PI can
+  // lag ~1m before it is indexed); the recovery only runs on rows already
+  // stranded past ROBOCALL_HOLD_PENDING_STALE_MINUTES, far longer than that lag.
+  async findLiveManualHoldsByOutreach(outreachId: number): Promise<string[]> {
+    const res = await this.stripe.paymentIntents.search({
+      query:
+        `status:'requires_capture' AND ` +
+        `metadata['outreachId']:'${outreachId}'`,
+    })
+    return res.data.map((intent) => intent.id)
+  }
+
+  // Cancels a hold and THROWS on failure — the strict counterpart to the
+  // best-effort voidHold. The hold_pending recovery sweep uses this: if the
+  // cancel fails it must NOT proceed to revert the draft (that would release the
+  // row while a possibly-live orphan hold still reserves the card, and a re-auth
+  // would then stack a second hold). Propagating the failure keeps the row
+  // hold_pending for the next sweep to retry. Only called on a hold search just
+  // reported as requires_capture, so a "cannot cancel" state error never occurs.
+  async cancelHold(paymentIntentId: string): Promise<void> {
+    try {
+      await this.stripe.paymentIntents.cancel(paymentIntentId)
+    } catch (err) {
+      this.logger.error({ err, paymentIntentId }, 'Failed to cancel hold')
+      throw new BadGatewayException('Failed to cancel authorization hold')
+    }
+  }
+
   // Full refund of a completed one-time payment (cancel-before-send).
   // Callers pass a stable idempotency key so a retried cancel can never
   // refund twice.
