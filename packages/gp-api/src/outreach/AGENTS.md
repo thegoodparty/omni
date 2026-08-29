@@ -278,6 +278,19 @@ sweep. Ops: the Stripe webhook endpoint must subscribe to `payment_method.attach
 
 ## Gotchas / invariants
 
+- **Compliance is bound to the audio bytes by S3 ETag, not just the audioKey.**
+  A presigned POST can overwrite a key with different bytes inside its expiry
+  window, so a passing verdict on the key alone could be ridden by swapped audio.
+  `recordVerdict` stores the object's ETag (`RobocallComplianceResult.audioEtag`)
+  at check time; `createDraft` re-reads the CURRENT ETag, refuses a mismatch or a
+  verdict with no bound ETag (400, no row), and FREEZES the matched ETag onto the
+  draft (`OutreachRobocall.complianceAudioEtag`); staging re-reads the ETag of the
+  exact bytes it is about to upload and refuses (502 + CRITICAL, claim reverted)
+  anything but the frozen value — so bytes swapped after the create gate never
+  reach voters. The draft's frozen ETag is the source of truth, NOT the mutable
+  verdict, so re-running compliance on swapped bytes can't retroactively bless a
+  live draft. `S3Service.getFileBytesWithContentType`/`headObject` return the ETag
+  for this (`etag` optional on both so unrelated callers are unaffected).
 - The script reaches Peerly VERBATIM (one default MMS template,
   `vendors/peerly/services/peerlyP2pJob.service.ts`). Any client-side
   script composition is a UI guarantee only — nothing server-side

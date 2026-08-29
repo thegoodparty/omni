@@ -15,6 +15,10 @@ import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
 
+// The audio ETag frozen on the draft at create; staging refuses to upload bytes
+// whose ETag differs (a swap after the compliance pass).
+const STAGE_ETAG = '"stage-etag-v1"'
+
 let staging: OutreachRobocallStagingService
 let loadAudienceSpy: ReturnType<typeof vi.spyOn>
 let uploadMediaSpy: ReturnType<typeof vi.spyOn>
@@ -50,6 +54,7 @@ beforeEach(async () => {
     .mockResolvedValue({
       bytes: Buffer.from('audio'),
       contentType: MimeTypes.AUDIO_MPEG,
+      etag: STAGE_ETAG,
     })
   transcodeSpy = vi
     .spyOn(service.app.get(AudioTranscodeService), 'toMp3')
@@ -108,6 +113,7 @@ const createDraft = async ({
       billableCount: 100,
       amountInCents: 450,
       settleState,
+      complianceAudioEtag: STAGE_ETAG,
       ...(callhubCampaignPkStr ? { callhubCampaignPkStr } : {}),
     },
   })
@@ -170,6 +176,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     getBytesSpy.mockResolvedValueOnce({
       bytes: Buffer.from('webm'),
       contentType: MimeTypes.AUDIO_WEBM,
+      etag: STAGE_ETAG,
     })
 
     await staging.stageCampaign(outreachId)
@@ -207,6 +214,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     getBytesSpy.mockResolvedValueOnce({
       bytes: Buffer.from('webm'),
       contentType: MimeTypes.AUDIO_WEBM,
+      etag: STAGE_ETAG,
     })
     transcodeSpy.mockRejectedValueOnce(
       new BadGatewayException('Audio transcode failed'),
@@ -224,6 +232,38 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.callhubCampaignPkStr).toBeNull()
+  })
+
+  it('refuses to dial when the audio ETag no longer matches the approved bytes', async () => {
+    const outreachId = await createDraft()
+    // The bytes at the key were swapped after the compliance pass — their ETag
+    // differs from the one frozen on the draft. Never upload them to CallHub.
+    getBytesSpy.mockResolvedValueOnce({
+      bytes: Buffer.from('swapped'),
+      contentType: MimeTypes.AUDIO_MPEG,
+      etag: '"stage-etag-SWAPPED"',
+    })
+    const errorSpy = vi.spyOn(
+      (staging as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+
+    // Blocked BEFORE any CallHub state is created; the claim reverts to
+    // authorized and the mismatch is surfaced CRITICAL.
+    expect(uploadMediaSpy).not.toHaveBeenCalled()
+    expect(loadAudienceSpy).not.toHaveBeenCalled()
+    expect(createVbSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId }),
+      expect.stringContaining('CRITICAL'),
+    )
   })
 
   it('is idempotent: an already-staged draft is skipped', async () => {

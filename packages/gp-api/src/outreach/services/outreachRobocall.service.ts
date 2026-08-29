@@ -15,6 +15,7 @@ import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { RobocallComplianceResultService } from './robocallComplianceResult.service'
 import {
   Campaign,
@@ -44,9 +45,15 @@ export class OutreachRobocallService extends createPrismaBase(
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly analytics: AnalyticsService,
+    private readonly s3: S3Service,
   ) {
     super()
+    const bucket = process.env.ROBOCALL_AUDIO_BUCKET
+    if (!bucket) throw new Error('ROBOCALL_AUDIO_BUCKET is not configured')
+    this.audioBucket = bucket
   }
+
+  private readonly audioBucket: string
 
   // The billable count is the saved list resolved with the landline dimension
   // forced on — the same reachable-landline number the audience step showed and
@@ -122,6 +129,25 @@ export class OutreachRobocallService extends createPrismaBase(
       throw new BadRequestException('Robocall audio has not passed compliance')
     }
 
+    // ETAG BIND (legal): the passing verdict is bound to the exact bytes it
+    // checked. A presigned POST can overwrite the key with different bytes inside
+    // its expiry window, so re-read the object's current ETag and refuse a
+    // mismatch — a re-upload after the pass can't ride the old verdict. A verdict
+    // with no bound ETag (capture failed at check time) is not trusted: force a
+    // re-check. The matched ETag is FROZEN onto the draft below so the dial path
+    // re-verifies against what was approved here, not the mutable verdict.
+    if (!compliance.audioEtag) {
+      throw new BadRequestException(
+        'Robocall audio compliance is stale; re-run the compliance check',
+      )
+    }
+    const head = await this.s3.headObject(this.audioBucket, input.audioKey)
+    if (!head || head.etag !== compliance.audioEtag) {
+      throw new BadRequestException(
+        'Robocall audio changed since compliance; re-run the compliance check',
+      )
+    }
+
     // A past send time can never dial at CallHub, so a paid draft on it would
     // be money taken for a robocall that never sends. Reject before the
     // people-db round trip.
@@ -164,6 +190,7 @@ export class OutreachRobocallService extends createPrismaBase(
             billableCount,
             amountInCents,
             compliancePassedAt: compliance.checkedAt,
+            complianceAudioEtag: compliance.audioEtag,
             settleState: RobocallSettleState.pending_payment,
           },
         })

@@ -99,6 +99,13 @@ model OutreachRobocall {
   // dialing: the send slice refuses to launch a draft whose value is null, a
   // belt-and-suspenders backstop under the create-time gate.
   compliancePassedAt     DateTime?           @map("compliance_passed_at")
+  // The S3 ETag of the audio that passed compliance, FROZEN at create from the
+  // RobocallComplianceResult. The staging step re-reads the object's current
+  // ETag before uploading it to CallHub and refuses a mismatch, so bytes swapped
+  // after the create gate (a re-upload to the same presigned key) can never
+  // reach voters. Frozen on the draft — not re-read from the mutable verdict —
+  // so re-running compliance on swapped bytes can't retroactively bless them.
+  complianceAudioEtag    String?             @map("compliance_audio_etag")
   // When the last "fix your card" reminder was sent for a hold_failed draft.
   // The daily reminder sweep stamps this on emit and only re-reminds a draft
   // whose value is null or older than ~1 day, so it is the primary once/day

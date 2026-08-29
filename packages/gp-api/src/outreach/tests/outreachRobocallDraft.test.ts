@@ -20,6 +20,7 @@ import { PeopleListResponse } from '@/contacts/schemas/person.schema'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachRobocallService } from '../services/outreachRobocall.service'
 import {
   OutreachStatus,
@@ -36,6 +37,10 @@ let filterId: number
 
 const CAMPAIGN_ID = 998
 
+// The S3 ETag the compliance check recorded; the create gate re-reads the
+// object's current ETag (mocked in beforeEach) and must match it.
+const AUDIO_ETAG = '"etag-clip-v1"'
+
 const peopleListWithTotal = (totalResults: number): PeopleListResponse => ({
   people: [],
   pagination: {
@@ -49,6 +54,13 @@ const peopleListWithTotal = (totalResults: number): PeopleListResponse => ({
 })
 
 beforeEach(async () => {
+  // The create gate re-reads the audio's current ETag to bind it to the passing
+  // verdict. Default it to the fixture's stored ETag so the happy paths match;
+  // the mismatch test overrides it.
+  vi.spyOn(service.app.get(S3Service), 'headObject').mockResolvedValue({
+    contentLength: 1,
+    etag: AUDIO_ETAG,
+  })
   const contacts = service.app.get(ContactsService)
   vi.spyOn(contacts, 'findContactsForFilter').mockImplementation(
     findContactsForFilter,
@@ -86,6 +98,7 @@ beforeEach(async () => {
       audioKey: `robocall/${CAMPAIGN_ID}/clip.webm`,
       passed: true,
       checkedAt: new Date(),
+      audioEtag: AUDIO_ETAG,
     },
   })
 })
@@ -359,6 +372,49 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(rows).toBe(0)
   })
 
+  it('rejects audio whose bytes changed since compliance (ETag mismatch), writing no row', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    // The audio's current ETag no longer matches the ETag the verdict was bound
+    // to — a re-upload to the presigned key after the pass. Fail closed.
+    vi.spyOn(service.app.get(S3Service), 'headObject').mockResolvedValue({
+      contentLength: 1,
+      etag: '"etag-SWAPPED"',
+    })
+
+    const res = await postDraft(validDraftBody())
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
+
+  it('rejects a passing verdict with no bound ETag (stale), writing no row', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    // A verdict recorded before the ETag bind (or whose capture failed) is not
+    // trusted — the candidate must re-run compliance.
+    await service.prisma.robocallComplianceResult.create({
+      data: {
+        audioKey: `robocall/${CAMPAIGN_ID}/noetag.webm`,
+        passed: true,
+        checkedAt: new Date(),
+        audioEtag: null,
+      },
+    })
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      audioKey: `robocall/${CAMPAIGN_ID}/noetag.webm`,
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
+
   it('stamps compliancePassedAt from the passing verdict at create', async () => {
     findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
     const checkedAt = new Date('2026-08-20T12:00:00.000Z')
@@ -367,6 +423,7 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
         audioKey: `robocall/${CAMPAIGN_ID}/cleared.webm`,
         passed: true,
         checkedAt,
+        audioEtag: AUDIO_ETAG,
       },
     })
 
@@ -382,6 +439,9 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(satellite.compliancePassedAt?.toISOString()).toBe(
       checkedAt.toISOString(),
     )
+    // The verdict's ETag is frozen onto the draft so the dial path re-verifies
+    // against the exact approved bytes.
+    expect(satellite.complianceAudioEtag).toBe(AUDIO_ETAG)
   })
 
   it('rejects a non-Pro campaign, writing no row', async () => {

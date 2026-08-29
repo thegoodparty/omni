@@ -4,6 +4,7 @@ import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { RobocallComplianceService } from '@/outreach/services/robocallCompliance.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign } from '../../generated/prisma'
 
 const service = useTestService()
@@ -22,6 +23,12 @@ beforeEach(async () => {
   vi.spyOn(callhub, 'rentNumber').mockImplementation(rentNumber)
   const compliance = service.app.get(RobocallComplianceService)
   vi.spyOn(compliance, 'checkRecording').mockImplementation(checkRecording)
+  // recordVerdict reads the audio's S3 ETag to bind the verdict to the bytes;
+  // mock it so the endpoint doesn't hit real S3 in tests.
+  vi.spyOn(service.app.get(S3Service), 'headObject').mockResolvedValue({
+    contentLength: 1,
+    etag: '"compliance-etag"',
+  })
 
   const campaignId = 997
   orgSlug = `campaign-${campaignId}`
@@ -368,6 +375,8 @@ describe('POST /v1/outreach/robocall/compliance', () => {
         where: { audioKey: 'robocall/997/clip.webm' },
       })
     expect(stored.passed).toBe(true)
+    // The verdict is bound to the audio's ETag so a later byte-swap is caught.
+    expect(stored.audioEtag).toBe('"compliance-etag"')
   })
 
   it('returns a failing verdict with the issues', async () => {
