@@ -34,6 +34,12 @@ enum RobocallSettleState {
   // same append-only ADD VALUE reason.
   dialing
   dialed
+  // The single-owner claim held while the capture slice captures the authorized
+  // hold for the actual completed-call count — the guard against capturing the
+  // same run twice. A successful capture advances to `captured`; a lapsed hold
+  // to `uncollectable`; a zero-billable run to `voided`. Appended for the same
+  // append-only ADD VALUE reason.
+  capturing
 }
 
 model OutreachRobocall {
