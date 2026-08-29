@@ -340,6 +340,22 @@ export class StripeService {
     return res.data.map((intent) => intent.id)
   }
 
+  // Cancels a hold and THROWS on failure — the strict counterpart to the
+  // best-effort voidHold. The hold_pending recovery sweep uses this: if the
+  // cancel fails it must NOT proceed to revert the draft (that would release the
+  // row while a possibly-live orphan hold still reserves the card, and a re-auth
+  // would then stack a second hold). Propagating the failure keeps the row
+  // hold_pending for the next sweep to retry. Only called on a hold search just
+  // reported as requires_capture, so a "cannot cancel" state error never occurs.
+  async cancelHold(paymentIntentId: string): Promise<void> {
+    try {
+      await this.stripe.paymentIntents.cancel(paymentIntentId)
+    } catch (err) {
+      this.logger.error({ err, paymentIntentId }, 'Failed to cancel hold')
+      throw new BadGatewayException('Failed to cancel authorization hold')
+    }
+  }
+
   // Full refund of a completed one-time payment (cancel-before-send).
   // Callers pass a stable idempotency key so a retried cancel can never
   // refund twice.

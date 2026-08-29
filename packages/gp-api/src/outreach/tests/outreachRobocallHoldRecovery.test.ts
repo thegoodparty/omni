@@ -10,7 +10,7 @@ const service = useTestService()
 
 let recovery: OutreachRobocallHoldRecoveryService
 let findHoldsSpy: ReturnType<typeof vi.spyOn>
-let voidSpy: ReturnType<typeof vi.spyOn>
+let cancelSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -22,8 +22,8 @@ beforeEach(async () => {
   findHoldsSpy = vi
     .spyOn(service.app.get(StripeService), 'findLiveManualHoldsByOutreach')
     .mockResolvedValue([])
-  voidSpy = vi
-    .spyOn(service.app.get(StripeService), 'voidHold')
+  cancelSpy = vi
+    .spyOn(service.app.get(StripeService), 'cancelHold')
     .mockResolvedValue(undefined)
 
   const campaignId = 998
@@ -109,21 +109,21 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
-  it('voids a live orphan hold and reverts a stranded row to pending_payment', async () => {
+  it('cancels a live orphan hold and reverts a stranded row to pending_payment', async () => {
     const outreachId = await createDraft({ payAttempt: 0 })
     await strand(outreachId, 30)
     // A hold was placed just before the crash; its intent id was never persisted
-    // (commit did not run), so recovery locates it by metadata and voids it.
+    // (commit did not run), so recovery locates it by metadata and cancels it.
     findHoldsSpy.mockResolvedValue(['pi_orphan'])
 
     await recovery.sweepStaleHoldPending()
 
     expect(findHoldsSpy).toHaveBeenCalledWith(outreachId)
-    expect(voidSpy).toHaveBeenCalledWith('pi_orphan')
+    expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
     // Bumped so a re-authorize derives a fresh idempotency key rather than
-    // replaying the just-voided PI.
+    // replaying the just-cancelled PI.
     expect(satellite.payAttempt).toBe(1)
   })
 
@@ -134,7 +134,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
 
     await recovery.sweepStaleHoldPending()
 
-    expect(voidSpy).not.toHaveBeenCalled()
+    expect(cancelSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
     expect(satellite.payAttempt).toBe(3)
@@ -156,15 +156,15 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     expect(satellite.captureBefore).toBeNull()
   })
 
-  it('voids every hold when a search anomaly returns more than one', async () => {
+  it('cancels every hold when a search anomaly returns more than one', async () => {
     const outreachId = await createDraft()
     await strand(outreachId, 30)
     findHoldsSpy.mockResolvedValue(['pi_a', 'pi_b'])
 
     await recovery.sweepStaleHoldPending()
 
-    expect(voidSpy).toHaveBeenCalledWith('pi_a')
-    expect(voidSpy).toHaveBeenCalledWith('pi_b')
+    expect(cancelSpy).toHaveBeenCalledWith('pi_a')
+    expect(cancelSpy).toHaveBeenCalledWith('pi_b')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.pending_payment,
     )
@@ -178,7 +178,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     await recovery.sweepStaleHoldPending()
 
     expect(findHoldsSpy).not.toHaveBeenCalled()
-    expect(voidSpy).not.toHaveBeenCalled()
+    expect(cancelSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.hold_pending,
     )
@@ -187,13 +187,31 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
   it('leaves the row hold_pending when the Stripe search fails (retries next sweep)', async () => {
     const outreachId = await createDraft()
     await strand(outreachId, 30)
-    // A found-but-not-voided hold would strand the money, so a search failure
+    // A found-but-uncancelled hold would strand the money, so a search failure
     // must NOT revert with a possibly-live orphan — the row stays hold_pending.
     findHoldsSpy.mockRejectedValue(new Error('stripe search down'))
 
     await recovery.sweepStaleHoldPending()
 
-    expect(voidSpy).not.toHaveBeenCalled()
+    expect(cancelSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.hold_pending,
+    )
+  })
+
+  it('leaves the row hold_pending when the cancel fails (never reverts with a live orphan)', async () => {
+    const outreachId = await createDraft()
+    await strand(outreachId, 30)
+    // A found live hold whose cancel throws must NOT fall through to the revert:
+    // reverting to pending_payment would let a re-authorize stack a SECOND hold
+    // while the orphan still reserves the card. The row stays hold_pending so the
+    // next sweep retries the cancel.
+    findHoldsSpy.mockResolvedValue(['pi_orphan'])
+    cancelSpy.mockRejectedValue(new Error('stripe cancel down'))
+
+    await recovery.sweepStaleHoldPending()
+
+    expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.hold_pending,
     )
@@ -210,7 +228,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     ])
 
     // The stale-guarded reclaim CAS elects exactly one recoverer.
-    expect(voidSpy).toHaveBeenCalledTimes(1)
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.pending_payment,
     )
@@ -225,7 +243,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
 
     await recovery.sweepStaleHoldPending()
 
-    expect(voidSpy).toHaveBeenCalledWith('pi_orphan')
+    expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.pending_payment,
     )

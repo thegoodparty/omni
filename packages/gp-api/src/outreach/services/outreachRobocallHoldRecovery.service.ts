@@ -20,11 +20,13 @@ const ROBOCALL_HOLD_RECOVERY_SWEEP_JOB = 'robocallHoldRecoverySweep'
 // stuck AND a hold placed just before the crash reserves the candidate's money
 // with nothing to capture or void it — the intent id is persisted only at
 // commit, so it was never recorded. The recovery finds any live hold for the
-// outreach by metadata, VOIDS it (release the money — the conservative
-// direction), and reverts the row to pending_payment with a bumped payAttempt so
-// the normal on-session re-authorize (or the deferred sweep) re-places cleanly
-// under a fresh idempotency key rather than replaying the just-voided PI. It
-// never places or captures — only voids and reverts, both safe — so it is
+// outreach by metadata, CANCELS it (release the money — the conservative
+// direction) with a THROWING cancel so a cancel failure leaves the row
+// hold_pending rather than reverting with a still-live orphan, and reverts the
+// row to pending_payment with a bumped payAttempt so the normal on-session
+// re-authorize (or the deferred sweep) re-places cleanly under a fresh
+// idempotency key rather than replaying the just-cancelled PI. It never places
+// or captures — only cancels and reverts, both safe — so it is
 // prod-only but deliberately NOT kill-switch-gated: a hold_pending strand can
 // happen during the supervised live test (placement is on-session, unswitched),
 // and leaving reserved money stranded is the harm it exists to rescue.
@@ -102,22 +104,25 @@ export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
       return
     }
 
-    // Find and void any live hold placed by the crashed attempt. The intent id
-    // was never persisted (commit did not run), so locate it by metadata. Voiding
-    // releases the reserved money — the conservative direction; a re-authorize
-    // re-places a fresh hold. A found-but-not-voided hold would strand the money,
-    // so a Stripe search failure propagates (per-record catch retries next sweep)
-    // rather than reverting with a possibly-live orphan still reserving funds.
+    // Find and cancel any live hold placed by the crashed attempt. The intent id
+    // was never persisted (commit did not run), so locate it by metadata.
+    // Cancelling releases the reserved money — the conservative direction; a
+    // re-authorize re-places a fresh hold. Both the search AND the cancel use
+    // THROWING calls (cancelHold, not the best-effort voidHold): a found hold we
+    // could not confirm cancelled must NOT fall through to the revert below, or
+    // the row would return to pending_payment while a possibly-live orphan still
+    // reserves the card and a re-auth stacks a second hold. A throw here is
+    // caught per-record by the sweep, leaving the row hold_pending to retry.
     const liveHoldIds =
       await this.stripe.findLiveManualHoldsByOutreach(outreachId)
     for (const paymentIntentId of liveHoldIds) {
-      await this.stripe.voidHold(paymentIntentId)
+      await this.stripe.cancelHold(paymentIntentId)
     }
     if (liveHoldIds.length > 0) {
       this.logger.error(
-        { outreachId, voidedHoldCount: liveHoldIds.length },
-        'CRITICAL robocall hold recovery: voided orphan hold(s) from a crashed ' +
-          'placement; reverting draft to pending_payment',
+        { outreachId, cancelledHoldCount: liveHoldIds.length },
+        'CRITICAL robocall hold recovery: cancelled orphan hold(s) from a ' +
+          'crashed placement; reverting draft to pending_payment',
       )
     }
 
