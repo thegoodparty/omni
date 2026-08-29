@@ -204,6 +204,28 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       // bulk-imports the audience — real external state we'd otherwise leak on
       // every sweep pass.
       const audio = await this.loadAudio(draft.audioKey)
+      // ETAG BIND (legal): the bytes about to reach CallHub MUST be the exact
+      // ones that passed compliance. complianceAudioEtag was frozen on the draft
+      // at create; refuse to upload anything else — a re-upload to the presigned
+      // key after the create gate would otherwise send unapproved audio to real
+      // voters. Fail-closed: a null frozen etag (legacy/crafted row) also blocks.
+      if (
+        !draft.complianceAudioEtag ||
+        audio.etag !== draft.complianceAudioEtag
+      ) {
+        this.logger.error(
+          {
+            outreachId,
+            expectedEtag: draft.complianceAudioEtag,
+            actualEtag: audio.etag,
+          },
+          'CRITICAL robocall audio ETag mismatch at staging; refusing to ' +
+            'dial bytes that did not pass compliance',
+        )
+        throw new BadGatewayException(
+          'Robocall audio no longer matches the approved compliance recording',
+        )
+      }
       const upload = await this.toCallhubAudio(
         audio,
         audioFileName(draft.audioKey),
@@ -257,7 +279,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
 
   private async loadAudio(
     audioKey: string,
-  ): Promise<{ bytes: Buffer; contentType: string }> {
+  ): Promise<{ bytes: Buffer; contentType: string; etag?: string }> {
     const object = await this.s3.getFileBytesWithContentType(
       this.bucket,
       audioKey,
@@ -272,7 +294,11 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         'Robocall audio recording is missing its content type',
       )
     }
-    return { bytes: object.bytes, contentType: object.contentType }
+    return {
+      bytes: object.bytes,
+      contentType: object.contentType,
+      etag: object.etag,
+    }
   }
 
   // CallHub's upload accepts only mp3/wav/ogg, but the recorder produces

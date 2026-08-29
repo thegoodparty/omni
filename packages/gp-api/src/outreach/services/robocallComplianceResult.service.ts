@@ -12,16 +12,21 @@ export class RobocallComplianceResultService extends createPrismaBase(
 ) {
   // Upsert by audioKey so a re-check overwrites the prior verdict rather than
   // accumulating rows: the recording is the same object, so its latest verdict
-  // is the only one that should gate a create.
+  // is the only one that should gate a create. `audioEtag` is the S3 ETag of the
+  // bytes the check actually judged (pinned by the caller across the check, null
+  // if they changed mid-check) — the create gate re-reads the current ETag and
+  // refuses a mismatch or a null, so bytes swapped during OR after the check
+  // can't ride the pass.
   async recordVerdict(
     audioKey: string,
     verdict: RobocallComplianceVerdict,
+    audioEtag: string | null,
   ): Promise<RobocallComplianceResult> {
     const checkedAt = new Date()
     return this.model.upsert({
       where: { audioKey },
-      create: { audioKey, passed: verdict.passed, checkedAt },
-      update: { passed: verdict.passed, checkedAt },
+      create: { audioKey, passed: verdict.passed, checkedAt, audioEtag },
+      update: { passed: verdict.passed, checkedAt, audioEtag },
     })
   }
 

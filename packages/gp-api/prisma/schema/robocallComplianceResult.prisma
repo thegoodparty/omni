@@ -22,6 +22,13 @@ model RobocallComplianceResult {
   // When the verdict was computed, mirrored onto the draft as compliancePassedAt
   // at create so the dial step has a durable per-draft fact.
   checkedAt DateTime @map("checked_at")
+  // The S3 ETag of the audio bytes that were checked (the object's content hash
+  // for a single-part upload). Binds the verdict to the exact recording: a
+  // presigned POST can overwrite the key with different bytes within its expiry
+  // window, so the create gate re-reads the current ETag and refuses a mismatch,
+  // and the value is frozen onto the draft (complianceAudioEtag) for the dial
+  // path. Nullable only for verdicts written before this column existed.
+  audioEtag String?  @map("audio_etag")
 
   @@map("robocall_compliance_result")
 }

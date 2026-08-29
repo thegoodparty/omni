@@ -42,6 +42,7 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
@@ -73,10 +74,16 @@ export class OutreachRobocallController {
     private readonly contacts: ContactsService,
     private readonly callhubNumbers: CallhubNumbersService,
     private readonly stripe: StripeService,
+    private readonly s3: S3Service,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallController.name)
+    const bucket = process.env.ROBOCALL_AUDIO_BUCKET
+    if (!bucket) throw new Error('ROBOCALL_AUDIO_BUCKET is not configured')
+    this.audioBucket = bucket
   }
+
+  private readonly audioBucket: string
 
   // Office is prompt/verification enrichment: an election-api failure degrades
   // to the campaign's normalized office rather than failing the request.
@@ -228,6 +235,18 @@ export class OutreachRobocallController {
     const office = await this.resolveOffice(campaign)
     const organizationName = office ? `${name} for ${office}` : name
 
+    // Pin the audio's ETag ACROSS the check so the verdict binds to the exact
+    // bytes that were transcribed, not the key's state afterward. The check
+    // (Transcribe ingest + poll) can run for minutes, and the presigned POST is
+    // still valid — a candidate could re-upload non-compliant bytes mid-check,
+    // leaving Transcribe's transcript from the good bytes but the object holding
+    // the bad ones. Reading the ETag before AND after and requiring equality
+    // fails that closed: an unequal (or missing) ETag records a null bind, which
+    // the create gate rejects. The dominant window (the poll) is inside here.
+    const beforeEtag = (
+      await this.s3.headObject(this.audioBucket, input.audioKey)
+    )?.etag
+
     const verdict = await this.compliance.checkRecording({
       audioKey: input.audioKey,
       contentType: input.contentType,
@@ -236,10 +255,21 @@ export class OutreachRobocallController {
       userId: String(user.id),
     })
 
+    const afterEtag = (
+      await this.s3.headObject(this.audioBucket, input.audioKey)
+    )?.etag
+    const boundEtag = beforeEtag && beforeEtag === afterEtag ? beforeEtag : null
+
     // Persist the verdict keyed by audioKey so createDraft can enforce a passing
     // compliance pass server-side (a backstop under the client UI gate). A
     // re-check upserts, so the latest verdict is the one the create gate reads.
-    await this.complianceResults.recordVerdict(input.audioKey, verdict)
+    // boundEtag is the ETag of the judged bytes (null if they moved mid-check),
+    // so the create gate can bind the draft to exactly what passed.
+    await this.complianceResults.recordVerdict(
+      input.audioKey,
+      verdict,
+      boundEtag,
+    )
 
     return verdict
   }
