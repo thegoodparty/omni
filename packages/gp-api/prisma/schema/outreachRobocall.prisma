@@ -98,6 +98,14 @@ model OutreachRobocall {
   // whose value is null or older than ~1 day, so it is the primary once/day
   // guard against a double sweep re-emailing.
   lastReminderSentAt     DateTime?           @map("last_reminder_sent_at")
+  // The completion sweep's snapshot of CallHub's actual completed/billable call
+  // count (credits_usage `voice_calls`). Written on each terminal-status poll so
+  // one sweep pass never settles a still-moving count: settlement requires two
+  // consecutive polls to read the SAME count. The value the capture slice
+  // charges (min(actual, authorized)); null until the run finishes dialing.
+  completedCallCount     Int?                @map("completed_call_count")
+  // When the completion sweep last polled CallHub for this run's count.
+  completionPolledAt     DateTime?           @map("completion_polled_at")
   settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
 
   @@map("outreach_robocall")
