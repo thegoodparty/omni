@@ -193,14 +193,26 @@ describe('CallhubCampaignService', () => {
       expect(body).toEqual({ status: 3 })
     })
 
-    it('maps a CallHub abort failure to a 502', async () => {
+    it('maps a non-404 CallHub abort failure to a 502 (retried next sweep)', async () => {
       http.put.mockRejectedValue(
-        createAxiosError({ detail: 'campaign not found' }, 404),
+        createAxiosError({ detail: 'server error' }, 500),
       )
 
       await expect(
         service.abortVoiceBroadcast('3972682680557897335'),
       ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it('treats a 404 (campaign already gone) as retired — does not throw', async () => {
+      // A gone campaign can never dial, so the orphan is resolved; swallowing
+      // lets the cleanup sweep stamp it aborted instead of retrying forever.
+      http.put.mockRejectedValue(
+        createAxiosError({ detail: 'Not found.' }, 404),
+      )
+
+      await expect(
+        service.abortVoiceBroadcast('3972682680557897335'),
+      ).resolves.toBeUndefined()
     })
   })
 })
