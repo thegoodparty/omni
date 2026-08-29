@@ -322,6 +322,24 @@ export class StripeService {
     }
   }
 
+  // Finds LIVE (requires_capture) manual-capture holds for a robocall outreach,
+  // by the outreachId metadata createManualCaptureHold stamps. Used by the
+  // hold_pending stale-recovery sweep to locate an orphan hold whose intent id
+  // was never persisted (the placement crashed before its commit). status
+  // requires_capture is unique to a manual-capture auth, so this matches only
+  // genuinely-live robocall holds — a voided one is `canceled`, a captured one
+  // `succeeded`. Stripe search is eventually consistent (a just-placed PI can
+  // lag ~1m before it is indexed); the recovery only runs on rows already
+  // stranded past ROBOCALL_HOLD_PENDING_STALE_MINUTES, far longer than that lag.
+  async findLiveManualHoldsByOutreach(outreachId: number): Promise<string[]> {
+    const res = await this.stripe.paymentIntents.search({
+      query:
+        `status:'requires_capture' AND ` +
+        `metadata['outreachId']:'${outreachId}'`,
+    })
+    return res.data.map((intent) => intent.id)
+  }
+
   // Full refund of a completed one-time payment (cancel-before-send).
   // Callers pass a stable idempotency key so a retried cancel can never
   // refund twice.
