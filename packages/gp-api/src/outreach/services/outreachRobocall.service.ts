@@ -13,6 +13,8 @@ import {
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { RobocallComplianceResultService } from './robocallComplianceResult.service'
 import {
   Campaign,
@@ -41,6 +43,7 @@ export class OutreachRobocallService extends createPrismaBase(
     private readonly contacts: ContactsService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly complianceResults: RobocallComplianceResultService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -167,6 +170,12 @@ export class OutreachRobocallService extends createPrismaBase(
         return spine.id
       })
 
+      // Scheduled touchpoint, emitted ONLY on a fresh create (not the idempotent
+      // existing-draft returns above / in the catch, which already emitted).
+      // Best-effort: the draft already committed, so a Segment failure must not
+      // 500 a successful create. Deterministic messageId dedups a replay.
+      await this.emitScheduled(campaign.userId, outreachId)
+
       return { outreachId, billableCount, amountInCents }
     } catch (err) {
       // A concurrent create won the unique(audio_key) race: return its draft
@@ -186,6 +195,29 @@ export class OutreachRobocallService extends createPrismaBase(
         )
       }
       throw err
+    }
+  }
+
+  // Emits the Scheduled milestone with a deterministic Segment messageId so a
+  // replay dedups to one email. Best-effort: the draft already committed, so a
+  // transient Segment failure must not fail the create.
+  private async emitScheduled(
+    userId: number,
+    outreachId: number,
+  ): Promise<void> {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Robocall.Scheduled,
+        { outreachId },
+        undefined,
+        `${outreachId}:scheduled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall scheduled milestone emit failed',
+      )
     }
   }
 
