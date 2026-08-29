@@ -113,6 +113,14 @@ export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
     // the row would return to pending_payment while a possibly-live orphan still
     // reserves the card and a re-auth stacks a second hold. A throw here is
     // caught per-record by the sweep, leaving the row hold_pending to retry.
+    // This "never revert with a live orphan" guarantee is bounded by Stripe
+    // SEARCH completeness, not absolute: a search index false-negative (a live
+    // hold not yet indexed) reverts anyway and a re-auth double-RESERVES — never
+    // a double-capture (an orphan's intent id was never persisted, so nothing
+    // captures it), and it self-heals at the ~7-day auth expiry. The 15-min
+    // stale window vastly exceeds Stripe's sub-minute index lag, so this is a
+    // residual, not an expected, outcome; the 2a orphan-hold reconcile is its
+    // durable backstop.
     const liveHoldIds =
       await this.stripe.findLiveManualHoldsByOutreach(outreachId)
     for (const paymentIntentId of liveHoldIds) {
