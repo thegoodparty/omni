@@ -40,6 +40,7 @@ a CAS failure Slack meant for send attempts.
 | `outreachRobocallDeferredHold.service.ts`           | Deferred hold placement (`OutreachRobocallDeferredHoldService`, `createPrismaBase(MODELS.OutreachRobocall)`): a daily `@Cron` (`13 8 * * *`, `EASTERN_TIMEZONE`) that finds `pending_payment` drafts with a card persisted at defer time (`paymentMethodId` + `stripeCustomerId` NOT NULL) whose send has entered the window (`now < outreach.date <= now + ROBOCALL_HOLD_WINDOW_DAYS`), loads user + campaign + organization, and calls `OutreachRobocallHoldService.authorizeHold` passing NO paymentMethodId — authorizeHold re-reads the row's persisted card AFTER winning the placement claim, so the sweep can never bill a card a concurrent re-authorize replaced after this sweep's snapshot. Trigger + context loader + per-record try/catch only — `authorizeHold` owns the placement CAS, the hold, the window-fit, and the milestones. When the persisted card is a GENUINE permanent problem (stale/foreign/non-card), authorizeHold escalates ATOMICALLY on its deferred path — it moves the `hold_pending` row it owns straight to `hold_failed` + emits `HoldFailed` and RETURNS a `hold_failed` result (never throws `RobocallCardError` on the no-PM path) — so the draft leaves the pending_payment candidate set (no daily retry storm) and the candidate is emailed, with NO separate sweep-level escalation call that could itself fail and strand the row. The sweep's catch only ever sees a transient/non-card error (a zero-audience or reschedule-race `BadRequestException`, or a transient 502): it is logged and the draft is left `pending_payment` to retry next pass. Idempotent across replicas via the placement CAS (an already-`authorized` draft leaves the candidate set). **prod-only** (`OTEL_SERVICE_ENVIRONMENT`) AND kill-switch-gated (`ROBOCALL_DEFERRED_HOLD_ENABLED`, default OFF — it reserves real money off-session); no `CronLockService`. A SECOND `@Cron` (`1,16,31,46 * * * *`) is the cancel-at-deadline cleanup (`sweepExpiredDeferred` → `cancelExpiredDeferred`): a deferred, card-persisted `pending_payment` draft whose `outreach.date <= now` (send passed with NO hold ever placed) is transitioned `pending_payment → cancelled` via a single-owner CAS + emits `Canceled` (messageId `${outreachId}:canceled`) so the candidate is told — no Stripe hold exists to void. This cleanup is **prod-only but deliberately NOT kill-switch-gated**: the leak it rescues happens precisely when placement is disabled past the window, so gating it on `ROBOCALL_DEFERRED_HOLD_ENABLED` would strand the very drafts it exists to cancel. See "Robocall payment" below |
 | `outreachRobocallStaging.service.ts`                | CallHub campaign staging (`OutreachRobocallStagingService`, `createPrismaBase(MODELS.OutreachRobocall)`): for an `authorized`, unstaged draft whose send is approaching, `stageCampaign` creates the PAUSED CallHub voice-broadcast campaign and persists its `callhubCampaignPkStr` + the COMPUTED `callhubStartingDate`/`callhubExpirationDate` (returned by `createVoiceBroadcast`, never null on success). Single-owner claim CAS (`callhubCampaignPkStr IS NULL` AND [`authorized`, OR `staging` gone stale past `ROBOCALL_STAGING_STALE_MINUTES` — a crashed run's stranded claim, reclaimed] → `staging`), CallHub calls (`uploadMedia` FIRST so a bad audio format fails cheap, THEN `loadAudienceToPhonebook` → `createVoiceBroadcast`) OUTSIDE any DB transaction, commit CAS (`staging → authorized` + fields), revert-to-`authorized` on any failure, and an orphan guard (a committed-nothing race logs the orphaned pk_str — a PAUSED campaign charges nothing; no delete). A `@Cron` sweep (`7,17,27,37,47,57 * * * *`, `EASTERN_TIMEZONE`) stages in-window drafts + reclaims stale staging rows; **prod-only** (`OTEL_SERVICE_ENVIRONMENT`, a rate-limited vendor); no `CronLockService` (the per-record claim makes it idempotent across replicas). STAGING ONLY — no dial/START, no Stripe. See "Robocall payment" below |
 | `outreachRobocallSend.service.ts`                   | Send-time dial (`OutreachRobocallSendService`, `createPrismaBase(MODELS.OutreachRobocall)`): `startCampaign` STARTs a staged, still-paid draft's PAUSED CallHub campaign — the step that DIALS REAL PHONES. The two invariants: (1) NEVER dial twice — a single-owner claim CAS (`authorized` AND `callhubCampaignPkStr IS NOT NULL → dialing`) elects one dialer; a launch commits `dialed` ONLY when its response reads back status `START` (a 200 echoing PAUSE/null/`{}` is not trusted), and a lost response OR a non-STARTED 200 is NEVER blind-retried but reconciled against a fresh `CallhubCampaignReportService.getCampaignStatus(pkStr)` read (STARTED → commit `dialed`; PAUSED → revert `authorized`, safe to relaunch; unknown/read-fail → left `dialing` for the stale sweep); the commit CAS (`dialing → dialed` + `dialedAt`) records the launch. (2) NEVER dial unpaid — a FRESH `StripeService.retrievePaymentIntent(authorizationIntentId)` re-read AFTER the claim and BEFORE the launch must read `requires_capture`, else the draft goes `hold_failed` with the authorization fields CLEARED (so the hold service's `authorizationIntentId IS NULL` retry CAS can re-pick it) and emits `HoldFailed` (messageId `<id>:hold_failed_at_dial`) so the absent candidate gets the reminder email; it does not dial. `CallhubCampaignService.launchVoiceBroadcast(pkStr)` runs OUTSIDE any DB transaction; a Stripe-read failure BEFORE launch reverts `dialing → authorized` and rethrows; a commit-miss logs a CRITICAL alert with the pk_str (no safe un-dial). A compliance-pass gate is ANDed with the live-hold check: after the claim + hold re-read and BEFORE launch, a null `compliancePassedAt` (impossible given the create gate — belt-and-suspenders) reverts the claim to `authorized`, does NOT dial, and logs CRITICAL. The `@Cron` sweep (`4,14,24,34,44,54 * * * *`, `EASTERN_TIMEZONE`) dials `authorized` + staged arrived drafts AND recovers rows stranded in `dialing` past `ROBOCALL_DIALING_STALE_MINUTES` via the same status read (stale-guarded reclaim CAS elects one recoverer); **prod-only AND behind the `ROBOCALL_SEND_ENABLED` kill-switch** (default OFF — the deliberate enable-switch for the supervised live dial test); no `CronLockService` (the per-record claims make it idempotent across replicas). READS the hold only — no capture/void, no completion poll. See "Robocall payment" below |
+| `outreachRobocallCapture.service.ts`                | Capture (`OutreachRobocallCaptureService`, `createPrismaBase(MODELS.OutreachRobocall)`): the money-capture half of settlement. For a run the completion sweep parked in `settling` with a confirmed `completedCallCount`, `captureDraft` captures the authorized hold for the ACTUAL billable amount. Single-owner claim CAS (`settling → capturing`), then a FRESH `StripeService.retrievePaymentIntent` re-read (never trust persisted state before moving money) decides: `requires_capture` → `capturePaymentIntent(min(calcRobocallAmountInCents(completedCallCount), authorizedAmountInCents), key=robocall-capture-<id>)` (INV-1 clamp; Stripe frees the remainder) → `capturing → captured` + `capturedAmountInCents` + `Receipt` milestone once; a zero-billable run → `voidHold` → `voided` (no charge, no receipt); an already-`succeeded` PI → idempotent reconcile to `captured` off `amount_received` (no second capture); a lapsed/`canceled` hold → `capturing → uncollectable` + CRITICAL alert (delivered run we could not capture — never blind-charged; the fresh-charge recovery is the reconciliation slice). A transient PI-read or capture-call failure reverts `capturing → settling` to retry. The `@Cron` sweep (`2,12,22,32,42,52 * * * *`, `EASTERN_TIMEZONE`) captures arrived `settling` runs ordered by `captureBefore` asc (expiry-priority, not FIFO, so a backlog never lets a hold lapse uncaptured); **prod-only AND behind the `ROBOCALL_CAPTURE_ENABLED` kill-switch** (default OFF — a SECOND deliberate enable, distinct from `ROBOCALL_SEND_ENABLED`, so dialing and charging are two separate switches for the supervised live test); no `CronLockService` (the per-record claim is idempotent across replicas). MOVES REAL MONEY. See "Robocall payment" below |
 | `outreachRobocallAudio.service.ts`                  | Builds a campaign-scoped object key (`robocall/<campaignId>/<uuid>.<ext>`) and returns a presigned S3 POST (`S3Service.createPresignedUpload`, a `content-length-range` policy capping bytes at `ROBOCALL_AUDIO_MAX_BYTES`), reading the bucket from `ROBOCALL_AUDIO_BUCKET` (throws at construction if unset). Stateless — no row is written                                                                                                                                                                                                                                                                                  |
 | `robocallTranscription.service.ts`                  | Batch AWS Transcribe (`@aws-sdk/client-transcribe`, `StartTranscriptionJob` → poll → read the transcript JSON from S3) for a stored robocall recording. Batch, not the streaming path the mic dictation uses, because a stored webm/mp4/mp3 needs container decoding. Task role needs `transcribe:StartTranscriptionJob`/`GetTranscriptionJob` (granted in `deploy/index.ts`)                                                                                                                                                                                                                                                    |
 | `robocallCompliance.service.ts`                     | Fail-closed compliance gate: transcribes the recording, then verifies via the LLM (temperature 0) that the FCC calling disclosures are actually spoken — candidate self-ID, organization name, callback number. Returns a `RobocallComplianceVerdict` (per-check booleans + transcript + issues). A transcription/LLM failure propagates as 502; it never silently passes. Distinct from the result sweep (ADR 0013) — this is a pre-send audio check, not a disposition writer                                                                                                                                                  |
@@ -70,7 +71,7 @@ ACTUAL billable count CallHub reports. `POST /outreach/robocall`
 (`OutreachRobocallService.createDraft`) is the foundation — it persists the
 `pending_payment` spine + `OutreachRobocall` satellite and returns the
 server-derived estimate. The satellite's `settleState` (`RobocallSettleState`
-enum: `pending_payment → hold_pending → authorized → settling →
+enum: `pending_payment → hold_pending → authorized → settling → capturing →
 captured|charged`, plus the `hold_failed` decline terminal and the
 `voided|cancelled|disputed|uncollectable` terminals) tracks the lifecycle, and
 the satellite carries the Stripe (customer / payment-method / authorization &
@@ -208,6 +209,55 @@ stranded in `dialing` past `ROBOCALL_DIALING_STALE_MINUTES` — a stale-guarded
 reclaim CAS elects one recoverer, which reconciles via the same status read
 (STARTED → `dialed`, PAUSED → `authorized`, else left `dialing`). It READS the
 hold only — no capture/void, no CallHub completion poll.
+
+**Capture (settlement).** `OutreachRobocallCaptureService.captureDraft` captures
+the authorization hold for the ACTUAL completed-call count once the completion
+sweep parks the run in `settling` with a confirmed `completedCallCount`. This
+MOVES REAL MONEY. Invariants:
+
+- **Single-owner claim.** A conditional `updateMany` (`settling → capturing`)
+  elects one capturer; count 0 (a concurrent winner, or an already-advanced row)
+  returns. Every branch below moves the row OUT of `capturing` (to a terminal, or
+  back to `settling` to retry) so it never strands.
+- **Verify before charging.** A FRESH `StripeService.retrievePaymentIntent` read
+  AFTER the claim decides the branch — the persisted state is never trusted to
+  move money. `requires_capture` → capture; `succeeded` → the hold was already
+  captured (a prior run that lost its DB commit), so reconcile to `captured` off
+  `amount_received` withOUT capturing again; anything else (`canceled` / expired)
+  → the hold lapsed and the delivered run is uncapturable → `uncollectable` +
+  CRITICAL alert (never blind-charge a fresh PI here; the fresh-charge recovery is
+  the reconciliation slice). A transient read/capture failure reverts `capturing →
+  settling` to retry — no money moved.
+- **INV-1 (never overbill).** The captured amount is
+  `min(calcRobocallAmountInCents(completedCallCount), authorizedAmountInCents)` —
+  clamped to the authorized hold, so a count that somehow exceeds the frozen
+  estimate still cannot overcharge. Stripe releases the uncaptured remainder. A
+  zero-billable run (an all-suppressed audience) voids the hold → `voided`, no
+  charge. The capture idempotency key is stable (`robocall-capture-<outreachId>`,
+  the amount being deterministic per run) so a lost response replays instead of
+  double-charging.
+- **Receipt + terminal.** The commit CAS (`capturing → captured`) stamps
+  `capturedAmountInCents` and emits `EVENTS.Robocall.Receipt` once (deterministic
+  messageId `<outreachId>:receipt`, best-effort — the capture already committed).
+- **No-strand recovery.** A crash between the Stripe capture and the DB commit
+  would strand the row in `capturing` with money taken — invisible to the
+  `settling` claim. A second sweep pass reclaims rows stuck in `capturing` past
+  `ROBOCALL_CAPTURING_STALE_MINUTES` (15) via a stale-guarded self-transition CAS
+  (writing `capturing` bumps `@updatedAt`, electing one recoverer) and re-runs the
+  same settle path: the fresh PI re-read sees `succeeded` (the capture DID land →
+  record `amount_received`) or `requires_capture` (it did not → re-capture under
+  the stable key), so recovery never double-charges. Mirrors the send slice's
+  stale-`dialing` recovery.
+- **Sweep.** `@Cron` (`2,12,22,32,42,52 * * * *`, `EASTERN_TIMEZONE`) captures
+  arrived `settling` runs ordered by `captureBefore` asc (EXPIRY-PRIORITY, not
+  FIFO — a backlog must never let a hold lapse uncaptured); **prod-only AND behind
+  `ROBOCALL_CAPTURE_ENABLED`** (default OFF — a SECOND deliberate money switch,
+  distinct from `ROBOCALL_SEND_ENABLED`, so dialing and charging are enabled
+  separately for the supervised live test); no `CronLockService` (the per-record
+  claim is idempotent across replicas). **PRE-LIVE GATE:** before flipping the
+  switch, verify CallHub `credits_usage` `voice_calls` is per-campaign-attributable
+  and final for a real run (the only path that could record an over-count; INV-1
+  still caps the charge either way).
 
 ## Gotchas / invariants
 
@@ -400,5 +450,25 @@ card-persisted draft whose send passed + emits `Canceled` once EVEN WITH
 cancels once under a concurrent double-run (the CAS), and no-ops off prod —
 spying on `authorizeHold`, `AnalyticsService.track`, and the Stripe intent
 create;
+`outreachRobocallCapture.test.ts` covers the capture directly on the service (no
+HTTP route): happy-path captures the actual amount off a live hold (idempotency
+key `robocall-capture-<id>`) and records the `Receipt` once; undercharge (fewer
+calls than the estimate → the smaller amount); INV-1 (an actual over the hold
+clamps to the authorized amount, never overbills); a zero-billable run voids the
+hold → `voided` with no charge/receipt; an already-`succeeded` PI reconciles to
+`captured` off `amount_received` without a second capture; a lapsed/`canceled`
+hold → `uncollectable` + CRITICAL (no blind charge); NEVER-TWICE (a concurrent
+double-capture captures once via the claim CAS); a transient PI-read and a
+capture-call failure both revert to `settling` to retry; a data anomaly (missing
+intent) → `uncollectable` + CRITICAL; a non-settling draft is untouched; the
+sweep captures an arrived run once across repeat runs, captures nearest-expiry
+holds first (distinct intent ids prove the order), skips non-settling, no-ops off
+prod, and no-ops with `ROBOCALL_CAPTURE_ENABLED` unset; and stale-`capturing`
+recovery reconciles a stranded row (backdated `updated_at`) whether its pre-crash
+capture landed (`succeeded` → no re-capture) or not (`requires_capture` →
+re-capture under the stable key), leaves a fresh capturing row alone, and elects
+one recoverer under a concurrent double-sweep — mocking
+`StripeService.retrievePaymentIntent`,
+`capturePaymentIntent`, `voidHold`, and `AnalyticsService.track`;
 `outreachFlow.test.ts` covers the submission contract, the draft-first
 purchase path, and the failure-still-Slacks interceptor behavior.

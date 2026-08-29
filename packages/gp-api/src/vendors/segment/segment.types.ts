@@ -174,6 +174,10 @@ export const EVENTS = {
     HoldFailed: 'Robocall - Hold Failed',
     Reminder: 'Robocall - Reminder',
     Canceled: 'Robocall - Canceled',
+    // The capture receipt: emitted once from the winning capturing → captured
+    // transition after the actual completed-call count is charged off the hold,
+    // messageId `<outreachId>:receipt` so a replay dedups to one email.
+    Receipt: 'Robocall - Receipt',
   },
 }
 

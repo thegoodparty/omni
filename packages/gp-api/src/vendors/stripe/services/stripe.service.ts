@@ -189,6 +189,23 @@ export class StripeService {
     return await this.stripe.paymentIntents.retrieve(paymentId)
   }
 
+  // Captures an authorized manual-capture hold for a specific amount. The caller
+  // clamps amountToCaptureInCents to <= the authorized amount (INV-1); Stripe
+  // releases any uncaptured remainder. A stable idempotencyKey makes a retried
+  // capture replay the same result instead of erroring, so a lost response never
+  // double-charges. Returns the captured PaymentIntent (read amount_received).
+  async capturePaymentIntent(
+    paymentIntentId: string,
+    amountToCaptureInCents: number,
+    idempotencyKey: string,
+  ): Promise<Stripe.PaymentIntent> {
+    return await this.stripe.paymentIntents.capture(
+      paymentIntentId,
+      { amount_to_capture: amountToCaptureInCents },
+      { idempotencyKey },
+    )
+  }
+
   async updatePaymentIntentMetadata(
     paymentIntentId: string,
     metadata: Record<string, string>,
