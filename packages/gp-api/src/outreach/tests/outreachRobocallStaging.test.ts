@@ -89,11 +89,13 @@ const createDraft = async ({
   settleState = RobocallSettleState.authorized,
   callhubCampaignPkStr,
   audioExt = 'mp3',
+  complianceAudioEtag = STAGE_ETAG,
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
   callhubCampaignPkStr?: string
   audioExt?: string
+  complianceAudioEtag?: string | null
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -113,7 +115,7 @@ const createDraft = async ({
       billableCount: 100,
       amountInCents: 450,
       settleState,
-      complianceAudioEtag: STAGE_ETAG,
+      complianceAudioEtag,
       ...(callhubCampaignPkStr ? { callhubCampaignPkStr } : {}),
     },
   })
@@ -254,6 +256,32 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
 
     // Blocked BEFORE any CallHub state is created; the claim reverts to
     // authorized and the mismatch is surfaced CRITICAL.
+    expect(uploadMediaSpy).not.toHaveBeenCalled()
+    expect(loadAudienceSpy).not.toHaveBeenCalled()
+    expect(createVbSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId }),
+      expect.stringContaining('CRITICAL'),
+    )
+  })
+
+  it('refuses to dial a draft with no frozen compliance ETag (fail-closed)', async () => {
+    // A legacy or crafted row with a null frozen etag never had its bytes bound
+    // to a compliance pass, so the guard must fail closed on it the same way it
+    // does on a mismatch — never upload unverified bytes to CallHub.
+    const outreachId = await createDraft({ complianceAudioEtag: null })
+    const errorSpy = vi.spyOn(
+      (staging as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+
     expect(uploadMediaSpy).not.toHaveBeenCalled()
     expect(loadAudienceSpy).not.toHaveBeenCalled()
     expect(createVbSpy).not.toHaveBeenCalled()
