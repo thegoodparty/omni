@@ -281,6 +281,14 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
 
   it('defers when the send is beyond the hold window, placing no hold', async () => {
     const outreachId = await createDraft({ sendInDays: 10 })
+    // The defer branch validates the chosen card before persisting it, so it
+    // reads paymentMethods.retrieve — mock it here so the test passes in
+    // isolation (clearMocks resets calls, not a prior test's implementation).
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
 
     const res = await postAuthorize(outreachId)
 
@@ -289,6 +297,8 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.paymentMethodId).toBe('pm_1')
+    expect(satellite.stripeCustomerId).toBe('cus_test')
   })
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {

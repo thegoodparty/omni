@@ -36,6 +36,7 @@ import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.s
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
+import { OutreachRobocallDeferredHoldService } from './services/outreachRobocallDeferredHold.service'
 import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
@@ -94,6 +95,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachRobocallGenerationService,
     OutreachRobocallService,
     OutreachRobocallHoldService,
+    OutreachRobocallDeferredHoldService,
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
     OutreachRobocallHoldFailureService,

@@ -29,6 +29,15 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallService } from './outreachRobocall.service'
 
+// A card-validation failure on the hold path (foreign / non-card / missing
+// saved card). Extends BadRequestException so on-session /authorize still
+// returns 400, but its distinct type lets the deferred sweep escalate ONLY
+// genuine permanent card problems to hold_failed — a reschedule-race ("payment
+// method required") or a zero-audience BadRequestException stays retryable
+// rather than falsely terminating the run and emailing the candidate about a
+// card that is fine.
+export class RobocallCardError extends BadRequestException {}
+
 // Places the pay-time authorization hold on a scheduled robocall draft: a
 // manual-capture Stripe hold for the server-re-derived estimate, off-session on
 // the vaulted card. This RESERVES REAL MONEY. The transition is single-owner:
@@ -48,12 +57,16 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     super()
   }
 
+  // `paymentMethodId` is supplied by the on-session /authorize (the candidate's
+  // chosen card). The deferred sweep passes NONE: the authoritative card was
+  // persisted on the row at defer time and is re-read AFTER the placement claim
+  // (below) so a concurrent re-authorize can't make the sweep bill a stale card.
   async authorizeHold(
     user: User,
     campaign: Campaign,
     organization: Organization,
     outreachId: number,
-    paymentMethodId: string,
+    paymentMethodId?: string,
   ): Promise<RobocallAuthorizeResponse> {
     const draft = await this.findFirst({
       where: {
@@ -78,11 +91,46 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     }
 
     // WINDOW: a hold placed too far ahead would expire before the send. Beyond
-    // the window, defer to the daily sweep (a later slice) — place nothing now.
+    // the window, defer to the daily sweep — place nothing now, but PERSIST the
+    // card the candidate chose so the sweep bills exactly it, never a guessed
+    // default. Validate the PM the SAME way the immediate path does; a bad PM
+    // must persist nothing. This stores WHICH card to later charge — it places
+    // no hold and moves no money, and the draft stays pending_payment.
     if (isAfter(sendAt, addDays(new Date(), ROBOCALL_HOLD_WINDOW_DAYS))) {
+      // Defer is only reachable on-session (the sweep only calls in-window), so
+      // a PM is always supplied here; guard narrows the type and is defensive.
+      if (!paymentMethodId) {
+        throw new BadRequestException(
+          'A payment method is required to schedule a robocall hold',
+        )
+      }
+      const customerId = await this.stripe.ensureCustomer(user)
+      const pm = await this.stripe.retrievePaymentMethod(paymentMethodId)
+      if (pm.customer !== customerId) {
+        throw new RobocallCardError(
+          'That payment method is not on file for this account',
+        )
+      }
+      if (pm.type !== 'card') {
+        throw new RobocallCardError('Only a card can authorize a robocall hold')
+      }
+      // CAS-guarded persist: after the two async Stripe validations a concurrent
+      // request could have rescheduled this send into the window and advanced
+      // the row past pending_payment. Only write while still pending_payment, so
+      // we never clobber the chosen card on an already-authorized row.
+      const persisted = await this.model.updateMany({
+        where: { outreachId, settleState: RobocallSettleState.pending_payment },
+        data: { paymentMethodId, stripeCustomerId: customerId },
+      })
+      // count 0 means the row advanced under us (a concurrent in-window
+      // authorize placed or failed the hold). Report its live state, not a stale
+      // 'deferred' that would tell the client no hold exists when one does.
+      if (persisted.count === 0) {
+        return this.currentStateResult(outreachId, draft.settleState)
+      }
       return {
         status: 'deferred',
-        settleState: draft.settleState,
+        settleState: RobocallSettleState.pending_payment,
         authorizedAmountInCents: null,
       }
     }
@@ -116,6 +164,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // new card.
     let estimate: number
     let customerId: string
+    let holdPaymentMethodId: string
     try {
       const billableCount = await this.robocallService.deriveBillableCount(
         organization,
@@ -136,10 +185,28 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         )
       }
 
-      customerId = await this.stripe.ensureCustomer(user)
-      const pm = await this.stripe.retrievePaymentMethod(paymentMethodId)
+      // Resolve the card to hold against. On-session: the caller's chosen PM.
+      // Deferred sweep (no PM passed): the card persisted at defer time, re-read
+      // HERE — the claim above made the row ours, so this reads the value as of
+      // the claim, not a pre-claim snapshot a concurrent re-persist could have
+      // replaced (that write can't touch a hold_pending row). A cleared/absent
+      // persisted card is a permanent problem the sweep escalates to hold_failed.
+      if (paymentMethodId) {
+        holdPaymentMethodId = paymentMethodId
+        customerId = await this.stripe.ensureCustomer(user)
+      } else {
+        const claimed = await this.findFirst({ where: { outreachId } })
+        if (!claimed?.paymentMethodId || !claimed.stripeCustomerId) {
+          throw new RobocallCardError(
+            'No saved card to authorize the deferred robocall hold',
+          )
+        }
+        holdPaymentMethodId = claimed.paymentMethodId
+        customerId = claimed.stripeCustomerId
+      }
+      const pm = await this.stripe.retrievePaymentMethod(holdPaymentMethodId)
       if (pm.customer !== customerId) {
-        throw new BadRequestException(
+        throw new RobocallCardError(
           'That payment method is not on file for this account',
         )
       }
@@ -148,13 +215,21 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // funds. The vault SetupIntent already pins cards, so this is defense in
       // depth against a non-card PM reaching the create call.
       if (pm.type !== 'card') {
-        throw new BadRequestException(
-          'Only a card can authorize a robocall hold',
-        )
+        throw new RobocallCardError('Only a card can authorize a robocall hold')
       }
     } catch (err) {
-      // Pre-hold failure: no hold placed, so no idempotency key was consumed.
-      // Revert without bumping payAttempt — the next attempt reuses attempt N+1.
+      // DEFERRED path (no PM passed): a permanent card problem escalates
+      // ATOMICALLY here — the row is the hold_pending we own, so move it straight
+      // to hold_failed + emit HoldFailed and RETURN a hold_failed result. The
+      // sweep never makes a separate escalation call that could itself fail and
+      // strand the row back in pending_payment for an endless retry storm.
+      if (!paymentMethodId && err instanceof RobocallCardError) {
+        return this.transitionToHoldFailed(user.id, outreachId)
+      }
+      // Otherwise — an on-session card error (throw 400 to the present caller to
+      // fix live), or a transient/non-card error on either path — revert to
+      // pending_payment and rethrow. No hold placed, so no idempotency key was
+      // consumed; don't bump payAttempt (the next attempt reuses attempt N+1).
       await this.revertClaim(outreachId)
       throw err
     }
@@ -166,7 +241,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     try {
       held = await this.stripe.createManualCaptureHold({
         customerId,
-        paymentMethodId,
+        paymentMethodId: holdPaymentMethodId,
         amountInCents: estimate,
         robocallId: outreachId,
         attempt,
@@ -179,31 +254,11 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     } catch (err) {
       if (err instanceof StripeHoldDeclinedError) {
         // A decline is a business outcome, not a 502. Move to the hold_failed
-        // terminal, bump payAttempt, and emit the milestone once. A future
-        // resolution slice must branch on err.code: `authentication_required`
-        // is a StripeCardError that needs on-session re-auth, not the "update
-        // your card" reminder loop.
-        await this.model.updateMany({
-          where: {
-            outreachId,
-            settleState: RobocallSettleState.hold_pending,
-          },
-          data: {
-            settleState: RobocallSettleState.hold_failed,
-            payAttempt: attempt,
-          },
-        })
-        await this.emitMilestone(
-          user.id,
-          outreachId,
-          EVENTS.Robocall.HoldFailed,
-          'hold_failed',
-        )
-        return {
-          status: 'hold_failed',
-          settleState: RobocallSettleState.hold_failed,
-          authorizedAmountInCents: null,
-        }
+        // terminal, bump payAttempt (a hold attempt WAS made, so the key is
+        // consumed), and emit the milestone once. A future resolution slice must
+        // branch on err.code: `authentication_required` is a StripeCardError that
+        // needs on-session re-auth, not the "update your card" reminder loop.
+        return this.transitionToHoldFailed(user.id, outreachId, attempt)
       }
       // Infra failure (502): no confirmed hold to void. Release the claim
       // WITHOUT bumping payAttempt — a retry reuses the same idempotency key so
@@ -242,7 +297,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         authorizationIntentId: held.paymentIntentId,
         authorizedAmountInCents: estimate,
         captureBefore: held.captureBefore,
-        paymentMethodId,
+        paymentMethodId: holdPaymentMethodId,
         stripeCustomerId: customerId,
         payAttempt: attempt,
         // A (re)authorization invalidates any previously-staged CallHub
@@ -279,6 +334,38 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
       authorizedAmountInCents: estimate,
+    }
+  }
+
+  // Escalates a draft to the hold_failed terminal + emits the HoldFailed
+  // The shared hold_pending → hold_failed terminal transition + HoldFailed
+  // emit, used by BOTH the on-session decline path (a real Stripe decline, with
+  // payAttempt bumped to the consumed attempt) and the deferred-sweep atomic
+  // card-failure escalation (a permanent persisted-card problem, no attempt
+  // bumped — no hold was placed). The CAS matches only the hold_pending we own,
+  // so a lost race (the draft moved underneath) writes nothing and emits nothing.
+  private async transitionToHoldFailed(
+    userId: number,
+    outreachId: number,
+    payAttempt?: number,
+  ): Promise<RobocallAuthorizeResponse> {
+    await this.model.updateMany({
+      where: { outreachId, settleState: RobocallSettleState.hold_pending },
+      data: {
+        settleState: RobocallSettleState.hold_failed,
+        ...(payAttempt != null ? { payAttempt } : {}),
+      },
+    })
+    await this.emitMilestone(
+      userId,
+      outreachId,
+      EVENTS.Robocall.HoldFailed,
+      'hold_failed',
+    )
+    return {
+      status: 'hold_failed',
+      settleState: RobocallSettleState.hold_failed,
+      authorizedAmountInCents: null,
     }
   }
 
