@@ -13,6 +13,7 @@ export const WebhookEventType = {
   // Stripe.ChargeDisputeCreatedEvent), not as named constants — these mirror
   // those literals so the dispatch switch narrows to the right event type.
   PaymentMethodDetached: 'payment_method.detached',
+  PaymentMethodAttached: 'payment_method.attached',
   ChargeDisputeCreated: 'charge.dispute.created',
 } as const
 

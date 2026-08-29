@@ -165,6 +165,13 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     let estimate: number
     let customerId: string
     let holdPaymentMethodId: string
+    // The validated card, set once validation passes (with-PM paths only). A
+    // failure AFTER this point folds it into the revert so the row lands back in
+    // pending_payment carrying the NEW card even if the persist write itself
+    // threw — never a stale declined card the deferred sweep would re-charge.
+    let validatedCard:
+      | { paymentMethodId: string; stripeCustomerId: string }
+      | undefined
     try {
       const billableCount = await this.robocallService.deriveBillableCount(
         organization,
@@ -217,20 +224,59 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       if (pm.type !== 'card') {
         throw new RobocallCardError('Only a card can authorize a robocall hold')
       }
+      // Persist the VALIDATED card + customer onto the claimed row (only for a
+      // supplied card; the deferred path already has them persisted). Written
+      // AFTER validation so a foreign/non-card PM — which throws above — is never
+      // stored, and BEFORE the Stripe hold so the card survives into hold_failed
+      // on a decline (the card-update retry filters on stripeCustomerId, and a
+      // first on-session decline never reaches the success commit). Captured
+      // into validatedCard FIRST, so even a failure of this persist write folds
+      // the correct card into the revert below — the row then lands back in
+      // pending_payment carrying the NEW card, never a stale declined one.
+      if (paymentMethodId) {
+        validatedCard = {
+          paymentMethodId: holdPaymentMethodId,
+          stripeCustomerId: customerId,
+        }
+        await this.model.updateMany({
+          where: { outreachId, settleState: RobocallSettleState.hold_pending },
+          data: validatedCard,
+        })
+      }
     } catch (err) {
-      // DEFERRED path (no PM passed): a permanent card problem escalates
-      // ATOMICALLY here — the row is the hold_pending we own, so move it straight
-      // to hold_failed + emit HoldFailed and RETURN a hold_failed result. The
-      // sweep never makes a separate escalation call that could itself fail and
-      // strand the row back in pending_payment for an endless retry storm.
-      if (!paymentMethodId && err instanceof RobocallCardError) {
-        return this.transitionToHoldFailed(user.id, outreachId)
+      // OFF-SESSION card problem (no present caller to fix it live) escalates
+      // ATOMICALLY to hold_failed here — the row is the hold_pending we own, so
+      // move it straight to hold_failed + emit HoldFailed and RETURN a
+      // hold_failed result, never a separate escalation call that could itself
+      // fail and strand the row in pending_payment for an endless retry storm.
+      // Two off-session paths reach here: the deferred sweep (no PM passed) AND
+      // the card-update retry (a PM passed, but the pre-claim state was
+      // hold_failed) — both must terminate to hold_failed, not fall through to
+      // revert (which would leave a hold_failed retry sitting in pending_payment
+      // for the daily sweep to re-charge the same bad card forever).
+      if (
+        err instanceof RobocallCardError &&
+        (!paymentMethodId ||
+          draft.settleState === RobocallSettleState.hold_failed)
+      ) {
+        // Bump payAttempt (draft.payAttempt + 1) even though no hold was placed:
+        // persisting it makes the HoldFailed dedup key advance across repeated
+        // escalations, so a later card-failure on the same draft — past Segment's
+        // 24h window — still sends the "update your card" email. The next real
+        // hold attempt just skips a number, which the idempotency key tolerates.
+        return this.transitionToHoldFailed(
+          user.id,
+          outreachId,
+          draft.payAttempt + 1,
+        )
       }
       // Otherwise — an on-session card error (throw 400 to the present caller to
-      // fix live), or a transient/non-card error on either path — revert to
+      // fix live), or a transient/non-card error on any path — revert to
       // pending_payment and rethrow. No hold placed, so no idempotency key was
       // consumed; don't bump payAttempt (the next attempt reuses attempt N+1).
-      await this.revertClaim(outreachId)
+      // Fold in the validated card (set once validation passed) so the revert
+      // carries the NEW card even if the persist write itself is what threw.
+      await this.revertClaim(outreachId, undefined, validatedCard)
       throw err
     }
 
@@ -255,9 +301,13 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       if (err instanceof StripeHoldDeclinedError) {
         // A decline is a business outcome, not a 502. Move to the hold_failed
         // terminal, bump payAttempt (a hold attempt WAS made, so the key is
-        // consumed), and emit the milestone once. A future resolution slice must
-        // branch on err.code: `authentication_required` is a StripeCardError that
-        // needs on-session re-auth, not the "update your card" reminder loop.
+        // consumed), and emit the milestone once. The card + customer were
+        // already persisted after validation above, so the hold_failed row
+        // carries a stripeCustomerId the card-update retry can find — even on a
+        // first on-session decline that never reaches the success commit. A
+        // future resolution slice must branch on err.code:
+        // `authentication_required` is a StripeCardError that needs on-session
+        // re-auth, not the "update your card" reminder loop.
         return this.transitionToHoldFailed(user.id, outreachId, attempt)
       }
       // Infra failure (502): no confirmed hold to void. Release the claim
@@ -337,23 +387,26 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     }
   }
 
-  // Escalates a draft to the hold_failed terminal + emits the HoldFailed
   // The shared hold_pending → hold_failed terminal transition + HoldFailed
-  // emit, used by BOTH the on-session decline path (a real Stripe decline, with
-  // payAttempt bumped to the consumed attempt) and the deferred-sweep atomic
-  // card-failure escalation (a permanent persisted-card problem, no attempt
-  // bumped — no hold was placed). The CAS matches only the hold_pending we own,
-  // so a lost race (the draft moved underneath) writes nothing and emits nothing.
+  // emit, used by BOTH the decline path and the card-failure escalation (a
+  // permanent card problem — deferred sweep or a hold_failed retry). Every caller
+  // passes a MONOTONIC `payAttempt` (decline: the consumed attempt; escalation:
+  // draft.payAttempt + 1, even though no hold was placed), and it is persisted
+  // AND used as the HoldFailed messageId suffix. Persisting it is what makes the
+  // dedup key advance across repeated escalations, so each genuine "update your
+  // card" email is sent even past Segment's 24h window; the hold idempotency key
+  // tolerates the skipped number a no-hold escalation leaves. The CAS matches
+  // only the hold_pending we own, so a lost race writes nothing and emits nothing.
   private async transitionToHoldFailed(
     userId: number,
     outreachId: number,
-    payAttempt?: number,
+    payAttempt: number,
   ): Promise<RobocallAuthorizeResponse> {
     await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.hold_pending },
       data: {
         settleState: RobocallSettleState.hold_failed,
-        ...(payAttempt != null ? { payAttempt } : {}),
+        payAttempt,
       },
     })
     await this.emitMilestone(
@@ -361,6 +414,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       outreachId,
       EVENTS.Robocall.HoldFailed,
       'hold_failed',
+      payAttempt,
     )
     return {
       status: 'hold_failed',
@@ -372,16 +426,20 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   // Releases the hold_pending claim back to pending_payment. When a PLACED hold
   // was just voided, pass the used attempt as payAttempt so the next attempt
   // derives a fresh idempotency key; omit it for a pre-hold/infra revert where
-  // the key was not consumed (or must be reused to recover a live PI).
+  // the key was not consumed (or must be reused to recover a live PI). `card`
+  // folds the validated card into the revert so the row carries the NEW card
+  // even if the post-validation persist write is what failed.
   private async revertClaim(
     outreachId: number,
     payAttempt?: number,
+    card?: { paymentMethodId: string; stripeCustomerId: string },
   ): Promise<void> {
     await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.hold_pending },
       data: {
         settleState: RobocallSettleState.pending_payment,
         ...(payAttempt != null ? { payAttempt } : {}),
+        ...(card ?? {}),
       },
     })
   }
@@ -419,19 +477,30 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   // op already committed, so a transient Segment failure must not 500 a request
   // whose hold succeeded — that would push a retry onto the noop path and lose
   // the email entirely. A lost email is recoverable by the later reminder sweep.
+  // `attempt` is folded into the messageId for HoldFailed on a real decline so
+  // each decline attempt has a UNIQUE dedup key: the card-update retry can
+  // decline again days after the first (past Segment's 24h dedup window), and a
+  // fixed messageId would suppress the second "update your card" email a
+  // candidate genuinely needs. Card-validation escalations (no hold attempted)
+  // pass no attempt and keep the base key.
   private async emitMilestone(
     userId: number,
     outreachId: number,
     event: string,
     suffix: 'hold_placed' | 'hold_failed',
+    attempt?: number,
   ): Promise<void> {
     try {
+      const messageId =
+        attempt != null
+          ? `${outreachId}:${suffix}:${attempt}`
+          : `${outreachId}:${suffix}`
       await this.analytics.track(
         userId,
         event,
         { outreachId },
         undefined,
-        `${outreachId}:${suffix}`,
+        messageId,
       )
     } catch (err) {
       this.logger.error(
