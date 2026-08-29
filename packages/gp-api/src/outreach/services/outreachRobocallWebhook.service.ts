@@ -1,7 +1,16 @@
 import { Injectable } from '@nestjs/common'
+import { addDays } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
-import { RobocallSettleState } from '../../generated/prisma'
+import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
+import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+
+// The card-update hold retry reserves REAL MONEY off-session (the candidate is
+// not necessarily present for THIS robocall when they update a card), so it is
+// gated behind the same switch as the deferred off-session sweep. Default OFF.
+const isOffSessionHoldEnabled = () =>
+  process.env.ROBOCALL_DEFERRED_HOLD_ENABLED === 'true'
 
 // The robocall settle states in which no call has been placed yet: a hold may be
 // reserved (authorized / hold_pending / staging) or the card merely persisted
@@ -23,7 +32,10 @@ const NOT_YET_DIALED_STATES = [
 export class OutreachRobocallWebhookService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
-  constructor(private readonly stripe: StripeService) {
+  constructor(
+    private readonly stripe: StripeService,
+    private readonly holds: OutreachRobocallHoldService,
+  ) {
     super()
   }
 
@@ -88,5 +100,80 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
       where: { id: draft.id },
       data: { settleState: RobocallSettleState.disputed },
     })
+  }
+
+  // payment_method.attached: retry the authorization hold for this customer's
+  // hold_failed robocall drafts whose send is IN THE WINDOW, using the newly
+  // attached card. The filter is bounded to `now < date <= now + window` so
+  // authorizeHold always takes the placement path (its hold_failed +
+  // authorizationIntentId-null retry CAS re-picks the row), NEVER the defer
+  // branch — whose persist CAS is pending_payment-only and would silently drop
+  // the new card on a hold_failed row rescheduled out of the window. The lower
+  // bound (`> now`) honors "updating the card after send time does not revive
+  // it"; authorizeHold's own capture-window fit enforces the hard deadline.
+  // authorizeHold owns the single-owner claim, the Stripe hold, and the
+  // HoldPlaced/HoldFailed milestones, so a Stripe redelivery is idempotent (a
+  // draft already advanced out of hold_failed is not re-selected) and per-draft
+  // failures are isolated.
+  async retryHoldFailedForAttachedCard(
+    customerId: string,
+    paymentMethodId: string,
+  ): Promise<void> {
+    if (!isOffSessionHoldEnabled()) {
+      return
+    }
+    const now = new Date()
+    const drafts = await this.model.findMany({
+      where: {
+        stripeCustomerId: customerId,
+        settleState: RobocallSettleState.hold_failed,
+        outreach: {
+          outreachType: OutreachType.robocall,
+          date: { gt: now, lte: addDays(now, ROBOCALL_HOLD_WINDOW_DAYS) },
+        },
+      },
+      include: {
+        outreach: {
+          include: {
+            campaign: { include: { user: true } },
+            organization: true,
+          },
+        },
+      },
+    })
+
+    for (const draft of drafts) {
+      const { campaign, organization } = draft.outreach
+      const user = campaign?.user
+      // A robocall draft always carries a user + org; a row missing either can't
+      // place a hold, so log and skip rather than throw the whole handler.
+      if (!user || !organization) {
+        this.logger.error(
+          { outreachId: draft.outreachId },
+          'robocall card-update retry: draft missing user/org; skipping',
+        )
+        continue
+      }
+      try {
+        await this.holds.authorizeHold(
+          user,
+          campaign,
+          organization,
+          draft.outreachId,
+          paymentMethodId,
+        )
+      } catch (err) {
+        // authorizeHold surfaces a genuine decline as a hold_failed RESULT (not a
+        // throw) and emits HoldFailed itself; a throw here is a transient/infra
+        // error, which authorizeHold has reverted to pending_payment carrying the
+        // now-validated new card — so the deferred sweep retries THIS card next
+        // pass. Just log and continue; one draft's failure must not abort the
+        // rest.
+        this.logger.error(
+          { err, outreachId: draft.outreachId },
+          'robocall card-update hold retry failed; reverted for the sweep',
+        )
+      }
+    }
   }
 }

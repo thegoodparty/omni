@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { addDays } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
 import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { OutreachRobocallWebhookService } from '@/outreach/services/outreachRobocallWebhook.service'
+import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
@@ -57,11 +58,15 @@ const createDraft = async ({
   paymentMethodId,
   authorizationIntentId,
   chargeIntentId,
+  stripeCustomerId,
+  sendAt = addDays(new Date(), 2),
 }: {
   settleState?: RobocallSettleState
   paymentMethodId?: string
   authorizationIntentId?: string
   chargeIntentId?: string
+  stripeCustomerId?: string
+  sendAt?: Date
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -69,7 +74,7 @@ const createDraft = async ({
       organizationSlug: orgSlug,
       outreachType: 'robocall',
       status: 'pending_payment',
-      date: addDays(new Date(), 2),
+      date: sendAt,
       voterFileFilterId: filterId,
     },
   })
@@ -84,6 +89,7 @@ const createDraft = async ({
       ...(paymentMethodId ? { paymentMethodId } : {}),
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(chargeIntentId ? { chargeIntentId } : {}),
+      ...(stripeCustomerId ? { stripeCustomerId } : {}),
     },
   })
   return spine.id
@@ -259,6 +265,160 @@ describe('OutreachRobocallWebhookService', () => {
       expect((await readSatellite(disputed)).settleState).toBe(
         RobocallSettleState.disputed,
       )
+    })
+  })
+
+  describe('retryHoldFailedForAttachedCard', () => {
+    const CUSTOMER = 'cus_1'
+    const NEW_PM = 'pm_new'
+    const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
+    let authorizeSpy: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = 'true'
+      authorizeSpy = vi
+        .spyOn(service.app.get(OutreachRobocallHoldService), 'authorizeHold')
+        .mockResolvedValue({
+          status: 'authorized',
+          settleState: RobocallSettleState.authorized,
+          authorizedAmountInCents: 450,
+        })
+    })
+    afterEach(() => {
+      if (originalFlag === undefined) {
+        delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
+      } else {
+        process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
+      }
+    })
+
+    it('retries the hold for an in-window hold_failed draft with the new card', async () => {
+      const outreachId = await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).toHaveBeenCalledTimes(1)
+      const call = authorizeSpy.mock.calls[0]
+      // authorizeHold(user, campaign, organization, outreachId, paymentMethodId)
+      expect(call?.[3]).toBe(outreachId)
+      expect(call?.[4]).toBe(NEW_PM)
+      // Passes the draft's OWN user/campaign/org — a wrong identity here is how a
+      // cross-tenant hold would be placed, so assert all three explicitly.
+      expect(call?.[0]?.id).toBe(service.user.id)
+      expect(call?.[1]?.id).toBe(campaign.id)
+      expect(call?.[2]?.slug).toBe(orgSlug)
+    })
+
+    it('skips a draft whose send time has already passed', async () => {
+      await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+        sendAt: addDays(new Date(), -1),
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).not.toHaveBeenCalled()
+    })
+
+    it('skips a hold_failed draft scheduled beyond the hold window', async () => {
+      // Out of the window, authorizeHold would take the defer branch (whose
+      // persist CAS is pending_payment-only) and silently drop the new card, so
+      // the retry must NOT select it — it stays for the sweep once in-window.
+      await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+        sendAt: addDays(new Date(), 6),
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).not.toHaveBeenCalled()
+    })
+
+    it('skips a hold_failed draft for a different customer', async () => {
+      await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: 'cus_other',
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).not.toHaveBeenCalled()
+    })
+
+    it('skips a draft that is not hold_failed', async () => {
+      await createDraft({
+        settleState: RobocallSettleState.authorized,
+        stripeCustomerId: CUSTOMER,
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).not.toHaveBeenCalled()
+    })
+
+    it('no-ops when the off-session hold kill-switch is unset', async () => {
+      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
+      await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).not.toHaveBeenCalled()
+    })
+
+    it('is idempotent across a webhook redelivery: no second attempt', async () => {
+      const outreachId = await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+      expect(authorizeSpy).toHaveBeenCalledTimes(1)
+
+      // authorizeHold's real single-owner CAS advances the claimed draft out of
+      // hold_failed; the mock does not, so advance it by hand to reproduce that
+      // state, then redeliver. The handler must NOT re-attempt a draft that is
+      // no longer hold_failed.
+      await service.prisma.outreachRobocall.updateMany({
+        where: {
+          outreachId,
+          settleState: RobocallSettleState.hold_failed,
+        },
+        data: { settleState: RobocallSettleState.authorized },
+      })
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('isolates a per-draft failure: one throw does not abort the rest', async () => {
+      const first = await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+      })
+      const second = await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+      })
+      authorizeSpy.mockRejectedValueOnce(new Error('transient stripe'))
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      // Both drafts were attempted despite the first throwing.
+      expect(authorizeSpy).toHaveBeenCalledTimes(2)
+      const attempted = [
+        authorizeSpy.mock.calls[0]?.[3],
+        authorizeSpy.mock.calls[1]?.[3],
+      ]
+      expect(attempted).toContain(first)
+      expect(attempted).toContain(second)
     })
   })
 })
