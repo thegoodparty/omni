@@ -170,6 +170,10 @@ export const EVENTS = {
   // card never fixed, so the run is cancelled unsent, messageId
   // `<outreachId>:canceled`) cover the failed-hold follow-up path.
   Robocall: {
+    // The candidate scheduled a robocall (the pending_payment draft was created),
+    // emitted once from the fresh-create path with messageId
+    // `<outreachId>:scheduled` so a replay dedups to one email.
+    Scheduled: 'Robocall - Scheduled',
     HoldPlaced: 'Robocall - Hold Placed',
     HoldFailed: 'Robocall - Hold Failed',
     Reminder: 'Robocall - Reminder',

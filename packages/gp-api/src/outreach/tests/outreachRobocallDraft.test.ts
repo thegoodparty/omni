@@ -18,6 +18,8 @@ import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { PeopleListResponse } from '@/contacts/schemas/person.schema'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachRobocallService } from '../services/outreachRobocall.service'
 import {
   OutreachStatus,
@@ -145,6 +147,31 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     // The passing compliance verdict is mirrored onto the draft so the dial
     // step has a durable per-draft fact to gate on.
     expect(spine.robocall?.compliancePassedAt).not.toBeNull()
+  })
+
+  it('emits the Scheduled milestone once on a fresh create, not on an idempotent repeat', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+
+    const res = await postDraft(validDraftBody())
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const scheduled = trackSpy.mock.calls.filter(
+      (c) => c[1] === EVENTS.Robocall.Scheduled,
+    )
+    expect(scheduled).toHaveLength(1)
+    // Deterministic messageId for downstream dedup.
+    expect(scheduled[0]?.[4]).toBe(`${res.data.outreachId}:scheduled`)
+
+    // An idempotent repeat (same audioKey → the existing pending_payment draft)
+    // must NOT re-emit: a second Scheduled email would read as a second booking.
+    const repeat = await postDraft(validDraftBody())
+    expect(repeat.data.outreachId).toBe(res.data.outreachId)
+    expect(
+      trackSpy.mock.calls.filter((c) => c[1] === EVENTS.Robocall.Scheduled),
+    ).toHaveLength(1)
   })
 
   // Local calendar day, not the UTC date: an evening local send whose UTC
