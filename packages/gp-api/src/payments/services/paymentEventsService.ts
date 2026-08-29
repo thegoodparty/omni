@@ -98,6 +98,8 @@ export class PaymentEventsService {
         return await this.customerSubscriptionResumedHandler(event)
       case WebhookEventType.PaymentMethodDetached:
         return await this.paymentMethodDetachedHandler(event)
+      case WebhookEventType.PaymentMethodAttached:
+        return await this.paymentMethodAttachedHandler(event)
       case WebhookEventType.ChargeDisputeCreated:
         return await this.chargeDisputeCreatedHandler(event)
     }
@@ -122,6 +124,27 @@ export class PaymentEventsService {
   ): Promise<void> {
     await this.robocallWebhookService().cancelNotYetDialedForDetachedPaymentMethod(
       event.data.object.id,
+    )
+  }
+
+  // payment_method.attached: a candidate added/updated a saved card (via the pay
+  // step's SetupIntent or the billing portal). Immediately retry the hold for
+  // this customer's hold_failed robocall drafts whose send is still ahead — the
+  // team flow's "card updated before send time → retry the hold now" arm, so the
+  // candidate does not wait for the daily reminder. Cards only; the service owns
+  // the off-session-money kill-switch and the per-draft placement CAS.
+  async paymentMethodAttachedHandler(
+    event: Stripe.PaymentMethodAttachedEvent,
+  ): Promise<void> {
+    const pm = event.data.object
+    const customerId =
+      typeof pm.customer === 'string' ? pm.customer : pm.customer?.id
+    if (!customerId || pm.type !== 'card') {
+      return
+    }
+    await this.robocallWebhookService().retryHoldFailedForAttachedCard(
+      customerId,
+      pm.id,
     )
   }
 

@@ -259,6 +259,23 @@ MOVES REAL MONEY. Invariants:
   and final for a real run (the only path that could record an over-count; INV-1
   still caps the charge either way).
 
+**Hold-failure recovery (card update).** `OutreachRobocallWebhookService.retryHoldFailedForAttachedCard`
+is the team flow's "card updated before send time → retry the hold now" arm. The
+Stripe `payment_method.attached` webhook (dispatched from
+`PaymentEventsService.paymentMethodAttachedHandler`, cards only) retries the hold
+for that customer's `hold_failed` robocall drafts whose send is IN the window
+(`now < date <= now + ROBOCALL_HOLD_WINDOW_DAYS`), calling `authorizeHold` with
+the newly attached card. The lower bound honors "a card update after send time
+does not revive it"; the upper bound keeps authorizeHold on its placement retry
+path (`hold_failed` + null intent → `hold_pending`) and off the defer branch,
+whose persist CAS is `pending_payment`-only and would silently drop the new card
+on an out-of-window `hold_failed` row. authorizeHold owns the single-owner claim, the Stripe hold,
+and the `HoldPlaced`/`HoldFailed` milestones, so a Stripe redelivery is idempotent
+(a draft already advanced out of `hold_failed` is not re-selected) and per-draft
+failures are isolated. RESERVES REAL MONEY off-session, so it is gated behind
+`ROBOCALL_DEFERRED_HOLD_ENABLED` (default OFF), the same switch as the deferred
+sweep. Ops: the Stripe webhook endpoint must subscribe to `payment_method.attached`.
+
 ## Gotchas / invariants
 
 - The script reaches Peerly VERBATIM (one default MMS template,

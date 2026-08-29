@@ -40,6 +40,7 @@ describe('PaymentEventsService', () => {
   const robocallWebhookService = {
     cancelNotYetDialedForDetachedPaymentMethod: vi.fn(),
     markDisputedByIntent: vi.fn(),
+    retryHoldFailedForAttachedCard: vi.fn(),
   }
   const moduleRef = { get: vi.fn() }
 
@@ -111,6 +112,9 @@ describe('PaymentEventsService', () => {
       undefined,
     )
     robocallWebhookService.markDisputedByIntent.mockResolvedValue(undefined)
+    robocallWebhookService.retryHoldFailedForAttachedCard.mockResolvedValue(
+      undefined,
+    )
     moduleRef.get.mockImplementation((token) =>
       token === OutreachRobocallWebhookService
         ? robocallWebhookService
@@ -565,6 +569,49 @@ describe('PaymentEventsService', () => {
       expect(
         robocallWebhookService.cancelNotYetDialedForDetachedPaymentMethod,
       ).toHaveBeenCalledExactlyOnceWith('pm_gone')
+    })
+  })
+
+  describe('handleEvent — payment_method.attached', () => {
+    const attachedEvent = (
+      customer: string | { id: string } | null,
+      type = 'card',
+    ) =>
+      ({
+        type: WebhookEventType.PaymentMethodAttached,
+        data: { object: { id: 'pm_new', customer, type } },
+      }) as unknown as Stripe.PaymentMethodAttachedEvent
+
+    it('retries the hold for the customer with the newly attached card', async () => {
+      await service.handleEvent(attachedEvent('cus_1'))
+
+      expect(
+        robocallWebhookService.retryHoldFailedForAttachedCard,
+      ).toHaveBeenCalledExactlyOnceWith('cus_1', 'pm_new')
+    })
+
+    it('unwraps an expanded customer object to its id', async () => {
+      await service.handleEvent(attachedEvent({ id: 'cus_1' }))
+
+      expect(
+        robocallWebhookService.retryHoldFailedForAttachedCard,
+      ).toHaveBeenCalledExactlyOnceWith('cus_1', 'pm_new')
+    })
+
+    it('no-ops when the payment method has no customer', async () => {
+      await service.handleEvent(attachedEvent(null))
+
+      expect(
+        robocallWebhookService.retryHoldFailedForAttachedCard,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('no-ops for a non-card payment method', async () => {
+      await service.handleEvent(attachedEvent('cus_1', 'us_bank_account'))
+
+      expect(
+        robocallWebhookService.retryHoldFailedForAttachedCard,
+      ).not.toHaveBeenCalled()
     })
   })
 
