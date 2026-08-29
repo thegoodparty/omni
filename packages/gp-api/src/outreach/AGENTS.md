@@ -389,7 +389,9 @@ sweep. Ops: the Stripe webhook endpoint must subscribe to `payment_method.attach
   its `compliancePassedAt` mirrors the passing verdict at create so the dial
   gate has a per-draft fact), `robocallComplianceResult.prisma`
   (`RobocallComplianceResult`: `audioKey` unique, `passed`, `checkedAt` — the
-  per-audioKey verdict store the create gate reads). Phone banking's own tables
+  per-audioKey verdict store the create gate reads; `audioEtag` binds the verdict
+  to the exact audio bytes, and `OutreachRobocall.complianceAudioEtag` freezes it
+  onto the draft for the dial path). Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
   controller/service live in a separate `src/phoneBanking/` module — this
