@@ -328,6 +328,14 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.callhubCampaignPkStr).toBeNull()
     expect(satellite.callhubStartingDate).toBeNull()
     expect(satellite.callhubExpirationDate).toBeNull()
+    // The cleared campaign is recorded as an orphan so the cleanup sweep ABORTs
+    // the PAUSED campaign it left behind at CallHub.
+    const orphan = await service.prisma.robocallOrphanedCampaign.findUnique({
+      where: { campaignPkStr: 'vb_stale' },
+    })
+    expect(orphan?.reason).toBe('reauth_restage')
+    expect(orphan?.outreachId).toBe(outreachId)
+    expect(orphan?.abortedAt).toBeNull()
   })
 
   it('502s and reverts without bumping payAttempt on an infra failure', async () => {

@@ -407,6 +407,12 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
       expect.objectContaining({ orphanedCampaignPkStr: 'vb_1' }),
       expect.any(String),
     )
+    // The orphaned campaign is recorded so the cleanup sweep ABORTs it.
+    const orphan = await service.prisma.robocallOrphanedCampaign.findUnique({
+      where: { campaignPkStr: 'vb_1' },
+    })
+    expect(orphan?.reason).toBe('staging_lost_commit')
+    expect(orphan?.abortedAt).toBeNull()
     // A later pass creates no second campaign (pk_str is set → not eligible).
     await staging.stageCampaign(outreachId)
     expect(createVbSpy).toHaveBeenCalledTimes(1)

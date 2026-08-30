@@ -178,4 +178,41 @@ describe('CallhubCampaignService', () => {
       ).rejects.toBeInstanceOf(BadGatewayException)
     })
   })
+
+  describe('abortVoiceBroadcast', () => {
+    it('ABORTs the campaign (PUT status 3) at the pk_str path', async () => {
+      const pkStr = '3972682680557897335'
+      http.put.mockResolvedValue({ pk_str: pkStr, status: 3 })
+
+      await service.abortVoiceBroadcast(pkStr)
+
+      const [path, body] = http.put.mock.calls[0] ?? []
+      expect(path).toBe(`/v1/voice_broadcasts/${pkStr}/`)
+      // ABORT is status 3 (CALLHUB_VB_STATUS.ABORT), the only field sent — the
+      // opposite of START (1), so this can only ever stop a campaign dialing.
+      expect(body).toEqual({ status: 3 })
+    })
+
+    it('maps a non-404 CallHub abort failure to a 502 (retried next sweep)', async () => {
+      http.put.mockRejectedValue(
+        createAxiosError({ detail: 'server error' }, 500),
+      )
+
+      await expect(
+        service.abortVoiceBroadcast('3972682680557897335'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it('treats a 404 (campaign already gone) as retired — does not throw', async () => {
+      // A gone campaign can never dial, so the orphan is resolved; swallowing
+      // lets the cleanup sweep stamp it aborted instead of retrying forever.
+      http.put.mockRejectedValue(
+        createAxiosError({ detail: 'Not found.' }, 404),
+      )
+
+      await expect(
+        service.abortVoiceBroadcast('3972682680557897335'),
+      ).resolves.toBeUndefined()
+    })
+  })
 })

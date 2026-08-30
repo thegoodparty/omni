@@ -16,7 +16,7 @@ HTTP routes of its own.
 | `services/callhubMedia.service.ts` | Multipart audio upload → `media_file_id` |
 | `services/callhubPhonebook.service.ts` | Create phonebook + poll loaded count |
 | `services/callhubBulkImport.service.ts` | Async CSV contact load (no job id) |
-| `services/callhubCampaign.service.ts` | Create + schedule a voice broadcast; `launchVoiceBroadcast` (START) dials it |
+| `services/callhubCampaign.service.ts` | Create + schedule a voice broadcast; `launchVoiceBroadcast` (START) dials it; `abortVoiceBroadcast` (ABORT, status 3) retires a PAUSED one so it never dials |
 | `services/callhubDnc.service.ts` | DNC list lookup |
 
 ## Gotchas

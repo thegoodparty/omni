@@ -28,6 +28,7 @@ import {
   User,
 } from '../../generated/prisma'
 import { OutreachRobocallService } from './outreachRobocall.service'
+import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 
 // A card-validation failure on the hold path (foreign / non-card / missing
 // saved card). Extends BadRequestException so on-session /authorize still
@@ -53,6 +54,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     private readonly robocallService: OutreachRobocallService,
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
+    private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
   ) {
     super()
   }
@@ -337,6 +339,19 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       )
     }
 
+    // Capture the campaign pk_str the commit is about to null — read FRESH from
+    // the row we own in hold_pending, NOT the method-entry snapshot. A concurrent
+    // re-auth→stage→dead-hold cycle completing before our claim could have left
+    // the row carrying a NEWER pk_str than the entry snapshot; while we hold the
+    // hold_pending claim nothing else writes this row's pk_str, so this read is
+    // exactly the value the commit nulls (never a stale one that leaks the real
+    // orphan unrecorded).
+    const owned = await this.findFirst({
+      where: { outreachId },
+      select: { callhubCampaignPkStr: true },
+    })
+    const orphanedPkStr = owned?.callhubCampaignPkStr ?? null
+
     // SUCCESS CLAIM: commit the hold only if the draft is still the
     // hold_pending we own. If it moved (a lost race), the hold we placed must
     // not stand — void it and report the current state.
@@ -372,6 +387,27 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       await this.stripe.voidHold(held.paymentIntentId)
       await this.revertClaim(outreachId, attempt)
       return this.currentStateResult(outreachId, draft.settleState)
+    }
+
+    // The commit just nulled callhubCampaignPkStr. If a previously-staged
+    // campaign was there (a hold_failed re-auth re-derives the count, so the old
+    // frozen phonebook must not dial), it is now orphaned — record it so the
+    // cleanup sweep ABORTs it. Best-effort: a PAUSED campaign charges nothing, so
+    // a lost record only leaves harmless account clutter and must never fail the
+    // authorize whose hold already committed.
+    if (orphanedPkStr) {
+      try {
+        await this.orphanedCampaigns.record(
+          orphanedPkStr,
+          outreachId,
+          'reauth_restage',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, campaignPkStr: orphanedPkStr },
+          'robocall re-auth: failed to record orphaned CallHub campaign',
+        )
+      }
     }
 
     await this.emitMilestone(

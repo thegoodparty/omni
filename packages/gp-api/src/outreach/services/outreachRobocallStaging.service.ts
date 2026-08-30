@@ -14,6 +14,7 @@ import {
 } from '@/vendors/callhub/services/callhubCampaign.service'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
+import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 
 // How far ahead of the scheduled send a draft becomes eligible to stage. The
 // rented CallHub caller-ID number gets spam-flagged / auto-un-rented if it sits
@@ -62,6 +63,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     private readonly campaigns: CallhubCampaignService,
     private readonly s3: S3Service,
     private readonly transcode: AudioTranscodeService,
+    private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -267,13 +269,25 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       // ORPHAN GUARD: the draft moved out of staging while CallHub was creating
       // (a cancel, or a concurrent stager that somehow advanced it), so the
       // just-created campaign can't be attached. It is PAUSED and charges
-      // nothing, but it must be reconciled by hand — log its pk_str. It is NOT
-      // deleted here: CallhubCampaignService exposes no delete, and this slice
-      // must not build one. This never double-charges or loses the draft.
+      // nothing, but it must be retired — record its pk_str so the cleanup sweep
+      // ABORTs it. Best-effort: a lost record only leaves harmless account
+      // clutter and must not fail the (already committed-nothing) stage.
       this.logger.error(
         { outreachId, orphanedCampaignPkStr: created.pk_str },
         'robocall staging committed nothing; orphaned CallHub campaign',
       )
+      try {
+        await this.orphanedCampaigns.record(
+          created.pk_str,
+          outreachId,
+          'staging_lost_commit',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, campaignPkStr: created.pk_str },
+          'robocall staging: failed to record orphaned CallHub campaign',
+        )
+      }
     }
   }
 
