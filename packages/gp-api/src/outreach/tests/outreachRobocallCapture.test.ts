@@ -173,6 +173,12 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.voided,
     )
+    // The best-effort void is recorded so the reconcile sweep re-voids it if it
+    // did not land.
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_1' },
+    })
+    expect(orphan?.reason).toBe('zero_billable')
   })
 
   it('reconciles idempotently when the hold already succeeded (lost commit)', async () => {
@@ -208,6 +214,26 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
       expect.objectContaining({ outreachId }),
       expect.stringContaining('CRITICAL'),
     )
+  })
+
+  it('voids (not uncollectable) a zero-billable run whose hold is already gone', async () => {
+    // A zero-billable settle that voided the hold then crashed before its voided
+    // commit is recovered here with the hold already canceled. It owes nothing,
+    // so it must go to voided — NOT uncollectable + a false CRITICAL.
+    const outreachId = await createDraft({ completedCallCount: 0 })
+    retrieveSpy.mockResolvedValue(piWith('canceled'))
+    const errorSpy = vi.spyOn(
+      (capture as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await capture.captureDraft(outreachId)
+
+    expect(captureSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.voided,
+    )
+    expect(errorSpy).not.toHaveBeenCalled()
   })
 
   it('elects a single capturer when two runs race the same settling draft', async () => {

@@ -506,6 +506,13 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // The voided hold bumps payAttempt so a retry derives a fresh idempotency
     // key and a new PI instead of idempotent-replaying the canceled one.
     expect(satellite.payAttempt).toBe(1)
+    // The best-effort void is recorded so the reconcile sweep re-voids it if the
+    // void did not land.
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_short' },
+    })
+    expect(orphan?.reason).toBe('window_fit')
+    expect(orphan?.outreachId).toBe(outreachId)
   })
 
   it('places the hold at the window edge when capture_before fits', async () => {
@@ -634,6 +641,12 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(res.data.status).toBe('authorized')
     expect(paymentIntentsCancel).toHaveBeenCalledWith('pi_race')
     expect(trackSpy).not.toHaveBeenCalled()
+    // The best-effort void of the lost-race hold is recorded for the reconcile
+    // sweep to re-void if it did not land.
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_race' },
+    })
+    expect(orphan?.reason).toBe('lost_commit')
   })
 
   it('is Pro-gated: a non-Pro campaign is rejected without touching Stripe', async () => {

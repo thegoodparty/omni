@@ -8,6 +8,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
 // minutes later on a slot free of the other robocall crons (send :04, staging
@@ -52,6 +53,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
   constructor(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
+    private readonly orphanedHolds: RobocallOrphanedHoldService,
   ) {
     super()
   }
@@ -245,12 +247,26 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // HOLD LAPSED: expired / canceled / never capturable. The run DID dial, so
-    // this is money owed we could not capture — surface it CRITICAL and park in
-    // uncollectable. Never blind-charge; the fresh-charge recovery is the
-    // reconciliation slice. (Prevented in practice by the hold window + this
-    // sweep's expiry-priority ordering.)
+    // HOLD LAPSED: expired / canceled / never capturable. A ZERO-billable run
+    // owes nothing, so a gone hold is the expected, correct outcome (e.g. this is
+    // a stale-`capturing` recovery of a zero-billable settle that voided the hold
+    // then crashed before its `voided` commit) → send it to `voided`, NOT
+    // `uncollectable` + a false CRITICAL. A NON-zero run with a gone hold IS money
+    // owed we could not capture — surface CRITICAL and park uncollectable (never
+    // blind-charge; the fresh-charge recovery handles it). Prevented in practice
+    // by the hold window + this sweep's expiry-priority ordering.
     if (intent.status !== 'requires_capture') {
+      if (calcRobocallAmountInCents(completedCallCount) <= 0) {
+        this.logger.info(
+          { outreachId, intentStatus: intent.status },
+          'robocall capture: zero-billable run with a gone hold; voided',
+        )
+        await this.transitionFromCapturing(
+          outreachId,
+          RobocallSettleState.voided,
+        )
+        return
+      }
       this.logger.error(
         { outreachId, intentStatus: intent.status },
         'CRITICAL robocall capture: hold not capturable at capture time; ' +
@@ -272,6 +288,20 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // release it — no capture, no receipt.
     if (captureAmount <= 0) {
       await this.stripe.voidHold(authorizationIntentId)
+      // Record the hold so the reconcile sweep re-voids it if this best-effort
+      // void did not land (best-effort — never fail the settle over it).
+      try {
+        await this.orphanedHolds.record(
+          authorizationIntentId,
+          outreachId,
+          'zero_billable',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, paymentIntentId: authorizationIntentId },
+          'robocall: failed to record orphaned hold for reconcile',
+        )
+      }
       await this.transitionFromCapturing(outreachId, RobocallSettleState.voided)
       this.logger.info(
         { outreachId, completedCallCount },
