@@ -40,6 +40,13 @@ enum RobocallSettleState {
   // to `uncollectable`; a zero-billable run to `voided`. Appended for the same
   // append-only ADD VALUE reason.
   capturing
+  // The single-owner claim held while the fresh-charge recovery charges a
+  // delivered run whose authorization hold lapsed (an off-session charge, NOT a
+  // hold capture) — the guard against charging the same run twice. A successful
+  // charge advances to `charged`; a declined card returns to `uncollectable`
+  // (chargeIntentId set, so it is not re-attempted). Appended for the same
+  // append-only ADD VALUE reason.
+  charging
 }
 
 model OutreachRobocall {

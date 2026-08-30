@@ -4,25 +4,38 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { UsersService } from 'src/users/services/users.service'
-import { StripeService } from './stripe.service'
+import { StripeChargeDeclinedError, StripeService } from './stripe.service'
 
 const {
   sessionsCreate,
   sessionsExpire,
   sessionsRetrieve,
   productsRetrieve,
+  paymentIntentsCreate,
   MockStripeError,
+  MockStripeCardError,
 } = vi.hoisted(() => ({
   sessionsCreate: vi.fn(),
   sessionsExpire: vi.fn(),
   sessionsRetrieve: vi.fn(),
   productsRetrieve: vi.fn(),
+  paymentIntentsCreate: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
+  MockStripeCardError: class StripeCardError extends Error {
+    payment_intent?: { id: string }
+    constructor(message: string, paymentIntentId?: string) {
+      super(message)
+      if (paymentIntentId) this.payment_intent = { id: paymentIntentId }
+    }
+  },
 }))
 
 vi.mock('stripe', () => ({
   default: class {
-    static errors = { StripeInvalidRequestError: MockStripeError }
+    static errors = {
+      StripeInvalidRequestError: MockStripeError,
+      StripeCardError: MockStripeCardError,
+    }
     checkout = {
       sessions: {
         create: sessionsCreate,
@@ -31,6 +44,7 @@ vi.mock('stripe', () => ({
       },
     }
     products = { retrieve: productsRetrieve }
+    paymentIntents = { create: paymentIntentsCreate }
   },
 }))
 
@@ -173,5 +187,76 @@ describe('StripeService Pro subscription checkout', () => {
         BadGatewayException,
       )
     })
+  })
+})
+
+describe('StripeService.createOffSessionCharge', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as SlackService,
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  const chargeArgs = {
+    customerId: 'cus_1',
+    paymentMethodId: 'pm_1',
+    amountInCents: 450,
+    robocallId: 42,
+    metadata: { outreachId: '42' },
+  }
+
+  it('charges off-session with a stable idempotency key and returns the intent id', async () => {
+    paymentIntentsCreate.mockResolvedValue({ id: 'pi_ok', status: 'succeeded' })
+
+    const result = await service.createOffSessionCharge(chargeArgs)
+
+    expect(result).toEqual({ paymentIntentId: 'pi_ok' })
+    const [body, opts] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({
+      amount: 450,
+      customer: 'cus_1',
+      payment_method: 'pm_1',
+      capture_method: 'automatic',
+      confirm: true,
+      off_session: true,
+    })
+    // Stable per outreach so a retry replays instead of double-charging.
+    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-42' })
+  })
+
+  it('maps a card decline to StripeChargeDeclinedError carrying the PI id', async () => {
+    paymentIntentsCreate.mockRejectedValue(
+      new MockStripeCardError('card_declined', 'pi_declined'),
+    )
+
+    await expect(
+      service.createOffSessionCharge(chargeArgs),
+    ).rejects.toMatchObject({
+      name: 'StripeChargeDeclinedError',
+      paymentIntentId: 'pi_declined',
+    })
+  })
+
+  it('treats a confirmed-but-not-succeeded PI as a decline (never a false charge)', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_pending',
+      status: 'requires_action',
+    })
+
+    await expect(
+      service.createOffSessionCharge(chargeArgs),
+    ).rejects.toBeInstanceOf(StripeChargeDeclinedError)
+  })
+
+  it('maps a non-card Stripe failure to a 502', async () => {
+    paymentIntentsCreate.mockRejectedValue(new Error('stripe down'))
+
+    await expect(
+      service.createOffSessionCharge(chargeArgs),
+    ).rejects.toBeInstanceOf(BadGatewayException)
   })
 })
