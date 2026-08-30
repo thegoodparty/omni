@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { addHours, subMinutes } from 'date-fns'
+import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallFreshChargeService } from '@/outreach/services/outreachRobocallFreshCharge.service'
@@ -249,6 +250,48 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     expect(satellite.chargeIntentId).toBe('pi_prior')
   })
 
+  it('leaves the row charging when the succeeded-charge search fails (retries next sweep)', async () => {
+    const outreachId = await createDraft()
+    // The claim moves the row to charging, then the pre-charge reconcile search
+    // throws → no charge is issued and the row strands in charging for the stale
+    // sweep to recover.
+    findChargeSpy.mockRejectedValue(new Error('stripe search down'))
+
+    await expect(freshCharge.chargeUncollectable(outreachId)).rejects.toThrow(
+      'stripe search down',
+    )
+
+    expect(chargeSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.charging,
+    )
+  })
+
+  it('logs CRITICAL when the charge lands but the commit finds no charging row', async () => {
+    const outreachId = await createDraft()
+    const errorSpy = vi.spyOn(
+      (freshCharge as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+    // The charge succeeds, but a concurrent settler moves the row out of
+    // charging before our commit — the commit CAS matches 0. Money moved at
+    // Stripe, so this must surface CRITICAL, never be silently swallowed.
+    chargeSpy.mockImplementation(async () => {
+      await service.prisma.outreachRobocall.updateMany({
+        where: { outreachId },
+        data: { settleState: RobocallSettleState.charged },
+      })
+      return { paymentIntentId: 'pi_race' }
+    })
+
+    await freshCharge.chargeUncollectable(outreachId)
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId }),
+      expect.stringContaining('commit found no charging row'),
+    )
+  })
+
   it('does not charge a non-uncollectable draft', async () => {
     const outreachId = await createDraft({
       settleState: RobocallSettleState.captured,
@@ -367,6 +410,24 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.uncollectable)
     expect(satellite.chargeIntentId).toBe('pi_declined')
+  })
+
+  it('parks a stale charging row with missing data uncollectable (never charges blind)', async () => {
+    // The stale-charging reclaim bypasses the candidate filter, so settleClaimed
+    // re-checks the required fields. A charging row missing completedCallCount
+    // hits the guard → CRITICAL + uncollectable, never a blind charge.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.charging,
+      completedCallCount: null,
+    })
+    await strand(outreachId, 30)
+
+    await freshCharge.sweepFreshCharges()
+
+    expect(chargeSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.uncollectable,
+    )
   })
 
   it('does NOT recover a fresh (not-yet-stale) charging row', async () => {

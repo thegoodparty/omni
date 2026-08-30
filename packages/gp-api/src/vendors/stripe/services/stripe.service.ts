@@ -379,14 +379,19 @@ export class StripeService {
       throw new BadGatewayException('Failed to place fresh charge')
     }
 
-    // A confirmed automatic-capture PI that did not reach `succeeded`
-    // (requires_action / processing / requires_payment_method returned WITHOUT
-    // throwing) did not collect funds — treat it as a decline, never a success
-    // the caller records as `charged`. The conservative direction for money
-    // safety: the caller records the PI id, so a `processing` charge that later
-    // settles async leaves a traceable row (uncollectable, no receipt) to
-    // reconcile by hand rather than a phantom `charged`. Cards (the only vaulted
-    // PM here) settle synchronously, so `processing` is rare in practice.
+    // `processing` is NOT a decline — the charge may still settle. Throw a plain
+    // Error (not StripeChargeDeclinedError) so the caller's transient-failure
+    // path reverts to uncollectable WITHOUT recording chargeIntentId. The next
+    // sweep replays under the stable idempotency key and findSucceededChargeByOutreach
+    // reconciles the PI once it lands — never a phantom `charged`, and never a
+    // row permanently locked out of recovery with money silently collected.
+    if (intent.status === 'processing') {
+      throw new Error(`Fresh charge still processing: status ${intent.status}`)
+    }
+    // Any other confirmed-but-not-`succeeded` status (requires_action off-session
+    // won't self-resolve, requires_payment_method, canceled) did not collect
+    // funds and won't — a decline carrying the PI id so the caller marks the run
+    // charge-attempted, never a success recorded as `charged`.
     if (intent.status !== 'succeeded') {
       throw new StripeChargeDeclinedError(
         `Fresh charge did not succeed: status ${intent.status}`,

@@ -272,6 +272,25 @@ describe('StripeService.createOffSessionCharge', () => {
     ).rejects.toBeInstanceOf(BadGatewayException)
   })
 
+  it('treats a processing PI as transient (plain Error, NOT a decline)', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_proc',
+      status: 'processing',
+    })
+
+    // A plain Error routes the caller to its transient-retry path (revert with
+    // no chargeIntentId), so the charge is reconciled once it settles — never
+    // parked as a permanent decline. So it must NOT carry a paymentIntentId.
+    const err = await service
+      .createOffSessionCharge(chargeArgs)
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).name).not.toBe('StripeChargeDeclinedError')
+    expect(
+      (err as { paymentIntentId?: string }).paymentIntentId,
+    ).toBeUndefined()
+  })
+
   it('finds a succeeded fresh charge by kind + outreach metadata', async () => {
     paymentIntentsSearch.mockResolvedValue({
       data: [{ id: 'pi_landed', amount_received: 450 }],
