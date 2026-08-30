@@ -432,8 +432,9 @@ export class StripeService {
   // unusable, or when a lost state race means the hold must not stand).
   // Best-effort: a failed void — Stripe down, or the PI already canceled — must
   // never block the DB revert that follows it on the caller's rollback path, or
-  // the row would strand in hold_pending. An orphan hold auto-expires within the
-  // auth lifetime, and the later reverse-reconciliation slice reclaims it.
+  // the row would strand in hold_pending. A void that does not land is recorded
+  // in RobocallOrphanedHold at the call site so the hold-reconcile sweep
+  // confirms and re-voids it (and it auto-expires within the auth lifetime).
   async voidHold(paymentIntentId: string): Promise<void> {
     try {
       await this.stripe.paymentIntents.cancel(paymentIntentId)

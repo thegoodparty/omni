@@ -29,6 +29,10 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallService } from './outreachRobocall.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
+import {
+  OrphanHoldReason,
+  RobocallOrphanedHoldService,
+} from './robocallOrphanedHold.service'
 
 // A card-validation failure on the hold path (foreign / non-card / missing
 // saved card). Extends BadRequestException so on-session /authorize still
@@ -55,8 +59,28 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
+    private readonly orphanedHolds: RobocallOrphanedHoldService,
   ) {
     super()
+  }
+
+  // Records a hold whose best-effort void may not have landed, so the reconcile
+  // sweep confirms and re-voids it. Best-effort: a reserved hold is not a charge,
+  // so a lost record only defers release to the auth expiry and must never fail
+  // the placement path (whose money outcome already committed).
+  private async recordOrphanHold(
+    paymentIntentId: string,
+    outreachId: number,
+    reason: OrphanHoldReason,
+  ): Promise<void> {
+    try {
+      await this.orphanedHolds.record(paymentIntentId, outreachId, reason)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, paymentIntentId },
+        'robocall: failed to record orphaned hold for reconcile',
+      )
+    }
   }
 
   // `paymentMethodId` is supplied by the on-session /authorize (the candidate's
@@ -333,6 +357,11 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // FRESH idempotency key (robocall-hold-<id>-<attempt+1>) and a new PI —
       // reusing the key would idempotent-replay this just-canceled PI.
       await this.stripe.voidHold(held.paymentIntentId)
+      await this.recordOrphanHold(
+        held.paymentIntentId,
+        outreachId,
+        'window_fit',
+      )
       await this.revertClaim(outreachId, attempt)
       throw new BadRequestException(
         'The authorization would expire before the call can be charged',
@@ -385,6 +414,11 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // (a no-op otherwise, since the row is owned by whoever advanced it), so a
       // fresh key is used should a retry ever place again.
       await this.stripe.voidHold(held.paymentIntentId)
+      await this.recordOrphanHold(
+        held.paymentIntentId,
+        outreachId,
+        'lost_commit',
+      )
       await this.revertClaim(outreachId, attempt)
       return this.currentStateResult(outreachId, draft.settleState)
     }

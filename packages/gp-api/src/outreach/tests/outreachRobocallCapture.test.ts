@@ -173,6 +173,12 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.voided,
     )
+    // The best-effort void is recorded so the reconcile sweep re-voids it if it
+    // did not land.
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_1' },
+    })
+    expect(orphan?.reason).toBe('zero_billable')
   })
 
   it('reconciles idempotently when the hold already succeeded (lost commit)', async () => {

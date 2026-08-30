@@ -5,6 +5,7 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 
 // The card-update hold retry reserves REAL MONEY off-session (the candidate is
 // not necessarily present for THIS robocall when they update a card), so it is
@@ -35,6 +36,7 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
   constructor(
     private readonly stripe: StripeService,
     private readonly holds: OutreachRobocallHoldService,
+    private readonly orphanedHolds: RobocallOrphanedHoldService,
   ) {
     super()
   }
@@ -72,10 +74,24 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
       // `authorized` mid-flight). voidHold is best-effort (never throws).
       const cancelled = await this.model.findUnique({
         where: { id },
-        select: { authorizationIntentId: true },
+        select: { authorizationIntentId: true, outreachId: true },
       })
       if (cancelled?.authorizationIntentId) {
         await this.stripe.voidHold(cancelled.authorizationIntentId)
+        // Record the hold so the reconcile sweep re-voids it if this best-effort
+        // void did not land (best-effort — never fail the cancel over it).
+        try {
+          await this.orphanedHolds.record(
+            cancelled.authorizationIntentId,
+            cancelled.outreachId,
+            'cancel_before_send',
+          )
+        } catch (err) {
+          this.logger.error(
+            { err, outreachId: cancelled.outreachId },
+            'robocall: failed to record orphaned hold for reconcile',
+          )
+        }
       }
     }
   }

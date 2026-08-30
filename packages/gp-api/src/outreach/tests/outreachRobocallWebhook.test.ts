@@ -112,6 +112,11 @@ describe('OutreachRobocallWebhookService', () => {
       const satellite = await readSatellite(outreachId)
       expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
       expect(paymentIntentsCancel).toHaveBeenCalledExactlyOnceWith('pi_hold_1')
+      // The best-effort void is recorded for the reconcile sweep.
+      const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+        where: { paymentIntentId: 'pi_hold_1' },
+      })
+      expect(orphan?.reason).toBe('cancel_before_send')
     })
 
     it('cancels a persisted pending_payment run without a hold to void', async () => {

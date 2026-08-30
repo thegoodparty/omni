@@ -8,6 +8,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
 // minutes later on a slot free of the other robocall crons (send :04, staging
@@ -52,6 +53,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
   constructor(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
+    private readonly orphanedHolds: RobocallOrphanedHoldService,
   ) {
     super()
   }
@@ -272,6 +274,20 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // release it — no capture, no receipt.
     if (captureAmount <= 0) {
       await this.stripe.voidHold(authorizationIntentId)
+      // Record the hold so the reconcile sweep re-voids it if this best-effort
+      // void did not land (best-effort — never fail the settle over it).
+      try {
+        await this.orphanedHolds.record(
+          authorizationIntentId,
+          outreachId,
+          'zero_billable',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, paymentIntentId: authorizationIntentId },
+          'robocall: failed to record orphaned hold for reconcile',
+        )
+      }
       await this.transitionFromCapturing(outreachId, RobocallSettleState.voided)
       this.logger.info(
         { outreachId, completedCallCount },
