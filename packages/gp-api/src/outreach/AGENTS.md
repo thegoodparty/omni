@@ -288,12 +288,21 @@ rare lapsed-hold run. Invariants:
   is logged (a delivered run we could not collect needs manual follow-up). A
   transient infra failure reverts to `uncollectable` with NO `chargeIntentId`, so
   the next sweep retries under the stable key.
-- **No-strand recovery.** A crash between the Stripe charge and the DB commit
-  strands the row in `charging`; the stale-`charging` sweep reclaims it past
-  `ROBOCALL_CHARGING_STALE_MINUTES` (15) via a stale-guarded self-transition CAS
-  and re-runs the settle path — the stable key replays (a landed charge → `charged`;
-  a declined one → `uncollectable`), so recovery never double-charges. Mirrors the
-  capture slice's stale-`capturing` recovery.
+- **No-strand recovery, idempotent forever.** A crash between the Stripe charge
+  and the DB commit strands the row in `charging`; the stale-`charging` sweep
+  reclaims it past `ROBOCALL_CHARGING_STALE_MINUTES` (15) via a stale-guarded
+  self-transition CAS and re-runs the settle path. Before charging, `settleClaimed`
+  SEARCHES Stripe for an already-succeeded fresh-charge PI (by the
+  `robocall_fresh_charge` kind + outreachId metadata) and, if found, commits
+  `charged` off it WITHOUT charging again — so recovery is idempotent independent
+  of Stripe's 24h idempotency-key window, which the capture kill-switch's own
+  toggling (crash → disable to investigate → re-enable next day) can outlast. The
+  stable key is a second layer for within-window retries. Mirrors the capture
+  slice's stale-`capturing` recovery.
+- **Zero-billable → voided.** A zero-billable `uncollectable` run (an
+  all-suppressed run whose hold also lapsed) is sent to `voided`, not back to
+  `uncollectable` — it owes nothing, and `voided` leaves the candidate set so it
+  is never re-swept.
 - **Sweep.** `@Cron` (`5,15,25,35,45,55 * * * *`, `EASTERN_TIMEZONE`), **prod-only
   AND behind `ROBOCALL_CAPTURE_ENABLED`** (shares the capture money switch — both
   are the settlement charge); no `CronLockService` (the per-record claim is

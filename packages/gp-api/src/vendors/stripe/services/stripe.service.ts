@@ -45,6 +45,11 @@ export class StripeChargeDeclinedError extends Error {
   }
 }
 
+// Metadata marker on a robocall fresh-charge PaymentIntent. Distinguishes it
+// from the run's authorization-hold PI, which carries the same outreachId — so
+// the crash-recovery search finds only the fresh charge.
+const ROBOCALL_FRESH_CHARGE_KIND = 'robocall_fresh_charge'
+
 const STRIPE_SECRET_KEY = requireEnv('STRIPE_SECRET_KEY')
 const WEBAPP_ROOT_URL = requireEnv('WEBAPP_ROOT_URL')
 const STRIPE_WEBSOCKET_SECRET = requireEnv('STRIPE_WEBSOCKET_SECRET')
@@ -356,7 +361,10 @@ export class StripeService {
           capture_method: 'automatic',
           confirm: true,
           off_session: true,
-          metadata,
+          // Stamp the kind so a crash-recovery search can find a landed charge
+          // by metadata and reconcile it WITHOUT charging again — the hold PI
+          // carries the same outreachId, so kind is what distinguishes them.
+          metadata: { ...metadata, kind: ROBOCALL_FRESH_CHARGE_KIND },
         },
         { idempotencyKey: `robocall-fresh-charge-${robocallId}` },
       )
@@ -382,6 +390,33 @@ export class StripeService {
       )
     }
     return { paymentIntentId: intent.id }
+  }
+
+  // Finds an already-SUCCEEDED fresh-charge for a robocall outreach, by the kind
+  // + outreachId metadata createOffSessionCharge stamps. The crash-recovery path
+  // uses it to reconcile a charge that landed before its DB commit was lost —
+  // WITHOUT re-charging — so recovery is idempotent independent of Stripe's 24h
+  // idempotency-key window (which the capture kill-switch's own toggling can
+  // outlast). Search is eventually consistent (~1m index lag); recovery only
+  // runs on rows already stranded past ROBOCALL_CHARGING_STALE_MINUTES, far
+  // longer. Returns the succeeded PI's id + amount_received, or null.
+  async findSucceededChargeByOutreach(outreachId: number): Promise<{
+    paymentIntentId: string
+    amountReceived: number | null
+  } | null> {
+    const res = await this.stripe.paymentIntents.search({
+      query:
+        `status:'succeeded' AND ` +
+        `metadata['kind']:'${ROBOCALL_FRESH_CHARGE_KIND}' AND ` +
+        `metadata['outreachId']:'${outreachId}'`,
+    })
+    const intent = res.data[0]
+    return intent
+      ? {
+          paymentIntentId: intent.id,
+          amountReceived: intent.amount_received ?? null,
+        }
+      : null
   }
 
   // Releases an authorization hold (rollback when a placed hold turns out to be

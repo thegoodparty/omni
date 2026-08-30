@@ -18,8 +18,10 @@ const ROBOCALL_FRESH_CHARGE_SWEEP_JOB = 'robocallFreshChargeSweep'
 
 // A `charging` row stranded past this window is a crashed fresh charge (a
 // process that died between winning the claim and committing). Its charge may
-// already have landed at Stripe, so it MUST be reconciled via the stable
-// idempotency key — never left stranded. Matches the capturing stale window.
+// already have landed at Stripe, so it MUST be reconciled — settleClaimed first
+// searches for an already-succeeded charge and commits it WITHOUT re-charging,
+// so recovery is safe even past Stripe's 24h idempotency-key window. Matches the
+// capturing stale window.
 const ROBOCALL_CHARGING_STALE_MINUTES = 15
 
 // Kill-switch, default OFF: this MOVES REAL MONEY (a fresh off-session charge).
@@ -135,8 +137,9 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
   // Recovers a `charging` row stranded past the stale window. Re-claims with a
   // stale-guarded self-transition CAS (writing `charging` bumps @updatedAt, so a
   // concurrent recoverer loses — electing one), then settles via the SAME path.
-  // The stable idempotency key makes the fresh charge replay, so recovery never
-  // double-charges.
+  // settleClaimed's search-first reconcile finds an already-landed charge and
+  // commits it without re-charging, so recovery never double-charges even past
+  // the 24h idempotency-key window.
   private async recoverStaleCharging(outreachId: number): Promise<void> {
     const staleCutoff = subMinutes(new Date(), ROBOCALL_CHARGING_STALE_MINUTES)
     const reclaim = await this.model.updateMany({
@@ -203,23 +206,41 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
       authorizedAmountInCents,
     )
     if (captureAmount <= 0) {
-      // A zero-billable run should have been voided, not parked uncollectable —
-      // never charge zero. Park it back without a chargeIntentId is wrong (it
-      // would re-attempt); set nothing and leave uncollectable, but log so it is
-      // not silently re-swept forever. Belt-and-suspenders for a data anomaly.
-      this.logger.error(
+      // A zero-billable delivered run owes nothing — never charge zero. Send it
+      // to `voided` (the capture slice's own terminal for a zero-billable run),
+      // NOT back to uncollectable, which would re-match the candidate filter and
+      // re-sweep forever. No money moves.
+      this.logger.info(
         { outreachId, completedCallCount },
-        'CRITICAL robocall fresh charge: zero billable on an uncollectable ' +
-          'run; not charged',
+        'robocall fresh charge: zero billable on an uncollectable run; voided',
       )
-      await this.transitionFromCharging(
-        outreachId,
-        RobocallSettleState.uncollectable,
-      )
+      await this.transitionFromCharging(outreachId, RobocallSettleState.voided)
       return
     }
 
     const userId = draft.outreach.campaign?.user?.id
+
+    // IDEMPOTENT-FOREVER GUARD: before charging, check whether a prior attempt's
+    // charge already SUCCEEDED at Stripe (a stale-charging recovery whose commit
+    // was lost, or a lost response). Reconcile it WITHOUT charging again. This
+    // does not rely on Stripe's 24h idempotency-key window — which the capture
+    // kill-switch's toggling can outlast — so a recovery days later never
+    // double-charges. On the first (non-recovery) settle this returns null.
+    const existing = await this.stripe.findSucceededChargeByOutreach(outreachId)
+    if (existing) {
+      this.logger.info(
+        { outreachId, chargeIntentId: existing.paymentIntentId },
+        'robocall fresh charge already succeeded at Stripe; reconciling',
+      )
+      await this.commitCharged(
+        outreachId,
+        existing.paymentIntentId,
+        existing.amountReceived ?? captureAmount,
+        userId,
+        completedCallCount,
+      )
+      return
+    }
 
     let charged: { paymentIntentId: string }
     try {
@@ -239,8 +260,14 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
         // declined PI id (from the confirm) so it is not re-attempted and a
         // later dispute/refund on that intent reconciles. Surfaced CRITICAL —
         // a delivered run we could not collect needs manual follow-up.
+        // Mark the run charge-attempted so the candidate filter (chargeIntentId
+        // IS NULL) never re-attempts it. A confirm-time card decline always
+        // carries the PI id; the `declined-no-pi` sentinel only guards the
+        // near-impossible null case, and — being no real Stripe intent id — is
+        // never matched by a dispute (markDisputedByIntent) either.
+        const marker = err.paymentIntentId ?? `declined-no-pi-${outreachId}`
         this.logger.error(
-          { outreachId, chargeIntentId: err.paymentIntentId },
+          { outreachId, chargeIntentId: marker },
           'CRITICAL robocall fresh charge declined; parked uncollectable, ' +
             'delivered run uncollected',
         )
@@ -248,7 +275,7 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
           where: { outreachId, settleState: RobocallSettleState.charging },
           data: {
             settleState: RobocallSettleState.uncollectable,
-            chargeIntentId: err.paymentIntentId,
+            chargeIntentId: marker,
           },
         })
         return

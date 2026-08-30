@@ -14,6 +14,7 @@ const service = useTestService()
 
 let freshCharge: OutreachRobocallFreshChargeService
 let chargeSpy: ReturnType<typeof vi.spyOn>
+let findChargeSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
@@ -26,6 +27,11 @@ beforeEach(async () => {
   chargeSpy = vi
     .spyOn(service.app.get(StripeService), 'createOffSessionCharge')
     .mockResolvedValue({ paymentIntentId: 'pi_charge_1' })
+  // No prior succeeded charge by default; the search-first reconcile returns
+  // null so the normal path proceeds to charge.
+  findChargeSpy = vi
+    .spyOn(service.app.get(StripeService), 'findSucceededChargeByOutreach')
+    .mockResolvedValue(null)
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
     .mockResolvedValue(undefined as never)
@@ -199,6 +205,36 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     )
   })
 
+  it('voids a zero-billable uncollectable run instead of re-sweeping it forever', async () => {
+    const outreachId = await createDraft({ completedCallCount: 0 })
+
+    await freshCharge.chargeUncollectable(outreachId)
+
+    expect(chargeSpy).not.toHaveBeenCalled()
+    // Sent to the zero terminal so it leaves the candidate set (no CRITICAL storm).
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.voided,
+    )
+  })
+
+  it('reconciles a lost-commit charge via search without charging again', async () => {
+    const outreachId = await createDraft()
+    // The prior attempt charged successfully but lost its DB commit; the row is
+    // still uncollectable. The search finds the succeeded PI → reconcile, never
+    // a second charge.
+    findChargeSpy.mockResolvedValue({
+      paymentIntentId: 'pi_prior',
+      amountReceived: 450,
+    })
+
+    await freshCharge.chargeUncollectable(outreachId)
+
+    expect(chargeSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.charged)
+    expect(satellite.chargeIntentId).toBe('pi_prior')
+  })
+
   it('does not charge a non-uncollectable draft', async () => {
     const outreachId = await createDraft({
       settleState: RobocallSettleState.captured,
@@ -281,20 +317,26 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     expect(chargeSpy).not.toHaveBeenCalled()
   })
 
-  it('recovers a stranded charging row whose charge landed (reconciles, no re-charge intent)', async () => {
+  it('recovers a stranded charging row whose charge landed (reconciles via search, never re-charges)', async () => {
     const outreachId = await createDraft({
       settleState: RobocallSettleState.charging,
     })
     await strand(outreachId, 30)
-    // The stable-key replay returns the succeeded PI.
-    chargeSpy.mockResolvedValue({ paymentIntentId: 'pi_charge_1' })
+    // A prior attempt's charge already succeeded at Stripe; the search-first
+    // reconcile finds it and commits WITHOUT charging again — idempotent even
+    // past Stripe's 24h idempotency-key window.
+    findChargeSpy.mockResolvedValue({
+      paymentIntentId: 'pi_landed',
+      amountReceived: 450,
+    })
 
     await freshCharge.sweepFreshCharges()
 
-    expect(chargeSpy).toHaveBeenCalledTimes(1)
+    expect(chargeSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.charged)
-    expect(satellite.chargeIntentId).toBe('pi_charge_1')
+    expect(satellite.chargeIntentId).toBe('pi_landed')
+    expect(satellite.capturedAmountInCents).toBe(450)
   })
 
   it('recovers a stranded charging row whose charge declined (parks uncollectable)', async () => {

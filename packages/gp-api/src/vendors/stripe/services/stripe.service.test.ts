@@ -12,6 +12,7 @@ const {
   sessionsRetrieve,
   productsRetrieve,
   paymentIntentsCreate,
+  paymentIntentsSearch,
   MockStripeError,
   MockStripeCardError,
 } = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ const {
   sessionsRetrieve: vi.fn(),
   productsRetrieve: vi.fn(),
   paymentIntentsCreate: vi.fn(),
+  paymentIntentsSearch: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
   MockStripeCardError: class StripeCardError extends Error {
     payment_intent?: { id: string }
@@ -44,7 +46,10 @@ vi.mock('stripe', () => ({
       },
     }
     products = { retrieve: productsRetrieve }
-    paymentIntents = { create: paymentIntentsCreate }
+    paymentIntents = {
+      create: paymentIntentsCreate,
+      search: paymentIntentsSearch,
+    }
   },
 }))
 
@@ -223,6 +228,8 @@ describe('StripeService.createOffSessionCharge', () => {
       capture_method: 'automatic',
       confirm: true,
       off_session: true,
+      // The kind marker is what the recovery search matches on.
+      metadata: { outreachId: '42', kind: 'robocall_fresh_charge' },
     })
     // Stable per outreach so a retry replays instead of double-charging.
     expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-42' })
@@ -258,5 +265,25 @@ describe('StripeService.createOffSessionCharge', () => {
     await expect(
       service.createOffSessionCharge(chargeArgs),
     ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+
+  it('finds a succeeded fresh charge by kind + outreach metadata', async () => {
+    paymentIntentsSearch.mockResolvedValue({
+      data: [{ id: 'pi_landed', amount_received: 450 }],
+    })
+
+    const found = await service.findSucceededChargeByOutreach(42)
+
+    expect(found).toEqual({ paymentIntentId: 'pi_landed', amountReceived: 450 })
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).toContain("status:'succeeded'")
+    expect(query).toContain("metadata['kind']:'robocall_fresh_charge'")
+    expect(query).toContain("metadata['outreachId']:'42'")
+  })
+
+  it('returns null when no succeeded fresh charge exists', async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [] })
+
+    expect(await service.findSucceededChargeByOutreach(42)).toBeNull()
   })
 })
