@@ -382,7 +382,11 @@ export class StripeService {
     // A confirmed automatic-capture PI that did not reach `succeeded`
     // (requires_action / processing / requires_payment_method returned WITHOUT
     // throwing) did not collect funds — treat it as a decline, never a success
-    // the caller records as `charged`.
+    // the caller records as `charged`. The conservative direction for money
+    // safety: the caller records the PI id, so a `processing` charge that later
+    // settles async leaves a traceable row (uncollectable, no receipt) to
+    // reconcile by hand rather than a phantom `charged`. Cards (the only vaulted
+    // PM here) settle synchronously, so `processing` is rare in practice.
     if (intent.status !== 'succeeded') {
       throw new StripeChargeDeclinedError(
         `Fresh charge did not succeed: status ${intent.status}`,
