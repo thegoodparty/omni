@@ -32,6 +32,24 @@ export class StripeHoldDeclinedError extends Error {
   }
 }
 
+// A declined off-session robocall fresh charge. Carries the declined Payment
+// intent id so the caller can record it (marking the run charge-attempted, so
+// it is not retried) and so a later dispute/refund webhook can reconcile it.
+export class StripeChargeDeclinedError extends Error {
+  constructor(
+    message: string,
+    readonly paymentIntentId: string | null,
+  ) {
+    super(message)
+    this.name = 'StripeChargeDeclinedError'
+  }
+}
+
+// Metadata marker on a robocall fresh-charge PaymentIntent. Distinguishes it
+// from the run's authorization-hold PI, which carries the same outreachId — so
+// the crash-recovery search finds only the fresh charge.
+const ROBOCALL_FRESH_CHARGE_KIND = 'robocall_fresh_charge'
+
 const STRIPE_SECRET_KEY = requireEnv('STRIPE_SECRET_KEY')
 const WEBAPP_ROOT_URL = requireEnv('WEBAPP_ROOT_URL')
 const STRIPE_WEBSOCKET_SECRET = requireEnv('STRIPE_WEBSOCKET_SECRET')
@@ -306,6 +324,108 @@ export class StripeService {
         ? fromUnixTime(captureBeforeUnix)
         : addDays(new Date(), 7),
     }
+  }
+
+  // Charges the saved card off-session for a DELIVERED robocall run whose
+  // authorization hold lapsed before capture (immediate/automatic capture — a
+  // fresh charge, NOT a hold). RESERVES + CAPTURES REAL MONEY in one step. The
+  // caller has already clamped amountInCents to <= the originally authorized
+  // amount (INV-1). The idempotency key is stable per outreach (the amount is
+  // deterministic per run), so a retried charge REPLAYS the same PaymentIntent
+  // instead of charging twice. A card decline is a business outcome, not a 502:
+  // it raises StripeChargeDeclinedError carrying the declined PI id (the confirm
+  // creates the PI before the decline), so the caller records it and does not
+  // retry. Verifies the PI reached `succeeded` before returning, so a confirmed-
+  // but-not-captured status is treated as a decline, never a false success.
+  async createOffSessionCharge({
+    customerId,
+    paymentMethodId,
+    amountInCents,
+    robocallId,
+    metadata,
+  }: {
+    customerId: string
+    paymentMethodId: string
+    amountInCents: number
+    robocallId: number
+    metadata: Record<string, string>
+  }): Promise<{ paymentIntentId: string }> {
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: paymentMethodId,
+          capture_method: 'automatic',
+          confirm: true,
+          off_session: true,
+          // Stamp the kind so a crash-recovery search can find a landed charge
+          // by metadata and reconcile it WITHOUT charging again — the hold PI
+          // carries the same outreachId, so kind is what distinguishes them.
+          metadata: { ...metadata, kind: ROBOCALL_FRESH_CHARGE_KIND },
+        },
+        { idempotencyKey: `robocall-fresh-charge-${robocallId}` },
+      )
+    } catch (err) {
+      if (err instanceof Stripe.errors.StripeCardError) {
+        throw new StripeChargeDeclinedError(
+          err.message,
+          err.payment_intent?.id ?? null,
+        )
+      }
+      this.logger.error({ err }, 'Failed to place robocall fresh charge')
+      throw new BadGatewayException('Failed to place fresh charge')
+    }
+
+    // `processing` is NOT a decline — the charge may still settle. Throw a plain
+    // Error (not StripeChargeDeclinedError) so the caller's transient-failure
+    // path reverts to uncollectable WITHOUT recording chargeIntentId. The next
+    // sweep replays under the stable idempotency key and findSucceededChargeByOutreach
+    // reconciles the PI once it lands — never a phantom `charged`, and never a
+    // row permanently locked out of recovery with money silently collected.
+    if (intent.status === 'processing') {
+      throw new Error(`Fresh charge still processing: status ${intent.status}`)
+    }
+    // Any other confirmed-but-not-`succeeded` status (requires_action off-session
+    // won't self-resolve, requires_payment_method, canceled) did not collect
+    // funds and won't — a decline carrying the PI id so the caller marks the run
+    // charge-attempted, never a success recorded as `charged`.
+    if (intent.status !== 'succeeded') {
+      throw new StripeChargeDeclinedError(
+        `Fresh charge did not succeed: status ${intent.status}`,
+        intent.id,
+      )
+    }
+    return { paymentIntentId: intent.id }
+  }
+
+  // Finds an already-SUCCEEDED fresh-charge for a robocall outreach, by the kind
+  // + outreachId metadata createOffSessionCharge stamps. The crash-recovery path
+  // uses it to reconcile a charge that landed before its DB commit was lost —
+  // WITHOUT re-charging — so recovery is idempotent independent of Stripe's 24h
+  // idempotency-key window (which the capture kill-switch's own toggling can
+  // outlast). Search is eventually consistent (~1m index lag); recovery only
+  // runs on rows already stranded past ROBOCALL_CHARGING_STALE_MINUTES, far
+  // longer. Returns the succeeded PI's id + amount_received, or null.
+  async findSucceededChargeByOutreach(outreachId: number): Promise<{
+    paymentIntentId: string
+    amountReceived: number | null
+  } | null> {
+    const res = await this.stripe.paymentIntents.search({
+      query:
+        `status:'succeeded' AND ` +
+        `metadata['kind']:'${ROBOCALL_FRESH_CHARGE_KIND}' AND ` +
+        `metadata['outreachId']:'${outreachId}'`,
+    })
+    const intent = res.data[0]
+    return intent
+      ? {
+          paymentIntentId: intent.id,
+          amountReceived: intent.amount_received ?? null,
+        }
+      : null
   }
 
   // Releases an authorization hold (rollback when a placed hold turns out to be
