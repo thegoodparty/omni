@@ -435,7 +435,7 @@ _MAX_INPUT_FILES = 10
 def _expected_inputs_bucket() -> str:
     """The single bucket dispatch is allowed to authorize for /inputs/read in
     this environment. Derived from the ENVIRONMENT env var (`dev`/`qa`/`prod`),
-    matching what gp-ai-projects Terraform creates and what the broker IAM
+    matching what gp-ai Terraform creates and what the broker IAM
     grants GetObject on. Any other bucket name in `_input_files[i].bucket` is
     rejected — defense in depth atop the broker's ScopeTicket allowlist.
     """

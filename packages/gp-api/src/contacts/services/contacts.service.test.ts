@@ -112,7 +112,7 @@ describe('ContactsService', () => {
     }
     let mockVoterQueryService: {
       findPeople: ReturnType<typeof vi.fn>
-      getAggregates: ReturnType<typeof vi.fn>
+      getListDetailAggregates: ReturnType<typeof vi.fn>
       samplePeople: ReturnType<typeof vi.fn>
       findPerson: ReturnType<typeof vi.fn>
     }
@@ -167,7 +167,7 @@ describe('ContactsService', () => {
       }
       mockVoterQueryService = {
         findPeople: vi.fn().mockResolvedValue(EMPTY_PAGE),
-        getAggregates: vi.fn(),
+        getListDetailAggregates: vi.fn(),
         samplePeople: vi.fn(),
         findPerson: vi.fn(),
       }
@@ -1531,14 +1531,28 @@ describe('ContactsService', () => {
         supportStatus: [],
       } as unknown as VoterFileFilter
 
+      // One people-db call returns the demographics and every channel count
+      // together. Distinct per-channel defaults so a channel mix-up fails the
+      // assertion rather than passing on a coincidentally equal number.
       const aggregatesResponse = (
         count: number,
         avgAge: number | null = null,
         avgIncome: number | null = null,
+        channels: {
+          sms?: number
+          robocall?: number
+          phoneBanking?: number
+          doorKnocking?: number
+        } = {},
       ) => ({
         count,
         avgAge,
         avgIncome,
+        sms: 60,
+        robocall: 45,
+        phoneBanking: 80,
+        doorKnocking: 30,
+        ...channels,
       })
 
       it('throws when the organization is not pro, before looking up the list', async () => {
@@ -1554,7 +1568,9 @@ describe('ContactsService', () => {
         expect(
           mockVoterFileFilterService.findByIdAndOrganizationSlug,
         ).not.toHaveBeenCalled()
-        expect(mockVoterQueryService.getAggregates).not.toHaveBeenCalled()
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
       })
 
       it('404s when the list does not belong to this org (or does not exist)', async () => {
@@ -1573,7 +1589,9 @@ describe('ContactsService', () => {
         expect(
           mockVoterFileFilterService.findByIdAndOrganizationSlug,
         ).toHaveBeenCalledWith(999, 'campaign-1')
-        expect(mockVoterQueryService.getAggregates).not.toHaveBeenCalled()
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
       })
 
       it('returns zero demographics/reachability without calling people-db when the resolution is empty', async () => {
@@ -1603,7 +1621,9 @@ describe('ContactsService', () => {
 
         const result = await service.getListDetail({ segment: 42 }, org)
 
-        expect(mockVoterQueryService.getAggregates).not.toHaveBeenCalled()
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
         expect(result.demographics).toEqual({
           people: 0,
           avgAge: null,
@@ -1630,7 +1650,7 @@ describe('ContactsService', () => {
         ])
       })
 
-      it('runs base/cellphone/landline/anyPhone/address aggregate calls in parallel and maps reachability channels', async () => {
+      it('maps every reachability channel off the one aggregate call', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -1642,17 +1662,9 @@ describe('ContactsService', () => {
         mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
           { kind: 'none' },
         )
-        mockVoterQueryService.getAggregates
-          .mockResolvedValueOnce(aggregatesResponse(100, 42, 55000))
-          .mockResolvedValueOnce(aggregatesResponse(60))
-          // Distinct from the cellphone/anyPhone counts so a channel
-          // mix-up (reading the wrong mocked value) would fail this
-          // assertion.
-          .mockResolvedValueOnce(aggregatesResponse(45))
-          // phoneBanking's any-phone count (ENG-10914) — distinct from
-          // both cellphone and landline so it can't silently mirror either.
-          .mockResolvedValueOnce(aggregatesResponse(80))
-          .mockResolvedValueOnce(aggregatesResponse(30))
+        mockVoterQueryService.getListDetailAggregates.mockResolvedValue(
+          aggregatesResponse(100, 42, 55000),
+        )
         const createSpy = vi.spyOn(AggregatesDTO, 'create')
 
         const result = await service.getListDetail({ segment: 42 }, org)
@@ -1664,30 +1676,28 @@ describe('ContactsService', () => {
         })
         expect(result.reachability).toEqual({
           sms: 60,
-          // Robocall/telemarketing reach landlines, not cell phones — same
-          // aggregate phoneBanking used to use, distinct from the
-          // cellphone/sms count (ENG-10798).
+          // Robocall/telemarketing reach landlines, not cell phones — a
+          // distinct count from the cellphone/sms one (ENG-10798).
           robocall: 45,
           // phoneBanking (ENG-10914): any phone, cell or landline — its own
-          // aggregate call, no longer landline-only.
+          // count, no longer landline-only.
           phoneBanking: 80,
           doorKnocking: 30,
           // Polls are delivered by text, so they mirror the sms count.
           polls: 60,
         })
 
-        expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(5)
-        const filtersByCall = createSpy.mock.calls.map((call) =>
-          filtersOf(call[0]),
-        )
-        expect(filtersByCall[0]).toEqual({})
-        expect(filtersByCall[1]).toEqual({ hasCellPhone: true })
-        expect(filtersByCall[2]).toEqual({ hasLandline: true })
-        expect(filtersByCall[3]).toEqual({ hasAnyPhone: true })
-        expect(filtersByCall[4]).toEqual({ hasAddress: true })
+        // One call, and no channel predicate AND-ed into it: the channel
+        // counts are conditional aggregates over the list's own scope now.
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).toHaveBeenCalledOnce()
+        expect(createSpy.mock.calls.map((call) => filtersOf(call[0]))).toEqual([
+          {},
+        ])
       })
 
-      it('merges a resolved activity-condition id filter into every outgoing aggregate call', async () => {
+      it('merges a resolved activity-condition id filter into the aggregate call', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -1699,21 +1709,16 @@ describe('ContactsService', () => {
         mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
           { kind: 'filter', idFilter: { in: [PERSON_ID_1, PERSON_ID_2] } },
         )
-        mockVoterQueryService.getAggregates.mockResolvedValue(
+        mockVoterQueryService.getListDetailAggregates.mockResolvedValue(
           aggregatesResponse(2),
         )
         const createSpy = vi.spyOn(AggregatesDTO, 'create')
 
         await service.getListDetail({ segment: 42 }, org)
 
-        const filtersByCall = createSpy.mock.calls.map((call) =>
-          filtersOf(call[0]),
-        )
-        for (const filters of filtersByCall) {
-          expect(filters).toMatchObject({
-            id: { in: [PERSON_ID_1, PERSON_ID_2] },
-          })
-        }
+        expect(filtersOf(createSpy.mock.calls[0]?.[0])).toMatchObject({
+          id: { in: [PERSON_ID_1, PERSON_ID_2] },
+        })
       })
 
       it('rejects a party-filtered list for an elected-office organization', async () => {
@@ -1725,7 +1730,9 @@ describe('ContactsService', () => {
         await expect(
           service.getListDetail({ segment: 42 }, org),
         ).rejects.toThrow(BadRequestException)
-        expect(mockVoterQueryService.getAggregates).not.toHaveBeenCalled()
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
       })
 
       // ENG-10778: the universe row's detail (no segment param) — same
@@ -1744,23 +1751,27 @@ describe('ContactsService', () => {
           expect(
             mockVoterFileFilterService.findByIdAndOrganizationSlug,
           ).not.toHaveBeenCalled()
-          expect(mockVoterQueryService.getAggregates).not.toHaveBeenCalled()
+          expect(
+            mockVoterQueryService.getListDetailAggregates,
+          ).not.toHaveBeenCalled()
         })
 
-        it('runs the aggregate calls over empty (unfiltered) filters and returns an empty outreach history', async () => {
+        it('runs the aggregate call over empty (unfiltered) filters and returns an empty outreach history', async () => {
           const org = makeOrganization({
             slug: 'campaign-1',
             overrideDistrictId: OVERRIDE_DISTRICT_ID,
           })
           mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
-          mockVoterQueryService.getAggregates
-            .mockResolvedValueOnce(aggregatesResponse(85696, 47, 61000))
-            .mockResolvedValueOnce(aggregatesResponse(60000))
-            .mockResolvedValueOnce(aggregatesResponse(45000))
-            // phoneBanking's any-phone count (ENG-10914) — distinct from
-            // both cellphone and landline.
-            .mockResolvedValueOnce(aggregatesResponse(75000))
-            .mockResolvedValueOnce(aggregatesResponse(30000))
+          mockVoterQueryService.getListDetailAggregates.mockResolvedValue(
+            aggregatesResponse(85696, 47, 61000, {
+              sms: 60000,
+              robocall: 45000,
+              // phoneBanking (ENG-10914) — distinct from both cellphone and
+              // landline.
+              phoneBanking: 75000,
+              doorKnocking: 30000,
+            }),
+          )
           const createSpy = vi.spyOn(AggregatesDTO, 'create')
 
           const result = await service.getListDetail({}, org)
@@ -1790,14 +1801,9 @@ describe('ContactsService', () => {
           })
           expect(result.outreachHistory).toEqual([])
 
-          const filtersByCall = createSpy.mock.calls.map((call) =>
-            filtersOf(call[0]),
-          )
-          expect(filtersByCall[0]).toEqual({})
-          expect(filtersByCall[1]).toEqual({ hasCellPhone: true })
-          expect(filtersByCall[2]).toEqual({ hasLandline: true })
-          expect(filtersByCall[3]).toEqual({ hasAnyPhone: true })
-          expect(filtersByCall[4]).toEqual({ hasAddress: true })
+          expect(
+            createSpy.mock.calls.map((call) => filtersOf(call[0])),
+          ).toEqual([{}])
         })
       })
     })

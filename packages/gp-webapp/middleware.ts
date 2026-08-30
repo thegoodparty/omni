@@ -24,6 +24,9 @@ const isPublicRoute = createRouteMatcher([
   // /serve/welcome; only this landing page is public, onboarding still needs a
   // session.
   '/win/welcome(.*)',
+  // Staff-issued one-time sign-in link: the recipient is not yet authenticated
+  // when they land here; the ticket is redeemed client-side on click.
+  '/sign-in-link(.*)',
   // Machine endpoint: gated by its own REVALIDATE_SECRET (see
   // app/api/revalidate/route.ts), not a Clerk user session.
   '/api/revalidate',

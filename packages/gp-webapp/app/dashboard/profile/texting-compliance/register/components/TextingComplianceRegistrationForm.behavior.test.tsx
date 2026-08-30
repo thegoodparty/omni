@@ -18,6 +18,7 @@ const validInitialState = (
 ): FormDataState => ({
   electionFilingLink: 'https://example.gov/filings/123',
   campaignCommitteeName: 'Jane for Council',
+  candidateName: 'Jane Smith',
   officeLevel: 'local',
   ein: '12-3456780',
   phone: '5555550123',

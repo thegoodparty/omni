@@ -1,4 +1,5 @@
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { newFixtureUserEmail } from '@/users/util/users.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignStatus } from '@goodparty_org/contracts'
 import {
@@ -400,6 +401,28 @@ describe('CampaignsController', () => {
         false,
       )
       expect(result).toEqual({ isPro: true })
+    })
+
+    it('flips isPro for a qa-<uuid>@goodparty.org fixture user', async () => {
+      const fixtureUser = { ...mockUser, email: newFixtureUserEmail() }
+
+      const result = await controller.testSetPro(mockCampaign, fixtureUser)
+
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        mockCampaign.id,
+        true,
+        false,
+      )
+      expect(result).toEqual({ isPro: true })
+    })
+
+    it('rejects a staff @goodparty.org user', async () => {
+      const staffUser = { ...mockUser, email: 'qa-team@goodparty.org' }
+
+      await expect(
+        controller.testSetPro(mockCampaign, staffUser),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
     })
 
     it('refuses outside a known non-prod deploy, even for a @test.goodparty.org user', async () => {

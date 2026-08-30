@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { User, UserRole } from '../../generated/prisma'
 
 export const getUserFullName = (user: User) =>
@@ -28,14 +29,27 @@ export function isAdmin(user: User) {
 
 export const TEST_USER_DOMAIN = '@test.goodparty.org'
 
-export const isTestUser = (params: { email: string }) =>
-  params.email.endsWith(TEST_USER_DOMAIN)
+// QA fixture users (src/testFixtures) live on the real @goodparty.org domain
+// so Amplitude flags targeting internal traffic apply to them on dev; the
+// qa-<uuid> local part is what marks them as test users — no staff email
+// takes this shape, so real @goodparty.org accounts stay non-test.
+export const FIXTURE_USER_EMAIL_PREFIX = 'qa-'
+export const FIXTURE_USER_EMAIL_DOMAIN = '@goodparty.org'
+export const FIXTURE_USER_EMAIL_PATTERN =
+  /^qa-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}@goodparty\.org$/i
 
-// Distinct from isTestUser on purpose: isTestUser gates behavior for seeded
-// e2e accounts only (stubbed vendor calls, skipped dispatches) and must NOT
-// cover @goodparty.org — staff dogfood real flows in prod. isInternalUser is
-// for staff-facing affordances and reporting exclusions, where both domains
-// count as internal.
+export const newFixtureUserEmail = () =>
+  `${FIXTURE_USER_EMAIL_PREFIX}${randomUUID()}${FIXTURE_USER_EMAIL_DOMAIN}`
+
+export const isTestUser = (params: { email: string }) =>
+  params.email.endsWith(TEST_USER_DOMAIN) ||
+  FIXTURE_USER_EMAIL_PATTERN.test(params.email)
+
+// Distinct from isTestUser on purpose: isTestUser gates behavior for
+// synthetic accounts only (stubbed vendor calls, skipped dispatches) and must
+// NOT cover staff @goodparty.org accounts — staff dogfood real flows in prod.
+// isInternalUser is for staff-facing affordances and reporting exclusions,
+// where both domains count as internal.
 export const INTERNAL_EMAIL_SUFFIXES = ['@goodparty.org', '@test.goodparty.org']
 
 export const isInternalUser = (params: { email: string }) =>

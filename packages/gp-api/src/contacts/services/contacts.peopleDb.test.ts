@@ -89,6 +89,10 @@ const FIXTURE_AGGREGATES = {
   count: 10,
   avgAge: 45,
   avgIncome: 60000,
+  sms: 8,
+  robocall: 4,
+  phoneBanking: 9,
+  doorKnocking: 7,
 }
 
 // The actual on-wire shape from this service's local StatsService.getStats
@@ -130,7 +134,7 @@ describe('ContactsService — people-db (sole path)', () => {
   }
   let mockVoterQueryService: {
     findPeople: ReturnType<typeof vi.fn>
-    getAggregates: ReturnType<typeof vi.fn>
+    getListDetailAggregates: ReturnType<typeof vi.fn>
     samplePeople: ReturnType<typeof vi.fn>
     findPerson: ReturnType<typeof vi.fn>
   }
@@ -175,7 +179,7 @@ describe('ContactsService — people-db (sole path)', () => {
     }
     mockVoterQueryService = {
       findPeople: vi.fn(),
-      getAggregates: vi.fn(),
+      getListDetailAggregates: vi.fn(),
       samplePeople: vi.fn(),
       findPerson: vi.fn(),
     }
@@ -275,18 +279,24 @@ describe('ContactsService — people-db (sole path)', () => {
     })
   })
 
-  // fetchPeopleAggregates is private; drive it through getListDetail's
-  // universe-detail path (no segment), which fans out to it five times
-  // (base + cellphone + landline + anyPhone + address).
-  describe('list-detail aggregates (fetchPeopleAggregates)', () => {
-    it('calls VoterQueryService.getAggregates and validates ListDetailContactsResponse', async () => {
+  // fetchListDetailAggregates is private; drive it through getListDetail's
+  // universe-detail path (no segment). One people-db call backs the whole
+  // payload — demographics and every reachability channel together.
+  describe('list-detail aggregates (fetchListDetailAggregates)', () => {
+    it('calls VoterQueryService.getListDetailAggregates and validates ListDetailContactsResponse', async () => {
       const org = makeOrganization()
-      mockVoterQueryService.getAggregates.mockResolvedValue(FIXTURE_AGGREGATES)
+      mockVoterQueryService.getListDetailAggregates.mockResolvedValue(
+        FIXTURE_AGGREGATES,
+      )
 
       const result = await service.getListDetail({ segment: undefined }, org)
 
-      expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(5)
-      expect(mockVoterQueryService.getAggregates).toHaveBeenCalledWith(
+      expect(
+        mockVoterQueryService.getListDetailAggregates,
+      ).toHaveBeenCalledOnce()
+      expect(
+        mockVoterQueryService.getListDetailAggregates,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
       expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(

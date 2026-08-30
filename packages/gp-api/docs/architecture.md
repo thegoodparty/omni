@@ -51,7 +51,7 @@ The consumer file is large (~1100 lines). A future refactor will split per-`Queu
 - `gp-webapp` -> `gp-api`: JWT cookie
 - `gp-api` -> `people-db`: direct Prisma access (`src/peopleDb/`); the legacy `people-api` HTTP fallback is gone
 - `gp-api` -> `election-api`: HTTP, internal
-- `gp-api` -> `gp-ai-projects`: HTTP
+- `gp-api` -> `gp-ai`: HTTP
 
 Shared types between `gp-api` and `gp-webapp`/`gp-sdk` flow through `@goodparty_org/contracts` (see `docs/contracts.md`).
 

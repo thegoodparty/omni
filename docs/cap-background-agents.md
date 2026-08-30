@@ -2,18 +2,18 @@
 
 The background half of CAP runs an AI agent unattended, in a network-quarantined
 sandbox, for one org, and produces a validated JSON **artifact**. This doc traces it
-end to end: dispatch (gp-api) → run (`gp-ai-projects`) → reconcile (gp-api) → consume
+end to end: dispatch (gp-api) → run (`packages/gp-ai`) → reconcile (gp-api) → consume
 (products) → eval (`packages/runbooks`).
 
 Read the overview first: [`cap.md`](cap.md). For the gp-api transport layer in more
 local detail, `packages/gp-api/src/agentExperiments/AGENTS.md`; for the runtime,
-`gp-ai-projects/pmf_engine/control_plane/README.md` and
-`gp-ai-projects/broker/ARCHITECTURE.md`.
+`packages/gp-ai/pmf_engine/control_plane/README.md` and
+`packages/gp-ai/broker/ARCHITECTURE.md`.
 
 ## The run lifecycle, end to end
 
 ```
- gp-api                          gp-ai-projects (external repo)                 gp-api
+ gp-api                          packages/gp-ai (PMF Engine)                    gp-api
  ──────                          ──────────────────────────────                ──────
  product module
    │ dispatchRun()
@@ -129,7 +129,7 @@ The single FIFO results queue is consumed in
 ```
 
 - Missing run → ack + drop. Already-terminal run → log + drop (idempotency; this is
-  what makes the `gp-ai-projects` ECS reaper safe to fire after a real success).
+  what makes the `gp-ai` ECS reaper safe to fire after a real success).
 - `'started'` → `markStarted` advances `QUEUED → RUNNING`.
 - `'success'` → `resolveSuccessPatch` is the **only place gp-api reads the artifact
   body during the callback**: it `s3Service.getFile(bucket, key)`s to read `stage`,
@@ -150,7 +150,7 @@ callback to classify, again in each product hook to persist sections. Only
 ### Sweeps and recovery
 
 > **Doc correction:** there is **no 45-minute time-based stale sweep in gp-api** — it
-> was deliberately removed in favor of the `gp-ai-projects` ECS task-reaper (below). A
+> was deliberately removed in favor of the `gp-ai` ECS task-reaper (below). A
 > lingering `// 45-minute stale sweep` comment in `queueConsumer.service.ts` is stale
 > wording, not live behavior.
 
@@ -213,9 +213,9 @@ live in **gp-api's local `src/queue/queue.types.ts`**, not in
 `@goodparty_org/contracts`. What's in `contracts` is the admin **read** surface
 (`AgentRun.schema.ts`, `ArtifactReview.schema.ts`, `AdminBriefing.schema.ts`).
 
-## Part 2 — gp-ai-projects: the engine
+## Part 2 — packages/gp-ai: the engine
 
-`gp-ai-projects/pmf_engine` (control plane + runner) and `broker` are two members of
+`packages/gp-ai/pmf_engine` (control plane + runner) and `broker` are two members of
 a `uv` Python workspace. In code the whole thing is the **PMF Engine** — the
 CloudWatch metric namespace is literally `PMFEngine`.
 
@@ -254,7 +254,7 @@ operator can retune it live with one `ssm put-parameter`, no deploy.
 
 ### The broker — the security boundary
 
-`gp-ai-projects/broker` is a FastAPI/uvicorn service on ECS Fargate, behind an
+`packages/gp-ai/broker` is a FastAPI/uvicorn service on ECS Fargate, behind an
 internal ALB at `broker-{env}.ai.goodparty.org`. It is the **single trusted egress**
 for every run: it holds all API credentials, proxies every external call, scopes
 Databricks queries, validates artifacts, and signs the callback gp-api consumes.
@@ -324,7 +324,7 @@ experiments get a stable artifact. That `{artifactBucket, artifactKey}` is the
 
 ### Infrastructure
 
-IaC is **Terraform** under `gp-ai-projects/infrastructure/`. Four PMF stacks:
+IaC is **Terraform** under `packages/gp-ai/infrastructure/`. Four PMF stacks:
 `pmf-vpc-endpoints` (shared ECR/Logs/S3 endpoints), `broker` (ECS service, ALB +
 cert, scope-ticket DynamoDB, secrets), `pmf-engine-fargate` (runner cluster + empty
 task role + quarantine SG + Slack failure topic), and `pmf-engine-control-plane`
@@ -388,7 +388,7 @@ into S3 but never blocks publish.
 
 ### Braintrust sandbox (older, narrower)
 
-`gp-ai-projects/braintrust_eval_sandbox` is a PM-facing **prompt A/B playground** — a
+`packages/gp-ai/braintrust_eval_sandbox` is a PM-facing **prompt A/B playground** — a
 generic two-stage Gemini pipeline (grounded search → structured output) driven by
 Braintrust playground parameters, so PMs can A/B-test prompts with no per-prompt
 engineering. It is Braintrust-based (`evals.py` defines one `Eval()`), ships **no

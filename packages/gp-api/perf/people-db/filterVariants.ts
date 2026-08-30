@@ -33,9 +33,9 @@ export const FILTER_VARIANTS: readonly FilterVariant[] = [
       'every member.',
     payload: {},
   },
-  // Doubles as the sms/polls tile of the list-detail reachability grid —
-  // ContactsService.fetchListDetailAggregates fans out to three
-  // channel-restricted getAggregates calls, and this is the first of them.
+  // Doubles as the sms/polls tile of the list-detail reachability grid: the
+  // Postgres arm of getListDetailAggregates still resolves each channel as
+  // its own aggregate, and this is that channel's filter shape.
   {
     name: 'single-boolean',
     description:

@@ -26,6 +26,12 @@ model TcrCompliance {
   ein            String
   postalAddress  String
   committeeName  String               @map("committee_name")
+  // The candidate's own name, distinct from the account holder's name — a
+  // campaign manager often signs up under their own name, but the filing
+  // uses the candidate's. Nullable because records created before this
+  // column existed have none; the Campaign Verify submission falls back to
+  // the account holder's name in that case (peerlyIdentity.service.ts).
+  candidateName  String?              @map("candidate_name")
   websiteDomain  String               @map("website_domain")
   filingUrl      String               @map("filing_url")
   phone          String
@@ -101,6 +107,38 @@ model TcrCompliance {
   // that state, so a later re-stall escalates again as a new incident.
   cvInReviewEscalatedAt      DateTime? @map("cv_in_review_escalated_at")
   finalizeStalledEscalatedAt DateTime? @map("finalize_stalled_escalated_at")
+
+  // Once-only claims for a one-time internal ping to bot-10dlc-compliance
+  // (ENG-10966): CV never reached (case 1) and PIN-verified-but-profile-
+  // stalled (case 3a) are our own engineering bugs, not vendor stalls or
+  // candidate-side waits, so they page a person once instead of repeating
+  // in every nightly report.
+  //
+  // cvNeverReachedAlertedAt is never cleared: persistObservedCvStatus
+  // (cvStatusPoll.service.ts) refuses to overwrite a stored non-null
+  // peerlyCvStatus with a later null, so a fixed row can't recur here.
+  //
+  // profileStalledAlertedAt IS cleared on progress (pollProfileStatus,
+  // same file) whenever peerlyProfileStatus leaves `pending` — a brand can
+  // genuinely re-enter `pending` from `finalized` via the token-reopening
+  // path (submitCvTokenToFinalizedBrand, reached through the re-enterable
+  // retrieveCampaignVerifyToken / submit-cv-pin retry), so a fixed row can
+  // stall again for real and must re-alert.
+  cvNeverReachedAlertedAt DateTime? @map("cv_never_reached_alerted_at")
+  profileStalledAlertedAt DateTime? @map("profile_stalled_alerted_at")
+
+  // Pre-submission validation gate (ENG-10965): set when the filing URL /
+  // candidate-name check fails before Peerly Campaign Verify submission —
+  // status stays `submitted` (this is a hold, not a rejection) so the record
+  // keeps re-entering the normal dispatch/resume paths once cleared.
+  // cvValidationFailedAt also doubles as the once-only claim for the internal
+  // Slack alert, mirroring pinSentDetectedAt / cvInReviewEscalatedAt.
+  // Correcting filingUrl/candidateName clears both (createAgentic); an admin
+  // override (cvValidationOverriddenAt) lets submission proceed despite an
+  // unresolved failure.
+  cvValidationFailedAt       DateTime? @map("cv_validation_failed_at")
+  cvValidationFailureReasons String[]  @default([]) @map("cv_validation_failure_reasons")
+  cvValidationOverriddenAt   DateTime? @map("cv_validation_overridden_at")
 
   @@map("tcr_compliance")
 }

@@ -9,6 +9,7 @@ import {
 export interface RegistrationFormData {
   electionFilingLink: string
   campaignCommitteeName: string
+  candidateName: string
   officeLevel: string
   ein: string
   phone: string
@@ -47,6 +48,7 @@ export const toRegistrationFormData = (
 ): RegistrationFormData => ({
   electionFilingLink: String(formData.electionFilingLink || ''),
   campaignCommitteeName: String(formData.campaignCommitteeName || ''),
+  candidateName: String(formData.candidateName || ''),
   officeLevel: String(formData.officeLevel || ''),
   ein: String(formData.ein || ''),
   phone: String(formData.phone || ''),

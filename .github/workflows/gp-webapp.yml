@@ -9,9 +9,12 @@ permissions:
   contents: read
   pull-requests: write
 
+# Cancel superseded PR runs: a new push makes the in-flight result irrelevant,
+# and while cancel was off the new run also queued behind it — so a series of
+# pushes cost a full ~20m cycle each, back to back. Never cancels on main.
 concurrency:
   group: gp-webapp-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   WORKSPACE: packages/gp-webapp

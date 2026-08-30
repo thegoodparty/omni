@@ -1,8 +1,9 @@
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
-import type {
-  ComplianceStateOutput,
-  PinDelivery,
+import {
+  PeerlyCvVerificationStatus,
+  type ComplianceStateOutput,
+  type PinDelivery,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance, TcrComplianceStatus } from 'helpers/types'
 
@@ -53,6 +54,18 @@ export const getTcrComplianceStatusCompletions = (
     pinComplete: status !== null && PIN_COMPLETE_STATUSES.includes(status),
   }
 }
+
+// CampaignVerify clearance for sending texts. The persisted `peerlyCvStatus`
+// is only stamped by the CV status scan / PIN-entry paths (Aug 2026+), so
+// records approved before then carry null forever — a VERIFIED-only check
+// mislabels every legacy-approved candidate as uncleared. `approved` is
+// itself proof of clearance: it is only reached after the CV PIN was
+// verified and the 10DLC brand approved.
+export const isTcrCleared = (
+  tcrCompliance: TcrCompliance | null | undefined,
+): boolean =>
+  tcrCompliance?.status === TCR_COMPLIANCE_STATUS.APPROVED ||
+  tcrCompliance?.peerlyCvStatus === PeerlyCvVerificationStatus.VERIFIED
 
 export const getTcrCompliance = async (): Promise<TcrCompliance | null> => {
   const response = await clientFetch<TcrCompliance | null>(

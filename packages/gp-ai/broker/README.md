@@ -49,7 +49,7 @@ The current single-pool setup is the simplest valid configuration of this topolo
 ## Development
 
 ```bash
-cd ~/work/gp-ai-projects
+cd packages/gp-ai
 uv sync                         # workspace install, picks up broker/
 uv run pytest broker/tests/     # ~20 test modules
 ```

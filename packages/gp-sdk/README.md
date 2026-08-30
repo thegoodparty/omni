@@ -150,6 +150,16 @@ const runDetail = await client.adminAgentRuns.get('run-uuid')
 
 const retriedRun = await client.adminAgentRuns.retry('run-uuid')
 
+// One-time sign-in link for an existing user (admin / M2M). Hand the url to
+// the account's real owner — it is not an impersonation token. Pass the acting
+// admin's email so the gp-api audit log records who minted the link; M2M
+// callers should always send it, a direct admin session need not.
+const signInLink = await client.admin.createSignInLink(
+  42,
+  'admin@goodparty.org',
+)
+// { url: 'https://app.goodparty.org/sign-in-link?__clerk_ticket=…', expiresAt }
+
 // Admin briefings (admin / M2M)
 const briefings = await client.admin.briefings.list({
   q: 'mayor',

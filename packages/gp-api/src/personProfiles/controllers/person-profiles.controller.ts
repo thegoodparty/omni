@@ -26,6 +26,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UsersService } from '@/users/services/users.service'
+import { isTestUser } from '@/users/util/users.util'
 import {
   ASSET_DOMAIN,
   IS_NON_PROD_DEPLOY,
@@ -103,7 +104,7 @@ export class PersonProfilesController {
   // Test-only: mint a canonical personId for the caller so an e2e can exercise
   // create/publish/unpublish through the real editor. Every other path to a
   // personId is the data platform's (see PersonIdBackfillService), and a
-  // synthetic @test.goodparty.org user is by construction absent from the civics
+  // synthetic test user is by construction absent from the civics
   // spine — so without this the browser e2e can only ever assert the pre-mint
   // "still setting up" state, and the publish toggle stays untested outside the
   // real-DB controller suite. Mirrors the guard on
@@ -120,7 +121,7 @@ export class PersonProfilesController {
     if (!IS_NON_PROD_DEPLOY) {
       throw new ForbiddenException('Not available in this environment')
     }
-    if (!owner.email?.endsWith('@test.goodparty.org')) {
+    if (!owner.email || !isTestUser({ email: owner.email })) {
       throw new ForbiddenException('Test users only')
     }
     if (owner.personId) {

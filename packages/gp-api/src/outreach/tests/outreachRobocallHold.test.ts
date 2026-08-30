@@ -82,12 +82,16 @@ const createDraft = async ({
   payAttempt = 0,
   authorizedAmountInCents,
   authorizationIntentId,
+  paymentMethodId,
+  stripeCustomerId,
 }: {
   sendInDays?: number
   settleState?: RobocallSettleState
   payAttempt?: number
   authorizedAmountInCents?: number
   authorizationIntentId?: string
+  paymentMethodId?: string
+  stripeCustomerId?: string
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -110,6 +114,8 @@ const createDraft = async ({
       payAttempt,
       ...(authorizedAmountInCents != null ? { authorizedAmountInCents } : {}),
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
+      ...(paymentMethodId ? { paymentMethodId } : {}),
+      ...(stripeCustomerId ? { stripeCustomerId } : {}),
     },
   })
   return spine.id
@@ -216,6 +222,122 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.payAttempt).toBe(2)
   })
 
+  it('escalates a card-error on a hold_failed retry to hold_failed, not a pending_payment strand', async () => {
+    // A card-validation error whose pre-claim state was hold_failed must
+    // TERMINATE to hold_failed (the reminder path), never revert to
+    // pending_payment — which the daily sweep would re-select and re-charge with
+    // the same bad card forever. The hold_failed pre-claim state is the key,
+    // reached both on-session (a /authorize retry, exercised here) and
+    // off-session (the deferred sweep / card-update webhook). The pending_payment
+    // /authorize path still throws 400 (see the not-on-customer test).
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+    })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_foreign',
+      customer: 'cus_someone_else',
+      type: 'card',
+    })
+
+    const res = await postAuthorize(outreachId, 'pm_foreign')
+
+    expect(res.data.status).toBe('hold_failed')
+    expect(paymentIntentsCreate).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
+    // The FOREIGN card fails validation BEFORE the post-validation persist, so it
+    // is never written onto the row — no stale foreign PM left behind.
+    expect(satellite.paymentMethodId).toBeNull()
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
+    expect(event).toBe(EVENTS.Robocall.HoldFailed)
+    // The escalation bumps payAttempt (1 → 2) so its dedup key is monotonic: a
+    // later escalation on this draft advances the key again and still emails past
+    // Segment's 24h window. messageId carries the bumped attempt.
+    expect(messageId).toBe(`${outreachId}:hold_failed:2`)
+    expect(satellite.payAttempt).toBe(2)
+  })
+
+  it('persists the NEW card after validation so a transient failure never reverts to a stale card', async () => {
+    // A hold_failed retry supplies a NEW card. If the placement hits a transient
+    // (non-decline) failure, the revert to pending_payment must carry the NEW
+    // card — never the OLD declined one the daily sweep would re-charge.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+      paymentMethodId: 'pm_old',
+      stripeCustomerId: 'cus_test',
+    })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_new',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockRejectedValue(new Error('network down'))
+
+    const res = await postAuthorize(outreachId, 'pm_new')
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    // The claim persisted the NEW card, so the deferred sweep retries pm_new.
+    expect(satellite.paymentMethodId).toBe('pm_new')
+    expect(satellite.stripeCustomerId).toBe('cus_test')
+  })
+
+  it('clears any prior staged CallHub campaign on a hold_failed re-authorize', async () => {
+    // A re-auth re-derives the billable count from the live voter DB, so a
+    // previously-staged campaign (frozen phonebook) must be invalidated — else
+    // the staging sweep never re-stages and CallHub dials the stale audience.
+    const outreachId = await createDraft({
+      sendInDays: 2,
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+    })
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: {
+        callhubCampaignPkStr: 'vb_stale',
+        callhubStartingDate: addDays(new Date(), 2),
+        callhubExpirationDate: addDays(new Date(), 9),
+      },
+    })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_2',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_reauth',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    const res = await postAuthorize(outreachId, 'pm_2')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('authorized')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    // The stale campaign is cleared so the staging sweep (callhubCampaignPkStr
+    // IS NULL) re-stages a phonebook matching the newly-derived count.
+    expect(satellite.callhubCampaignPkStr).toBeNull()
+    expect(satellite.callhubStartingDate).toBeNull()
+    expect(satellite.callhubExpirationDate).toBeNull()
+    // The cleared campaign is recorded as an orphan so the cleanup sweep ABORTs
+    // the PAUSED campaign it left behind at CallHub.
+    const orphan = await service.prisma.robocallOrphanedCampaign.findUnique({
+      where: { campaignPkStr: 'vb_stale' },
+    })
+    expect(orphan?.reason).toBe('reauth_restage')
+    expect(orphan?.outreachId).toBe(outreachId)
+    expect(orphan?.abortedAt).toBeNull()
+  })
+
   it('502s and reverts without bumping payAttempt on an infra failure', async () => {
     // A non-decline Stripe/infra error must 502, revert the claim, and leave
     // payAttempt unchanged so a retry REUSES the same idempotency key (Stripe
@@ -239,6 +361,14 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
 
   it('defers when the send is beyond the hold window, placing no hold', async () => {
     const outreachId = await createDraft({ sendInDays: 10 })
+    // The defer branch validates the chosen card before persisting it, so it
+    // reads paymentMethods.retrieve — mock it here so the test passes in
+    // isolation (clearMocks resets calls, not a prior test's implementation).
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
 
     const res = await postAuthorize(outreachId)
 
@@ -247,6 +377,8 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.paymentMethodId).toBe('pm_1')
+    expect(satellite.stripeCustomerId).toBe('cus_test')
   })
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {
@@ -288,11 +420,49 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     expect(satellite.payAttempt).toBe(1)
     expect(satellite.authorizationIntentId).toBeNull()
+    // A first on-session decline must PERSIST the card + customer onto the
+    // hold_failed row (the commit CAS is never reached on a decline), so the
+    // card-update retry — which filters on stripeCustomerId — can later find it.
+    expect(satellite.paymentMethodId).toBe('pm_1')
+    expect(satellite.stripeCustomerId).toBe('cus_test')
 
     expect(trackSpy).toHaveBeenCalledTimes(1)
     const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
     expect(event).toBe(EVENTS.Robocall.HoldFailed)
-    expect(messageId).toBe(`${outreachId}:hold_failed`)
+    // A real decline folds the attempt into the messageId (attempt 1 here) so a
+    // later card-update retry that declines again — past Segment's 24h dedup
+    // window — still sends a distinct "update your card" email.
+    expect(messageId).toBe(`${outreachId}:hold_failed:1`)
+  })
+
+  it('gives a second decline attempt a distinct HoldFailed messageId', async () => {
+    // A card-update retry of an already-declined draft (payAttempt 1) whose new
+    // card ALSO declines emits HoldFailed under a DISTINCT messageId (attempt 2),
+    // so a second "update your card" email sends even days later — a fixed
+    // messageId would fall inside Segment's 24h dedup window and be suppressed.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+    })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_2',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockRejectedValue(
+      new Stripe.errors.StripeCardError({
+        type: 'card_error',
+        message: 'Your card was declined.',
+        code: 'card_declined',
+      }),
+    )
+
+    await postAuthorize(outreachId, 'pm_2')
+
+    const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
+    expect(event).toBe(EVENTS.Robocall.HoldFailed)
+    expect(messageId).toBe(`${outreachId}:hold_failed:2`)
   })
 
   it('rejects a payment method that is not on the customer', async () => {
@@ -336,6 +506,13 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // The voided hold bumps payAttempt so a retry derives a fresh idempotency
     // key and a new PI instead of idempotent-replaying the canceled one.
     expect(satellite.payAttempt).toBe(1)
+    // The best-effort void is recorded so the reconcile sweep re-voids it if the
+    // void did not land.
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_short' },
+    })
+    expect(orphan?.reason).toBe('window_fit')
+    expect(orphan?.outreachId).toBe(outreachId)
   })
 
   it('places the hold at the window edge when capture_before fits', async () => {
@@ -464,6 +641,12 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(res.data.status).toBe('authorized')
     expect(paymentIntentsCancel).toHaveBeenCalledWith('pi_race')
     expect(trackSpy).not.toHaveBeenCalled()
+    // The best-effort void of the lost-race hold is recorded for the reconcile
+    // sweep to re-void if it did not land.
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_race' },
+    })
+    expect(orphan?.reason).toBe('lost_commit')
   })
 
   it('is Pro-gated: a non-Pro campaign is rejected without touching Stripe', async () => {

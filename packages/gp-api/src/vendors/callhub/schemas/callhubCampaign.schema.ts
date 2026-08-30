@@ -72,3 +72,14 @@ export const CreateVbCampaignResponseSchema = z.object({
 export type CreateVbCampaignResponse = z.infer<
   typeof CreateVbCampaignResponseSchema
 >
+
+// The PUT /v1/voice_broadcasts/{pk_str}/ status transition echoes the campaign.
+// `status` reads back the new lifecycle code (START = 1); the numeric `id` is
+// deliberately NOT read (JSON's safe-integer limit corrupts it — use pk_str).
+export const LaunchVbCampaignResponseSchema = z.object({
+  pk_str: z.string().nullish(),
+  status: z.number().nullish(),
+})
+export type LaunchVbCampaignResponse = z.infer<
+  typeof LaunchVbCampaignResponseSchema
+>

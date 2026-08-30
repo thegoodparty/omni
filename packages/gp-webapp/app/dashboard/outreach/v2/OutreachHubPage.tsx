@@ -15,7 +15,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 import type { OutreachDetail } from '@goodparty_org/contracts'
-import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import { isTcrCleared } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { ChannelTileGrid } from './ChannelTileGrid'
 import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
@@ -150,7 +150,7 @@ const OutreachHubContent = ({
       <OutreachHistoryTable
         rows={outreaches ?? []}
         onRowClick={setDetailsRow}
-        notCleared={tcrCompliance?.status !== TCR_COMPLIANCE_STATUS.APPROVED}
+        notCleared={!isTcrCleared(tcrCompliance)}
       />
       <OutreachDetailsDrawer
         row={detailsRow}

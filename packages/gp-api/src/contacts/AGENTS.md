@@ -525,14 +525,18 @@ over interaction rows with a non-null `support_answer`; a "list" =
   people-db filter key (`src/peopleDb/utils/filters.sql.util.ts`) backs
   both the tile and the `phoneBanking` entry in
   `segmentsToFiltersMap.const.ts` (the built-in CRM segment/CSV export).
-- `fetchListDetailAggregates`'s five people-db aggregate calls (base,
-  cellphone, landline, anyPhone, address) settle independently
-  (ENG-10806, `Promise.allSettled`): a failed cellphone/landline/anyPhone/
-  address call nulls only the reachability channels it backs
-  (`ListDetailReachabilitySchema`'s channels are nullable) — the route
-  still 200s and the other tiles render real numbers. Only a failed base
-  call still 502s (`BadGatewayException`); there's nothing to show
-  without it.
+- `fetchListDetailAggregates` makes ONE people-db call
+  (`VoterQueryService.getListDetailAggregates`) and the whole payload is
+  all-or-nothing: the demographics and every channel come from a single
+  conditional-aggregate statement, so a failure 502s the route rather than
+  degrading a tile. Five statements per request was itself the problem — it
+  was ~half of prod's Databricks statement volume and pushed a serverless
+  X-Small warehouse past the ~10-in-flight point where it provisions new
+  compute and bills a flat 3-5s wait. `ListDetailReachabilitySchema`'s
+  channels stay nullable for the webapp's "Unavailable" tile, but nothing
+  emits null any more. The Postgres arm of that call still issues the five
+  separate aggregates (see `src/peopleDb/AGENTS.md`), so the dual-read
+  comparison stays like-for-like.
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
 - Download does not re-apply a stored `search` (the download path has no

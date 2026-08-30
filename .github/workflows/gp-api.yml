@@ -10,14 +10,16 @@ permissions:
   id-token: write
   pull-requests: write
 
-# Scoped per-PR only. On main this resolves to github.run_id — unique per run,
-# so pushes never serialize here: lint/typecheck/test share no state across
-# commits, and a shared group made every merge wait a full CI cycle for the
-# previous one before it even checked out. Deploys are still serialized, by the
-# deploy job's own gp-api-deploy-<ref> group.
-concurrency:
-  group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: false
+# No workflow-level group, deliberately. It was keyed per-PR with cancel off,
+# which made a new push wait out the whole previous run — including its
+# multi-minute `pulumi up` — before it could even check out. This workflow
+# cannot simply flip that to cancel-in-progress either: a workflow-level group
+# cancels every job, and killing `preview` mid-Pulumi strands the state lock and
+# the stack's ALB (the case destroy-preview-stack retries around).
+#
+# So concurrency lives on the jobs instead. The cheap ones supersede a
+# superseded PR run; `preview` keeps its own group, keyed on the stack it
+# mutates, and is never cancelled.
 
 env:
   AWS_REGION: us-west-2
@@ -28,6 +30,12 @@ jobs:
   checks:
     name: Checks
     runs-on: ubuntu-latest
+    # Lint/typecheck/migration-diff share no state across commits, so a
+    # superseded PR run is pure waste. On main the key falls back to run_id,
+    # which is unique per run — the group never matches, so nothing cancels.
+    concurrency:
+      group: gp-api-checks-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     services:
       shadow-db:
         image: postgres:16
@@ -86,6 +94,11 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2]
+    # Keyed on the shard as well: a group shared across the matrix would have
+    # the two shards cancelling each other on every run.
+    concurrency:
+      group: gp-api-test-${{ matrix.shard }}-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -133,6 +146,12 @@ jobs:
     # (gp-api-teardown-preview.yml), and the cron cleanup destroy
     # (gp-api-cleanup-preview.yml) all serialize on the same stack and never
     # run concurrent Pulumi operations against it.
+    #
+    # cancel-in-progress stays false even though the check jobs above now
+    # cancel. A superseded preview has to be allowed to finish its `pulumi up`:
+    # killed mid-operation it leaves a state lock behind, and the stack's ALB
+    # sits stranded against the account's ELB quota until the next cron destroy
+    # clears the lock and retries.
     concurrency:
       group: gp-api-preview-gp-api-pr-${{ github.event.number }}
       cancel-in-progress: false

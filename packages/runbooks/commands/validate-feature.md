@@ -1,4 +1,4 @@
-<!-- v1 — 2026-08-26 -->
+<!-- v2 — 2026-08-28 -->
 # /validate-feature
 
 Validate a shipped (or nearly shipped) feature against its spec and designs: pull the ClickUp epic/PRD (+ optional TDD and Claude Design canvas), provision test users in the right product state via gp-api's test-fixtures API, drive the deployed app in a real browser through the `gp-feature-validator` subagent, produce a validation report, and — **only after the user approves** — file bug tickets under the same epic and post the report as an epic comment. Cleans up its fixture users at the end.
@@ -94,7 +94,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
    - Functional scenarios from every subtask's acceptance criteria (`- [ ]` items) that describe user-visible behavior.
    - Behavioral claims from the TDD that a browser can observe.
    - Design expectations, one per artboard screenshot.
-   Then determine what the checklist *needs*: which fixture state(s) (Serve features → `serve` or `serve-won-race`; Pro-gated features → `pro-win`; default `free-win`), and which feature flags must be forced (grep the tickets/TDD for flag keys).
+   Then determine what the checklist *needs*: which fixture state(s) (Serve features → `serve` or `serve-won-race`; Pro-gated features → `pro-win`; default `free-win`), and which feature flags must be forced (grep the tickets/TDD for flag keys). Fixture emails end with `@goodparty.org`, so flags that target internal traffic by email domain apply to fixture users automatically — only force flags with other targeting.
 
 6. **Print the brief and confirm scope** — the checklist, the fixture state(s), the flags, the target URL, and whether design comparison will run. Wait for `go` (or an adjustment) before touching anything.
 
@@ -112,7 +112,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
      -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
      -d '{"state": "<state>"}'
    ```
-   The response carries `userId`, `email`, `password`, `orgSlug`, `sessionToken`, a single-use Clerk `signInToken` (the browser login credential — the app's pages are gated by the Clerk session, which the validator establishes by redeeming this ticket), and `expiresAt`. Record every created `userId` in a cleanup list. A 404 means the deploy isn't dev/preview or the route isn't live yet; a 403 means the caller isn't admin — in either case fall back to `--creds` (the user supplies the email; ask for the password interactively) and note the fallback in the report.
+   The response carries `userId`, `email` (a `qa-<uuid>@goodparty.org` address — the real internal domain, so internal-targeted feature flags apply), `password`, `orgSlug`, `sessionToken`, a single-use Clerk `signInToken` (the browser login credential — the app's pages are gated by the Clerk session, which the validator establishes by redeeming this ticket), and `expiresAt`. Record every created `userId` in a cleanup list. A 404 means the deploy isn't dev/preview or the route isn't live yet; a 403 means the caller isn't admin — in either case fall back to `--creds` (the user supplies the email; ask for the password interactively) and note the fallback in the report.
    Sign-in tickets are single-use: if the validator needs to log in again (retry, expired ticket), fetch a fresh one with `POST /api/v1/test-fixtures/users/<id>/session` rather than re-creating the fixture.
 
 ### Phase 3: Validate
@@ -129,7 +129,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
       -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
       -d '{"userIds": [<ids>]}'
     ```
-    Run this even after a failed validation. If cleanup fails, say so explicitly — the server sweeps `@test.goodparty.org` users after ~24h, but don't silently rely on it.
+    Run this even after a failed validation. If cleanup fails, say so explicitly — the server sweeps fixture (`qa-<uuid>@goodparty.org`) users after ~24h, but don't silently rely on it.
 
 ### Phase 5: Report, approve, file
 
@@ -178,7 +178,7 @@ Treat user input as `$ARGUMENTS`: a ClickUp epic/task ID or URL (required), plus
 | Fixtures API 404s on dev | The gp-api deploy predates the endpoint, or you're pointing at prod. Check `--base-url`; fall back to `--creds`. |
 | Fixtures API 403s | Your dev account lacks the admin role. Ask an admin to grant it, or use `--creds`. |
 | Ticket redemption fails / lands on login | Sign-in tickets are single-use and expire after 1h — fetch a fresh one via `POST .../users/<id>/session`. Make sure `window.Clerk` finished loading on `/login` before calling `signIn.create`. |
-| Flags won't turn on | Overrides only apply to *authenticated* users and only off-prod. Set the `e2e-flag-overrides` cookie after login, then reload. |
+| Flags won't turn on | Internal-targeted flags should already apply (fixture emails are `@goodparty.org`). For other targeting: overrides only apply to *authenticated* users and only off-prod — set the `e2e-flag-overrides` cookie after login, then reload. |
 | `gp-feature-validator` not found | Re-run `./install.sh` and restart the session, or run the validation inline per `agents/gp-feature-validator.md`. |
 | Canvas URL won't read | It may not be shared with you. Ask the owner for access, or run without design comparison. |
 | Playwright MCP missing | Produce the checklist as manual steps for the user; flag prominently in the report. |

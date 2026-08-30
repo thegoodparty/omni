@@ -3,6 +3,7 @@ import {
   type IdOverrides,
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
+  PeopleListDetailAggregatesResponse,
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
   PeoplePrecinctsResponse,
@@ -57,6 +58,59 @@ export const DATABASE_SCHEMA = 'green'
 
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
+
+type ReachabilityFilterKey =
+  | 'hasCellPhone'
+  | 'hasLandline'
+  | 'hasAnyPhone'
+  | 'hasAddress'
+
+// What `{ ...baseFilters, hasCellPhone: true }` used to produce once the DTO
+// transform had run, reconstructed on already-transformed FilterData so the
+// Postgres arm keeps emitting byte-identical SQL. A key the base filters
+// already carry stays in its original position, because a spread overwrite
+// did not move it either — appending a second copy would change the AND
+// chain and with it the SQL.
+const withReachableFilter = (
+  filters: FilterData,
+  key: ReachabilityFilterKey,
+): FilterData => ({
+  filters: filters.filters.includes(key)
+    ? filters.filters
+    : [...filters.filters, key],
+  filterValues: filters.filterValues,
+  filterOperators: {
+    ...filters.filterOperators,
+    [key]: { operator: 'is', value: 'not_null' },
+  },
+})
+
+const combineListDetailAggregates = (
+  base: PeopleAggregatesResponse,
+  cellphone: PeopleAggregatesResponse,
+  landline: PeopleAggregatesResponse,
+  anyPhone: PeopleAggregatesResponse,
+  address: PeopleAggregatesResponse,
+): PeopleListDetailAggregatesResponse => ({
+  count: base.count,
+  avgAge: base.avgAge,
+  avgIncome: base.avgIncome,
+  sms: cellphone.count,
+  robocall: landline.count,
+  phoneBanking: anyPhone.count,
+  doorKnocking: address.count,
+})
+
+const listDetailFingerprint = (
+  result: PeopleListDetailAggregatesResponse,
+): string =>
+  [
+    result.count,
+    result.sms,
+    result.robocall,
+    result.phoneBanking,
+    result.doorKnocking,
+  ].join('|')
 
 type RawPeopleQueryArgs = {
   districtId: string | null
@@ -343,6 +397,76 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       avgAge: row?.avgAge ?? null,
       avgIncome: row?.avgIncome ?? null,
     })
+  }
+
+  // Everything GET /v1/contacts/list-detail needs in one call: the same
+  // demographics getAggregates returns, plus a reachable count per channel.
+  // One combined interface, two very different arms — Databricks answers it
+  // with a single conditional-aggregate statement, Postgres still issues the
+  // five separate aggregates it always did (below), so the comparison is
+  // like-for-like on one op and Postgres load is unchanged.
+  async getListDetailAggregates(
+    dto: AggregatesDTO,
+  ): Promise<PeopleListDetailAggregatesResponse> {
+    if (!this.shadow.enabled) {
+      return this.getListDetailAggregatesFromPostgres(dto)
+    }
+    return this.shadow.compare({
+      op: 'list-detail-aggregates',
+      districtId: dto.districtId,
+      authoritative: () => this.shadow.databricks.getListDetailAggregates(dto),
+      comparison: () => this.getListDetailAggregatesFromPostgres(dto),
+      // Every count, not just the base one: a channel that diverges is the
+      // failure this consolidation could plausibly introduce, and a base-only
+      // fingerprint would report agreement while a tile was wrong.
+      fingerprintAuthoritative: (result) => listDetailFingerprint(result),
+      fingerprintComparison: (result) => listDetailFingerprint(result),
+    })
+  }
+
+  private async getListDetailAggregatesFromPostgres(
+    dto: AggregatesDTO,
+  ): Promise<PeopleListDetailAggregatesResponse> {
+    const forChannel = (channel: ReachabilityFilterKey) =>
+      this.getAggregatesFromPostgres({
+        ...dto,
+        filters: withReachableFilter(dto.filters, channel),
+      })
+
+    // Sequential when the answer is comparison-only, concurrent when Postgres
+    // is actually serving the request. ShadowReadService caps concurrent
+    // comparisons at two so a shadow read can never put a request's whole
+    // fan-out on people-db at once; running these five in parallel inside one
+    // comparison slot would multiply that cap by five and defeat it.
+    if (this.shadow.enabled) {
+      const base = await this.getAggregatesFromPostgres(dto)
+      const cellphone = await forChannel('hasCellPhone')
+      const landline = await forChannel('hasLandline')
+      const anyPhone = await forChannel('hasAnyPhone')
+      const address = await forChannel('hasAddress')
+      return combineListDetailAggregates(
+        base,
+        cellphone,
+        landline,
+        anyPhone,
+        address,
+      )
+    }
+
+    const [base, cellphone, landline, anyPhone, address] = await Promise.all([
+      this.getAggregatesFromPostgres(dto),
+      forChannel('hasCellPhone'),
+      forChannel('hasLandline'),
+      forChannel('hasAnyPhone'),
+      forChannel('hasAddress'),
+    ])
+    return combineListDetailAggregates(
+      base,
+      cellphone,
+      landline,
+      anyPhone,
+      address,
+    )
   }
 
   // Saved-list overlap count (ENG-10840): how many of the current selection

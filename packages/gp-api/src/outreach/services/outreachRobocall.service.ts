@@ -13,6 +13,10 @@ import {
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import { RobocallComplianceResultService } from './robocallComplianceResult.service'
 import {
   Campaign,
   Organization,
@@ -39,9 +43,17 @@ export class OutreachRobocallService extends createPrismaBase(
   constructor(
     private readonly contacts: ContactsService,
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly complianceResults: RobocallComplianceResultService,
+    private readonly analytics: AnalyticsService,
+    private readonly s3: S3Service,
   ) {
     super()
+    const bucket = process.env.ROBOCALL_AUDIO_BUCKET
+    if (!bucket) throw new Error('ROBOCALL_AUDIO_BUCKET is not configured')
+    this.audioBucket = bucket
   }
+
+  private readonly audioBucket: string
 
   // The billable count is the saved list resolved with the landline dimension
   // forced on — the same reachable-landline number the audience step showed and
@@ -107,6 +119,35 @@ export class OutreachRobocallService extends createPrismaBase(
     const existing = await this.findExistingDraft(campaign.id, input.audioKey)
     if (existing) return existing
 
+    // COMPLIANCE GATE (money/legal): a paid draft can only be created for audio
+    // that passed the server-side compliance check. The client UI runs the check
+    // first, but a crafted request must not skip it, so require a persisted
+    // PASSING verdict for this audioKey. The passing timestamp is mirrored onto
+    // the satellite below so the dial step has a durable per-draft fact.
+    const compliance = await this.complianceResults.findPassing(input.audioKey)
+    if (!compliance) {
+      throw new BadRequestException('Robocall audio has not passed compliance')
+    }
+
+    // ETAG BIND (legal): the passing verdict is bound to the exact bytes it
+    // checked. A presigned POST can overwrite the key with different bytes inside
+    // its expiry window, so re-read the object's current ETag and refuse a
+    // mismatch — a re-upload after the pass can't ride the old verdict. A verdict
+    // with no bound ETag (capture failed at check time) is not trusted: force a
+    // re-check. The matched ETag is FROZEN onto the draft below so the dial path
+    // re-verifies against what was approved here, not the mutable verdict.
+    if (!compliance.audioEtag) {
+      throw new BadRequestException(
+        'Robocall audio compliance is stale; re-run the compliance check',
+      )
+    }
+    const head = await this.s3.headObject(this.audioBucket, input.audioKey)
+    if (!head || head.etag !== compliance.audioEtag) {
+      throw new BadRequestException(
+        'Robocall audio changed since compliance; re-run the compliance check',
+      )
+    }
+
     // A past send time can never dial at CallHub, so a paid draft on it would
     // be money taken for a robocall that never sends. Reject before the
     // people-db round trip.
@@ -148,11 +189,19 @@ export class OutreachRobocallService extends createPrismaBase(
             callbackNumber: input.callbackNumber,
             billableCount,
             amountInCents,
+            compliancePassedAt: compliance.checkedAt,
+            complianceAudioEtag: compliance.audioEtag,
             settleState: RobocallSettleState.pending_payment,
           },
         })
         return spine.id
       })
+
+      // Scheduled touchpoint, emitted ONLY on a fresh create (not the idempotent
+      // existing-draft returns above / in the catch, which already emitted).
+      // Best-effort: the draft already committed, so a Segment failure must not
+      // 500 a successful create. Deterministic messageId dedups a replay.
+      await this.emitScheduled(campaign.userId, outreachId)
 
       return { outreachId, billableCount, amountInCents }
     } catch (err) {
@@ -173,6 +222,29 @@ export class OutreachRobocallService extends createPrismaBase(
         )
       }
       throw err
+    }
+  }
+
+  // Emits the Scheduled milestone with a deterministic Segment messageId so a
+  // replay dedups to one email. Best-effort: the draft already committed, so a
+  // transient Segment failure must not fail the create.
+  private async emitScheduled(
+    userId: number,
+    outreachId: number,
+  ): Promise<void> {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Robocall.Scheduled,
+        { outreachId },
+        undefined,
+        `${outreachId}:scheduled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall scheduled milestone emit failed',
+      )
     }
   }
 

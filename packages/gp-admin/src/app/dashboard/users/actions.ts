@@ -127,3 +127,22 @@ export const createImpersonationToken = async (targetUserId: number) => {
   )
   return { token, webappUrl }
 }
+
+// No getWebappUrl here: gp-api builds the absolute URL from its own APP_ROOT,
+// which is already the right host for the environment the org points at.
+export const createSignInLink = async (targetUserId: number) => {
+  const { orgId } = await auth()
+  const user = await currentUser()
+
+  if (!user || !orgId) throw new Error('Not authenticated')
+
+  // The only record of who minted a transferable credential: gp-api logs a
+  // null actor on the M2M path unless this is passed.
+  const actorEmail = user.primaryEmailAddress?.emailAddress
+  if (!actorEmail) throw new Error('Could not determine actor email')
+
+  const { url, expiresAt } = await gpAction((client) =>
+    client.admin.createSignInLink(targetUserId, actorEmail)
+  )
+  return { url, expiresAt }
+}

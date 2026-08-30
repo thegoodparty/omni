@@ -22,6 +22,31 @@ enum RobocallSettleState {
   // append-only ADD VALUE migration produces.
   hold_pending
   hold_failed
+  // The single-owner claim held while an authorized draft's CallHub voice-
+  // broadcast campaign is being staged (created PAUSED, not dialed). Transient:
+  // a successful stage releases the row back to authorized with its CallHub
+  // campaign pk_str set. Appended for the same append-only ADD VALUE reason.
+  staging
+  // The single-owner claim held while the send slice launches (STARTs) the
+  // staged CallHub campaign — the transient state that guards against dialing
+  // the same run twice. `dialed` is the terminal once the launch has committed
+  // and the broadcast is dialing, awaiting completion. Both appended for the
+  // same append-only ADD VALUE reason.
+  dialing
+  dialed
+  // The single-owner claim held while the capture slice captures the authorized
+  // hold for the actual completed-call count — the guard against capturing the
+  // same run twice. A successful capture advances to `captured`; a lapsed hold
+  // to `uncollectable`; a zero-billable run to `voided`. Appended for the same
+  // append-only ADD VALUE reason.
+  capturing
+  // The single-owner claim held while the fresh-charge recovery charges a
+  // delivered run whose authorization hold lapsed (an off-session charge, NOT a
+  // hold capture) — the guard against charging the same run twice. A successful
+  // charge advances to `charged`; a declined card returns to `uncollectable`
+  // (chargeIntentId set, so it is not re-attempted). Appended for the same
+  // append-only ADD VALUE reason.
+  charging
 }
 
 model OutreachRobocall {
@@ -73,6 +98,34 @@ model OutreachRobocall {
   chargeIntentId         String?             @map("charge_intent_id")
   // How many times settlement has been attempted, to bound retries.
   payAttempt             Int                 @default(0) @map("pay_attempt")
+  // When the CallHub voice-broadcast was launched (START). Stamped by the send
+  // slice at the dialing → dialed commit; null until the run actually dials.
+  dialedAt               DateTime?           @map("dialed_at")
+  // When this draft's audio passed the server-side compliance check, mirrored
+  // from the RobocallComplianceResult at create. A hard prerequisite for
+  // dialing: the send slice refuses to launch a draft whose value is null, a
+  // belt-and-suspenders backstop under the create-time gate.
+  compliancePassedAt     DateTime?           @map("compliance_passed_at")
+  // The S3 ETag of the audio that passed compliance, FROZEN at create from the
+  // RobocallComplianceResult. The staging step re-reads the object's current
+  // ETag before uploading it to CallHub and refuses a mismatch, so bytes swapped
+  // after the create gate (a re-upload to the same presigned key) can never
+  // reach voters. Frozen on the draft — not re-read from the mutable verdict —
+  // so re-running compliance on swapped bytes can't retroactively bless them.
+  complianceAudioEtag    String?             @map("compliance_audio_etag")
+  // When the last "fix your card" reminder was sent for a hold_failed draft.
+  // The daily reminder sweep stamps this on emit and only re-reminds a draft
+  // whose value is null or older than ~1 day, so it is the primary once/day
+  // guard against a double sweep re-emailing.
+  lastReminderSentAt     DateTime?           @map("last_reminder_sent_at")
+  // The completion sweep's snapshot of CallHub's actual completed/billable call
+  // count (credits_usage `voice_calls`). Written on each terminal-status poll so
+  // one sweep pass never settles a still-moving count: settlement requires two
+  // consecutive polls to read the SAME count. The value the capture slice
+  // charges (min(actual, authorized)); null until the run finishes dialing.
+  completedCallCount     Int?                @map("completed_call_count")
+  // When the completion sweep last polled CallHub for this run's count.
+  completionPolledAt     DateTime?           @map("completion_polled_at")
   settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
 
   @@map("outreach_robocall")

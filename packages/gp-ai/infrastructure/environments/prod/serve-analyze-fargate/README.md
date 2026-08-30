@@ -81,7 +81,7 @@ failure_notification_email = "alerts@goodparty.org"
 ### Step 1: Review Configuration
 
 ```bash
-cd /Users/collinpark/work/gp-ai-projects/infrastructure/environments/prod/serve-analyze-fargate
+cd /Users/collinpark/work/packages/gp-ai/infrastructure/environments/prod/serve-analyze-fargate
 
 # Verify terraform.tfvars has correct values
 cat terraform.tfvars

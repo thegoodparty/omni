@@ -87,7 +87,11 @@ const PhoneBankingSupportersMetric = ({ id }: { id: number }) => {
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
   }
-  return <>{count.toLocaleString()} supporters</>
+  return (
+    <>
+      {count.toLocaleString()} supporter{count === 1 ? '' : 's'}
+    </>
+  )
 }
 
 // compact = the mobile card's flat text-xs line; the table cell splits the

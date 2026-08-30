@@ -44,10 +44,21 @@ field.
 
 | `op` | Databricks side | Postgres side |
 | --- | --- | --- |
-| `list`, `voter-by-id`, `aggregates`, `overlap`, `sample` | `DatabricksVoterService` | `voterQuery.service.ts` |
+| `list`, `voter-by-id`, `aggregates`, `list-detail-aggregates`, `overlap`, `sample` | `DatabricksVoterService` | `voterQuery.service.ts` |
 | `stats` | `DatabricksVoterService.findStats` | `stats.service.ts` |
 | `dk-evaluate`, `dk-residents` | `DatabricksVoterService` | `voterDoorKnocking.service.ts` |
 | `dk-pack` | `DatabricksVoterPackService` | `voterPack.service.ts` |
+
+`list-detail-aggregates` is the one op whose two arms are shaped differently
+on purpose. Databricks answers it in a single statement, with a `COUNT_IF` per
+reachability channel beside the demographics `COUNT`/`AVG`s; the Postgres arm
+runs the five separate aggregates it always did and combines them app-side, so
+the comparison stays like-for-like and people-db load is unchanged by the
+consolidation. Those five run **serially** whenever the arm is comparison-only:
+`MAX_CONCURRENT_COMPARISONS` bounds comparisons, not the statements inside one,
+so fanning them out in parallel would multiply the cap by five. They still run
+in parallel when Postgres is serving the request, where the answer is on the
+response path.
 
 Two forked reads **switch outright instead of comparing**, so they emit no
 `op` and no log line: the CSV download (`voterDownload.service.ts`) and

@@ -14,6 +14,12 @@ describe('isProductRoute', () => {
     expect(isProductRoute('/serve/onboarding')).toBe(true)
   })
 
+  it('treats the one-time sign-in link page as a product route', () => {
+    // Same focused full-screen chrome as /serve/welcome, so the global
+    // marketing footer must not stack under it.
+    expect(isProductRoute('/sign-in-link')).toBe(true)
+  })
+
   it('treats dashboard, polls, and profile as product routes', () => {
     expect(isProductRoute('/dashboard')).toBe(true)
     expect(isProductRoute('/dashboard/profile')).toBe(true)

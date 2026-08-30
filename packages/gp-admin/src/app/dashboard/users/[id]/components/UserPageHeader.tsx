@@ -9,6 +9,7 @@ import { PERMISSIONS } from '@/lib/permissions'
 import { useUser } from '../context/UserContext'
 import { CvPinStatus } from './CvPinStatus'
 import { ImpersonateButton } from './ImpersonateButton'
+import { SignInLinkButton } from './SignInLinkButton'
 
 interface UserPageHeaderProps {
   isEditMode?: boolean
@@ -49,6 +50,7 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
         <Flex gap="3" align="center">
           <CvPinStatus />
           <ImpersonateButton userId={id} />
+          <SignInLinkButton userId={id} />
           <ProtectedContent
             requiredPermission={PERMISSIONS.WRITE_USERS}
             hideWhenUnauthorized

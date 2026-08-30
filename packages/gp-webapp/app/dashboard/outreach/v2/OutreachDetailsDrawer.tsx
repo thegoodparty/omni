@@ -63,7 +63,10 @@ import {
   ELECTION_FILING_PATH,
   SUBMIT_PIN_PATH,
 } from 'app/dashboard/shared/ComplianceModal'
-import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  TCR_COMPLIANCE_STATUS,
+  isTcrCleared,
+} from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import {
   ChannelBadge,
   HistoryStatusText,
@@ -210,13 +213,8 @@ export const OutreachDetailsDrawer = ({
   const isCanceled = row?.status === 'canceled'
   // A scheduled SMS row while CampaignVerify clearance pends: the carriers
   // will hold the send, so the drawer flags it and swaps the footer to
-  // Cancel + Start verification. Read the persisted TCR status rather than
-  // `peerlyCvStatus`, because `peerly_cv_status` was only added mid-2026 and
-  // `CvStatusPollService` deliberately excludes `approved` records (see
-  // packages/gp-api/src/campaigns/tcrCompliance/AGENTS.md) — so a legacy
-  // approved row has `peerlyCvStatus = null` forever and would falsely trip
-  // the "Needs compliance" substitution (ENG-10962).
-  const notCleared = tcrCompliance?.status !== TCR_COMPLIANCE_STATUS.APPROVED
+  // Cancel + Start verification.
+  const notCleared = !isTcrCleared(tcrCompliance)
   const isPendingVerificationSms = isCancelableSms && notCleared
   // The carriers hold EVERY uncleared SMS send, not just the cancelable
   // pending set — legacy rows labeled Scheduled ride spine paid/in_progress.

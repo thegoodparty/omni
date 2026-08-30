@@ -1,4 +1,5 @@
 import { useTestService } from '@/test-service'
+import { randomUUID } from 'crypto'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
 import {
@@ -924,6 +925,52 @@ describe('UsersService', () => {
       expect(signIn).not.toHaveBeenCalled()
     })
 
+    it('refuses an established Serve account that completed onboarding', async () => {
+      // A Serve (elected-official) account owns an Organization, not a
+      // Campaign, so the campaign gate alone lets it through. Once onboarding
+      // is complete the account is real and must not be reusable.
+      const suffix = uniqueSuffix()
+      const email = `eo-established-${suffix}@example.com`
+      const clerkId = `clerk_established_${suffix}`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Established',
+          lastName: 'Official',
+          name: 'Established Official',
+          clerkId,
+        },
+      })
+      const orgSlug = `org-established-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: orgSlug, ownerId: user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: user.id,
+          organizationSlug: orgSlug,
+          onboardingCompletedAt: new Date(),
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Established',
+          lastName: 'Official',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
     it('refuses a legacy campaign-owning local user with no Clerk identity', async () => {
       // The email matches a campaign-owning local row whose clerkId is null. The
       // gate must run on this pre-existing row BEFORE any Clerk identity is
@@ -1143,6 +1190,101 @@ describe('UsersService', () => {
 
       await expect(
         usersService.impersonateUser(service.user.id, 'user_actor_clerk_id'),
+      ).rejects.toThrow(BadGatewayException)
+    })
+  })
+
+  describe('createSignInLink', () => {
+    let clerkClient: ClerkClient
+
+    beforeEach(() => {
+      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    })
+
+    // clearMocks (not restoreMocks) leaves a spied implementation in place, so
+    // a mocked signInTokens would leak into later suites. Restore after each.
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('returns a sign-in token and an ISO expiry an hour out', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: 'signin_token_abc',
+        } as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      const before = Date.now()
+      const result = await usersService.createSignInLink(service.user.id)
+
+      expect(result.token).toBe('signin_token_abc')
+      expect(clerkClient.signInTokens.createSignInToken).toHaveBeenCalledWith({
+        userId: service.user.clerkId,
+        expiresInSeconds: 3600,
+      })
+      const expiresAt = new Date(result.expiresAt).getTime()
+      expect(result.expiresAt).toBe(new Date(expiresAt).toISOString())
+      expect(expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000)
+      expect(expiresAt).toBeLessThanOrEqual(Date.now() + 3600 * 1000)
+    })
+
+    it('does not embed an actor claim — this is not impersonation', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: 'signin_token_abc',
+        } as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      await usersService.createSignInLink(service.user.id)
+
+      expect(clerkClient.signInTokens.createSignInToken).toHaveBeenCalledWith(
+        expect.not.objectContaining({ actor: expect.anything() }),
+      )
+    })
+
+    it('throws BadRequestException when target user has no clerkId', async () => {
+      const userWithoutClerkId = await service.prisma.user.create({
+        data: {
+          email: 'noclerk-signin@example.com',
+          firstName: 'No',
+          lastName: 'Clerk',
+          clerkId: null,
+        },
+      })
+
+      await expect(
+        usersService.createSignInLink(userWithoutClerkId.id),
+      ).rejects.toThrow('User does not have an associated Clerk ID')
+    })
+
+    it('throws BadGatewayException when the Clerk call fails', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockRejectedValue(
+        new Error('Clerk API unavailable'),
+      )
+
+      await expect(
+        usersService.createSignInLink(service.user.id),
+      ).rejects.toThrow(BadGatewayException)
+      await expect(
+        usersService.createSignInLink(service.user.id),
+      ).rejects.toThrow('Failed to create sign-in link')
+    })
+
+    it('throws BadGatewayException when Clerk returns no token', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: null,
+        } as unknown as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      await expect(
+        usersService.createSignInLink(service.user.id),
       ).rejects.toThrow(BadGatewayException)
     })
   })
@@ -1528,6 +1670,18 @@ describe('UsersService', () => {
           createdAt: subDays(new Date(), 2),
         },
       })
+      const oldFixture = await service.prisma.user.create({
+        data: {
+          email: `qa-${randomUUID()}@goodparty.org`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
+      const oldStaffAlias = await service.prisma.user.create({
+        data: {
+          email: `qa-team-${suffix}@goodparty.org`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
 
       await usersService.deleteTestUsers()
 
@@ -1535,10 +1689,18 @@ describe('UsersService', () => {
         await service.prisma.user.findUnique({ where: { id: oldTest.id } }),
       ).toBeNull()
       expect(
+        await service.prisma.user.findUnique({ where: { id: oldFixture.id } }),
+      ).toBeNull()
+      expect(
         await service.prisma.user.findUnique({ where: { id: recentTest.id } }),
       ).not.toBeNull()
       expect(
         await service.prisma.user.findUnique({ where: { id: oldReal.id } }),
+      ).not.toBeNull()
+      expect(
+        await service.prisma.user.findUnique({
+          where: { id: oldStaffAlias.id },
+        }),
       ).not.toBeNull()
     })
 
@@ -1558,11 +1720,24 @@ describe('UsersService', () => {
           createdAt: oldCreatedAt,
           emailAddresses: [{ emailAddress: `r${i}@example.com` }],
         }) as never
+      const fixtureUser = (i: number) =>
+        ({
+          id: `clerk_fixture_${i}`,
+          createdAt: oldCreatedAt,
+          emailAddresses: [
+            { emailAddress: `qa-${randomUUID()}@goodparty.org` },
+          ],
+        }) as never
+      const staffAlias = {
+        id: 'clerk_staff_alias',
+        createdAt: oldCreatedAt,
+        emailAddresses: [{ emailAddress: 'qa-team@goodparty.org' }],
+      } as never
 
-      // Page 1 (full): 3 test users + 497 non-test.
+      // Page 1 (full): 2 test users + 1 fixture user + 497 non-test.
       const pageOne = [
         testUser(1),
-        testUser(2),
+        fixtureUser(2),
         testUser(3),
         ...Array.from({ length: 497 }, (_, i) => realUser(i)),
       ]
@@ -1571,8 +1746,8 @@ describe('UsersService', () => {
         testUser(4),
         ...Array.from({ length: 499 }, (_, i) => realUser(500 + i)),
       ]
-      // Page 3 (short): 1 test user + 1 non-test -> loop stops.
-      const pageThree = [testUser(5), realUser(9999)]
+      // Page 3 (short): 1 test user + 1 staff qa- alias (kept) -> loop stops.
+      const pageThree = [testUser(5), staffAlias]
 
       const getUserList = vi
         .spyOn(clerkClient.users, 'getUserList')
@@ -1589,7 +1764,7 @@ describe('UsersService', () => {
 
       expect(deleteUser.mock.calls.map((c) => c[0])).toEqual([
         'clerk_test_1',
-        'clerk_test_2',
+        'clerk_fixture_2',
         'clerk_test_3',
         'clerk_test_4',
         'clerk_test_5',

@@ -36,8 +36,22 @@ import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.s
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
+import { OutreachRobocallHoldRecoveryService } from './services/outreachRobocallHoldRecovery.service'
+import { RobocallOrphanedCampaignService } from './services/robocallOrphanedCampaign.service'
+import { OutreachRobocallCallhubCleanupService } from './services/outreachRobocallCallhubCleanup.service'
+import { OutreachRobocallDeferredHoldService } from './services/outreachRobocallDeferredHold.service'
+import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
+import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
+import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
+import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
+import { OutreachRobocallCompletionService } from './services/outreachRobocallCompletion.service'
+import { OutreachRobocallCaptureService } from './services/outreachRobocallCapture.service'
+import { OutreachRobocallFreshChargeService } from './services/outreachRobocallFreshCharge.service'
+import { RobocallOrphanedHoldService } from './services/robocallOrphanedHold.service'
+import { OutreachRobocallHoldReconcileService } from './services/outreachRobocallHoldReconcile.service'
 import { RobocallTranscriptionService } from './services/robocallTranscription.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
+import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
 import { RobocallPhonebookService } from './services/robocallPhonebook.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
@@ -89,8 +103,22 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachRobocallGenerationService,
     OutreachRobocallService,
     OutreachRobocallHoldService,
+    OutreachRobocallHoldRecoveryService,
+    RobocallOrphanedCampaignService,
+    OutreachRobocallCallhubCleanupService,
+    OutreachRobocallDeferredHoldService,
+    OutreachRobocallStagingService,
+    OutreachRobocallSendService,
+    OutreachRobocallHoldFailureService,
+    OutreachRobocallWebhookService,
+    OutreachRobocallCompletionService,
+    OutreachRobocallCaptureService,
+    OutreachRobocallFreshChargeService,
+    RobocallOrphanedHoldService,
+    OutreachRobocallHoldReconcileService,
     RobocallTranscriptionService,
     RobocallComplianceService,
+    RobocallComplianceResultService,
     RobocallPhonebookService,
     OutreachComposeContextService,
     OutreachRobocallAudioService,

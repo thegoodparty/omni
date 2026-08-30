@@ -197,6 +197,88 @@ describe('DatabricksVoterService', () => {
     })
   })
 
+  describe('getListDetailAggregates', () => {
+    beforeEach(() => {
+      stubDistrict('US_Congressional_District', '29')
+    })
+
+    // One statement, seven columns — the whole list-detail payload the five
+    // separate aggregates calls used to assemble.
+    it('reads every channel off the single row, in one statement', async () => {
+      query.mockResolvedValueOnce({
+        columns: [
+          'count',
+          'avgAge',
+          'avgIncome',
+          'sms',
+          'robocall',
+          'phoneBanking',
+          'doorKnocking',
+        ],
+        rows: [['999', '47.5', '82000.25', '777', '222', '555', '111']],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(query).toHaveBeenCalledOnce()
+      expect(result).toEqual({
+        count: 999,
+        avgAge: 47.5,
+        avgIncome: 82000.25,
+        sms: 777,
+        robocall: 222,
+        phoneBanking: 555,
+        doorKnocking: 111,
+      })
+    })
+
+    it('keeps a null average null while the channel counts stay zero', async () => {
+      query.mockResolvedValueOnce({
+        columns: [
+          'count',
+          'avgAge',
+          'avgIncome',
+          'sms',
+          'robocall',
+          'phoneBanking',
+          'doorKnocking',
+        ],
+        rows: [['0', null, null, '0', '0', '0', '0']],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(result).toEqual({
+        count: 0,
+        avgAge: null,
+        avgIncome: null,
+        sms: 0,
+        robocall: 0,
+        phoneBanking: 0,
+        doorKnocking: 0,
+      })
+    })
+
+    // All-or-nothing now: there is no per-channel settling left to degrade to,
+    // so a warehouse outage has to surface as a 502 rather than zeroed tiles,
+    // which the product would read as "this office has nobody to reach".
+    it('translates an unreachable warehouse into a 502, not zeroed tiles', async () => {
+      query.mockRejectedValueOnce(
+        new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
+      )
+
+      await expect(
+        service.getListDetailAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadGatewayException)
+    })
+  })
+
   describe('getOverlapCount', () => {
     it('returns the counted overlap', async () => {
       stubDistrict('US_Congressional_District', '29')

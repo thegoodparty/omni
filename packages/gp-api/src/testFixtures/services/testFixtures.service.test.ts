@@ -80,7 +80,9 @@ describe('createFixtureUser', () => {
   it('free-win: creates a launched campaign with no CRM tracking', async () => {
     const result = await fixtures().createFixtureUser({ state: 'free-win' })
 
-    expect(result.email).toMatch(/@test\.goodparty\.org$/)
+    expect(result.email).toMatch(
+      /^qa-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}@goodparty\.org$/,
+    )
     expect(result.campaignId).toBeDefined()
     expect(result.orgSlug).toBe(`campaign-${result.campaignId}`)
     expect(result.sessionToken).toBe('fixture-jwt')

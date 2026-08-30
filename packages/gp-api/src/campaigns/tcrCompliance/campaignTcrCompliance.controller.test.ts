@@ -54,6 +54,7 @@ describe('CampaignTcrComplianceController', () => {
     resendCampaignVerifyPin: ReturnType<typeof vi.fn>
     grantInternalTestingApproval: ReturnType<typeof vi.fn>
     revokeInternalTestingApproval: ReturnType<typeof vi.fn>
+    overrideCvValidation: ReturnType<typeof vi.fn>
     model: { update: ReturnType<typeof vi.fn> }
   }
   let mockUserService: { findByCampaign: ReturnType<typeof vi.fn> }
@@ -84,6 +85,7 @@ describe('CampaignTcrComplianceController', () => {
         .fn()
         .mockResolvedValue(mockTcrCompliance),
       revokeInternalTestingApproval: vi.fn().mockResolvedValue(undefined),
+      overrideCvValidation: vi.fn().mockResolvedValue(undefined),
       model: { update: vi.fn().mockResolvedValue(mockTcrCompliance) },
     }
 
@@ -156,6 +158,7 @@ describe('CampaignTcrComplianceController', () => {
     const tcrComplianceDto = {
       ein: '12-3456789',
       committeeName: 'Test Committee',
+      candidateName: 'Jane Candidate',
       websiteDomain: 'example.com',
       filingUrl: 'https://fec.gov/filing',
       email: 'test@example.com',
@@ -203,6 +206,7 @@ describe('CampaignTcrComplianceController', () => {
     const agenticDto = {
       ein: '12-3456789',
       committeeName: 'Test Committee',
+      candidateName: 'Jane Candidate',
       filingUrl: 'https://example.com/filing',
       email: 'test@example.com',
       phone: '5555555555',
@@ -590,6 +594,49 @@ describe('CampaignTcrComplianceController', () => {
       expect(
         mockTcrService.revokeInternalTestingApproval,
       ).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('overrideCvValidationForCampaign (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('overrideCvValidationForCampaign').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('responds with HTTP 204 No Content', () => {
+      const statusCode = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        CampaignTcrComplianceController.prototype
+          .overrideCvValidationForCampaign,
+      )
+      expect(statusCode).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('verifies the campaign exists and delegates the override', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockResolvedValue(mockCampaign)
+
+      await controller.overrideCvValidationForCampaign(mockCampaign.id)
+
+      expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: mockCampaign.id },
+      })
+      expect(mockTcrService.overrideCvValidation).toHaveBeenCalledWith(
+        mockCampaign.id,
+      )
+    })
+
+    it('does not override when the campaign does not exist', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockRejectedValue(
+        new NotFoundException(),
+      )
+
+      await expect(
+        controller.overrideCvValidationForCampaign(12345),
+      ).rejects.toThrow(NotFoundException)
+      expect(mockTcrService.overrideCvValidation).not.toHaveBeenCalled()
     })
   })
 })

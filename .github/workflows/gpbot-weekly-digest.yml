@@ -1,0 +1,357 @@
+name: gpbot weekly digest
+
+# Says out loud, once a week, whether gpbot actually did its job.
+#
+# WHY: the worst failure this system has had was not a bad fix. It went silent
+# from 2026-07-31 to 2026-08-14 — 26 tagged tickets, 3 analyzed — and nothing
+# noticed for twelve days, because every alarm it has needs the Lambda to run
+# and a suspended ClickUp webhook produces nothing to alarm on. The
+# clickup-bot-no-deliveries-prod alarm now covers total silence, but not the
+# case where the bot is running and still missing bugs.
+#
+# So this posts COVERAGE first — bugs tagged gpbot-analyze last week versus the
+# ones that got an analysis, with the misses named — and not merges. Leading
+# with merges would misprice a triage system that deliberately declines to write
+# code (see escalation.py) and would reward opening PRs against tickets that are
+# not code bugs.
+#
+# IT POSTS EVEN ON A QUIET WEEK, which is the opposite of gpbot-stale-pr-alert.yml
+# and deliberate. That job stays silent when it finds nothing because a daily
+# "0 stale PRs" trains people to ignore the channel. Here, silence would be
+# indistinguishable from the job being broken — which is precisely this system's
+# signature failure mode.
+#
+# Reads only. It must never merge, close, comment or tag anything.
+#
+# The judgement lives in packages/gp-ai/clickup_bot/weekly_digest.py, on the same
+# contract as ci_triage.py: this workflow gathers facts and pipes one JSON blob
+# in, the module decides what they mean and hands back the message. Nothing is
+# computed in YAML, so every number in the Monday post is covered by pytest.
+
+on:
+  schedule:
+    # Monday 15:00 UTC — mid-morning US, matching gpbot-stale-pr-alert.yml so
+    # both gpbot posts land in #bugs during the working day rather than joining
+    # the overnight unread pile.
+    - cron: '0 15 * * 1'
+  workflow_dispatch:
+    inputs:
+      week_start:
+        description: 'Monday of the week to report on, YYYY-MM-DD (default: the last completed week)'
+        required: false
+      dry_run:
+        description: 'Render the message into the job summary without posting to Slack'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  # OIDC for the CloudWatch read.
+  id-token: write
+
+concurrency:
+  # A second digest for the same week is noise in a channel this is trying to
+  # keep worth reading. cancel-in-progress stays false so a manual dry run
+  # cannot kill the scheduled post half way through.
+  group: gpbot-weekly-digest
+  cancel-in-progress: false
+
+env:
+  CLICKUP_TEAM_ID: '90132012119'
+  # Where engineer_agent's GPBOT_METRIC lines land. Retention here is 400 days,
+  # so a digest that runs late — or a re-run of an old week — still finds them.
+  LOG_GROUP: /ecs/engineer-agent-prod
+  ANALYZE_TAG: gpbot-analyze
+
+jobs:
+  digest:
+    name: Post last week's gpbot digest
+    runs-on: ubuntu-latest
+    # Bounds a stall on any of the three APIs. Nothing here should take more
+    # than a minute or two; past ten it is a hung runner, and a digest that
+    # never finishes tells nobody anything.
+    timeout-minutes: 10
+    env:
+      # gp_ai_bot — see the note in gpbot-pr-triage.yml. All the gpbot workflows
+      # post to the same channel, so they must carry the same app.
+      SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
+      CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: packages/gp-ai/clickup_bot/weekly_digest.py
+          sparse-checkout-cone-mode: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Resolve the week
+        id: window
+        env:
+          WEEK_START: ${{ inputs.week_start }}
+        run: |
+          set -euo pipefail
+
+          # THE COMPLETED Monday-Sunday WEEK, always, so consecutive digests
+          # cover equal periods and can be read against each other. Anchoring on
+          # the current week's Monday rather than on "7 days ago" is what makes
+          # a manual Wednesday run report the same week the Monday run did,
+          # instead of a rolling window nobody can compare.
+          start="${WEEK_START:-}"
+          if [ -z "$start" ]; then
+            dow="$(date -u +%u)"
+            start="$(date -u -d "-$((dow - 1 + 7)) days" +%Y-%m-%d)"
+          fi
+          end="$(date -u -d "$start +7 days" +%Y-%m-%d)"
+
+          {
+            echo "start_iso=${start}T00:00:00Z"
+            echo "end_iso=${end}T00:00:00Z"
+            # ClickUp and CloudWatch both want milliseconds.
+            echo "start_ms=$(( $(date -u -d "$start" +%s) * 1000 ))"
+            echo "end_ms=$(( $(date -u -d "$end" +%s) * 1000 ))"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "reporting on $start .. $end (exclusive)"
+
+      # EVERY GATHER STEP BELOW WRITES `null` RATHER THAN AN EMPTY LIST WHEN IT
+      # FAILS, and that distinction is the whole reason they are separate steps
+      # with `continue-on-error`. The module reports a null source as
+      # "unavailable"; an empty list is a claim that the week was quiet. On the
+      # coverage line those two produce opposite messages — "0 missed" from a
+      # query that never ran is an actively false statement about the only thing
+      # this digest exists to report.
+      - name: Gather tagged tickets from ClickUp
+        id: clickup
+        continue-on-error: true
+        env:
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          START_MS: ${{ steps.window.outputs.start_ms }}
+          END_MS: ${{ steps.window.outputs.end_ms }}
+        run: |
+          set -euo pipefail
+          echo 'null' > /tmp/tickets.json
+
+          # tags[] unescaped, as in handler.py's list_recently_updated_tagged_tasks:
+          # ClickUp normalizes the percent-encoded spelling today, but the failure
+          # mode if that ever changes is a silently unfiltered task list.
+          #
+          # date_created, not date_updated: coverage is bucketed by when the bug
+          # was FILED, which is the only bucketing under which a ticket nobody
+          # analyzed shows up at all. handler.py's sweep uses date_updated for the
+          # opposite reason — it wants tickets whose tag arrived late.
+          #
+          # include_closed=true, unlike the sweep. A bug filed and closed inside
+          # the same week is still a bug that should have been looked at, and
+          # dropping it would quietly flatter the coverage number.
+          base="https://api.clickup.com/api/v2/team/${CLICKUP_TEAM_ID}/task"
+          query="tags[]=${ANALYZE_TAG}&date_created_gt=$((START_MS - 1))&date_created_lt=${END_MS}"
+          query="${query}&include_closed=true&subtasks=true"
+
+          # --globoff, because the literal `tags[]=` above is a glob range to
+          # curl. It happens to tolerate the empty pair today; a URL that grows
+          # a second bracketed parameter would not be so lucky.
+          tasks='[]'
+          exhausted=0
+          for page in 0 1 2 3 4 5 6 7 8 9; do
+            body="$(curl -sS --fail --globoff --max-time 30 -H "Authorization: $CLICKUP_API_TOKEN" \
+              "${base}?${query}&page=${page}")"
+            batch="$(jq -c '[.tasks[]? | {id, custom_id, name, url, date_created}]' <<<"$body")"
+            tasks="$(jq -c -n --argjson a "$tasks" --argjson b "$batch" '$a + $b')"
+            if [ "$(jq 'length' <<<"$batch")" = "0" ]; then exhausted=1; break; fi
+          done
+
+          # Ten pages is ~1000 tickets against a week that runs to about ten, so
+          # reaching the cap means something is very wrong with the query. It
+          # fails the source rather than truncating it: a short list here reads
+          # as a smaller denominator and a better coverage number, which is the
+          # one direction this digest must never be wrong in.
+          if [ "$exhausted" != "1" ]; then
+            echo "::error::hit the ClickUp page cap; coverage would be understated, so it is reported unavailable"
+            exit 1
+          fi
+
+          # The comments are what decide whether a ticket was covered, so a fetch
+          # that fails must take the WHOLE source down rather than leave that
+          # ticket looking un-analyzed. A single missing response would otherwise
+          # invent a miss, name an innocent ticket in Slack, and read as the exact
+          # regression this digest is watching for.
+          with_comments='[]'
+          while read -r task; do
+            [ -n "$task" ] || continue
+            id="$(jq -r .id <<<"$task")"
+            comments="$(curl -sS --fail --max-time 30 -H "Authorization: $CLICKUP_API_TOKEN" \
+              "https://api.clickup.com/api/v2/task/${id}/comment" | jq -c '.comments // []')"
+            with_comments="$(jq -c -n --argjson a "$with_comments" --argjson t "$task" \
+              --argjson c "$comments" '$a + [$t + {comments: $c}]')"
+          done < <(jq -c '.[]' <<<"$tasks")
+
+          printf '%s' "$with_comments" > /tmp/tickets.json
+          echo "tagged tickets created in the window: $(jq 'length' /tmp/tickets.json)"
+
+      - name: Gather bot PRs from GitHub
+        id: github
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo 'null' > /tmp/prs.json
+          fields=number,title,url,createdAt,closedAt,mergedAt,state,headRefName,reviews
+
+          # TWO QUERIES, because neither signal can be searched for on its own.
+          #
+          # Every OPEN PR, unfiltered: this is the only query where both bot
+          # signals can be applied (the title comes from the agent's `gh` call,
+          # the branch from its git commands, and either alone has been wrong
+          # before), and it is where the "open past 48h with no human review"
+          # warning comes from. omni carries ~20 open PRs, so the limit is slack.
+          gh pr list --repo "$REPO" --state open --limit 200 --json "$fields" > /tmp/open.json
+
+          # Every PR ever titled [GP-Bot], for the merged/closed counts. There
+          # are 7 in omni's history, so no date bound is needed or wanted.
+          #
+          # The obvious alternative — scan everything updated during the window —
+          # does not survive this repo's volume: `updated:>=` over seven days
+          # returned exactly the 200-result limit with the oldest hit only three
+          # days old (measured 2026-08-28), so it truncates silently. Searching
+          # by branch is not available either; GitHub's `head:` qualifier matches
+          # a whole branch name, and `head:gp-bot` returns nothing.
+          #
+          # WHAT THIS MISSES: a PR that closed with a bot branch but no [GP-Bot]
+          # title. The implement instruction sets both, and anything currently
+          # open is caught by the first query, so the gap is a closed PR that was
+          # never labelled as the bot's — undercounting, and visible as a merged
+          # count that disagrees with the verdicts line.
+          gh pr list --repo "$REPO" --state all --search '"[GP-Bot]" in:title' --limit 200 --json "$fields" \
+            > /tmp/bot.json
+
+          jq -s -c 'add | unique_by(.number)' /tmp/open.json /tmp/bot.json > /tmp/prs.json
+          echo "PRs gathered: $(jq 'length' /tmp/prs.json)"
+
+      - name: Gather run metrics from CloudWatch
+        id: cloudwatch
+        continue-on-error: true
+        env:
+          START_MS: ${{ steps.window.outputs.start_ms }}
+          END_MS: ${{ steps.window.outputs.end_ms }}
+        run: |
+          set -euo pipefail
+          echo 'null' > /tmp/runs.json
+
+          # One filter-log-events call and no Insights query, which is the entire
+          # point of engineer_agent/agent/metrics.py: before it existed, verdict
+          # and cost had to be scraped out of prose in two log groups and joined
+          # on an 8-character run id, and rewording either line broke the numbers
+          # with nothing to show for it.
+          #
+          # The CLI paginates this itself. A week's runs are tens of events.
+          aws logs filter-log-events \
+            --log-group-name "$LOG_GROUP" \
+            --start-time "$START_MS" \
+            --end-time "$END_MS" \
+            --filter-pattern GPBOT_METRIC \
+            --query 'events[].message' \
+            --output json > /tmp/aws-runs.json
+
+          # A query that matched nothing prints `null`, which the module would
+          # read as "CloudWatch did not answer". It did answer: a week with no
+          # runs is a real and reportable state, and a different one from an
+          # unreachable log group. Normalised only after the CLI exited 0, so a
+          # genuine failure still leaves the `null` written above.
+          jq -c '. // []' /tmp/aws-runs.json > /tmp/runs.json
+
+          echo "metric lines: $(jq 'length' /tmp/runs.json)"
+
+      - name: Render the digest
+        id: render
+        env:
+          START_ISO: ${{ steps.window.outputs.start_iso }}
+          END_ISO: ${{ steps.window.outputs.end_iso }}
+        run: |
+          set -euo pipefail
+
+          # A step that failed leaves its file holding `null` (written before the
+          # first call in every gather step), which the module renders as
+          # "unavailable" on that line. Nothing here converts a failure into a
+          # zero.
+          #
+          # A step that died PART WAY THROUGH a redirect leaves something worse:
+          # half a JSON document. Unreadable is the same information as absent,
+          # and letting jq choke on it would take the other two sources down with
+          # it — one flaky API and nobody hears anything on Monday.
+          for source in tickets prs runs; do
+            jq empty "/tmp/${source}.json" 2>/dev/null || echo 'null' > "/tmp/${source}.json"
+          done
+
+          jq -n \
+            --arg start "$START_ISO" --arg end "$END_ISO" \
+            --slurpfile tickets /tmp/tickets.json \
+            --slurpfile prs /tmp/prs.json \
+            --slurpfile runs /tmp/runs.json \
+            '{window: {start: $start, end: $end},
+              tickets: $tickets[0], prs: $prs[0], runs: $runs[0]}' > /tmp/digest-input.json
+
+          rc=0
+          python3 packages/gp-ai/clickup_bot/weekly_digest.py \
+            < /tmp/digest-input.json > /tmp/digest.txt || rc=$?
+
+          # 1 means no message was produced at all — a broken window or
+          # unreadable input — and there is nothing to post. 2 means the message
+          # is real but a source was missing, which must still reach the channel:
+          # the whole design here is that a gap is reported rather than hidden.
+          if [ "$rc" != "0" ] && [ "$rc" != "2" ]; then
+            echo "::error::could not render the digest (exit $rc); nothing will be posted"
+            exit 1
+          fi
+
+          cat /tmp/digest.txt
+          { echo '```'; cat /tmp/digest.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "degraded=$([ "$rc" = "2" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Post to Slack
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SLACK_TOKEN:-}" ] || [ -z "${CHANNEL:-}" ]; then
+            # RED, not skipped. Both gpbot workflows already post to this channel
+            # with these two settings, so a missing one here is a broken digest
+            # rather than an unfinished rollout — and an unposted digest is
+            # indistinguishable from a quiet week, which is the failure this
+            # whole job exists to make visible.
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or GPBOT_PR_CHANNEL_ID is unset; the digest was not posted"
+            exit 1
+          fi
+
+          # --rawfile rather than an interpolated string: the message carries
+          # newlines, backticks and ticket titles, and jq is the only thing here
+          # that is guaranteed to escape all of them into valid JSON.
+          #
+          # chat.postMessage answers HTTP 200 even when it refuses the message,
+          # so -f proves nothing: a revoked token or a channel the app was never
+          # invited to arrives as {"ok": false, "error": ...}. Without the -e
+          # check this step goes green while nobody is told anything — the same
+          # silence the digest is meant to break.
+          jq -n --arg channel "$CHANNEL" --rawfile text /tmp/digest.txt \
+            '{channel: $channel, text: $text}' \
+            | curl -sSf -X POST https://slack.com/api/chat.postMessage \
+                -H "Authorization: Bearer $SLACK_TOKEN" \
+                -H 'Content-type: application/json; charset=utf-8' \
+                --data @- \
+            | tee /dev/stderr \
+            | jq -e '.ok' > /dev/null
+
+      # LAST, so a degraded digest is still posted before the job goes red. The
+      # message says which source was missing, and this makes sure somebody is
+      # also told through the channel they watch for broken workflows.
+      - name: Fail if a source could not be read
+        if: steps.render.outputs.degraded == 'true'
+        run: |
+          echo "::error::the digest was posted with at least one source unavailable; see the message for which"
+          exit 1

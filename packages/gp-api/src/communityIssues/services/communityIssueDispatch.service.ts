@@ -106,7 +106,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * community-issue experiment type for the org. A FAILED-only prior run is
    * not blocking: the first attempt did not succeed and nothing else
    * re-dispatches it (crons are flagged off at launch; a dead run is only
-   * marked FAILED by the gp-ai-projects ECS task-reaper, which does not
+   * marked FAILED by the gp-ai ECS task-reaper, which does not
    * re-dispatch). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
    * COMPLETED to avoid spawning a duplicate live run.
    */
