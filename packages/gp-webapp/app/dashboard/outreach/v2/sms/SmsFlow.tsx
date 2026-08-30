@@ -39,13 +39,15 @@ import {
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import {
   ELECTION_FILING_PATH,
   SUBMIT_PIN_PATH,
 } from 'app/dashboard/shared/ComplianceModal'
-import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  TCR_COMPLIANCE_STATUS,
+  isTcrCleared,
+} from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -453,8 +455,7 @@ export const SmsFlow = ({
   // (CampaignVerify not VERIFIED), the earliest send moves from 48 hours to
   // 14 days out so verification has time to clear before the job runs; the
   // review step's not-cleared banner covers the case where it still hasn't.
-  const notCleared =
-    tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
+  const notCleared = !isTcrCleared(tcrCompliance)
   // Validation floor: 14 days while verification pends, else 48h. The
   // CALENDAR only ever blocks the hard 48h window — dates inside the
   // compliance window stay selectable and surface the explanatory alert
