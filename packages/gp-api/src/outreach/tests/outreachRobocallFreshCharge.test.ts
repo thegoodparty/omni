@@ -217,6 +217,20 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     )
   })
 
+  it('voids (writes off) a run billing below the Stripe minimum charge', async () => {
+    // 10 calls = 45 cents, under Stripe's $0.50 minimum — a fresh PaymentIntent
+    // below it is rejected, and rounding up would overcharge, so it is written
+    // off rather than failing-and-retrying forever.
+    const outreachId = await createDraft({ completedCallCount: 10 })
+
+    await freshCharge.chargeUncollectable(outreachId)
+
+    expect(chargeSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.voided,
+    )
+  })
+
   it('reconciles a lost-commit charge via search without charging again', async () => {
     const outreachId = await createDraft()
     // The prior attempt charged successfully but lost its DB commit; the row is

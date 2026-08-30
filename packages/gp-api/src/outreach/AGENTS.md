@@ -299,10 +299,12 @@ rare lapsed-hold run. Invariants:
   toggling (crash → disable to investigate → re-enable next day) can outlast. The
   stable key is a second layer for within-window retries. Mirrors the capture
   slice's stale-`capturing` recovery.
-- **Zero-billable → voided.** A zero-billable `uncollectable` run (an
-  all-suppressed run whose hold also lapsed) is sent to `voided`, not back to
-  `uncollectable` — it owes nothing, and `voided` leaves the candidate set so it
-  is never re-swept.
+- **Zero-or-sub-minimum → voided.** A run billing under Stripe's minimum charge
+  ($0.50 — including a zero-billable run) is written off to `voided`, not charged.
+  Unlike a partial CAPTURE off an already-authorized hold, a fresh PaymentIntent
+  below the minimum is REJECTED, and rounding up would overcharge a delivered run
+  for calls it never made; `voided` also leaves the candidate set, so it never
+  fails-and-retries forever.
 - **Sweep.** `@Cron` (`5,15,25,35,45,55 * * * *`, `EASTERN_TIMEZONE`), **prod-only
   AND behind `ROBOCALL_CAPTURE_ENABLED`** (shares the capture money switch — both
   are the settlement charge); no `CronLockService` (the per-record claim is

@@ -24,6 +24,11 @@ const ROBOCALL_FRESH_CHARGE_SWEEP_JOB = 'robocallFreshChargeSweep'
 // capturing stale window.
 const ROBOCALL_CHARGING_STALE_MINUTES = 15
 
+// Stripe's minimum USD charge is $0.50. A fresh PaymentIntent below it is
+// rejected (a partial CAPTURE off an already-authorized hold is not, which is
+// why only this path guards it). A run billing under the minimum is written off.
+const STRIPE_MIN_CHARGE_CENTS = 50
+
 // Kill-switch, default OFF: this MOVES REAL MONEY (a fresh off-session charge).
 // Shares ROBOCALL_CAPTURE_ENABLED with the hold-capture path — both are the
 // settlement charge, enabled together for the supervised live test.
@@ -205,14 +210,17 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
       calcRobocallAmountInCents(completedCallCount),
       authorizedAmountInCents,
     )
-    if (captureAmount <= 0) {
-      // A zero-billable delivered run owes nothing — never charge zero. Send it
-      // to `voided` (the capture slice's own terminal for a zero-billable run),
-      // NOT back to uncollectable, which would re-match the candidate filter and
-      // re-sweep forever. No money moves.
+    // A zero-billable run owes nothing, and a sub-minimum amount CANNOT be
+    // charged: unlike a capture (partial-capture off an already-authorized hold
+    // that met the minimum), a fresh PaymentIntent below Stripe's minimum charge
+    // is rejected. Rounding up to the minimum would overcharge a delivered run
+    // for calls it never made, so write it off to `voided` (the capture slice's
+    // zero terminal) — NOT back to uncollectable, which would re-match the
+    // candidate filter and fail-and-retry forever. No money moves either way.
+    if (captureAmount < STRIPE_MIN_CHARGE_CENTS) {
       this.logger.info(
-        { outreachId, completedCallCount },
-        'robocall fresh charge: zero billable on an uncollectable run; voided',
+        { outreachId, completedCallCount, captureAmount },
+        'robocall fresh charge: amount below Stripe minimum; voided (written off)',
       )
       await this.transitionFromCharging(outreachId, RobocallSettleState.voided)
       return

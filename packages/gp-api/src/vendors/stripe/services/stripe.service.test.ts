@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { UsersService } from 'src/users/services/users.service'
-import { StripeChargeDeclinedError, StripeService } from './stripe.service'
+import { StripeService } from './stripe.service'
 
 const {
   sessionsCreate,
@@ -248,15 +248,20 @@ describe('StripeService.createOffSessionCharge', () => {
     })
   })
 
-  it('treats a confirmed-but-not-succeeded PI as a decline (never a false charge)', async () => {
+  it('treats a confirmed-but-not-succeeded PI as a decline carrying its PI id', async () => {
     paymentIntentsCreate.mockResolvedValue({
       id: 'pi_pending',
       status: 'requires_action',
     })
 
+    // The caller records this paymentIntentId to mark the run charge-attempted,
+    // so the decline must carry intent.id, not just be the right error type.
     await expect(
       service.createOffSessionCharge(chargeArgs),
-    ).rejects.toBeInstanceOf(StripeChargeDeclinedError)
+    ).rejects.toMatchObject({
+      name: 'StripeChargeDeclinedError',
+      paymentIntentId: 'pi_pending',
+    })
   })
 
   it('maps a non-card Stripe failure to a 502', async () => {
