@@ -232,9 +232,12 @@ MOVES REAL MONEY. Invariants:
   move money. `requires_capture` → capture; `succeeded` → the hold was already
   captured (a prior run that lost its DB commit), so reconcile to `captured` off
   `amount_received` withOUT capturing again; anything else (`canceled` / expired)
-  → the hold lapsed and the delivered run is uncapturable → `uncollectable` +
-  CRITICAL alert (never blind-charge a fresh PI here; `OutreachRobocallFreshChargeService`
-  recovers it with a fresh off-session charge — see "Fresh-charge recovery" below).
+  on a NON-zero run → the hold lapsed and the delivered run is uncapturable →
+  `uncollectable` + CRITICAL alert (never blind-charge a fresh PI here;
+  `OutreachRobocallFreshChargeService` recovers it with a fresh off-session charge
+  — see "Fresh-charge recovery" below). A gone hold on a ZERO-billable run owes
+  nothing → `voided`, no CRITICAL (e.g. recovering a zero-billable settle that
+  voided the hold then crashed before its `voided` commit).
   A transient read/capture failure reverts `capturing → settling` to retry — no
   money moved.
 - **INV-1 (never overbill).** The captured amount is

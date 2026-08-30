@@ -216,6 +216,26 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     )
   })
 
+  it('voids (not uncollectable) a zero-billable run whose hold is already gone', async () => {
+    // A zero-billable settle that voided the hold then crashed before its voided
+    // commit is recovered here with the hold already canceled. It owes nothing,
+    // so it must go to voided — NOT uncollectable + a false CRITICAL.
+    const outreachId = await createDraft({ completedCallCount: 0 })
+    retrieveSpy.mockResolvedValue(piWith('canceled'))
+    const errorSpy = vi.spyOn(
+      (capture as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await capture.captureDraft(outreachId)
+
+    expect(captureSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.voided,
+    )
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
   it('elects a single capturer when two runs race the same settling draft', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
 
