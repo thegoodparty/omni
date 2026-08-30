@@ -1,5 +1,68 @@
 import { describe, it, expect } from 'vitest'
-import { describePinDelivery } from './tcrCompliance.util'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
+import type { TcrCompliance } from 'helpers/types'
+import { describePinDelivery, isTcrCleared } from './tcrCompliance.util'
+
+const buildTcrCompliance = (
+  overrides: Partial<TcrCompliance>,
+): TcrCompliance => ({
+  id: 'tcr-1',
+  ein: '12-3456789',
+  postalAddress: '1 Main St, Springfield, IL 62701',
+  committeeName: 'Friends of Test',
+  websiteDomain: 'https://example.com',
+  filingUrl: 'https://elections.il.gov/filing/1',
+  phone: '3125551162',
+  email: 'candidate@example.com',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  campaignId: 1,
+  ...overrides,
+})
+
+describe('isTcrCleared', () => {
+  it('treats an approved record as cleared even when the persisted CV status was never stamped', () => {
+    // Records approved before the CV status scan existed carry a null
+    // peerlyCvStatus forever — approval itself proves the PIN was verified.
+    expect(
+      isTcrCleared(
+        buildTcrCompliance({ status: 'approved', peerlyCvStatus: null }),
+      ),
+    ).toBe(true)
+  })
+
+  it('treats a VERIFIED CV as cleared before the record reaches approved', () => {
+    expect(
+      isTcrCleared(
+        buildTcrCompliance({
+          status: 'pending',
+          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  it('is not cleared while verification is still pending', () => {
+    expect(
+      isTcrCleared(
+        buildTcrCompliance({ status: 'submitted', peerlyCvStatus: null }),
+      ),
+    ).toBe(false)
+    expect(
+      isTcrCleared(
+        buildTcrCompliance({
+          status: 'submitted',
+          peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+        }),
+      ),
+    ).toBe(false)
+  })
+
+  it('is not cleared without a compliance record', () => {
+    expect(isTcrCleared(null)).toBe(false)
+    expect(isTcrCleared(undefined)).toBe(false)
+  })
+})
 
 describe('describePinDelivery', () => {
   it('composes the sentence from the pre-masked display string', () => {
