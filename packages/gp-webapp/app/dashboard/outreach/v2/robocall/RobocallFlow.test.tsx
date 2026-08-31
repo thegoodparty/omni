@@ -1354,6 +1354,30 @@ describe('RobocallFlow', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('bounces back to schedule if the send time elapses before payment', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    await gotoReview()
+
+    // Freeze the clock past the chosen slot (mock-pick-future is 60 days out),
+    // so goToPay sees the send time as elapsed at the review -> pay transition.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(Date.now() + 61 * 86_400_000))
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Continue to payment' }),
+      )
+      // Lands back on the schedule step with the past-time alert, not the pay
+      // step, so createDraft never fires on a stale time.
+      expect(
+        screen.getByText(/Pick a send date and time in the future/),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Amount to authorize')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows the deferred message when the hold is placed later', async () => {
     mockCreateDraft(360)
     mockSaveCardIntent()

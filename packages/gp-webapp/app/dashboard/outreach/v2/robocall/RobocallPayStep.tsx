@@ -246,7 +246,7 @@ export const RobocallPayStep = ({
     // computation. Deferred places no hold yet, so it shows no figure.
     const authorizedCents =
       settled.status === 'authorized'
-        ? (settled.authorizedAmountInCents ?? draft?.amountInCents ?? null)
+        ? (settled.authorizedAmountInCents ?? null)
         : null
 
     const rows: [string, string][] = [
