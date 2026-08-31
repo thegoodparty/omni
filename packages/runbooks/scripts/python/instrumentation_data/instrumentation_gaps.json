@@ -116,6 +116,19 @@
     "rubric_rule": "AI chat message sent exception",
     "surface_type": "form_submit"
   },
+  "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage": {
+    "dashboard_question": "Where do users drop off across the create-list flow stages (purpose/who/draw/confirm)?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage",
+    "judge_reason": "Helper computes stage/step for a multi-step, URL-stable flow but no Viewed/Completed events are evident for each stage",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts",
+    "rank": 1,
+    "reason": "",
+    "rubric_rule": "multi-step flow staircase",
+    "surface_type": "wizard_stage"
+  },
   "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit": {
     "dashboard_question": "How many survey questions are created for door-knocking surveys?",
     "disposition": "accepted",
@@ -155,6 +168,19 @@
     "rubric_rule": "outcome produced",
     "surface_type": "form_submit"
   },
+  "packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit": {
+    "dashboard_question": "How many users submit a new ordinance draft request and does it succeed?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit",
+    "judge_reason": "Primary form submit creating a new ordinance draft, a core outcome-producing action with no evident tracking",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx",
+    "rank": 1,
+    "reason": "",
+    "rubric_rule": "primary CTA / outcome",
+    "surface_type": "form_submit"
+  },
   "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceStepper.tsx#wizard_stage": {
     "dashboard_question": "Where do users drop off in the ordinance wizard, by stage?",
     "disposition": "accepted",
@@ -166,6 +192,58 @@
     "rank": 0,
     "reason": "RETARGET: OrdinanceStepper is presentational (takes `current`, renders the bar plus label, no onNext) so it cannot observe a transition. Fire from OrdinanceFlowChat.tsx, which renders it and owns step advance.",
     "rubric_rule": "multi-step flow stage Viewed/Completed",
+    "surface_type": "wizard_stage"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage": {
+    "dashboard_question": "Where do users drop off across the generalized outreach channel flow steps?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage",
+    "judge_reason": "Shared shell drives a multi-step, URL-stable flow (stepper/currentStep) shared across channels with no per-stage Viewed/Completed instrumentation shown",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx",
+    "rank": 1,
+    "reason": "",
+    "rubric_rule": "multi-step flow staircase",
+    "surface_type": "wizard_stage"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage": {
+    "dashboard_question": "Where do users drop off across the robocall flow steps (purpose, audience, review, pay)?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage",
+    "judge_reason": "URL-stable multi-step wizard with distinct stages and a payment outcome step, no Viewed/Completed per stage evident",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx",
+    "rank": 0,
+    "reason": "",
+    "rubric_rule": "multi-step flow staircase",
+    "surface_type": "wizard_stage"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage": {
+    "dashboard_question": "Where do users drop off across the SMS outreach flow steps (compose, review, schedule)?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage",
+    "judge_reason": "URL-stable multi-step wizard with compose/review steps and a scheduled outcome, no per-stage Viewed/Completed events evident",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx",
+    "rank": 0,
+    "reason": "",
+    "rubric_rule": "multi-step flow staircase",
+    "surface_type": "wizard_stage"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage": {
+    "dashboard_question": "Where do users drop off across the social outreach flow steps (purpose, compose, share)?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage",
+    "judge_reason": "URL-stable multi-step wizard with purpose/compose/share stages and a save outcome, no per-stage Viewed/Completed events evident",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx",
+    "rank": 0,
+    "reason": "",
+    "rubric_rule": "multi-step flow staircase",
     "surface_type": "wizard_stage"
   },
   "packages/gp-webapp/app/dashboard/polls/[id]/expand/shared/ExpandStepFooter.tsx#wizard_stage": {
@@ -180,6 +258,45 @@
     "reason": "Correct target: wraps the shared StepFooter, which renders the Back/Next buttons and owns onNext. Rendered by ExpandPollPage, ExpandPaymentPage and ExpandReviewPage, so one hook here covers all 3 steps.",
     "rubric_rule": "multi-step flow stage Viewed/Completed",
     "surface_type": "wizard_stage"
+  },
+  "packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit": {
+    "dashboard_question": "How many users complete the candidate profile step of the pro-upgrade flow, and where do they drop off?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit",
+    "judge_reason": "Primary CTA advancing a multi-step pro-upgrade flow stage; stage completion should be tracked",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx",
+    "rank": 1,
+    "reason": "",
+    "rubric_rule": "multi-step flow stage completion",
+    "surface_type": "form_submit"
+  },
+  "packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx#form_submit": {
+    "dashboard_question": "How many candidates successfully submit their candidate profile for texting compliance?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx#form_submit",
+    "judge_reason": "Primary submit action producing a compliance profile outcome, no evident tracking",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx",
+    "rank": 1,
+    "reason": "",
+    "rubric_rule": "primary CTA / outcome",
+    "surface_type": "form_submit"
+  },
+  "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit": {
+    "dashboard_question": "How many users successfully submit their PIN verification and how many fail?",
+    "disposition": "new",
+    "first_seen": "2026-08-31",
+    "id": "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit",
+    "judge_reason": "PIN submission is a compliance verification step with pass/fail outcomes worth tracking, no evident instrumentation",
+    "last_seen": "2026-08-31",
+    "location": "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx",
+    "rank": 1,
+    "reason": "",
+    "rubric_rule": "primary CTA / blocker",
+    "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx#wizard_stage": {
     "dashboard_question": "Where do users drop off across the website creation steps?",
