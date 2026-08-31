@@ -3,7 +3,10 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import {
+  calcRobocallAmountInCents,
+  calcRobocallTotalInCents,
+} from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -235,7 +238,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       const captured =
         intent.amount_received ??
         Math.min(
-          calcRobocallAmountInCents(completedCallCount),
+          calcRobocallTotalInCents(completedCallCount),
           authorizedAmountInCents,
         )
       await this.commitCaptured(
@@ -247,14 +250,14 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // HOLD LAPSED: expired / canceled / never capturable. A ZERO-billable run
-    // owes nothing, so a gone hold is the expected, correct outcome (e.g. this is
-    // a stale-`capturing` recovery of a zero-billable settle that voided the hold
-    // then crashed before its `voided` commit) → send it to `voided`, NOT
-    // `uncollectable` + a false CRITICAL. A NON-zero run with a gone hold IS money
-    // owed we could not capture — surface CRITICAL and park uncollectable (never
-    // blind-charge; the fresh-charge recovery handles it). Prevented in practice
-    // by the hold window + this sweep's expiry-priority ordering.
+    // HOLD LAPSED: expired / canceled / never capturable. A zero-connected run
+    // owes nothing — the $2 number fee is released on ANY run that connected zero
+    // calls — so a gone hold is the expected, correct outcome → `voided`, not a
+    // false CRITICAL. A run with at least one connected call and a gone hold IS
+    // money owed we could not capture (calls + fee) → CRITICAL + park
+    // uncollectable so the fresh-charge recovery collects it; never blind-charge
+    // here. The guard is the CALLS-only amount, which is 0 only for a
+    // zero-connected run.
     if (intent.status !== 'requires_capture') {
       if (calcRobocallAmountInCents(completedCallCount) <= 0) {
         this.logger.info(
@@ -279,14 +282,12 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // INV-1: capture the ACTUAL completed-call amount, clamped to never exceed
-    // the authorized hold. Stripe releases any remainder.
-    const actual = calcRobocallAmountInCents(completedCallCount)
-    const captureAmount = Math.min(actual, authorizedAmountInCents)
-
-    // ZERO BILLABLE (all-suppressed run): nothing to charge. Void the hold and
-    // release it — no capture, no receipt.
-    if (captureAmount <= 0) {
+    // ZERO-CONNECTED: no call actually connected, so the run owes nothing —
+    // release the hold entirely, INCLUDING the $2 number fee. The fee is
+    // collected only when at least one call connects; we do not bill a candidate
+    // whose robocall reached no one. Guard on the CALLS-only amount, since the
+    // total is never <= 0 (the fee floor). Void the hold and release.
+    if (calcRobocallAmountInCents(completedCallCount) <= 0) {
       await this.stripe.voidHold(authorizationIntentId)
       // Record the hold so the reconcile sweep re-voids it if this best-effort
       // void did not land (best-effort — never fail the settle over it).
@@ -305,10 +306,16 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       await this.transitionFromCapturing(outreachId, RobocallSettleState.voided)
       this.logger.info(
         { outreachId, completedCallCount },
-        'robocall run billed zero calls; voided the hold',
+        'robocall capture: zero-connected run; voided the hold and released ' +
+          'the number fee',
       )
       return
     }
+
+    // INV-1: capture the ACTUAL amount (calls + number fee), clamped to never
+    // exceed the authorized hold. Stripe releases any remainder.
+    const actual = calcRobocallTotalInCents(completedCallCount)
+    const captureAmount = Math.min(actual, authorizedAmountInCents)
 
     try {
       // Stable idempotency key (amount is deterministic per outreach — the count

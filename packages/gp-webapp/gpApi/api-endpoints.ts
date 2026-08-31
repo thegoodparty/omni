@@ -365,6 +365,20 @@ export type APIEndpoints = {
     Response: OutreachDetail
   }
 
+  // Serve's org-scoped list/detail reads (ENG-10970): siblings of
+  // `GET /v1/outreach` / `GET /v1/outreach/:id`, scoped by organizationSlug
+  // rather than campaignId. Empty array is a valid response (a fresh org has
+  // no history) — unlike the campaign-scoped list, this never 404s.
+  'GET /v1/outreach/serve': {
+    Request: {}
+    Response: Outreach[]
+  }
+
+  'GET /v1/outreach/serve/:id': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
   // Stateless script draft/improve for the phone-banking create flow —
   // mirrors the social draft endpoint (purpose + tone; currentDraft polishes
   // in place instead of writing fresh). 502 on model failure.

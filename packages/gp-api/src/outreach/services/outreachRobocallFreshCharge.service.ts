@@ -3,7 +3,10 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import {
+  calcRobocallAmountInCents,
+  calcRobocallTotalInCents,
+} from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import {
   StripeChargeDeclinedError,
@@ -204,19 +207,36 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
       return
     }
 
+    // Defense-in-depth (mirrors capture): a zero-connected run owes nothing — the
+    // $2 number fee is released, never charged. Capture already routes every count-0
+    // row to `voided`, so this is unreachable today, but guard locally so this
+    // off-session charge path (no live authorization) can never bill the fee for a
+    // run that connected zero calls even if a future change let a count-0 row reach
+    // here. Guard on the CALLS-only amount, since the total is never <= 0 (fee floor).
+    if (calcRobocallAmountInCents(completedCallCount) <= 0) {
+      this.logger.info(
+        { outreachId, completedCallCount },
+        'robocall fresh charge: zero-connected run; voided (fee released)',
+      )
+      await this.transitionFromCharging(outreachId, RobocallSettleState.voided)
+      return
+    }
+
     // INV-1: never charge more than the originally authorized amount. The actual
-    // billable is <= the frozen estimate; clamp defensively either way.
+    // (calls + number fee) is <= the frozen estimate; clamp defensively either
+    // way.
     const captureAmount = Math.min(
-      calcRobocallAmountInCents(completedCallCount),
+      calcRobocallTotalInCents(completedCallCount),
       authorizedAmountInCents,
     )
-    // A zero-billable run owes nothing, and a sub-minimum amount CANNOT be
-    // charged: unlike a capture (partial-capture off an already-authorized hold
-    // that met the minimum), a fresh PaymentIntent below Stripe's minimum charge
-    // is rejected. Rounding up to the minimum would overcharge a delivered run
-    // for calls it never made, so write it off to `voided` (the capture slice's
-    // zero terminal) — NOT back to uncollectable, which would re-match the
-    // candidate filter and fail-and-retry forever. No money moves either way.
+    // Defensive: with the number fee as a floor, any run reaching fresh charge
+    // owes at least the fee (>= Stripe's minimum), so this write-off does not
+    // fire in practice — the capture slice routes a zero-connected gone-hold run
+    // to `voided`, never here. Kept because a fresh PaymentIntent below Stripe's
+    // minimum is REJECTED (unlike a partial capture off an already-authorized
+    // hold): were the fee ever removed, write such a run off to `voided` (the
+    // capture slice's zero terminal), NOT back to uncollectable, which would
+    // re-match the candidate filter and retry forever.
     if (captureAmount < STRIPE_MIN_CHARGE_CENTS) {
       this.logger.info(
         { outreachId, completedCallCount, captureAmount },

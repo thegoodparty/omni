@@ -7,7 +7,7 @@ import {
 import { addDays, addHours, isAfter } from 'date-fns'
 import { RobocallAuthorizeResponse } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 import {
   ROBOCALL_HOLD_WINDOW_DAYS,
   ROBOCALL_PER_RUN_CEILING_CENTS,
@@ -208,7 +208,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         voterFileFilterId,
       )
       this.robocallService.assertReachableCount(billableCount)
-      estimate = calcRobocallAmountInCents(billableCount)
+      // Total = per-call cost + the flat number-rental fee (the fee is part of
+      // every authorized hold).
+      estimate = calcRobocallTotalInCents(billableCount)
 
       // INV-2: a TESTING ceiling. An estimate over it is a human-alert anomaly,
       // not something to silently authorize.

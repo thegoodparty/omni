@@ -75,7 +75,12 @@ import {
 } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { shortOutreachDate } from './outreachDate.util'
-import { outreachDetailQueryKey, useOutreachDetail } from './useOutreachDetail'
+import {
+  fetchOutreachDetail,
+  outreachDetailQueryKey,
+  useOutreachDetail,
+  type OutreachDetailFetcher,
+} from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 import {
@@ -152,6 +157,10 @@ interface OutreachDetailsDrawerProps {
   // CampaignVerify clearance state: while pending, scheduled SMS rows show
   // "Needs compliance" and the footer offers Cancel + Start verification.
   tcrCompliance?: TcrCompliance
+  // Detail fetch for this row. Defaults to Win's campaign-scoped read; the
+  // Serve caller threads its org-scoped sibling the same bound-function way
+  // SocialFlow's `surface` does, so this drawer never forks per surface.
+  detailFetcher?: OutreachDetailFetcher
 }
 
 interface DetailRow extends HistoryRow {
@@ -164,6 +173,7 @@ export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
   tcrCompliance,
+  detailFetcher = fetchOutreachDetail,
 }: OutreachDetailsDrawerProps) => {
   const router = useRouter()
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
@@ -172,7 +182,11 @@ export const OutreachDetailsDrawer = ({
   // A robocall the send chain could not deliver — the spine reads `failed`.
   const isFailedRobocall =
     row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'failed'
-  const detailQuery = useOutreachDetail(row?.id ?? null, row !== null)
+  const detailQuery = useOutreachDetail(
+    row?.id ?? null,
+    row !== null,
+    detailFetcher,
+  )
   const social = detailQuery.data?.social
   const phoneBanking = detailQuery.data?.phoneBanking
   const doorKnocking = detailQuery.data?.doorKnocking
