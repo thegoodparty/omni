@@ -611,6 +611,67 @@ describe('GET /v1/meetings', () => {
     expect(adhoc).toBeDefined()
     expect(adhoc?.hasBriefing).toBe(true)
   })
+
+  it('ignores a schedule run created before officeIdentityChangedAt', async () => {
+    const orgSlug = 'eo-cutoff'
+    await service.prisma.organization.create({
+      data: {
+        slug: orgSlug,
+        ownerId: service.user.id,
+        officeIdentityChangedAt: new Date(),
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey: 'stale-schedule.json',
+        createdAt: subDays(new Date(), 1),
+      },
+    })
+    mockS3({ 'stale-schedule.json': JSON.stringify(foundSchedule) })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.data).toEqual({ scheduleKnown: false, meetings: [] })
+  })
+
+  it('uses a schedule run created after officeIdentityChangedAt', async () => {
+    const orgSlug = 'eo-cutoff-fresh'
+    await service.prisma.organization.create({
+      data: {
+        slug: orgSlug,
+        ownerId: service.user.id,
+        officeIdentityChangedAt: subDays(new Date(), 1),
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey: 'fresh-schedule.json',
+      },
+    })
+    mockS3({ 'fresh-schedule.json': JSON.stringify(foundSchedule) })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.data.scheduleKnown).toBe(true)
+  })
 })
 
 const validBriefingArtifact = {

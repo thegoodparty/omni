@@ -191,6 +191,10 @@ export class MeetingBriefingsService extends createPrismaBase(
   async loadLatestScheduleForOrg(
     organizationSlug: string,
   ): Promise<MeetingSchedule | null> {
+    const org = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
     const run = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug,
@@ -198,6 +202,9 @@ export class MeetingBriefingsService extends createPrismaBase(
         status: ExperimentRunStatus.COMPLETED,
         artifactBucket: { not: null },
         artifactKey: { not: null },
+        ...(org?.officeIdentityChangedAt
+          ? { createdAt: { gte: org.officeIdentityChangedAt } }
+          : {}),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
     })
