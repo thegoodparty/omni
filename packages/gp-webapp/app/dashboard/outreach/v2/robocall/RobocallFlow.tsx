@@ -375,6 +375,20 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setStepId('schedule')
   }
 
+  const goToPay = () => {
+    // With no lead-time buffer a near-term slot can elapse while the user is on
+    // compose/review. Re-pin `now` and, if the send time has already passed,
+    // bounce back to schedule (which then shows the past-time alert) rather than
+    // advancing to a pay step whose createDraft would 400 on the stale time.
+    const freshNow = new Date()
+    setNow(freshNow)
+    if (scheduledAt !== null && scheduledAt.getTime() <= freshNow.getTime()) {
+      setStepId('schedule')
+      return
+    }
+    setStepId('pay')
+  }
+
   const handleCreateListContinue = async () => {
     try {
       await audience.createList()
@@ -499,7 +513,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           : stepId === 'review'
             ? {
                 label: 'Continue to payment',
-                onClick: () => setStepId('pay'),
+                onClick: goToPay,
               }
             : payOutcome && payOutcome.status !== 'hold_failed'
               ? // Settled (authorized/deferred/noop): the success screen is
