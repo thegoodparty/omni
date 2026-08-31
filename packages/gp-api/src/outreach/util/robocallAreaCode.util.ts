@@ -10,7 +10,7 @@ import {
 } from './campaignGeography.util'
 
 export interface RobocallAreaCodeLogger {
-  debug: (message: string, context?: object) => void
+  debug: (obj: object, message: string) => void
 }
 
 export interface ResolveRobocallAreaCodeServices {
@@ -31,6 +31,7 @@ export async function resolveRobocallAreaCode(
   const zip = parseDetailsGeography(details)?.zip
   if (!zip) {
     logger?.debug(
+      {},
       'Robocall number rental: campaign has no zip, renting a national number',
     )
     return undefined
@@ -43,8 +44,8 @@ export async function resolveRobocallAreaCode(
     await areaCodeFromZipService.getAreaCodeFromZip(normalizedZip)
   if (!areaCodes || areaCodes.length === 0) {
     logger?.debug(
-      'Robocall number rental: zip has no known area code, renting a national number',
       { zip: normalizedZip },
+      'Robocall number rental: zip has no known area code, renting a national number',
     )
     return undefined
   }

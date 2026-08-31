@@ -53,6 +53,7 @@ describe('robocallAreaCode.util', () => {
       expect(result).toBeUndefined()
       expect(areaCodeFromZipService.getAreaCodeFromZip).not.toHaveBeenCalled()
       expect(logger.debug).toHaveBeenCalledWith(
+        {},
         expect.stringContaining('no zip'),
       )
     })
@@ -70,8 +71,8 @@ describe('robocallAreaCode.util', () => {
 
       expect(result).toBeUndefined()
       expect(logger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('no known area code'),
         { zip: '00000' },
+        expect.stringContaining('no known area code'),
       )
     })
 

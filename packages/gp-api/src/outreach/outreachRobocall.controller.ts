@@ -144,8 +144,8 @@ export class OutreachRobocallController {
       areaCodeFromE164UsNumber(rented.phone_number) !== areaCodePrefix
     ) {
       this.logger.warn(
-        'Robocall number rental: CallHub had no inventory for the requested area code, rented a national number instead',
         { requestedAreaCodePrefix: areaCodePrefix, region: rented.region },
+        'Robocall number rental: CallHub had no inventory for the requested area code, rented a national number instead',
       )
     }
 
