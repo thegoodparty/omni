@@ -14,6 +14,7 @@ import {
   PhoneIcon,
   Share2Icon,
   XCircleIcon,
+  ShieldAlertIcon,
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 
