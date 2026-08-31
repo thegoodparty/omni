@@ -8,6 +8,7 @@ export type OrphanHoldReason =
   | 'lost_commit'
   | 'zero_billable'
   | 'cancel_before_send'
+  | 'send_failed'
 
 // Records + reads the queue of authorization-hold PaymentIntents whose
 // best-effort void may not have landed, so the reconcile sweep can confirm and

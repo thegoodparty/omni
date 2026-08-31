@@ -297,11 +297,14 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
     expect(messages.some((m) => m.includes('CRITICAL'))).toBe(false)
   })
 
-  it('SURFACES a CRITICAL alert on a permanent schema mismatch, leaving the run dialed', async () => {
+  it('parks a delivered run uncollectable + CRITICAL on a permanent schema mismatch', async () => {
     const outreachId = await createDraft()
     // A ZodError = the credits_usage response shape is wrong for real CallHub
     // data (the UNVERIFIED-shape release-gate concern). It is PERMANENT — a
-    // silent null-and-retry would re-poll forever. It must be surfaced.
+    // silent null-and-retry would re-poll forever. The run has DIALED, so it may
+    // owe money for connected calls we can no longer count: park it
+    // `uncollectable` (fresh-charge / manual review settles it), NOT send_failed
+    // (which voids the hold — never void a delivered run).
     usageSpy.mockRejectedValue(new ZodError([]))
     const errorSpy = vi.spyOn(
       (completion as unknown as { logger: PinoLogger }).logger,
@@ -310,11 +313,41 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
 
     await completion.pollCompletion(outreachId, 'vb_1')
 
-    // Still left `dialed` (never settled on unreadable data) — but the alert is
-    // the signal, not an invisible infinite poll.
     expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.dialed,
+      RobocallSettleState.uncollectable,
     )
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId, campaignPkStr: 'vb_1' }),
+      expect.stringContaining('CRITICAL'),
+    )
+  })
+
+  it('emits CRITICAL even when the uncollectable park itself fails', async () => {
+    const outreachId = await createDraft()
+    usageSpy.mockRejectedValue(new ZodError([]))
+    const errorSpy = vi.spyOn(
+      (completion as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+    // The park transition hits a transient DB error. The CRITICAL alert is the
+    // only ops signal a delivered run was stranded, so it must fire regardless —
+    // it is logged BEFORE the park, and the park failure is caught (retry next
+    // sweep) rather than escaping and swallowing the alert. Restore the spy right
+    // after the poll so the rejected updateMany can't leak into later tests.
+    const updateManySpy = vi
+      .spyOn(
+        (
+          completion as unknown as {
+            model: { updateMany: () => Promise<unknown> }
+          }
+        ).model,
+        'updateMany',
+      )
+      .mockRejectedValue(new Error('db down'))
+
+    await completion.pollCompletion(outreachId, 'vb_1')
+    updateManySpy.mockRestore()
+
     expect(errorSpy).toHaveBeenCalledWith(
       expect.objectContaining({ outreachId, campaignPkStr: 'vb_1' }),
       expect.stringContaining('CRITICAL'),

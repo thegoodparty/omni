@@ -126,6 +126,9 @@ const STATUS_DISPLAY: Record<
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
   Canceled: { icon: <XCircleIcon />, tone: 'muted' },
+  // A robocall the send chain could not deliver (a CallHub failure). The
+  // candidate was not charged; destructive tone marks it as needing attention.
+  "Couldn't send": { icon: <ShieldAlertIcon />, tone: 'destructive' },
   // Shelved, not finished. No history row carries this label yet — the archive
   // transition is reached from the door-knocking rail, whose details drawer
   // renders this same component so one saved list is described the same way
