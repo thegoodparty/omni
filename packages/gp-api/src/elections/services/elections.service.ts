@@ -690,4 +690,64 @@ export class ElectionsService {
     }
     return longest
   }
+
+  // Mirrors electionApiPost's error handling; no shared abstraction because the
+  // verbs differ only in the axios call and this file keeps one helper per verb.
+  private async electionApiDelete<Res>(path: string): Promise<Res | null> {
+    const fullUrl = `${ElectionsService.BASE_URL}/${ElectionsService.API_VERSION}/${path}`
+    try {
+      const headers = await this.tokenService.authHeader()
+      const { data, status } = (await lastValueFrom(
+        this.httpService.delete(fullUrl, { headers }),
+      )) as { data: Res; status: number }
+      if (status >= 200 && status < 300) return data
+      this.logger.warn(`Election API DELETE ${path} responded ${status}`)
+      return null
+    } catch (error: unknown) {
+      const baseMessage = `Election API DELETE ${path} failed`
+      if (isAxiosError(error)) {
+        // Axios error response is untyped — AxiosError.response.data is unknown
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        const data = error.response?.data as Record<string, unknown> | undefined
+        const apiMessage =
+          typeof data?.message === 'string' ? data.message : undefined
+        const finalMessage = apiMessage
+          ? `${baseMessage}: ${apiMessage}`
+          : `${baseMessage}: ${error.message}`
+        this.logger.error(finalMessage)
+        throw new BadGatewayException(finalMessage)
+      }
+      const finalMessage = `${baseMessage}: ${String(error)}`
+      this.logger.error(finalMessage)
+      throw new BadGatewayException(finalMessage)
+    }
+  }
+
+  /**
+   * Suppresses a person's person-sourced fields across every election-api
+   * response. Needed on top of gp-api's own removal record because the profile
+   * page nulls those fields at render time, which never covered the candidacy
+   * copies of the same photo and bio that other candidates' pages read.
+   *
+   * Throws rather than returning null on a non-2xx: a takedown that quietly
+   * no-ops would report success while the reported photo stayed public.
+   */
+  async setPersonRemoval(personId: string, reason?: string) {
+    const result = await this.electionApiPost<
+      { personId: string; removed: boolean },
+      { personId: string; reason?: string }
+    >('person-removals', { personId, ...(reason ? { reason } : {}) })
+    if (!result) {
+      throw new BadGatewayException(
+        `Election API did not confirm the removal of person ${personId}`,
+      )
+    }
+    return result
+  }
+
+  async clearPersonRemoval(personId: string) {
+    return this.electionApiDelete<{ personId: string; removed: boolean }>(
+      `person-removals/${encodeURIComponent(personId)}`,
+    )
+  }
 }

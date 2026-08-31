@@ -5,6 +5,7 @@ import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
 import { PersonLookupService } from '../services/person-lookup.service'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { UsersService } from '@/users/services/users.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import type { FileUpload } from 'src/files/files.types'
@@ -48,6 +49,13 @@ describe('PersonProfilesController.uploadImage', () => {
       mimetype: 'image/png',
     }) as unknown as FileUpload
 
+  // Removal writes push to election-api first; stubbed so these cases
+  // stay about the controller.
+  const elections = {
+    setPersonRemoval: vi.fn().mockResolvedValue({ removed: true }),
+    clearPersonRemoval: vi.fn().mockResolvedValue({ removed: false }),
+  }
+
   beforeEach(() => {
     profiles = {
       findByUserId: vi.fn().mockResolvedValue(PROFILE),
@@ -69,6 +77,7 @@ describe('PersonProfilesController.uploadImage', () => {
       {} as unknown as PersonIdBackfillService,
       {} as unknown as UsersService,
       {} as unknown as PersonLookupService,
+      elections as unknown as ElectionsService,
     )
   })
 

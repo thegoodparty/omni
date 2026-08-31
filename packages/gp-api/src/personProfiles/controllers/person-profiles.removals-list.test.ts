@@ -1,9 +1,32 @@
 import { useTestService } from '@/test-service'
-import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import { ElectionsService } from '@/elections/services/elections.service'
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+  beforeEach,
+} from 'vitest'
 import { UserRole } from '../../generated/prisma'
 import { PersonLookupService } from '../services/person-lookup.service'
 
 const service = useTestService()
+
+// A removal write pushes to election-api, a separate service. Stub just that
+// outbound call so the guard, persistence and response all run for real.
+// Re-installed per test because the harness sets clearMocks.
+beforeEach(() => {
+  vi.spyOn(
+    service.app.get(ElectionsService),
+    'setPersonRemoval',
+  ).mockResolvedValue({ personId: '', removed: true })
+  vi.spyOn(
+    service.app.get(ElectionsService),
+    'clearPersonRemoval',
+  ).mockResolvedValue({ personId: '', removed: false })
+})
 
 const ACTIVE_PERSON_ID = '33333333-3333-4333-8333-333333333333'
 const CLEARED_PERSON_ID = '44444444-4444-4444-8444-444444444444'

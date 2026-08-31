@@ -4,6 +4,12 @@ import {
   createPrismaBase,
   MODELS,
 } from 'src/prisma/util/prisma.util'
+import {
+  blankPersonSourcedFields,
+  PERSON_SOURCED_CANDIDACY_FIELDS,
+  PERSON_SOURCED_PERSON_FIELDS,
+  PersonRemovalsService,
+} from 'src/personRemovals/personRemovals.service'
 import { PersonFilterDto } from './persons.schema'
 import { PositionLevel, Prisma } from '../generated/prisma'
 
@@ -48,6 +54,50 @@ type OfficeHolderPositionContext = {
 
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {
+  constructor(private readonly personRemovals: PersonRemovalsService) {
+    super()
+  }
+
+  /**
+   * Blanks the person-sourced fields on any row whose person has been removed,
+   * including the candidacies nested under it — those carry their own copy of
+   * the photo and bio, and every nested candidacy belongs to the parent person,
+   * so one removal covers them all.
+   *
+   * Person.id *is* the canonical person id, so attribution needs no extra
+   * column beyond `id`.
+   */
+  private async suppressRemoved<T extends Record<string, unknown>>(
+    rows: T[],
+  ): Promise<T[]> {
+    if (rows.length === 0) return rows
+
+    const ids = rows
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === 'string')
+    const removed = await this.personRemovals.findRemovedPersonIds(ids)
+    if (removed.size === 0) return rows
+
+    for (const row of rows) {
+      if (typeof row.id !== 'string' || !removed.has(row.id)) continue
+      blankPersonSourcedFields(row, PERSON_SOURCED_PERSON_FIELDS)
+      const candidacies = row.Candidacies
+      if (!Array.isArray(candidacies)) continue
+      for (const candidacy of candidacies) {
+        blankPersonSourcedFields(candidacy, PERSON_SOURCED_CANDIDACY_FIELDS)
+      }
+    }
+    return rows
+  }
+
+  // suppressRemoved blanks in place, so the same object comes back.
+  private async suppressRemovedOne<T extends Record<string, unknown>>(
+    row: T,
+  ): Promise<T> {
+    await this.suppressRemoved([row])
+    return row
+  }
+
   async getPersons(filterDto: PersonFilterDto) {
     const {
       slug,
@@ -79,16 +129,31 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
         ...(buildColumnSelect(columns) as Prisma.PersonSelect),
         ...relations,
       }
-      return this.model.findMany({ where, select })
+      // A removal is attributed by id, so select it whenever a suppressible
+      // field is on the way out, then drop it again if it was not requested.
+      const suppressible =
+        PERSON_SOURCED_PERSON_FIELDS.some((field) => field in select) ||
+        'Candidacies' in select
+      if (!suppressible) return this.model.findMany({ where, select })
+
+      const idRequested = 'id' in select
+      const rows = await this.model.findMany({
+        where,
+        select: { ...select, id: true },
+      })
+      const suppressed = await this.suppressRemoved(rows)
+      if (idRequested) return suppressed
+      return suppressed.map(({ id: _id, ...rest }) => rest)
     }
 
     // Default path returns every scalar, so omit personal PII and the internal
     // gpApiUserId linkage (filter-only, never broadcast) here too.
-    return this.model.findMany({
+    const rows = await this.model.findMany({
       where,
       omit: { email: true, phone: true, gpApiUserId: true },
       include: relations,
     })
+    return this.suppressRemoved(rows)
   }
 
   // Powers the public profile page: the full spine for one person, including
@@ -105,7 +170,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     if (!person) {
       throw new NotFoundException(`Person not found for id=${personId}`)
     }
-    return this.attachOfficeContext(person)
+    return this.attachOfficeContext(await this.suppressRemovedOne(person))
   }
 
   // gp-marketing builds the /people breadcrumb (`Elections > State > County >
@@ -278,7 +343,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     if (!person) {
       throw new NotFoundException(`Person not found for slug=${slug}`)
     }
-    return this.attachOfficeContext(person)
+    return this.attachOfficeContext(await this.suppressRemovedOne(person))
   }
 
   // Half-open UUID range [<prefix>-0…, <next>-0…) covering every id whose text

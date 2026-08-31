@@ -1,0 +1,23 @@
+// Privacy takedown for one person, owned by gp-api's admin removal control and
+// pushed here so EVERY election-api consumer stops receiving that person's
+// person-sourced fields — not just the profile page, which nulls them at render
+// time and therefore never covered the sibling "Other Candidates" cards that
+// read Candidacy.image.
+//
+// Deliberately not one of the 13 tables the gp-data-platform sync
+// (sync_election_api) swap-replaces wholesale each night, so a removal survives
+// re-ingestion of the upstream BallotReady data that caused it. Keyed on
+// personId alone: a takedown targets a person, and typically an *unclaimed* one
+// with no gp-api User and no PersonProfile.
+//
+// No FK to Person, on purpose. The sync renames the live Person aside and drops
+// it inside the swap transaction; a FK from this table would follow Person to
+// the renamed-aside copy and block that drop, wedging the nightly sync. A
+// removal for an id Person no longer carries is harmless: it suppresses nothing.
+model PersonRemoval {
+  personId  String   @id @map("person_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  // Free text from the operator who filed it, so a removal is never anonymous.
+  reason    String?
+}

@@ -50,6 +50,7 @@ import {
   SetPersonProfileRemovalDto,
 } from '../schemas/PersonProfileRemoval.schema'
 import { PersonLookupService } from '../services/person-lookup.service'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
@@ -74,6 +75,7 @@ export class PersonProfilesController {
     private readonly personIdBackfill: PersonIdBackfillService,
     private readonly users: UsersService,
     private readonly personLookup: PersonLookupService,
+    private readonly elections: ElectionsService,
   ) {}
 
   private requireUser(user: User | undefined): User {
@@ -294,6 +296,14 @@ export class PersonProfilesController {
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.OK)
   async setRemoval(@Body() body: SetPersonProfileRemovalDto) {
+    // election-api first, and awaited: our own record only covers this person's
+    // page, while the same photo rides on their candidacies that other
+    // candidates' pages read. Failing the whole call makes the operator retry
+    // rather than be told a photo came down when it did not.
+    await this.elections.setPersonRemoval(
+      body.personId,
+      `${body.appliedBy}${body.note ? `: ${body.note}` : ''}`,
+    )
     const removal = await this.personProfilesService.setRemoval(
       body.personId,
       body.appliedBy,
@@ -307,7 +317,11 @@ export class PersonProfilesController {
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.OK)
   async clearRemoval(@Body() body: ClearPersonProfileRemovalDto) {
+    // Our own record first on the way back: the safe asymmetry while the two
+    // are briefly out of step is more suppressed, not less, so a failure here
+    // leaves election-api still hiding the fields rather than republishing them.
     await this.personProfilesService.clearRemoval(body.personId, body.clearedBy)
+    await this.elections.clearPersonRemoval(body.personId)
     void this.revalidation.revalidatePerson(body.personId)
     return { personId: body.personId, removed: false as const }
   }

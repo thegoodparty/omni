@@ -14,6 +14,7 @@ import { PersonsModule } from './persons/persons.module'
 import { OfficeHoldersModule } from './officeHolders/officeHolders.module'
 import { loggerModule } from './observability/logging/logger-module'
 import { AuthenticationModule } from './authentication/authentication.module'
+import { PersonRemovalsModule } from './personRemovals/personRemovals.module'
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { AuthenticationModule } from './authentication/authentication.module'
     ZipToPositionModule,
     ElectedOfficeSupportModule,
     PersonsModule,
+    PersonRemovalsModule,
     OfficeHoldersModule,
   ],
 })

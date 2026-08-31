@@ -1,4 +1,5 @@
 import { useTestService } from '@/test-service'
+import { ElectionsService } from '@/elections/services/elections.service'
 import {
   PersonProfileIssueStatus,
   PrioritySource,
@@ -6,7 +7,7 @@ import {
   UserRole,
 } from '../../generated/prisma'
 import { subMinutes } from 'date-fns'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -528,6 +529,12 @@ describe('GET /v1/public-person-profiles removal gate', () => {
   })
 
   it('reopens the same row when a cleared person is removed again', async () => {
+    // The write pushes to election-api, a separate service; stub only that
+    // outbound call so persistence and the guard still run for real.
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'setPersonRemoval',
+    ).mockResolvedValue({ personId: PERSON_ID, removed: true })
     await seedRemoval()
     await service.prisma.personProfileRemoval.update({
       where: { personId: PERSON_ID },

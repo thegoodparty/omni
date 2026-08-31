@@ -5,6 +5,7 @@ import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
 import { PersonLookupService } from '../services/person-lookup.service'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UsersService } from '@/users/services/users.service'
 import { newFixtureUserEmail } from '@/users/util/users.util'
@@ -42,6 +43,13 @@ describe('testSetPersonId', () => {
   let controller: PersonProfilesController
   let users: { updateUser: ReturnType<typeof vi.fn> }
 
+  // Removal writes push to election-api first; stubbed so these cases
+  // stay about the controller.
+  const elections = {
+    setPersonRemoval: vi.fn().mockResolvedValue({ removed: true }),
+    clearPersonRemoval: vi.fn().mockResolvedValue({ removed: false }),
+  }
+
   beforeEach(() => {
     envNonProd.value = true
     users = { updateUser: vi.fn().mockResolvedValue(undefined) }
@@ -52,6 +60,7 @@ describe('testSetPersonId', () => {
       {} as unknown as PersonIdBackfillService,
       users as unknown as UsersService,
       {} as unknown as PersonLookupService,
+      elections as unknown as ElectionsService,
     )
   })
 

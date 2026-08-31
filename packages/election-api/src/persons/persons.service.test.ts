@@ -11,7 +11,11 @@ describe('PersonsService', () => {
   beforeEach(() => {
     findMany = vi.fn().mockResolvedValue([])
     findUnique = vi.fn().mockResolvedValue(null)
-    service = new PersonsService()
+    // No removals in these cases: they assert query shape, and suppression has
+    // its own suite.
+    service = new PersonsService({
+      findRemovedPersonIds: vi.fn(async () => new Set<string>()),
+    } as never)
     Object.defineProperty(service, '_prisma', {
       value: { person: { findMany, findUnique } },
     })
