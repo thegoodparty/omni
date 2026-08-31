@@ -45,7 +45,7 @@ describe('OutreachHistoryTable — unified history', () => {
       {
         id: 4,
         date: '2026-06-20',
-        outreachType: 'social',
+        outreachType: 'socialMedia',
         name: 'Issue update post',
         status: 'pending',
       },
