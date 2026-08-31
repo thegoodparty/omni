@@ -51,14 +51,19 @@ export class CallhubErrorHandlingService {
       // the Authorization: Token secret). The client-facing message stays
       // generic — the upstream body can carry account/number detail.
       logger?.error({ status, data }, `${generic}: ${parsed}`)
-      // A 4xx (never a 429 throttle) is a permanent client/validation error —
-      // retrying it will never succeed. Both classes are 502s; the subclass only
-      // signals "permanent" to callers that retry.
+      // A 4xx is a permanent client/validation error — retrying it will never
+      // succeed — EXCEPT the recoverable ones, which stay transient so a CallHub
+      // blip retries instead of permanently failing (and voiding + emailing) a
+      // run: 429 (throttle), 401 (auth — a rotated/expired token recovers on the
+      // next attempt), and 408 (request timeout). 403 stays permanent: the
+      // generic/deprecated host 403s (see callhub config). Both classes are
+      // 502s; the subclass only signals "permanent" to callers that retry.
+      const RECOVERABLE_4XX = [401, 408, 429]
       const permanent =
         typeof status === 'number' &&
         status >= 400 &&
         status < 500 &&
-        status !== 429
+        !RECOVERABLE_4XX.includes(status)
       throw permanent
         ? new CallhubPermanentError(customMessage ?? generic, { cause: error })
         : new BadGatewayException(customMessage ?? generic, { cause: error })

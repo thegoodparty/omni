@@ -47,12 +47,13 @@ enum RobocallSettleState {
   // (chargeIntentId set, so it is not re-attempted). Appended for the same
   // append-only ADD VALUE reason.
   charging
-  // Terminal for a robocall the send chain could NOT deliver: a PERMANENT
-  // CallHub staging/send/completion failure (validation/4xx or a schema
-  // mismatch), or exhausted retries. The authorization hold is voided (no calls
-  // were placed, so no charge), the spine flips to `failed`, and the candidate
-  // is emailed (SendFailed). Distinct from `uncollectable`, which is a DELIVERED
-  // run we could not capture. Appended for the same append-only ADD VALUE reason.
+  // Terminal for a robocall the send chain could NOT deliver, reached ONLY
+  // pre-dial: a PERMANENT CallHub staging or send failure (a non-recoverable
+  // 4xx). The authorization hold is voided (no calls were placed, so no charge),
+  // the spine flips to `failed`, and the candidate is emailed (SendFailed).
+  // Distinct from `uncollectable`, a DELIVERED run we could not capture — a
+  // completion-poll failure on a dialed run goes there, never here. Appended for
+  // the same append-only ADD VALUE reason.
   send_failed
 }
 
