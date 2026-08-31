@@ -1,4 +1,4 @@
-import { Badge, Code, Table, Text } from '@radix-ui/themes'
+import { Badge, Code, Link, Table, Text } from '@radix-ui/themes'
 import type { PersonProfileRemoval } from '@goodparty_org/sdk'
 import { formatDate } from '@/lib/utils/date'
 import { RestoreProfileButton } from './RestoreProfileButton'
@@ -33,9 +33,26 @@ export function PersonRemovalList({ removals }: PersonRemovalListProps) {
         {removals.map((removal) => (
           <Table.Row key={removal.personId}>
             <Table.Cell>
+              <Text as="div" size="2" weight="medium">
+                {removal.fullName ?? 'Name unavailable'}
+              </Text>
+              {removal.profileUrl && (
+                <Link
+                  href={removal.profileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  size="1"
+                >
+                  {removal.profileUrl}
+                </Link>
+              )}
               {/* The subject usually has no user record to link to, so the
                   civics personId is the only handle there is. */}
-              <Code size="1">{removal.personId}</Code>
+              <Text as="div" mt="1">
+                <Code size="1" color="gray">
+                  {removal.personId}
+                </Code>
+              </Text>
             </Table.Cell>
             <Table.Cell>
               {removal.clearedAt ? (
