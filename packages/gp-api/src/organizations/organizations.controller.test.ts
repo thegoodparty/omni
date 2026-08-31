@@ -1772,3 +1772,241 @@ describe('GET /v1/organizations/admin/list', () => {
     expect(result.data.organizations).toHaveLength(0)
   })
 })
+
+describe('office-change invalidation', () => {
+  // makeFriendly throws a 500 when positionId is set and getPositionById
+  // resolves null, and every PATCH resolves the pre-update org through it.
+  // Seeding a position therefore requires a matching mock or the request
+  // fails before reaching any invalidation.
+  const seedServeOrg = async (slug: string, positionId: string | null) => {
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id, positionId },
+    })
+    if (positionId) {
+      vi.spyOn(
+        service.app.get(ElectionsService),
+        'getPositionById',
+      ).mockResolvedValue({
+        id: positionId,
+        brPositionId: `br-${positionId}`,
+        brDatabaseId: `db-${positionId}`,
+        state: 'MN',
+        name: 'City Council',
+      })
+    }
+    return service.prisma.electedOffice.create({
+      data: { organizationSlug: slug, userId: service.user.id },
+    })
+  }
+
+  const seedDerivedData = async (slug: string, electedOfficeId: string) => {
+    await service.prisma.meetingResourceLocation.create({
+      data: {
+        electedOfficeId,
+        type: 'SCHEDULE',
+        description: 'https://old-city.example.gov/calendar',
+      },
+    })
+    await service.prisma.ordinanceCodeRecord.create({
+      data: {
+        organizationSlug: slug,
+        codeFound: true,
+        dataQuality: 'OK',
+        confidence: 'HIGH',
+        place: 'Old City',
+        state: 'MN',
+        verifiedEvidence: 'seeded',
+        artifactBucket: 'b',
+        artifactKey: 'k',
+        verifiedAt: new Date(),
+      },
+    })
+    await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: slug,
+        list: 'top_community',
+        category: 'public_safety',
+        priority: 'high',
+        title: 'Old city issue',
+        summary: 'seeded',
+      },
+    })
+  }
+
+  const mockPosition = (id: string, brId: string) => {
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getPositionByBallotReadyId').mockResolvedValue({
+      id,
+      brPositionId: brId,
+      brDatabaseId: `db-${id}`,
+      state: 'MN',
+      name: 'City Council',
+    })
+    vi.spyOn(elections, 'getPositionById').mockResolvedValue({
+      id,
+      brPositionId: brId,
+      brDatabaseId: `db-${id}`,
+      state: 'MN',
+      name: 'City Council',
+    })
+  }
+
+  it('invalidates derived data when the position changes', async () => {
+    const slug = 'eo-change-1'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    mockPosition('pos-new', 'br-pos-new')
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.meetingResourceLocation.count({
+        where: { electedOfficeId: eo.id },
+      }),
+    ).toBe(0)
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).toBeNull()
+    const issue = await service.prisma.communityIssue.findFirst({
+      where: { organizationSlug: slug },
+    })
+    expect(issue?.archivedAt).toBeInstanceOf(Date)
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
+  })
+
+  // The self-service PATCH strips overrideDistrictId (IDOR guard, see
+  // "ignores overrideDistrictId from a self-service caller"), so the only
+  // route through applyPatch that can move this column is the admin one.
+  it('invalidates when only overrideDistrictId changes', async () => {
+    const slug = 'eo-change-2'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getDistrict',
+    ).mockResolvedValue({
+      id: 'dist-new',
+      state: 'MN',
+      L2DistrictType: 'City',
+      L2DistrictName: 'Minneapolis',
+    })
+
+    const result = await service.client.patch(
+      `/v1/organizations/admin/${slug}`,
+      { overrideDistrictId: 'dist-new' },
+    )
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).toBeNull()
+  })
+
+  it('treats a first position (null -> set) as initialization', async () => {
+    const slug = 'eo-init'
+    const eo = await seedServeOrg(slug, null)
+    await seedDerivedData(slug, eo.id)
+    mockPosition('pos-first', 'br-pos-first')
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-first',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).not.toBeNull()
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeNull()
+  })
+
+  it('does nothing for a campaign org with no elected office', async () => {
+    const slug = 'campaign-900'
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id, positionId: 'pos-old' },
+    })
+    await service.prisma.ordinanceCodeRecord.create({
+      data: {
+        organizationSlug: slug,
+        codeFound: true,
+        dataQuality: 'OK',
+        confidence: 'HIGH',
+        place: 'Old City',
+        state: 'MN',
+        verifiedEvidence: 'seeded',
+        artifactBucket: 'b',
+        artifactKey: 'k',
+        verifiedAt: new Date(),
+      },
+    })
+    mockPosition('pos-new', 'br-pos-new')
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).not.toBeNull()
+  })
+
+  it('does nothing when the patch does not move the identity', async () => {
+    const slug = 'eo-noop'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      customPositionName: 'Renamed Only',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).not.toBeNull()
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeNull()
+  })
+
+  it('invalidates when the position is cleared for a custom name', async () => {
+    const slug = 'eo-custom'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: null,
+      customPositionName: 'Village Trustee',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).toBeNull()
+  })
+})

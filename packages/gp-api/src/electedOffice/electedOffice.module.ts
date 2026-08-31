@@ -13,6 +13,7 @@ import { UserOrM2MGuard } from './guards/UserOrM2M.guard'
 import { ElectedOfficeService } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
 import { ElectedOfficeSupportApiService } from './services/electedOfficeSupportApi.service'
+import { ELECTED_OFFICE_SERVICE_TOKEN } from './electedOffice.consts'
 
 @Module({
   imports: [
@@ -32,6 +33,10 @@ import { ElectedOfficeSupportApiService } from './services/electedOfficeSupportA
     ElectedOfficeSupportApiService,
     UseElectedOfficeGuard,
     UserOrM2MGuard,
+    {
+      provide: ELECTED_OFFICE_SERVICE_TOKEN,
+      useExisting: ElectedOfficeService,
+    },
   ],
   exports: [ElectedOfficeService, UseElectedOfficeGuard],
 })

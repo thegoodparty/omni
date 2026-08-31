@@ -85,6 +85,11 @@ export const dateRangesOverlap = (
 const isSameDay = (a: Date | null, b: Date | null): boolean =>
   a !== null && b !== null && a.getTime() === b.getTime()
 
+export type OfficeIdentity = {
+  positionId: string | null
+  overrideDistrictId: string | null
+}
+
 @Injectable()
 export class ElectedOfficeService extends createPrismaBase(
   MODELS.ElectedOffice,
@@ -315,6 +320,63 @@ export class ElectedOfficeService extends createPrismaBase(
           'ordinance dispatch failed after EO created',
         )
       })
+  }
+
+  async onOfficeIdentityWritten(params: {
+    organizationSlug: string
+    before: OfficeIdentity
+    after: OfficeIdentity
+  }): Promise<void> {
+    const { organizationSlug, before, after } = params
+    const changed =
+      before.positionId !== after.positionId ||
+      before.overrideDistrictId !== after.overrideDistrictId
+    if (!changed) return
+
+    const electedOffice = await this.client.electedOffice.findFirst({
+      where: { organizationSlug },
+    })
+    if (!electedOffice) return
+
+    // A Serve org with no position dispatches nothing (every gate is
+    // fail-closed on the resolved serve context), so there is by construction
+    // no derived data from a null-position era to invalidate. Treat it as
+    // initialization: skip straight to dispatch.
+    if (before.positionId === null) return
+
+    const changedAt = new Date()
+    const [deletedLocations, deletedCode, archivedIssues] =
+      await this.client.$transaction([
+        this.client.meetingResourceLocation.deleteMany({
+          where: { electedOfficeId: electedOffice.id },
+        }),
+        this.client.ordinanceCodeRecord.deleteMany({
+          where: { organizationSlug },
+        }),
+        this.client.communityIssue.updateMany({
+          where: { organizationSlug, archivedAt: null },
+          data: { archivedAt: changedAt },
+        }),
+        this.client.organization.update({
+          where: { slug: organizationSlug },
+          data: { officeIdentityChangedAt: changedAt },
+        }),
+      ])
+
+    this.logger.info(
+      {
+        organizationSlug,
+        electedOfficeId: electedOffice.id,
+        previousPositionId: before.positionId,
+        positionId: after.positionId,
+        previousOverrideDistrictId: before.overrideDistrictId,
+        overrideDistrictId: after.overrideDistrictId,
+        deletedResourceLocations: deletedLocations.count,
+        deletedOrdinanceCodeRecords: deletedCode.count,
+        archivedCommunityIssues: archivedIssues.count,
+      },
+      'office_identity_changed: invalidated derived data',
+    )
   }
 
   async update(args: Prisma.ElectedOfficeUpdateArgs) {

@@ -8,6 +8,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   Campaign,
   ElectedOffice,
@@ -24,6 +25,8 @@ import {
 
 import { OrgDistrict } from '../organizations.types'
 import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
+import type { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
+import { ELECTED_OFFICE_SERVICE_TOKEN } from '@/electedOffice/electedOffice.consts'
 
 export type FriendlyOrganization = {
   slug: string
@@ -47,8 +50,22 @@ export class OrganizationsService extends createPrismaBase(
   constructor(
     private readonly electionsService: ElectionsService,
     private readonly clerkEnricher: ClerkUserEnricherService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
+  }
+
+  // Resolved lazily via ModuleRef rather than injected: ElectedOfficeService's
+  // constructor transitively imports this file (through its dispatch
+  // services), so importing the class here would eagerly load that whole
+  // chain and corrupt an unrelated class's constructor metadata if it's
+  // caught mid-cycle. strict:false searches the whole app graph, so
+  // OrganizationsModule doesn't need to import ElectedOfficeModule either.
+  private get electedOffice(): ElectedOfficeService {
+    return this.moduleRef.get<ElectedOfficeService>(
+      ELECTED_OFFICE_SERVICE_TOKEN,
+      { strict: false },
+    )
   }
 
   static campaignOrgSlug(campaignId: number): string {
@@ -159,6 +176,15 @@ export class OrganizationsService extends createPrismaBase(
     const clearsStaleCustomName =
       'ballotReadyPositionId' in updates && !('customPositionName' in updates)
 
+    // FriendlyOrganization exposes only a resolved position + a boolean, so
+    // read the raw columns to diff against. Diffing the request body instead
+    // would miss changes: an absent key arrives as undefined and Prisma
+    // ignores it, so an unchanged-looking body can still move a column.
+    const before = await this.model.findUnique({
+      where: { slug: org.slug },
+      select: { positionId: true, overrideDistrictId: true },
+    })
+
     const updated = await this.client.organization.update({
       where: { slug: org.slug },
       data: {
@@ -169,6 +195,18 @@ export class OrganizationsService extends createPrismaBase(
           : updates.customPositionName,
       },
       include: { campaign: true, electedOffice: true },
+    })
+
+    await this.electedOffice.onOfficeIdentityWritten({
+      organizationSlug: org.slug,
+      before: {
+        positionId: before?.positionId ?? null,
+        overrideDistrictId: before?.overrideDistrictId ?? null,
+      },
+      after: {
+        positionId: updated.positionId,
+        overrideDistrictId: updated.overrideDistrictId,
+      },
     })
 
     return this.makeFriendly(updated)
