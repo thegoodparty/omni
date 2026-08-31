@@ -4,15 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import ServeChannelCards from './ServeChannelCards'
 
-const mockRouterPush = vi.fn()
-vi.mock('next/navigation', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('next/navigation')>()),
-  useRouter: () => ({ push: mockRouterPush }),
-}))
-
 describe('ServeChannelCards', () => {
   it('renders exactly the three Serve channel cards', () => {
-    render(<ServeChannelCards />)
+    render(<ServeChannelCards onSocialClick={vi.fn()} />)
 
     expect(screen.getByText('Social media')).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
@@ -21,7 +15,7 @@ describe('ServeChannelCards', () => {
   })
 
   it('never renders SMS, Robocall, or pricing copy', () => {
-    render(<ServeChannelCards />)
+    render(<ServeChannelCards onSocialClick={vi.fn()} />)
 
     expect(screen.queryByText(/texting/i)).not.toBeInTheDocument()
     expect(screen.queryByText('SMS')).not.toBeInTheDocument()
@@ -30,21 +24,28 @@ describe('ServeChannelCards', () => {
     expect(screen.queryByText(/free/i)).not.toBeInTheDocument()
   })
 
-  it('clicking a card triggers no navigation', async () => {
-    render(<ServeChannelCards />)
+  it('opens the social flow when the Social media card is clicked', async () => {
+    const onSocialClick = vi.fn()
+    render(<ServeChannelCards onSocialClick={onSocialClick} />)
 
     await userEvent.click(screen.getByText('Social media'))
-    await userEvent.click(screen.getByText('Phone banking'))
-    await userEvent.click(screen.getByText('Door knocking'))
 
-    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(onSocialClick).toHaveBeenCalledTimes(1)
   })
 
-  it('renders every card as non-interactive', () => {
-    render(<ServeChannelCards />)
+  it('only the Social media card is enabled — Phone banking and Door knocking stay disabled and inert', async () => {
+    const onSocialClick = vi.fn()
+    render(<ServeChannelCards onSocialClick={onSocialClick} />)
 
-    screen.getAllByRole('button').forEach((card) => {
-      expect(card).toBeDisabled()
-    })
+    expect(screen.getByRole('button', { name: /Social media/ })).toBeEnabled()
+    const phoneBanking = screen.getByRole('button', { name: /Phone banking/ })
+    const doorKnocking = screen.getByRole('button', { name: /Door knocking/ })
+    expect(phoneBanking).toBeDisabled()
+    expect(doorKnocking).toBeDisabled()
+
+    await userEvent.click(phoneBanking)
+    await userEvent.click(doorKnocking)
+
+    expect(onSocialClick).not.toHaveBeenCalled()
   })
 })
