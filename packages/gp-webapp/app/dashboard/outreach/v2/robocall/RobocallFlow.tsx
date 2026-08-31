@@ -83,11 +83,19 @@ const ROBOCALL_COUNT_OVERLAY = { hasLandline: true }
 interface RobocallFlowProps {
   open: boolean
   onClose: () => void
+  // Called once payment settles (authorized/deferred/noop) so the hub can
+  // refetch the history list — the draft row now exists and is visible, and it
+  // should appear without a page reload.
+  onScheduled?: () => void
 }
 
 // Flow state is flat client state owned here (phase 1 TDD pattern): no server
 // drafts, reopening starts fresh. Mirrors SocialFlow.
-export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
+export const RobocallFlow = ({
+  open,
+  onClose,
+  onScheduled,
+}: RobocallFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
   const [campaignName, setCampaignName] = useState('')
@@ -179,6 +187,16 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // the result rather than re-opening the Authorize form.
   const [payOutcome, setPayOutcome] =
     useState<RobocallAuthorizeResponse | null>(null)
+
+  // Wrap setPayOutcome so a settled outcome (authorized/deferred/noop, never
+  // hold_failed) also refreshes the hub's history list — the draft row now
+  // exists and its spine is visible, so it should appear without a reload.
+  const handlePayOutcome = (outcome: RobocallAuthorizeResponse | null) => {
+    setPayOutcome(outcome)
+    if (outcome && outcome.status !== 'hold_failed') {
+      onScheduled?.()
+    }
+  }
   const rentMutation = useMutation({
     mutationFn: async () => {
       const { data } = await clientRequest(
@@ -636,7 +654,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           audienceName={audience.selectedList?.name ?? 'your list'}
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}
-          onOutcome={setPayOutcome}
+          onOutcome={handlePayOutcome}
         />
       )}
     </OutreachFlowShell>

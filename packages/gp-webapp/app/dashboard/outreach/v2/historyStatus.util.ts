@@ -102,5 +102,12 @@ export const getHistoryStatusLabel = (row: HistoryRow): string | null => {
   ) {
     return 'In progress'
   }
+  // A robocall with spine `pending` is a paid, scheduled send awaiting its send
+  // date (the hold is placed; the send sweep dials it on the day), not a
+  // Political Assistant "In review" request — so read it as Scheduled, the
+  // sending-channel word, rather than the non-p2p map's default.
+  if (row.outreachType === 'robocall' && status === 'pending') {
+    return 'Scheduled'
+  }
   return nonP2pStatusLabels[status]
 }
