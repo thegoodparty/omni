@@ -4,14 +4,15 @@ import DashboardLayout from '../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { SERVE_OUTREACH_FLAG_KEY } from '@shared/experiments/serveOutreachFlag'
 import { NAV_LABELS } from '../shared/navLabels'
+import ServeChannelCards from './ServeChannelCards'
 
 interface ConstituentOutreachPageProps {
   pathname?: string
 }
 
-// Route shell only — channel cards and outreach history are follow-on
-// tickets. FeatureFlagGuard is the treatment surface for this experiment; the
-// nav item reads the flag with trackExposure=false.
+// FeatureFlagGuard is the treatment surface for this experiment; the nav
+// item reads the flag with trackExposure=false. Outreach history is a
+// follow-on ticket.
 const ConstituentOutreachPage = ({
   pathname,
 }: ConstituentOutreachPageProps): React.JSX.Element => {
@@ -26,7 +27,9 @@ const ConstituentOutreachPage = ({
           label: NAV_LABELS.constituentOutreach,
         }}
       >
-        <div />
+        <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
+          <ServeChannelCards />
+        </div>
       </DashboardLayout>
     </FeatureFlagGuard>
   )
