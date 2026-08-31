@@ -201,6 +201,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         scheduledDate: createOutreachDto.date,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
 
@@ -359,8 +364,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
               script: outreach.script ?? undefined,
               date: outreach.date?.toISOString(),
             },
+            // Mirror OutreachNotificationInterceptor.classifyFailure: a 400
+            // content rejection is the user's to fix, so CAS sees it labeled
+            // validation, not as a vendor-step failure. Still notified — on
+            // the paid path money was captured with nothing scheduled.
             step:
-              err instanceof OutreachStepError ? err.step : 'peerlyJobCreation',
+              err instanceof OutreachStepError
+                ? err.step
+                : err instanceof BadRequestException
+                  ? 'validation'
+                  : 'peerlyJobCreation',
             error: err,
           })
         } catch (notifyErr) {
@@ -493,6 +506,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         scheduledDate: outreach.scheduledLocalDate ?? undefined,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
   }

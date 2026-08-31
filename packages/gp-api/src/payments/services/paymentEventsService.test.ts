@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
@@ -388,6 +389,20 @@ describe('PaymentEventsService', () => {
       await expect(service.handleEvent(oneTimePaymentEvent)).rejects.toThrow(
         fulfillmentError,
       )
+    })
+
+    // A 400 is a permanent content rejection (e.g. Peerly refusing the
+    // script) — redelivery can never succeed, so the webhook must ack it.
+    it('acknowledges a BadRequestException rejection instead of retrying', async () => {
+      purchaseService.completeCheckoutSession.mockRejectedValueOnce(
+        new BadRequestException(
+          'Message cannot contain tinyurl.com links. Please correct your message.',
+        ),
+      )
+
+      await expect(
+        service.handleEvent(oneTimePaymentEvent),
+      ).resolves.not.toThrow()
     })
   })
 
