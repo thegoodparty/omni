@@ -228,9 +228,7 @@ export class OrganizationsService
     )
 
     if (writeResult) {
-      await this.electedOffice.dispatchAfterOfficeIdentityChange(
-        writeResult.electedOffice,
-      )
+      await this.electedOffice.dispatchAfterOfficeIdentityChange(writeResult)
     }
 
     return this.makeFriendly(updatedOrg)

@@ -1,6 +1,7 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { ExperimentRunStatus } from '../generated/prisma'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -2099,5 +2100,29 @@ describe('office-change invalidation', () => {
       expect.objectContaining({ type: 'find_existing_ordinances' }),
     )
     dispatchRun.mockRestore()
+  })
+
+  it('warns when an invalidated org re-dispatched nothing', async () => {
+    const slug = 'eo-nothing'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+
+    const warn = vi.spyOn(
+      service.app.get(ElectedOfficeService)['logger'],
+      'warn',
+    )
+
+    // No position resolves, so nothing can dispatch.
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: null,
+      customPositionName: 'Village Trustee',
+    })
+    expect(result.status).toBe(200)
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: slug }),
+      expect.stringContaining('no_redispatch'),
+    )
+    warn.mockRestore()
   })
 })

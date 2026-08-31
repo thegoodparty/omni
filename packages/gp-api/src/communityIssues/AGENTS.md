@@ -81,6 +81,16 @@ lives in `src/shared/util/userActivity.util.ts`, shared with
 `meetingBriefings.service.ts` — the two domains use the same threshold and
 comparison, just wired through different dispatch flows.
 
+## Office-identity re-dispatch
+
+An office change archives the live issue set.
+`ElectedOfficeService.onOfficeIdentityWritten` sets `archivedAt` on every
+non-archived issue for the org, then re-dispatches via
+`onOfficeIdentityChanged` → `dispatchForCohort`. Archival (not deletion)
+keeps `Priority.sourceCommunityIssueId` provenance intact — `Priority`
+carries its own denormalized title/description, so a promoted priority
+survives its source being archived.
+
 ## Test command
 
 ```bash

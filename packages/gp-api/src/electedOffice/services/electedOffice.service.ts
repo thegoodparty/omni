@@ -339,9 +339,7 @@ export class ElectedOfficeService extends createPrismaBase(
     // genuine re-point, that guard WOULD suppress, which is exactly why this
     // change-aware dispatch is needed there — the two are not redundant.
     if (identityWriteResult?.invalidatedAt) {
-      await this.dispatchAfterOfficeIdentityChange(
-        identityWriteResult.electedOffice,
-      )
+      await this.dispatchAfterOfficeIdentityChange(identityWriteResult)
     }
 
     return office
@@ -462,8 +460,10 @@ export class ElectedOfficeService extends createPrismaBase(
   // guarantees that here — invalidation is already committed by the time
   // this runs.
   async dispatchAfterOfficeIdentityChange(
-    electedOffice: ElectedOffice,
+    result: OfficeIdentityWriteResult,
   ): Promise<void> {
+    const { electedOffice, invalidatedAt } = result
+
     await this.meetingBriefings
       .onOfficeIdentityChanged(electedOffice)
       .catch((err: Error) => {
@@ -490,6 +490,39 @@ export class ElectedOfficeService extends createPrismaBase(
           'ordinance re-dispatch failed after office identity change',
         )
       })
+
+    // invalidatedAt is null for initialization, which invalidated nothing —
+    // there is nothing to warn about.
+    if (!invalidatedAt) return
+
+    const dispatched = await this.client.experimentRun.count({
+      where: {
+        organizationSlug: electedOffice.organizationSlug,
+        createdAt: { gte: invalidatedAt },
+      },
+    })
+    if (dispatched === 0) {
+      // positionId / overrideDistrictId live on Organization, not
+      // ElectedOffice — re-fetch rather than threading `after` through the
+      // post-commit result, since this only runs on the rare no-redispatch
+      // path.
+      const { positionId, overrideDistrictId } =
+        await this.client.organization.findUniqueOrThrow({
+          where: { slug: electedOffice.organizationSlug },
+          select: { positionId: true, overrideDistrictId: true },
+        })
+      this.logger.warn(
+        {
+          organizationSlug: electedOffice.organizationSlug,
+          electedOfficeId: electedOffice.id,
+          positionId,
+          overrideDistrictId,
+        },
+        'office_identity_changed_no_redispatch: derived data was invalidated ' +
+          'but nothing re-dispatched; the org will stay empty until its ' +
+          'position resolves and is serve-ICP',
+      )
+    }
   }
 
   // Owns the transaction so the M2M district write and its invalidation
@@ -524,7 +557,7 @@ export class ElectedOfficeService extends createPrismaBase(
     )
 
     if (writeResult) {
-      await this.dispatchAfterOfficeIdentityChange(writeResult.electedOffice)
+      await this.dispatchAfterOfficeIdentityChange(writeResult)
     }
 
     return updated
