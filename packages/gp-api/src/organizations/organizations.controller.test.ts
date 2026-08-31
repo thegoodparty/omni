@@ -3,6 +3,7 @@ import { ElectionsService } from '@/elections/services/elections.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { ExperimentRunStatus } from '../generated/prisma'
+import { subDays } from 'date-fns'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -2045,6 +2046,7 @@ describe('office-change invalidation', () => {
 
   afterEach(() => {
     delete process.env.ORDINANCES_AUTOMATION_ENABLED
+    delete process.env.MEETINGS_AUTOMATION_ENABLED
   })
 
   it('re-dispatches ordinances despite a prior completed run', async () => {
@@ -2079,10 +2081,10 @@ describe('office-change invalidation', () => {
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockImplementation(async () => {
-        // Pins the ordering two addenda protect: invalidation must commit
-        // before dispatch fires, or the new run gets seeded with the old
-        // city's portal. Assert it from inside the spy so a regression that
-        // moves dispatch back inside the transaction fails this test.
+        // Invalidation must commit before dispatch fires, or the new run
+        // gets seeded with the old city's portal. Assert it from inside the
+        // spy so a regression that moves dispatch back inside the
+        // transaction fails this test.
         expect(
           await service.prisma.meetingResourceLocation.count({
             where: { electedOfficeId: eo.id },
@@ -2098,6 +2100,84 @@ describe('office-change invalidation', () => {
 
     expect(dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'find_existing_ordinances' }),
+    )
+    dispatchRun.mockRestore()
+  })
+
+  it('does not let a pre-cutoff in-flight ordinance run suppress re-dispatch', async () => {
+    process.env.ORDINANCES_AUTOMATION_ENABLED = 'true'
+    const slug = 'eo-inflight-precutoff'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    // A run belonging to the OLD identity, still QUEUED. It was dispatched
+    // before the change and must not block the re-dispatch the change
+    // requires.
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'find_existing_ordinances',
+        status: ExperimentRunStatus.QUEUED,
+        createdAt: subDays(new Date(), 1),
+      },
+    })
+
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getPositionByBallotReadyId').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+    })
+    vi.spyOn(elections, 'getPositionById').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'run-new' } as never)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'find_existing_ordinances' }),
+    )
+    dispatchRun.mockRestore()
+  })
+
+  it('re-dispatches the meeting schedule despite a prior completed run', async () => {
+    process.env.MEETINGS_AUTOMATION_ENABLED = 'true'
+    const slug = 'eo-meetings-redispatch'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+
+    mockPosition('pos-new', 'br-pos-new')
+
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'run-new' } as never)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_schedule' }),
     )
     dispatchRun.mockRestore()
   })
