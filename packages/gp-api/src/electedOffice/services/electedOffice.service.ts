@@ -15,8 +15,16 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
-import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
-import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import {
+  CommunityIssueDispatchService,
+  EXPERIMENT_TYPES as COMMUNITY_ISSUE_EXPERIMENT_TYPES,
+} from '@/communityIssues/services/communityIssueDispatch.service'
+import {
+  BRIEFING_EXPERIMENT_TYPE,
+  MeetingBriefingsService,
+  SCHEDULE_EXPERIMENT_TYPE,
+} from '@/meetings/services/meetingBriefings.service'
+import { FIND_EXISTING_ORDINANCES } from '@/ordinances/ordinances.constants'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
@@ -25,6 +33,16 @@ import {
   electedOfficeToApi,
   type ApiElectedOffice,
 } from '../util/electedOffice.util'
+
+// Every experiment type this feature's re-dispatch fan-out can fire. Scopes
+// the no-redispatch warning's count so an unrelated run for the org (e.g. a
+// draft-quality-loop run) can't mask a genuine zero-dispatch outcome.
+const SERVE_REDISPATCH_EXPERIMENT_TYPES: string[] = [
+  SCHEDULE_EXPERIMENT_TYPE,
+  BRIEFING_EXPERIMENT_TYPE,
+  FIND_EXISTING_ORDINANCES,
+  ...COMMUNITY_ISSUE_EXPERIMENT_TYPES,
+]
 
 export type CreateElectedOfficeArgs = {
   swornInDate?: Date | null
@@ -386,9 +404,9 @@ export class ElectedOfficeService extends createPrismaBase(
   // office with the old office's derived data (and officeIdentityChangedAt)
   // intact — and unrecoverable, since a retry re-sends the same PATCH and
   // `before` is now the new value, so `changed` is false and this no-ops.
-  // Only DB writes belong in here; anything non-transactional (Task 4's
-  // re-dispatch fan-out) must run in the caller after the transaction
-  // commits, never inside it.
+  // Only DB writes belong in here; anything non-transactional (the
+  // dispatchAfterOfficeIdentityChange re-dispatch fan-out) must run in the
+  // caller after the transaction commits, never inside it.
   async onOfficeIdentityWritten(params: {
     organizationSlug: string
     before: OfficeIdentity
@@ -504,6 +522,7 @@ export class ElectedOfficeService extends createPrismaBase(
       const dispatched = await this.client.experimentRun.count({
         where: {
           organizationSlug: electedOffice.organizationSlug,
+          experimentType: { in: SERVE_REDISPATCH_EXPERIMENT_TYPES },
           createdAt: { gte: invalidatedAt },
         },
       })
