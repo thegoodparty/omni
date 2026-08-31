@@ -11,7 +11,10 @@ import {
 import { loadStripe } from '@stripe/stripe-js'
 import { FetchError } from 'ofetch'
 import { formatInTimeZone } from 'date-fns-tz'
-import { type RobocallAuthorizeResponse } from '@goodparty_org/contracts'
+import {
+  type RobocallAuthorizeResponse,
+  type RobocallDraftCreateResponse,
+} from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { ExternalLinkIcon, Loader2Icon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
@@ -128,6 +131,12 @@ export const RobocallPayStep = ({
   onOutcome,
 }: RobocallPayStepProps) => {
   const [clientSecret, setClientSecret] = useState<string | null>(null)
+  // Held in component state (not read off the mutation) so it survives an
+  // unmount/remount of this step — Back-then-Forward re-enters it, and the
+  // mutation observer is torn down and recreated empty on remount, which would
+  // otherwise drop the already-created draft and leave the pay form spinning.
+  // The client secret below is kept in state for the same reason.
+  const [draft, setDraft] = useState<RobocallDraftCreateResponse | null>(null)
   const startedRef = useRef(false)
 
   const createDraftMutation = useMutation({
@@ -156,6 +165,7 @@ export const RobocallPayStep = ({
       })
       return data
     },
+    onSuccess: (data) => setDraft(data),
   })
   const { mutate: createDraft } = createDraftMutation
 
@@ -195,8 +205,6 @@ export const RobocallPayStep = ({
     setClientSecret(null)
     fetchCardIntent()
   }
-
-  const draft = createDraftMutation.data
 
   const body = () => {
     if (!hasDetails) {
