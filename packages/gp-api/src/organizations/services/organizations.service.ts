@@ -7,6 +7,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  OnApplicationBootstrap,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
@@ -44,9 +45,10 @@ export type FriendlyOrganization = {
 }
 
 @Injectable()
-export class OrganizationsService extends createPrismaBase(
-  MODELS.Organization,
-) {
+export class OrganizationsService
+  extends createPrismaBase(MODELS.Organization)
+  implements OnApplicationBootstrap
+{
   constructor(
     private readonly electionsService: ElectionsService,
     private readonly clerkEnricher: ClerkUserEnricherService,
@@ -66,6 +68,12 @@ export class OrganizationsService extends createPrismaBase(
       ELECTED_OFFICE_SERVICE_TOKEN,
       { strict: false },
     )
+  }
+
+  // Touches the lazy getter once at boot so a misregistered token surfaces
+  // as a boot failure, not a runtime error the first time applyPatch runs.
+  onApplicationBootstrap() {
+    this.electedOffice
   }
 
   static campaignOrgSlug(campaignId: number): string {
@@ -185,28 +193,36 @@ export class OrganizationsService extends createPrismaBase(
       select: { positionId: true, overrideDistrictId: true },
     })
 
-    const updated = await this.client.organization.update({
-      where: { slug: org.slug },
-      data: {
-        positionId: position?.id ?? null,
-        overrideDistrictId: updates.overrideDistrictId,
-        customPositionName: clearsStaleCustomName
-          ? null
-          : updates.customPositionName,
-      },
-      include: { campaign: true, electedOffice: true },
-    })
+    // The identity update and the invalidation writes must commit or roll
+    // back together — a failed invalidation after a committed identity
+    // change is unrecoverable (see onOfficeIdentityWritten's own comment).
+    const updated = await this.client.$transaction(async (tx) => {
+      const updatedOrg = await tx.organization.update({
+        where: { slug: org.slug },
+        data: {
+          positionId: position?.id ?? null,
+          overrideDistrictId: updates.overrideDistrictId,
+          customPositionName: clearsStaleCustomName
+            ? null
+            : updates.customPositionName,
+        },
+        include: { campaign: true, electedOffice: true },
+      })
 
-    await this.electedOffice.onOfficeIdentityWritten({
-      organizationSlug: org.slug,
-      before: {
-        positionId: before?.positionId ?? null,
-        overrideDistrictId: before?.overrideDistrictId ?? null,
-      },
-      after: {
-        positionId: updated.positionId,
-        overrideDistrictId: updated.overrideDistrictId,
-      },
+      await this.electedOffice.onOfficeIdentityWritten({
+        organizationSlug: org.slug,
+        before: {
+          positionId: before?.positionId ?? null,
+          overrideDistrictId: before?.overrideDistrictId ?? null,
+        },
+        after: {
+          positionId: updatedOrg.positionId,
+          overrideDistrictId: updatedOrg.overrideDistrictId,
+        },
+        tx,
+      })
+
+      return updatedOrg
     })
 
     return this.makeFriendly(updated)

@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { ExperimentRunStatus } from '../generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -1831,6 +1832,27 @@ describe('office-change invalidation', () => {
         summary: 'seeded',
       },
     })
+    // MeetingBriefing rows are an explicit non-goal for invalidation — they
+    // must survive an office-identity change untouched (see the "briefings
+    // survive" assertion below).
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId,
+        meetingDate: new Date('2026-09-01T00:00:00Z'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Chicago',
+        experimentRunId: briefingRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'k',
+      },
+    })
   }
 
   const mockPosition = (id: string, brId: string) => {
@@ -1880,6 +1902,11 @@ describe('office-change invalidation', () => {
       where: { slug },
     })
     expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
+    expect(
+      await service.prisma.meetingBriefing.count({
+        where: { electedOfficeId: eo.id },
+      }),
+    ).toBe(1)
   })
 
   // The self-service PATCH strips overrideDistrictId (IDOR guard, see
@@ -1914,6 +1941,10 @@ describe('office-change invalidation', () => {
         where: { organizationSlug: slug },
       }),
     ).toBeNull()
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
   })
 
   it('treats a first position (null -> set) as initialization', async () => {

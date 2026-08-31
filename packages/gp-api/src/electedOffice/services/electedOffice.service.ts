@@ -322,18 +322,28 @@ export class ElectedOfficeService extends createPrismaBase(
       })
   }
 
+  // Takes the caller's transaction client rather than opening its own: the
+  // identity update and the invalidation writes must commit or roll back
+  // together, or a failed invalidation leaves the org pointed at the new
+  // office with the old office's derived data (and officeIdentityChangedAt)
+  // intact — and unrecoverable, since a retry re-sends the same PATCH and
+  // `before` is now the new value, so `changed` is false and this no-ops.
+  // Only DB writes belong in here; anything non-transactional (Task 4's
+  // re-dispatch fan-out) must run in the caller after the transaction
+  // commits, never inside it.
   async onOfficeIdentityWritten(params: {
     organizationSlug: string
     before: OfficeIdentity
     after: OfficeIdentity
+    tx: Prisma.TransactionClient
   }): Promise<void> {
-    const { organizationSlug, before, after } = params
+    const { organizationSlug, before, after, tx } = params
     const changed =
       before.positionId !== after.positionId ||
       before.overrideDistrictId !== after.overrideDistrictId
     if (!changed) return
 
-    const electedOffice = await this.client.electedOffice.findFirst({
+    const electedOffice = await tx.electedOffice.findFirst({
       where: { organizationSlug },
     })
     if (!electedOffice) return
@@ -344,24 +354,23 @@ export class ElectedOfficeService extends createPrismaBase(
     // initialization: skip straight to dispatch.
     if (before.positionId === null) return
 
+    // Sequential, not Promise.all: an interactive transaction client shares
+    // one connection and can't run concurrent queries on it.
     const changedAt = new Date()
-    const [deletedLocations, deletedCode, archivedIssues] =
-      await this.client.$transaction([
-        this.client.meetingResourceLocation.deleteMany({
-          where: { electedOfficeId: electedOffice.id },
-        }),
-        this.client.ordinanceCodeRecord.deleteMany({
-          where: { organizationSlug },
-        }),
-        this.client.communityIssue.updateMany({
-          where: { organizationSlug, archivedAt: null },
-          data: { archivedAt: changedAt },
-        }),
-        this.client.organization.update({
-          where: { slug: organizationSlug },
-          data: { officeIdentityChangedAt: changedAt },
-        }),
-      ])
+    const deletedLocations = await tx.meetingResourceLocation.deleteMany({
+      where: { electedOfficeId: electedOffice.id },
+    })
+    const deletedCode = await tx.ordinanceCodeRecord.deleteMany({
+      where: { organizationSlug },
+    })
+    const archivedIssues = await tx.communityIssue.updateMany({
+      where: { organizationSlug, archivedAt: null },
+      data: { archivedAt: changedAt },
+    })
+    await tx.organization.update({
+      where: { slug: organizationSlug },
+      data: { officeIdentityChangedAt: changedAt },
+    })
 
     this.logger.info(
       {
