@@ -36,7 +36,31 @@ const list = (params?: { includeCleared: boolean }) =>
   service.client.get(REMOVALS, { params })
 
 describe('GET /v1/person-profiles/removals', () => {
+  // election-api resolves the name/URL the log is read by; stub that seam so
+  // every test either exercises the enrichment deliberately or leaves it empty,
+  // never over the network.
+  let identitiesSpy: MockInstance<PersonLookupService['resolveIdentities']>
+
+  const stubIdentities = (
+    identities: Map<
+      string,
+      { fullName: string | null; profileUrl: string | null }
+    > = new Map(),
+  ) => {
+    identitiesSpy = vi
+      .spyOn(service.app.get(PersonLookupService), 'resolveIdentities')
+      .mockResolvedValue(identities)
+    return identitiesSpy
+  }
+
+  // Restore only this spy: the harness installs its own mocks to authenticate
+  // the test client, and a blanket restore logs every later request out.
+  afterEach(() => {
+    identitiesSpy?.mockRestore()
+  })
+
   it('refuses a non-admin caller', async () => {
+    stubIdentities()
     // This is the only removal shape carrying the ops note, which is free text
     // an operator typed about a privacy request and can quote the subject.
     await seedRemoval(ACTIVE_PERSON_ID, { note: 'court order re: J. Rivera' })
@@ -48,6 +72,7 @@ describe('GET /v1/person-profiles/removals', () => {
 
   it('returns the actor and note for an active takedown', async () => {
     await promoteToAdmin()
+    stubIdentities()
     await seedRemoval(ACTIVE_PERSON_ID, { note: 'CA privacy request' })
 
     const res = await list()
@@ -65,6 +90,7 @@ describe('GET /v1/person-profiles/removals', () => {
 
   it('hides reverted takedowns unless they are asked for', async () => {
     await promoteToAdmin()
+    stubIdentities()
     await seedRemoval(ACTIVE_PERSON_ID)
     await seedRemoval(CLEARED_PERSON_ID, { clearedAt: new Date() })
 
@@ -80,6 +106,7 @@ describe('GET /v1/person-profiles/removals', () => {
 
   it('sorts active takedowns ahead of reverted ones', async () => {
     await promoteToAdmin()
+    stubIdentities()
     // Seed the cleared row first so recency alone would put the active one
     // last: Postgres sorts NULLs last on ASC, which would bury exactly the
     // rows an operator opens this screen to act on.
@@ -97,6 +124,7 @@ describe('GET /v1/person-profiles/removals', () => {
 
   it('records who reverted a takedown', async () => {
     await promoteToAdmin()
+    stubIdentities()
     await seedRemoval(ACTIVE_PERSON_ID)
 
     const cleared = await service.client.delete(REMOVALS, {
@@ -116,6 +144,7 @@ describe('GET /v1/person-profiles/removals', () => {
 
   it('rejects a write that names no operator', async () => {
     await promoteToAdmin()
+    stubIdentities()
 
     const res = await service.client.post(REMOVALS, {
       personId: ACTIVE_PERSON_ID,
@@ -131,6 +160,7 @@ describe('GET /v1/person-profiles/removals', () => {
 
   it('is idempotent when a clear is double-submitted', async () => {
     await promoteToAdmin()
+    stubIdentities()
     await seedRemoval(ACTIVE_PERSON_ID)
 
     const body = { personId: ACTIVE_PERSON_ID, clearedBy: OPERATOR }
@@ -142,6 +172,51 @@ describe('GET /v1/person-profiles/removals', () => {
 
     const res = await list({ includeCleared: true })
     expect(res.data).toHaveLength(1)
+  })
+
+  it('shows the name and public URL of the page that is down', async () => {
+    await promoteToAdmin()
+    // The stored row is a bare UUID. An operator reviewing the log has to be
+    // able to tell whose page it is and open it, or they cannot check whether
+    // the takedown did what the request asked.
+    stubIdentities(
+      new Map([
+        [
+          ACTIVE_PERSON_ID,
+          {
+            fullName: 'Jordan Reyes',
+            profileUrl: 'https://goodparty.org/people/jordan-reyes-33333333',
+          },
+        ],
+      ]),
+    )
+    await seedRemoval(ACTIVE_PERSON_ID)
+
+    const res = await list()
+
+    expect(res.status).toBe(200)
+    expect(res.data[0]).toMatchObject({
+      personId: ACTIVE_PERSON_ID,
+      fullName: 'Jordan Reyes',
+      profileUrl: 'https://goodparty.org/people/jordan-reyes-33333333',
+    })
+  })
+
+  it('still lists a takedown whose identity cannot be resolved', async () => {
+    await promoteToAdmin()
+    // election-api is a separate service. Losing the nicety of a name must not
+    // hide an active takedown from the only screen that shows them.
+    stubIdentities(new Map())
+    await seedRemoval(ACTIVE_PERSON_ID)
+
+    const res = await list()
+
+    expect(res.status).toBe(200)
+    expect(res.data[0]).toMatchObject({
+      personId: ACTIVE_PERSON_ID,
+      fullName: null,
+      profileUrl: null,
+    })
   })
 })
 

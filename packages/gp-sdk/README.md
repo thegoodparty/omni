@@ -115,6 +115,8 @@ await client.personProfiles.setRemoval({
 })
 
 // Active takedowns by default; pass includeCleared for the reverted ones too.
+// Each row carries fullName + profileUrl, resolved from the civics spine at
+// read time — both null if that lookup fails, so a row never disappears.
 const removals = await client.personProfiles.listRemovals()
 const withHistory = await client.personProfiles.listRemovals({
   includeCleared: true,

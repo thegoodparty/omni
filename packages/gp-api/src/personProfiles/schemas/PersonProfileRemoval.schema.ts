@@ -56,6 +56,13 @@ export type PersonProfileRemovalResponse = z.infer<
 export const PersonProfileRemovalListSchema = z.array(
   z.object({
     personId: z.string(),
+    // Resolved from election-api at read time rather than stored: the log is
+    // keyed by a UUID nobody can read, and the operator reviewing it needs to
+    // see whose page is down and be able to open it. Both are null when
+    // election-api can't resolve the id, so a lookup outage degrades the row
+    // instead of hiding the takedown.
+    fullName: z.string().nullable(),
+    profileUrl: z.url().nullable(),
     note: z.string().nullable(),
     requestedAt: zDate(),
     appliedBy: z.string(),
