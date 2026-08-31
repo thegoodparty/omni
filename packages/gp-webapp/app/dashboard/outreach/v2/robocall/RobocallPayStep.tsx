@@ -400,7 +400,7 @@ export const RobocallPayStep = ({
               the total minus the number fee (never a client price × count). */}
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">
-              Calls ({reachCount.toLocaleString()} reachable)
+              Calls ({draft.billableCount.toLocaleString()} reachable)
             </span>
             <span className="text-foreground">
               ${formatCents(draft.amountInCents - draft.numberFeeInCents)}

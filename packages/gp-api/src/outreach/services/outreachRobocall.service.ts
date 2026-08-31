@@ -281,7 +281,10 @@ export class OutreachRobocallService extends createPrismaBase(
       ? {
           outreachId: existing.outreachId,
           billableCount: existing.billableCount,
-          amountInCents: existing.amountInCents,
+          // Recompute rather than trust the stored column: a draft created
+          // before the number fee shipped has a stale, fee-less amountInCents,
+          // and returning it would understate the total by the fee.
+          amountInCents: calcRobocallTotalInCents(existing.billableCount),
           numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
         }
       : null
