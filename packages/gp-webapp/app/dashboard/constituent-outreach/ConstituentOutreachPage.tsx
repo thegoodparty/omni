@@ -4,16 +4,20 @@ import DashboardLayout from '../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { SERVE_OUTREACH_FLAG_KEY } from '@shared/experiments/serveOutreachFlag'
 import { NAV_LABELS } from '../shared/navLabels'
+import ServeChannelCards from './ServeChannelCards'
+import { OutreachHistoryTable } from 'app/dashboard/outreach/v2/OutreachHistoryTable'
+import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 
 interface ConstituentOutreachPageProps {
   pathname?: string
+  outreaches?: HistoryRow[]
 }
 
-// Route shell only — channel cards and outreach history are follow-on
-// tickets. FeatureFlagGuard is the treatment surface for this experiment; the
-// nav item reads the flag with trackExposure=false.
+// FeatureFlagGuard is the treatment surface for this experiment; the nav
+// item reads the flag with trackExposure=false.
 const ConstituentOutreachPage = ({
   pathname,
+  outreaches = [],
 }: ConstituentOutreachPageProps): React.JSX.Element => {
   return (
     <FeatureFlagGuard flagKey={SERVE_OUTREACH_FLAG_KEY} redirectTo="/dashboard">
@@ -26,7 +30,15 @@ const ConstituentOutreachPage = ({
           label: NAV_LABELS.constituentOutreach,
         }}
       >
-        <div />
+        <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
+          <ServeChannelCards />
+          {/* No onRowClick: the row-click drawer is deferred (see AGENTS.md)
+              — OutreachDetailsDrawer pulls in candidate-only dependencies
+              (TCR compliance banner, checkout receipts via
+              OUTREACH_OPTIONS/OutreachContext) a Serve org has no use for.
+              Rows render as plain, non-interactive content instead. */}
+          <OutreachHistoryTable rows={outreaches} />
+        </div>
       </DashboardLayout>
     </FeatureFlagGuard>
   )
