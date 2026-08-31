@@ -23,7 +23,10 @@ import {
   topIssuesBucketForDate,
 } from '../communityIssueBucketing'
 
-const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
+export const EXPERIMENT_TYPES = [
+  'top_community_issues',
+  'trending_issues',
+] as const
 
 type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 
@@ -167,12 +170,23 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * The org's office identity changed, so the live issue set describes the
    * wrong jurisdiction. Delegates to the cohort path, which blocks in-flight
    * runs but treats terminal ones as re-dispatchable — unlike
-   * onElectedOfficeCreated, whose COMPLETED guard would suppress this.
+   * onElectedOfficeCreated, whose COMPLETED guard would suppress this. The
+   * in-flight cutoff is threaded in here rather than baked into
+   * dispatchForCohort/dispatchTypeForOrg, so the admin cohort and self-serve
+   * callers of those methods keep blocking on any in-flight run regardless
+   * of age.
    */
   async onOfficeIdentityChanged(electedOffice: ElectedOffice): Promise<void> {
     if (!isAutomationEnabled()) return
 
-    await this.dispatchForCohort([electedOffice.organizationSlug])
+    const organization = await this.client.organization.findUnique({
+      where: { slug: electedOffice.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
+
+    await this.dispatchForCohort([electedOffice.organizationSlug], {
+      inFlightCutoff: organization?.officeIdentityChangedAt ?? undefined,
+    })
   }
 
   /**
@@ -181,8 +195,14 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * Blocks QUEUED + RUNNING + AWAITING_RESUME (in-flight) to prevent
    * duplicate concurrent runs. Terminal runs (COMPLETED/FAILED) are
    * intentionally re-dispatchable — manual refresh is the endpoint's purpose.
+   * `inFlightCutoff` is only ever passed by `onOfficeIdentityChanged`; the
+   * admin cohort UI and self-serve refresh never pass it, so their in-flight
+   * check stays unconditional.
    */
-  async dispatchForCohort(orgSlugs: string[]): Promise<DispatchSummary> {
+  async dispatchForCohort(
+    orgSlugs: string[],
+    options: { inFlightCutoff?: Date } = {},
+  ): Promise<DispatchSummary> {
     let dispatched = 0
     let skipped = 0
 
@@ -207,6 +227,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
           orgSlug,
           experimentType,
           ctx,
+          { inFlightCutoff: options.inFlightCutoff },
         )
         if (didDispatch) {
           dispatched++
@@ -296,7 +317,15 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     {
       skipActivityGate = true,
       freshnessWindowDays,
-    }: { skipActivityGate?: boolean; freshnessWindowDays?: number } = {},
+      inFlightCutoff,
+    }: {
+      skipActivityGate?: boolean
+      freshnessWindowDays?: number
+      // Only set by onOfficeIdentityChanged (via dispatchForCohort): an
+      // in-flight run created before the office-identity change belongs to
+      // the OLD identity and must not suppress this re-dispatch.
+      inFlightCutoff?: Date
+    } = {},
   ): Promise<boolean> {
     const inFlight = await this.client.experimentRun.findFirst({
       where: {
@@ -309,6 +338,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
             ExperimentRunStatus.AWAITING_RESUME,
           ],
         },
+        ...(inFlightCutoff ? { createdAt: { gte: inFlightCutoff } } : {}),
       },
       select: { runId: true },
     })

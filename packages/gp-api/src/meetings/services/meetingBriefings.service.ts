@@ -28,7 +28,7 @@ import {
   MeetingResourceLocationType,
   Prisma,
 } from '../../generated/prisma'
-import { addDays, differenceInCalendarDays } from 'date-fns'
+import { addDays, differenceInCalendarDays, isBefore } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import pMap from 'p-map'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
@@ -48,8 +48,8 @@ const parseSchedule = (raw: string): MeetingSchedule =>
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   JSON.parse(raw) as MeetingSchedule
 
-const SCHEDULE_EXPERIMENT_TYPE = 'meeting_schedule'
-const BRIEFING_EXPERIMENT_TYPE = 'meeting_briefing'
+export const SCHEDULE_EXPERIMENT_TYPE = 'meeting_schedule'
+export const BRIEFING_EXPERIMENT_TYPE = 'meeting_briefing'
 
 /**
  * Extract the `elected_office_id` field from an ExperimentRun's params
@@ -259,18 +259,38 @@ export class MeetingBriefingsService extends createPrismaBase(
     // not blocking: the first attempt did not succeed and nothing else
     // re-dispatches it (a dead run is only marked FAILED by the gp-ai
     // ECS task-reaper, which does not re-dispatch).
+    //
+    // The COMPLETED branch is cutoff-scoped: the placeholder-adoption path in
+    // ElectedOfficeService.create can write a genuine identity change before
+    // this hook runs, and a COMPLETED run from the office the org no longer
+    // holds must not block re-dispatch forever — meetings has no cron to
+    // recover a one-shot miss the way ordinances (60-day) and community
+    // issues (~28-day) do.
+    const org = await this.client.organization.findUnique({
+      where: { slug: electedOffice.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
     const existingScheduleRun = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug: electedOffice.organizationSlug,
         experimentType: SCHEDULE_EXPERIMENT_TYPE,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-            ExperimentRunStatus.COMPLETED,
-          ],
-        },
+        OR: [
+          {
+            status: {
+              in: [
+                ExperimentRunStatus.QUEUED,
+                ExperimentRunStatus.RUNNING,
+                ExperimentRunStatus.AWAITING_RESUME,
+              ],
+            },
+          },
+          {
+            status: ExperimentRunStatus.COMPLETED,
+            ...(org?.officeIdentityChangedAt
+              ? { createdAt: { gte: org.officeIdentityChangedAt } }
+              : {}),
+          },
+        ],
       },
     })
     if (existingScheduleRun) {
@@ -295,12 +315,17 @@ export class MeetingBriefingsService extends createPrismaBase(
    * The org's office identity changed, so the newest schedule describes a body
    * the holder no longer sits on. Unlike onElectedOfficeCreated this does NOT
    * treat a COMPLETED run as blocking — that run is exactly what is being
-   * replaced. In-flight runs still block: they were dispatched moments ago and
-   * a second would just duplicate them.
+   * replaced. In-flight runs still block, but only when they were dispatched
+   * at or after the identity change: an in-flight run from before the change
+   * belongs to the OLD identity and must not suppress this re-dispatch.
    */
   async onOfficeIdentityChanged(electedOffice: ElectedOffice): Promise<void> {
     if (!isAutomationEnabled()) return
 
+    const org = await this.client.organization.findUnique({
+      where: { slug: electedOffice.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
     const inFlight = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug: electedOffice.organizationSlug,
@@ -312,6 +337,9 @@ export class MeetingBriefingsService extends createPrismaBase(
             ExperimentRunStatus.AWAITING_RESUME,
           ],
         },
+        ...(org?.officeIdentityChangedAt
+          ? { createdAt: { gte: org.officeIdentityChangedAt } }
+          : {}),
       },
       select: { runId: true },
     })
@@ -645,12 +673,38 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     if (run.experimentType === SCHEDULE_EXPERIMENT_TYPE) {
+      if (await this.predatesOfficeIdentityChange(run)) return
       // Critical work first (cron chain). Hint persistence is a best-effort
       // optimization and must not gate the briefing dispatch — the queue
       // consumer swallows throws from this handler without retry.
       await this.maybeDispatchBriefingAfterSchedule(run)
       await this.persistScheduleLocationFromRun(run)
     }
+  }
+
+  // A schedule run belongs to the OLD office identity if it was created
+  // before the org's officeIdentityChangedAt stamp. Persisting its hint
+  // would re-poison the SCHEDULE MeetingResourceLocation the invalidation
+  // just deleted, seeding the next dispatch with the old city's portal.
+  private async predatesOfficeIdentityChange(
+    run: ExperimentRun,
+  ): Promise<boolean> {
+    const org = await this.client.organization.findUnique({
+      where: { slug: run.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
+    const cutoff = org?.officeIdentityChangedAt
+    if (!cutoff || !isBefore(run.createdAt, cutoff)) return false
+    this.logger.info(
+      {
+        runId: run.runId,
+        organizationSlug: run.organizationSlug,
+        runCreatedAt: run.createdAt,
+        officeIdentityChangedAt: cutoff,
+      },
+      'schedule_run_predates_office_change: skipping persistence',
+    )
+    return true
   }
 
   private async handleBriefingCompletion(run: ExperimentRun): Promise<void> {

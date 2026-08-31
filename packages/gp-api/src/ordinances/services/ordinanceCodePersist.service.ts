@@ -95,6 +95,8 @@ export class OrdinanceCodePersistService extends createPrismaBase(
       return
     }
 
+    if (await this.predatesOfficeIdentityChange(run)) return
+
     if (!run.artifactBucket || !run.artifactKey) {
       await this.experimentRuns.markFailed(
         run.runId,
@@ -128,6 +130,31 @@ export class OrdinanceCodePersistService extends createPrismaBase(
       )
       throw error
     }
+  }
+
+  // An old run's result belongs to the OLD office identity if it was created
+  // before the org's officeIdentityChangedAt stamp. Persisting it would land
+  // a stale OrdinanceCodeRecord right after the invalidation deleted it, and
+  // re-trip the never-regress guard for a place that no longer applies.
+  private async predatesOfficeIdentityChange(
+    run: ExperimentRun,
+  ): Promise<boolean> {
+    const organization = await this.client.organization.findUnique({
+      where: { slug: run.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
+    const cutoff = organization?.officeIdentityChangedAt
+    if (!cutoff || !isBefore(run.createdAt, cutoff)) return false
+    this.logger.info(
+      {
+        runId: run.runId,
+        organizationSlug: run.organizationSlug,
+        runCreatedAt: run.createdAt,
+        officeIdentityChangedAt: cutoff,
+      },
+      'ordinance_run_predates_office_change: skipping persistence',
+    )
+    return true
   }
 
   private async persistRecord(

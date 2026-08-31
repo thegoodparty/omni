@@ -110,12 +110,14 @@ export class OrdinanceDispatchService extends createPrismaBase(
   // a residual duplicate is bounded (one run) and persists idempotently.
   private async runAppearedDuringResolve(
     organizationSlug: string,
+    inFlightCutoff?: Date,
   ): Promise<boolean> {
     const appeared = await this.model.findFirst({
       where: {
         organizationSlug,
         experimentType: FIND_EXISTING_ORDINANCES,
         status: { in: IN_FLIGHT_STATUSES },
+        ...(inFlightCutoff ? { createdAt: { gte: inFlightCutoff } } : {}),
       },
       select: { runId: true },
     })
@@ -158,47 +160,63 @@ export class OrdinanceDispatchService extends createPrismaBase(
       return
     }
 
-    const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
-    if (!dispatchable) return
-    if (await this.runAppearedDuringResolve(organizationSlug)) return
-
-    await this.experimentRuns.dispatchRun({
-      type: FIND_EXISTING_ORDINANCES,
-      organizationSlug,
-      clerkUserId: dispatchable.clerkUserId,
-      priority: 'HIGH',
-      params: {
-        organization_slug: organizationSlug,
-        state: dispatchable.state,
-        office: dispatchable.office,
-      },
-    })
+    await this.resolveAndDispatch(organizationSlug)
   }
 
   /**
    * The org's office identity changed, so the place whose code we sourced may
    * be a different place. This deliberately bypasses the one-time guard in
    * onElectedOfficeCreated: that guard assumes a place's code corpus does not
-   * change per signup, and the place has now changed.
+   * change per signup, and the place has now changed. In-flight runs still
+   * block, but only when dispatched at or after the identity change — an
+   * in-flight run from before the change belongs to the OLD place and must
+   * not suppress this re-dispatch.
    */
   async onOfficeIdentityChanged(electedOffice: ElectedOffice): Promise<void> {
     if (!isAutomationEnabled()) return
 
     const { organizationSlug } = electedOffice
 
+    const organization = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
+    const inFlightCutoff = organization?.officeIdentityChangedAt ?? undefined
     const inFlight = await this.model.findFirst({
       where: {
         organizationSlug,
         experimentType: FIND_EXISTING_ORDINANCES,
         status: { in: IN_FLIGHT_STATUSES },
+        ...(inFlightCutoff ? { createdAt: { gte: inFlightCutoff } } : {}),
       },
       select: { runId: true },
     })
     if (inFlight) return
 
-    const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
+    await this.resolveAndDispatch(organizationSlug, inFlightCutoff)
+  }
+
+  // Shared tail for both dispatch entry points above: resolve (bounded by
+  // the same deadline the daily refresh cron applies to this resolve — the
+  // office-identity-change caller is a user waiting in the "Change office"
+  // modal, and a hung election-api call must not stall that request),
+  // re-check for a run that appeared mid-resolve, then dispatch.
+  // `inFlightCutoff` is only ever passed by onOfficeIdentityChanged, so its
+  // re-check stays consistent with the in-flight check above it — otherwise
+  // a pre-cutoff run excluded there would still be caught here and silently
+  // suppress the re-dispatch.
+  private async resolveAndDispatch(
+    organizationSlug: string,
+    inFlightCutoff?: Date,
+  ): Promise<void> {
+    const dispatchable = await withDeadline(
+      this.resolveDispatchableOrg(organizationSlug),
+      contextResolveTimeoutMs(),
+    )
     if (!dispatchable) return
-    if (await this.runAppearedDuringResolve(organizationSlug)) return
+    if (await this.runAppearedDuringResolve(organizationSlug, inFlightCutoff)) {
+      return
+    }
 
     await this.experimentRuns.dispatchRun({
       type: FIND_EXISTING_ORDINANCES,
