@@ -19,6 +19,7 @@ export type OutreachStatus =
   | 'completed'
   | 'pending_payment'
   | 'canceled'
+  | 'failed'
 
 /** Payload for POST /outreach (create) */
 export interface CreateOutreachPayload {

@@ -3,7 +3,10 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { RobocallOrphanedCampaign } from '../../generated/prisma'
 
 // Which abandonment path recorded an orphaned CallHub campaign.
-export type OrphanReason = 'reauth_restage' | 'staging_lost_commit'
+export type OrphanReason =
+  | 'reauth_restage'
+  | 'staging_lost_commit'
+  | 'send_failed'
 
 // Records + reads the queue of PAUSED CallHub campaigns abandoned before they
 // could dial, so the cleanup sweep can ABORT them. Recording is best-effort at

@@ -9,6 +9,8 @@ import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocal
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
+import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -159,6 +161,62 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.dialed)
     expect(satellite.dialedAt).not.toBeNull()
+  })
+
+  it('surfaces a PERMANENT launch rejection as send_failed once CallHub confirms PAUSED', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    // Confirmed never STARTED (still PAUSED) + permanent → fail the send.
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
+    // The marker is persisted BEFORE failSend, so a failSend that could not
+    // commit still leaves the stale sweep able to fail (not relaunch) the row.
+    expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
+  })
+
+  it('does NOT fail a permanently-errored launch that CallHub reports STARTED (it dialed)', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+
+    await send.startCampaign(outreachId)
+
+    // The status read shows it actually dialed — never void a delivered run.
+    expect(failSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+  })
+
+  it('fails a PERMANENT launch as send_failed when the status read also fails', async () => {
+    const outreachId = await createDraft()
+    const errorSpy = loggerErrorSpy()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockRejectedValue(new BadGatewayException('status read down'))
+
+    await send.startCampaign(outreachId)
+
+    // A permanent 4xx guarantees the campaign never STARTED, so a failed status
+    // read adds no uncertainty — fail the send now instead of leaving the row
+    // `dialing` for the stale sweep, which retries WITHOUT the permanent flag and
+    // would relaunch into another permanent reject forever.
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('unresolved'),
+    )
   })
 
   it('NEVER dials twice: a lost launch that CallHub reports STARTED commits dialed, no re-launch', async () => {
@@ -470,6 +528,33 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
 
     expect(launchSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('recovers a stale PERMANENTLY-FAILED dialing row by failing the send, not reverting', async () => {
+    // A permanent launch reject was confirmed but failSend could not commit, so
+    // the marker is set on the still-`dialing` row. The stale sweep must FAIL the
+    // send off the persisted marker — never revert to `authorized` and relaunch
+    // into the same 4xx, even though the status still reads PAUSED.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+    })
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: { permanentSendFailure: true },
+    })
+    await ageDialingRow(outreachId, 30)
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.sweepRobocallSend()
+
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
+    expect(launchSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).not.toBe(
       RobocallSettleState.authorized,
     )
   })

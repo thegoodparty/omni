@@ -2,7 +2,10 @@ import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { AxiosError, AxiosHeaders, AxiosResponse } from 'axios'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { CallhubErrorHandlingService } from './callhubErrorHandling.service'
+import {
+  CallhubErrorHandlingService,
+  CallhubPermanentError,
+} from './callhubErrorHandling.service'
 
 const axiosError = (
   status: number,
@@ -82,5 +85,36 @@ describe('CallhubErrorHandlingService', () => {
         logger: createMockLogger(),
       }),
     ).toThrow(BadGatewayException)
+  })
+
+  // The permanent subclass is what the robocall sweeps read to decide "fail the
+  // run" vs "retry". A misclassified transient blip would permanently fail (and
+  // void + email) a recoverable run.
+  describe('permanent vs transient classification', () => {
+    const classify = (status: number): unknown => {
+      try {
+        service.handleApiError({
+          error: axiosError(status, {}),
+          logger: createMockLogger(),
+        })
+      } catch (e) {
+        return e
+      }
+    }
+
+    it.each([400, 402, 403, 404])('classifies %i as permanent', (status) => {
+      expect(classify(status)).toBeInstanceOf(CallhubPermanentError)
+    })
+
+    // 401 (auth) and 408 (timeout) are recoverable and must stay transient, so
+    // an auth/timeout blip retries rather than permanently failing the run.
+    it.each([401, 408, 429, 500, 502, 503])(
+      'classifies %i as transient (retryable, not permanent)',
+      (status) => {
+        const thrown = classify(status)
+        expect(thrown).toBeInstanceOf(BadGatewayException)
+        expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
+      },
+    )
   })
 })

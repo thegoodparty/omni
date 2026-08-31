@@ -1,5 +1,13 @@
 import { Readable } from 'node:stream'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest'
 import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
@@ -3327,6 +3335,10 @@ describe('door-knocking routes', () => {
     it('sends the response head before the build has finished', async () => {
       let finishBuild: (pack: Buffer) => void = () => undefined
       let buildSettled = false
+      let startBuild: () => void = () => undefined
+      const buildStarted = new Promise<void>((resolve) => {
+        startBuild = resolve
+      })
       const packSpy = vi
         .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
         .mockImplementation(
@@ -3336,8 +3348,15 @@ describe('door-knocking routes', () => {
                 buildSettled = true
                 resolve(pack)
               }
+              startBuild()
             }),
         )
+      // Until finishBuild runs this mock never settles, so an assertion that
+      // throws before it would leave the mock in place for the rest of the
+      // file — one app is booted per file, and clearMocks only clears calls,
+      // not implementations. Restoring on finish rather than at the end of the
+      // body keeps a failure here from hanging the later gated-route walk.
+      onTestFinished(() => packSpy.mockRestore())
 
       const res = await service.client.get('/v1/door-knocking/pack', {
         ...orgHeaders(),
@@ -3365,8 +3384,10 @@ describe('door-knocking routes', () => {
 
       // The head lands ahead of the people-db call, not just ahead of its
       // result, so wait for the build to actually be in flight before
-      // releasing it.
-      await vi.waitFor(() => expect(packSpy).toHaveBeenCalled())
+      // releasing it. Resolved from inside the call rather than polled for:
+      // the district resolve in front of it reaches election-api over the
+      // network, which on a loaded runner outlasts vi.waitFor's 1s default.
+      await buildStarted
       finishBuild(packBytes)
       await ended
       expect(unwrapPack(Buffer.concat(chunks))).toEqual(packBytes)
@@ -3401,17 +3422,29 @@ describe('door-knocking routes', () => {
     // so it is pinned here: without it the district scan outlives the browser
     // and the next attempt contends with a build nobody is waiting for.
     it('aborts the build when the client hangs up', async () => {
-      let buildSignal: AbortSignal | undefined
-      // Restored at the end: this build never resolves, and a later test that
-      // walks every gated route would hang on it.
+      let startBuild: (signal?: AbortSignal) => void = () => undefined
+      const buildStarted = new Promise<AbortSignal | undefined>((resolve) => {
+        startBuild = resolve
+      })
       const packSpy = vi
         .spyOn(service.app.get(DoorKnockingPeopleApiService), 'pack')
         .mockImplementation((_request, signal) => {
-          buildSignal = signal
+          startBuild(signal)
           return new Promise<Buffer>(() => undefined)
         })
+      // Restored on finish rather than at the end of the body: this build
+      // never resolves, so an assertion that throws first would leave the mock
+      // in place, and the later test that walks every gated route would hang
+      // on the pack route until its own 30s timeout.
+      onTestFinished(() => packSpy.mockRestore())
 
       const abort = new AbortController()
+      // Same reason as the restore above: the build behind this request never
+      // resolves, so an assertion that throws before the abort below would
+      // leave the response open and the suite's teardown would then blow its
+      // own hook timeout waiting for the app to close. Aborting twice is a
+      // no-op on the happy path.
+      onTestFinished(() => abort.abort())
       const res = await service.client.get('/v1/door-knocking/pack', {
         ...orgHeaders(),
         responseType: 'stream',
@@ -3421,12 +3454,24 @@ describe('door-knocking routes', () => {
       await new Promise<void>((resolve) =>
         (res.data as Readable).once('data', () => resolve()),
       )
-      await vi.waitFor(() => expect(buildSignal).toBeDefined())
+      // The head is pushed before the build starts, so the first chunk above
+      // says nothing about the build being in flight. What separates the two
+      // is a district resolve (an election-api round trip) plus the two
+      // interaction reads, which a loaded runner does not reliably finish
+      // inside vi.waitFor's 1s default — so this waits on the call itself.
+      const buildSignal = await buildStarted
+      expect(buildSignal).toBeDefined()
 
       abort.abort()
 
-      await vi.waitFor(() => expect(buildSignal?.aborted).toBe(true))
-      packSpy.mockRestore()
+      // Driven by the response stream's `close`, so it lands a socket teardown
+      // later rather than on the next tick. Awaiting the event keeps that off
+      // a polling deadline too.
+      await new Promise<void>((resolve) => {
+        if (buildSignal?.aborted) return resolve()
+        buildSignal?.addEventListener('abort', () => resolve(), { once: true })
+      })
+      expect(buildSignal?.aborted).toBe(true)
     })
   })
 

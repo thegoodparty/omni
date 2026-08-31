@@ -10,6 +10,8 @@ import { RobocallPhonebookService } from '@/outreach/services/robocallPhonebook.
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
@@ -234,6 +236,65 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.callhubCampaignPkStr).toBeNull()
+  })
+
+  it('surfaces a PERMANENT CallHub failure as send_failed, not a retry', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    createVbSpy.mockRejectedValueOnce(
+      new CallhubPermanentError('bad caller id'),
+    )
+
+    await staging.stageCampaign(outreachId)
+
+    // A 4xx will never succeed on retry → fail the send (void the hold, email),
+    // never revert to authorized to retry forever.
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'staging')
+    // The marker is persisted BEFORE failSend, so a failSend that could not
+    // commit still lets the stale sweep fail (not re-stage) the row.
+    expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
+    expect((await readSatellite(outreachId)).settleState).not.toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('fails a stale staging row already marked permanent, never re-staging', async () => {
+    // A permanent staging failure whose failSend could not commit left the row
+    // `staging` + marked. The stale sweep must fail it off the marker, never
+    // re-create a CallHub campaign into the same permanent reject.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+    })
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: { permanentSendFailure: true },
+    })
+    await ageStagingRow(outreachId, 45)
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'staging')
+    expect(createVbSpy).not.toHaveBeenCalled()
+  })
+
+  it('reverts to authorized on a TRANSIENT CallHub failure (retries, not surfaced)', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    createVbSpy.mockRejectedValueOnce(new BadGatewayException('callhub 502'))
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toThrow()
+
+    expect(failSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
   })
 
   it('refuses to dial when the audio ETag no longer matches the approved bytes', async () => {
