@@ -1160,8 +1160,7 @@ describe('ContactsService', () => {
     // Win channel downloads/counts on the people-db query engine (ENG-10424).
     // Each built-in channel maps to a boolean filter set; the list/count path
     // and the download path must forward the SAME filters so the count Win
-    // sees matches the downloaded row count (both run the same
-    // buildVoterWhereSql).
+    // sees matches the downloaded row count (both build the same scope).
     describe('Win channel -> people-db filter mapping', () => {
       const channelFilters: Array<{
         segment: string

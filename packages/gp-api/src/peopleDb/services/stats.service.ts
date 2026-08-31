@@ -1,48 +1,21 @@
-import { Inject, Injectable } from '@nestjs/common'
-import { DistrictStats } from '../../generated/people-prisma'
-import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
+import { Injectable } from '@nestjs/common'
 import { StatsDTO } from '../schemas/people.schema'
-import { ShadowReadService } from '../shadowRead.service'
+import { DatabricksVoterService } from '../databricks/databricksVoter.service'
+import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
+import { VoterReadLogService } from '../databricks/voterReadLog.service'
 
 @Injectable()
-export class StatsService extends createPeopleDbBase(
-  PEOPLE_MODELS.DistrictStats,
-) {
-  // Injected rather than constructor-arg because createPeopleDbBase owns the
-  // constructor; property injection keeps the base's super() contract intact.
-  @Inject(ShadowReadService)
-  private readonly shadow!: ShadowReadService
+export class StatsService {
+  constructor(
+    private readonly databricks: DatabricksVoterService,
+    private readonly readLog: VoterReadLogService,
+  ) {}
 
-  async findStats(dto: StatsDTO): Promise<DistrictStats | null> {
-    if (!this.shadow.enabled) {
-      return this.model.findUnique({ where: { districtId: dto.districtId } })
-    }
-    return this.shadow.compare({
+  async findStats(dto: StatsDTO): Promise<ComputedDistrictStats | null> {
+    return this.readLog.measure({
       op: 'stats',
       districtId: dto.districtId,
-      authoritative: () => this.shadow.databricks.findStats(dto.districtId),
-      comparison: () =>
-        this.model.findUnique({ where: { districtId: dto.districtId } }),
-      fingerprintAuthoritative: (result) => result?.totalConstituents ?? null,
-      fingerprintComparison: (result) => result?.totalConstituents ?? null,
-    })
-  }
-
-  async findTotalConstituents(districtId: string): Promise<number | null> {
-    const stats = await this.model.findUnique({
-      select: { totalConstituents: true },
-      where: { districtId },
-    })
-    return stats?.totalConstituents ?? null
-  }
-
-  async findTotalCounts(districtId: string) {
-    return this.model.findUnique({
-      select: {
-        totalConstituents: true,
-        totalConstituentsWithCellPhone: true,
-      },
-      where: { districtId },
+      read: () => this.databricks.findStats(dto.districtId),
     })
   }
 }
