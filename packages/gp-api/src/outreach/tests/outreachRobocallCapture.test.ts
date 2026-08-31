@@ -9,10 +9,7 @@ import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobo
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
-import {
-  calcRobocallTotalInCents,
-  ROBOCALL_NUMBER_FEE_CENTS,
-} from '@/shared/util/robocallPricing.util'
+import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
 
@@ -179,23 +176,24 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     )
   })
 
-  it('captures the number fee on a zero-connected run (live hold)', async () => {
-    // The rented number is a sunk cost, so a run that connected zero calls still
-    // captures the flat fee off a live hold — it does NOT void.
+  it('voids the hold and charges nothing on a zero-connected run (live hold)', async () => {
+    // A run that connected zero calls owes nothing: the $2 number fee is released
+    // on ANY zero-connected run, so a live hold is voided rather than captured.
     const outreachId = await createDraft({ completedCallCount: 0 })
 
     await capture.captureDraft(outreachId)
 
-    expect(captureSpy).toHaveBeenCalledWith(
-      'pi_1',
-      ROBOCALL_NUMBER_FEE_CENTS,
-      `robocall-capture-${outreachId}`,
-    )
-    expect(voidSpy).not.toHaveBeenCalled()
+    expect(voidSpy).toHaveBeenCalledWith('pi_1')
+    expect(captureSpy).not.toHaveBeenCalled()
+    expect(trackSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
-    expect(satellite.settleState).toBe(RobocallSettleState.captured)
-    expect(satellite.capturedAmountInCents).toBe(ROBOCALL_NUMBER_FEE_CENTS)
-    expect(trackSpy).toHaveBeenCalledTimes(1)
+    expect(satellite.settleState).toBe(RobocallSettleState.voided)
+    // The best-effort void is recorded so the reconcile sweep re-voids it if it
+    // did not land.
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_1' },
+    })
+    expect(orphan?.reason).toBe('zero_billable')
   })
 
   it('reconciles idempotently when the hold already succeeded (lost commit)', async () => {

@@ -250,18 +250,14 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // HOLD LAPSED: expired / canceled / never capturable. This is the ONE place
-    // the "always collect the $2 number fee" rule yields. A run that connected
-    // ZERO calls whose hold is gone is released to `voided` rather than chased:
-    // firing the riskiest money step (a fresh off-session charge) plus a CRITICAL
-    // to collect $2 from a run that delivered nothing is not worth it — and the
-    // fee IS still captured for every zero-connected run whose hold is LIVE at
-    // capture (the norm; the hold window + this sweep's expiry-priority ordering
-    // make a lapse rare). A NON-zero run with a gone hold IS money owed we could
-    // not capture (calls + fee) — CRITICAL + park uncollectable so the
-    // fresh-charge recovery collects it; never blind-charge here. The guard is
-    // the CALLS-only amount so it identifies a zero-connected run (the total is
-    // never <= 0).
+    // HOLD LAPSED: expired / canceled / never capturable. A zero-connected run
+    // owes nothing — the $2 number fee is released on ANY run that connected zero
+    // calls — so a gone hold is the expected, correct outcome → `voided`, not a
+    // false CRITICAL. A run with at least one connected call and a gone hold IS
+    // money owed we could not capture (calls + fee) → CRITICAL + park
+    // uncollectable so the fresh-charge recovery collects it; never blind-charge
+    // here. The guard is the CALLS-only amount, which is 0 only for a
+    // zero-connected run.
     if (intent.status !== 'requires_capture') {
       if (calcRobocallAmountInCents(completedCallCount) <= 0) {
         this.logger.info(
@@ -286,19 +282,12 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // INV-1: capture the ACTUAL amount (calls + number fee), clamped to never
-    // exceed the authorized hold. Stripe releases any remainder. The number fee
-    // is a floor, so a dialed run's captureAmount is always >= the fee — a
-    // zero-connected run CAPTURES the fee (the number was really rented) rather
-    // than voiding.
-    const actual = calcRobocallTotalInCents(completedCallCount)
-    const captureAmount = Math.min(actual, authorizedAmountInCents)
-
-    // Defensive only: with the fee floor captureAmount is always > 0 for a
-    // dialed run, so this cannot fire in practice. Guarded anyway because
-    // capturing a non-positive amount would be rejected by Stripe and loop —
-    // void + release instead.
-    if (captureAmount <= 0) {
+    // ZERO-CONNECTED: no call actually connected, so the run owes nothing —
+    // release the hold entirely, INCLUDING the $2 number fee. The fee is
+    // collected only when at least one call connects; we do not bill a candidate
+    // whose robocall reached no one. Guard on the CALLS-only amount, since the
+    // total is never <= 0 (the fee floor). Void the hold and release.
+    if (calcRobocallAmountInCents(completedCallCount) <= 0) {
       await this.stripe.voidHold(authorizationIntentId)
       // Record the hold so the reconcile sweep re-voids it if this best-effort
       // void did not land (best-effort — never fail the settle over it).
@@ -317,11 +306,16 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       await this.transitionFromCapturing(outreachId, RobocallSettleState.voided)
       this.logger.info(
         { outreachId, completedCallCount },
-        'robocall capture: non-positive amount (unexpected with the number ' +
-          'fee floor); voided the hold defensively',
+        'robocall capture: zero-connected run; voided the hold and released ' +
+          'the number fee',
       )
       return
     }
+
+    // INV-1: capture the ACTUAL amount (calls + number fee), clamped to never
+    // exceed the authorized hold. Stripe releases any remainder.
+    const actual = calcRobocallTotalInCents(completedCallCount)
+    const captureAmount = Math.min(actual, authorizedAmountInCents)
 
     try {
       // Stable idempotency key (amount is deterministic per outreach — the count
