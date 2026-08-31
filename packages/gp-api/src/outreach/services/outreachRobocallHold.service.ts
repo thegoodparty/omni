@@ -489,6 +489,89 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     }
   }
 
+  // Terminal for a robocall the send chain could NOT deliver: a permanent
+  // CallHub staging/send failure. No calls were placed, so VOID the hold
+  // (best-effort + recorded for the reconcile sweep — no charge), CAS the
+  // satellite to send_failed, flip the spine to `failed` ("Couldn't send" in the
+  // history), and email the candidate once. Reached ONLY from pre-delivery
+  // states (authorized/staging/dialing-before-START); a DELIVERED run that may
+  // owe money goes to uncollectable, never here — never void a hold for calls
+  // that connected. The claim CAS makes it single-owner and idempotent.
+  async failSend(
+    outreachId: number,
+    reason: 'staging' | 'send',
+  ): Promise<void> {
+    const draft = await this.findFirst({
+      where: { outreachId },
+      include: { outreach: { include: { campaign: true } } },
+    })
+    if (!draft) return
+
+    const claim = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: {
+          in: [
+            RobocallSettleState.authorized,
+            RobocallSettleState.staging,
+            RobocallSettleState.dialing,
+          ],
+        },
+      },
+      data: { settleState: RobocallSettleState.send_failed },
+    })
+    // count 0: another runner already terminated it, or it advanced past the
+    // pre-delivery states — do not re-void or re-email.
+    if (claim.count === 0) return
+
+    // Surfaced for the ops-alert follow-up (this line is the alert hook).
+    this.logger.error(
+      { outreachId, reason },
+      'CRITICAL robocall send_failed: permanent CallHub failure; hold voided',
+    )
+
+    // No calls were placed, so release the hold. Best-effort + recorded so the
+    // reconcile sweep confirms and re-voids it if this void did not land.
+    if (draft.authorizationIntentId) {
+      await this.stripe.voidHold(draft.authorizationIntentId)
+      await this.recordOrphanHold(
+        draft.authorizationIntentId,
+        outreachId,
+        'send_failed',
+      )
+    }
+
+    await this.markSpineFailed(outreachId)
+    await this.emitMilestone(
+      draft.outreach.campaign.userId,
+      outreachId,
+      EVENTS.Robocall.SendFailed,
+      'send_failed',
+    )
+  }
+
+  // Flip the spine to `failed` so the history shows "Couldn't send". Guarded on
+  // the pre-terminal visible states (never overrides canceled/completed).
+  // Best-effort, like markSpineScheduled.
+  private async markSpineFailed(outreachId: number) {
+    try {
+      await this.client.outreach.updateMany({
+        where: {
+          id: outreachId,
+          status: {
+            in: [OutreachStatus.pending, OutreachStatus.pending_payment],
+          },
+        },
+        data: { status: OutreachStatus.failed },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to flip spine to failed',
+      )
+    }
+  }
+
   // The shared hold_pending → hold_failed terminal transition + HoldFailed
   // emit, used by BOTH the decline path and the card-failure escalation (a
   // permanent card problem — deferred sweep or a hold_failed retry). Every caller
@@ -591,7 +674,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     userId: number,
     outreachId: number,
     event: string,
-    suffix: 'hold_placed' | 'hold_failed',
+    suffix: 'hold_placed' | 'hold_failed' | 'send_failed',
     attempt?: number,
   ): Promise<void> {
     try {

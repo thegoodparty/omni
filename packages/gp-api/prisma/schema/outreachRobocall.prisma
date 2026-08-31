@@ -47,6 +47,13 @@ enum RobocallSettleState {
   // (chargeIntentId set, so it is not re-attempted). Appended for the same
   // append-only ADD VALUE reason.
   charging
+  // Terminal for a robocall the send chain could NOT deliver: a PERMANENT
+  // CallHub staging/send/completion failure (validation/4xx or a schema
+  // mismatch), or exhausted retries. The authorization hold is voided (no calls
+  // were placed, so no charge), the spine flips to `failed`, and the candidate
+  // is emailed (SendFailed). Distinct from `uncollectable`, which is a DELIVERED
+  // run we could not capture. Appended for the same append-only ADD VALUE reason.
+  send_failed
 }
 
 model OutreachRobocall {

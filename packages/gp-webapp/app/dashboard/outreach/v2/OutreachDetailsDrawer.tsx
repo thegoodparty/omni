@@ -169,6 +169,9 @@ export const OutreachDetailsDrawer = ({
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
   const isDoorKnocking = row?.outreachType === OUTREACH_TYPES.nativeDoorKnocking
+  // A robocall the send chain could not deliver — the spine reads `failed`.
+  const isFailedRobocall =
+    row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'failed'
   const detailQuery = useOutreachDetail(row?.id ?? null, row !== null)
   const social = detailQuery.data?.social
   const phoneBanking = detailQuery.data?.phoneBanking
@@ -610,6 +613,12 @@ export const OutreachDetailsDrawer = ({
                   <FilterGroup title="Filters" values={audienceLabels} />
                 )}
               </DetailsSection>
+            )}
+
+            {isFailedRobocall && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground">
+                This send couldn&apos;t be delivered. You weren&apos;t charged.
+              </div>
             )}
 
             <DetailsSection title="Overview">

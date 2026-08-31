@@ -9,6 +9,8 @@ import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocal
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
+import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -159,6 +161,37 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.dialed)
     expect(satellite.dialedAt).not.toBeNull()
+  })
+
+  it('surfaces a PERMANENT launch rejection as send_failed once CallHub confirms PAUSED', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    // Confirmed never STARTED (still PAUSED) + permanent → fail the send.
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
+  })
+
+  it('does NOT fail a permanently-errored launch that CallHub reports STARTED (it dialed)', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+
+    await send.startCampaign(outreachId)
+
+    // The status read shows it actually dialed — never void a delivered run.
+    expect(failSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
   })
 
   it('NEVER dials twice: a lost launch that CallHub reports STARTED commits dialed, no re-launch', async () => {

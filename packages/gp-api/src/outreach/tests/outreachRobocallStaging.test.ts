@@ -10,6 +10,8 @@ import { RobocallPhonebookService } from '@/outreach/services/robocallPhonebook.
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
@@ -234,6 +236,40 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.callhubCampaignPkStr).toBeNull()
+  })
+
+  it('surfaces a PERMANENT CallHub failure as send_failed, not a retry', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    createVbSpy.mockRejectedValueOnce(
+      new CallhubPermanentError('bad caller id'),
+    )
+
+    await staging.stageCampaign(outreachId)
+
+    // A 4xx will never succeed on retry → fail the send (void the hold, email),
+    // never revert to authorized to retry forever.
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'staging')
+    expect((await readSatellite(outreachId)).settleState).not.toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('reverts to authorized on a TRANSIENT CallHub failure (retries, not surfaced)', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    createVbSpy.mockRejectedValueOnce(new BadGatewayException('callhub 502'))
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toThrow()
+
+    expect(failSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
   })
 
   it('refuses to dial when the audio ETag no longer matches the approved bytes', async () => {

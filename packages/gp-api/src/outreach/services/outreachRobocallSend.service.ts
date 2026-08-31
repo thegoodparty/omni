@@ -7,10 +7,12 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
+import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
 // nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
@@ -55,6 +57,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     private readonly campaignReport: CallhubCampaignReportService,
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
+    private readonly hold: OutreachRobocallHoldService,
   ) {
     super()
   }
@@ -220,9 +223,19 @@ export class OutreachRobocallSendService extends createPrismaBase(
       // stale-dialing sweep. Log the launch error for the record.
       this.logger.error(
         { err, outreachId, dialingCampaignPkStr: pkStr },
-        'robocall launch response lost; reconciling against CallHub status',
+        'robocall launch failed; reconciling against CallHub status',
       )
-      await this.reconcileDialing(outreachId, pkStr)
+      // A PERMANENT launch rejection (a 4xx) will never START, so once the
+      // status read confirms the campaign is still PAUSED (never dialed) we fail
+      // the send instead of reverting to retry forever. A lost/transient response
+      // reconciles as before. Either way we NEVER blind-retry (a second START
+      // could re-dial) and NEVER fail a campaign that reads STARTED — reconcile
+      // commits that to dialed.
+      await this.reconcileDialing(
+        outreachId,
+        pkStr,
+        err instanceof CallhubPermanentError,
+      )
       return
     }
 
@@ -274,6 +287,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
   private async reconcileDialing(
     outreachId: number,
     pkStr: string,
+    permanent = false,
   ): Promise<void> {
     const status = await this.readVbStatus(pkStr)
     // PAUSE is the ONLY status that means the START never took effect, so it is
@@ -290,6 +304,13 @@ export class OutreachRobocallSendService extends createPrismaBase(
       return
     }
     if (status === CALLHUB_VB_STATUS.PAUSE) {
+      // Confirmed the START never took effect (no calls dialed). A permanent
+      // launch rejection can't be retried into success, so fail the send (void
+      // the hold, email the candidate); otherwise release the claim to retry.
+      if (permanent) {
+        await this.hold.failSend(outreachId, 'send')
+        return
+      }
       await this.revertClaim(outreachId)
       return
     }

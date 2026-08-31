@@ -8,6 +8,7 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
@@ -193,6 +194,49 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(userId).toBe(service.user.id)
     expect(event).toBe(EVENTS.Robocall.HoldPlaced)
     expect(messageId).toBe(`${outreachId}:hold_placed`)
+  })
+
+  it('failSend voids the hold, sets send_failed + failed spine, emails once', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      authorizationIntentId: 'pi_hold_9',
+    })
+    paymentIntentsCancel.mockResolvedValue({
+      id: 'pi_hold_9',
+      status: 'canceled',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'staging')
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.send_failed)
+    // No calls placed → the hold is voided and recorded for the reconcile sweep.
+    expect(paymentIntentsCancel).toHaveBeenCalled()
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_hold_9' },
+    })
+    expect(orphan?.reason).toBe('send_failed')
+    // The spine flips to failed → "Couldn't send" in history.
+    expect((await readSpine(outreachId)).status).toBe('failed')
+    // The candidate is emailed once (SendFailed), deterministic messageId.
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
+    expect(event).toBe(EVENTS.Robocall.SendFailed)
+    expect(messageId).toBe(`${outreachId}:send_failed`)
+  })
+
+  it('failSend is idempotent: a run already terminal is not re-voided or re-emailed', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.send_failed,
+      authorizationIntentId: 'pi_hold_9',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'send')
+
+    expect(paymentIntentsCancel).not.toHaveBeenCalled()
+    expect(trackSpy).not.toHaveBeenCalled()
   })
 
   it('retries from hold_failed with a new card and authorizes', async () => {

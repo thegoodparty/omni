@@ -12,9 +12,11 @@ import {
   CallhubCampaignService,
   CreateVbCampaignResult,
 } from '@/vendors/callhub/services/callhubCampaign.service'
+import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
+import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 
 // How far ahead of the scheduled send a draft becomes eligible to stage. The
 // rented CallHub caller-ID number gets spam-flagged / auto-un-rented if it sits
@@ -64,6 +66,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     private readonly s3: S3Service,
     private readonly transcode: AudioTranscodeService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
+    private readonly hold: OutreachRobocallHoldService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -250,6 +253,15 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         callerId: draft.callbackNumber,
       })
     } catch (err) {
+      // A PERMANENT CallHub failure (a 4xx validation — e.g. a rejected caller
+      // ID or media) will never succeed on retry, so surface it: fail the send
+      // (void the hold, email the candidate) instead of reverting to authorized
+      // to retry forever. The claim is `staging` here, which failSend accepts.
+      // Transient errors revert + retry as before.
+      if (err instanceof CallhubPermanentError) {
+        await this.hold.failSend(outreachId, 'staging')
+        return
+      }
       await this.revertClaim(outreachId)
       throw err
     }

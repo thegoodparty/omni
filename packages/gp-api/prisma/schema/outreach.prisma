@@ -23,6 +23,10 @@ enum OutreachStatus {
   completed
   pending_payment
   canceled
+  // A robocall whose send chain could not deliver (a permanent CallHub
+  // failure). The history list shows "Couldn't send"; the satellite
+  // OutreachRobocall.settleState (send_failed) is what drives it.
+  failed
 }
 
 model Outreach {
