@@ -18,7 +18,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { PeopleListResponse } from '@/contacts/schemas/person.schema'
-import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import {
+  calcRobocallTotalInCents,
+  ROBOCALL_NUMBER_FEE_CENTS,
+} from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -130,7 +133,8 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(res.data).toEqual({
       outreachId: expect.any(Number),
       billableCount: 500,
-      amountInCents: calcRobocallAmountInCents(500),
+      amountInCents: calcRobocallTotalInCents(500),
+      numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
     })
 
     // The count is derived with the landline dimension forced on.
@@ -151,7 +155,7 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
       audioKey: `robocall/${CAMPAIGN_ID}/clip.webm`,
       callbackNumber: '+15125550123',
       billableCount: 500,
-      amountInCents: calcRobocallAmountInCents(500),
+      amountInCents: calcRobocallTotalInCents(500),
       settleState: RobocallSettleState.pending_payment,
     })
     // Payment / settlement fields stay unset until the later slices.

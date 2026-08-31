@@ -10,6 +10,7 @@ import {
 } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
 
@@ -63,7 +64,7 @@ beforeEach(async () => {
 const createDraft = async ({
   settleState = RobocallSettleState.uncollectable,
   completedCallCount = 100 as number | null,
-  authorizedAmountInCents = 450 as number | null,
+  authorizedAmountInCents = calcRobocallTotalInCents(100) as number | null,
   paymentMethodId = 'pm_1' as string | null,
   stripeCustomerId = 'cus_1' as string | null,
   chargeIntentId = null as string | null,
@@ -91,7 +92,7 @@ const createDraft = async ({
       audioKey: `robocall/998/${randomUUID()}.mp3`,
       callbackNumber: '+15125550123',
       billableCount: 100,
-      amountInCents: 450,
+      amountInCents: calcRobocallTotalInCents(100),
       settleState,
       completedCallCount,
       authorizedAmountInCents,
@@ -121,7 +122,7 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     expect(chargeSpy).toHaveBeenCalledTimes(1)
     expect(chargeSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        amountInCents: 450,
+        amountInCents: calcRobocallTotalInCents(100),
         robocallId: outreachId,
         paymentMethodId: 'pm_1',
         customerId: 'cus_1',
@@ -130,7 +131,7 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.charged)
     expect(satellite.chargeIntentId).toBe('pi_charge_1')
-    expect(satellite.capturedAmountInCents).toBe(450)
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
     expect(trackSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -142,7 +143,7 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
 
     await freshCharge.chargeUncollectable(outreachId)
 
-    // 200 calls would be 900 cents, clamped to the 450 authorized.
+    // 200 calls (900c) + 200c number fee = 1100c, clamped to the 450 authorized.
     expect(chargeSpy).toHaveBeenCalledWith(
       expect.objectContaining({ amountInCents: 450 }),
     )
@@ -157,11 +158,13 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
 
     await freshCharge.chargeUncollectable(outreachId)
 
-    // 50 calls = 225 cents, under the 450 authorized.
+    // 50 calls (225c) + 200c number fee = 425c, under the 450 authorized.
     expect(chargeSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ amountInCents: 225 }),
+      expect.objectContaining({ amountInCents: calcRobocallTotalInCents(50) }),
     )
-    expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(225)
+    expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(
+      calcRobocallTotalInCents(50),
+    )
   })
 
   it('parks uncollectable with the declined PI id on a card decline (no receipt)', async () => {
@@ -206,23 +209,28 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     )
   })
 
-  it('voids a zero-billable uncollectable run instead of re-sweeping it forever', async () => {
-    const outreachId = await createDraft({ completedCallCount: 0 })
+  it('charges a tiny run because the number fee clears the Stripe minimum', async () => {
+    // 10 calls = 45c alone would be under Stripe's $0.50 minimum, but the flat
+    // number fee lifts every run above it, so it charges rather than being
+    // written off. (The sub-minimum write-off is now defensive/unreachable — a
+    // zero-connected run is voided at capture and never reaches fresh charge.)
+    const outreachId = await createDraft({ completedCallCount: 10 })
 
     await freshCharge.chargeUncollectable(outreachId)
 
-    expect(chargeSpy).not.toHaveBeenCalled()
-    // Sent to the zero terminal so it leaves the candidate set (no CRITICAL storm).
+    expect(chargeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ amountInCents: calcRobocallTotalInCents(10) }),
+    )
     expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.voided,
+      RobocallSettleState.charged,
     )
   })
 
-  it('voids (writes off) a run billing below the Stripe minimum charge', async () => {
-    // 10 calls = 45 cents, under Stripe's $0.50 minimum — a fresh PaymentIntent
-    // below it is rejected, and rounding up would overcharge, so it is written
-    // off rather than failing-and-retrying forever.
-    const outreachId = await createDraft({ completedCallCount: 10 })
+  it('DEFENSE-IN-DEPTH: voids a zero-connected run without an off-session charge', async () => {
+    // Unreachable today (capture voids every count-0 row before fresh charge is
+    // ever reached), but guarded locally: a zero-connected run owes nothing, so
+    // this must never fire the off-session charge.
+    const outreachId = await createDraft({ completedCallCount: 0 })
 
     await freshCharge.chargeUncollectable(outreachId)
 
@@ -239,7 +247,7 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     // a second charge.
     findChargeSpy.mockResolvedValue({
       paymentIntentId: 'pi_prior',
-      amountReceived: 450,
+      amountReceived: calcRobocallTotalInCents(100),
     })
 
     await freshCharge.chargeUncollectable(outreachId)
@@ -384,7 +392,7 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     // past Stripe's 24h idempotency-key window.
     findChargeSpy.mockResolvedValue({
       paymentIntentId: 'pi_landed',
-      amountReceived: 450,
+      amountReceived: calcRobocallTotalInCents(100),
     })
 
     await freshCharge.sweepFreshCharges()
@@ -393,7 +401,7 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.charged)
     expect(satellite.chargeIntentId).toBe('pi_landed')
-    expect(satellite.capturedAmountInCents).toBe(450)
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
   })
 
   it('recovers a stranded charging row whose charge declined (parks uncollectable)', async () => {

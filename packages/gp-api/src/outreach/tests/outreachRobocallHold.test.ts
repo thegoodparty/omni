@@ -9,6 +9,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
 
@@ -158,12 +159,12 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(res.data).toEqual({
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
-      authorizedAmountInCents: 450,
+      authorizedAmountInCents: calcRobocallTotalInCents(100),
     })
 
     const createArgs = paymentIntentsCreate.mock.calls[0]
     expect(createArgs?.[0]).toMatchObject({
-      amount: 450,
+      amount: calcRobocallTotalInCents(100),
       currency: 'usd',
       customer: 'cus_test',
       payment_method: 'pm_1',
@@ -178,7 +179,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.authorizationIntentId).toBe('pi_hold_1')
-    expect(satellite.authorizedAmountInCents).toBe(450)
+    expect(satellite.authorizedAmountInCents).toBe(
+      calcRobocallTotalInCents(100),
+    )
     expect(satellite.paymentMethodId).toBe('pm_1')
     expect(satellite.stripeCustomerId).toBe('cus_test')
     expect(satellite.payAttempt).toBe(1)
