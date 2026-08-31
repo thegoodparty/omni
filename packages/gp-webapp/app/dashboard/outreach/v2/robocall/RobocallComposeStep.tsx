@@ -344,7 +344,7 @@ interface RecordBarProps {
 // so the wait reads as progress rather than a single stalled spinner: the
 // transcription first, then the compliance review after a beat. Time-based, not
 // driven by real phase events — remounts (and so resets) each time a check runs.
-const TRANSCRIBING_LABEL_MS = 8000
+const TRANSCRIBING_LABEL_MS = 5000
 
 const CheckingLabel = () => {
   const [phase, setPhase] = useState<'transcribing' | 'compliance'>(
