@@ -1297,6 +1297,28 @@ describe('WalkView auto-advance', () => {
     vi.mocked(trackEvent).mockClear()
   })
 
+  // An apartment complex arrives as one stop with every unit's resident on it,
+  // and each dot is `shrink-0`, so an uncapped row pushed through the card and
+  // put a horizontal scrollbar on the whole page.
+  it('caps the summary dots at a big stop and still names the real count', async () => {
+    const residents = Array.from({ length: 40 }, (_, i) =>
+      target(100 + i, `Resident ${i}`),
+    )
+    mockRoute([stop(11, 1, '375 Adriatic Pkwy Apt 1102', residents)])
+
+    render(<WalkHarness turfId={3} />)
+    await waitFor(() =>
+      expect(
+        screen.getByText('375 Adriatic Pkwy Apt 1102'),
+      ).toBeInTheDocument(),
+    )
+
+    expect(stopRow(0).querySelectorAll('span.h-1\\.5')).toHaveLength(10)
+    // The dots are decorative once a stop expands; this is the figure that is
+    // not allowed to be a sample of anything.
+    expect(stopRow(0)).toHaveTextContent('40 people')
+  })
+
   it('opens the next unlogged door without a trip back to the list', async () => {
     mockRoute([
       stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
