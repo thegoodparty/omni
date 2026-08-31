@@ -1,10 +1,11 @@
-import { createClerkClient, ClerkClient } from '@clerk/backend'
+import { createClerkClient } from '@clerk/backend'
+import type { ClerkClient } from '@clerk/backend'
 
 export const CLERK_CLIENT_PROVIDER_TOKEN = 'ELECTION_API_CLERK_CLIENT'
 
 // Keys are optional at construction so local dev / tests that never exercise
-// auth can still boot. They are required at request time only when
-// ELECTION_API_AUTH_ENFORCED is on (see M2MAuthGuard).
+// auth can still boot. They are required at request time by M2MAuthGuard on
+// every non-@PublicAccess route.
 export const ClerkClientProvider = {
   provide: CLERK_CLIENT_PROVIDER_TOKEN,
   useFactory: (): ClerkClient =>

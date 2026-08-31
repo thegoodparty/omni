@@ -166,8 +166,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
     }
     const pkStr = draft.callhubCampaignPkStr
     // The candidate to email if the hold turns out dead — the sweep has no user
-    // in scope, so it comes off the draft's campaign.
-    const userId = draft.outreach.campaign.userId
+    // in scope, so it comes off the draft's campaign. A robocall row is always
+    // campaign-scoped (only social outreach can be org-only, outreach.prisma).
+    const userId = draft.outreach.campaign!.userId
 
     // MONEY RE-CHECK (never dial unpaid — THE critical gate). Re-read the hold
     // from Stripe AFTER winning the claim and BEFORE the launch; the persisted

@@ -8,8 +8,9 @@
  *     hold/settlement fields set — those are later slices.
  *   - The billable count comes from the audience (voterFileFilterId) with the
  *     landline dimension forced — never a client-supplied count.
- *   - A zero-landline audience and a past scheduledAt are both rejected before
- *     any row is written.
+ *   - A zero-landline audience, a past scheduledAt, and a scheduledAt more
+ *     than ROBOCALL_MAX_SCHEDULE_DAYS out are all rejected before any row is
+ *     written.
  */
 
 import { HttpStatus } from '@nestjs/common'
@@ -278,6 +279,36 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
       where: { campaignId: CAMPAIGN_ID },
     })
     expect(rows).toBe(0)
+  })
+
+  it('rejects a scheduledAt more than 85 days out, writing no row', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      scheduledAt: new Date(Date.now() + 86 * 86_400_000)
+        .toISOString()
+        .replace('Z', '+00:00'),
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const rows = await service.prisma.outreach.count({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toBe(0)
+  })
+
+  it('accepts a scheduledAt within 85 days', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      scheduledAt: new Date(Date.now() + 80 * 86_400_000)
+        .toISOString()
+        .replace('Z', '+00:00'),
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
   })
 
   // A double-click / retry must not mint a second billable anchor the

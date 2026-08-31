@@ -199,7 +199,9 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     // authorized so the draft is never stranded — a PAUSED CallHub campaign
     // charges nothing, so reverting after a placed campaign is money-safe. No
     // Stripe is touched in this slice.
-    const campaign = outreach.campaign
+    // A robocall row is always campaign-scoped (only social outreach can be
+    // org-only, outreach.prisma).
+    const campaign = outreach.campaign!
     const campaignName = `Robocall ${campaign.slug} #${outreachId}`
     let created: CreateVbCampaignResult
     try {

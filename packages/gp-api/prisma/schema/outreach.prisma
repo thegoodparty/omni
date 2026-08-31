@@ -33,8 +33,11 @@ model Outreach {
   id                                Int                                @id @default(autoincrement())
   createdAt                         DateTime                           @default(now())
   updatedAt                         DateTime                           @updatedAt
-  campaign                          Campaign                           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  campaignId                        Int
+  // Nullable so a Serve elected-office org (no campaign row) can persist an
+  // outreach row scoped by organizationSlug alone. See organizationSlug below
+  // for the resulting invariant.
+  campaign                          Campaign?                          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId                        Int?
   outreachType                      OutreachType                       @map("outreach_type")
   projectId                         String?                            @map("project_id")
   name                              String?
@@ -76,9 +79,15 @@ model Outreach {
   // automatic refund; free-texts redemptions never set it.
   stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
-  // no backfill.
+  // no backfill. Invariant (DB-enforced by a CHECK, see migration
+  // add_outreach_org_scope): every row needs exactly one scoping path —
+  // campaignId (Win, campaign-scoped) or organizationSlug (Serve, org-only,
+  // campaignId null). Cascade (not SetNull) so an org delete can never leave
+  // a Serve row both-null: a Win row's organizationSlug always mirrors its
+  // campaign's org, and that campaign's own Cascade relation already removes
+  // the row when the org goes, so this only ever fires for real on Serve rows.
   organizationSlug                  String?                            @map("organization_slug")
-  organization                      Organization?                      @relation(fields: [organizationSlug], references: [slug], onDelete: SetNull)
+  organization                      Organization?                      @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   // Set when the owning organization archives the row from the history
   // drawer; cleared on restore. Never set at creation.
   archivedAt                        DateTime?                          @map("archived_at")
@@ -91,5 +100,6 @@ model Outreach {
   voterFileFilterActivityConditions VoterFileFilterActivityCondition[]
 
   @@index([campaignId])
+  @@index([organizationSlug])
   @@map("outreach")
 }

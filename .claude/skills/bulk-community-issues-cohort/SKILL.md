@@ -9,15 +9,15 @@ description: Use when manually dispatching a cohort of community-issue agent job
 >
 > 1. **PR #246** (the Community Issue feature, `community-issues-pr2` branch) is **merged and deployed to prod**.
 > 2. The `top_community_issues` and `trending_issues` **runbooks are published to S3** in the PMF engine's runbook bucket.
-> 3. The `POST /v1/community-issues/dispatch` endpoint is **live in prod with the serve-ICP gate present** — confirmed by the Prerequisites checks below (bad-token probe returns 401/403 not 404, and the gate commit is on main and promoted to prod).
+> 3. The `POST /v1/community-issues/dispatch` endpoint is **live in prod** — confirmed by the Prerequisites check below (bad-token probe returns 401/403, not 404).
 >
 > Note: this dispatch path is **not** gated by a feature flag or by `MEETINGS_AUTOMATION_ENABLED` — it is an `AdminOrM2MGuard` (M2M) endpoint. `MEETINGS_AUTOMATION_ENABLED` gates only the daily crons / signup hook, and `serve-community-issues-v1` gates only the webapp nav item — so there is no flag to "enable" for a manual cohort.
 >
 > If any of these are false, abort and tell the human which precondition is not yet met. Do not attempt to dispatch.
 
 You are running a one-shot bulk dispatch of community-issue agent jobs against
-**prod**, using the serve-ICP gate (enforced server-side in `dispatchForCohort`),
-then monitoring to completion and producing an outcome/cost/runtime analysis.
+**prod** via `dispatchForCohort`, then monitoring to completion and producing an
+outcome/cost/runtime analysis.
 
 Each org in the cohort receives two dispatches: one `top_community_issues` run and
 one `trending_issues` run. Both types are dispatched in a single HTTP call by
@@ -35,10 +35,7 @@ an explicit go before the real dispatch.
 ## Prerequisites
 
 - AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
-- PR #246 merged and deployed to prod, **with the serve-ICP gate enforced**. Verify all three:
-  1. **Route deployed** (no creds needed): `curl -s -o /dev/null -w "%{http_code}" -X POST https://gp-api.goodparty.org/v1/community-issues/dispatch -H "authorization: Bearer __bad__"` returns 401/403 (route exists), not 404 (not deployed).
-  2. **ICP gate is on main**: `cd packages/gp-api && git log main --oneline -S isServeIcp -- src/communityIssues/services/communityIssueDispatch.service.ts` must show a commit. Abort if empty — a build before the gate would dispatch (and charge for) non-ICP orgs.
-  3. **Prod is deployed at or past that commit** — confirm the deployed image SHA (ECS task definition tag / deploy log) is at or after the gate commit. Abort if behind.
+- PR #246 merged and deployed to prod. Verify the route is live (no creds needed): `curl -s -o /dev/null -w "%{http_code}" -X POST https://gp-api.goodparty.org/v1/community-issues/dispatch -H "authorization: Bearer __bad__"` returns 401/403 (route exists), not 404 (not deployed).
 - This repo's `packages/gp-api` on `main` (the analysis tsx scripts will run here).
 - The daily cron dispatches (`dispatchWeeklyTrendingIssues`, `dispatchMonthlyTopIssues`) are guarded by `MEETINGS_AUTOMATION_ENABLED=true`. Confirm no concurrent cron is running; a time window cleanly identifies your cohort.
 
@@ -89,15 +86,13 @@ curl -s -w "\nHTTP %{http_code}\n" -X POST "$PROD_API_URL/v1/community-issues/di
 
 ## Step 2: assemble the cohort org list
 
-The dispatch endpoint enforces the serve-ICP gate **server-side** (fail-closed via
-`resolveServeContext`), so any non-ICP slugs you pass are harmlessly skipped and
-counted in `skipped`. Note: `isServeIcp` is **not** a column on the gp-api
-`Organization` model — it is derived from the org's election `position`
-(`resolveServeContext` → `position.isServeIcp`), so you cannot filter on it in a
-single Prisma query here. Source the serve population (orgs that have an elected
-office) and let the server gate do the ICP filtering. (To pre-filter to ICP
-client-side, source the ICP set from its system of record — the Databricks
-`int__icp_offices` table — not a Prisma field.)
+The dispatch endpoint applies no office-eligibility filter — every slug you pass
+that resolves a serve context and has no in-flight run will dispatch and bill.
+**The cohort list you assemble is the only scoping.** Source the serve population
+(orgs that have an elected office) and narrow it deliberately before dispatching.
+If you want an ICP-only cohort, source the ICP set from its system of record — the
+Databricks `int__icp_offices` table — since `isServeIcp` is not a column on the
+gp-api `Organization` model and cannot be filtered in a Prisma query here.
 
 Query the elected-office org slugs:
 
@@ -116,8 +111,8 @@ const p = new PrismaClient({ datasourceUrl: process.env.PROD_DATABASE_URL })
   await p.$disconnect()
 })()
 '
-# Save the output as ORG_SLUGS (a JSON array of strings). The server gate skips
-# any non-serve-ICP slugs at dispatch (they show up in `skipped`).
+# Save the output as ORG_SLUGS (a JSON array of strings). Every slug that
+# resolves a serve context and has no in-flight run will dispatch and bill.
 ```
 
 Review the list with the human. Decide on a target cohort size. Smaller test runs
@@ -189,9 +184,9 @@ DISPATCH_END=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "Dispatch end: $DISPATCH_END"
 ```
 
-Save `dispatched` and `skipped` counts. The server gate enforces serve-ICP and
-skips orgs with in-flight runs; `dispatched` is per-type dispatch count
-(max cohort_size \* 2).
+Save `dispatched` and `skipped` counts. The server skips orgs with an
+unresolvable serve context or an in-flight run; `dispatched` is per-type
+dispatch count (max cohort_size \* 2).
 
 Note: `TOKEN` has a 10-minute TTL. If re-minting is needed (e.g. for the analysis
 step), repeat the `TOKEN=$(npx tsx ...)` mint from Step 1.

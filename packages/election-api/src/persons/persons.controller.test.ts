@@ -6,9 +6,8 @@ import { PersonsService } from './persons.service'
 import { PersonFilterDto } from './persons.schema'
 
 // The gpApiUserId filter exposes an internal gp-api user↔person linkage, so the
-// controller must keep it service-to-service: allowed only when M2MAuthGuard
-// has tagged the request with a verified `m2mToken`, independent of the global
-// ELECTION_API_AUTH_ENFORCED rollout flag.
+// controller keeps it service-to-service as defense-in-depth: allowed only when
+// M2MAuthGuard has tagged the request with a verified `m2mToken`.
 const makeController = () => {
   const getPersons = vi.fn().mockResolvedValue([{ id: 'p1' }])
   const controller = new PersonsController({

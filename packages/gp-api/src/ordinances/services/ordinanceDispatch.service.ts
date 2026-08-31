@@ -75,7 +75,6 @@ type ResolvedDispatchContext = {
   clerkUserId: string | undefined
   state: string
   positionName: string
-  isServeIcp?: boolean | null
 }
 
 type DispatchableOrg = {
@@ -100,9 +99,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
    * Called when a new elected office is created. One-time semantic: any live
    * or COMPLETED prior run blocks re-dispatch — the code corpus for a place
    * does not change per signup, so a FAILED-only history is the only state
-   * that warrants another attempt. Unlike the other signup hooks this gates
-   * on serve-ICP, fail-closed: sourcing a municipal code only pays off for
-   * orgs the serve product targets.
+   * that warrants another attempt.
    */
   // Final pre-dispatch re-check: the eligibility checks run before the slow
   // serve-context resolve, so a concurrent path (signup hook vs cron tick)
@@ -180,10 +177,8 @@ export class OrdinanceDispatchService extends createPrismaBase(
    * record has gone stale (60 days), re-checks low-confidence not-found
    * records on a 14-day leash, and backfills office orgs that never got a
    * run. Org selection is broad (any org with an elected office); the
-   * per-org serve-ICP gate does the authoritative filtering, since ICP
-   * truth lives on the election-api position and is not queryable in bulk
-   * from this DB. 10:00 UTC — offset from the sibling crons at 7/8/9 to
-   * spread SQS load.
+   * per-org staleness and in-flight checks do the filtering. 10:00 UTC —
+   * offset from the sibling crons at 7/8/9 to spread SQS load.
    */
   @Cron('0 10 * * *')
   async dispatchDailyRefresh(): Promise<void> {
@@ -362,14 +357,6 @@ export class OrdinanceDispatchService extends createPrismaBase(
     const ctx = await this.resolveContext(organizationSlug)
     if (!ctx) return null
 
-    if (ctx.isServeIcp !== true) {
-      this.logger.info(
-        { organizationSlug, isServeIcp: ctx.isServeIcp ?? null },
-        'ordinance_dispatch_skipped: org not serve-ICP',
-      )
-      return null
-    }
-
     const state = ctx.state.trim().toUpperCase()
     if (!STATE_CODE.test(state)) {
       this.logger.warn(
@@ -423,7 +410,6 @@ export class OrdinanceDispatchService extends createPrismaBase(
       clerkUserId: eo.user?.clerkId ?? undefined,
       state: serveCtx.state,
       positionName: serveCtx.positionName,
-      isServeIcp: serveCtx.isServeIcp,
     }
   }
 }

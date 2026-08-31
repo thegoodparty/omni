@@ -4,6 +4,11 @@
 // the flow at production volume.
 export const ROBOCALL_PER_RUN_CEILING_CENTS = 50000
 
+// How far ahead of now a candidate may schedule a send. Kept in sync with the
+// webapp's RobocallFlow (no shared package reaches both gp-api and gp-webapp
+// for a single constant this small).
+export const ROBOCALL_MAX_SCHEDULE_DAYS = 85
+
 // How many days ahead of the scheduled send a hold is placed. Must be strictly
 // less than Stripe's ~7-day authorization lifetime MINUS the run and the settle
 // margin, so a window-edge hold still clears the capture-window-fit check
