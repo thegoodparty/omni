@@ -260,6 +260,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // recoverer finds updatedAt no longer < cutoff and loses — electing exactly one
   // reconciler), then reconciles it against CallHub's status. Only the winner
   // touches the row, so reconcile's own commit/revert CAS never races a sibling.
+  // Reads the persisted `permanentSendFailure` marker and passes it through: a
+  // row stranded by a permanent launch reject (whose failSend could not commit)
+  // must FAIL the send, never revert-and-relaunch into the same 4xx.
   private async recoverStaleDialing(
     outreachId: number,
     pkStr: string,
@@ -274,7 +277,42 @@ export class OutreachRobocallSendService extends createPrismaBase(
       data: { settleState: RobocallSettleState.dialing },
     })
     if (claim.count === 0) return
-    await this.reconcileDialing(outreachId, pkStr)
+    const row = await this.model.findUnique({
+      where: { outreachId },
+      select: { permanentSendFailure: true },
+    })
+    await this.reconcileDialing(
+      outreachId,
+      pkStr,
+      row?.permanentSendFailure ?? false,
+    )
+  }
+
+  // Persists the permanent-failure marker (best-effort) then fails the send. The
+  // marker is set BEFORE failSend so that if failSend cannot commit its terminal
+  // (a transient DB error inside it), the flag survives on the still-`dialing`
+  // row and the stale sweep re-enters this path (permanent=true) rather than
+  // reverting to `authorized` and relaunching into the same permanent reject. The
+  // marker write is CAS'd on `dialing` and best-effort: if IT fails too, the row
+  // stays `dialing` with the flag unset and the next stale cycle re-derives
+  // permanence from a fresh launch attempt and retries the marker — it converges.
+  private async failPermanentSend(outreachId: number): Promise<void> {
+    try {
+      await this.model.updateMany({
+        where: {
+          outreachId,
+          settleState: RobocallSettleState.dialing,
+        },
+        data: { permanentSendFailure: true },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to persist the permanent send-failure marker; ' +
+          'stale recovery retries it next pass',
+      )
+    }
+    await this.hold.failSend(outreachId, 'send')
   }
 
   // Resolves a `dialing` row against CallHub's actual campaign status — the ONLY
@@ -308,7 +346,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
       // launch rejection can't be retried into success, so fail the send (void
       // the hold, email the candidate); otherwise release the claim to retry.
       if (permanent) {
-        await this.hold.failSend(outreachId, 'send')
+        await this.failPermanentSend(outreachId)
         return
       }
       await this.revertClaim(outreachId)
@@ -316,13 +354,13 @@ export class OutreachRobocallSendService extends createPrismaBase(
     }
     // A permanent launch rejection guarantees the campaign never STARTED (a
     // definitive 4xx leaves it PAUSED), so a failed status read introduces no
-    // uncertainty about whether it dialed — it did not. Fail the send now, else
-    // the row is left `dialing` for the stale sweep, which calls reconcile
-    // WITHOUT the permanent flag: a later PAUSE read would revert to `authorized`
-    // and relaunch into another permanent reject, looping forever without ever
-    // failing the send or emailing the candidate.
+    // uncertainty about whether it dialed — it did not. Fail the send now (via
+    // the marker-persisting path, so a failSend that can't commit still leaves
+    // the stale sweep able to fail it) rather than leaving the row `dialing` for
+    // the sweep to reconcile WITHOUT the permanent flag — a later PAUSE read
+    // would otherwise revert to `authorized` and relaunch into the same reject.
     if (permanent) {
-      await this.hold.failSend(outreachId, 'send')
+      await this.failPermanentSend(outreachId)
       return
     }
     this.logger.error(
