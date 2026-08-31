@@ -182,6 +182,12 @@ const mappedCase = (field: string, mapping: Map<string, string>): string => {
 // reads as a disagreement the dual read cannot explain.
 const AGE_CASE =
   `CASE WHEN ${col('Age_Int')} IS NULL THEN ${quote(UNKNOWN)}` +
+  // Under 18 is Unknown, not 51+. The voter table's floor is 18 today (checked
+  // across all 219M rows), so this arm matches nothing -- but without it a
+  // pre-registrant or a bad age would fall through the ranges below into the
+  // open-ended bucket and inflate 51+ silently, which is the one failure mode
+  // here that a reader of the numbers could not spot.
+  ` WHEN ${col('Age_Int')} < 18 THEN ${quote(UNKNOWN)}` +
   ` WHEN ${col('Age_Int')} BETWEEN 18 AND 25 THEN '18-25'` +
   ` WHEN ${col('Age_Int')} BETWEEN 26 AND 35 THEN '26-35'` +
   ` WHEN ${col('Age_Int')} BETWEEN 36 AND 50 THEN '36-50'` +

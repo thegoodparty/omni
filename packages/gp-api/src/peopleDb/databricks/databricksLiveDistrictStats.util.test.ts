@@ -89,6 +89,15 @@ describe('buildLiveDistrictStatsSql', () => {
     expect(sql).not.toContain("THEN '75k-100k'")
   })
 
+  // An age below the ranges must not fall through into the open-ended top
+  // bucket: 51+ inflation is invisible in the output, unlike an Unknown count.
+  it('buckets an under-18 age as Unknown rather than 51+', () => {
+    const sql = sqlFor()
+
+    expect(sql).toContain("WHEN v.`Age_Int` < 18 THEN 'Unknown'")
+    expect(sql.indexOf('< 18')).toBeLessThan(sql.indexOf("ELSE '51+'"))
+  })
+
   it('covers the income band the mirrored table publishes', () => {
     const sql = sqlFor()
 
