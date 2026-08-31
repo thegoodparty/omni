@@ -396,15 +396,34 @@ export const RobocallPayStep = ({
     return (
       <div className="space-y-6">
         <Card className="gap-2 p-4">
+          {/* Breakdown from server-derived cents only: the calls subtotal is
+              the total minus the number fee (never a client price × count). */}
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Amount to authorize</span>
+            <span className="text-muted-foreground">
+              Calls ({reachCount.toLocaleString()} reachable)
+            </span>
+            <span className="text-foreground">
+              ${formatCents(draft.amountInCents - draft.numberFeeInCents)}
+            </span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Outgoing number</span>
+            <span className="text-foreground">
+              ${formatCents(draft.numberFeeInCents)}
+            </span>
+          </div>
+          <div className="flex justify-between border-t border-border pt-2 text-sm">
+            <span className="font-medium text-foreground">
+              Amount to authorize
+            </span>
             <span className="font-semibold text-foreground">
               ${formatCents(draft.amountInCents)}
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Estimated for {reachCount.toLocaleString()} reachable voters. You
-            are only charged for the calls we complete, never more than this.
+            The outgoing number is a one-time rental to place the calls from.
+            You are only charged for the calls we complete, never more than this
+            total.
           </p>
         </Card>
         <Elements

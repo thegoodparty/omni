@@ -173,10 +173,11 @@ const mockCreateDraft = (
   amountInCents = 360,
   outreachId = 42,
   billableCount = 80,
+  numberFeeInCents = 200,
 ) =>
   api.mock('POST /v1/outreach/robocall', {
     status: 200,
-    data: { outreachId, billableCount, amountInCents },
+    data: { outreachId, billableCount, amountInCents, numberFeeInCents },
   })
 
 const mockSaveCardIntent = () =>
@@ -1284,7 +1285,12 @@ describe('RobocallFlow', () => {
       draftScheduledAt = body.scheduledAt
       return {
         status: 200,
-        data: { outreachId: 42, billableCount: 80, amountInCents: 360 },
+        data: {
+          outreachId: 42,
+          billableCount: 80,
+          amountInCents: 360,
+          numberFeeInCents: 200,
+        },
       }
     })
     mockSaveCardIntent()
@@ -1628,7 +1634,12 @@ describe('RobocallFlow', () => {
         ? { status: 500, data: { message: 'boom' } }
         : {
             status: 200,
-            data: { outreachId: 42, billableCount: 80, amountInCents: 360 },
+            data: {
+              outreachId: 42,
+              billableCount: 80,
+              amountInCents: 360,
+              numberFeeInCents: 200,
+            },
           }
     })
     mockSaveCardIntent()
@@ -1653,7 +1664,12 @@ describe('RobocallFlow', () => {
       createCalls += 1
       return {
         status: 200,
-        data: { outreachId: 42, billableCount: 80, amountInCents: 360 },
+        data: {
+          outreachId: 42,
+          billableCount: 80,
+          amountInCents: 360,
+          numberFeeInCents: 200,
+        },
       }
     })
     api.mock('POST /v1/outreach/robocall/save-card-intent', () => {

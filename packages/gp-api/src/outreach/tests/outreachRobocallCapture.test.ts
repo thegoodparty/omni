@@ -9,6 +9,10 @@ import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobo
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import {
+  calcRobocallTotalInCents,
+  ROBOCALL_NUMBER_FEE_CENTS,
+} from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
 
@@ -74,7 +78,7 @@ beforeEach(async () => {
 const createDraft = async ({
   settleState = RobocallSettleState.settling,
   completedCallCount = 100,
-  authorizedAmountInCents = 450,
+  authorizedAmountInCents = calcRobocallTotalInCents(100),
   authorizationIntentId = 'pi_1' as string | null,
   captureBefore = addDays(new Date(), 3),
 }: {
@@ -100,7 +104,7 @@ const createDraft = async ({
       audioKey: `robocall/998/${randomUUID()}.mp3`,
       callbackNumber: '+15125550123',
       billableCount: 100,
-      amountInCents: 450,
+      amountInCents: calcRobocallTotalInCents(100),
       settleState,
       completedCallCount,
       authorizationIntentId,
@@ -121,16 +125,16 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
 
     await capture.captureDraft(outreachId)
 
-    // 100 calls * 45 tenth-cents = 450 cents, within the 450 hold.
+    // 100 calls (450c) + 200c number fee = 650c, within the 650 hold.
     expect(captureSpy).toHaveBeenCalledTimes(1)
     expect(captureSpy).toHaveBeenCalledWith(
       'pi_1',
-      450,
+      calcRobocallTotalInCents(100),
       `robocall-capture-${outreachId}`,
     )
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.captured)
-    expect(satellite.capturedAmountInCents).toBe(450)
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
 
     // Receipt emitted once with the deterministic messageId for dedup.
     expect(trackSpy).toHaveBeenCalledTimes(1)
@@ -139,51 +143,66 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
   })
 
   it('undercharges when fewer calls completed than the hold estimate', async () => {
-    // Hold was for 100 (450c); only 60 dialed → 270c captured, remainder freed.
+    // Hold was for 100 (650c); only 60 dialed → 270c calls + 200c fee = 470c
+    // captured, remainder freed.
     const outreachId = await createDraft({ completedCallCount: 60 })
 
     await capture.captureDraft(outreachId)
 
-    expect(captureSpy).toHaveBeenCalledWith('pi_1', 270, expect.any(String))
-    expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(270)
+    expect(captureSpy).toHaveBeenCalledWith(
+      'pi_1',
+      calcRobocallTotalInCents(60),
+      expect.any(String),
+    )
+    expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(
+      calcRobocallTotalInCents(60),
+    )
   })
 
   it('INV-1: never captures more than the authorized hold', async () => {
-    // Actual dialed count (100 → 450c) exceeds a hold placed for only 60 (270c):
-    // the capture must clamp to the 270c hold, never overbill.
+    // Actual (100 calls = 450c + 200c fee = 650c) exceeds a hold placed for only
+    // 60 (470c): the capture must clamp to the 470c hold, never overbill.
     const outreachId = await createDraft({
       completedCallCount: 100,
-      authorizedAmountInCents: 270,
+      authorizedAmountInCents: calcRobocallTotalInCents(60),
     })
 
     await capture.captureDraft(outreachId)
 
-    expect(captureSpy).toHaveBeenCalledWith('pi_1', 270, expect.any(String))
-    expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(270)
+    expect(captureSpy).toHaveBeenCalledWith(
+      'pi_1',
+      calcRobocallTotalInCents(60),
+      expect.any(String),
+    )
+    expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(
+      calcRobocallTotalInCents(60),
+    )
   })
 
-  it('voids the hold and charges nothing on a zero-billable run', async () => {
+  it('captures the number fee on a zero-connected run (live hold)', async () => {
+    // The rented number is a sunk cost, so a run that connected zero calls still
+    // captures the flat fee off a live hold — it does NOT void.
     const outreachId = await createDraft({ completedCallCount: 0 })
 
     await capture.captureDraft(outreachId)
 
-    expect(voidSpy).toHaveBeenCalledWith('pi_1')
-    expect(captureSpy).not.toHaveBeenCalled()
-    expect(trackSpy).not.toHaveBeenCalled()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.voided,
+    expect(captureSpy).toHaveBeenCalledWith(
+      'pi_1',
+      ROBOCALL_NUMBER_FEE_CENTS,
+      `robocall-capture-${outreachId}`,
     )
-    // The best-effort void is recorded so the reconcile sweep re-voids it if it
-    // did not land.
-    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
-      where: { paymentIntentId: 'pi_1' },
-    })
-    expect(orphan?.reason).toBe('zero_billable')
+    expect(voidSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.captured)
+    expect(satellite.capturedAmountInCents).toBe(ROBOCALL_NUMBER_FEE_CENTS)
+    expect(trackSpy).toHaveBeenCalledTimes(1)
   })
 
   it('reconciles idempotently when the hold already succeeded (lost commit)', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
-    retrieveSpy.mockResolvedValue(piWith('succeeded', 450))
+    retrieveSpy.mockResolvedValue(
+      piWith('succeeded', calcRobocallTotalInCents(100)),
+    )
 
     await capture.captureDraft(outreachId)
 
@@ -191,7 +210,7 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect(captureSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.captured)
-    expect(satellite.capturedAmountInCents).toBe(450)
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
     expect(trackSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -216,10 +235,11 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     )
   })
 
-  it('voids (not uncollectable) a zero-billable run whose hold is already gone', async () => {
-    // A zero-billable settle that voided the hold then crashed before its voided
-    // commit is recovered here with the hold already canceled. It owes nothing,
-    // so it must go to voided — NOT uncollectable + a false CRITICAL.
+  it('voids (not uncollectable) a zero-connected run whose hold is already gone', async () => {
+    // The $2 number fee is only chased while the hold is LIVE. A run that
+    // connected ZERO calls whose hold is already gone is released to voided
+    // rather than fresh-charged — we do not fire the riskiest money step + a
+    // CRITICAL to collect $2 from a run that delivered nothing.
     const outreachId = await createDraft({ completedCallCount: 0 })
     retrieveSpy.mockResolvedValue(piWith('canceled'))
     const errorSpy = vi.spyOn(
@@ -425,12 +445,12 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
 
     expect(captureSpy).toHaveBeenCalledWith(
       'pi_1',
-      450,
+      calcRobocallTotalInCents(100),
       `robocall-capture-${outreachId}`,
     )
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.captured)
-    expect(satellite.capturedAmountInCents).toBe(450)
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
   })
 
   it('recovers a stranded capturing row whose capture DID land (reconciles, no re-capture)', async () => {
@@ -441,14 +461,16 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     await strand(outreachId, 30)
     // The pre-crash capture succeeded at Stripe; recovery must reconcile off
     // amount_received, NOT capture again.
-    retrieveSpy.mockResolvedValue(piWith('succeeded', 450))
+    retrieveSpy.mockResolvedValue(
+      piWith('succeeded', calcRobocallTotalInCents(100)),
+    )
 
     await capture.sweepCaptures()
 
     expect(captureSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.captured)
-    expect(satellite.capturedAmountInCents).toBe(450)
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
   })
 
   it('does NOT recover a fresh (not-yet-stale) capturing row', async () => {

@@ -3,7 +3,10 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import {
+  calcRobocallAmountInCents,
+  calcRobocallTotalInCents,
+} from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -235,7 +238,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       const captured =
         intent.amount_received ??
         Math.min(
-          calcRobocallAmountInCents(completedCallCount),
+          calcRobocallTotalInCents(completedCallCount),
           authorizedAmountInCents,
         )
       await this.commitCaptured(
@@ -247,14 +250,18 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // HOLD LAPSED: expired / canceled / never capturable. A ZERO-billable run
-    // owes nothing, so a gone hold is the expected, correct outcome (e.g. this is
-    // a stale-`capturing` recovery of a zero-billable settle that voided the hold
-    // then crashed before its `voided` commit) → send it to `voided`, NOT
-    // `uncollectable` + a false CRITICAL. A NON-zero run with a gone hold IS money
-    // owed we could not capture — surface CRITICAL and park uncollectable (never
-    // blind-charge; the fresh-charge recovery handles it). Prevented in practice
-    // by the hold window + this sweep's expiry-priority ordering.
+    // HOLD LAPSED: expired / canceled / never capturable. This is the ONE place
+    // the "always collect the $2 number fee" rule yields. A run that connected
+    // ZERO calls whose hold is gone is released to `voided` rather than chased:
+    // firing the riskiest money step (a fresh off-session charge) plus a CRITICAL
+    // to collect $2 from a run that delivered nothing is not worth it — and the
+    // fee IS still captured for every zero-connected run whose hold is LIVE at
+    // capture (the norm; the hold window + this sweep's expiry-priority ordering
+    // make a lapse rare). A NON-zero run with a gone hold IS money owed we could
+    // not capture (calls + fee) — CRITICAL + park uncollectable so the
+    // fresh-charge recovery collects it; never blind-charge here. The guard is
+    // the CALLS-only amount so it identifies a zero-connected run (the total is
+    // never <= 0).
     if (intent.status !== 'requires_capture') {
       if (calcRobocallAmountInCents(completedCallCount) <= 0) {
         this.logger.info(
@@ -279,13 +286,18 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // INV-1: capture the ACTUAL completed-call amount, clamped to never exceed
-    // the authorized hold. Stripe releases any remainder.
-    const actual = calcRobocallAmountInCents(completedCallCount)
+    // INV-1: capture the ACTUAL amount (calls + number fee), clamped to never
+    // exceed the authorized hold. Stripe releases any remainder. The number fee
+    // is a floor, so a dialed run's captureAmount is always >= the fee — a
+    // zero-connected run CAPTURES the fee (the number was really rented) rather
+    // than voiding.
+    const actual = calcRobocallTotalInCents(completedCallCount)
     const captureAmount = Math.min(actual, authorizedAmountInCents)
 
-    // ZERO BILLABLE (all-suppressed run): nothing to charge. Void the hold and
-    // release it — no capture, no receipt.
+    // Defensive only: with the fee floor captureAmount is always > 0 for a
+    // dialed run, so this cannot fire in practice. Guarded anyway because
+    // capturing a non-positive amount would be rejected by Stripe and loop —
+    // void + release instead.
     if (captureAmount <= 0) {
       await this.stripe.voidHold(authorizationIntentId)
       // Record the hold so the reconcile sweep re-voids it if this best-effort
@@ -305,7 +317,8 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       await this.transitionFromCapturing(outreachId, RobocallSettleState.voided)
       this.logger.info(
         { outreachId, completedCallCount },
-        'robocall run billed zero calls; voided the hold',
+        'robocall capture: non-positive amount (unexpected with the number ' +
+          'fee floor); voided the hold defensively',
       )
       return
     }
