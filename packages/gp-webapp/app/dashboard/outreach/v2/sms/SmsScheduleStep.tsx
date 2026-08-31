@@ -57,8 +57,6 @@ const fmtDateTime = (d: Date) =>
   `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
 
 interface SmsScheduleStepProps {
-  // Verification pending: the 14-day minimum applies (see SmsFlow's
-  // earliestSend) and the copy explains why.
   name: string
   onNameChange: (value: string) => void
   date: Date | undefined
@@ -68,8 +66,6 @@ interface SmsScheduleStepProps {
   customTime: string
   onCustomTimeChange: (value: string) => void
   earliestSend: number
-  // The calendar's hard floor (48h) — looser than earliestSend while
-  // verification pends, so compliance-window dates stay selectable.
   calendarFloor: number
   violates48h: boolean
   outsideWindow: boolean

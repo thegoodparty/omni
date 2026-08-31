@@ -289,7 +289,10 @@ import { dirname, join, relative } from 'node:path'
 // state), so it can't render on the server; matches its sibling robocall steps.
 // 2026-08-27: merge reconciliation — 611 (this branch's SMS surfaces) plus
 // main's RobocallReviewStep (+1) = 612.
-const BASELINE = 612
+// 2026-08-31: 612 -> 613 for outreach/v2/sms/SmsEditFlow.tsx — the
+// edit-before-send sheet (flow state, image object URLs, save mutation);
+// client-only like its sibling SmsFlow.
+const BASELINE = 613
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

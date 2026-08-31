@@ -732,6 +732,63 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       data: { message: 'No receipt' },
     })
 
+  it('offers Edit campaign on a cancelable row and hands the hub the detail', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...smsDetail,
+        script: 'Hello {first_name}, hi.\n\nReply STOP to opt out.',
+        date: new Date('2026-09-06T14:00:00Z'),
+        imageUrl: 'https://assets.example.org/img.png',
+        textCount: 1200,
+      },
+    })
+    const onEdit = vi.fn()
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={
+          {
+            ...scheduledSmsRow,
+            voterFileFilter: { name: 'Likely voters' },
+          } as HistoryRow
+        }
+        onOpenChange={onOpenChange}
+        onEdit={onEdit}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Edit campaign' }),
+    )
+
+    expect(onEdit).toHaveBeenCalledWith({
+      id: 41,
+      name: 'Likely voters — SMS',
+      date: new Date('2026-09-06T14:00:00Z'),
+      script: 'Hello {first_name}, hi.\n\nReply STOP to opt out.',
+      imageUrl: 'https://assets.example.org/img.png',
+      contactCount: 1200,
+      audienceName: 'Likely voters',
+    })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('renders no Edit campaign without an onEdit handler or outside the cancel window', async () => {
+    mockNoReceipt()
+    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    render(
+      <OutreachDetailsDrawer row={scheduledSmsRow} onOpenChange={vi.fn()} />,
+    )
+    expect(
+      (await screen.findAllByText('Likely voters — SMS')).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.queryByRole('button', { name: 'Edit campaign' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('confirms, cancels, updates the row, and notes the refund', async () => {
     mockNoReceipt()
     const successSnackbar = vi.fn()

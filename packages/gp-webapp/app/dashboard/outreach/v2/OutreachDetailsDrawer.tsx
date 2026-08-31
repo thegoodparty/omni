@@ -38,6 +38,7 @@ import {
   Loader2Icon,
   PhoneIcon,
   RadioIcon,
+  PencilIcon,
   ReceiptIcon,
   Trash2Icon,
   UserMinusIcon,
@@ -54,6 +55,7 @@ import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCrea
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import type { SmsEditTarget } from './sms/SmsEditFlow'
 import { shortOutreachDate } from './outreachDate.util'
 import { outreachDetailQueryKey, useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
@@ -129,6 +131,9 @@ const lifecycleOf = (
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
+  // Cancel-window SMS rows offer Edit campaign; the hub opens SmsEditFlow
+  // with the drawer's already-fetched detail.
+  onEdit?: (target: SmsEditTarget) => void
 }
 
 interface DetailRow extends HistoryRow {
@@ -140,6 +145,7 @@ interface DetailRow extends HistoryRow {
 export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
+  onEdit,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -346,9 +352,30 @@ export const OutreachDetailsDrawer = ({
   // footer vocabulary (its `automatic` predates cancel/delete existing for a
   // paid send), so these rows render their own footer node in the shared
   // footer's container anatomy.
+  const detail = detailQuery.data
+  const canEditSms =
+    isCancelableSms &&
+    onEdit !== undefined &&
+    detail !== undefined &&
+    detail.script !== null &&
+    detail.date !== null
+  const handleEdit = () => {
+    if (!canEditSms || !detail) return
+    onEdit({
+      id: detail.id,
+      name: detail.name ?? row?.name ?? '',
+      date: new Date(detail.date as Date),
+      script: detail.script as string,
+      imageUrl: detail.imageUrl,
+      contactCount: detail.textCount ?? detail.billableTextCount ?? 0,
+      audienceName: voterFileFilter?.name ?? null,
+    })
+    onOpenChange(false)
+  }
+
   const smsFooter = isCancelableSms ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
-      <div className="mx-auto flex w-full max-w-[608px]">
+      <div className="mx-auto flex w-full max-w-[608px] gap-3">
         <Button
           variant="outline"
           className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
@@ -358,6 +385,12 @@ export const OutreachDetailsDrawer = ({
           <XCircleIcon className="size-4" />
           Cancel campaign
         </Button>
+        {canEditSms && (
+          <Button className="flex-1" onClick={handleEdit}>
+            <PencilIcon className="size-4" />
+            Edit campaign
+          </Button>
+        )}
       </div>
     </div>
   ) : isCanceled ? (

@@ -724,6 +724,119 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
+   * Edit-before-send. Editable = the cancel window (status `pending` with a
+   * vendor job): name, script, and send date — never the audience, which is
+   * frozen and priced at checkout (that path is cancel-and-recreate).
+   *
+   * Vendor first, then DB: a Peerly failure leaves the row untouched and the
+   * edit retryable. The DB write is a CAS on `pending` so the hourly
+   * completion sweep can't be overwritten mid-advance; losing that race after
+   * a vendor success is logged for manual reconciliation (content only —
+   * no money moves here).
+   */
+  async updateScheduledOutreach(
+    campaign: Campaign,
+    outreachId: number,
+    input: { name: string; script: string; date: string },
+    newImage?: P2pOutreachImageInput & { url: string },
+  ): Promise<Outreach> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId: campaign.id },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (
+      outreach.status !== OutreachStatus.pending ||
+      outreach.outreachType !== OutreachType.p2p ||
+      !outreach.projectId ||
+      !outreach.identityId
+    ) {
+      throw new BadRequestException('Only scheduled campaigns can be edited')
+    }
+
+    // Peerly's template update is a destructive overwrite, so it always
+    // needs the image bytes — the replacement's, or the stored one's.
+    let imageInfo: {
+      fileStream: Buffer | Readable
+      fileName: string
+      mimeType: string
+      title?: string
+    }
+    if (newImage) {
+      imageInfo = {
+        fileStream: newImage.stream,
+        fileName: newImage.filename,
+        mimeType: newImage.mimetype,
+        title: outreach.title ?? undefined,
+      }
+    } else {
+      if (!outreach.imageUrl) {
+        throw new BadRequestException(
+          'This campaign has no stored image; attach a new one',
+        )
+      }
+      const imageKey = decodeURIComponent(
+        new URL(outreach.imageUrl).pathname.slice(1),
+      )
+      const image = await this.s3.getFileBytesWithContentType(
+        ASSET_DOMAIN,
+        imageKey,
+      )
+      if (!image) {
+        throw new BadRequestException(
+          'The stored image could not be read; attach a new one',
+        )
+      }
+      imageInfo = {
+        fileStream: image.bytes,
+        fileName: imageKey.split('/').pop() ?? 'outreach-image',
+        mimeType: image.contentType ?? 'image/jpeg',
+        title: outreach.title ?? undefined,
+      }
+    }
+
+    // Same local-day derivation as draft creation: the offset-annotated
+    // client string's first 10 chars are the user's send day for Peerly.
+    const dateOnly = input.date.slice(0, 10)
+    const rescheduleDate =
+      dateOnly !== outreach.scheduledLocalDate ? dateOnly : undefined
+
+    await this.peerlyP2pJobService.updatePeerlyP2pJob({
+      jobId: outreach.projectId,
+      campaignId: campaign.id,
+      imageInfo,
+      scriptText: input.script,
+      identityId: outreach.identityId,
+      name: input.name,
+      rescheduleDate,
+    })
+
+    const updated = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending },
+      data: {
+        name: input.name,
+        script: input.script,
+        message: input.script,
+        date: new Date(input.date),
+        scheduledLocalDate: dateOnly,
+        ...(newImage && { imageUrl: newImage.url }),
+      },
+    })
+    if (updated.count === 0) {
+      this.logger.error(
+        `Outreach ${outreachId} advanced past pending during edit; Peerly ` +
+          'job has the new content but the row kept the old — manual ' +
+          'reconciliation required',
+      )
+      throw new BadRequestException(
+        'This campaign started sending and can no longer be edited',
+      )
+    }
+    return this.model.findFirstOrThrow({ where: { id: outreachId } })
+  }
+
+  /**
    * Live receipt read for a paid campaign. No local payment snapshot
    * exists — the row only stores the checkout session id — so the card and
    * receipt URL come from Stripe on every read. Free-texts rows never
