@@ -179,7 +179,9 @@ export const OutreachDetailSchema = z.object({
   id: z.number(),
   createdAt: zCoerceDate(),
   updatedAt: zCoerceDate(),
-  campaignId: z.number(),
+  // Null for a Serve org-only row (no campaign) — see the Win/Serve
+  // isolation boundary in gp-api's src/outreach/AGENTS.md (ENG-10976).
+  campaignId: z.number().nullable(),
   outreachType: OutreachTypeSchema,
   projectId: z.string().nullable(),
   name: z.string().nullable(),

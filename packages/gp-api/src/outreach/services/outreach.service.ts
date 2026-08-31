@@ -812,10 +812,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  async findByCampaignId(campaignId: number) {
-    const outreachCampaigns = await this.findMany({
+  // Shared list query behind both scoped list readers below — Win rows key
+  // on campaignId, Serve rows on organizationSlug alone (ENG-10976), so
+  // either scope naturally excludes the other surface's rows.
+  private async findByScope(
+    scope: { campaignId: number } | { organizationSlug: string },
+  ) {
+    return this.findMany({
       where: {
-        campaignId,
+        ...scope,
         // Unpaid drafts are an implementation detail of the purchase flow.
         // Prisma's `not` also excludes NULL, so nullable legacy rows need the
         // explicit OR branch.
@@ -828,6 +833,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         voterFileFilter: true,
       },
     })
+  }
+
+  async findByCampaignId(campaignId: number) {
+    const outreachCampaigns = await this.findByScope({ campaignId })
 
     if (!outreachCampaigns.length) {
       throw new NotFoundException(
@@ -836,6 +845,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return outreachCampaigns
+  }
+
+  // Serve list: no "empty is 404" quirk (a fresh org legitimately has no
+  // history yet) and no p2pJob decoration (Serve never runs P2P texting) —
+  // the Win controller keeps that decoration on top of the shared query.
+  async findByOrganizationSlug(organizationSlug: string) {
+    return this.findByScope({ organizationSlug })
   }
 
   async resolveP2pJobGeography(

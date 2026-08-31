@@ -7,13 +7,13 @@ import {
   DoorKnockingOutreachDetail,
   OutreachDetail,
   PhoneBankingOutreachDetail,
+  ServeSocialSaveRequest,
   SocialSaveRequest,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DoorKnockingTurfCountsService } from '@/doorKnocking/services/doorKnockingTurfCounts.service'
 import { activeTurfScope } from '@/doorKnocking/utils/turfScope.util'
 import {
-  Campaign,
   OutreachStatus,
   OutreachType,
   PhoneBankCallOutcome,
@@ -27,16 +27,23 @@ type OutreachWithSocial = Prisma.OutreachGetPayload<{
   include: { social: { include: { assets: true } } }
 }>
 
+// A Win save/detail carries the paying campaign (and its org slug); a Serve
+// save/detail carries only the org slug, with campaignId null — the
+// Win/Serve isolation boundary documented in AGENTS.md (ENG-10976).
+export type OutreachSocialSaveScope =
+  | { campaignId: number; organizationSlug: string | null }
+  | { campaignId: null; organizationSlug: string }
+
+export type OutreachSocialDetailScope =
+  | { campaignId: number }
+  | { organizationSlug: string }
+
 const toOutreachDetail = (
   outreach: OutreachWithSocial,
   phoneBanking?: PhoneBankingOutreachDetail,
   doorKnocking?: DoorKnockingOutreachDetail,
 ): OutreachDetail => ({
   ...outreach,
-  // Both callers (saveSocialOutreach, findDetail) are campaign-scoped —
-  // only a Serve org-only row can have a null campaignId (outreach.prisma),
-  // and neither call path here reaches one yet.
-  campaignId: outreach.campaignId!,
   social: outreach.social
     ? {
         purpose: outreach.social.purpose,
@@ -64,8 +71,8 @@ export class OutreachSocialService extends createPrismaBase(
   }
 
   async saveSocialOutreach(
-    campaign: Campaign,
-    input: SocialSaveRequest,
+    scope: OutreachSocialSaveScope,
+    input: SocialSaveRequest | ServeSocialSaveRequest,
   ): Promise<OutreachDetail> {
     const platforms = input.assets.map((asset) => asset.platform)
     if (new Set(platforms).size !== platforms.length) {
@@ -77,8 +84,8 @@ export class OutreachSocialService extends createPrismaBase(
     const outreach = await this.client.$transaction(async (tx) => {
       const spine = await tx.outreach.create({
         data: {
-          campaignId: campaign.id,
-          organizationSlug: campaign.organizationSlug,
+          campaignId: scope.campaignId,
+          organizationSlug: scope.organizationSlug,
           outreachType: OutreachType.socialMedia,
           status: OutreachStatus.completed,
           name: input.name,
@@ -114,9 +121,12 @@ export class OutreachSocialService extends createPrismaBase(
     return toOutreachDetail(outreach)
   }
 
-  async findDetail(campaignId: number, id: number): Promise<OutreachDetail> {
+  async findDetail(
+    scope: OutreachSocialDetailScope,
+    id: number,
+  ): Promise<OutreachDetail> {
     const outreach = await this.client.outreach.findFirst({
-      where: { id, campaignId },
+      where: { id, ...scope },
       include: { social: { include: { assets: true } } },
     })
     if (!outreach) {
