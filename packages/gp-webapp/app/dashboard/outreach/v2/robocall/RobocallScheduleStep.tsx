@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import {
   Alert,
   AlertDescription,
@@ -24,8 +23,8 @@ import { Intro } from '../social/Intro'
 import { combineScheduledAt, timeZoneShortLabel } from './scheduleTimeZone'
 
 // Hourly 9:00 AM–9:00 PM, matching the design's time dropdown but without its
-// "Send now"/"Custom time…" entries: robocalls carry a hard lead time and a
-// per-contact-timezone delivery window, so only in-window slots are offered.
+// "Send now"/"Custom time…" entries: robocalls carry a per-contact-timezone
+// delivery window, so only in-window slots are offered.
 const TIME_SLOTS = Array.from({ length: 13 }, (_, i) => {
   const hour24 = 9 + i
   const value = `${String(hour24).padStart(2, '0')}:00`
@@ -60,7 +59,6 @@ export const RobocallScheduleStep = ({
   violates,
 }: RobocallScheduleStepProps) => {
   const [dateOpen, setDateOpen] = useState(false)
-  const earliestLabel = formatInTimeZone(earliest, timeZone, 'MMM d, h:mm a')
 
   return (
     <div className="space-y-6">
@@ -120,9 +118,6 @@ export const RobocallScheduleStep = ({
               />
             </PopoverContent>
           </Popover>
-          <p className="text-sm text-muted-foreground">
-            Earliest send: {earliestLabel}.
-          </p>
         </div>
 
         <div className="space-y-2">
