@@ -135,7 +135,10 @@ export class OutreachMaterializationService {
     const phoneList = await this.peerlyPhoneListCapture.findFirst({
       where: {
         peerlyListId: outreach.phoneListId,
-        campaignId: outreach.campaignId,
+        // A captured phone list only exists for text/p2p rows, which are
+        // always campaign-scoped — only social outreach can be org-only
+        // (outreach.prisma).
+        campaignId: outreach.campaignId!,
       },
     })
     if (!phoneList) return null

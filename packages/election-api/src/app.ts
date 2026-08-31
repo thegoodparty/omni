@@ -3,7 +3,6 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify'
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import helmet from '@fastify/helmet'
 import cors from '@fastify/cors'
 import { AppModule } from './app.module'
@@ -54,20 +53,6 @@ export const bootstrap = async ({
   app.useGlobalFilters(
     new AllExceptionsFilter(httpAdapterHost.httpAdapter, logger),
   )
-
-  // Swagger describes the full (now M2M-protected) API surface and is served
-  // outside the Nest guard chain, so keep it off in production to avoid
-  // leaking the schema publicly. It stays available in local/dev.
-  if (process.env.NODE_ENV !== 'production') {
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('API Documentation')
-      .setDescription('The API description')
-      .setVersion('1.0')
-      .build()
-
-    const document = SwaggerModule.createDocument(app, swaggerConfig)
-    SwaggerModule.setup('api', app, document)
-  }
 
   await app.register(helmet)
 

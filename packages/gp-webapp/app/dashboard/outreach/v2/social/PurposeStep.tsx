@@ -1,17 +1,24 @@
 'use client'
 
-import type { SocialPurpose } from '@goodparty_org/contracts'
+import type {
+  ServeSocialPurpose,
+  SocialPurpose,
+} from '@goodparty_org/contracts'
 import { Card, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
-import { SOCIAL_PURPOSES } from '../socialPurposes'
 import { Intro } from './Intro'
 
 interface PurposeStepProps {
-  selected: SocialPurpose | null
-  onSelect: (purpose: SocialPurpose) => void
+  purposes: { id: SocialPurpose | ServeSocialPurpose; label: string }[]
+  selected: SocialPurpose | ServeSocialPurpose | null
+  onSelect: (purpose: SocialPurpose | ServeSocialPurpose) => void
 }
 
-export const PurposeStep = ({ selected, onSelect }: PurposeStepProps) => (
+export const PurposeStep = ({
+  purposes,
+  selected,
+  onSelect,
+}: PurposeStepProps) => (
   <div className="space-y-6">
     <Intro
       channel="socialMedia"
@@ -19,7 +26,7 @@ export const PurposeStep = ({ selected, onSelect }: PurposeStepProps) => (
       body="This helps us tailor your message and choose the right platforms."
     />
     <div className="space-y-3">
-      {SOCIAL_PURPOSES.map((purpose) => (
+      {purposes.map((purpose) => (
         <Card
           key={purpose.id}
           role="button"
