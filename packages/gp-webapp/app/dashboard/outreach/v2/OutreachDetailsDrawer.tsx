@@ -38,12 +38,12 @@ import {
   Loader2Icon,
   PhoneIcon,
   RadioIcon,
+  CircleSlashIcon,
   PencilIcon,
   ReceiptIcon,
   Trash2Icon,
   UserMinusIcon,
   UsersRoundIcon,
-  XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { VoterFileFilters } from 'helpers/types'
@@ -376,13 +376,20 @@ export const OutreachDetailsDrawer = ({
   const smsFooter = isCancelableSms ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
+        {/* Design edit-mode pair: Cancel is the compact ghost destructive
+            action (like the done-footer Delete), Edit takes the width. With
+            no edit handler, Cancel keeps the full-width outline treatment. */}
         <Button
-          variant="outline"
-          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+          variant={canEditSms ? 'ghost' : 'outline'}
+          className={
+            canEditSms
+              ? 'shrink-0 text-destructive hover:bg-destructive/10'
+              : 'flex-1 border-destructive text-destructive hover:bg-destructive/10'
+          }
           disabled={cancelMutation.isPending}
           onClick={() => setCancelConfirmOpen(true)}
         >
-          <XCircleIcon className="size-4" />
+          <CircleSlashIcon className="size-4" />
           Cancel campaign
         </Button>
         {canEditSms && (
