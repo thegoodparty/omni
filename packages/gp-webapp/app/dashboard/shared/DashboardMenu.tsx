@@ -63,7 +63,11 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
+import {
+  FlagIcon,
+  MegaphoneIcon,
+  ScrollTextIcon,
+} from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -71,6 +75,7 @@ import {
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useVoterOutreachV2Flag } from '@shared/experiments/voterOutreachV2Flag'
+import { useServeOutreachFlag } from '@shared/experiments/serveOutreachFlag'
 
 interface MenuItem {
   id: string
@@ -203,6 +208,17 @@ const POLLS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickPolls),
 }
 
+const CONSTITUENT_OUTREACH_MENU_ITEM: MenuItem = {
+  id: 'constituent-outreach-dashboard',
+  label: NAV_LABELS.constituentOutreach,
+  link: '/dashboard/constituent-outreach',
+  icon: <MdMessage />,
+  v2Icon: MegaphoneIcon,
+  v2Category: 'elected-office',
+  onClick: () =>
+    trackEvent(EVENTS.Navigation.Dashboard.ClickConstituentOutreach),
+}
+
 const BRIEFINGS_MENU_ITEM: MenuItem = {
   id: 'briefings-dashboard',
   label: 'Briefing Assistant',
@@ -302,6 +318,7 @@ export const getDashboardMenuItems = (
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
   ordinancesEnabled: boolean,
+  serveOutreachEnabled: boolean,
   doorKnocking: DoorKnockingNavGate = {
     ecanvasserConnected: false,
     nativeEnabled: false,
@@ -316,6 +333,11 @@ export const getDashboardMenuItems = (
   // dark-launched independently; the page route itself is serve-access gated.
   const communityIssuesShown = isElectedOffice && communityIssuesEnabled
   const ordinancesShown = isElectedOffice && ordinancesEnabled
+  // Constituent Outreach nav is gated behind serve-outreach so it can be
+  // dark-launched independently; the page route's FeatureFlagGuard is the
+  // treatment surface.
+  const constituentOutreachShown =
+    serveAccessEnabled && isElectedOffice && serveOutreachEnabled
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
@@ -333,6 +355,9 @@ export const getDashboardMenuItems = (
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
+    if (constituentOutreachShown) {
+      menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
+    }
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
@@ -461,6 +486,9 @@ export default function DashboardMenu({
   // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
   // treatment surface.
   const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
+  // Nav-only gate for the Constituent Outreach tab; the page's
+  // FeatureFlagGuard is the treatment surface.
+  const { enabled: serveOutreachEnabled } = useServeOutreachFlag(false)
   // The page's gate is the treatment surface, so read without tracking exposure.
   const { ready: nativeDoorKnockingReady, enabled: nativeDoorKnockingEnabled } =
     useNativeDoorKnockingFlag(false)
@@ -482,6 +510,7 @@ export default function DashboardMenu({
         campaignStoryEnabled,
         communityIssuesEnabled,
         ordinancesEnabled,
+        serveOutreachEnabled,
         {
           ecanvasserConnected: !!ecanvasser,
           nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
@@ -499,6 +528,7 @@ export default function DashboardMenu({
       campaignStoryEnabled,
       communityIssuesEnabled,
       ordinancesEnabled,
+      serveOutreachEnabled,
       nativeDoorKnockingReady,
       nativeDoorKnockingEnabled,
       outreachHubReady,

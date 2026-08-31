@@ -15,6 +15,10 @@ describe('isServeRoutePath', () => {
     ).toBe(true)
     expect(isServeRoutePath('/serve/onboarding')).toBe(true)
     expect(isServeRoutePath('/serve/onboarding/office')).toBe(true)
+    expect(isServeRoutePath('/dashboard/constituent-outreach')).toBe(true)
+    expect(isServeRoutePath('/dashboard/constituent-outreach/history')).toBe(
+      true,
+    )
   })
 
   it('excludes the public /serve/welcome redemption page', () => {

@@ -186,6 +186,8 @@ export const EVENTS = {
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
       ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
+      ClickConstituentOutreach:
+        'Navigation - Dashboard: Click Constituent Outreach',
     },
   },
 
