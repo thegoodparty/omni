@@ -47,12 +47,7 @@ vi.mock('app/dashboard/components/tasks/flows/TaskFlow', () => ({
   ),
 }))
 
-// The gate requires a VERIFIED CampaignVerify on top of the approved
-// registration (2026-08-28 full-gate decision).
-const approvedCompliance = {
-  status: 'approved',
-  peerlyCvStatus: 'VERIFIED',
-} as TcrCompliance
+const approvedCompliance = { status: 'approved' } as TcrCompliance
 const pendingCompliance = { status: 'pending' } as TcrCompliance
 
 const renderDeepLink = ({
