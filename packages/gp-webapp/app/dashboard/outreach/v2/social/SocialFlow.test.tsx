@@ -4,13 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type {
+  ServeSocialDraftRequest,
+  ServeSocialGenerateRequest,
   SocialAsset,
   SocialAssetPlatform,
   SocialDraftRequest,
   SocialGenerateRequest,
 } from '@goodparty_org/contracts'
 import type { UseDictationAppendInput } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { SocialFlow } from './SocialFlow'
+import { SERVE_SOCIAL_SURFACE, SocialFlow } from './SocialFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -61,7 +63,11 @@ const assetFor = (platform: SocialAssetPlatform): SocialAsset => ({
       : null,
 })
 
-const draftFor = ({ purpose, tone, currentDraft }: SocialDraftRequest) =>
+const draftFor = ({
+  purpose,
+  tone,
+  currentDraft,
+}: SocialDraftRequest | ServeSocialDraftRequest) =>
   currentDraft === undefined
     ? `AI draft (${tone}) for ${purpose}`
     : `Improved (${tone}): ${currentDraft}`
@@ -640,5 +646,116 @@ describe('SocialFlow', () => {
     expect(draftCalls).toEqual([
       { purpose: 'custom', tone: 'warm', currentDraft: 'Rough words' },
     ])
+  })
+})
+
+// ENG-10970: the same flow, config-swapped to Serve's own purpose
+// vocabulary and org-scoped endpoints. Nothing here is a new component —
+// only the surface prop differs from the suite above.
+describe('SocialFlow with the serve surface', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    dictationInput = null
+  })
+
+  const mockServeDraft = () => {
+    const calls: ServeSocialDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/social/draft', ({ body }) => {
+      calls.push(body)
+      return { status: 200, data: { draft: draftFor(body) } }
+    })
+    return calls
+  }
+
+  const mockServeGenerate = () => {
+    const calls: ServeSocialGenerateRequest[] = []
+    api.mock('POST /v1/outreach/serve/social/generate', ({ body }) => {
+      calls.push(body)
+      return {
+        status: 200,
+        data: { assets: body.platforms.map(assetFor) },
+      }
+    })
+    return calls
+  }
+
+  const openServeFlow = () => {
+    const onClose = vi.fn()
+    const onSaved = vi.fn()
+    render(
+      <SocialFlow
+        open
+        onClose={onClose}
+        onSaved={onSaved}
+        surface={SERVE_SOCIAL_SURFACE}
+      />,
+    )
+    return { onClose, onSaved }
+  }
+
+  it('renders the 7 serve cards and hits the serve routes with serve slugs', async () => {
+    const draftCalls = mockServeDraft()
+    const generateCalls = mockServeGenerate()
+    api.mock('POST /v1/outreach/serve/social', {
+      status: 200,
+      data: savedDetail,
+    })
+    const { onSaved } = openServeFlow()
+
+    for (const label of [
+      'Introduce myself',
+      'Explain a recent decision',
+      'Invite people to a local event',
+      'Ask for community input',
+      'Share a resource or service',
+      'Share an issue update',
+      'Write my own message',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+
+    await user.click(screen.getByText('Explain a recent decision'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'explain_decision', tone: 'warm' }),
+    )
+    expect(draftCalls).toEqual([{ purpose: 'explain_decision', tone: 'warm' }])
+
+    // Name auto-suggestion fills from the serve record, not the card copy.
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      (await screen.findAllByText('Where do you want to share it?')).length,
+    ).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(generateCalls).toHaveLength(1))
+    expect(generateCalls[0]?.purpose).toBe('explain_decision')
+
+    expect(await screen.findByText('Adapted for facebook')).toBeInTheDocument()
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Decision update posts',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Your posts are ready!')).toBeInTheDocument()
+    expect(onSaved).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 77, outreachType: 'socialMedia' }),
+    )
+  })
+
+  it('leaves the name empty with the CTA disabled for the custom purpose', async () => {
+    mockServeDraft()
+    mockServeGenerate()
+    openServeFlow()
+
+    await user.click(screen.getByText('Write my own message'))
+    await screen.findAllByText('What do you want to say?')
+    await user.type(screen.getByLabelText('Draft message'), 'My own words')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Where do you want to share it?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('Adapted for facebook')).toBeInTheDocument()
+
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 })
