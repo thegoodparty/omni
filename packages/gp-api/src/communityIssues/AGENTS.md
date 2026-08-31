@@ -44,8 +44,7 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
 - `POST /self-dispatch` — authenticated user; dispatches a single experiment
   type (`{ type }`) for the caller's own elected-office org
   (`dispatchSelfServe`). Staff-only: rejects with `403` unless the caller's
-  email ends with `@goodparty.org`. Same serve-ICP + in-flight gating as the
-  cohort path. Backs the staff-only buttons on the Serve Community Issues page.
+  email ends with `@goodparty.org`. Same in-flight gating as the cohort path. Backs the staff-only buttons on the Serve Community Issues page.
 - `POST /seed` — `@UseElectedOffice()`; deterministic test seeding for the
   caller's own org. Persists issues through the real `upsertFromArtifact` path
   (one COMPLETED `ExperimentRun` + artifact per list) plus optional related
@@ -55,7 +54,7 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   per-PR preview stack (and dev post-merge).
 - `POST /dispatch-if-needed` — any authenticated user; self-serve landing
   catch-up (`dispatchIfNeeded`). Dispatches both experiment types for the
-  caller's own org if ICP-eligible and not already in flight, skipping the
+  caller's own org if not already in flight, skipping the
   inactivity gate (landing already proves activity) but applying a freshness
   gate: a list whose last completed run is within `INACTIVITY_THRESHOLD_DAYS`
   is left alone. That window is intentionally the same constant the cron uses

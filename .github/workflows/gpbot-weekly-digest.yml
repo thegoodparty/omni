@@ -31,8 +31,8 @@ name: gpbot weekly digest
 on:
   schedule:
     # Monday 15:00 UTC — mid-morning US, matching gpbot-stale-pr-alert.yml so
-    # both gpbot posts land in #bugs during the working day rather than joining
-    # the overnight unread pile.
+    # the post lands during the working day rather than joining the overnight
+    # unread pile.
     - cron: '0 15 * * 1'
   workflow_dispatch:
     inputs:
@@ -73,10 +73,19 @@ jobs:
     # never finishes tells nobody anything.
     timeout-minutes: 10
     env:
-      # gp_ai_bot — see the note in gpbot-pr-triage.yml. All the gpbot workflows
-      # post to the same channel, so they must carry the same app.
+      # gp_ai_bot — see the note in gpbot-pr-triage.yml.
       SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
-      CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
+      # NOT GPBOT_PR_CHANNEL_ID, which is where the other gpbot workflows post.
+      # Those are working messages for whoever is on bugs that day — a PR to
+      # review, a stale PR to chase. This one is a weekly report on whether the
+      # system is doing its job, and its audience is the people who decide
+      # whether to keep investing in it. Sending it to the same channel buries a
+      # monthly-interest message in a daily-interest feed.
+      #
+      # A separate variable rather than a hardcoded id so the channel can be
+      # moved without a deploy, and so an unset value fails loudly below instead
+      # of quietly falling back to #bugs.
+      CHANNEL: ${{ vars.GPBOT_DIGEST_CHANNEL_ID }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -320,12 +329,16 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${SLACK_TOKEN:-}" ] || [ -z "${CHANNEL:-}" ]; then
-            # RED, not skipped. Both gpbot workflows already post to this channel
-            # with these two settings, so a missing one here is a broken digest
-            # rather than an unfinished rollout — and an unposted digest is
-            # indistinguishable from a quiet week, which is the failure this
-            # whole job exists to make visible.
-            echo "::error::GPBOT_SLACK_BOT_TOKEN or GPBOT_PR_CHANNEL_ID is unset; the digest was not posted"
+            # RED, not skipped. An unposted digest is indistinguishable from a
+            # quiet week, which is the failure this whole job exists to make
+            # visible, so it must not be possible for the message to go missing
+            # without something going red.
+            #
+            # gp_ai_bot also has to be IN the channel: chat.postMessage answers
+            # `not_in_channel` for one it was never invited to, and that arrives
+            # as a 200 — which is why the post step checks `.ok` rather than
+            # trusting curl's exit code.
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or GPBOT_DIGEST_CHANNEL_ID is unset; the digest was not posted"
             exit 1
           fi
 

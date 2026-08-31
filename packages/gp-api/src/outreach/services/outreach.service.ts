@@ -201,6 +201,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         scheduledDate: createOutreachDto.date,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
 
@@ -330,7 +335,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         campaign: { include: { user: true } },
       },
     })
-    const { campaign } = outreach
+    // The claim above matched a real campaignId — text/p2p finalize never
+    // reaches an org-only (social) row, the only kind with no campaign.
+    const campaign = outreach.campaign!
     const user = campaign.user
 
     let jobId: string
@@ -359,8 +366,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
               script: outreach.script ?? undefined,
               date: outreach.date?.toISOString(),
             },
+            // Mirror OutreachNotificationInterceptor.classifyFailure: a 400
+            // content rejection is the user's to fix, so CAS sees it labeled
+            // validation, not as a vendor-step failure. Still notified — on
+            // the paid path money was captured with nothing scheduled.
             step:
-              err instanceof OutreachStepError ? err.step : 'peerlyJobCreation',
+              err instanceof OutreachStepError
+                ? err.step
+                : err instanceof BadRequestException
+                  ? 'validation'
+                  : 'peerlyJobCreation',
             error: err,
           })
         } catch (notifyErr) {
@@ -473,7 +488,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
     try {
       return await this.peerlyP2pJobService.createPeerlyP2pJob({
-        campaignId: outreach.campaignId,
+        // p2p drafts are always campaign-scoped — only social outreach can
+        // be org-only (outreach.prisma).
+        campaignId: outreach.campaignId!,
         listId: outreach.phoneListId,
         imageInfo: {
           fileStream: image.bytes,
@@ -493,6 +510,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         scheduledDate: outreach.scheduledLocalDate ?? undefined,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
   }
@@ -638,6 +660,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     if (!outreach) {
       throw new NotFoundException('Outreach not found')
     }
+    // A robocall's send/capture lifecycle runs off its satellite settleState,
+    // not the spine status, so canceling here would flip the spine to canceled
+    // without voiding the hold or stopping the dial. Robocall has no cancel path
+    // yet; refuse rather than desync. (The spine reads `pending` once the pay
+    // step commits — see OutreachRobocallHoldService.markSpineScheduled.)
+    if (outreach.outreachType === OutreachType.robocall) {
+      throw new BadRequestException(
+        'Robocall campaigns cannot be canceled here',
+      )
+    }
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }
     }
@@ -724,6 +756,119 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
+   * Edit-before-send. Editable = the cancel window (status `pending` with a
+   * vendor job): name, script, and send date — never the audience, which is
+   * frozen and priced at checkout (that path is cancel-and-recreate).
+   *
+   * Vendor first, then DB: a Peerly failure leaves the row untouched and the
+   * edit retryable. The DB write is a CAS on `pending` so the hourly
+   * completion sweep can't be overwritten mid-advance; losing that race after
+   * a vendor success is logged for manual reconciliation (content only —
+   * no money moves here).
+   */
+  async updateScheduledOutreach(
+    campaign: Campaign,
+    outreachId: number,
+    input: { name: string; script: string; date: string },
+    newImage?: P2pOutreachImageInput & { url: string },
+  ): Promise<Outreach> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId: campaign.id },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (
+      outreach.status !== OutreachStatus.pending ||
+      outreach.outreachType !== OutreachType.p2p ||
+      !outreach.projectId ||
+      !outreach.identityId
+    ) {
+      throw new BadRequestException('Only scheduled campaigns can be edited')
+    }
+
+    // Peerly's template update is a destructive overwrite, so it always
+    // needs the image bytes — the replacement's, or the stored one's.
+    let imageInfo: {
+      fileStream: Buffer | Readable
+      fileName: string
+      mimeType: string
+      title?: string
+    }
+    if (newImage) {
+      imageInfo = {
+        fileStream: newImage.stream,
+        fileName: newImage.filename,
+        mimeType: newImage.mimetype,
+        title: outreach.title ?? undefined,
+      }
+    } else {
+      if (!outreach.imageUrl) {
+        throw new BadRequestException(
+          'This campaign has no stored image; attach a new one',
+        )
+      }
+      const imageKey = decodeURIComponent(
+        new URL(outreach.imageUrl).pathname.slice(1),
+      )
+      const image = await this.s3.getFileBytesWithContentType(
+        ASSET_DOMAIN,
+        imageKey,
+      )
+      if (!image) {
+        throw new BadRequestException(
+          'The stored image could not be read; attach a new one',
+        )
+      }
+      imageInfo = {
+        fileStream: image.bytes,
+        fileName: imageKey.split('/').pop() ?? 'outreach-image',
+        mimeType: image.contentType ?? 'image/jpeg',
+        title: outreach.title ?? undefined,
+      }
+    }
+
+    // Same local-day derivation as draft creation: the offset-annotated
+    // client string's first 10 chars are the user's send day for Peerly.
+    const dateOnly = input.date.slice(0, 10)
+    const rescheduleDate =
+      dateOnly !== outreach.scheduledLocalDate ? dateOnly : undefined
+
+    await this.peerlyP2pJobService.updatePeerlyP2pJob({
+      jobId: outreach.projectId,
+      campaignId: campaign.id,
+      imageInfo,
+      scriptText: input.script,
+      identityId: outreach.identityId,
+      name: input.name,
+      rescheduleDate,
+    })
+
+    const updated = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending },
+      data: {
+        name: input.name,
+        script: input.script,
+        message: input.script,
+        date: new Date(input.date),
+        scheduledLocalDate: dateOnly,
+        ...(newImage && { imageUrl: newImage.url }),
+      },
+    })
+    if (updated.count === 0) {
+      this.logger.error(
+        `Outreach ${outreachId} advanced past pending during edit; Peerly ` +
+          'job has the new content but the row kept the old — manual ' +
+          'reconciliation required',
+      )
+      throw new BadRequestException(
+        'This campaign started sending and can no longer be edited',
+      )
+    }
+    return this.model.findFirstOrThrow({ where: { id: outreachId } })
+  }
+
+  /**
    * Live receipt read for a paid campaign. No local payment snapshot
    * exists — the row only stores the checkout session id — so the card and
    * receipt URL come from Stripe on every read. Free-texts rows never
@@ -780,10 +925,19 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  async findByCampaignId(campaignId: number) {
-    const outreachCampaigns = await this.findMany({
+  // Shared list query behind both scoped list readers below. Win rows carry
+  // BOTH campaignId and organizationSlug (createRecord copies the campaign
+  // org's slug), so the Serve scope must pin campaignId: null — an org that
+  // holds a Campaign and an ElectedOffice (the post-election transition)
+  // would otherwise leak its Win history onto the Serve list (ENG-10976).
+  private async findByScope(
+    scope:
+      | { campaignId: number }
+      | { organizationSlug: string; campaignId: null },
+  ) {
+    return this.findMany({
       where: {
-        campaignId,
+        ...scope,
         // Unpaid drafts are an implementation detail of the purchase flow.
         // Prisma's `not` also excludes NULL, so nullable legacy rows need the
         // explicit OR branch.
@@ -796,6 +950,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         voterFileFilter: true,
       },
     })
+  }
+
+  async findByCampaignId(campaignId: number) {
+    const outreachCampaigns = await this.findByScope({ campaignId })
 
     if (!outreachCampaigns.length) {
       throw new NotFoundException(
@@ -804,6 +962,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return outreachCampaigns
+  }
+
+  // Serve list: no "empty is 404" quirk (a fresh org legitimately has no
+  // history yet) and no p2pJob decoration (Serve never runs P2P texting) —
+  // the Win controller keeps that decoration on top of the shared query.
+  async findByOrganizationSlug(organizationSlug: string) {
+    return this.findByScope({ organizationSlug, campaignId: null })
   }
 
   async resolveP2pJobGeography(

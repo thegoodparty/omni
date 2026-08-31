@@ -21,6 +21,7 @@ type StatusKey =
   | 'completed'
   | 'pending_payment'
   | 'canceled'
+  | 'failed'
 
 // P2P rows (phoneListId != null): `pending` only ever reaches the map for
 // rows without a vendor job (getP2pStatusLabel remaps pending-with-a-job to
@@ -34,6 +35,7 @@ const p2pStatusLabels: { [K in StatusKey]: string } = {
   completed: 'Done',
   pending_payment: 'Pending payment',
   canceled: 'Canceled',
+  failed: "Couldn't send",
 }
 
 // Rows without a phone list (robocall, legacy text, social): `pending` means
@@ -48,6 +50,9 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   completed: 'Done',
   pending_payment: 'Pending payment',
   canceled: 'Canceled',
+  // A robocall the send chain could not deliver (CallHub failure). The candidate
+  // was not charged; see OutreachRobocall.settleState (send_failed).
+  failed: "Couldn't send",
 }
 
 const isStatusKey = (key: string | null | undefined): key is StatusKey =>
@@ -101,6 +106,13 @@ export const getHistoryStatusLabel = (row: HistoryRow): string | null => {
     status === 'in_progress'
   ) {
     return 'In progress'
+  }
+  // A robocall with spine `pending` is a paid, scheduled send awaiting its send
+  // date (the hold is placed; the send sweep dials it on the day), not a
+  // Political Assistant "In review" request — so read it as Scheduled, the
+  // sending-channel word, rather than the non-p2p map's default.
+  if (row.outreachType === 'robocall' && status === 'pending') {
+    return 'Scheduled'
   }
   return nonP2pStatusLabels[status]
 }

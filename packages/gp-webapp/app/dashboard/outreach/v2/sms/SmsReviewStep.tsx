@@ -27,7 +27,15 @@ import {
 import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
+import { z } from 'zod'
 import { Intro } from '../social/Intro'
+
+// A 400 from complete-free-purchase carries a user-fixable message (e.g.
+// Peerly rejecting a banned link in the script) worth showing verbatim.
+const purchaseErrorSchema = z.object({
+  statusCode: z.literal(400),
+  message: z.string(),
+})
 
 // The checkout-session endpoint returns amount in DOLLARS
 // (stripe.service.ts divides amount_total by 100).
@@ -83,6 +91,7 @@ export const SmsReviewStep = ({
   const [preview, setPreview] = useState(false)
   const [isRedeeming, setIsRedeeming] = useState(false)
   const [payError, setPayError] = useState(false)
+  const [payErrorMessage, setPayErrorMessage] = useState<string | null>(null)
   const isRedeemingRef = useRef(false)
   const hasFetchedSession = useRef(false)
 
@@ -113,11 +122,14 @@ export const SmsReviewStep = ({
         phoneListToken: phoneListToken ?? undefined,
       })
       if (!response.ok) {
+        const parsed = purchaseErrorSchema.safeParse(response.data)
+        setPayErrorMessage(parsed.success ? parsed.data.message : null)
         setPayError(true)
         return
       }
       await onComplete(false)
     } catch {
+      setPayErrorMessage(null)
       setPayError(true)
     } finally {
       isRedeemingRef.current = false
@@ -128,6 +140,14 @@ export const SmsReviewStep = ({
   const handlePaidComplete = async (sessionId: string) => {
     const response = await completeCheckoutSession(sessionId)
     if (!response.ok) {
+      const parsed = purchaseErrorSchema.safeParse(response.data)
+      if (parsed.success) {
+        setPayErrorMessage(parsed.data.message)
+        setPayError(true)
+        return
+      }
+      // Unparseable failures keep the throw so CheckoutForm's onError still
+      // reports to Sentry and snackbars.
       throw new Error('Failed to complete purchase')
     }
     await onComplete(true)
@@ -271,7 +291,7 @@ export const SmsReviewStep = ({
           <LoadingAnimation title="Preparing your purchase…" />
         </div>
       ) : payError || error ? (
-        <PurchaseError />
+        <PurchaseError serverError={payErrorMessage ?? undefined} />
       ) : isFree ? (
         <Button
           type="button"

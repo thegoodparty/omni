@@ -33,12 +33,20 @@ describe('OutreachHistoryTable — unified history', () => {
         phoneListId: 43,
         p2pJob: { status: 'building' },
       },
-      // Non-P2P pending means "request submitted" → In review.
+      // A robocall pending row is a paid, scheduled send → Scheduled.
       {
         id: 3,
         date: '2026-06-24',
         outreachType: 'robocall',
         name: 'Budget hearing reminder',
+        status: 'pending',
+      },
+      // Other non-P2P pending (social) means "request submitted" → In review.
+      {
+        id: 4,
+        date: '2026-06-20',
+        outreachType: 'socialMedia',
+        name: 'Issue update post',
         status: 'pending',
       },
     ]
@@ -47,7 +55,8 @@ describe('OutreachHistoryTable — unified history', () => {
 
     const table = within(desktopTable())
     expect(table.getByText('Done')).toBeInTheDocument()
-    expect(table.getByText('Scheduled')).toBeInTheDocument()
+    // Both the p2p vendor-job send and the paid robocall render Scheduled.
+    expect(table.getAllByText('Scheduled')).toHaveLength(2)
     expect(table.getByText('In review')).toBeInTheDocument()
     expect(table.getAllByText('SMS')).toHaveLength(2)
     expect(table.getByText('Robocall')).toBeInTheDocument()
@@ -605,73 +614,5 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(
       screen.queryByText('No campaigns match your filters.'),
     ).not.toBeInTheDocument()
-  })
-
-  // Verification-pending substitution (ENG design): a scheduled SMS row
-  // will be held by the carriers, so it must not read "Scheduled".
-  const willNotSendRows: HistoryRow[] = [
-    {
-      id: 1,
-      date: '2026-09-08',
-      outreachType: 'p2p',
-      name: 'Held SMS blast',
-      status: 'paid',
-      phoneListId: 42,
-      p2pJob: { status: 'building' },
-    },
-    {
-      id: 2,
-      date: '2026-09-07',
-      outreachType: 'robocall',
-      name: 'Scheduled robocall',
-      status: 'paid',
-    },
-  ]
-
-  it('shows Needs compliance for a scheduled SMS row while verification pends', () => {
-    render(
-      <OutreachHistoryTable
-        rows={willNotSendRows}
-        onRowClick={vi.fn()}
-        notCleared
-      />,
-    )
-
-    const table = within(desktopTable())
-    // Only the SMS row substitutes — the robocall keeps Scheduled.
-    expect(table.getByText('Needs compliance')).toBeInTheDocument()
-    expect(table.getByText('Scheduled')).toBeInTheDocument()
-  })
-
-  it('keeps Scheduled on SMS rows once verification has cleared', () => {
-    render(<OutreachHistoryTable rows={willNotSendRows} onRowClick={vi.fn()} />)
-
-    const table = within(desktopTable())
-    expect(table.queryByText('Needs compliance')).not.toBeInTheDocument()
-    expect(table.getAllByText('Scheduled')).toHaveLength(2)
-  })
-
-  it('filters on the displayed label: Scheduled misses a Needs compliance row and vice versa', async () => {
-    render(
-      <OutreachHistoryTable
-        rows={willNotSendRows}
-        onRowClick={vi.fn()}
-        notCleared
-      />,
-    )
-
-    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
-    await userEvent.click(screen.getByLabelText('Scheduled'))
-
-    let table = within(desktopTable())
-    expect(table.getByText('Held SMS blast')).toBeInTheDocument()
-    expect(table.queryByText('Scheduled robocall')).not.toBeInTheDocument()
-
-    await userEvent.click(screen.getByLabelText('Scheduled'))
-    await userEvent.click(screen.getByLabelText('Needs compliance'))
-
-    table = within(desktopTable())
-    expect(table.getByText('Scheduled robocall')).toBeInTheDocument()
-    expect(table.queryByText('Held SMS blast')).not.toBeInTheDocument()
   })
 })

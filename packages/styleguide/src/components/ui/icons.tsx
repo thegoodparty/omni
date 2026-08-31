@@ -34,6 +34,7 @@ export {
   ChevronRight as ChevronRightIcon,
   ChevronsUpDown as ChevronsUpDownIcon,
   CircleAlert as CircleAlertIcon,
+  CircleSlash as CircleSlashIcon,
   CircleUserRound as CircleUserRoundIcon,
   ClipboardList as ClipboardListIcon,
   ThumbsDown as ThumbsDownIcon,

@@ -5,11 +5,10 @@ web app, the API monolith, a data microservice, the admin console, the candidate
 sites, and the shared SDK/contracts. One repo means agents and humans share one
 context, deploys are unified, and shared code is de-duplicated.
 
-Voter/people data access used to be its own microservice (`packages/people-api`);
-it was absorbed into `gp-api` (`src/peopleDb/`, direct people-db access) and the
-package was removed from this repo. Nothing calls it any more; the people-api
-ECS service and its Aurora cluster remain deployed but frozen, pending
-teardown — see `packages/gp-api/src/peopleDb/AGENTS.md`.
+Voter/people data is read from Databricks by `gp-api` (`src/peopleDb/`). The
+former `people-api` microservice has no package here; its ECS service and
+Aurora cluster remain deployed but frozen, pending teardown — see
+`packages/gp-api/src/peopleDb/AGENTS.md`.
 
 **This repo is built to be worked through coding agents.** Almost every change here
 is made by an engineer driving an agent. So every doc is an agent-context surface.
@@ -110,9 +109,9 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
 - **Validation:** Zod everywhere. API responses validated at runtime via response
   schemas; never `.passthrough()` input schemas.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
-  (gp-api, election-api). gp-api's `src/peopleDb/` (the absorbed voter engine)
-  mirrors this with `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a
-  second, read-only Prisma client for people-db.
+  (gp-api, election-api). gp-api's `src/peopleDb/` mirrors this with
+  `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a second, read-only
+  Prisma client for people-db, which backs the voter-density heat map.
 - **Contracts are the cross-service source of truth.** Any shape that crosses a
   service boundary (S2S payloads, SQS messages, webhook bodies) lives in
   `@goodparty_org/contracts`. Change the contract in the _same_ PR as the

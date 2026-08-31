@@ -340,7 +340,9 @@ export const SmsComposeStep = ({
             lines) under {SMS_COMPOSED_MAX_LENGTH} characters.
           </p>
         )}
-        {!image && (
+        {/* Edit mode shows the stored image via imagePreviewUrl with no File
+            in hand, and the requirement is already met there. */}
+        {!image && !imagePreviewUrl && (
           <p className="text-xs text-muted-foreground">
             An image is required for text campaigns — JPG, PNG, or GIF up to 500
             KB.

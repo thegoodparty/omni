@@ -64,6 +64,12 @@ const STATE_TIME_ZONES: Record<string, string> = {
 
 export const DEFAULT_TIME_ZONE = 'America/New_York'
 
+// How far ahead of now a candidate may schedule a send. Must match
+// ROBOCALL_MAX_SCHEDULE_DAYS in gp-api's shared/util/robocallHold.util.ts —
+// no shared package reaches both gp-api and gp-webapp for a constant this
+// small.
+export const ROBOCALL_MAX_SCHEDULE_DAYS = 85
+
 export const resolveCampaignTimeZone = (state?: string | null): string =>
   (state && STATE_TIME_ZONES[state.toUpperCase()]) || DEFAULT_TIME_ZONE
 

@@ -23,6 +23,22 @@ export const SOCIAL_PURPOSE_VALUES = [
 export const SocialPurposeSchema = z.enum(SOCIAL_PURPOSE_VALUES)
 export type SocialPurpose = z.infer<typeof SocialPurposeSchema>
 
+// Serve's own purpose vocabulary (constituent framing, no election
+// mechanics). Shared slugs (introduce_myself, event_invite, issue_update,
+// custom) deliberately reuse the Win strings above — rows are disambiguated
+// by scoping (campaignId vs organizationSlug), not by slug.
+export const SERVE_SOCIAL_PURPOSE_VALUES = [
+  'introduce_myself',
+  'explain_decision',
+  'event_invite',
+  'community_input',
+  'share_resource',
+  'issue_update',
+  'custom',
+] as const
+export const ServeSocialPurposeSchema = z.enum(SERVE_SOCIAL_PURPOSE_VALUES)
+export type ServeSocialPurpose = z.infer<typeof ServeSocialPurposeSchema>
+
 export const SOCIAL_TONE_VALUES = [
   'warm',
   'direct',
@@ -118,6 +134,40 @@ export const SocialSaveRequestSchema = z.object({
 })
 export type SocialSaveRequest = z.infer<typeof SocialSaveRequestSchema>
 
+// Serve request schemas mirror the Win ones above with the purpose field
+// swapped to ServeSocialPurposeSchema.
+export const ServeSocialDraftRequestSchema = z.object({
+  purpose: ServeSocialPurposeSchema,
+  tone: SocialToneSchema,
+  currentDraft: z
+    .string()
+    .min(1)
+    .max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH)
+    .optional(),
+})
+export type ServeSocialDraftRequest = z.infer<
+  typeof ServeSocialDraftRequestSchema
+>
+
+export const ServeSocialGenerateRequestSchema = z.object({
+  draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
+  purpose: ServeSocialPurposeSchema,
+  platforms: z.array(SocialAssetPlatformSchema).min(1).max(6),
+})
+export type ServeSocialGenerateRequest = z.infer<
+  typeof ServeSocialGenerateRequestSchema
+>
+
+export const ServeSocialSaveRequestSchema = z.object({
+  name: z.string().min(1).max(60),
+  purpose: ServeSocialPurposeSchema,
+  draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
+  assets: z.array(SocialAssetSchema).min(1).max(6),
+})
+export type ServeSocialSaveRequest = z.infer<
+  typeof ServeSocialSaveRequestSchema
+>
+
 export const OutreachSocialDetailSchema = z.object({
   purpose: z.string(),
   draftMessage: z.string(),
@@ -129,7 +179,9 @@ export const OutreachDetailSchema = z.object({
   id: z.number(),
   createdAt: zCoerceDate(),
   updatedAt: zCoerceDate(),
-  campaignId: z.number(),
+  // Null for a Serve org-only row (no campaign) — see the Win/Serve
+  // isolation boundary in gp-api's src/outreach/AGENTS.md (ENG-10976).
+  campaignId: z.number().nullable(),
   outreachType: OutreachTypeSchema,
   projectId: z.string().nullable(),
   name: z.string().nullable(),

@@ -38,7 +38,7 @@ The projection is keyed by `organizationSlug`, like every other status. A do-not
 
 ### Suppression at evaluation, not at freeze
 
-Turf evaluation excludes flagged people, so **future routes never contain them**. The exclusion is emitted as an unconditional `AND` conjunct, mirroring how `contactsMadeIdOverrides` is composed in [filters.sql.util.ts](../../src/peopleDb/utils/filters.sql.util.ts) — deliberately _not_ the `idOverrides` slot, which is scoped inside the `voterStatus` clause and is silently dropped when a filter carries no voter-status selection. A suppression that disappears depending on an unrelated filter choice is worse than none, because it is invisible.
+Turf evaluation excludes flagged people, so **future routes never contain them**. The exclusion is emitted as an unconditional `AND` conjunct, mirroring how `contactsMadeIdOverrides` is composed in [databricksVoterSql.util.ts](../../src/peopleDb/databricks/databricksVoterSql.util.ts) — deliberately _not_ the `idOverrides` slot, which is scoped inside the `voterStatus` clause and is silently dropped when a filter carries no voter-status selection. A suppression that disappears depending on an unrelated filter choice is worse than none, because it is invisible.
 
 A turf that resolves to nobody already throws `BadRequestException`, so a fully-suppressed area fails loudly instead of freezing an empty route.
 

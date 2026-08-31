@@ -2,6 +2,7 @@ import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
 import { AiModule } from 'src/ai/ai.module'
 import { EmailModule } from 'src/email/email.module'
@@ -21,6 +22,7 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
+import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachRobocallController } from './outreachRobocall.controller'
 import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
@@ -79,6 +81,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     // loops back to Outreach — defer this edge so the module graph resolves.
     forwardRef(() => ContactsModule),
     OrganizationsModule,
+    ElectedOfficeModule,
     ContactInteractionModule,
     CallhubModule,
     // For DoorKnockingTurfCountsService, behind the detail read's doorKnocking
@@ -89,6 +92,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
   controllers: [
     OutreachController,
     OutreachSocialController,
+    OutreachServeSocialController,
     OutreachPhoneBankingController,
     OutreachSmsController,
     OutreachRobocallController,

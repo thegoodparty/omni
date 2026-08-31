@@ -1209,7 +1209,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     )
   })
 
-  it('skips an EO whose position is explicitly not serve-ICP', async () => {
+  it('dispatches for an EO whose position is not serve-ICP', async () => {
     const orgSlug = `eo-cron-non-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-non-icp' })
     const campaign = await service.prisma.campaign.findFirst({
@@ -1236,10 +1236,15 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
 
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgSlug,
+      }),
+    )
   })
 
-  it('skips an EO when serve-ICP is null (unknown fails closed)', async () => {
+  it('dispatches for an EO when serve-ICP is unknown', async () => {
     const orgSlug = `eo-cron-null-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-null-icp' })
     const campaign = await service.prisma.campaign.findFirst({
@@ -1266,7 +1271,12 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
 
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgSlug,
+      }),
+    )
   })
 
   // Correctness of the DB-side pre-filter + bounded concurrency: with a mix of
@@ -1750,7 +1760,7 @@ describe('MeetingBriefingsService.dispatchManual', () => {
     )
   })
 
-  it('gated briefing dispatch skips a position that is not serve-ICP', async () => {
+  it('gated briefing dispatch proceeds for a position that is not serve-ICP', async () => {
     const orgSlug = `eo-manual-gate-non-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-gate-non-icp' })
     const eo = await service.prisma.electedOffice.create({
@@ -1770,11 +1780,13 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       .get(MeetingBriefingsService)
       .dispatchManual(eo.id, 'briefing', true)
 
-    expect(result.dispatched).toBe(false)
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
+    )
   })
 
-  it('gated briefing dispatch fails closed when serve-ICP is null', async () => {
+  it('gated briefing dispatch proceeds when serve-ICP is unknown', async () => {
     const orgSlug = `eo-manual-gate-null-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-gate-null-icp' })
     const eo = await service.prisma.electedOffice.create({
@@ -1794,8 +1806,10 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       .get(MeetingBriefingsService)
       .dispatchManual(eo.id, 'briefing', true)
 
-    expect(result.dispatched).toBe(false)
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
+    )
   })
 
   it('ungated briefing dispatch ignores serve-ICP', async () => {

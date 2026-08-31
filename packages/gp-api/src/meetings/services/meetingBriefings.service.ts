@@ -496,20 +496,12 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     // A briefing needs a meetingDate from the schedule. With the imminence
-    // gate on, match the daily cron exactly: require an affirmative serve-ICP
-    // flag (fail closed), skip if a future briefing already covers the
-    // official, and only dispatch when the next meeting falls inside the
-    // 3-day window. With the gate off (the UI "brief now" button) skip the
-    // ICP check and widen to 60 days so an operator can pre-brief any office.
+    // gate on, match the daily cron exactly: skip if a future briefing already
+    // covers the official, and only dispatch when the next meeting falls
+    // inside the 3-day window. With the gate off (the UI "brief now" button)
+    // widen to 60 days so an operator can pre-brief any office.
     const now = new Date()
     if (useImminenceGate) {
-      if (ctx.isServeIcp !== true) {
-        this.logger.info(
-          { electedOfficeId, isServeIcp: ctx.isServeIcp },
-          'skipping gated manual dispatch: position is not serve-ICP',
-        )
-        return { dispatched: false }
-      }
       const futureBriefing = await this.model.findFirst({
         where: { electedOfficeId, meetingDate: { gte: now } },
         select: { id: true },
@@ -590,9 +582,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       imminentMeetingDate,
       coveredByBriefingDate,
       gateWouldDispatch:
-        ctx?.isServeIcp === true &&
-        !futureBriefing &&
-        imminentMeetingDate !== null,
+        ctx !== null && !futureBriefing && imminentMeetingDate !== null,
       overrideWouldDispatch: ctx !== null && nextMeetingDate !== null,
     }
   }
@@ -831,10 +821,9 @@ export class MeetingBriefingsService extends createPrismaBase(
     //      pointers. No such run => resolveTargetMeeting returns null => skip.
     //   2. Coverage dedupe skips any office already covered by a future
     //      briefing (meetingDate >= now).
-    // The remaining gates (serve-ICP, activity, imminence window, in-flight
-    // dedupe) depend on the election-api / the S3 schedule artifact / user
-    // metadata and can't be expressed here, so they stay in the per-office
-    // guard below.
+    // The remaining gates (activity, imminence window, in-flight dedupe)
+    // depend on the S3 schedule artifact / user metadata and can't be
+    // expressed here, so they stay in the per-office guard below.
     const offices = await this.client.electedOffice.findMany({
       where: {
         organization: {
@@ -953,19 +942,6 @@ export class MeetingBriefingsService extends createPrismaBase(
     // findUnique the loop used to do per office (fetch once, up top).
     const ctx = await this.resolveDispatchContext(eo)
     if (!ctx) return notDispatched
-
-    // Fail closed: automated dispatches require an affirmative serve-ICP
-    // flag, so offices stay un-briefed until the Databricks backfill
-    // populates the column (gp-data-platform#473). dispatchManual applies
-    // the same check when useImminenceGate is set; only the ungated
-    // brief-now path skips it.
-    if (ctx.isServeIcp !== true) {
-      this.logger.info(
-        { electedOfficeId: eo.id, isServeIcp: ctx.isServeIcp },
-        'skipping dispatch: position is not serve-ICP',
-      )
-      return notDispatched
-    }
 
     // Activity gate: skip on the cron path when the user hasn't opened the
     // product within INACTIVITY_THRESHOLD_DAYS, firing a re-engagement

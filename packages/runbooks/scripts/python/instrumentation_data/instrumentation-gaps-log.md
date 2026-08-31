@@ -1,3 +1,21 @@
+## 2026-08-31
+
+### Potential instrumentation gaps
+
+Coverage: 28 tracked — 9 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the robocall flow steps (purpose, audience, review, pay)? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the SMS outreach flow steps (compose, review, schedule)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the social outreach flow steps (purpose, compose, share)? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the create-list flow stages (purpose/who/draw/confirm)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit | form_submit | primary CTA / outcome | How many users submit a new ordinance draft request and does it succeed? | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the generalized outreach channel flow steps? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit | form_submit | multi-step flow stage completion | How many users complete the candidate profile step of the pro-upgrade flow, and where do they drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx#form_submit | form_submit | primary CTA / outcome | How many candidates successfully submit their candidate profile for texting compliance? | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit | form_submit | primary CTA / blocker | How many users successfully submit their PIN verification and how many fail? | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx |
+
 ## 2026-08-27
 
 ### Potential instrumentation gaps

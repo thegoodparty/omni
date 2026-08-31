@@ -40,6 +40,9 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServeSocialDraftRequest,
+  ServeSocialGenerateRequest,
+  ServeSocialSaveRequest,
   RecordPhoneBankingCall,
   RecordPhoneBankingCallResponse,
   PhoneBankingScriptDraftRequest,
@@ -340,6 +343,39 @@ export type APIEndpoints = {
   // refetch.
   'POST /v1/outreach/social': {
     Request: SocialSaveRequest
+    Response: OutreachDetail
+  }
+
+  // Serve siblings of the three social endpoints above (ENG-10970): same
+  // shapes with the purpose field swapped to ServeSocialPurpose, org-scoped
+  // rather than campaign-scoped. Not yet mounted by any flow config — the
+  // wiring ticket points SocialFlow's serve surface at these.
+  'POST /v1/outreach/serve/social/draft': {
+    Request: ServeSocialDraftRequest
+    Response: SocialDraftResponse
+  }
+
+  'POST /v1/outreach/serve/social/generate': {
+    Request: ServeSocialGenerateRequest
+    Response: SocialGenerateResponse
+  }
+
+  'POST /v1/outreach/serve/social': {
+    Request: ServeSocialSaveRequest
+    Response: OutreachDetail
+  }
+
+  // Serve's org-scoped list/detail reads (ENG-10970): siblings of
+  // `GET /v1/outreach` / `GET /v1/outreach/:id`, scoped by organizationSlug
+  // rather than campaignId. Empty array is a valid response (a fresh org has
+  // no history) — unlike the campaign-scoped list, this never 404s.
+  'GET /v1/outreach/serve': {
+    Request: {}
+    Response: Outreach[]
+  }
+
+  'GET /v1/outreach/serve/:id': {
+    Request: {}
     Response: OutreachDetail
   }
 

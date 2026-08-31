@@ -598,11 +598,21 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () =
       paymentMethodId: 'pm_1',
       stripeCustomerId: 'cus_test',
     })
+    // A card-saved deferred draft is visible in history (spine `pending`) from
+    // the pay step; canceling must hide it, not leave it as "In review".
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { status: 'pending' },
+    })
 
     await deferred.sweepExpiredDeferred()
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(spine.status).toBe('canceled')
     // The absent candidate is told the run was canceled — exactly once.
     expect(trackSpy).toHaveBeenCalledTimes(1)
     expect(trackSpy.mock.calls[0]?.[1]).toBe(EVENTS.Robocall.Canceled)

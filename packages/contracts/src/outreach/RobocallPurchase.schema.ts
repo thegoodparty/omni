@@ -40,9 +40,13 @@ export const RobocallDraftCreateResponseSchema = z.object({
   // on, the way the p2p draft's id does.
   outreachId: z.number().int().positive(),
   // The server-derived landline count and the estimate authorized for it, so
-  // the pay step renders the same numbers the hold will place.
+  // the pay step renders the same numbers the hold will place. `amountInCents`
+  // is the TOTAL (per-call cost + the flat number-rental fee); `numberFeeInCents`
+  // is that fee alone, so the pay step can show the breakdown without computing
+  // any money figure itself (the per-call subtotal is amount − fee).
   billableCount: z.number().int().min(0),
   amountInCents: z.number().int().min(0),
+  numberFeeInCents: z.number().int().min(0),
 })
 export type RobocallDraftCreateResponse = z.infer<
   typeof RobocallDraftCreateResponseSchema

@@ -8,7 +8,9 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
 
@@ -84,6 +86,7 @@ const createDraft = async ({
   authorizationIntentId,
   paymentMethodId,
   stripeCustomerId,
+  callhubCampaignPkStr,
 }: {
   sendInDays?: number
   settleState?: RobocallSettleState
@@ -92,6 +95,7 @@ const createDraft = async ({
   authorizationIntentId?: string
   paymentMethodId?: string
   stripeCustomerId?: string
+  callhubCampaignPkStr?: string
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -116,6 +120,7 @@ const createDraft = async ({
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(paymentMethodId ? { paymentMethodId } : {}),
       ...(stripeCustomerId ? { stripeCustomerId } : {}),
+      ...(callhubCampaignPkStr ? { callhubCampaignPkStr } : {}),
     },
   })
   return spine.id
@@ -130,6 +135,9 @@ const postAuthorize = (outreachId: number, paymentMethodId = 'pm_1') =>
 
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
+
+const readSpine = (outreachId: number) =>
+  service.prisma.outreach.findUniqueOrThrow({ where: { id: outreachId } })
 
 // A capture deadline comfortably past send + run + settle margin.
 const captureBeforeUnix = () => getUnixTime(addDays(new Date(), 7))
@@ -155,12 +163,12 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(res.data).toEqual({
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
-      authorizedAmountInCents: 450,
+      authorizedAmountInCents: calcRobocallTotalInCents(100),
     })
 
     const createArgs = paymentIntentsCreate.mock.calls[0]
     expect(createArgs?.[0]).toMatchObject({
-      amount: 450,
+      amount: calcRobocallTotalInCents(100),
       currency: 'usd',
       customer: 'cus_test',
       payment_method: 'pm_1',
@@ -175,17 +183,88 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.authorizationIntentId).toBe('pi_hold_1')
-    expect(satellite.authorizedAmountInCents).toBe(450)
+    expect(satellite.authorizedAmountInCents).toBe(
+      calcRobocallTotalInCents(100),
+    )
     expect(satellite.paymentMethodId).toBe('pm_1')
     expect(satellite.stripeCustomerId).toBe('cus_test')
     expect(satellite.payAttempt).toBe(1)
     expect(satellite.captureBefore).not.toBeNull()
+
+    // The spine advances off pending_payment so the row shows in the history.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending')
 
     expect(trackSpy).toHaveBeenCalledTimes(1)
     const [userId, event, , , messageId] = trackSpy.mock.calls[0] ?? []
     expect(userId).toBe(service.user.id)
     expect(event).toBe(EVENTS.Robocall.HoldPlaced)
     expect(messageId).toBe(`${outreachId}:hold_placed`)
+  })
+
+  it('failSend voids the hold, sets send_failed + failed spine, emails once', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      authorizationIntentId: 'pi_hold_9',
+    })
+    paymentIntentsCancel.mockResolvedValue({
+      id: 'pi_hold_9',
+      status: 'canceled',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'staging')
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.send_failed)
+    // No calls placed → the hold is voided and recorded for the reconcile sweep.
+    expect(paymentIntentsCancel).toHaveBeenCalled()
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_hold_9' },
+    })
+    expect(orphan?.reason).toBe('send_failed')
+    // The spine flips to failed → "Couldn't send" in history.
+    expect((await readSpine(outreachId)).status).toBe('failed')
+    // The candidate is emailed once (SendFailed), deterministic messageId.
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
+    expect(event).toBe(EVENTS.Robocall.SendFailed)
+    expect(messageId).toBe(`${outreachId}:send_failed`)
+  })
+
+  it('failSend records the staged campaign as orphaned so cleanup ABORTs it', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+      authorizationIntentId: 'pi_hold_9',
+      callhubCampaignPkStr: 'vb_send',
+    })
+    paymentIntentsCancel.mockResolvedValue({
+      id: 'pi_hold_9',
+      status: 'canceled',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'send')
+
+    // The staged PAUSED campaign never dialed and now lingers in CallHub —
+    // recorded so the cleanup sweep ABORTs it (it only aborts recorded pk_strs).
+    const orphan = await service.prisma.robocallOrphanedCampaign.findUnique({
+      where: { campaignPkStr: 'vb_send' },
+    })
+    expect(orphan?.reason).toBe('send_failed')
+  })
+
+  it('failSend is idempotent: a run already terminal is not re-voided or re-emailed', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.send_failed,
+      authorizationIntentId: 'pi_hold_9',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'send')
+
+    expect(paymentIntentsCancel).not.toHaveBeenCalled()
+    expect(trackSpy).not.toHaveBeenCalled()
   })
 
   it('retries from hold_failed with a new card and authorizes', async () => {
@@ -379,6 +458,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
     expect(satellite.paymentMethodId).toBe('pm_1')
     expect(satellite.stripeCustomerId).toBe('cus_test')
+    // Card saved and committed, so it shows in the history even before the hold.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending')
   })
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {
@@ -392,6 +474,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    // The guard only flips on success — a rejected authorize stays hidden.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending_payment')
   })
 
   it('records hold_failed (not a 502) when the card is declined', async () => {
@@ -420,6 +505,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     expect(satellite.payAttempt).toBe(1)
     expect(satellite.authorizationIntentId).toBeNull()
+    // A declined card is not a committed send: the spine stays hidden.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending_payment')
     // A first on-session decline must PERSIST the card + customer onto the
     // hold_failed row (the commit CAS is never reached on a decline), so the
     // card-update retry — which filters on stripeCustomerId — can later find it.

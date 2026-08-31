@@ -3,7 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common'
-import { isFuture, parseISO } from 'date-fns'
+import { addDays, isAfter, isFuture, parseISO } from 'date-fns'
 import { RobocallDraftCreateRequest } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
@@ -11,7 +11,11 @@ import {
   ContactsService,
 } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
-import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import {
+  calcRobocallTotalInCents,
+  ROBOCALL_NUMBER_FEE_CENTS,
+} from '@/shared/util/robocallPricing.util'
+import { ROBOCALL_MAX_SCHEDULE_DAYS } from '@/shared/util/robocallHold.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -29,6 +33,7 @@ export interface RobocallDraftResult {
   outreachId: number
   billableCount: number
   amountInCents: number
+  numberFeeInCents: number
 }
 
 // The robocall spine + satellite persistence and the server-side billable-count
@@ -157,12 +162,25 @@ export class OutreachRobocallService extends createPrismaBase(
       )
     }
 
+    // Candidates can't schedule arbitrarily far out — a stale draft sitting for
+    // months would drift out of sync with pricing, compliance, and the
+    // audience it was built against.
+    const maxScheduledAt = addDays(new Date(), ROBOCALL_MAX_SCHEDULE_DAYS)
+    if (isAfter(parseISO(input.scheduledAt), maxScheduledAt)) {
+      throw new BadRequestException(
+        `The scheduled send time must be within ` +
+          `${ROBOCALL_MAX_SCHEDULE_DAYS} days`,
+      )
+    }
+
     const billableCount = await this.deriveBillableCount(
       organization,
       input.voterFileFilterId,
     )
     this.assertReachableCount(billableCount)
-    const amountInCents = calcRobocallAmountInCents(billableCount)
+    // Total = per-call cost + the flat number-rental fee. This is what the hold
+    // authorizes and the capture collects, so the fee is priced in up front.
+    const amountInCents = calcRobocallTotalInCents(billableCount)
 
     try {
       const outreachId = await this.client.$transaction(async (tx) => {
@@ -203,7 +221,12 @@ export class OutreachRobocallService extends createPrismaBase(
       // 500 a successful create. Deterministic messageId dedups a replay.
       await this.emitScheduled(campaign.userId, outreachId)
 
-      return { outreachId, billableCount, amountInCents }
+      return {
+        outreachId,
+        billableCount,
+        amountInCents,
+        numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+      }
     } catch (err) {
       // A concurrent create won the unique(audio_key) race: return its draft
       // rather than surfacing the constraint violation. isUniqueConstraintError
@@ -270,7 +293,11 @@ export class OutreachRobocallService extends createPrismaBase(
       ? {
           outreachId: existing.outreachId,
           billableCount: existing.billableCount,
-          amountInCents: existing.amountInCents,
+          // Recompute rather than trust the stored column: a draft created
+          // before the number fee shipped has a stale, fee-less amountInCents,
+          // and returning it would understate the total by the fee.
+          amountInCents: calcRobocallTotalInCents(existing.billableCount),
+          numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
         }
       : null
   }

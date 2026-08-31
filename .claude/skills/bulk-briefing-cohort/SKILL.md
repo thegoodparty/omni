@@ -6,8 +6,8 @@ description: Use when manually triggering a bulk run of meeting briefings — di
 # Runbook: dispatch a cohort of meeting_briefing jobs in prod and analyze them
 
 You are running a one-shot bulk dispatch of `meeting_briefing` agent jobs against
-**prod**, using the product's gate (serve-ICP, fail closed + 3-day imminence
-window + future-briefing dedupe), then monitoring to completion and producing an
+**prod**, using the product's gate (3-day imminence window + future-briefing
+dedupe), then monitoring to completion and producing an
 outcome/cost/runtime analysis. Target for this run: **200 dispatched briefings**.
 
 The dispatch script enforces a fleet cap: at most **100 meeting_briefing agents
@@ -24,7 +24,6 @@ the dry-run numbers, and get an explicit go before the real dispatch.
 
 - AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
 - This repo's `packages/gp-api` on `main` (the script `scripts/dispatch-imminent-briefings.ts` and the `useImminenceGate` endpoint are merged). Verify the checked-out branch before running.
-- **Prod gp-api must be running a build where `dispatchManual` enforces the serve-ICP gate under `useImminenceGate`** (the same fail-closed check the daily cron uses; landed 2026-06-11). The script has no client-side ICP filter — the server gate is the only enforcement, so if prod predates it the cohort WILL include non-ICP offices. Verify before dispatching: `cd packages/gp-api && git log main --oneline -S 'skipping gated manual dispatch' -- src/meetings/services/meetingBriefings.service.ts` must show a commit, and prod must be deployed at or past it. Abort and tell the human if not.
 - `psql` not required; everything goes through `npx tsx`.
 - **The daily meetings cron is ENABLED in prod as of 2026-07-15** (`MEETINGS_AUTOMATION_ENABLED=true`, `dispatchDailyBriefings` at `@Cron('0 7 * * *')` in `meetingBriefings.service.ts`). It writes `experimentType: meeting_briefing` rows to the same table your manual cohort does, so a bare `createdAt` time window can now pick up cron-dispatched runs too if your window overlaps 7am UTC. Prefer diffing against `records.push`'d `electedOfficeId`s from your own run's JSONL log over a pure time-window query, or run outside the cron's firing window.
 - The cron path (`dispatchBriefingIfNeeded`) also applies a 30-day user-inactivity gate (`isInactiveUser` in `src/shared/util/userActivity.util.ts`) that **`dispatchManual` — the endpoint this script calls — does not enforce itself**. The script now replicates that gate client-side (filters the office pool before dispatching) so a manual run doesn't diverge from what the cron would actually do, but the underlying gap in `dispatchManual` is still open; don't assume the endpoint is gate-complete if you call it directly instead of through this script.
@@ -76,13 +75,13 @@ npx tsx scripts/dispatch-imminent-briefings.ts --dry-run --target=200
 Show the human: total offices (~1,800), how many the local 30-day activity
 gate skips, the resulting eligible pool, target 200, max cost (~$1,200). Note
 offices already covered by a future briefing (e.g. the prior cohort's
-`briefing_ready` ones) are skipped by the gate dedupe, and offices whose
-position is not serve-ICP are skipped fail-closed server-side. Neither the
-ICP status nor coverage dedupe is visible in the pool count (only the activity
-gate is applied client-side) — until the Databricks `is_serve_icp` backfill is
-broadly populated, expect far more gate-skips per dispatch than the reference
-run, and possibly an unreachable target (the script just exhausts the pool and
-reports fewer dispatched). Wait for explicit go.
+`briefing_ready` ones) are skipped by the gate dedupe. Coverage dedupe is not
+visible in the pool count (only the activity gate is applied client-side), so
+expect gate-skips per dispatch and possibly an unreachable target (the script
+just exhausts the pool and reports fewer dispatched). The server applies no
+office-eligibility filter of its own — every office in the pool that clears
+imminence and dedupe will dispatch and bill, so scope the pool deliberately.
+Wait for explicit go.
 
 ## Step 3: real dispatch
 
@@ -181,5 +180,5 @@ populate).
 - Outcome mix of completed: ~51% briefing_ready, ~34% awaiting_agenda, ~15% no_meeting_found.
 - ~96% success; ~$6/dispatched briefing actual (not the $3.90 code estimate); ~15 min avg runtime.
 - 100 dispatches took 346 endpoint calls (the rest gate-skipped). For 200 expect to walk a larger slice of the pool, and note prior-cohort `briefing_ready` offices are deduped out.
-- That cohort predates both the serve-ICP gating and the in-flight cap: expect a worse dispatched/calls ratio (server-side ICP skips) and a longer wall-clock dispatch phase (throttling) than those numbers suggest.
-- That cohort also predates the client-side 30-day activity gate (added 2026-07-15): expect a smaller eligible pool up front than 1,800, on top of the ICP/coverage skips that happen per-call.
+- That cohort predates the in-flight cap: expect a longer wall-clock dispatch phase (throttling) than those numbers suggest.
+- That cohort also predates the client-side 30-day activity gate (added 2026-07-15): expect a smaller eligible pool up front than 1,800, on top of the coverage skips that happen per-call.

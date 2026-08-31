@@ -281,6 +281,23 @@ describe('PeerlyP2pJobService', () => {
       ).toBe(false)
     })
 
+    it('propagates a BadRequestException content rejection instead of the generic 502', async () => {
+      const rejectionMessage =
+        'Message cannot contain tinyurl.com links. Please correct your message.'
+      mockHttpService.post.mockImplementation((path: string) =>
+        path === '/1to1/jobs'
+          ? Promise.reject(new Error('Request failed with status code 400'))
+          : Promise.resolve({ data: {} }),
+      )
+      mockErrorHandling.handleApiError.mockImplementation(() => {
+        throw new BadRequestException(rejectionMessage)
+      })
+
+      const promise = service.createPeerlyP2pJob(baseJobParams)
+      await expect(promise).rejects.toThrow(BadRequestException)
+      await expect(promise).rejects.toThrow(rejectionMessage)
+    })
+
     it('throws BadGatewayException when list assignment fails (job already created)', async () => {
       mockHttpService.post.mockImplementation((path: string) => {
         if (path.includes('assignlist')) {
