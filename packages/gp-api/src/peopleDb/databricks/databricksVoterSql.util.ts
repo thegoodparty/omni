@@ -65,7 +65,7 @@ export const createBag = (): Bag => {
 
 const ident = (name: string): string => `\`${name.replace(/`/g, '``')}\``
 
-const col = (name: string): string => `v.${ident(name)}`
+export const col = (name: string): string => `v.${ident(name)}`
 
 // Each component COALESCE'd so a NULL doesn't void the key, TRIM'd and UPPER'd
 // so formatting differences group together, joined on a delimiter that cannot

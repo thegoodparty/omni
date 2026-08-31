@@ -21,7 +21,7 @@ Fill in real values for required vendor keys in `.env` before starting the API (
 npm run start:dev
 ```
 
-API boots on `:3000`. Swagger is at `http://localhost:3000/api`.
+API boots on `:3000`.
 
 ## Common commands
 

@@ -44,11 +44,7 @@ the pattern gp-api already uses as a recipient (see gp-api ADR 0004).
   `Authorization: Bearer eyJ...`. Each caller machine is connected to the election-api
   machine in the Clerk dashboard.
 - The guard rejects unconditionally: any non-`@PublicAccess` request without a valid
-  M2M token gets a 401 in every environment. (It initially shipped behind an
-  `ELECTION_API_AUTH_ENFORCED` observe-only flag to confirm every real caller
-  authenticated before rejecting; that rollout is complete and the flag is gone.)
-- Swagger (`/api`) is only mounted outside production so the schema is not exposed
-  publicly.
+  M2M token gets a 401 in every environment.
 
 ## Consequences
 
