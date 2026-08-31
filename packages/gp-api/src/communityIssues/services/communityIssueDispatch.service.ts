@@ -54,7 +54,6 @@ type ResolvedDispatchContext = {
   districtDescriptor: string
   l2DistrictType?: string
   l2DistrictName?: string
-  isServeIcp?: boolean | null
   lastVisitedMs?: number
 }
 
@@ -165,7 +164,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 
   /**
    * Admin/ops path: dispatch both experiment types for a list of org slugs,
-   * applying the serve-ICP gate and an in-flight-run check per type.
+   * applying an in-flight-run check per type.
    * Blocks QUEUED + RUNNING + AWAITING_RESUME (in-flight) to prevent
    * duplicate concurrent runs. Terminal runs (COMPLETED/FAILED) are
    * intentionally re-dispatchable — manual refresh is the endpoint's purpose.
@@ -177,15 +176,6 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     for (const orgSlug of orgSlugs) {
       const ctx = await this.resolveContext(orgSlug)
       if (!ctx) {
-        skipped++
-        continue
-      }
-
-      if (ctx.isServeIcp !== true) {
-        this.logger.info(
-          { orgSlug, isServeIcp: ctx.isServeIcp },
-          'dispatchForCohort: skipping org not serve-ICP',
-        )
         skipped++
         continue
       }
@@ -209,19 +199,19 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 
   /**
    * Staff self-serve path: dispatch a single experiment type for the staff
-   * user's own org. Applies the same serve-ICP gate and in-flight check as
-   * the admin cohort path. Returns the same summary shape so the caller can
-   * tell whether the run actually fired or was skipped (gated / in-flight).
+   * user's own org. Applies the same in-flight check as the admin cohort
+   * path. Returns the same summary shape so the caller can tell whether the
+   * run actually fired or was skipped (gated / in-flight).
    */
   async dispatchSelfServe(
     orgSlug: string,
     experimentType: CommunityIssueExperimentType,
   ): Promise<DispatchSummary> {
     const ctx = await this.resolveContext(orgSlug)
-    if (!ctx || ctx.isServeIcp !== true) {
+    if (!ctx) {
       this.logger.info(
-        { orgSlug, isServeIcp: ctx?.isServeIcp ?? null },
-        'dispatchSelfServe: skipping org not serve-ICP',
+        { orgSlug },
+        'dispatchSelfServe: skipping org with unresolvable serve context',
       )
       return { dispatched: 0, skipped: 1 }
     }
@@ -239,8 +229,8 @@ export class CommunityIssueDispatchService extends createPrismaBase(
   /**
    * Self-serve landing catch-up: dispatch both experiment types for the
    * caller's own org, skipping the inactivity gate (landing on the dashboard
-   * already proves activity). ICP eligibility and the in-flight check still
-   * apply, same as every other dispatch path. Distinct from
+   * already proves activity). The in-flight check still applies, same as
+   * every other dispatch path. Distinct from
    * `dispatchSelfServe` (staff-only, single type, manual refresh button).
    *
    * Freshness gate: only re-generate a list whose last completed run is older
@@ -252,7 +242,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    */
   async dispatchIfNeeded(orgSlug: string): Promise<DispatchSummary> {
     const ctx = await this.resolveContext(orgSlug)
-    if (!ctx || ctx.isServeIcp !== true) {
+    if (!ctx) {
       return { dispatched: 0, skipped: EXPERIMENT_TYPES.length }
     }
 
@@ -469,7 +459,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       async ({ organizationSlug }) => {
         try {
           const ctx = await this.resolveContext(organizationSlug)
-          if (!ctx || ctx.isServeIcp !== true) return
+          if (!ctx) return
 
           await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
             skipActivityGate: false,
@@ -530,7 +520,6 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       districtDescriptor,
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
-      isServeIcp: serveCtx.isServeIcp,
       lastVisitedMs: eo.user.metaData?.lastVisited,
     }
   }
