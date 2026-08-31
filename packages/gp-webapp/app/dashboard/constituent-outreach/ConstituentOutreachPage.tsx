@@ -32,14 +32,12 @@ const ConstituentOutreachPage = ({
       >
         <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
           <ServeChannelCards />
-          <OutreachHistoryTable
-            rows={outreaches}
-            // Row-click drawer is deferred: OutreachDetailsDrawer pulls in
-            // candidate-only dependencies (TCR compliance banner, checkout
-            // receipts via OUTREACH_OPTIONS/OutreachContext) that don't
-            // apply to a Serve org with no campaign.
-            onRowClick={() => undefined}
-          />
+          {/* No onRowClick: the row-click drawer is deferred (see AGENTS.md)
+              — OutreachDetailsDrawer pulls in candidate-only dependencies
+              (TCR compliance banner, checkout receipts via
+              OUTREACH_OPTIONS/OutreachContext) a Serve org has no use for.
+              Rows render as plain, non-interactive content instead. */}
+          <OutreachHistoryTable rows={outreaches} />
         </div>
       </DashboardLayout>
     </FeatureFlagGuard>

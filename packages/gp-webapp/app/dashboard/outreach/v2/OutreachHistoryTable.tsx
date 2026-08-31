@@ -41,7 +41,10 @@ const PAGE_SIZE = 10
 
 interface OutreachHistoryTableProps {
   rows: HistoryRow[]
-  onRowClick: (row: HistoryRow) => void
+  // Optional: a caller with no row-click destination (the Serve shell has no
+  // details drawer yet) omits it, and rows render as plain, non-interactive
+  // content instead of faking a clickable row that does nothing.
+  onRowClick?: (row: HistoryRow) => void
   // CampaignVerify clearance still pending: scheduled SMS rows will be held
   // by the carriers, so their displayed status becomes "Needs compliance".
   notCleared?: boolean
@@ -420,16 +423,20 @@ export const OutreachHistoryTable = ({
                 <TableRow
                   key={row.id}
                   id={`outreach-row-${row.id}`}
-                  role="button"
-                  tabIndex={0}
-                  className="cursor-pointer"
-                  onClick={() => onRowClick(row)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onRowClick(row)
-                    }
-                  }}
+                  role={onRowClick ? 'button' : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  className={onRowClick ? 'cursor-pointer' : undefined}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            onRowClick(row)
+                          }
+                        }
+                      : undefined
+                  }
                 >
                   <TableCell className="whitespace-nowrap text-muted-foreground">
                     {rowDisplayDate(row) ?? (
@@ -470,16 +477,20 @@ export const OutreachHistoryTable = ({
           paged.map((row) => (
             <Card
               key={row.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onRowClick(row)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onRowClick(row)
-                }
-              }}
-              className="cursor-pointer gap-1.5 p-4"
+              role={onRowClick ? 'button' : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (e: React.KeyboardEvent<HTMLDivElement>) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onRowClick(row)
+                      }
+                    }
+                  : undefined
+              }
+              className={cn('gap-1.5 p-4', onRowClick && 'cursor-pointer')}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">

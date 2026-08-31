@@ -43,6 +43,29 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(table.getByText('In progress')).toBeInTheDocument()
   })
 
+  // No details drawer is wired up for Serve yet, so a row must not present
+  // as a dead clickable element (no role="button", no tabIndex, no pointer
+  // cursor) the way it does on the candidate hub.
+  it('renders history rows as plain, non-interactive content', () => {
+    const outreaches: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-08-20',
+        outreachType: 'nativeDoorKnocking',
+        name: 'Elm & Cedar walk',
+        status: 'in_progress',
+      },
+    ]
+
+    render(<ConstituentOutreachPage outreaches={outreaches} />)
+
+    const row = within(desktopTable())
+      .getByText('Elm & Cedar walk')
+      .closest('tr')
+    expect(row).not.toHaveAttribute('role', 'button')
+    expect(row).not.toHaveAttribute('tabindex')
+  })
+
   it('renders a clean empty state with no rows', () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
