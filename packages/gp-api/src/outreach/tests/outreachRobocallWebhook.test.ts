@@ -106,11 +106,21 @@ describe('OutreachRobocallWebhookService', () => {
         paymentMethodId: 'pm_gone',
         authorizationIntentId: 'pi_hold_1',
       })
+      // An authorized run is visible in history (spine `pending`); the cancel
+      // must hide it, not leave it as "In review".
+      await service.prisma.outreach.update({
+        where: { id: outreachId },
+        data: { status: 'pending' },
+      })
 
       await webhooks.cancelNotYetDialedForDetachedPaymentMethod('pm_gone')
 
       const satellite = await readSatellite(outreachId)
       expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
+      const spine = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+      expect(spine.status).toBe('canceled')
       expect(paymentIntentsCancel).toHaveBeenCalledExactlyOnceWith('pi_hold_1')
       // The best-effort void is recorded for the reconcile sweep.
       const orphan = await service.prisma.robocallOrphanedHold.findUnique({
