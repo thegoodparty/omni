@@ -278,6 +278,11 @@ jobs:
 
           echo "metric lines: $(jq 'length' /tmp/runs.json)"
 
+      - name: TEMP diagnostic
+        run: |
+          echo "ticket ids:"; jq -r '.[]?|"  \(.id) \(.custom_id)"' /tmp/tickets.json || true
+          echo "metric task_ids:"; jq -r '.[]?|sub(".*GPBOT_METRIC ";"")|fromjson|"  \(.task_id) \(.label) \(.verdict)"' /tmp/runs.json || true
+
       - name: Render the digest
         id: render
         env:
