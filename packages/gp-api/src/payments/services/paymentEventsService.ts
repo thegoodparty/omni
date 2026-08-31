@@ -505,6 +505,18 @@ export class PaymentEventsService {
         prefetchedSession,
       )
     } catch (error) {
+      // A BadRequestException here is a permanent content rejection (e.g.
+      // Peerly refusing the script) — every Stripe redelivery would hit the
+      // same wall, so acknowledge the webhook instead of retrying forever.
+      // The idempotency marker was never stamped and the draft was reverted
+      // to pending_payment, so the client-facing paths stay correct.
+      if (error instanceof BadRequestException) {
+        this.logger.error(
+          { error },
+          `[WEBHOOK] Checkout session fulfillment permanently rejected - Session: ${sessionId}, PurchaseType: ${metadata.purchaseType}`,
+        )
+        return
+      }
       this.logger.error(
         { error },
         `[WEBHOOK] Failed to complete checkout session - Session: ${sessionId}, PurchaseType: ${metadata.purchaseType}`,
