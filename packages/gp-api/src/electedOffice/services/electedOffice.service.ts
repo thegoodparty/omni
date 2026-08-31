@@ -5,7 +5,7 @@ import {
   Injectable,
   forwardRef,
 } from '@nestjs/common'
-import { ElectedOffice, Prisma } from '../../generated/prisma'
+import { ElectedOffice, Organization, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   DEFAULT_PAGINATION_LIMIT,
@@ -171,11 +171,27 @@ export class ElectedOfficeService extends createPrismaBase(
           }
         }
         if (hasOrgPrefill) {
-          await tx.organization.update({
-            where: {
-              slug: OrganizationsService.electedOfficeOrgSlug(placeholder.id),
-            },
+          const orgSlug = OrganizationsService.electedOfficeOrgSlug(
+            placeholder.id,
+          )
+          // Read before the write, inside the same tx, so this diff can't
+          // race a concurrent identity change on the same org.
+          const beforeOrg = await tx.organization.findUniqueOrThrow({
+            where: { slug: orgSlug },
+            select: { positionId: true, overrideDistrictId: true },
+          })
+          const updatedOrg = await tx.organization.update({
+            where: { slug: orgSlug },
             data: { ...orgPrefill },
+          })
+          await this.onOfficeIdentityWritten({
+            organizationSlug: orgSlug,
+            before: beforeOrg,
+            after: {
+              positionId: updatedOrg.positionId,
+              overrideDistrictId: updatedOrg.overrideDistrictId,
+            },
+            tx,
           })
         }
         if (!hasNewTerm) {
@@ -386,6 +402,36 @@ export class ElectedOfficeService extends createPrismaBase(
       },
       'office_identity_changed: invalidated derived data',
     )
+  }
+
+  // Owns the transaction so the M2M district write and its invalidation
+  // commit or roll back together — the same atomicity onOfficeIdentityWritten
+  // itself requires of every caller. Kept here, not on OrganizationsService,
+  // per the controller: it only needs to hand off the already-resolved
+  // before/after identity and the new district.
+  async setOverrideDistrict(params: {
+    organizationSlug: string
+    overrideDistrictId: string | null
+    before: OfficeIdentity
+  }): Promise<Organization> {
+    return this.client.$transaction(async (tx) => {
+      const updated = await tx.organization.update({
+        where: { slug: params.organizationSlug },
+        data: { overrideDistrictId: params.overrideDistrictId },
+      })
+
+      await this.onOfficeIdentityWritten({
+        organizationSlug: params.organizationSlug,
+        before: params.before,
+        after: {
+          positionId: updated.positionId,
+          overrideDistrictId: updated.overrideDistrictId,
+        },
+        tx,
+      })
+
+      return updated
+    })
   }
 
   async update(args: Prisma.ElectedOfficeUpdateArgs) {
