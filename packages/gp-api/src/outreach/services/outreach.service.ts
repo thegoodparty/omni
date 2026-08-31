@@ -812,10 +812,19 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  async findByCampaignId(campaignId: number) {
-    const outreachCampaigns = await this.findMany({
+  // Shared list query behind both scoped list readers below. Win rows carry
+  // BOTH campaignId and organizationSlug (createRecord copies the campaign
+  // org's slug), so the Serve scope must pin campaignId: null — an org that
+  // holds a Campaign and an ElectedOffice (the post-election transition)
+  // would otherwise leak its Win history onto the Serve list (ENG-10976).
+  private async findByScope(
+    scope:
+      | { campaignId: number }
+      | { organizationSlug: string; campaignId: null },
+  ) {
+    return this.findMany({
       where: {
-        campaignId,
+        ...scope,
         // Unpaid drafts are an implementation detail of the purchase flow.
         // Prisma's `not` also excludes NULL, so nullable legacy rows need the
         // explicit OR branch.
@@ -828,6 +837,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         voterFileFilter: true,
       },
     })
+  }
+
+  async findByCampaignId(campaignId: number) {
+    const outreachCampaigns = await this.findByScope({ campaignId })
 
     if (!outreachCampaigns.length) {
       throw new NotFoundException(
@@ -836,6 +849,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return outreachCampaigns
+  }
+
+  // Serve list: no "empty is 404" quirk (a fresh org legitimately has no
+  // history yet) and no p2pJob decoration (Serve never runs P2P texting) —
+  // the Win controller keeps that decoration on top of the shared query.
+  async findByOrganizationSlug(organizationSlug: string) {
+    return this.findByScope({ organizationSlug, campaignId: null })
   }
 
   async resolveP2pJobGeography(
