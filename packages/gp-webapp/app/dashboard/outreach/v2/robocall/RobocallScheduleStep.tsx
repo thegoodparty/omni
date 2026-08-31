@@ -42,9 +42,8 @@ interface RobocallScheduleStepProps {
   time: string
   onTimeChange: (time: string) => void
   timeZone: string
-  minLeadHours: number
-  // The earliest allowed send instant (now + lead time) and whether the current
-  // day+time falls before it. Computed by the flow, which also gates the CTA.
+  // The earliest allowed send instant (now) and whether the current day+time
+  // falls before it. Computed by the flow, which also gates the CTA.
   earliest: Date
   violates: boolean
 }
@@ -57,7 +56,6 @@ export const RobocallScheduleStep = ({
   time,
   onTimeChange,
   timeZone,
-  minLeadHours,
   earliest,
   violates,
 }: RobocallScheduleStepProps) => {
@@ -69,7 +67,7 @@ export const RobocallScheduleStep = ({
       <Intro
         channel="robocall"
         title="When do you want to send it?"
-        body={`We recommend mid-morning or early evening for higher engagement. Sends require at least ${minLeadHours} hours' notice.`}
+        body="We recommend mid-morning or early evening for higher engagement."
       />
 
       <div className="space-y-2">
@@ -153,8 +151,7 @@ export const RobocallScheduleStep = ({
       {violates && (
         <Alert variant="destructive">
           <AlertDescription>
-            Sends need at least {minLeadHours} hours&apos; notice. Pick a date
-            and time on or after {earliestLabel}.
+            Pick a send date and time in the future.
           </AlertDescription>
         </Alert>
       )}

@@ -51,10 +51,6 @@ const STEP_TITLES: Record<StepId, string> = {
   pay: 'Payment',
 }
 
-// Hard 48h lead time (the compliance floor the design enforces). No upper
-// bound here — the payment-window ceiling is a pay-step concern.
-const MIN_LEAD_HOURS = 48
-const MIN_LEAD_MS = MIN_LEAD_HOURS * 60 * 60 * 1000
 // The recorded message caps at 60 seconds (one connected 60s CallHub billing
 // unit); enforced in the recorder and on upload.
 const MAX_RECORDING_SECONDS = 60
@@ -279,14 +275,15 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     }
   }, [recorder.status, audioUpload.key, audioUpload.contentType, runCompliance])
 
-  // Validate against the combined UTC instant so it's tz-correct: the send must
-  // be at least 48h out. `earliest` (now + lead) drives both the "earliest
-  // send" hint and the violation alert, mirroring the design's flowWhen.
+  // Validate against the combined UTC instant so it's tz-correct: the send only
+  // has to be in the future (no lead-time buffer). `earliest` (now) drives the
+  // "earliest send" hint and the past-time alert, mirroring the design's
+  // flowWhen. The 9am-9pm slot list is the only remaining timing constraint.
   const scheduledAt = combineScheduledAt(scheduledDay, time, timeZone)
-  const earliest = new Date(now.getTime() + MIN_LEAD_MS)
-  const violatesLeadTime =
+  const earliest = now
+  const isInPast =
     scheduledAt !== null && scheduledAt.getTime() < earliest.getTime()
-  const isScheduleValid = scheduledAt !== null && !violatesLeadTime
+  const isScheduleValid = scheduledAt !== null && !isInPast
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -573,9 +570,8 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           time={time}
           onTimeChange={setTime}
           timeZone={timeZone}
-          minLeadHours={MIN_LEAD_HOURS}
           earliest={earliest}
-          violates={violatesLeadTime}
+          violates={isInPast}
         />
       ) : stepId === 'compose' ? (
         <RobocallComposeStep
