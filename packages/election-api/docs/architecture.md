@@ -44,15 +44,13 @@ All routes are mounted under the global prefix `v1` (set in `src/main.ts`). Cont
 | `GET /v1/projectedTurnout` | `src/projectedTurnout/` |
 | `GET /v1/voter-issues` | `src/voterIssues/` |
 
-Swagger is mounted at `/api` (no prefix) for ad-hoc exploration in non-prod.
-
 ## Auth
 
 `election-api` runs behind an internet-facing ALB, so the application — not the network — is the security boundary. A global `M2MAuthGuard` (`APP_GUARD`, in `src/authentication/`) is default-deny: every route requires a JWT-format Clerk M2M bearer token, verified networkless against `ELECTION_API_MACHINE_SECRET`. Routes opt out with `@PublicAccess()`; only the ALB health check does.
 
 Callers mint their own tokens with their own machine secret (`gp-api`: `GP_API_MACHINE_SECRET`, `gp-marketing`: `GP_MARKETING_MACHINE_SECRET`) and must be connected to the election-api machine in the Clerk dashboard. New consumers need the same wiring — see [ADR-0001](adr/0001-m2m-lockdown.md).
 
-Enforcement is gated on `ELECTION_API_AUTH_ENFORCED`. Until it is `'true'` the guard is **observe-only**: it verifies and logs what it would reject, but lets the request through. Rollout is per-env (dev → qa → prod); rollback is flipping the flag back.
+The guard rejects unconditionally in every environment: any non-`@PublicAccess` route without a valid M2M token gets a 401.
 
 CORS defaults to open (`origin: '*'`, override with `CORS_ORIGIN`) — auth, not CORS, is what gates access.
 
@@ -77,9 +75,8 @@ See `ai-rules/system-map.md` for the full cross-repo map.
 3. Swap in `nestjs-pino` as the global logger
 4. Register Fastify OTel instrumentation (when present in global)
 5. Set global prefix `v1`, register `ZodValidationPipe`, register `AllExceptionsFilter`
-6. Build Swagger doc at `/api`
-7. Register `@fastify/helmet`, `@fastify/cors`, `@fastify/static` (serves `public/`)
-8. Listen on `PORT` (default 3000)
+6. Register `@fastify/helmet`, `@fastify/cors`, `@fastify/static` (serves `public/`)
+7. Listen on `PORT` (default 3000)
 
 ## Key patterns
 

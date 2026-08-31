@@ -3,7 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common'
-import { isFuture, parseISO } from 'date-fns'
+import { addDays, isAfter, isFuture, parseISO } from 'date-fns'
 import { RobocallDraftCreateRequest } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
@@ -15,6 +15,7 @@ import {
   calcRobocallTotalInCents,
   ROBOCALL_NUMBER_FEE_CENTS,
 } from '@/shared/util/robocallPricing.util'
+import { ROBOCALL_MAX_SCHEDULE_DAYS } from '@/shared/util/robocallHold.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -158,6 +159,17 @@ export class OutreachRobocallService extends createPrismaBase(
     if (!isFuture(parseISO(input.scheduledAt))) {
       throw new BadRequestException(
         'The scheduled send time must be in the future',
+      )
+    }
+
+    // Candidates can't schedule arbitrarily far out — a stale draft sitting for
+    // months would drift out of sync with pricing, compliance, and the
+    // audience it was built against.
+    const maxScheduledAt = addDays(new Date(), ROBOCALL_MAX_SCHEDULE_DAYS)
+    if (isAfter(parseISO(input.scheduledAt), maxScheduledAt)) {
+      throw new BadRequestException(
+        `The scheduled send time must be within ` +
+          `${ROBOCALL_MAX_SCHEDULE_DAYS} days`,
       )
     }
 

@@ -301,12 +301,17 @@ describe('GET /v1/persons (public list)', () => {
 
   it('requires M2M auth to use the gpApiUserId filter (no public enumeration)', async () => {
     // The linkage column is already omitted from responses, but filtering on it
-    // is itself an enumeration oracle, so an unauthenticated (observe-only)
-    // caller is rejected outright. The authenticated 200 path is covered by the
-    // service + controller unit tests (the harness runs without an M2M token).
-    const res = await service.client.get('/v1/persons', {
+    // is itself an enumeration oracle, so an unauthenticated caller is rejected
+    // by the default-deny guard before it reaches the controller. The
+    // authenticated path is covered by the service + controller unit tests.
+    const res = await service.unauthedClient.get('/v1/persons', {
       params: { gpApiUserId: PERSON_GP_API_USER_ID, columns: 'id' },
     })
+    expect(res.status).toBe(401)
+  })
+
+  it('rejects any request without an M2M token (default-deny guard)', async () => {
+    const res = await service.unauthedClient.get('/v1/persons')
     expect(res.status).toBe(401)
   })
 

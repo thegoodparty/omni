@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
   type RobocallAuthorizeResponse,
@@ -27,7 +28,11 @@ import { RobocallReviewStep } from './RobocallReviewStep'
 import { RobocallPayStep } from './RobocallPayStep'
 import { useRobocallRecorder } from './useRobocallRecorder'
 import { useRobocallAudioUpload } from './useRobocallAudioUpload'
-import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
+import {
+  combineScheduledAt,
+  resolveCampaignTimeZone,
+  ROBOCALL_MAX_SCHEDULE_DAYS,
+} from './scheduleTimeZone'
 
 // The full flow: pick a purpose, pick/build the audience, choose when it goes
 // out, record/compose the message, review the pre-send summary, then pay
@@ -83,11 +88,19 @@ const ROBOCALL_COUNT_OVERLAY = { hasLandline: true }
 interface RobocallFlowProps {
   open: boolean
   onClose: () => void
+  // Called once payment settles (authorized/deferred/noop) so the hub can
+  // refetch the history list — the draft row now exists and is visible, and it
+  // should appear without a page reload.
+  onScheduled?: () => void
 }
 
 // Flow state is flat client state owned here (phase 1 TDD pattern): no server
 // drafts, reopening starts fresh. Mirrors SocialFlow.
-export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
+export const RobocallFlow = ({
+  open,
+  onClose,
+  onScheduled,
+}: RobocallFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
   const [campaignName, setCampaignName] = useState('')
@@ -179,6 +192,16 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // the result rather than re-opening the Authorize form.
   const [payOutcome, setPayOutcome] =
     useState<RobocallAuthorizeResponse | null>(null)
+
+  // Wrap setPayOutcome so a settled outcome (authorized/deferred/noop, never
+  // hold_failed) also refreshes the hub's history list — the draft row now
+  // exists and its spine is visible, so it should appear without a reload.
+  const handlePayOutcome = (outcome: RobocallAuthorizeResponse | null) => {
+    setPayOutcome(outcome)
+    if (outcome && outcome.status !== 'hold_failed') {
+      onScheduled?.()
+    }
+  }
   const rentMutation = useMutation({
     mutationFn: async () => {
       const { data } = await clientRequest(
@@ -276,14 +299,19 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   }, [recorder.status, audioUpload.key, audioUpload.contentType, runCompliance])
 
   // Validate against the combined UTC instant so it's tz-correct: the send only
-  // has to be in the future (no lead-time buffer). `earliest` (now) drives the
-  // "earliest send" hint and the past-time alert, mirroring the design's
-  // flowWhen. The 9am-9pm slot list is the only remaining timing constraint.
+  // has to be in the future (no lead-time buffer) and no more than
+  // ROBOCALL_MAX_SCHEDULE_DAYS out. `earliest` (now) drives the "earliest send"
+  // hint and the past-time alert, mirroring the design's flowWhen.
+  // `maxScheduledAt` bounds the calendar and the too-far-out alert. The
+  // 9am-7pm slot list is the only remaining timing constraint.
   const scheduledAt = combineScheduledAt(scheduledDay, time, timeZone)
   const earliest = now
+  const maxScheduledAt = addDays(now, ROBOCALL_MAX_SCHEDULE_DAYS)
   const isInPast =
     scheduledAt !== null && scheduledAt.getTime() < earliest.getTime()
-  const isScheduleValid = scheduledAt !== null && !isInPast
+  const isTooFarOut =
+    scheduledAt !== null && scheduledAt.getTime() > maxScheduledAt.getTime()
+  const isScheduleValid = scheduledAt !== null && !isInPast && !isTooFarOut
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -585,7 +613,9 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           onTimeChange={setTime}
           timeZone={timeZone}
           earliest={earliest}
-          violates={isInPast}
+          maxScheduledDay={maxScheduledAt}
+          violates={isInPast || isTooFarOut}
+          isTooFarOut={isTooFarOut}
         />
       ) : stepId === 'compose' ? (
         <RobocallComposeStep
@@ -636,7 +666,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           audienceName={audience.selectedList?.name ?? 'your list'}
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}
-          onOutcome={setPayOutcome}
+          onOutcome={handlePayOutcome}
         />
       )}
     </OutreachFlowShell>

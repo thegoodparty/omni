@@ -11,18 +11,15 @@ import {
 import type { DbxParam, DbxStatement } from './databricksVoterSql.util'
 
 // Serverless warehouse resume can eat the first 10-20s after an idle period,
-// so this ceiling is deliberately looser than the Postgres path's 25s. That
-// one guards against a pathological plan on a warm cluster; here the long
-// tail is compute startup, and killing it would turn every post-idle request
-// into a 504.
+// so this ceiling is deliberately loose. The long tail here is compute
+// startup, and killing it would turn every post-idle request into a 504.
 const STATEMENT_TIMEOUT_MS = 60_000
 
 // The API's hard ceiling on the statement field, measured against it directly:
 // a 20MB statement is rejected with "must not exceed a length of 16777216
 // bytes". Reachable because id sets are inlined rather than bound — the
 // contract permits 100k ids per set, and a request carrying `filters.id` plus
-// both id-override pairs can exceed this where the Postgres path (one bound
-// array per set) would not.
+// both id-override pairs can exceed it.
 const MAX_STATEMENT_BYTES = 16_777_216
 
 // Measured against the API: "20000 parameters were given but the limit is
@@ -89,8 +86,8 @@ const tokenResponseSchema = z.object({
 
 type StatementResponse = z.infer<typeof statementResponseSchema>
 
-// Statement ids for whatever runs inside the current async context. The dual
-// read logs them so a slow request in Loki can be joined to Databricks query
+// Statement ids for whatever runs inside the current async context. The read
+// log carries them so a slow request in Loki can be joined to Databricks query
 // history, where the wait-before-compilation actually shows up. Threading an
 // id back through every builder and service signature would have touched six
 // call sites to carry a diagnostic; this stays out of the shapes entirely.

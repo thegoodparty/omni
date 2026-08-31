@@ -4,10 +4,16 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type {
   OutreachDetail,
+  ServeSocialDraftRequest,
+  ServeSocialGenerateRequest,
+  ServeSocialPurpose,
+  ServeSocialSaveRequest,
   SocialAsset,
   SocialAssetPlatform,
   SocialDraftRequest,
+  SocialGenerateRequest,
   SocialPurpose,
+  SocialSaveRequest,
   SocialTone,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
@@ -15,7 +21,11 @@ import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ALL_SOCIAL_PLATFORM_IDS } from '../socialPlatforms'
-import { socialPurposeNameSuggestion } from '../socialPurposes'
+import { SOCIAL_PURPOSES, socialPurposeNameSuggestion } from '../socialPurposes'
+import {
+  SERVE_SOCIAL_PURPOSES,
+  serveSocialPurposeNameSuggestion,
+} from '../serveSocialPurposes'
 import { PurposeStep } from './PurposeStep'
 import { ComposeStep } from './ComposeStep'
 import { PlatformsStep } from './PlatformsStep'
@@ -31,10 +41,111 @@ const STEP_TITLES: Record<StepId, string> = {
   share: 'Your assets are ready',
 }
 
+// The purpose union across every surface the flow can render. A given
+// surface's own purposes/endpoints only ever traffic in its own member —
+// see the WHY on each surface's endpoint casts below.
+type SocialFlowPurpose = SocialPurpose | ServeSocialPurpose
+
+interface SocialFlowDraftInput {
+  purpose: SocialFlowPurpose
+  tone: SocialTone
+  currentDraft?: string
+}
+
+interface SocialFlowGenerateInput {
+  draftMessage: string
+  purpose: SocialFlowPurpose
+  platforms: SocialAssetPlatform[]
+}
+
+interface SocialFlowSaveInput {
+  name: string
+  purpose: SocialFlowPurpose
+  draftMessage: string
+  assets: SocialAsset[]
+}
+
+// A caller-supplied surface parametrizes purpose cards, the name-suggestion
+// lookup, and which network the flow's three mutations hit — everything
+// else (steps, shell, tone/Improve/dictation, SocialAssetCards) is shared.
+export interface SocialFlowSurface {
+  purposes: { id: SocialFlowPurpose; label: string }[]
+  nameSuggestion: (purpose: SocialFlowPurpose) => string
+  endpoints: {
+    draft: (input: SocialFlowDraftInput) => Promise<string>
+    generate: (input: SocialFlowGenerateInput) => Promise<SocialAsset[]>
+    save: (input: SocialFlowSaveInput) => Promise<OutreachDetail>
+  }
+}
+
+// The default surface — Win's campaign-scoped endpoints, unchanged from the
+// flow's pre-parametrization behavior. The cast on each call is safe because
+// this surface's `purposes` only ever contains SocialPurpose members, and
+// the flow only ever calls these endpoints with a purpose drawn from them.
+const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
+  purposes: SOCIAL_PURPOSES,
+  nameSuggestion: socialPurposeNameSuggestion,
+  endpoints: {
+    draft: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/social/draft',
+        input as SocialDraftRequest,
+      )
+      return data.draft
+    },
+    generate: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/social/generate',
+        input as SocialGenerateRequest,
+      )
+      return data.assets
+    },
+    save: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/social',
+        input as SocialSaveRequest,
+      )
+      return data
+    },
+  },
+}
+
+// Serve's org-scoped endpoints (ENG-10970). Not yet mounted by any flow —
+// the wiring ticket passes this as SocialFlow's `surface` prop on the serve
+// social tile.
+export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
+  purposes: SERVE_SOCIAL_PURPOSES,
+  nameSuggestion: serveSocialPurposeNameSuggestion,
+  endpoints: {
+    draft: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/serve/social/draft',
+        input as ServeSocialDraftRequest,
+      )
+      return data.draft
+    },
+    generate: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/serve/social/generate',
+        input as ServeSocialGenerateRequest,
+      )
+      return data.assets
+    },
+    save: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/serve/social',
+        input as ServeSocialSaveRequest,
+      )
+      return data
+    },
+  },
+}
+
 interface SocialFlowProps {
   open: boolean
   onClose: () => void
   onSaved: (detail: OutreachDetail) => void
+  surface?: SocialFlowSurface
 }
 
 const SuccessScreen = ({
@@ -68,9 +179,14 @@ const SuccessScreen = ({
 
 // Flow state is flat client state owned here (phase 1 TDD): no server
 // drafts — nothing persists until Save, and reopening starts fresh.
-export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
+export const SocialFlow = ({
+  open,
+  onClose,
+  onSaved,
+  surface = WIN_SOCIAL_SURFACE,
+}: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
-  const [purpose, setPurpose] = useState<SocialPurpose | null>(null)
+  const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
   const [draft, setDraft] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
@@ -94,13 +210,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   const draftRequestRef = useRef(0)
 
   const draftMutation = useMutation({
-    mutationFn: async (input: SocialDraftRequest) => {
-      const { data } = await clientRequest(
-        'POST /v1/outreach/social/draft',
-        input,
-      )
-      return data.draft
-    },
+    mutationFn: (input: SocialFlowDraftInput) => surface.endpoints.draft(input),
   })
 
   // Guards against a stale in-flight generate (superseded by Back-and-edit
@@ -111,15 +221,12 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   const generateMutation = useMutation({
     mutationFn: async () => {
       const requestId = ++generateRequestRef.current
-      const { data } = await clientRequest(
-        'POST /v1/outreach/social/generate',
-        {
-          draftMessage: draft.trim(),
-          purpose: purpose as SocialPurpose,
-          platforms,
-        },
-      )
-      return { requestId, assets: data.assets }
+      const generated = await surface.endpoints.generate({
+        draftMessage: draft.trim(),
+        purpose: purpose as SocialFlowPurpose,
+        platforms,
+      })
+      return { requestId, assets: generated }
     },
     onSuccess: ({ requestId, assets: generated }) => {
       if (requestId !== generateRequestRef.current) return
@@ -128,15 +235,13 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   })
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await clientRequest('POST /v1/outreach/social', {
+    mutationFn: () =>
+      surface.endpoints.save({
         name: name.trim(),
-        purpose: purpose as SocialPurpose,
+        purpose: purpose as SocialFlowPurpose,
         draftMessage: draft.trim(),
         assets: assets as SocialAsset[],
-      })
-      return data
-    },
+      }),
     onSuccess: (detail) => {
       setSaved(true)
       onSaved(detail)
@@ -193,7 +298,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   // the one generated path allowed for the custom purpose — fresh custom
   // drafts never call.
   const requestDraft = (
-    nextPurpose: SocialPurpose | null,
+    nextPurpose: SocialFlowPurpose | null,
     nextTone: SocialTone,
     priorDraft: string,
     priorManuallyEdited: boolean,
@@ -223,7 +328,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
     )
   }
 
-  const handleSelectPurpose = (selected: SocialPurpose) => {
+  const handleSelectPurpose = (selected: SocialFlowPurpose) => {
     setPurpose(selected)
     setTone('warm')
     setManuallyEdited(false)
@@ -303,7 +408,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
       // own message, so there is nothing to infer a name from — and its card
       // copy ("Write my own message") would land in outreach history verbatim.
       if (!nameEdited && purpose && purpose !== 'custom') {
-        setName(socialPurposeNameSuggestion(purpose))
+        setName(surface.nameSuggestion(purpose))
       }
       setStepId('share')
     }
@@ -365,7 +470,11 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
           onDone={onClose}
         />
       ) : stepId === 'purpose' ? (
-        <PurposeStep selected={purpose} onSelect={handleSelectPurpose} />
+        <PurposeStep
+          purposes={surface.purposes}
+          selected={purpose}
+          onSelect={handleSelectPurpose}
+        />
       ) : stepId === 'compose' ? (
         <ComposeStep
           tone={tone}

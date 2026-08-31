@@ -142,7 +142,11 @@ submission, Slack, attribution, and free-texts redemption. On Peerly failure
 the row reverts to `pending_payment` and the handler THROWS on purpose —
 `completeCheckoutSession` only stamps its `postPurchaseCompletedAt`
 idempotency marker after handler success, so the throw makes Stripe's webhook
-retry re-attempt the finalize. Losing the claim proves nothing: the loser
+retry re-attempt the finalize. One exception: a `BadRequestException` (a
+permanent Peerly content rejection, e.g. a banned link in the script) is
+ACKED by the webhook handler instead of rethrown — redelivery can never
+succeed, and the client-facing complete call still returns the 400 with the
+vendor message. Losing the claim proves nothing: the loser
 polls for the winner's `projectId` and throws unless fulfillment is confirmed,
 so a loser's success can never stamp the marker while the winner fails.
 Sessions without `outreachId` (pre-draft-first clients) fall back to

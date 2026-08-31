@@ -101,6 +101,12 @@ vi.mock('@styleguide', async (importOriginal) => {
         >
           mock-pick-past
         </button>
+        <button
+          type="button"
+          onClick={() => onSelect(new Date(Date.now() + 90 * 86_400_000))}
+        >
+          mock-pick-too-far
+        </button>
       </div>
     ),
   }
@@ -780,6 +786,41 @@ describe('RobocallFlow', () => {
       await screen.findByText(/Pick a send date and time in the future/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('warns and blocks when the chosen day is more than 85 days out', async () => {
+    await gotoSchedule()
+
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByText('mock-pick-too-far'))
+    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await userEvent.click(
+      await screen.findByRole('option', { name: '10:00 AM' }),
+    )
+
+    expect(
+      await screen.findByText(/Pick a send date within the next 85 days/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('allows a date within 85 days to advance', async () => {
+    mockDraft()
+    await gotoSchedule()
+
+    // mock-pick-future is 60 days out — comfortably inside the 85-day cap.
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByText('mock-pick-future'))
+    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await userEvent.click(
+      await screen.findByRole('option', { name: '10:00 AM' }),
+    )
+
+    expect(
+      screen.queryByText(/Pick a send date within the next 85 days/),
+    ).not.toBeInTheDocument()
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(continueBtn).toBeEnabled())
   })
 
   it('drafts a script on entering compose and gates Continue on a saved recording', async () => {

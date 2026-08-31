@@ -147,14 +147,19 @@ REPORT_TICKETS = [
 # the window — runs are bucketed by when they ran, tickets by when they were
 # filed, so the two counts are not required to match and this fixture keeps that
 # honest rather than tidying it away.
+#
+# EACH RUN CARRIES THE TICKET IT WAS ABOUT, which is what makes the counts above
+# safe to leave mismatched: the digest checks the six analyzed tickets against
+# the runs by id, so a seventh run for an older ticket is not mistaken for one
+# of them being unrecorded.
 REPORT_RUNS = [
-    a_run(verdict="fix", cost_usd=0.23),
-    a_run(verdict="fix", cost_usd=3.10),
-    a_run(verdict="fix", cost_usd=3.71),
-    a_run(verdict="no-code-change", cost_usd=3.71),
-    a_run(verdict="no-code-change", cost_usd=4.20),
-    a_run(verdict="no-code-change", cost_usd=5.10),
-    a_run(verdict="needs-human", cost_usd=7.93),
+    a_run(verdict="fix", cost_usd=0.23, task_id="86aeng-10905"),
+    a_run(verdict="fix", cost_usd=3.10, task_id="86aeng-10906"),
+    a_run(verdict="fix", cost_usd=3.71, task_id="86aeng-10893"),
+    a_run(verdict="no-code-change", cost_usd=3.71, task_id="86aeng-10892"),
+    a_run(verdict="no-code-change", cost_usd=4.20, task_id="86aeng-10903"),
+    a_run(verdict="no-code-change", cost_usd=5.10, task_id="86aeng-10902"),
+    a_run(verdict="needs-human", cost_usd=7.93, task_id="86aeng-10888"),
     a_run(label="implement", verdict=None, cost_usd=0.41, escalation="not an analyze run"),
     a_run(label="implement", verdict=None, cost_usd=4.27, escalation="not an analyze run"),
     a_run(label="implement", verdict=None, cost_usd=5.34, escalation="not an analyze run"),
@@ -484,17 +489,141 @@ class TestAZeroIsOnlyBelievedWhenSomethingCorroboratesIt:
 
         assert "Verdicts: *unavailable*" in message
 
-    def test_one_good_line_is_enough_to_believe_the_rest(self):
-        # The check is about whether the metric is flowing at all, not about
-        # whether every run is accounted for. Demanding a line per analysis
-        # would fire on any run that crashed before it could log one.
-        message = digest({**REPORT_PAYLOAD, "runs": [a_run(verdict="fix", cost_usd=3.71)]})
+    def test_one_good_line_is_read_rather_than_thrown_away(self):
+        # A partial answer is still an answer: the verdict and the dollars that
+        # WERE recorded get reported, because withholding them would lose real
+        # information over an incomplete sample.
+        #
+        # This test used to assert the opposite of its second line — that one
+        # good line was enough to believe the whole week, on the reasoning that
+        # demanding a line per analysis would fire on any run that crashed
+        # before logging one. That reasoning is what shipped the 2026-08-24
+        # digest: one recorded line out of eight analyses, printed in the same
+        # shape as a full week. A run that left no metric is a run whose verdict
+        # and cost nobody has, whatever the reason, and saying so is the point.
+        message = digest({**REPORT_PAYLOAD, "runs": [a_run(verdict="fix", cost_usd=3.71, task_id="86aeng-10905")]})
 
         assert "1 fix · 0 no-code-change · 0 needs-human" in message
-        assert "no run metrics" not in message
+        assert "$3.71 this week" in message
+        assert "5 of 6 analyses left no run metric" in message
+
+
+class TestAPartlyRecordedWeekSaysSo:
+    """The 2026-08-24 digest, which is the bug this class exists for.
+
+    It posted "Coverage: 8 of 8 tagged bugs analyzed" and, three lines down,
+    "0 fix · 1 no-code-change · 0 needs-human" and "$4.02 this week". Both were
+    computed from the two GPBOT_METRIC lines that existed, because the metric
+    shipped on the Friday of that week. Nothing had failed, so every
+    availability check passed and a sixth of the week was printed in the shape
+    of a whole one.
+    """
+
+    # The week as it actually was: eight tickets filed and analyzed, one analyze
+    # run recorded (ENG-11001, no-code-change, $0.66) and one implement run
+    # ($3.36), which is where the $4.02 came from.
+    AUG_24_TICKETS = [
+        a_ticket(f"ENG-110{n:02d}", datetime(2026, 8, 24 + n // 2, 9 + n, tzinfo=UTC), 5.8) for n in range(8)
+    ]
+    AUG_24_RUNS = [
+        a_run(verdict="no-code-change", cost_usd=0.66, task_id="86aeng-11001"),
+        a_run(label="implement", verdict=None, cost_usd=3.36, task_id="86aeng-11001"),
+    ]
+    AUG_24 = {
+        "window": {"start": "2026-08-24T00:00:00Z", "end": "2026-08-31T00:00:00Z"},
+        "tickets": AUG_24_TICKETS,
+        "runs": AUG_24_RUNS,
+        "prs": [],
+    }
+
+    def test_the_numbers_that_shipped_are_reproduced_exactly(self):
+        # Pinned so the fix is provably against the real thing and not a
+        # reconstruction that happens to be easier to satisfy.
+        message = digest(self.AUG_24)
+
+        assert "Coverage: 8 of 8 tagged bugs analyzed" in message
+        assert "0 fix · 1 no-code-change · 0 needs-human" in message
+        assert "$4.02 this week" in message
+        assert "$0.66 median per analysis" in message
+
+    def test_the_two_lines_built_on_them_are_marked(self):
+        message = digest(self.AUG_24)
+
+        assert "Verdicts (partial):" in message
+        assert "Cost (partial):" in message
+
+    def test_the_reader_is_told_how_much_of_the_week_is_missing(self):
+        assert "7 of 8 analyses left no run metric" in digest(self.AUG_24)
+
+    def test_the_note_separates_the_rollout_from_a_fault(self):
+        # The same shortfall means "expected, the metric had not shipped" before
+        # the deploy and "the metric has stopped flowing" after it, and only a
+        # human knows which side of that date a week falls on.
+        message = digest(self.AUG_24)
+
+        assert "since GPBOT_METRIC shipped" in message
+        assert "stopped flowing" in message
+
+    def test_a_fully_recorded_week_is_not_marked(self):
+        # The half that must not be lost. Every analyzed ticket in the report
+        # week has its run, so nothing here may hint at a gap.
+        message = digest()
+
+        assert "(partial)" not in message
+        assert "left no run metric" not in message
+
+    def test_a_run_for_a_ticket_filed_earlier_does_not_cover_one_filed_this_week(self):
+        # THE CASE COMPARING TOTALS CANNOT SEE. Eight analyzed tickets and eight
+        # analyze runs tallies perfectly, and not one of those runs is about any
+        # of those tickets — every verdict in the report belongs to a different
+        # week's bugs.
+        strangers = [a_run(task_id=f"86aold-{n}") for n in range(8)]
+
+        assert "8 of 8 analyses left no run metric" in digest({**self.AUG_24, "runs": strangers})
+
+    def test_a_ticket_analyzed_but_never_run_is_not_hidden_by_a_busy_week(self):
+        # More runs than analyses, all for other tickets bar one.
+        runs = self.AUG_24_RUNS + [a_run(task_id=f"86aold-{n}") for n in range(20)]
+
+        assert "7 of 8 analyses left no run metric" in digest({**self.AUG_24, "runs": runs})
+
+    def test_the_marker_never_appears_without_the_note_explaining_it(self):
+        # "(partial)" on its own is a puzzle rather than a report.
+        message = digest(self.AUG_24)
+
+        assert message.count("(partial)") == 2
+        assert "left no run metric" in message
+
+    def test_nothing_recorded_at_all_stays_the_stronger_message(self):
+        # The all-or-nothing case outranks this one: with no records there are
+        # no numbers to mark, so the lines are withheld rather than labelled.
+        message = digest({**self.AUG_24, "runs": []})
+
+        assert "(partial)" not in message
+        assert "Verdicts: *unavailable*" in message
+
+    def test_a_shortfall_it_cannot_measure_is_not_invented(self):
+        # ClickUp failed, so there is no independent count of analyses. The
+        # verdicts stand unmarked rather than being labelled on a guess.
+        message = digest({**self.AUG_24, "tickets": None})
+
+        assert "(partial)" not in message
+        assert "Coverage: *unavailable*" in message
 
 
 class TestWhatGoesRed:
+    def test_a_partly_recorded_week_is_reported_without_failing_the_job(self, monkeypatch, capsys):
+        # Same argument as the rollout gap below: this shape is expected for
+        # every week spanning the deploy, and a job that is expected to be red
+        # is a job whose redness means nothing.
+        payload = {**TestAPartlyRecordedWeekSaysSo.AUG_24}
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+
+        code = weekly_digest.main()
+
+        assert code == 0
+        assert "left no run metric" in capsys.readouterr().out
+
     def test_a_rollout_gap_is_reported_in_the_message_without_failing_the_job(self, monkeypatch, capsys):
         # A red cross every Monday for a fortnight, over a state the message
         # already explains, is how a job's redness stops meaning anything.
@@ -627,7 +756,10 @@ class TestCost:
         # still be the first thing a reader's eye lands on.
         message = digest({**REPORT_PAYLOAD, "runs": [a_run(cost_usd=None), a_run(cost_usd=None)]})
 
-        assert "Cost: unknown — 2 runs recorded no cost." in message
+        # Not anchored on "Cost:", because two runs against six analyzed tickets
+        # is also a partial week and the line is labelled as one. What must not
+        # move is the money.
+        assert "unknown — 2 runs recorded no cost." in message
         assert "$0" not in message
 
 
@@ -729,7 +861,7 @@ class TestTheContractWithTheAgent:
         emitted = format_metric_line({"status": "success", "task_id": "x"}, "analyze", "no verdict")
 
         assert cost([emitted])["unpriced"] == 1
-        assert "Cost: unknown" in digest({**REPORT_PAYLOAD, "runs": [emitted]})
+        assert "unknown — 1 run recorded no cost" in digest({**REPORT_PAYLOAD, "runs": [emitted]})
 
 
 class TestTheCliContract:

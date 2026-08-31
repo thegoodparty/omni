@@ -63,9 +63,9 @@ export class VoterDensityProxyService {
 
     try {
       // election-api is M2M-locked; attach the Clerk bearer like every other
-      // gp-api → election-api caller. Without it these reads 401 once
-      // ELECTION_API_AUTH_ENFORCED is on (a 401 is not a 404, so resolveDistrictId
-      // would 502 instead of degrading to "no district").
+      // gp-api → election-api caller. Without it these reads 401 (a 401 is not a
+      // 404, so resolveDistrictId would 502 instead of degrading to "no
+      // district").
       const headers = await this.tokenService.authHeader()
       const response = await lastValueFrom(
         this.httpService.get<ElectionApiVoterDistrict>(

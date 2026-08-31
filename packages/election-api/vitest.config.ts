@@ -30,6 +30,7 @@ export default defineConfig({
       reporter: ['text', 'json-summary', 'json'],
     },
     include: ['src/**/*.test.ts'],
+    setupFiles: ['./src/test-setup.ts'],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,
     // Booting a Nest app against a testcontainer can exceed the 5s default.
