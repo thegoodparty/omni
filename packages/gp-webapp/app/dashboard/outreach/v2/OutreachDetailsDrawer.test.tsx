@@ -726,11 +726,6 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     status: 'pending' as const,
     phoneListId: 9,
   }
-  // Cleared compliance keeps the shipped Cancel campaign footer; omitting it
-  // reads as verification-pending and swaps to Delete + Start verification.
-  const verifiedCompliance = {
-    peerlyCvStatus: 'VERIFIED',
-  } as React.ComponentProps<typeof OutreachDetailsDrawer>['tcrCompliance']
   const mockNoReceipt = () =>
     api.mock('GET /v1/outreach/:id/receipt', {
       status: 404,
@@ -763,7 +758,6 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       <OutreachDetailsDrawer
         row={scheduledSmsRow}
         onOpenChange={onOpenChange}
-        tcrCompliance={verifiedCompliance}
       />,
     )
 
@@ -797,84 +791,11 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       <OutreachDetailsDrawer
         row={{ ...scheduledSmsRow, status: 'completed' }}
         onOpenChange={vi.fn()}
-        tcrCompliance={verifiedCompliance}
       />,
     )
     expect(
       (await screen.findAllByText('Likely voters — SMS')).length,
     ).toBeGreaterThan(0)
-    expect(
-      screen.queryByRole('button', { name: 'Cancel campaign' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('flags a scheduled SMS row as Needs compliance while verification pends, with Cancel + Start verification', async () => {
-    mockNoReceipt()
-    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
-    let cancelParams: unknown
-    api.mock('POST /v1/outreach/:id/cancel', ({ params }) => {
-      cancelParams = params
-      return {
-        status: 200,
-        data: {
-          outreach: { ...smsDetail, status: 'canceled' },
-          refunded: true,
-        },
-      }
-    })
-
-    const onOpenChange = vi.fn()
-    render(
-      <OutreachDetailsDrawer
-        row={scheduledSmsRow}
-        onOpenChange={onOpenChange}
-      />,
-    )
-
-    expect(await screen.findByText('Needs compliance')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Cancel campaign' }),
-    ).not.toBeInTheDocument()
-
-    // Cancel rides the same confirm + endpoint as Cancel campaign.
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(await screen.findByText('Cancel this campaign?')).toBeInTheDocument()
-    await userEvent.click(
-      within(screen.getByRole('alertdialog')).getByRole('button', {
-        name: 'Cancel campaign',
-      }),
-    )
-    expect(cancelParams).toEqual({ id: '41' })
-    expect(onOpenChange).toHaveBeenCalledWith(false)
-  })
-
-  it('flags a paid scheduled row as Needs compliance too, without the Cancel footer', async () => {
-    mockNoReceipt()
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: { ...smsDetail, status: 'paid' },
-    })
-
-    render(
-      <OutreachDetailsDrawer
-        row={{
-          ...scheduledSmsRow,
-          status: 'paid',
-          p2pJob: { status: 'building' },
-        }}
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    // Label and banner mirror the table's substitution; Cancel stays
-    // pending-only because the backend's cancel window is.
-    expect(await screen.findByText('Needs compliance')).toBeInTheDocument()
-    expect(
-      screen.getByText('Compliance needed before this can send'),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Cancel' }),
-    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Cancel campaign' }),
     ).not.toBeInTheDocument()
@@ -938,28 +859,6 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('routes Start verification to the election-filing entry when no TCR record exists', async () => {
-    mockNoReceipt()
-    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
-    const { router } = await import('helpers/test-utils/router-mocking')
-
-    const onOpenChange = vi.fn()
-    render(
-      <OutreachDetailsDrawer
-        row={scheduledSmsRow}
-        onOpenChange={onOpenChange}
-      />,
-    )
-
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Start verification' }),
-    )
-    expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/profile/texting-compliance/election-filing',
-    )
-    expect(onOpenChange).toHaveBeenCalledWith(false)
-  })
-
   it('shows Payment details from the receipt with View receipt opening in a new tab', async () => {
     api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
     api.mock('GET /v1/outreach/:id/receipt', {
@@ -975,11 +874,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
 
     render(
-      <OutreachDetailsDrawer
-        row={scheduledSmsRow}
-        onOpenChange={vi.fn()}
-        tcrCompliance={verifiedCompliance}
-      />,
+      <OutreachDetailsDrawer row={scheduledSmsRow} onOpenChange={vi.fn()} />,
     )
 
     // The receipt amount is the charge of record, in dollars.
@@ -1008,7 +903,6 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       <OutreachDetailsDrawer
         row={{ ...scheduledSmsRow, script }}
         onOpenChange={vi.fn()}
-        tcrCompliance={verifiedCompliance}
       />,
     )
 

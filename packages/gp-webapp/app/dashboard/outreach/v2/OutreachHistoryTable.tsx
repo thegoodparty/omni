@@ -29,11 +29,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import {
-  ChannelBadge,
-  HistoryStatusText,
-  WILL_NOT_SEND_LABEL,
-} from './channelMeta'
+import { ChannelBadge, HistoryStatusText } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { useOutreachDetail } from './useOutreachDetail'
 
@@ -42,9 +38,6 @@ const PAGE_SIZE = 10
 interface OutreachHistoryTableProps {
   rows: HistoryRow[]
   onRowClick: (row: HistoryRow) => void
-  // CampaignVerify clearance still pending: scheduled SMS rows will be held
-  // by the carriers, so their displayed status becomes "Needs compliance".
-  notCleared?: boolean
 }
 
 // Social rows carry no send counts on the list payload — the platform count
@@ -166,14 +159,12 @@ const channelFilterKey = (
     (c.types as readonly string[]).includes(type ?? ''),
   )?.key ?? null
 
-// The unified label vocabulary across both legacy status maps, plus the
-// verification-pending substitution label.
+// The unified label vocabulary across both legacy status maps.
 const STATUS_FILTERS = [
   'Draft',
   'In review',
   'Denied',
   'Scheduled',
-  'Needs compliance',
   'In progress',
   'Done',
   'Pending payment',
@@ -197,7 +188,6 @@ const rowDisplayDate = (row: HistoryRow): string | null => {
 export const OutreachHistoryTable = ({
   rows,
   onRowClick,
-  notCleared = false,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
@@ -208,11 +198,6 @@ export const OutreachHistoryTable = ({
     Set<(typeof STATUS_FILTERS)[number]>
   >(() => new Set(STATUS_FILTERS))
 
-  // A scheduled-not-sent SMS row while verification pends displays (and
-  // filters) as "Needs compliance" — filtering on "Scheduled" must not catch
-  // it. Two shapes qualify: legacy rows displaying "Scheduled" (spine
-  // paid/in_progress) and draft-first rows finalize left at spine `pending`
-  // with a phone list — the same set cancel-before-send acts on.
   const displayStatusLabel = (row: HistoryRow): string | null => {
     // An archived row reads "Archived" no matter what state it was shelved
     // in (prototype: effStatus) — the underlying status is a detail the
@@ -220,19 +205,7 @@ export const OutreachHistoryTable = ({
     if (row.archivedAt) {
       return 'Archived'
     }
-    const label = getHistoryStatusLabel(row)
-    const isSms =
-      row.outreachType === OUTREACH_TYPES.text ||
-      row.outreachType === OUTREACH_TYPES.p2p
-    if (
-      notCleared &&
-      isSms &&
-      (label === 'Scheduled' ||
-        (row.status === 'pending' && row.phoneListId != null))
-    ) {
-      return WILL_NOT_SEND_LABEL
-    }
-    return label
+    return getHistoryStatusLabel(row)
   }
 
   const visible = useMemo(
@@ -252,8 +225,7 @@ export const OutreachHistoryTable = ({
           )
         })
         .sort((a, b) => rowTime(b) - rowTime(a)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- notCleared is the only input displayStatusLabel closes over
-    [rows, showArchive, channelFilter, statusFilter, notCleared],
+    [rows, showArchive, channelFilter, statusFilter],
   )
 
   const activeFilterCount =

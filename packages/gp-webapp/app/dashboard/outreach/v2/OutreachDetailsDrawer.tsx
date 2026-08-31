@@ -1,18 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
   PhoneBankCallOutcome,
   SupportAnswer,
 } from '@goodparty_org/contracts'
-import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import {
-  Alert,
-  AlertAction,
-  AlertDescription,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -21,7 +16,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertTitle,
   Button,
   Card,
   Eyebrow,
@@ -45,28 +39,20 @@ import {
   PhoneIcon,
   RadioIcon,
   ReceiptIcon,
-  ShieldAlertIcon,
-  ShieldCheckIcon,
   Trash2Icon,
   UserMinusIcon,
   UsersRoundIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
-import type { TcrCompliance, VoterFileFilters } from 'helpers/types'
+import type { VoterFileFilters } from 'helpers/types'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
-import { getComplianceRoute } from 'app/dashboard/shared/complianceRoute'
-import {
-  ChannelBadge,
-  HistoryStatusText,
-  WILL_NOT_SEND_LABEL,
-  getChannelLabel,
-} from './channelMeta'
+import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { shortOutreachDate } from './outreachDate.util'
 import { outreachDetailQueryKey, useOutreachDetail } from './useOutreachDetail'
@@ -143,9 +129,6 @@ const lifecycleOf = (
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
-  // CampaignVerify clearance state: while pending, scheduled SMS rows show
-  // "Needs compliance" and the footer offers Cancel + Start verification.
-  tcrCompliance?: TcrCompliance
 }
 
 interface DetailRow extends HistoryRow {
@@ -157,9 +140,7 @@ interface DetailRow extends HistoryRow {
 export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
-  tcrCompliance,
 }: OutreachDetailsDrawerProps) => {
-  const router = useRouter()
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
   const isDoorKnocking = row?.outreachType === OUTREACH_TYPES.nativeDoorKnocking
@@ -205,27 +186,6 @@ export const OutreachDetailsDrawer = ({
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
   const isCanceled = row?.status === 'canceled'
-  // A scheduled SMS row while CampaignVerify clearance pends: the carriers
-  // will hold the send, so the drawer flags it and swaps the footer to
-  // Cancel + Start verification.
-  const notCleared =
-    tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
-  const isPendingVerificationSms = isCancelableSms && notCleared
-  // The carriers hold EVERY uncleared SMS send, not just the cancelable
-  // pending set — legacy rows labeled Scheduled ride spine paid/in_progress.
-  // Mirrors the table's substitution so the drawer can't contradict the row
-  // that opened it; only the label and banner widen, the Cancel footer stays
-  // pending-only because cancel is.
-  const isComplianceHeldSms =
-    notCleared &&
-    isSms &&
-    (isCancelableSms ||
-      (row !== null && getHistoryStatusLabel(row) === 'Scheduled'))
-
-  const startVerification = () => {
-    router.push(getComplianceRoute(tcrCompliance?.status))
-    onOpenChange(false)
-  }
 
   // Only rows created through the paid P2P flow ever record a checkout
   // session; the endpoint 404s the rest (free-texts, legacy), which simply
@@ -358,16 +318,10 @@ export const OutreachDetailsDrawer = ({
       : statusLabel === 'Done'
         ? 'Sent'
         : null
-  // The pill next to the title swaps to the warning label; the byline keeps
-  // "Scheduled for {date}" — the send date itself is unchanged. An archived
-  // row's pill reads "Archived" (prototype: effStatus) — display only, so
-  // the footer's lifecycle still resolves off the underlying status and the
-  // Restore action stays reachable.
-  const displayStatusLabel = isArchived
-    ? 'Archived'
-    : isComplianceHeldSms
-      ? WILL_NOT_SEND_LABEL
-      : statusLabel
+  // An archived row's pill reads "Archived" (prototype: effStatus) — display
+  // only, so the footer's lifecycle still resolves off the underlying status
+  // and the Restore action stays reachable.
+  const displayStatusLabel = isArchived ? 'Archived' : statusLabel
 
   // "Is there something this candidate can do about this campaign from here",
   // which is the second half of the canvas's footer decision. True for the two
@@ -392,25 +346,7 @@ export const OutreachDetailsDrawer = ({
   // footer vocabulary (its `automatic` predates cancel/delete existing for a
   // paid send), so these rows render their own footer node in the shared
   // footer's container anatomy.
-  const smsFooter = isPendingVerificationSms ? (
-    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
-      <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        <Button
-          variant="ghost"
-          className="shrink-0 text-destructive hover:bg-destructive/10"
-          disabled={cancelMutation.isPending}
-          onClick={() => setCancelConfirmOpen(true)}
-        >
-          <XCircleIcon className="size-4" />
-          Cancel
-        </Button>
-        <Button className="flex-1" onClick={startVerification}>
-          <ShieldCheckIcon className="size-4" />
-          Start verification
-        </Button>
-      </div>
-    </div>
-  ) : isCancelableSms ? (
+  const smsFooter = isCancelableSms ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px]">
         <Button
@@ -573,28 +509,6 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
-            {isComplianceHeldSms && (
-              // Same banner as the SMS flow: the drawer is where a user
-              // lands from the "Needs compliance" history row, so the
-              // unblock action leads here too.
-              <Alert variant="info" icon={<ShieldAlertIcon />}>
-                <AlertTitle>Compliance needed before this can send</AlertTitle>
-                <AlertDescription>
-                  Carrier approval takes 1 to 2 weeks. Schedule now, start
-                  compliance so your text clears in time.
-                </AlertDescription>
-                <AlertAction>
-                  <Button
-                    type="button"
-                    variant="alertOutline"
-                    onClick={startVerification}
-                  >
-                    <ShieldCheckIcon />
-                    Start compliance
-                  </Button>
-                </AlertAction>
-              </Alert>
-            )}
             {(audienceName || audienceLabels.length > 0) && (
               <DetailsSection title="Applied filters">
                 {audienceName && (
