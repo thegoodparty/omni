@@ -248,30 +248,9 @@ export const RobocallComposeStep = ({
             longer will be removed.
           </p>
 
-          <RecordBar
-            recorder={recorder}
-            maxSeconds={maxSeconds}
-            playing={playing}
-            onTogglePlay={togglePlay}
-            audioRef={audioRef}
-            onAudioPlay={() => setPlaying(true)}
-            onAudioPause={() => setPlaying(false)}
-            fileInputRef={fileInputRef}
-            onSave={onSaveRecording}
-            isUploading={isUploading}
-            complianceChecking={complianceChecking}
-            complianceProblem={
-              (!!complianceVerdict && !complianceVerdict.passed) ||
-              complianceError
-            }
-          />
-
-          {(recorder.error || uploadError) && (
-            <p className="text-sm text-destructive">
-              {recorder.error ?? uploadError}
-            </p>
-          )}
-
+          {/* Compliance result sits ABOVE the record card so the candidate
+              sees the verdict (or the re-record prompt) before the recording
+              controls, not scrolled below them. */}
           {complianceError && (
             <Card className="items-start gap-3 border-destructive p-4">
               <p className="text-sm text-foreground">
@@ -317,6 +296,30 @@ export const RobocallComposeStep = ({
                 It names you, who paid for the call, and the callback number.
               </p>
             </Card>
+          )}
+
+          <RecordBar
+            recorder={recorder}
+            maxSeconds={maxSeconds}
+            playing={playing}
+            onTogglePlay={togglePlay}
+            audioRef={audioRef}
+            onAudioPlay={() => setPlaying(true)}
+            onAudioPause={() => setPlaying(false)}
+            fileInputRef={fileInputRef}
+            onSave={onSaveRecording}
+            isUploading={isUploading}
+            complianceChecking={complianceChecking}
+            complianceProblem={
+              (!!complianceVerdict && !complianceVerdict.passed) ||
+              complianceError
+            }
+          />
+
+          {(recorder.error || uploadError) && (
+            <p className="text-sm text-destructive">
+              {recorder.error ?? uploadError}
+            </p>
           )}
         </>
       )}
