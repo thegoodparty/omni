@@ -4,6 +4,7 @@ import {
   ClipboardListIcon,
   FlagIcon,
   LayoutDashboardIcon,
+  MegaphoneIcon,
   ScrollTextIcon,
   SendIcon,
   SparklesIcon,
@@ -28,6 +29,7 @@ export const NAV_HEADER_ICONS = {
   dashboard: LayoutDashboardIcon,
   book: BookOpenIcon,
   profile: CircleUserRoundIcon,
+  megaphone: MegaphoneIcon,
 }
 
 export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
@@ -43,4 +45,5 @@ export const NAV_LABELS = {
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',
   voterOutreach: 'Voter Outreach',
+  constituentOutreach: 'Constituent Outreach',
 } as const

@@ -8,6 +8,7 @@ const links = ({
   campaignStoryEnabled = false,
   communityIssuesEnabled = true,
   ordinancesEnabled = false,
+  serveOutreachEnabled = false,
   ecanvasserConnected = false,
   nativeEnabled = false,
   districtResolvable = true,
@@ -23,6 +24,7 @@ const links = ({
   campaignStoryEnabled?: boolean
   communityIssuesEnabled?: boolean
   ordinancesEnabled?: boolean
+  serveOutreachEnabled?: boolean
   ecanvasserConnected?: boolean
   nativeEnabled?: boolean
   districtResolvable?: boolean
@@ -37,6 +39,7 @@ const links = ({
     campaignStoryEnabled,
     communityIssuesEnabled,
     ordinancesEnabled,
+    serveOutreachEnabled,
     {
       ecanvasserConnected,
       nativeEnabled,
@@ -106,6 +109,7 @@ describe('getDashboardMenuItems: "Your story" sidebar item', () => {
       true, // campaignStoryEnabled
       false, // communityIssuesEnabled
       false, // ordinancesEnabled
+      false, // serveOutreachEnabled
     )
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
@@ -125,6 +129,7 @@ describe('getDashboardMenuItems: "Your story" sidebar item', () => {
       false, // campaignStoryEnabled
       false, // communityIssuesEnabled
       false, // ordinancesEnabled
+      false, // serveOutreachEnabled
     )
     expect(
       items.find((i) => i.id === 'campaign-story-dashboard'),
@@ -150,6 +155,7 @@ describe('getDashboardMenuItems — Campaign Plan tab label', () => {
       false, // campaignStoryEnabled
       false, // communityIssuesEnabled
       false, // ordinancesEnabled
+      false, // serveOutreachEnabled
     )
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
     expect(planItem?.label).toBe('Campaign Plan')
@@ -275,6 +281,52 @@ describe('getDashboardMenuItems — Ordinances tab gating', () => {
       ordinancesEnabled: true,
     })
     expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
+  })
+})
+
+describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
+  it('shows the item for an elected office with serve-access when the flag is on', () => {
+    const items = links({
+      serveAccessEnabled: true,
+      isElectedOffice: true,
+      serveOutreachEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
+      true,
+    )
+  })
+
+  it('hides the item when the flag is off', () => {
+    const items = links({
+      serveAccessEnabled: true,
+      isElectedOffice: true,
+      serveOutreachEnabled: false,
+    })
+    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
+      false,
+    )
+  })
+
+  it('hides the item for a campaign (non-elected-office) org even when the flag is on', () => {
+    const items = links({
+      serveAccessEnabled: true,
+      isElectedOffice: false,
+      serveOutreachEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
+      false,
+    )
+  })
+
+  it('hides the item when serve-access is off even when the flag is on', () => {
+    const items = links({
+      serveAccessEnabled: false,
+      isElectedOffice: true,
+      serveOutreachEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
+      false,
+    )
   })
 })
 

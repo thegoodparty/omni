@@ -297,7 +297,7 @@ import { dirname, join, relative } from 'node:path'
 // sign-in link page redeems a Clerk ticket in the browser on click (Clerk
 // hooks, click handler, session state), so it can't render on the server;
 // matches the /serve/welcome and /win/welcome redemption pages.
-const BASELINE = 614
+const BASELINE = 615
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
