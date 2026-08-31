@@ -123,7 +123,13 @@ export class PersonLookupService {
     const identities = new Map<string, PersonIdentity>()
     if (!personIds.length) return identities
     if (!ELECTION_API_URL) {
-      throw new Error('Please set ELECTION_API_URL in your .env')
+      // Unlike lookup(), which cannot do its job at all without this, an
+      // unconfigured base URL here costs only the names — degrade like any
+      // other failed resolution rather than 500 the takedown log.
+      this.logger.warn(
+        'ELECTION_API_URL is unset; listing takedowns without identities',
+      )
+      return identities
     }
 
     const unique = [...new Set(personIds)]

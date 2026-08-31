@@ -49,6 +49,7 @@ describe('PersonLookupService', () => {
     const logger = {
       setContext: vi.fn(),
       error: vi.fn(),
+      warn: vi.fn(),
     } as unknown as PinoLogger
     const tokenService = {
       authHeader: vi.fn().mockResolvedValue({ Authorization: 'Bearer t' }),
