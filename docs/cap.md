@@ -121,9 +121,6 @@ a known, growing area of investment.
 - **Broker** — the trusted egress proxy in `packages/gp-ai`; the security boundary
   for every background run.
 - **Manifest** — the S3-published definition of an experiment.
-- **ICP gate** — "ideal customer profile" gate; automated background dispatch only
-  fires for orgs whose office is flagged `isServeIcp` (sourced from Databricks via
-  election-api). Fails closed.
 - **Chat scope** — the interactive-side abstraction (`ChatScopeHandler`) for a kind
   of chat; today only `chief_of_staff` is registered.
 
