@@ -335,7 +335,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         campaign: { include: { user: true } },
       },
     })
-    const { campaign } = outreach
+    // The claim above matched a real campaignId — text/p2p finalize never
+    // reaches an org-only (social) row, the only kind with no campaign.
+    const campaign = outreach.campaign!
     const user = campaign.user
 
     let jobId: string
@@ -486,7 +488,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
     try {
       return await this.peerlyP2pJobService.createPeerlyP2pJob({
-        campaignId: outreach.campaignId,
+        // p2p drafts are always campaign-scoped — only social outreach can
+        // be org-only (outreach.prisma).
+        campaignId: outreach.campaignId!,
         listId: outreach.phoneListId,
         imageInfo: {
           fileStream: image.bytes,

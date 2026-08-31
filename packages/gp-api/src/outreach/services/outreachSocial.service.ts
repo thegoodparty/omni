@@ -33,6 +33,10 @@ const toOutreachDetail = (
   doorKnocking?: DoorKnockingOutreachDetail,
 ): OutreachDetail => ({
   ...outreach,
+  // Both callers (saveSocialOutreach, findDetail) are campaign-scoped —
+  // only a Serve org-only row can have a null campaignId (outreach.prisma),
+  // and neither call path here reaches one yet.
+  campaignId: outreach.campaignId!,
   social: outreach.social
     ? {
         purpose: outreach.social.purpose,
