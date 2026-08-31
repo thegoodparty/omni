@@ -76,6 +76,17 @@ describe('PeerlyErrorHandlingService', () => {
     await expect(promise).rejects.toThrow('Peerly API error: Unknown API error')
   })
 
+  it('does not 400 a template-shaped body on a 5xx response', async () => {
+    const error = axiosError(
+      { Errors: { templates: [{ non_field_errors: [TINYURL_MESSAGE] }] } },
+      502,
+    )
+
+    const promise = service.handleApiError({ error })
+    await expect(promise).rejects.toThrow(BadGatewayException)
+    await expect(promise).rejects.toThrow('Peerly API error: Unknown API error')
+  })
+
   it('does not 400 an Errors body without template messages', async () => {
     const promise = service.handleApiError({
       error: axiosError({ Errors: { templates: [] } }),

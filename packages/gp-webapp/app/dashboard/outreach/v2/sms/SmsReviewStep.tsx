@@ -140,6 +140,14 @@ export const SmsReviewStep = ({
   const handlePaidComplete = async (sessionId: string) => {
     const response = await completeCheckoutSession(sessionId)
     if (!response.ok) {
+      const parsed = purchaseErrorSchema.safeParse(response.data)
+      if (parsed.success) {
+        setPayErrorMessage(parsed.data.message)
+        setPayError(true)
+        return
+      }
+      // Unparseable failures keep the throw so CheckoutForm's onError still
+      // reports to Sentry and snackbars.
       throw new Error('Failed to complete purchase')
     }
     await onComplete(true)

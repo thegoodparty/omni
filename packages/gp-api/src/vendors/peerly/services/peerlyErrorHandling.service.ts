@@ -75,7 +75,7 @@ export class PeerlyErrorHandlingService {
       // as a 400 so candidates can self-serve instead of hitting CS with an
       // opaque 502. Callers passing customMessage (e.g. list assignment)
       // keep their framing: downstream recovery matches on that message.
-      if (!context?.customMessage) {
+      if (!context?.customMessage && (error.response?.status ?? 0) < 500) {
         const templateErrors =
           peerlyTemplateErrorsSchema.safeParse(responseData)
         if (templateErrors.success) {
