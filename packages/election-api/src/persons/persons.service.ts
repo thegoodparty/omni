@@ -46,6 +46,20 @@ type OfficeHolderPositionContext = {
   Races: { slug: string; positionLevel: PositionLevel }[]
 } | null
 
+// The pipeline publishes cells at several H3 resolutions; res 8 is the default
+// the data-team handoff documents when none is given, and the only one the
+// public profile has ever asked for. The route pins it rather than taking a
+// query param — an unvalidated resolution would let a caller probe for
+// resolutions fine enough to undo the k-anonymity the cells were built with.
+const DEFAULT_RESOLUTION = 8
+
+/** A single precomputed heat-map cell: an H3 centroid and its voter count. */
+export interface VoterDensityCell {
+  lat: number
+  lng: number
+  count: number
+}
+
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {
   async getPersons(filterDto: PersonFilterDto) {
@@ -198,6 +212,60 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       officeDistrict ?? this.pickCandidacyDistrict(person.Candidacies)
 
     return { personId, districtId, state: person.state ?? null }
+  }
+
+  // The person's heat map in one call: the district resolution above, then the
+  // precomputed cells for it. This exists because the cells used to live in
+  // people-db, so gp-api had to resolve the district here and then read the
+  // cells from a second database; now that both sit in election-db, the caller
+  // makes one request and there is no way for the two halves to disagree.
+  //
+  // There is NO H3 math here. The pipeline already binned voters to H3 cells,
+  // k-anonymized them, and stored each cell's centroid, so this is a plain
+  // indexed read on (districtId, resolution) plus the matching coverage row.
+  //
+  // Degradation matches getVoterDistrict, because the page's contract is the
+  // same: an unknown person 404s, while a person who resolves to no district —
+  // or to a district the pipeline has not published cells for — returns empty
+  // cells and null coverage, which the page renders as no map rather than as an
+  // error. Coverage is also null when no meta row exists; the page treats
+  // null/low coverage as "do not render", so a sparsely covered district shows
+  // no map rather than a misleading one.
+  async getVoterDensity(
+    personId: string,
+    resolution: number = DEFAULT_RESOLUTION,
+  ): Promise<{
+    personId: string
+    districtId: string | null
+    coverage: number | null
+    cells: VoterDensityCell[]
+  }> {
+    const { districtId } = await this.getVoterDistrict(personId)
+    if (!districtId) {
+      return { personId, districtId: null, coverage: null, cells: [] }
+    }
+
+    // The cells and their coverage meta are independent reads on the same key;
+    // fetch them together.
+    const [rows, meta] = await Promise.all([
+      this.client.districtVoterDensity.findMany({
+        where: { districtId, resolution },
+        select: { lat: true, lng: true, voterCount: true },
+        // Deterministic order keeps responses stable across identical requests.
+        orderBy: [{ lat: Prisma.SortOrder.asc }, { lng: Prisma.SortOrder.asc }],
+      }),
+      this.client.districtVoterDensityMeta.findUnique({
+        where: { districtId_resolution: { districtId, resolution } },
+        select: { coverage: true },
+      }),
+    ])
+
+    return {
+      personId,
+      districtId,
+      coverage: meta?.coverage ?? null,
+      cells: rows.map((r) => ({ lat: r.lat, lng: r.lng, count: r.voterCount })),
+    }
   }
 
   private pickOfficeHolderDistrict(

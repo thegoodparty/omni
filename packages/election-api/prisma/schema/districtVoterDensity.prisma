@@ -1,0 +1,64 @@
+// Precomputed voter-density heat-map cells, one row per H3 cell per district
+// per resolution. Populated by the data team (dbt on Databricks; see
+// docs/voter-density-election-db-handoff.md), NOT by the application — the API
+// reads it read-only and serves it to public /people profiles.
+//
+// Privacy contract: every row is an aggregated, k-anonymized cell
+// (voter_count >= min_cell_count) whose (lat, lng) is the DETERMINISTIC H3 cell
+// centroid, never a voter location. No PII columns. There is no H3 math in
+// Postgres — the centroid is precomputed upstream, so the read is a plain
+// indexed lookup.
+//
+// Ported from people-db `green.DistrictVoterDensity`, which this replaces. Two
+// deliberate differences: no `green` schema (election-db is single-schema), and
+// `state` is a String rather than people-db's USState enum, matching the
+// District.state it sits beside.
+model DistrictVoterDensity {
+  resolution Int
+  h3Index    String   @map("h3_index") // h3_h3tostring(h3); opaque to the app
+  lat        Float // H3 cell centroid latitude
+  lng        Float // H3 cell centroid longitude
+  voterCount Int      @map("voter_count") // count in cell; always >= min_cell_count
+  state      String
+  updatedAt  DateTime @map("updated_at")
+
+  // The FK people-db could not have: there, District lived in another database,
+  // so a cell could reference a district that did not exist and the only symptom
+  // was a map that silently never rendered. Here the load fails loudly instead —
+  // which is the whole point of co-locating these, since the shared salted uuid
+  // lining up is the one assumption the migration rests on.
+  District   District @relation(fields: [districtId], references: [id])
+  districtId String   @map("district_id") @db.Uuid
+
+  // Only ever queried by (districtId, resolution); the PK's leading columns
+  // already serve that lookup, and the explicit index keeps it cheap as the
+  // table grows to every district x resolution.
+  @@id([districtId, resolution, h3Index])
+  @@index([districtId, resolution])
+  @@map("District_Voter_Density")
+}
+
+// Per-district-per-resolution coverage bookkeeping, keyed the same way as the
+// cells. `coverage` is the only column the app reads, and it reads it to decide
+// whether to render the map at all (low coverage -> hide). The rest are the
+// data team's build provenance, kept here so a suppressed or sparse district can
+// be explained without re-running the pipeline; `minCellCount` in particular
+// records the K a build actually used, which is the only way to tell after the
+// fact whether a district was cut at the agreed policy K.
+model DistrictVoterDensityMeta {
+  resolution      Int
+  coverage        Float // rendered_voters / total_voters, in [0, 1]
+  minCellCount    Int      @map("min_cell_count") // the K-anonymity threshold used
+  totalVoters     Int      @map("total_voters")
+  geocodedVoters  Int      @map("geocoded_voters")
+  renderedVoters  Int      @map("rendered_voters")
+  suppressedCells Int      @map("suppressed_cells")
+  state           String
+  updatedAt       DateTime @map("updated_at")
+
+  District   District @relation(fields: [districtId], references: [id])
+  districtId String   @map("district_id") @db.Uuid
+
+  @@id([districtId, resolution])
+  @@map("District_Voter_Density_Meta")
+}

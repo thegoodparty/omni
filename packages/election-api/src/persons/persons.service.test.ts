@@ -7,13 +7,21 @@ describe('PersonsService', () => {
   let service: PersonsService
   let findMany: ReturnType<typeof vi.fn>
   let findUnique: ReturnType<typeof vi.fn>
+  let densityFindMany: ReturnType<typeof vi.fn>
+  let metaFindUnique: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     findMany = vi.fn().mockResolvedValue([])
     findUnique = vi.fn().mockResolvedValue(null)
+    densityFindMany = vi.fn().mockResolvedValue([])
+    metaFindUnique = vi.fn().mockResolvedValue(null)
     service = new PersonsService()
     Object.defineProperty(service, '_prisma', {
-      value: { person: { findMany, findUnique } },
+      value: {
+        person: { findMany, findUnique },
+        districtVoterDensity: { findMany: densityFindMany },
+        districtVoterDensityMeta: { findUnique: metaFindUnique },
+      },
     })
   })
 
@@ -391,6 +399,131 @@ describe('PersonsService', () => {
 
       const result = await service.getVoterDistrict('p1')
       expect(result).toEqual({ personId: 'p1', districtId: null, state: 'WY' })
+    })
+  })
+
+  describe('getVoterDensity', () => {
+    /** A person whose current office term resolves to `districtId`. */
+    const personInDistrict = (districtId: string | null) => ({
+      state: 'CA',
+      OfficeHolders: [
+        {
+          isCurrent: true,
+          startAt: new Date('2020-01-01'),
+          Position: { districtId },
+        },
+      ],
+      Candidacies: [],
+    })
+
+    it('throws NotFound when the person is unknown', async () => {
+      findUnique.mockResolvedValueOnce(null)
+      await expect(service.getVoterDensity('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+    })
+
+    it('returns an empty map without querying density when no district resolves', async () => {
+      findUnique.mockResolvedValueOnce(personInDistrict(null))
+
+      const result = await service.getVoterDensity('p1')
+
+      expect(result).toEqual({
+        personId: 'p1',
+        districtId: null,
+        coverage: null,
+        cells: [],
+      })
+      // A person with no district has no key to look up; hitting the density
+      // tables anyway would be a guaranteed-empty scan on every such profile.
+      expect(densityFindMany).not.toHaveBeenCalled()
+      expect(metaFindUnique).not.toHaveBeenCalled()
+    })
+
+    it('returns the cells and coverage for the resolved district', async () => {
+      findUnique.mockResolvedValueOnce(personInDistrict('d1'))
+      densityFindMany.mockResolvedValueOnce([
+        { lat: 34.1, lng: -118.2, voterCount: 12 },
+        { lat: 34.2, lng: -118.1, voterCount: 7 },
+      ])
+      metaFindUnique.mockResolvedValueOnce({ coverage: 0.82 })
+
+      const result = await service.getVoterDensity('p1')
+
+      expect(result).toEqual({
+        personId: 'p1',
+        districtId: 'd1',
+        coverage: 0.82,
+        cells: [
+          { lat: 34.1, lng: -118.2, count: 12 },
+          { lat: 34.2, lng: -118.1, count: 7 },
+        ],
+      })
+    })
+
+    it('keys both reads on the resolved district at the default resolution', async () => {
+      findUnique.mockResolvedValueOnce(personInDistrict('d1'))
+
+      await service.getVoterDensity('p1')
+
+      expect(densityFindMany).toHaveBeenCalledWith({
+        where: { districtId: 'd1', resolution: 8 },
+        select: { lat: true, lng: true, voterCount: true },
+        orderBy: [{ lat: 'asc' }, { lng: 'asc' }],
+      })
+      expect(metaFindUnique).toHaveBeenCalledWith({
+        where: { districtId_resolution: { districtId: 'd1', resolution: 8 } },
+        select: { coverage: true },
+      })
+    })
+
+    it('passes a caller-supplied resolution through to both reads', async () => {
+      findUnique.mockResolvedValueOnce(personInDistrict('d1'))
+
+      await service.getVoterDensity('p1', 7)
+
+      expect(densityFindMany.mock.calls[0]?.[0].where.resolution).toBe(7)
+      expect(
+        metaFindUnique.mock.calls[0]?.[0].where.districtId_resolution
+          .resolution,
+      ).toBe(7)
+    })
+
+    it('reports null coverage when cells exist but no meta row does', async () => {
+      // The page hides the map on null/low coverage, so an unbuilt meta row has
+      // to read as "do not render" rather than as full coverage.
+      findUnique.mockResolvedValueOnce(personInDistrict('d1'))
+      densityFindMany.mockResolvedValueOnce([
+        { lat: 34.1, lng: -118.2, voterCount: 12 },
+      ])
+      metaFindUnique.mockResolvedValueOnce(null)
+
+      const result = await service.getVoterDensity('p1')
+      expect(result.coverage).toBeNull()
+      expect(result.cells).toHaveLength(1)
+    })
+
+    it('reports zero coverage as zero, not as absent', async () => {
+      // 0 is a real, published coverage value; `?? null` must not collapse it
+      // the way `||` would, or a fully suppressed district becomes
+      // indistinguishable from one the pipeline never built.
+      findUnique.mockResolvedValueOnce(personInDistrict('d1'))
+      metaFindUnique.mockResolvedValueOnce({ coverage: 0 })
+
+      const result = await service.getVoterDensity('p1')
+      expect(result.coverage).toBe(0)
+    })
+
+    it('returns empty cells for a district the pipeline has published nothing for', async () => {
+      findUnique.mockResolvedValueOnce(personInDistrict('d1'))
+
+      const result = await service.getVoterDensity('p1')
+      expect(result).toEqual({
+        personId: 'p1',
+        districtId: 'd1',
+        coverage: null,
+        cells: [],
+      })
     })
   })
 })

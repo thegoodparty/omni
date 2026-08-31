@@ -53,6 +53,15 @@ export class PersonsController {
     return this.personsService.getVoterDistrict(params.personId)
   }
 
+  // The whole heat map for a person: the district above, plus its precomputed
+  // cells. Supersedes the voter-district route above for gp-api, which used to
+  // pair that route with a read against people-db; that route stays while the
+  // two sources are read side by side and compared.
+  @Get(':personId/voter-density')
+  async getVoterDensity(@Param() params: GetPersonByIdParamsDTO) {
+    return this.personsService.getVoterDensity(params.personId)
+  }
+
   @Get(':personId')
   async getPersonById(@Param() params: GetPersonByIdParamsDTO) {
     return this.personsService.getPersonById(params.personId)
