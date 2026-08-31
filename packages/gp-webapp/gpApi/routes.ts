@@ -1,6 +1,6 @@
 export interface ApiRoute {
   path: string
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   nextApiRoute?: boolean
   withAuth?: boolean
   returnFullResponse?: boolean
@@ -513,6 +513,10 @@ export const apiRoutes = {
     create: {
       path: '/outreach',
       method: 'POST',
+    },
+    update: {
+      path: '/outreach/:id',
+      method: 'PATCH',
     },
     list: {
       path: '/outreach',

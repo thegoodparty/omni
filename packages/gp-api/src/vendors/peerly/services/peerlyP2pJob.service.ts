@@ -42,6 +42,19 @@ interface CreateP2pJobParams {
   scheduledDate?: string
 }
 
+interface UpdateP2pJobParams {
+  jobId: string
+  campaignId: number
+  imageInfo: CreateP2pJobParams['imageInfo']
+  scriptText: string
+  identityId: string
+  name?: string
+  // Set only when the send date changed: Peerly has no schedule-update
+  // endpoint, so a reschedule mints a fresh schedule and repoints the job's
+  // schedule_id + start/end dates at it. Omitted, the job keeps its schedule.
+  rescheduleDate?: string
+}
+
 @Injectable()
 export class PeerlyP2pJobService extends PeerlyBaseConfig {
   constructor(
@@ -144,6 +157,83 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         P2P_ERROR_MESSAGES.JOB_CREATION_FAILED,
       )
       throw new BadGatewayException(P2P_ERROR_MESSAGES.JOB_CREATION_FAILED)
+    }
+  }
+
+  // Edit-before-send. Templates are a destructive full-array overwrite on
+  // Peerly's side, so the caller always sends the complete script + image —
+  // media is re-created per edit (same orphan posture as a failed create).
+  async updatePeerlyP2pJob({
+    jobId,
+    campaignId,
+    imageInfo,
+    scriptText,
+    identityId,
+    name,
+    rescheduleDate,
+  }: UpdateP2pJobParams): Promise<void> {
+    if (scriptText.length > P2P_SCRIPT_MAX_LENGTH) {
+      throw new BadRequestException(P2P_ERROR_MESSAGES.SCRIPT_TOO_LONG)
+    }
+
+    try {
+      const mediaId = await this.peerlyMediaService.createMedia({
+        identityId,
+        fileStream: imageInfo.fileStream,
+        fileName: imageInfo.fileName,
+        mimeType: imageInfo.mimeType,
+        fileSize: imageInfo.fileSize,
+        title: imageInfo.title,
+      })
+
+      let scheduleId: number | undefined
+      if (rescheduleDate) {
+        const scheduleName = `GP P2P - Campaign ${campaignId} - ${rescheduleDate} - ${formatISO(new Date())}`
+        scheduleId =
+          await this.peerlyScheduleService.createSchedule(scheduleName)
+      }
+
+      const body = {
+        account_id: this.accountNumber,
+        ...(name && { name }),
+        templates: [
+          {
+            is_default: true,
+            title: P2P_JOB_DEFAULTS.TEMPLATE_TITLE,
+            text: scriptText,
+            media: {
+              media_type: 'IMAGE',
+              media_id: mediaId,
+              title: imageInfo.title || P2P_JOB_DEFAULTS.TEMPLATE_TITLE,
+            },
+          },
+        ],
+        can_use_mms: true,
+        ...(scheduleId && {
+          schedule_id: scheduleId,
+          start_date: rescheduleDate,
+          end_date: rescheduleDate,
+        }),
+      }
+
+      this.logger.debug({ body }, `Updating Peerly job ${jobId} with body:`)
+      try {
+        await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, body)
+      } catch (error) {
+        // Same parse as createJob: a Peerly content rejection
+        // (Errors.templates) surfaces as an actionable 400, not a blanket
+        // 502 (ENG-10981).
+        await this.peerlyErrorHandling.handleApiError({
+          error,
+          logger: this.logger,
+        })
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error
+      }
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED)
     }
   }
 

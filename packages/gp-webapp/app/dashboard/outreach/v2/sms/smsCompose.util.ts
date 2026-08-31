@@ -64,3 +64,18 @@ export const hasIdentification = (body: string, firstName: string): boolean => {
 
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
+
+// Inverse of composeScript, for edit-before-send: recover the editable body
+// from a stored script by peeling the known system regions. Tolerant of
+// legacy rows that predate the region model — whatever doesn't match is
+// simply kept as body text.
+export const stripComposedScript = (script: string): string => {
+  let body = script
+  if (body.endsWith(`\n\n${OPT_OUT_FOOTER}`)) {
+    body = body.slice(0, -`\n\n${OPT_OUT_FOOTER}`.length)
+  }
+  if (body.startsWith(`${SMS_GREETING} `)) {
+    body = body.slice(SMS_GREETING.length + 1)
+  }
+  return body.trim()
+}
