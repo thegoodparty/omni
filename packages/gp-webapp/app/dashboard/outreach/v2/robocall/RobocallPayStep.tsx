@@ -520,7 +520,13 @@ const RobocallPayForm = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <PaymentElement options={{ layout: 'tabs' }} />
+      {/* Link is disabled here (robocall only): it can vault a bank account,
+          and ACH cannot back a manual-capture hold — the card-only SetupIntent
+          would reject it anyway, so showing it is a dead end. Other flows keep
+          Link. Apple/Google Pay stay: they are card-backed and hold-safe. */}
+      <PaymentElement
+        options={{ layout: 'tabs', wallets: { link: 'never' } }}
+      />
       {submitError && (
         <p role="alert" className="text-sm text-destructive">
           {submitError}
