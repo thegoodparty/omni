@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
   type RobocallAuthorizeResponse,
@@ -27,7 +28,11 @@ import { RobocallReviewStep } from './RobocallReviewStep'
 import { RobocallPayStep } from './RobocallPayStep'
 import { useRobocallRecorder } from './useRobocallRecorder'
 import { useRobocallAudioUpload } from './useRobocallAudioUpload'
-import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
+import {
+  combineScheduledAt,
+  resolveCampaignTimeZone,
+  ROBOCALL_MAX_SCHEDULE_DAYS,
+} from './scheduleTimeZone'
 
 // The full flow: pick a purpose, pick/build the audience, choose when it goes
 // out, record/compose the message, review the pre-send summary, then pay
@@ -294,14 +299,19 @@ export const RobocallFlow = ({
   }, [recorder.status, audioUpload.key, audioUpload.contentType, runCompliance])
 
   // Validate against the combined UTC instant so it's tz-correct: the send only
-  // has to be in the future (no lead-time buffer). `earliest` (now) drives the
-  // "earliest send" hint and the past-time alert, mirroring the design's
-  // flowWhen. The 9am-9pm slot list is the only remaining timing constraint.
+  // has to be in the future (no lead-time buffer) and no more than
+  // ROBOCALL_MAX_SCHEDULE_DAYS out. `earliest` (now) drives the "earliest send"
+  // hint and the past-time alert, mirroring the design's flowWhen.
+  // `maxScheduledAt` bounds the calendar and the too-far-out alert. The
+  // 9am-7pm slot list is the only remaining timing constraint.
   const scheduledAt = combineScheduledAt(scheduledDay, time, timeZone)
   const earliest = now
+  const maxScheduledAt = addDays(now, ROBOCALL_MAX_SCHEDULE_DAYS)
   const isInPast =
     scheduledAt !== null && scheduledAt.getTime() < earliest.getTime()
-  const isScheduleValid = scheduledAt !== null && !isInPast
+  const isTooFarOut =
+    scheduledAt !== null && scheduledAt.getTime() > maxScheduledAt.getTime()
+  const isScheduleValid = scheduledAt !== null && !isInPast && !isTooFarOut
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -603,7 +613,9 @@ export const RobocallFlow = ({
           onTimeChange={setTime}
           timeZone={timeZone}
           earliest={earliest}
-          violates={isInPast}
+          maxScheduledDay={maxScheduledAt}
+          violates={isInPast || isTooFarOut}
+          isTooFarOut={isTooFarOut}
         />
       ) : stepId === 'compose' ? (
         <RobocallComposeStep
