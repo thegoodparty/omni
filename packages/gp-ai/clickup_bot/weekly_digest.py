@@ -127,6 +127,20 @@ RUNS_UNREACHABLE = "unreachable"
 RUNS_GAP = "gap"
 RUNS_UNCHECKABLE = "uncheckable"
 
+# ...AND WHY A NON-ZERO IS NOT SELF-EXPLANATORY EITHER, which is the same bug
+# one step along. The 2026-08-24 digest reported "Coverage: 8 of 8 tagged bugs
+# analyzed" and, three lines below it, "0 fix · 1 no-code-change · 0
+# needs-human" and "$4.02 this week". Both were computed from the two metric
+# lines that existed: GPBOT_METRIC shipped on the Friday of that week, so six of
+# the eight analyses ran before there was anything to record them. Nothing was
+# broken and nothing said so — the verdicts and the cost were simply a sixth of
+# the week, presented in the same shape as a whole one.
+#
+# `believable_zero` only ever caught the all-or-nothing case. A partial sample
+# reads as complete, which is worse than an absent line: a reader has no way to
+# tell it from a week where the bot really did conclude almost nothing.
+SHORTFALL_MARKER = "partial"
+
 UNAVAILABLE_REASONS = {
     RUNS_UNREACHABLE: "could not read run metrics from CloudWatch",
     RUNS_GAP: "no run metrics recorded for this week",
@@ -235,7 +249,7 @@ def coverage(tickets: Any) -> dict:
     if not isinstance(tickets, list):
         return {"available": False}
 
-    analyzed, missed, latencies = 0, [], []
+    analyzed, analyzed_ids, missed, latencies = 0, [], [], []
     for ticket in tickets:
         if not isinstance(ticket, dict):
             continue
@@ -244,6 +258,14 @@ def coverage(tickets: Any) -> dict:
             missed.append({"name": _ticket_name(ticket), "url": ticket.get("url")})
             continue
         analyzed += 1
+        # The ids as well as the tally, so the run metrics can be checked ticket
+        # by ticket rather than by comparing two totals. Two totals agreeing is
+        # a weaker claim than every analysis having been recorded, and it is
+        # weakest exactly when the numbers matter: a week that analyzed eight
+        # tickets and recorded eight runs for other tickets would tally clean.
+        task_id = ticket.get("id")
+        if isinstance(task_id, str) and task_id:
+            analyzed_ids.append(task_id)
         created = _epoch_from_clickup(ticket.get("date_created"))
         # A negative latency is a clock disagreement between ClickUp's two
         # timestamps, not a comment that predates its ticket. Dropping it keeps
@@ -255,6 +277,7 @@ def coverage(tickets: Any) -> dict:
         "available": True,
         "tagged": sum(1 for t in tickets if isinstance(t, dict)),
         "analyzed": analyzed,
+        "analyzed_ids": analyzed_ids,
         "missed": missed,
         # None rather than 0 when nothing was analyzed: "median 0.0 min" is a
         # claim of instant service on a week where the bot did nothing.
@@ -307,7 +330,12 @@ def verdicts(runs: Any) -> dict:
     records = _metric_records(runs)
     counts = dict.fromkeys(VERDICTS, 0)
     no_verdict = 0
+    analyzed_ids = set()
     for record in records:
+        if record.get("label") == "analyze":
+            task_id = record.get("task_id")
+            if isinstance(task_id, str) and task_id:
+                analyzed_ids.add(task_id)
         verdict = record.get("verdict")
         if verdict in counts:
             counts[verdict] += 1
@@ -323,6 +351,11 @@ def verdicts(runs: Any) -> dict:
         # question from what they said. `summarize` needs it to decide whether a
         # zero here is a quiet week or a hole in the instrumentation.
         "records": len(records),
+        # Which tickets these verdicts are actually about, for the shortfall
+        # check in `summarize`. A set of ids rather than a count, because the
+        # question is "was this ticket's analysis recorded", not "did two
+        # numbers match".
+        "analyzed_ids": sorted(analyzed_ids),
         "counts": counts,
         "deflected": sum(counts[verdict] for verdict in DEFLECTING_VERDICTS),
         "no_verdict": no_verdict,
@@ -491,6 +524,38 @@ def believable_zero(coverage_facts: dict, runs_facts: dict) -> str | None:
     return RUNS_GAP if coverage_facts.get("analyzed", 0) > 0 else None
 
 
+def instrumentation_shortfall(coverage_facts: dict, runs_facts: dict) -> dict | None:
+    """How many of the week's analyses left no run metric behind.
+
+    The same question `believable_zero` asks, asked of a partial answer instead
+    of an empty one, and settled the same way: ClickUp counted the analyses from
+    the bot's own ticket comments by a route that touches CloudWatch nowhere, so
+    it can say what the run metrics should have contained.
+
+    MATCHED ON TICKET ID rather than by comparing the two totals. Equal totals
+    are not the claim being made — a week whose recorded runs all belong to
+    tickets filed the week before would tally perfectly while every analysis in
+    the report went unrecorded.
+
+    KNOWN AND ACCEPTED IMPRECISION, in the direction of over-reporting: coverage
+    buckets a ticket by when it was FILED and deliberately counts an analysis
+    that happened after the window closed (a Sunday bug analyzed on Monday is
+    covered, not missed), while the metric query is bounded by when the run
+    RAN. So a bug at the very end of a week can be counted here as unrecorded
+    when its metric line exists and simply lands in the next week's query. That
+    costs an occasional "1 of 8" on a boundary week. The alternative — saying
+    nothing until the gap is provably not an edge effect — is what let six
+    missing analyses out of eight read as a normal week.
+    """
+    if not runs_facts.get("available") or not coverage_facts.get("available"):
+        return None
+    recorded = set(runs_facts.get("analyzed_ids") or [])
+    expected = [task_id for task_id in coverage_facts.get("analyzed_ids") or [] if task_id not in recorded]
+    if not expected:
+        return None
+    return {"missing": len(expected), "analyzed": coverage_facts.get("analyzed", 0)}
+
+
 def summarize(payload: Any, now: float | None = None) -> dict:
     """Every fact the message states, with each source's availability attached.
 
@@ -514,6 +579,16 @@ def summarize(payload: Any, now: float | None = None) -> dict:
     if unbelievable:
         verdict_facts = {"available": False, "reason": unbelievable}
         cost_facts = {"available": False, "reason": unbelievable, "analyzed": coverage_facts.get("analyzed")}
+    else:
+        # Marked rather than withheld. Unlike the all-or-nothing case there are
+        # real verdicts and real dollars here, and they are worth reading once a
+        # reader knows what fraction of the week they describe. Both lines carry
+        # it for the same reason they are demoted together: one source, one
+        # question.
+        shortfall = instrumentation_shortfall(coverage_facts, verdict_facts)
+        if shortfall:
+            verdict_facts = {**verdict_facts, "shortfall": shortfall}
+            cost_facts = {**cost_facts, "shortfall": shortfall}
 
     return {
         "start": start,
@@ -527,6 +602,11 @@ def summarize(payload: Any, now: float | None = None) -> dict:
 
 def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _analyses(count: int) -> str:
+    """`_plural` cannot reach this one: the plural of analysis is not analysiss."""
+    return f"{count} analysis" if count == 1 else f"{count} analyses"
 
 
 def _link(url: Any, label: str) -> str:
@@ -570,19 +650,29 @@ def _unavailable(facts: dict) -> str:
     return UNAVAILABLE_REASONS.get(facts.get("reason"), UNAVAILABLE_REASONS[RUNS_UNREACHABLE])
 
 
+def _label(name: str, facts: dict) -> str:
+    """The line's own name, saying whether it covers the whole week.
+
+    ON THE LABEL, not appended to the end of the numbers. Whatever qualifier
+    trails a line, the eye still lands on the figures first and reads them as
+    the week's; the only place a caveat cannot be skipped is in front of them.
+    """
+    return f"{name} ({SHORTFALL_MARKER})" if facts.get("shortfall") else name
+
+
 def _verdict_line(facts: dict) -> str:
     if not facts.get("available"):
         return f"Verdicts: *unavailable* — {_unavailable(facts)}."
     counts = facts["counts"]
+    name = _label("Verdicts", facts)
     if not any(counts.values()) and not facts["no_verdict"]:
-        return "Verdicts: no analyses recorded."
+        return f"{name}: no analyses recorded."
     listed = " · ".join(f"{counts[verdict]} {verdict}" for verdict in VERDICTS)
-    line = f"Verdicts: {listed} → *{_plural(facts['deflected'], 'ticket')} kept off the eng queue*"
+    line = f"{name}: {listed} → *{_plural(facts['deflected'], 'ticket')} kept off the eng queue*"
     if facts["no_verdict"]:
         # Surfaced in the message rather than left to the logs: this is the
         # shape of "escalation has silently stopped working".
-        count = facts["no_verdict"]
-        line += f" · ⚠️ {count} {'analysis' if count == 1 else 'analyses'} produced no verdict"
+        line += f" · ⚠️ {_analyses(facts['no_verdict'])} produced no verdict"
     return line
 
 
@@ -602,17 +692,18 @@ def _cost_line(facts: dict) -> str:
         # NEVER "$0". A zero here is a claim that the bot ran for free, which is
         # the specific lie this whole availability distinction exists to prevent.
         return f"Cost: *unavailable* — {_unavailable(facts)}."
+    name = _label("Cost", facts)
     if facts["records"] == 0:
         # Reached only once `believable_zero` has confirmed nothing was analyzed
         # either. Before that check existed this line was how a fortnight of
         # missing instrumentation would have read.
-        return "Cost: no runs recorded this week."
+        return f"{name}: no runs recorded this week."
     if facts["records"] == facts["unpriced"]:
         # The same lie by a different route. Runs happened and not one of them
         # reported a price, so summing to $0.00 and appending a qualifier would
         # still put a wrong number where a reader's eye goes first.
-        return f"Cost: unknown — {_plural(facts['records'], 'run')} recorded no cost."
-    line = f"Cost: ${facts['total_usd']:.2f} this week"
+        return f"{name}: unknown — {_plural(facts['records'], 'run')} recorded no cost."
+    line = f"{name}: ${facts['total_usd']:.2f} this week"
     if facts["median_analysis_usd"] is not None:
         line += f" · ${facts['median_analysis_usd']:.2f} median per analysis"
     if facts["unpriced"]:
@@ -652,21 +743,34 @@ def render(facts: dict) -> str:
 
 
 def _instrumentation_note(facts: dict) -> str | None:
-    """Why two lines are missing, said once, in terms a reader can act on.
+    """Why two lines are missing or short, said once, in terms a reader can act on.
 
     Stated on its own rather than repeated into both lines, and it has to give
     the reader the discriminator rather than just the symptom: the same message
     means "expected, the metric had not shipped yet" before the deploy and "the
     metric has stopped flowing" after it, and only a human knows which side of
     that date the week falls on.
+
+    Two shapes of the one problem. Nothing recorded at all is the first; some of
+    the week recorded is the second, and it is the more dangerous of the two
+    because the lines above it still carry numbers.
     """
-    if facts["verdicts"].get("reason") != RUNS_GAP:
+    if facts["verdicts"].get("reason") == RUNS_GAP:
+        analyzed = facts["coverage"].get("analyzed", 0)
+        return (
+            f"⚠️ {_plural(analyzed, 'ticket')} analyzed but no run metrics exist for this week, so verdicts and "
+            f"cost are missing rather than zero. The agent has only recorded them since {METRIC_PREFIX} shipped — "
+            "an earlier week has none, and a later one means the metric has stopped flowing."
+        )
+
+    shortfall = facts["verdicts"].get("shortfall")
+    if not shortfall:
         return None
-    analyzed = facts["coverage"].get("analyzed", 0)
     return (
-        f"⚠️ {_plural(analyzed, 'ticket')} analyzed but no run metrics exist for this week, so verdicts and "
-        f"cost are missing rather than zero. The agent has only recorded them since {METRIC_PREFIX} shipped — "
-        "an earlier week has none, and a later one means the metric has stopped flowing."
+        f"⚠️ {shortfall['missing']} of {_analyses(shortfall['analyzed'])} left no run metric, so the verdicts and "
+        f"cost above describe part of the week rather than all of it. The agent has only recorded them since "
+        f"{METRIC_PREFIX} shipped — a week spanning that deploy is short by the runs that came before it, and a "
+        "later one means the metric has stopped flowing."
     )
 
 
@@ -680,9 +784,15 @@ def unavailable_sources(facts: dict) -> list[str]:
     meaning anything, which is the same argument that keeps the stale-PR alert
     quiet on a clean day.
 
-    It is reported where it will actually be read: in the message, in `#bugs`,
-    with the sentence that tells a reader how to tell the rollout from a fault.
-    Everything else here is the workflow failing to do its job and goes red.
+    It is reported where it will actually be read: in the message, in the
+    channel, with the sentence that tells a reader how to tell the rollout from
+    a fault. Everything else here is the workflow failing to do its job and goes
+    red.
+
+    A PARTIAL WEEK DOES NOT GO RED EITHER, and for the same reason — it is the
+    same gap seen from the other side. Both lines are still `available`, so they
+    do not reach this list at all; the marker on each and the note below them
+    are what a reader gets.
     """
     return [
         name

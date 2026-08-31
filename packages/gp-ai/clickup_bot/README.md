@@ -305,7 +305,8 @@ merge them, and that closing a weak one is the expected outcome.
 | Setting | Value | Why |
 |---|---|---|
 | `vars.GPBOT_PR_CHANNEL_ID` | `C022VR6PRQC` (`#bugs`) | Where the people who triage these bugs already are, and the home of the `@serve-bugs` / `@win-bugs` groups the message mentions |
-| `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of `#bugs` with `chat:write` |
+| `vars.GPBOT_DIGEST_CHANNEL_ID` | `#eng-prod-design` | The weekly digest only. It reports on whether the system is worth keeping rather than asking anyone to do something today, and that audience is not the bug rotation |
+| `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of both channels, with `chat:write` |
 
 `@serve-bugs` and `@win-bugs` are two-week on-call rotations holding one person
 at a time, so `gpbot-pr-triage.yml` reads the current holder out of the group
@@ -322,8 +323,9 @@ token, so plan on updating both `secrets.GPBOT_SLACK_BOT_TOKEN` and
 
 It is deliberately **not** `secrets.SLACK_APP_BOT_TOKEN`. That is the analytics
 app, which is a member of `#product-analytics` only; pointing it at `#bugs` fails
-every post with `not_in_channel`. Both gpbot workflows must carry the same app,
-since they post to the same channel.
+every post with `not_in_channel`. Every gpbot workflow carries the same app, so
+`gp_ai_bot` has to be invited to each channel any of them posts to — including
+`#eng-prod-design` for the digest.
 
 If you move the channel, check the new one against the app first — a token without
 `chat:write.public` can only post where it has been invited:
@@ -785,7 +787,16 @@ curl -s -H "Authorization: $CLICKUP_API_KEY" \
 
 The section above ends on the failure the error alarm cannot see. This is the
 answer to it: `.github/workflows/gpbot-weekly-digest.yml` posts one message to
-`#bugs` every Monday at 15:00 UTC summarising the completed Monday–Sunday week.
+`#eng-prod-design` every Monday at 15:00 UTC summarising the completed
+Monday–Sunday week.
+
+**Not `#bugs`, where the other gpbot workflows post.** Those are working
+messages for whoever is on bugs that day — a PR to review, a stale PR to chase.
+This one reports on whether the system is worth keeping, and its audience is the
+people who decide that. A monthly-interest message in a daily-interest feed is a
+message nobody reads. The channel is `vars.GPBOT_DIGEST_CHANNEL_ID`, separate
+from `vars.GPBOT_PR_CHANNEL_ID` so it can be moved without a deploy and so an
+unset value fails loudly rather than falling back to `#bugs`.
 
 ```
 gpbot — week of Aug 17–23
@@ -881,6 +892,58 @@ the same empty result is expected before the deploy and a real fault after it:
 happened" into "something is broken" would make the digest cry wolf on the weeks
 it has least to say, and a warning that fires on a normal week is one people
 learn to skip.
+
+### ...and a source that answered for only part of the week
+
+The check above was all-or-nothing, and the next digest walked straight through
+the gap it left. On 2026-08-24 it posted:
+
+```
+Coverage: 8 of 8 tagged bugs analyzed
+Verdicts: 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
+Cost: $4.02 this week · $0.66 median per analysis
+```
+
+Eight bugs analyzed, one verdict. `GPBOT_METRIC` shipped on the Friday of that
+week, so six of the eight analyses ran before anything recorded them. CloudWatch
+had not failed and had not returned nothing, so every availability check passed
+and a sixth of the week was printed in the shape of a whole one. **A partial
+sample presented as complete is worse than an absent line**: a reader cannot
+tell it from a week where the bot genuinely concluded almost nothing.
+
+So the two lines built on run metrics say which part of the week they cover:
+
+```
+Verdicts (partial): 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
+Cost (partial): $4.02 this week · $0.66 median per analysis
+⚠️ 7 of 8 analyses left no run metric, so the verdicts and cost above describe
+part of the week rather than all of it. The agent has only recorded them since
+GPBOT_METRIC shipped — a week spanning that deploy is short by the runs that
+came before it, and a later one means the metric has stopped flowing.
+```
+
+The marker is on the **label** rather than appended to the numbers: whatever
+qualifier trails a line, the eye lands on the figures first and reads them as
+the week's.
+
+**Matched on ticket id, not by comparing two totals.** Each `GPBOT_METRIC` line
+carries its `task_id` and coverage knows which tickets it counted, so the
+question asked is "was this ticket's analysis recorded" rather than "do two
+numbers agree". Equal totals are the weaker claim and fail exactly when it
+matters: a week whose recorded runs all belong to the previous week's tickets
+tallies perfectly while every analysis in the report goes unrecorded.
+
+**It over-reports at the week boundary, deliberately.** Coverage buckets a
+ticket by when it was filed and counts an analysis that happened after the
+window closed; the metric query is bounded by when the run ran. So a bug filed
+late on Sunday can be marked unrecorded here when its metric line simply lands
+in the next week's query. That costs an occasional `1 of 8`. Staying quiet until
+a gap is provably not an edge effect is what let six missing analyses out of
+eight read as a normal week.
+
+Like the rollout gap, a partial week **does not turn the job red** — it is the
+same gap seen from the other side, and every week spanning the deploy has this
+shape.
 
 A comments fetch that fails takes the **whole** ClickUp source down rather than
 that one ticket, because a ticket with no comments reads as un-analyzed: a
