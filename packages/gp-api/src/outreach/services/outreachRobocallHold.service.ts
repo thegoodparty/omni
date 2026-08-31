@@ -563,12 +563,18 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     }
 
     await this.markSpineFailed(outreachId)
-    await this.emitMilestone(
-      draft.outreach.campaign.userId,
-      outreachId,
-      EVENTS.Robocall.SendFailed,
-      'send_failed',
-    )
+    // Outreach.campaign is nullable (campaign-less Serve orgs), but a robocall is
+    // always campaign-scoped; guard defensively so a data anomaly can't crash the
+    // terminal, and only email a candidate we can actually resolve.
+    const userId = draft.outreach.campaign?.userId
+    if (userId != null) {
+      await this.emitMilestone(
+        userId,
+        outreachId,
+        EVENTS.Robocall.SendFailed,
+        'send_failed',
+      )
+    }
   }
 
   // Flip the spine to `failed` so the history shows "Couldn't send". Guarded on
