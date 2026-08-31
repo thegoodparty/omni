@@ -314,6 +314,17 @@ export class OutreachRobocallSendService extends createPrismaBase(
       await this.revertClaim(outreachId)
       return
     }
+    // A permanent launch rejection guarantees the campaign never STARTED (a
+    // definitive 4xx leaves it PAUSED), so a failed status read introduces no
+    // uncertainty about whether it dialed — it did not. Fail the send now, else
+    // the row is left `dialing` for the stale sweep, which calls reconcile
+    // WITHOUT the permanent flag: a later PAUSE read would revert to `authorized`
+    // and relaunch into another permanent reject, looping forever without ever
+    // failing the send or emailing the candidate.
+    if (permanent) {
+      await this.hold.failSend(outreachId, 'send')
+      return
+    }
     this.logger.error(
       { outreachId, dialingCampaignPkStr: pkStr, vbStatus: status },
       'robocall dialing unresolved; left in dialing for stale recovery',

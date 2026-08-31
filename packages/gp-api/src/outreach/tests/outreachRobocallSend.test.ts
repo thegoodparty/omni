@@ -194,6 +194,28 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     )
   })
 
+  it('fails a PERMANENT launch as send_failed when the status read also fails', async () => {
+    const outreachId = await createDraft()
+    const errorSpy = loggerErrorSpy()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockRejectedValue(new BadGatewayException('status read down'))
+
+    await send.startCampaign(outreachId)
+
+    // A permanent 4xx guarantees the campaign never STARTED, so a failed status
+    // read adds no uncertainty — fail the send now instead of leaving the row
+    // `dialing` for the stale sweep, which retries WITHOUT the permanent flag and
+    // would relaunch into another permanent reject forever.
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('unresolved'),
+    )
+  })
+
   it('NEVER dials twice: a lost launch that CallHub reports STARTED commits dialed, no re-launch', async () => {
     const outreachId = await createDraft()
     // The PUT reached CallHub and started the broadcast, but the response was
