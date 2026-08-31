@@ -54,9 +54,14 @@ Office-identity re-dispatch: `onOfficeIdentityChanged`
 guard. `onElectedOfficeCreated` blocks on any prior `COMPLETED` run, because
 a place's code corpus does not change per signup. An office change means the
 place itself may differ, so the change hook dispatches anyway — blocking
-only on in-flight runs. Deleting the `OrdinanceCodeRecord` alone is not
-enough to trigger a re-derive: the daily cron's no-record branch still
-requires no `COMPLETED` run inside the 60-day stale cutoff.
+only on in-flight runs created at or after `officeIdentityChangedAt`, so a
+run dispatched for the old place can't suppress the new dispatch. Deleting
+the `OrdinanceCodeRecord` alone is not enough to trigger a re-derive: the
+daily cron's no-record branch still requires no `COMPLETED` run inside the
+60-day stale cutoff. `OrdinanceCodePersistService.onExperimentRunCompleted`
+skips persisting a result whose run predates that same stamp — otherwise
+the old run's record would land right after invalidation deleted it, and
+the 60-day cutoff would then refuse to re-dispatch for the new place.
 
 Prisma: `prisma/schema/ordinance.prisma` (both machines' columns) +
 `prisma/schema/ordinanceQualityIteration.prisma` (per-pass history — the
