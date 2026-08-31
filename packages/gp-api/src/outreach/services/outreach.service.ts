@@ -201,6 +201,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         scheduledDate: createOutreachDto.date,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
 
@@ -493,6 +498,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         scheduledDate: outreach.scheduledLocalDate ?? undefined,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
   }

@@ -13,6 +13,7 @@
  *   - Stripe / promo / payment ordering — separate ticket.
  */
 
+import { BadRequestException } from '@nestjs/common'
 import FormData from 'form-data'
 import { useTestService } from '@/test-service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
@@ -359,6 +360,28 @@ describe('Outreach submission flow — single API call contract', () => {
       })
     })
 
+    it('Peerly content rejection → 400 carrying the vendor message, no DB row', async () => {
+      const rejectionMessage =
+        'Message cannot contain tinyurl.com links. Please correct your message.'
+      peerlyCreatePeerlyP2pJob.mockRejectedValueOnce(
+        new BadRequestException(rejectionMessage),
+      )
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'Vote for me: tinyurl.com/x. Reply STOP to opt-out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain(rejectionMessage)
+      await assertFailedOutreach({
+        expectedFailureStepLabel: 'validation',
+        expectNoOutreachRow: true,
+      })
+    })
+
     it('p2p script over the MMS limit → 400, no Peerly call, no DB row', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
@@ -609,6 +632,30 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(finalized.status).toBe(OutreachStatus.pending)
       expect(finalized.projectId).toBe('peerly-job-abc-123')
       expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(2)
+    })
+
+    it('finalize propagates a Peerly content rejection as a 400 and reverts the draft', async () => {
+      const draft = await createDraftRow()
+      mockDraftImageInS3()
+      const rejectionMessage =
+        'Message cannot contain tinyurl.com links. Please correct your message.'
+      peerlyCreatePeerlyP2pJob.mockRejectedValueOnce(
+        new BadRequestException(rejectionMessage),
+      )
+
+      const outreachSvc = service.app.get(OutreachService)
+      const promise = outreachSvc.finalizeOutreachPurchase(
+        draft.id,
+        campaign.id,
+      )
+      await expect(promise).rejects.toThrow(BadRequestException)
+      await expect(promise).rejects.toThrow(rejectionMessage)
+
+      const reverted = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.id },
+      })
+      expect(reverted.status).toBe(OutreachStatus.pending_payment)
+      expect(reverted.projectId).toBeNull()
     })
 
     it('finalize rejects a missing draft or one owned by another campaign', async () => {

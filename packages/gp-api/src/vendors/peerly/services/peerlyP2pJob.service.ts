@@ -127,6 +127,12 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
       return jobId
     } catch (error) {
+      // A BadRequestException carries a user-fixable Peerly content
+      // rejection (peerlyErrorHandling.service.ts) — don't bury it under
+      // the generic 502.
+      if (error instanceof BadRequestException) {
+        throw error
+      }
       const isListAssignmentFailure =
         error instanceof BadGatewayException &&
         error.message.includes(P2P_ERROR_MESSAGES.LIST_ASSIGNMENT_FAILED)
