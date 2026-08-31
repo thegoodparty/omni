@@ -812,11 +812,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  // Shared list query behind both scoped list readers below — Win rows key
-  // on campaignId, Serve rows on organizationSlug alone (ENG-10976), so
-  // either scope naturally excludes the other surface's rows.
+  // Shared list query behind both scoped list readers below. Win rows carry
+  // BOTH campaignId and organizationSlug (createRecord copies the campaign
+  // org's slug), so the Serve scope must pin campaignId: null — an org that
+  // holds a Campaign and an ElectedOffice (the post-election transition)
+  // would otherwise leak its Win history onto the Serve list (ENG-10976).
   private async findByScope(
-    scope: { campaignId: number } | { organizationSlug: string },
+    scope:
+      | { campaignId: number }
+      | { organizationSlug: string; campaignId: null },
   ) {
     return this.findMany({
       where: {
@@ -851,7 +855,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // history yet) and no p2pJob decoration (Serve never runs P2P texting) —
   // the Win controller keeps that decoration on top of the shared query.
   async findByOrganizationSlug(organizationSlug: string) {
-    return this.findByScope({ organizationSlug })
+    return this.findByScope({ organizationSlug, campaignId: null })
   }
 
   async resolveP2pJobGeography(

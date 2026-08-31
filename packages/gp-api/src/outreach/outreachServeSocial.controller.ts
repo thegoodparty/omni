@@ -163,7 +163,7 @@ export class OutreachServeSocialController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<OutreachDetail> {
     return this.socialService.findDetail(
-      { organizationSlug: electedOffice.organizationSlug },
+      { organizationSlug: electedOffice.organizationSlug, campaignId: null },
       id,
     )
   }

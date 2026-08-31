@@ -119,6 +119,8 @@ describe('POST /v1/outreach/serve/social/draft', () => {
       )?.content
 
       expect(userPrompt).toContain(goal)
+      expect(userPrompt).toContain('Office held')
+      expect(userPrompt).not.toContain('Office sought')
       expect(systemPrompt).toContain('elected official')
       expect(systemPrompt).not.toMatch(/candidate/i)
       expect(systemPrompt).not.toMatch(/voters?/i)
@@ -165,6 +167,20 @@ describe('POST /v1/outreach/serve/social/draft', () => {
     })
     expect(withDraft.status).toBe(HttpStatus.CREATED)
     expect(withDraft.data).toEqual({ draft: 'Polished words.' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+
+    expect(systemPrompt).toContain('elected official')
+    expect(systemPrompt).not.toMatch(/candidate/i)
+    expect(systemPrompt).not.toMatch(/voters?/i)
+    expect(userPrompt).not.toMatch(/candidate/i)
+    expect(userPrompt).not.toMatch(/voters?/i)
   })
 
   it('maps an LLM failure to 502', async () => {
@@ -373,6 +389,37 @@ describe('Win/Serve isolation (list + detail)', () => {
       { ...winHeaders(), validateStatus: () => true },
     )
     expect(serveIdThroughWin.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('hides Win rows from the serve list and detail when ONE org holds both a campaign and an elected office', async () => {
+    // The post-election transition: the same org (and slug) gains an
+    // ElectedOffice while its Win rows still carry that organizationSlug —
+    // only the campaignId: null pin keeps them off the Serve surface.
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: winOrgSlug },
+    })
+    const winRow = await service.prisma.outreach.create({
+      data: {
+        campaignId: winCampaign.id,
+        organizationSlug: winOrgSlug,
+        outreachType: OutreachType.socialMedia,
+        status: OutreachStatus.completed,
+        name: 'Win row',
+      },
+    })
+
+    const serveList = await service.client.get(
+      '/v1/outreach/serve',
+      winHeaders(),
+    )
+    expect(serveList.status).toBe(HttpStatus.OK)
+    expect(serveList.data).toEqual([])
+
+    const winIdThroughServe = await service.client.get(
+      `/v1/outreach/serve/${winRow.id}`,
+      { ...winHeaders(), validateStatus: () => true },
+    )
+    expect(winIdThroughServe.status).toBe(HttpStatus.NOT_FOUND)
   })
 
   it('archives a serve row via the shared archive route, and cannot touch a Win row through the serve org slug', async () => {

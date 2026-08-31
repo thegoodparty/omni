@@ -407,8 +407,12 @@ sweep. Ops: the Stripe webhook endpoint must subscribe to `payment_method.attach
   `organizationSlug` set. A DB CHECK (`outreach_scope_check`) requires at
   least one of the two, so a both-null orphan can never be created. This is
   also the Win/Serve isolation boundary: Win rows key on `campaignId` +
-  the campaign org's slug, Serve rows key on `organizationSlug` alone — a
-  serve write can never land in (or overwrite) a Win campaign's history.
+  the campaign org's slug, Serve rows key on `organizationSlug` WITH
+  `campaignId: null` pinned in every serve query — Win rows carry BOTH
+  fields, and one org can hold a Campaign and an ElectedOffice at once (the
+  post-election transition), so the slug alone does not separate the
+  surfaces. A serve write can never land in (or overwrite) a Win campaign's
+  history, and a serve read can never surface a Win row.
   text/p2p/robocall/phone-banking/door-knocking still set `campaignId`; social
   is the first campaign-less writer, via `outreachServeSocial.controller.ts`
   (ENG-10970). `organization`'s FK is `Cascade`

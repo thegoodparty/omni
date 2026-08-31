@@ -32,6 +32,7 @@ export interface SocialVoiceConfig<TPurpose extends string> {
   purposeGoals: Record<TPurpose, string>
   nameLabel: string
   subjectFallback: string
+  officeLabel: string
   draftSystemPrompt: string
   improveSystemPrompt: string
   generateSystemPrompt: string
@@ -140,6 +141,7 @@ export const WIN_SOCIAL_VOICE: SocialVoiceConfig<SocialPurpose> = {
   },
   nameLabel: 'Candidate name',
   subjectFallback: 'The candidate',
+  officeLabel: 'Office sought',
   draftSystemPrompt: WIN_DRAFT_SYSTEM_PROMPT,
   improveSystemPrompt: WIN_IMPROVE_SYSTEM_PROMPT,
   generateSystemPrompt: WIN_GENERATE_SYSTEM_PROMPT,
@@ -214,6 +216,7 @@ export const SERVE_SOCIAL_VOICE: SocialVoiceConfig<ServeSocialPurpose> = {
   },
   nameLabel: 'Elected official name',
   subjectFallback: 'The elected official',
+  officeLabel: 'Office held',
   draftSystemPrompt: SERVE_DRAFT_SYSTEM_PROMPT,
   improveSystemPrompt: SERVE_IMPROVE_SYSTEM_PROMPT,
   generateSystemPrompt: SERVE_GENERATE_SYSTEM_PROMPT,
@@ -273,7 +276,7 @@ export class OutreachSocialGenerationService {
     }
     const context = [
       `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
-      `Office sought: ${office || 'local office'}.`,
+      `${voice.officeLabel}: ${office || 'local office'}.`,
       `Goal of this message: ${voice.purposeGoals[input.purpose]}.`,
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...campaignContext,

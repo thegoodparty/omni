@@ -36,7 +36,7 @@ export type OutreachSocialSaveScope =
 
 export type OutreachSocialDetailScope =
   | { campaignId: number }
-  | { organizationSlug: string }
+  | { organizationSlug: string; campaignId: null }
 
 const toOutreachDetail = (
   outreach: OutreachWithSocial,
