@@ -289,10 +289,18 @@ import { dirname, join, relative } from 'node:path'
 // state), so it can't render on the server; matches its sibling robocall steps.
 // 2026-08-27: merge reconciliation — 611 (this branch's SMS surfaces) plus
 // main's RobocallReviewStep (+1) = 612.
-// 2026-08-31: 612 -> 613 for outreach/v2/sms/SmsEditFlow.tsx — the
+// 2026-08-28: 612 -> 613 for outreach/v2/robocall/RobocallPayStep.tsx — the
+// robocall pay step mounts a Stripe SetupIntent Payment Element and owns the
+// draft-create/authorize mutation state, so it can't render on the server;
+// matches its sibling robocall steps.
+// 2026-08-28: 613 -> 614 for sign-in-link/SignInLinkContent.tsx — the one-time
+// sign-in link page redeems a Clerk ticket in the browser on click (Clerk
+// hooks, click handler, session state), so it can't render on the server;
+// matches the /serve/welcome and /win/welcome redemption pages.
+// 2026-08-31: 615 -> 616 for outreach/v2/sms/SmsEditFlow.tsx — the
 // edit-before-send sheet (flow state, image object URLs, save mutation);
 // client-only like its sibling SmsFlow.
-const BASELINE = 613
+const BASELINE = 616
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

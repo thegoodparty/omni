@@ -7,10 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { DistrictService } from '../services/district.service'
+import { ElectionApiDistrictService } from '../services/electionApiDistrict.service'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
+  PeopleListDetailAggregatesResponse,
+  PeopleListDetailAggregatesResponseSchema,
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
   PeoplePrecinctsResponseSchema,
@@ -30,6 +32,7 @@ import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import type { DbxStatement } from './databricksVoterSql.util'
 import {
   buildAggregatesSql,
+  buildListDetailAggregatesSql,
   buildCountSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
@@ -37,13 +40,23 @@ import {
   buildPageSql,
   buildPersonSql,
   buildSampleSql,
-  buildVoterColumnsSql,
   HOUSEHOLD_PAGE_COLUMNS,
+  buildDoorKnockingEvaluateSql,
+  buildDoorKnockingResidentsSql,
+  DOOR_KNOCKING_RESIDENT_COLUMNS,
   type DbxDistrict,
+  type DbxEvaluateRow,
+  type DbxResidentRow,
 } from './databricksVoterSql.util'
 import {
+  DoorKnockingEvaluateDTO,
+  DoorKnockingResidentsDTO,
+} from '../schemas/doorKnocking.schema'
+import {
   buildDistrictStatsSql,
+  buildLiveDistrictStatsSql,
   mapDistrictStatsRow,
+  mapLiveDistrictStatsRows,
   type ComputedDistrictStats,
 } from './databricksDistrictStatsSql.util'
 import {
@@ -91,32 +104,45 @@ const NUMERIC_LIST_COLUMNS = new Set<string>([
   'Estimated_Income_Amount_Int',
 ])
 
+// L2 district-type columns are word characters only -- all 181 in use match.
+const SAFE_IDENTIFIER = /^[A-Za-z0-9_]+$/
+
+const NUMERIC_RESIDENT_COLUMNS = new Set<string>([
+  'Age_Int',
+  'Estimated_Income_Amount_Int',
+])
+
+const toRecord = (
+  columns: readonly string[],
+  row: Array<string | null>,
+): Record<string, string | null> => {
+  const record: Record<string, string | null> = {}
+  columns.forEach((column, index) => {
+    record[column] = row[index] ?? null
+  })
+  return record
+}
+
 @Injectable()
 export class DatabricksVoterService {
   // District rows are immutable reference data and one list-detail request
   // resolves the same district four times over, so caching saves three round
   // trips per request rather than shaving a query.
   private readonly districts = new Map<string, DbxDistrict>()
-  // The district `type` is interpolated as an identifier, so it is checked
-  // against the voter table's real column set rather than a pattern. Fetched
-  // once per process: the schema does not change under a running task.
-  private voterColumns: Set<string> | null = null
 
   constructor(
     private readonly logger: PinoLogger,
     private readonly client: PeopleDbxStatementClient,
-    private readonly districtService: DistrictService,
+    private readonly districtService: ElectionApiDistrictService,
   ) {
     this.logger.setContext(DatabricksVoterService.name)
   }
 
-  // Resolved from Postgres, never from Databricks. Postgres is the system of
-  // record for the District table and the mart's copy is downstream of it, so
-  // both answer the same thing -- but a keyed single-row read costs ~4ms there
-  // against a measured p90 of 8.6s on the warehouse, where it sat at the head
-  // of every voter read. It was also the slowest statement we issued: 329 calls
-  // in 24h, 11 of them over 10s, purely to learn three strings the caller could
-  // have handed us.
+  // Resolved from election-api, which owns the District table -- not from
+  // Databricks (a measured p90 of 8.6s for one keyed row, at the head of every
+  // voter read) and no longer from people-db either. Reading the upstream
+  // directly is what leaves a Databricks-served read touching people-db not at
+  // all. Memoized per process, so a district costs one hop per task.
   async resolveDistrict(districtId: string): Promise<DbxDistrict> {
     const cached = this.districts.get(districtId)
     if (cached) return cached
@@ -131,32 +157,22 @@ export class DatabricksVoterService {
       // all, which is why the Postgres path drops the district predicate.
       useVoterOnlyPath: type === STATE_DISTRICT_TYPE && name === state,
     }
-    if (!district.useVoterOnlyPath) {
-      const columns = await this.ensureVoterColumns()
-      if (!columns.has(type)) {
-        throw new InternalServerErrorException(
-          `District ${districtId} has type "${type}", which is not a column ` +
-            'on the voter table',
-        )
-      }
+    // `type` is spliced into the SQL as a column IDENTIFIER, which cannot be a
+    // bound parameter, so it is checked before it gets there. It arrives from
+    // election-api's District table rather than from a caller, so this guards
+    // our own ingest rather than user input -- and a character class is the
+    // whole of that guard: a value that fails it cannot form valid SQL. This
+    // used to query information_schema on every process to confirm the column
+    // existed too, which answered a different question at the cost of an
+    // uncached metadata round trip on the first voter read of every task.
+    if (!district.useVoterOnlyPath && !SAFE_IDENTIFIER.test(type)) {
+      throw new InternalServerErrorException(
+        `District ${districtId} has type "${type}", which is not a usable ` +
+          'column name on the voter table',
+      )
     }
     this.districts.set(districtId, district)
     return district
-  }
-
-  private async ensureVoterColumns(): Promise<Set<string>> {
-    if (this.voterColumns) return this.voterColumns
-    const { rows } = await this.run(buildVoterColumnsSql())
-    const columns = new Set(
-      rows
-        .map(([name]) => name)
-        .filter((name): name is string => typeof name === 'string'),
-    )
-    if (columns.size === 0) {
-      throw new BadGatewayException(UNAVAILABLE_MESSAGE)
-    }
-    this.voterColumns = columns
-    return columns
   }
 
   async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
@@ -174,6 +190,30 @@ export class DatabricksVoterService {
       count: Number(row?.[0] ?? 0),
       avgAge: row?.[1] == null ? null : Number(row[1]),
       avgIncome: row?.[2] == null ? null : Number(row[2]),
+    })
+  }
+
+  async getListDetailAggregates(
+    dto: AggregatesDTO,
+  ): Promise<PeopleListDetailAggregatesResponse> {
+    const district = await this.resolveDistrict(dto.districtId)
+    const { rows } = await this.run(
+      buildListDetailAggregatesSql({
+        district,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      }),
+    )
+    const [row] = rows
+    return PeopleListDetailAggregatesResponseSchema.parse({
+      count: Number(row?.[0] ?? 0),
+      avgAge: row?.[1] == null ? null : Number(row[1]),
+      avgIncome: row?.[2] == null ? null : Number(row[2]),
+      sms: Number(row?.[3] ?? 0),
+      robocall: Number(row?.[4] ?? 0),
+      phoneBanking: Number(row?.[5] ?? 0),
+      doorKnocking: Number(row?.[6] ?? 0),
     })
   }
 
@@ -301,6 +341,18 @@ export class DatabricksVoterService {
     return mapDistrictStatsRow(districtId, rows[0])
   }
 
+  // The same five dimensions aggregated from the voter rows in one statement,
+  // for the dual read in StatsService. Unlike findStats this needs the district
+  // resolved, because there is no stats row to key on -- the voter rows have to
+  // be scoped the way every other voter read scopes them.
+  async findStatsLive(
+    districtId: string,
+  ): Promise<ComputedDistrictStats | null> {
+    const district = await this.resolveDistrict(districtId)
+    const { rows } = await this.run(buildLiveDistrictStatsSql(district))
+    return mapLiveDistrictStatsRows(districtId, rows)
+  }
+
   // Sizing comes from the district's own totals: the pre-cut divisor needs to
   // know how big the population is, and the two rejections below are product
   // behavior the Postgres path enforced (a missing-stats district unmounts the
@@ -351,6 +403,75 @@ export class DatabricksVoterService {
     return rows
       .map((row) => toDbPerson(columnNames, row))
       .map(transformToPersonOutput)
+  }
+
+  // Both door-knocking reads return ROWS, not a finished response. The cap
+  // check and the roster shaping stay in VoterDoorKnockingService so the
+  // reject-rather-than-truncate guard and the display mapping have one
+  // implementation across both engines rather than two that can drift.
+  async doorKnockingEvaluateRows(
+    dto: DoorKnockingEvaluateDTO,
+  ): Promise<DbxEvaluateRow[]> {
+    const district = await this.resolveDistrict(dto.districtId)
+    const { columns, rows } = await this.run(
+      buildDoorKnockingEvaluateSql({
+        district,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        bbox: dto.bbox,
+        maxPeople: dto.maxPeople,
+        excludePersonIds: dto.excludePersonIds,
+      }),
+    )
+    return rows.map((row) => {
+      const record = toRecord(columns, row)
+      return {
+        id: String(record.id),
+        firstName: record.firstName ?? null,
+        lastName: record.lastName ?? null,
+        lat: Number(record.lat),
+        lng: Number(record.lng),
+        addressKey: String(record.addressKey),
+        displayAddress: record.displayAddress ?? '',
+      }
+    })
+  }
+
+  async doorKnockingResidentRows(
+    dto: DoorKnockingResidentsDTO,
+    residentsCap: number,
+  ): Promise<DbxResidentRow[]> {
+    const district = await this.resolveDistrict(dto.districtId)
+    const { columns, rows } = await this.run(
+      buildDoorKnockingResidentsSql({
+        district,
+        addressKeys: dto.addressKeys,
+        residentsCap,
+      }),
+    )
+    return rows.map((row) => {
+      const record = toRecord(columns, row)
+      const resident: Record<string, string | number | boolean | null> = {
+        id: String(record.id),
+        firstName: record.firstName ?? null,
+        lastName: record.lastName ?? null,
+        cellPhone: record.cellPhone ?? null,
+        landline: record.landline ?? null,
+        addressKey: String(record.addressKey),
+        // JSON_ARRAY renders a boolean as the text 'true'/'false'.
+        registered: record.registered === 'true',
+      }
+      for (const column of DOOR_KNOCKING_RESIDENT_COLUMNS) {
+        const value = record[column] ?? null
+        resident[column] =
+          value !== null && NUMERIC_RESIDENT_COLUMNS.has(column)
+            ? Number(value)
+            : value
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      return resident as DbxResidentRow
+    })
   }
 
   private async run(statement: DbxStatement) {

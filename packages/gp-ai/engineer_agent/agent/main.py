@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import time
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -18,6 +19,7 @@ from shared.logger import get_logger
 from .config import CAPABILITIES, AgentConfig, build_capability_prompt
 from .escalation import maybe_escalate
 from .github_auth import setup_github_auth
+from .metrics import format_metric_line
 
 logger = get_logger(__name__)
 
@@ -178,7 +180,11 @@ async def main():
         logger.error("GitHub App key present but token minting failed and no fallback PAT — aborting before agent run")
         sys.exit(1)
 
+    # monotonic, not wall clock: this number is reported as the run's duration
+    # and an NTP correction mid-run would otherwise be able to make it negative.
+    started = time.monotonic()
     result = await run_agent(config)
+    duration_s = time.monotonic() - started
 
     logger.info(f"Agent result: {result}")
 
@@ -189,6 +195,13 @@ async def main():
     # successful analysis into a failed container.
     outcome = maybe_escalate(result, config.label)
     logger.info(f"Escalation: {outcome}")
+
+    # LAST, so the line carries what the escalation decided as well as what the
+    # run concluded — a `fix` verdict that did not escalate is exactly the gap
+    # the weekly digest exists to surface. See agent/metrics.py for why the run
+    # states its own outcome instead of leaving it to be scraped back out of the
+    # prose above.
+    logger.info(format_metric_line(result, config.label, outcome, duration_s))
 
     if result["status"] == "error":
         sys.exit(1)

@@ -2,6 +2,7 @@ import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
 import { AiModule } from 'src/ai/ai.module'
 import { EmailModule } from 'src/email/email.module'
@@ -21,6 +22,7 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
+import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachRobocallController } from './outreachRobocall.controller'
 import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
@@ -34,8 +36,24 @@ import { OutreachSocialGenerationService } from './services/outreachSocialGenera
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
+import { OutreachRobocallHoldRecoveryService } from './services/outreachRobocallHoldRecovery.service'
+import { RobocallOrphanedCampaignService } from './services/robocallOrphanedCampaign.service'
+import { OutreachRobocallCallhubCleanupService } from './services/outreachRobocallCallhubCleanup.service'
+import { OutreachRobocallDeferredHoldService } from './services/outreachRobocallDeferredHold.service'
+import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
+import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
+import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
+import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
+import { OutreachRobocallCompletionService } from './services/outreachRobocallCompletion.service'
+import { OutreachRobocallCaptureService } from './services/outreachRobocallCapture.service'
+import { OutreachRobocallFreshChargeService } from './services/outreachRobocallFreshCharge.service'
+import { RobocallOrphanedHoldService } from './services/robocallOrphanedHold.service'
+import { OutreachRobocallHoldReconcileService } from './services/outreachRobocallHoldReconcile.service'
 import { RobocallTranscriptionService } from './services/robocallTranscription.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
+import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
 import { RobocallPhonebookService } from './services/robocallPhonebook.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
@@ -63,6 +81,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     // loops back to Outreach — defer this edge so the module graph resolves.
     forwardRef(() => ContactsModule),
     OrganizationsModule,
+    ElectedOfficeModule,
     ContactInteractionModule,
     CallhubModule,
     // For DoorKnockingTurfCountsService, behind the detail read's doorKnocking
@@ -73,6 +92,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
   controllers: [
     OutreachController,
     OutreachSocialController,
+    OutreachServeSocialController,
     OutreachPhoneBankingController,
     OutreachSmsController,
     OutreachRobocallController,
@@ -85,8 +105,24 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachPhoneBankingGenerationService,
     OutreachSmsGenerationService,
     OutreachRobocallGenerationService,
+    OutreachRobocallService,
+    OutreachRobocallHoldService,
+    OutreachRobocallHoldRecoveryService,
+    RobocallOrphanedCampaignService,
+    OutreachRobocallCallhubCleanupService,
+    OutreachRobocallDeferredHoldService,
+    OutreachRobocallStagingService,
+    OutreachRobocallSendService,
+    OutreachRobocallHoldFailureService,
+    OutreachRobocallWebhookService,
+    OutreachRobocallCompletionService,
+    OutreachRobocallCaptureService,
+    OutreachRobocallFreshChargeService,
+    RobocallOrphanedHoldService,
+    OutreachRobocallHoldReconcileService,
     RobocallTranscriptionService,
     RobocallComplianceService,
+    RobocallComplianceResultService,
     RobocallPhonebookService,
     OutreachComposeContextService,
     OutreachRobocallAudioService,

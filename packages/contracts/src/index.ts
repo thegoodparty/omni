@@ -178,6 +178,8 @@ export {
 export {
   PeopleAggregatesResponseSchema,
   type PeopleAggregatesResponse,
+  PeopleListDetailAggregatesResponseSchema,
+  type PeopleListDetailAggregatesResponse,
 } from './people/PeopleAggregates.schema'
 
 export { EmailSchema } from './shared/Email.schema'
@@ -717,6 +719,9 @@ export {
   SOCIAL_PURPOSE_VALUES,
   SocialPurposeSchema,
   type SocialPurpose,
+  SERVE_SOCIAL_PURPOSE_VALUES,
+  ServeSocialPurposeSchema,
+  type ServeSocialPurpose,
   SOCIAL_TONE_VALUES,
   SocialToneSchema,
   type SocialTone,
@@ -737,6 +742,12 @@ export {
   type SocialGenerateResponse,
   SocialSaveRequestSchema,
   type SocialSaveRequest,
+  ServeSocialDraftRequestSchema,
+  type ServeSocialDraftRequest,
+  ServeSocialGenerateRequestSchema,
+  type ServeSocialGenerateRequest,
+  ServeSocialSaveRequestSchema,
+  type ServeSocialSaveRequest,
   OutreachSocialDetailSchema,
   type OutreachSocialDetail,
   OutreachDetailSchema,
@@ -767,6 +778,10 @@ export {
   type RobocallNumberResponse,
 } from './outreach/RobocallNumber.schema'
 export {
+  RobocallSaveCardIntentResponseSchema,
+  type RobocallSaveCardIntentResponse,
+} from './outreach/RobocallSaveCard.schema'
+export {
   ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
   ROBOCALL_AUDIO_MAX_BYTES,
   RobocallAudioPresignRequestSchema,
@@ -782,6 +797,20 @@ export {
   RobocallComplianceVerdictSchema,
   type RobocallComplianceVerdict,
 } from './outreach/RobocallCompliance.schema'
+export {
+  RobocallDraftCreateRequestSchema,
+  type RobocallDraftCreateRequest,
+  RobocallDraftCreateResponseSchema,
+  type RobocallDraftCreateResponse,
+} from './outreach/RobocallPurchase.schema'
+export {
+  RobocallAuthorizeRequestSchema,
+  type RobocallAuthorizeRequest,
+  RobocallAuthorizeStatusSchema,
+  type RobocallAuthorizeStatus,
+  RobocallAuthorizeResponseSchema,
+  type RobocallAuthorizeResponse,
+} from './outreach/RobocallHold.schema'
 export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,

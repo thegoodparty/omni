@@ -1,14 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { RobocallScriptDraftRequest } from '@goodparty_org/contracts'
+import type {
+  RobocallAuthorizeStatus,
+  RobocallScriptDraftRequest,
+} from '@goodparty_org/contracts'
+import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
-import { api } from 'helpers/test-utils/api-mocking'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { RobocallFlow } from './RobocallFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
+}))
+
+// PaymentPortalButton (the reused billing-portal affordance in the pay step)
+// reads useSnackbar, which throws outside a SnackbarProvider — the minimal test
+// render has none. A no-op stand-in keeps the real button so the portal-session
+// call still fires and can be asserted.
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    errorSnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
 }))
 
 // MediaRecorder / getUserMedia don't exist in jsdom, so replace the recorder
@@ -85,6 +101,12 @@ vi.mock('@styleguide', async (importOriginal) => {
         >
           mock-pick-past
         </button>
+        <button
+          type="button"
+          onClick={() => onSelect(new Date(Date.now() + 90 * 86_400_000))}
+        >
+          mock-pick-too-far
+        </button>
       </div>
     ),
   }
@@ -119,6 +141,66 @@ vi.mock('app/dashboard/contacts/crm/wizard/NameStep', () => ({
     />
   ),
 }))
+
+// The pay step mounts a Stripe SetupIntent Payment Element and confirms it.
+// jsdom has no Stripe SDK, so stub the classic Elements library: Elements is a
+// passthrough, PaymentElement a marker, and useStripe hands back a confirmSetup
+// spy the tests drive. loadStripe is neutered so module load makes no network
+// call. Mirrors the pro-upgrade PaymentStep test's Stripe stubbing.
+const { confirmSetupMock } = vi.hoisted(() => ({ confirmSetupMock: vi.fn() }))
+
+vi.mock('@stripe/stripe-js', () => ({
+  loadStripe: vi.fn(() => Promise.resolve(null)),
+}))
+
+vi.mock('@stripe/react-stripe-js', () => ({
+  // Surface the clientSecret it mounts against so a test can assert the pay
+  // step remounts on a FRESH SetupIntent after a decline.
+  Elements: ({
+    children,
+    options,
+  }: {
+    children: React.ReactNode
+    options?: { clientSecret?: string }
+  }) => (
+    <div
+      data-testid="stripe-elements"
+      data-client-secret={options?.clientSecret}
+    >
+      {children}
+    </div>
+  ),
+  PaymentElement: () => <div data-testid="payment-element" />,
+  useStripe: () => ({ confirmSetup: confirmSetupMock }),
+  useElements: () => ({}),
+}))
+
+const mockCreateDraft = (
+  amountInCents = 560,
+  outreachId = 42,
+  billableCount = 80,
+  numberFeeInCents = 200,
+) =>
+  api.mock('POST /v1/outreach/robocall', {
+    status: 200,
+    data: { outreachId, billableCount, amountInCents, numberFeeInCents },
+  })
+
+const mockSaveCardIntent = () =>
+  api.mock('POST /v1/outreach/robocall/save-card-intent', {
+    status: 200,
+    data: { clientSecret: 'seti_test_secret', customerId: 'cus_test_123' },
+  })
+
+const mockAuthorize = (
+  status: RobocallAuthorizeStatus,
+  authorizedAmountInCents: number | null,
+  settleState: string,
+) =>
+  api.mock('POST /v1/outreach/robocall/:outreachId/authorize', {
+    status: 200,
+    data: { status, settleState, authorizedAmountInCents },
+  })
 
 const mockSavedLists = () =>
   api.mock('GET /v1/voters/voter-file/filters', {
@@ -253,17 +335,23 @@ const mockAudioUpload = (s3Ok = true) => {
   })
 }
 
-const gotoAudience = async (purposeLabel = 'Persuade likely voters') => {
-  render(<RobocallFlow open onClose={vi.fn()} />)
+const gotoAudience = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
+  render(<RobocallFlow open onClose={onClose} />)
   fireEvent.click(screen.getByText(purposeLabel))
 }
 
 // Purpose -> audience -> pick a saved list -> Continue, landing on the schedule
 // ("When") step.
-const gotoSchedule = async (purposeLabel = 'Persuade likely voters') => {
+const gotoSchedule = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
   mockSavedLists()
   mockListDetail(80)
-  await gotoAudience(purposeLabel)
+  await gotoAudience(purposeLabel, onClose)
   await userEvent.click(await screen.findByText('Choose a voter list'))
   await userEvent.click(await screen.findByText('Renters in 98103'))
   await userEvent.click(
@@ -274,9 +362,12 @@ const gotoSchedule = async (purposeLabel = 'Persuade likely voters') => {
 
 // Schedule -> set a comfortably-future date + time -> Continue, landing on the
 // compose ("What do you want to say?") step.
-const gotoCompose = async (purposeLabel = 'Persuade likely voters') => {
+const gotoCompose = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
   mockDraft()
-  await gotoSchedule(purposeLabel)
+  await gotoSchedule(purposeLabel, onClose)
   await userEvent.click(screen.getByText('Pick a date'))
   await userEvent.click(await screen.findByText('mock-pick-future'))
   await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -291,8 +382,11 @@ const gotoCompose = async (purposeLabel = 'Persuade likely voters') => {
 
 // Compose -> record + save (passes compliance via the beforeEach mock) ->
 // Continue, landing on the review ("Review your campaign") step.
-const gotoReview = async (purposeLabel = 'Persuade likely voters') => {
-  await gotoCompose(purposeLabel)
+const gotoReview = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
+  await gotoCompose(purposeLabel, onClose)
   mockAudioUpload()
   await userEvent.click(screen.getByRole('button', { name: 'Start recording' }))
   await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
@@ -302,6 +396,12 @@ const gotoReview = async (purposeLabel = 'Persuade likely voters') => {
   await userEvent.click(continueBtn)
   await screen.findByRole('button', { name: 'Continue to payment' })
 }
+
+// Review -> Continue to payment, landing on the pay step. The pay step fires
+// create-draft + save-card-intent on entry, so the caller registers those
+// (and the authorize) mocks before calling.
+const enterPay = async () =>
+  userEvent.click(screen.getByRole('button', { name: 'Continue to payment' }))
 
 describe('RobocallFlow', () => {
   // useElectedOffice fires on mount (no enable guard); 404 => not an elected
@@ -313,6 +413,12 @@ describe('RobocallFlow', () => {
     })
     mockRentNumber()
     mockCompliance()
+    // Reset call history + any queued once-implementations between tests, then
+    // re-establish the default success.
+    confirmSetupMock.mockReset()
+    confirmSetupMock.mockResolvedValue({
+      setupIntent: { payment_method: 'pm_test_123' },
+    })
   })
 
   it('opens on the purpose step with the robocall purposes', () => {
@@ -647,8 +753,7 @@ describe('RobocallFlow', () => {
     mockDraft()
     await gotoSchedule()
 
-    // Open the date popover and pick a comfortably-future day (clears the 48h
-    // floor), then a time.
+    // Open the date popover and pick a comfortably-future day, then a time.
     await userEvent.click(screen.getByText('Pick a date'))
     await userEvent.click(await screen.findByText('mock-pick-future'))
     await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -664,11 +769,12 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('warns and blocks when the chosen day+time is inside the 48-hour window', async () => {
+  it('warns and blocks when the chosen day+time is in the past', async () => {
     await gotoSchedule()
 
-    // A past day is unambiguously inside the 48h floor; the combined-instant
-    // check (not the calendar) is the gate.
+    // The send only has to be in the future (no lead-time buffer), so a past
+    // instant is the gate — enforced by the combined-instant check, not the
+    // calendar.
     await userEvent.click(screen.getByText('Pick a date'))
     await userEvent.click(await screen.findByText('mock-pick-past'))
     await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -677,9 +783,44 @@ describe('RobocallFlow', () => {
     )
 
     expect(
-      await screen.findByText(/Sends need at least 48 hours/),
+      await screen.findByText(/Pick a send date and time in the future/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('warns and blocks when the chosen day is more than 85 days out', async () => {
+    await gotoSchedule()
+
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByText('mock-pick-too-far'))
+    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await userEvent.click(
+      await screen.findByRole('option', { name: '10:00 AM' }),
+    )
+
+    expect(
+      await screen.findByText(/Pick a send date within the next 85 days/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('allows a date within 85 days to advance', async () => {
+    mockDraft()
+    await gotoSchedule()
+
+    // mock-pick-future is 60 days out — comfortably inside the 85-day cap.
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByText('mock-pick-future'))
+    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await userEvent.click(
+      await screen.findByRole('option', { name: '10:00 AM' }),
+    )
+
+    expect(
+      screen.queryByText(/Pick a send date within the next 85 days/),
+    ).not.toBeInTheDocument()
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(continueBtn).toBeEnabled())
   })
 
   it('drafts a script on entering compose and gates Continue on a saved recording', async () => {
@@ -1155,12 +1296,477 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('advances from review to the payment placeholder', async () => {
+  it('advances from review to the pay step and shows the server estimate', async () => {
     await gotoReview()
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    await enterPay()
+
+    // The estimate and Payment Element mount once both server calls resolve.
+    // The amount shown is the server's ($5.60 total: $3.60 calls + $2 number),
+    // never a client computation.
+    expect(await screen.findByText('Amount to authorize')).toBeInTheDocument()
+    expect(screen.getByTestId('payment-element')).toBeInTheDocument()
+    // The breakdown is derived from server cents: the calls subtotal is the
+    // total minus the fee, so a broken subtraction or a zero fee fails here (the
+    // Authorize total alone would not catch it, since it reads amountInCents).
+    expect(screen.getByText('Calls (80 reachable)')).toBeInTheDocument()
+    expect(screen.getByText('$3.60')).toBeInTheDocument()
+    expect(screen.getByText('Outgoing number')).toBeInTheDocument()
+    expect(screen.getByText('$2.00')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('More coming soon')).not.toBeInTheDocument()
+  })
+
+  it('creates the draft, vaults the card, authorizes, and shows the authorized amount', async () => {
+    let draftBody: {
+      voterFileFilterId?: number
+      audioKey?: string
+      callbackNumber?: string
+    } | null = null
+    let draftScheduledAt: string | undefined
+    let authorizeBody: { paymentMethodId?: string } | null = null
+
+    api.mock('POST /v1/outreach/robocall', ({ body }) => {
+      draftBody = body
+      draftScheduledAt = body.scheduledAt
+      return {
+        status: 200,
+        data: {
+          outreachId: 42,
+          billableCount: 80,
+          amountInCents: 560,
+          numberFeeInCents: 200,
+        },
+      }
+    })
+    mockSaveCardIntent()
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', ({ body }) => {
+      authorizeBody = body
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 560,
+        },
+      }
+    })
+
+    await gotoReview()
+    await enterPay()
+
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$5\.60/,
+    })
+    await userEvent.click(submit)
+
+    // The success screen renders with the SERVER's authorized amount.
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(screen.getByText('$5.60')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /only charged for the calls we actually place, never more/,
+      ),
+    ).toBeInTheDocument()
+
+    // create-draft carried the flow's list/audio/number and an offset-annotated
+    // send time (never UTC Z); no client count/amount was ever sent.
+    expect(draftBody).toMatchObject({
+      voterFileFilterId: 1,
+      audioKey: 'robocall/42/clip.webm',
+      callbackNumber: '+12025550147',
+    })
+    expect(draftScheduledAt).toMatch(/T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
+
+    // The card was confirmed and its payment method placed the hold.
+    expect(confirmSetupMock).toHaveBeenCalledWith({
+      elements: {},
+      redirect: 'if_required',
+    })
+    expect(authorizeBody).toEqual({ paymentMethodId: 'pm_test_123' })
+  })
+
+  it('renders a Done CTA on the success screen that closes the flow', async () => {
+    const onClose = vi.fn()
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    mockAuthorize('authorized', 560, 'authorized')
+
+    await gotoReview('Persuade likely voters', onClose)
+    await enterPay()
     await userEvent.click(
-      screen.getByRole('button', { name: 'Continue to payment' }),
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
-    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+    await screen.findByText("You're all set")
+
+    // The pay step owns no footer button once settled; the shell renders Done —
+    // the only way out of the flow after paying.
+    const done = screen.getByRole('button', { name: 'Done' })
+    await userEvent.click(done)
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('bounces back to schedule if the send time elapses before payment', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    await gotoReview()
+
+    // Freeze the clock past the chosen slot (mock-pick-future is 60 days out),
+    // so goToPay sees the send time as elapsed at the review -> pay transition.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(Date.now() + 61 * 86_400_000))
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Continue to payment' }),
+      )
+      // Lands back on the schedule step with the past-time alert, not the pay
+      // step, so createDraft never fires on a stale time.
+      expect(
+        screen.getByText(/Pick a send date and time in the future/),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Amount to authorize')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the deferred message when the hold is placed later', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    mockAuthorize('deferred', null, 'pending_payment')
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+
+    // Deferred: the success screen shows the card is saved and the hold will be
+    // placed closer to the send date, with no authorized amount (no hold yet).
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(
+      screen.getByText(/authorize the estimated cost a few days before/),
+    ).toBeInTheDocument()
+  })
+
+  it('prompts for another card on a decline and remounts on a FRESH SetupIntent', async () => {
+    mockCreateDraft(560)
+    // Distinct client secrets per call, so the post-decline remount is
+    // verifiably a new SetupIntent (a SetupIntent confirms once).
+    let cardIntentCalls = 0
+    api.mock('POST /v1/outreach/robocall/save-card-intent', () => {
+      cardIntentCalls += 1
+      return {
+        status: 200,
+        data: {
+          clientSecret: `seti_secret_${cardIntentCalls}`,
+          customerId: 'cus_test_123',
+        },
+      }
+    })
+    mockAuthorize('hold_failed', null, 'hold_failed')
+
+    await gotoReview()
+    await enterPay()
+
+    // First mount used the first SetupIntent.
+    expect(await screen.findByTestId('stripe-elements')).toHaveAttribute(
+      'data-client-secret',
+      'seti_secret_1',
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+
+    expect(
+      await screen.findByText('Your card was declined'),
+    ).toBeInTheDocument()
+
+    // Try another card re-fetches a fresh SetupIntent and re-mounts against it.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Try another card' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('stripe-elements')).toHaveAttribute(
+        'data-client-secret',
+        'seti_secret_2',
+      ),
+    )
+    expect(
+      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('surfaces an inline error when the authorize request fails', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    await gotoReview()
+    await enterPay()
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$5\.60/,
+    })
+    await userEvent.click(submit)
+
+    // A friendly inline message, not a raw error, and still on the form.
+    expect(
+      await screen.findByText(/couldn't authorize your card/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not double-submit: a second submit while one is in flight is a no-op', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', () => {
+      authorizeCalls += 1
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 560,
+        },
+      }
+    })
+
+    // Hold confirmSetup open so a second submit lands while the first is still
+    // confirming.
+    let releaseConfirm!: () => void
+    confirmSetupMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseConfirm = () =>
+          resolve({ setupIntent: { payment_method: 'pm_test_123' } })
+      }),
+    )
+
+    await gotoReview()
+    await enterPay()
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$5\.60/,
+    })
+    await userEvent.click(submit)
+
+    // The button is disabled while in flight, and firing the form submit again
+    // (the internal guard) does not start a second confirm.
+    expect(submit).toBeDisabled()
+    fireEvent.submit(submit.closest('form') as HTMLFormElement)
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+
+    releaseConfirm()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+    expect(authorizeCalls).toBe(1)
+  })
+
+  it('retries after an authorize throw WITHOUT re-confirming the card', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    let lastAuthorizeBody: { paymentMethodId?: string } | null = null
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', ({ body }) => {
+      authorizeCalls += 1
+      lastAuthorizeBody = body
+      if (authorizeCalls === 1)
+        return { status: 500, data: { message: 'boom' } }
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 560,
+        },
+      }
+    })
+
+    await gotoReview()
+    await enterPay()
+    const submit = await screen.findByRole('button', {
+      name: /Authorize \$5\.60/,
+    })
+
+    // First attempt: confirmSetup succeeds (card vaulted), then authorize throws.
+    await userEvent.click(submit)
+    expect(
+      await screen.findByText(/couldn't authorize your card/),
+    ).toBeInTheDocument()
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+
+    // Retry: must NOT re-confirm the already-vaulted card (a SetupIntent
+    // confirms once), and must re-authorize with that same payment method.
+    await userEvent.click(
+      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(confirmSetupMock).toHaveBeenCalledTimes(1)
+    expect(authorizeCalls).toBe(2)
+    expect(lastAuthorizeBody).toEqual({ paymentMethodId: 'pm_test_123' })
+  })
+
+  it('shows the Stripe error and skips authorize when confirmSetup fails', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', () => {
+      authorizeCalls += 1
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 560,
+        },
+      }
+    })
+    confirmSetupMock.mockResolvedValueOnce({
+      error: { message: 'Your card number is incomplete.' },
+    })
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+
+    expect(
+      await screen.findByText('Your card number is incomplete.'),
+    ).toBeInTheDocument()
+    expect(authorizeCalls).toBe(0)
+  })
+
+  it('shows an error and skips authorize when no payment method comes back', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    let authorizeCalls = 0
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', () => {
+      authorizeCalls += 1
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 560,
+        },
+      }
+    })
+    confirmSetupMock.mockResolvedValueOnce({
+      setupIntent: { payment_method: null },
+    })
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+
+    expect(
+      await screen.findByText(/couldn't read your saved card/),
+    ).toBeInTheDocument()
+    expect(authorizeCalls).toBe(0)
+  })
+
+  it('renders the create-draft error with a working retry', async () => {
+    let createCalls = 0
+    api.mock('POST /v1/outreach/robocall', () => {
+      createCalls += 1
+      return createCalls === 1
+        ? { status: 500, data: { message: 'boom' } }
+        : {
+            status: 200,
+            data: {
+              outreachId: 42,
+              billableCount: 80,
+              amountInCents: 560,
+              numberFeeInCents: 200,
+            },
+          }
+    })
+    mockSaveCardIntent()
+
+    await gotoReview()
+    await enterPay()
+
+    // The create-draft failure surfaces inline (not a raw error) with a retry.
+    expect(
+      await screen.findByText(/couldn't set up your payment just now/),
+    ).toBeInTheDocument()
+
+    // Try again re-creates the draft and the estimate + form appear.
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Amount to authorize')).toBeInTheDocument()
+  })
+
+  it('shows the result on re-entry after authorizing, without re-running the money calls', async () => {
+    let createCalls = 0
+    let cardIntentCalls = 0
+    api.mock('POST /v1/outreach/robocall', () => {
+      createCalls += 1
+      return {
+        status: 200,
+        data: {
+          outreachId: 42,
+          billableCount: 80,
+          amountInCents: 560,
+          numberFeeInCents: 200,
+        },
+      }
+    })
+    api.mock('POST /v1/outreach/robocall/save-card-intent', () => {
+      cardIntentCalls += 1
+      return {
+        status: 200,
+        data: { clientSecret: 'seti_test_secret', customerId: 'cus_test_123' },
+      }
+    })
+    mockAuthorize('authorized', 560, 'authorized')
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(createCalls).toBe(1)
+    expect(cardIntentCalls).toBe(1)
+
+    // Back to review, then re-enter pay: the authorized result shows again —
+    // no Authorize form, and no second create-draft / save-card-intent.
+    await userEvent.click(screen.getByLabelText('Back'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue to payment' }),
+    )
+
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Authorize/ }),
+    ).not.toBeInTheDocument()
+    expect(createCalls).toBe(1)
+    expect(cardIntentCalls).toBe(1)
+  })
+
+  it('does not tell the user to refresh on a noop outcome', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    mockAuthorize('noop', null, 'pending_payment')
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+
+    expect(await screen.findByText(/already set up/)).toBeInTheDocument()
+    expect(screen.queryByText(/refresh/i)).not.toBeInTheDocument()
   })
 
   it('returns to compose from review, keeping the saved recording', async () => {
@@ -1173,5 +1779,83 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Recording saved')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  it('opens the Stripe billing portal from the pay form to manage cards', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+
+    // The reused portal-session call (POST /payments/purchase/portal-session)
+    // is a legacy route, not a typed APIEndpoints key, so it's mocked as a raw
+    // MSW handler rather than through api.mock.
+    let portalCalls = 0
+    mswServer.use(
+      http.post('*/payments/purchase/portal-session', () => {
+        portalCalls += 1
+        return HttpResponse.json({
+          redirectUrl: 'https://billing.stripe.test/session/1',
+        })
+      }),
+    )
+
+    // PaymentPortalButton redirects via window.location.href; capture it so
+    // jsdom doesn't attempt an unimplemented navigation.
+    const hrefSetter = vi.fn()
+    const originalLocation = window.location
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        get href() {
+          return 'http://localhost/'
+        },
+        set href(value: string) {
+          hrefSetter(value)
+        },
+      },
+    })
+
+    try {
+      await gotoReview()
+      await enterPay()
+
+      const manage = await screen.findByRole('button', {
+        name: /Manage payment methods/,
+      })
+      await userEvent.click(manage)
+
+      await waitFor(() => expect(portalCalls).toBe(1))
+      await waitFor(() =>
+        expect(hrefSetter).toHaveBeenCalledWith(
+          'https://billing.stripe.test/session/1',
+        ),
+      )
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      })
+    }
+  })
+
+  it('surfaces the billing portal link on the decline retry card', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    mockAuthorize('hold_failed', null, 'hold_failed')
+
+    await gotoReview()
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+    await screen.findByText('Your card was declined')
+
+    // A declined candidate can both retry with a new card and reach the portal
+    // to remove the failed one.
+    expect(
+      screen.getByRole('button', { name: 'Try another card' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Manage payment methods/ }),
+    ).toBeInTheDocument()
   })
 })

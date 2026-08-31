@@ -607,6 +607,69 @@ describe('PeerlyIdentityService', () => {
       expect(lastSubmittedData.filing_phone_type).toBe('cell')
     })
 
+    it('uses the persisted candidateName as the CV request name, not the account holder name', async () => {
+      const campaign = createMockCampaign({
+        details: {
+          electionDate: '2024-11-05',
+          ballotLevel: BallotReadyPositionLevel.STATE,
+        },
+      })
+
+      await service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-123',
+          filingUrl: 'https://state.gov/filing/123',
+          officeLevel: OfficeLevel.state,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+          candidateName: "Ta'Sha Barber",
+        },
+        // The account holder's name deliberately differs from the
+        // candidate's — this is the exact ENG-10964 mismatch (a campaign
+        // manager's account signing up under their own name).
+        createMockUser({
+          firstName: 'Amy',
+          lastName: 'McCoy',
+          name: 'Amy McCoy',
+        }),
+        campaign,
+        baseDomainName,
+      )
+
+      expect(lastSubmittedData.name).toBe("Ta'Sha Barber")
+    })
+
+    it('falls back to the account holder name when candidateName is absent (in-flight registrations)', async () => {
+      const campaign = createMockCampaign({
+        details: {
+          electionDate: '2024-11-05',
+          ballotLevel: BallotReadyPositionLevel.STATE,
+        },
+      })
+
+      await service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-123',
+          filingUrl: 'https://state.gov/filing/123',
+          officeLevel: OfficeLevel.state,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+          candidateName: null,
+        },
+        baseUser,
+        campaign,
+        baseDomainName,
+      )
+
+      expect(lastSubmittedData.name).toBe('Jane Doe')
+    })
+
     it('throws BadRequestException when federal candidate is missing fecCommitteeId', async () => {
       const campaign = createMockCampaign({
         details: {

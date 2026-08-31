@@ -3,7 +3,7 @@ import { RacesService } from '@/elections/services/races.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
-import { isTestUser, TEST_USER_DOMAIN } from '@/users/util/users.util'
+import { isTestUser, newFixtureUserEmail } from '@/users/util/users.util'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { ClerkClient } from '@clerk/backend'
@@ -185,7 +185,7 @@ export class TestFixturesService {
   ): Promise<ProvisionedUser> {
     const firstName = input.user?.firstName ?? 'QA'
     const lastName = input.user?.lastName ?? 'Fixture'
-    const email = `qa-${randomUUID()}${TEST_USER_DOMAIN}`
+    const email = newFixtureUserEmail()
     const password = `Test${randomUUID()}!`
 
     const clerkUser = await clerkThrottle(() =>

@@ -17,9 +17,10 @@ export type ListDetailDemographics = z.infer<
 >
 
 export const ListDetailReachabilitySchema = z.object({
-  // ENG-10806: each channel comes from its own people-api aggregates call —
-  // null means that specific call failed, degrading only that tile instead
-  // of the whole route (see contacts.service.ts's fetchListDetailAggregates).
+  // Nullable for the webapp's "Unavailable" tile only. gp-api now derives
+  // every channel from one conditional-aggregate statement alongside the
+  // demographics, so a channel is null only if the whole payload is missing —
+  // which fails the route instead (see fetchListDetailAggregates).
   sms: z.number().int().min(0).nullable(),
   robocall: z.number().int().min(0).nullable(),
   phoneBanking: z.number().int().min(0).nullable(),

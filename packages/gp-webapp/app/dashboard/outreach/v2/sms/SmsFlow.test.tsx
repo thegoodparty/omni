@@ -41,7 +41,13 @@ vi.mock('helpers/createOutreach', () => ({
 }))
 
 const completeFreePurchase = vi.fn(
-  async (_type: string, _meta: Record<string, unknown>) => ({ ok: true }),
+  async (
+    _type: string,
+    _meta: Record<string, unknown>,
+  ): Promise<{
+    ok: boolean
+    data?: { statusCode: number; message: string }
+  }> => ({ ok: true }),
 )
 vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
   createCheckoutSession: vi.fn(async () => ({
@@ -251,6 +257,50 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  })
+
+  it('shows the server message when the free purchase is rejected as a 400', async () => {
+    mockDraft()
+    const rejectionMessage =
+      'Message cannot contain tinyurl.com links. Please correct your message.'
+    completeFreePurchase.mockResolvedValueOnce({
+      ok: false,
+      data: { statusCode: 400, message: rejectionMessage },
+    })
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/AI body \(warm\) for introduce_myself/),
+    ).toBeInTheDocument()
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const scheduleButton = await screen.findByRole('button', {
+      name: 'Pay $0.00',
+    })
+    await userEvent.click(scheduleButton)
+
+    expect(await screen.findByText(rejectionMessage)).toBeInTheDocument()
+    expect(screen.queryByText('Payment successful!')).not.toBeInTheDocument()
   })
 
   it('builds a new list in-flow and continues into scheduling', async () => {

@@ -6,25 +6,28 @@ Shared Zod schemas and TypeScript types consumed by `gp-api`, `@goodparty_org/sd
 
 ## Key files
 
-| Path                        | Purpose                                                                       |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `package.json`              | npm metadata; `name: "@goodparty_org/contracts"`, dual CJS/ESM build via tsup |
-| `tsup.config.ts`            | Build config — emits `dist/index.{js,mjs,d.ts}`                               |
-| `src/index.ts`              | Public surface; everything reachable from here is exported                    |
-| `src/<feature>/`            | Per-domain schemas (`campaigns/`, `users/`, `elections/`, `ecanvasser/`)      |
-| `src/shared/`               | Cross-domain primitives (pagination, enums, util types)                       |
-| `src/generated/`            | Output of `scripts/generate-enums.ts` (Prisma → Zod enum mirrors)             |
-| `scripts/generate-enums.ts` | Generates Zod enums from Prisma enums to keep them in sync                    |
-| `CHANGELOG.md`              | Historical changelog from the pre-monorepo package                            |
-| `dist/`                     | Local build output                                                            |
+| Path                             | Purpose                                                                       |
+| -------------------------------- | ----------------------------------------------------------------------------- |
+| `package.json`                   | npm metadata; `name: "@goodparty_org/contracts"`, dual CJS/ESM build via tsup |
+| `tsup.config.ts`                 | Build config — emits `dist/index.{js,mjs,d.ts}`                               |
+| `src/index.ts`                   | Public surface; everything reachable from here is exported                    |
+| `src/<feature>/`                 | Per-domain schemas (`campaigns/`, `users/`, `elections/`, `ecanvasser/`)      |
+| `src/shared/`                    | Cross-domain primitives (pagination, enums, util types)                       |
+| `src/generated/`                 | Output of `scripts/generate-enums.ts` (Prisma → Zod enum mirrors)             |
+| `scripts/generate-enums.ts`      | Generates Zod enums from Prisma enums to keep them in sync                    |
+| `scripts/ensure-built.ts`        | Rebuilds `dist/` only when it is missing or older than the sources            |
+| `scripts/ensure-built.cli.ts`    | CJS entry for the above, called from consumers' npm scripts via `tsx`         |
+| `scripts/vitest-global-setup.ts` | ESM entry for the above, listed in every consumer's vitest `globalSetup`      |
+| `CHANGELOG.md`                   | Historical changelog from the pre-monorepo package                            |
+| `dist/`                          | Local build output                                                            |
 
 ## Patterns
 
-- **Build pipeline is two stages**: `npm run generate-enums` → `tsup`. Both run via `npm run build`. `scripts/build-contracts.ts` at the repo root short-circuits when the source is older than `dist/index.js`.
+- **Build pipeline is two stages**: `npm run generate-enums` → `tsup`. Both run via `npm run build`. `scripts/ensure-built.ts` short-circuits when every source file is older than `dist/index.js`.
 - **Prisma enums are the source of truth for enum values** — never hand-write a Zod enum that mirrors a Prisma one; let `generate-enums.ts` do it. Add the Prisma enum first, then regenerate.
 - **Adding a public schema**: create the Zod schema in `src/<feature>/`, export from `src/<feature>/index.ts`, then re-export from `src/index.ts`. If it isn't reachable from the root index, it doesn't ship.
 - **Consumer updates are part of the contract change.** Because consumers use the workspace package directly, update affected apps in the same PR instead of relying on a version bump.
-- The contracts build runs automatically on `npm run start:dev`, `npm run build`, and `npm test` — you generally don't run `cd contracts && npm run build` by hand.
+- **The rebuild is automatic in every consumer**, so you generally don't run `cd contracts && npm run build` by hand. Each consumer's `build` and typecheck scripts call `ensure-built.cli.ts`, and each one's vitest config lists `scripts/vitest-global-setup.ts`. The vitest hook is deliberately on the config rather than the `test` script: `npx vitest run <path>` never reads package.json, and that is the invocation that used to leave people staring at a stale `dist`.
 
 ## Gotchas
 

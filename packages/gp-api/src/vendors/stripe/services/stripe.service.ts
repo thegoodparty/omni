@@ -1,6 +1,13 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  forwardRef,
+  Inject,
+  Injectable,
+} from '@nestjs/common'
 import { User } from '../../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
+import { UsersService } from 'src/users/services/users.service'
+import { WrapperType } from 'src/shared/types/utility.types'
 import {
   CheckoutSessionMode,
   CustomCheckoutSessionPayload,
@@ -9,10 +16,39 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
+import { addDays, fromUnixTime } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
 import { requireEnv } from 'src/shared/util/env.util'
+
+// Thrown by createManualCaptureHold when the card is declined off-session. A
+// declined hold is an expected business outcome (→ hold_failed), not a 502, so
+// it carries its own type the caller can branch on.
+export class StripeHoldDeclinedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StripeHoldDeclinedError'
+  }
+}
+
+// A declined off-session robocall fresh charge. Carries the declined Payment
+// intent id so the caller can record it (marking the run charge-attempted, so
+// it is not retried) and so a later dispute/refund webhook can reconcile it.
+export class StripeChargeDeclinedError extends Error {
+  constructor(
+    message: string,
+    readonly paymentIntentId: string | null,
+  ) {
+    super(message)
+    this.name = 'StripeChargeDeclinedError'
+  }
+}
+
+// Metadata marker on a robocall fresh-charge PaymentIntent. Distinguishes it
+// from the run's authorization-hold PI, which carries the same outreachId — so
+// the crash-recovery search finds only the fresh charge.
+const ROBOCALL_FRESH_CHARGE_KIND = 'robocall_fresh_charge'
 
 const STRIPE_SECRET_KEY = requireEnv('STRIPE_SECRET_KEY')
 const WEBAPP_ROOT_URL = requireEnv('WEBAPP_ROOT_URL')
@@ -27,9 +63,102 @@ export class StripeService {
 
   constructor(
     private readonly slack: SlackService,
+    // Resolvable without StripeModule importing UsersModule because UsersModule
+    // is @Global; forwardRef breaks the UsersService <-> StripeService cycle.
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: WrapperType<UsersService>,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(StripeService.name)
+  }
+
+  // Returns the user's Stripe customerId, creating and persisting one the first
+  // time. Concurrency-safe via a set-if-absent CAS: racing requests each create
+  // a customer, but only one wins the CAS and persists its id; the losers drop
+  // their now-orphan customer (no card attached) and return the stored winner,
+  // so a card is never vaulted against an abandoned customer.
+  async ensureCustomer(user: User): Promise<string> {
+    const existingCustomerId = user.metaData?.customerId
+    if (existingCustomerId) {
+      return existingCustomerId
+    }
+
+    const name = [user.firstName, user.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+
+    let customer: Stripe.Customer
+    try {
+      customer = await this.stripe.customers.create({
+        ...(user.email ? { email: user.email } : {}),
+        ...(name ? { name } : {}),
+        metadata: { userId: String(user.id) },
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe customer')
+      throw new BadGatewayException('Failed to create Stripe customer')
+    }
+
+    const won = await this.usersService.setCustomerIdIfAbsent(
+      user.id,
+      customer.id,
+    )
+    if (won) {
+      return customer.id
+    }
+
+    // Lost the race: another request persisted a customerId first, so our
+    // just-created customer is an orphan. Drop it best-effort — no card is
+    // attached, and a cleanup failure must not fail a request that already has
+    // a valid stored customerId.
+    try {
+      await this.stripe.customers.del(customer.id)
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to delete orphan Stripe customer')
+    }
+
+    const winner = await this.usersService.findUser({ id: user.id })
+    const winnerCustomerId = winner?.metaData?.customerId
+    if (!winnerCustomerId) {
+      throw new BadGatewayException(
+        'Lost the customer-id race but found no stored customerId',
+      )
+    }
+    return winnerCustomerId
+  }
+
+  // Off-session usage pre-authenticates the saved card so the later robocall
+  // charge can run without the candidate present. Cards only: an off-session
+  // vaulted bank debit would settle as ACH (delayed, returnable), breaking the
+  // hold-then-capture model (mirrors createCustomCheckoutSession's pinning).
+  async createSetupIntent(
+    customerId: string,
+  ): Promise<{ clientSecret: string }> {
+    let setupIntent: Stripe.SetupIntent
+    try {
+      // A fresh SetupIntent per call, no idempotency key: a customer-scoped key
+      // would, inside Stripe's 24h window, return a since-succeeded intent whose
+      // client_secret the Payment Element refuses to mount — breaking a
+      // retry-after-success or card-replacement flow. Abandoned intents are
+      // cheap and Stripe reaps them.
+      setupIntent = await this.stripe.setupIntents.create({
+        customer: customerId,
+        usage: 'off_session',
+        payment_method_types: ['card'],
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe setup intent')
+      throw new BadGatewayException('Failed to create Stripe setup intent')
+    }
+
+    if (!setupIntent.client_secret) {
+      throw new BadGatewayException(
+        'Failed to create setup intent: no client_secret returned',
+      )
+    }
+
+    return { clientSecret: setupIntent.client_secret }
   }
 
   private getPrice = async () => {
@@ -78,6 +207,23 @@ export class StripeService {
     return await this.stripe.paymentIntents.retrieve(paymentId)
   }
 
+  // Captures an authorized manual-capture hold for a specific amount. The caller
+  // clamps amountToCaptureInCents to <= the authorized amount (INV-1); Stripe
+  // releases any uncaptured remainder. A stable idempotencyKey makes a retried
+  // capture replay the same result instead of erroring, so a lost response never
+  // double-charges. Returns the captured PaymentIntent (read amount_received).
+  async capturePaymentIntent(
+    paymentIntentId: string,
+    amountToCaptureInCents: number,
+    idempotencyKey: string,
+  ): Promise<Stripe.PaymentIntent> {
+    return await this.stripe.paymentIntents.capture(
+      paymentIntentId,
+      { amount_to_capture: amountToCaptureInCents },
+      { idempotencyKey },
+    )
+  }
+
   async updatePaymentIntentMetadata(
     paymentIntentId: string,
     metadata: Record<string, string>,
@@ -85,6 +231,250 @@ export class StripeService {
     return await this.stripe.paymentIntents.update(paymentIntentId, {
       metadata,
     })
+  }
+
+  // Retrieves a saved payment method so the caller can confirm it belongs to
+  // the expected customer before authorizing a charge against it.
+  async retrievePaymentMethod(
+    paymentMethodId: string,
+  ): Promise<Stripe.PaymentMethod> {
+    try {
+      return await this.stripe.paymentMethods.retrieve(paymentMethodId)
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to retrieve Stripe payment method')
+      throw new BadGatewayException('Failed to retrieve Stripe payment method')
+    }
+  }
+
+  // Places a manual-capture authorization hold on the vaulted card off-session
+  // (the candidate is not present). Returns the intent id and the capture
+  // deadline Stripe stamps on the auth. Extended authorization is requested so
+  // the hold outlives the standard ~7-day window when the network supports it;
+  // capture_before is the real deadline, parsed from the response (falling back
+  // to now+7d when Stripe omits it). A card decline is an expected business
+  // outcome, surfaced as StripeHoldDeclinedError so the caller can record
+  // hold_failed rather than a 502; every other failure is infra → 502. The DB
+  // write of the returned ids happens in the caller, outside this try/catch.
+  async createManualCaptureHold({
+    customerId,
+    paymentMethodId,
+    amountInCents,
+    robocallId,
+    attempt,
+    metadata,
+  }: {
+    customerId: string
+    paymentMethodId: string
+    amountInCents: number
+    robocallId: number
+    attempt: number
+    metadata: Record<string, string>
+  }): Promise<{ paymentIntentId: string; captureBefore: Date }> {
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: paymentMethodId,
+          capture_method: 'manual',
+          confirm: true,
+          off_session: true,
+          payment_method_options: {
+            card: { request_extended_authorization: 'if_available' },
+          },
+          metadata,
+        },
+        { idempotencyKey: `robocall-hold-${robocallId}-${attempt}` },
+      )
+    } catch (err) {
+      // An off-session confirm that the card refuses raises StripeCardError
+      // (card_declined, authentication_required, insufficient_funds, …). That
+      // is a business outcome the caller resolves by asking for a new card, not
+      // an infra fault — signal it distinctly so it never becomes a 502.
+      if (err instanceof Stripe.errors.StripeCardError) {
+        throw new StripeHoldDeclinedError(err.message)
+      }
+      this.logger.error({ err }, 'Failed to place robocall authorization hold')
+      throw new BadGatewayException('Failed to place authorization hold')
+    }
+
+    // Verify the auth actually reserved funds before the caller stamps
+    // authorized. A confirmed manual-capture PI that did not reach
+    // requires_capture (requires_action / processing / requires_payment_method
+    // returned WITHOUT throwing) is not a usable hold — treat it as a decline,
+    // not a success the caller would authorize against ("verify before stamping
+    // state").
+    if (intent.status !== 'requires_capture') {
+      throw new StripeHoldDeclinedError(
+        `Hold did not authorize: status ${intent.status}`,
+      )
+    }
+
+    // Stripe returns capture_before (Unix seconds) on a manual-capture auth, but
+    // the SDK type does not expose it. Fall back to the standard ~7-day lifetime
+    // when it is absent so a downstream capture-window check always has a bound.
+    const captureBeforeUnix = (
+      intent as Stripe.PaymentIntent & { capture_before?: number | null }
+    ).capture_before
+    return {
+      paymentIntentId: intent.id,
+      captureBefore: captureBeforeUnix
+        ? fromUnixTime(captureBeforeUnix)
+        : addDays(new Date(), 7),
+    }
+  }
+
+  // Charges the saved card off-session for a DELIVERED robocall run whose
+  // authorization hold lapsed before capture (immediate/automatic capture — a
+  // fresh charge, NOT a hold). RESERVES + CAPTURES REAL MONEY in one step. The
+  // caller has already clamped amountInCents to <= the originally authorized
+  // amount (INV-1). The idempotency key is stable per outreach (the amount is
+  // deterministic per run), so a retried charge REPLAYS the same PaymentIntent
+  // instead of charging twice. A card decline is a business outcome, not a 502:
+  // it raises StripeChargeDeclinedError carrying the declined PI id (the confirm
+  // creates the PI before the decline), so the caller records it and does not
+  // retry. Verifies the PI reached `succeeded` before returning, so a confirmed-
+  // but-not-captured status is treated as a decline, never a false success.
+  async createOffSessionCharge({
+    customerId,
+    paymentMethodId,
+    amountInCents,
+    robocallId,
+    metadata,
+  }: {
+    customerId: string
+    paymentMethodId: string
+    amountInCents: number
+    robocallId: number
+    metadata: Record<string, string>
+  }): Promise<{ paymentIntentId: string }> {
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: paymentMethodId,
+          capture_method: 'automatic',
+          confirm: true,
+          off_session: true,
+          // Stamp the kind so a crash-recovery search can find a landed charge
+          // by metadata and reconcile it WITHOUT charging again — the hold PI
+          // carries the same outreachId, so kind is what distinguishes them.
+          metadata: { ...metadata, kind: ROBOCALL_FRESH_CHARGE_KIND },
+        },
+        { idempotencyKey: `robocall-fresh-charge-${robocallId}` },
+      )
+    } catch (err) {
+      if (err instanceof Stripe.errors.StripeCardError) {
+        throw new StripeChargeDeclinedError(
+          err.message,
+          err.payment_intent?.id ?? null,
+        )
+      }
+      this.logger.error({ err }, 'Failed to place robocall fresh charge')
+      throw new BadGatewayException('Failed to place fresh charge')
+    }
+
+    // `processing` is NOT a decline — the charge may still settle. Throw a plain
+    // Error (not StripeChargeDeclinedError) so the caller's transient-failure
+    // path reverts to uncollectable WITHOUT recording chargeIntentId. The next
+    // sweep replays under the stable idempotency key and findSucceededChargeByOutreach
+    // reconciles the PI once it lands — never a phantom `charged`, and never a
+    // row permanently locked out of recovery with money silently collected.
+    if (intent.status === 'processing') {
+      throw new Error(`Fresh charge still processing: status ${intent.status}`)
+    }
+    // Any other confirmed-but-not-`succeeded` status (requires_action off-session
+    // won't self-resolve, requires_payment_method, canceled) did not collect
+    // funds and won't — a decline carrying the PI id so the caller marks the run
+    // charge-attempted, never a success recorded as `charged`.
+    if (intent.status !== 'succeeded') {
+      throw new StripeChargeDeclinedError(
+        `Fresh charge did not succeed: status ${intent.status}`,
+        intent.id,
+      )
+    }
+    return { paymentIntentId: intent.id }
+  }
+
+  // Finds an already-SUCCEEDED fresh-charge for a robocall outreach, by the kind
+  // + outreachId metadata createOffSessionCharge stamps. The crash-recovery path
+  // uses it to reconcile a charge that landed before its DB commit was lost —
+  // WITHOUT re-charging — so recovery is idempotent independent of Stripe's 24h
+  // idempotency-key window (which the capture kill-switch's own toggling can
+  // outlast). Search is eventually consistent (~1m index lag); recovery only
+  // runs on rows already stranded past ROBOCALL_CHARGING_STALE_MINUTES, far
+  // longer. Returns the succeeded PI's id + amount_received, or null.
+  async findSucceededChargeByOutreach(outreachId: number): Promise<{
+    paymentIntentId: string
+    amountReceived: number | null
+  } | null> {
+    const res = await this.stripe.paymentIntents.search({
+      query:
+        `status:'succeeded' AND ` +
+        `metadata['kind']:'${ROBOCALL_FRESH_CHARGE_KIND}' AND ` +
+        `metadata['outreachId']:'${outreachId}'`,
+    })
+    const intent = res.data[0]
+    return intent
+      ? {
+          paymentIntentId: intent.id,
+          amountReceived: intent.amount_received ?? null,
+        }
+      : null
+  }
+
+  // Releases an authorization hold (rollback when a placed hold turns out to be
+  // unusable, or when a lost state race means the hold must not stand).
+  // Best-effort: a failed void — Stripe down, or the PI already canceled — must
+  // never block the DB revert that follows it on the caller's rollback path, or
+  // the row would strand in hold_pending. A void that does not land is recorded
+  // in RobocallOrphanedHold at the call site so the hold-reconcile sweep
+  // confirms and re-voids it (and it auto-expires within the auth lifetime).
+  async voidHold(paymentIntentId: string): Promise<void> {
+    try {
+      await this.stripe.paymentIntents.cancel(paymentIntentId)
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to void robocall authorization hold')
+    }
+  }
+
+  // Finds LIVE (requires_capture) manual-capture holds for a robocall outreach,
+  // by the outreachId metadata createManualCaptureHold stamps. Used by the
+  // hold_pending stale-recovery sweep to locate an orphan hold whose intent id
+  // was never persisted (the placement crashed before its commit). status
+  // requires_capture is unique to a manual-capture auth, so this matches only
+  // genuinely-live robocall holds — a voided one is `canceled`, a captured one
+  // `succeeded`. Stripe search is eventually consistent (a just-placed PI can
+  // lag ~1m before it is indexed); the recovery only runs on rows already
+  // stranded past ROBOCALL_HOLD_PENDING_STALE_MINUTES, far longer than that lag.
+  async findLiveManualHoldsByOutreach(outreachId: number): Promise<string[]> {
+    const res = await this.stripe.paymentIntents.search({
+      query:
+        `status:'requires_capture' AND ` +
+        `metadata['outreachId']:'${outreachId}'`,
+    })
+    return res.data.map((intent) => intent.id)
+  }
+
+  // Cancels a hold and THROWS on failure — the strict counterpart to the
+  // best-effort voidHold. The hold_pending recovery sweep uses this: if the
+  // cancel fails it must NOT proceed to revert the draft (that would release the
+  // row while a possibly-live orphan hold still reserves the card, and a re-auth
+  // would then stack a second hold). Propagating the failure keeps the row
+  // hold_pending for the next sweep to retry. Only called on a hold search just
+  // reported as requires_capture, so a "cannot cancel" state error never occurs.
+  async cancelHold(paymentIntentId: string): Promise<void> {
+    try {
+      await this.stripe.paymentIntents.cancel(paymentIntentId)
+    } catch (err) {
+      this.logger.error({ err, paymentIntentId }, 'Failed to cancel hold')
+      throw new BadGatewayException('Failed to cancel authorization hold')
+    }
   }
 
   // Full refund of a completed one-time payment (cancel-before-send).

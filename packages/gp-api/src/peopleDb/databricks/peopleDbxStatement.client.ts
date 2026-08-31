@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
@@ -10,18 +11,15 @@ import {
 import type { DbxParam, DbxStatement } from './databricksVoterSql.util'
 
 // Serverless warehouse resume can eat the first 10-20s after an idle period,
-// so this ceiling is deliberately looser than the Postgres path's 25s. That
-// one guards against a pathological plan on a warm cluster; here the long
-// tail is compute startup, and killing it would turn every post-idle request
-// into a 504.
+// so this ceiling is deliberately loose. The long tail here is compute
+// startup, and killing it would turn every post-idle request into a 504.
 const STATEMENT_TIMEOUT_MS = 60_000
 
 // The API's hard ceiling on the statement field, measured against it directly:
 // a 20MB statement is rejected with "must not exceed a length of 16777216
 // bytes". Reachable because id sets are inlined rather than bound — the
 // contract permits 100k ids per set, and a request carrying `filters.id` plus
-// both id-override pairs can exceed this where the Postgres path (one bound
-// array per set) would not.
+// both id-override pairs can exceed it.
 const MAX_STATEMENT_BYTES = 16_777_216
 
 // Measured against the API: "20000 parameters were given but the limit is
@@ -87,6 +85,21 @@ const tokenResponseSchema = z.object({
 })
 
 type StatementResponse = z.infer<typeof statementResponseSchema>
+
+// Statement ids for whatever runs inside the current async context. The read
+// log carries them so a slow request in Loki can be joined to Databricks query
+// history, where the wait-before-compilation actually shows up. Threading an
+// id back through every builder and service signature would have touched six
+// call sites to carry a diagnostic; this stays out of the shapes entirely.
+export const statementIdCollector = new AsyncLocalStorage<string[]>()
+
+// Recorded at SUBMIT, not on completion: a statement that times out or fails
+// throws before it ever settles, and those are the requests the join key
+// exists to chase. The id is assigned by the submit response, so it is already
+// known by then.
+const recordStatementId = (id?: string): void => {
+  if (id) statementIdCollector.getStore()?.push(id)
+}
 
 export type PeopleDbxRows = {
   columns: string[]
@@ -184,6 +197,7 @@ export class PeopleDbxStatementClient {
       wait_timeout: '30s',
       on_wait_timeout: 'CONTINUE',
     })
+    recordStatementId(first.statement_id)
     const settled = await this.awaitCompletion(config, first, startedAt)
     const columns =
       settled.manifest?.schema?.columns.map((column) => column.name) ?? []
@@ -212,6 +226,7 @@ export class PeopleDbxStatementClient {
       disposition: 'EXTERNAL_LINKS',
       wait_timeout: '0s',
     })
+    recordStatementId(first.statement_id)
     const settled = await this.awaitCompletion(config, first, startedAt)
     const [link] = settled.result?.external_links ?? []
     // A succeeded export always carries chunk 0, even for an empty result set

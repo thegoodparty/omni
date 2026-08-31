@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded PR runs: a new push makes the in-flight result irrelevant,
+# and while cancel was off the new run also queued behind it. Never on main.
 concurrency:
   group: styleguide-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   WORKSPACE: packages/styleguide

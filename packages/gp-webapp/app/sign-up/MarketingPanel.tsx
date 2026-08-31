@@ -12,7 +12,7 @@ const FeatureBlock = ({
   title: string
   description: string
 }) => (
-  <div className="flex w-[280px] max-w-full flex-col gap-1">
+  <div className="flex w-full max-w-[280px] flex-col gap-1">
     <Icon
       className="size-6 text-[#0a0a0a]"
       strokeWidth={2}
@@ -41,8 +41,8 @@ export default function MarketingPanel({ className }: { className?: string }) {
           </p>
         </header>
 
-        <div className="flex flex-col gap-8 xl:flex-row xl:items-start xl:gap-10">
-          <div className="flex flex-col gap-4 xl:mt-[72px]">
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
+          <div className="flex flex-col gap-4 lg:mt-[72px]">
             <StatCard />
             <FeatureBlock
               icon={ClipboardList}

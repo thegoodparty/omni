@@ -14,6 +14,7 @@ export const SERVE_ROUTE_PREFIXES = [
   // post-auth org switch.
   '/dashboard/community-issues',
   '/dashboard/public-profile',
+  '/dashboard/constituent-outreach',
   '/dashboard/admin-review/briefings',
   // Elected-official onboarding. NOTE: the public /serve/welcome magic-link
   // redemption page is intentionally NOT listed — it is reached pre-auth and

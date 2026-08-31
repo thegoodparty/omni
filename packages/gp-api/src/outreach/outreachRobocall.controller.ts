@@ -2,16 +2,28 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Param,
+  ParseIntPipe,
   Post,
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  RobocallAuthorizeRequest,
+  RobocallAuthorizeRequestSchema,
+  RobocallAuthorizeResponse,
+  RobocallAuthorizeResponseSchema,
   RobocallComplianceRequest,
   RobocallComplianceRequestSchema,
   RobocallComplianceVerdict,
   RobocallComplianceVerdictSchema,
+  RobocallDraftCreateRequest,
+  RobocallDraftCreateRequestSchema,
+  RobocallDraftCreateResponse,
+  RobocallDraftCreateResponseSchema,
   RobocallNumberResponse,
   RobocallNumberResponseSchema,
+  RobocallSaveCardIntentResponse,
+  RobocallSaveCardIntentResponseSchema,
   RobocallScriptDraftRequest,
   RobocallScriptDraftRequestSchema,
   RobocallScriptDraftResponse,
@@ -28,18 +40,29 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
+import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import {
+  areaCodeFromE164UsNumber,
+  resolveRobocallAreaCode,
+} from './util/robocallAreaCode.util'
 
 const candidateName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
 
-// Stateless robocall compose endpoints: draft, number rental, and the
-// compliance check. Nothing persists here — the flow holds everything client-
-// side until the send is created (and paid for) in a later slice.
+// Robocall endpoints. The compose surface (script draft, number rental,
+// compliance) is stateless — nothing persists there. `POST robocall` is the
+// one write: it saves the pending_payment draft (spine + satellite) the
+// hold/settlement slices act on.
 @Controller('outreach')
 @UseCampaign()
 @UseOrganization()
@@ -47,15 +70,26 @@ const candidateName = (user: User): string =>
 export class OutreachRobocallController {
   constructor(
     private readonly generationService: OutreachRobocallGenerationService,
+    private readonly robocallService: OutreachRobocallService,
+    private readonly holdService: OutreachRobocallHoldService,
     private readonly compliance: RobocallComplianceService,
+    private readonly complianceResults: RobocallComplianceResultService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
     private readonly callhubNumbers: CallhubNumbersService,
+    private readonly areaCodeFromZipService: AreaCodeFromZipService,
+    private readonly stripe: StripeService,
+    private readonly s3: S3Service,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallController.name)
+    const bucket = process.env.ROBOCALL_AUDIO_BUCKET
+    if (!bucket) throw new Error('ROBOCALL_AUDIO_BUCKET is not configured')
+    this.audioBucket = bucket
   }
+
+  private readonly audioBucket: string
 
   // Office is prompt/verification enrichment: an election-api failure degrades
   // to the campaign's normalized office rather than failing the request.
@@ -77,15 +111,61 @@ export class OutreachRobocallController {
   // Rents a fresh CallHub caller-ID number for this robocall. The candidate
   // reads it aloud as the callback number, so it must exist before the script
   // is drafted with its disclosure. A number is rented per robocall (numbers
-  // get spam-flagged); the account auto-un-rents idle ones.
+  // get spam-flagged); the account auto-un-rents idle ones. Requests a number
+  // local to the campaign's zip so the callback number looks like a local
+  // call to voters, rather than an arbitrary national area code. A missing
+  // zip, a zip lookup miss, or CallHub having no inventory for that area code
+  // all degrade to CallHub's plain national rental — this must never fail the
+  // rental over caller-ID geography.
   @Post('robocall/number')
   @ResponseSchema(RobocallNumberResponseSchema)
   async rentNumber(
+    @ReqCampaign() campaign: Campaign,
     @ReqOrganization() organization: Organization,
   ): Promise<RobocallNumberResponse> {
     await this.contacts.assertProAccess(organization)
-    const rented = await this.callhubNumbers.rentNumber({ countryIso: 'US' })
+
+    const areaCodePrefix = await resolveRobocallAreaCode(campaign.details, {
+      areaCodeFromZipService: this.areaCodeFromZipService,
+      logger: this.logger,
+    })
+
+    const rented = await this.callhubNumbers.rentNumber({
+      countryIso: 'US',
+      areaCodePrefix,
+    })
+
+    // CallHub never errors when the requested prefix has no inventory — it
+    // silently substitutes a national number (see callhubNumber.schema.ts).
+    // Detect and log that fallback rather than asserting on it; the rental
+    // itself already succeeded.
+    if (
+      areaCodePrefix &&
+      areaCodeFromE164UsNumber(rented.phone_number) !== areaCodePrefix
+    ) {
+      this.logger.warn(
+        { requestedAreaCodePrefix: areaCodePrefix, region: rented.region },
+        'Robocall number rental: CallHub had no inventory for the requested area code, rented a national number instead',
+      )
+    }
+
     return { phoneNumber: rented.phone_number, region: rented.region }
+  }
+
+  // Vaults the candidate's card for the later off-session robocall charge:
+  // ensures a Stripe customer for the user, then returns a SetupIntent client
+  // secret the pay-step mounts a Payment Element against. No charge here — the
+  // hold and the charge land in later slices.
+  @Post('robocall/save-card-intent')
+  @ResponseSchema(RobocallSaveCardIntentResponseSchema)
+  async saveCardIntent(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+  ): Promise<RobocallSaveCardIntentResponse> {
+    await this.contacts.assertProAccess(organization)
+    const customerId = await this.stripe.ensureCustomer(user)
+    const { clientSecret } = await this.stripe.createSetupIntent(customerId)
+    return { clientSecret, customerId }
   }
 
   @Post('robocall/draft')
@@ -108,6 +188,56 @@ export class OutreachRobocallController {
         await this.composeContext.buildCampaignContext(campaign),
       ),
     }
+  }
+
+  // Persists the robocall as a pending_payment draft BEFORE payment
+  // (draft-first, mirrors p2p): the returned outreachId is the anchor the
+  // hold/settlement slices act on. The audioKey is client-held, so confirm it
+  // belongs to THIS campaign first. The billable count and amount are derived
+  // server-side from voterFileFilterId — never trusting a client count — and
+  // returned so the pay step shows the estimate it will authorize.
+  @Post('robocall')
+  @ResponseSchema(RobocallDraftCreateResponseSchema)
+  async createDraft(
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(RobocallDraftCreateRequestSchema))
+    input: RobocallDraftCreateRequest,
+  ): Promise<RobocallDraftCreateResponse> {
+    await this.contacts.assertProAccess(organization)
+
+    if (!input.audioKey.startsWith(`robocall/${campaign.id}/`)) {
+      throw new BadRequestException('Audio does not belong to this campaign')
+    }
+
+    return this.robocallService.createDraft(campaign, organization, input)
+  }
+
+  // Places the pay-time authorization hold (RESERVES REAL MONEY): a
+  // manual-capture Stripe hold on the vaulted card for the server-re-derived
+  // estimate of this scheduled draft. Pro-gated and campaign-scoped like the
+  // siblings. The draft is loaded scoped to the paying campaign inside the
+  // service; the hold, its idempotency, the ceiling, and the capture-window fit
+  // are enforced there.
+  @Post('robocall/:outreachId/authorize')
+  @ResponseSchema(RobocallAuthorizeResponseSchema)
+  async authorize(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+    @Body(new ZodValidationPipe(RobocallAuthorizeRequestSchema))
+    input: RobocallAuthorizeRequest,
+  ): Promise<RobocallAuthorizeResponse> {
+    await this.contacts.assertProAccess(organization)
+
+    return this.holdService.authorizeHold(
+      user,
+      campaign,
+      organization,
+      outreachId,
+      input.paymentMethodId,
+    )
   }
 
   // Fail-closed compliance gate for the recorded audio: transcribe and verify
@@ -141,12 +271,42 @@ export class OutreachRobocallController {
     const office = await this.resolveOffice(campaign)
     const organizationName = office ? `${name} for ${office}` : name
 
-    return this.compliance.checkRecording({
+    // Pin the audio's ETag ACROSS the check so the verdict binds to the exact
+    // bytes that were transcribed, not the key's state afterward. The check
+    // (Transcribe ingest + poll) can run for minutes, and the presigned POST is
+    // still valid — a candidate could re-upload non-compliant bytes mid-check,
+    // leaving Transcribe's transcript from the good bytes but the object holding
+    // the bad ones. Reading the ETag before AND after and requiring equality
+    // fails that closed: an unequal (or missing) ETag records a null bind, which
+    // the create gate rejects. The dominant window (the poll) is inside here.
+    const beforeEtag = (
+      await this.s3.headObject(this.audioBucket, input.audioKey)
+    )?.etag
+
+    const verdict = await this.compliance.checkRecording({
       audioKey: input.audioKey,
       contentType: input.contentType,
       candidateName: name,
       organizationName,
       userId: String(user.id),
     })
+
+    const afterEtag = (
+      await this.s3.headObject(this.audioBucket, input.audioKey)
+    )?.etag
+    const boundEtag = beforeEtag && beforeEtag === afterEtag ? beforeEtag : null
+
+    // Persist the verdict keyed by audioKey so createDraft can enforce a passing
+    // compliance pass server-side (a backstop under the client UI gate). A
+    // re-check upserts, so the latest verdict is the one the create gate reads.
+    // boundEtag is the ETag of the judged bytes (null if they moved mid-check),
+    // so the create gate can bind the draft to exactly what passed.
+    await this.complianceResults.recordVerdict(
+      input.audioKey,
+      verdict,
+      boundEtag,
+    )
+
+    return verdict
   }
 }

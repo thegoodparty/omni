@@ -140,6 +140,12 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
       return jobId
     } catch (error) {
+      // A BadRequestException carries a user-fixable Peerly content
+      // rejection (peerlyErrorHandling.service.ts) — don't bury it under
+      // the generic 502.
+      if (error instanceof BadRequestException) {
+        throw error
+      }
       const isListAssignmentFailure =
         error instanceof BadGatewayException &&
         error.message.includes(P2P_ERROR_MESSAGES.LIST_ASSIGNMENT_FAILED)
@@ -211,7 +217,17 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       }
 
       this.logger.debug({ body }, `Updating Peerly job ${jobId} with body:`)
-      await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, body)
+      try {
+        await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, body)
+      } catch (error) {
+        // Same parse as createJob: a Peerly content rejection
+        // (Errors.templates) surfaces as an actionable 400, not a blanket
+        // 502 (ENG-10981).
+        await this.peerlyErrorHandling.handleApiError({
+          error,
+          logger: this.logger,
+        })
+      }
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error

@@ -28,6 +28,7 @@ import { PurchaseService } from './purchase.service'
 import { PinoLogger } from 'nestjs-pino'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { RaceOpponentService } from '../../raceOpponent/services/raceOpponent.service'
+import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
 
 const { STRIPE_WEBSOCKET_SECRET } = process.env
 if (!STRIPE_WEBSOCKET_SECRET) {
@@ -95,8 +96,77 @@ export class PaymentEventsService {
         return await this.customerSubscriptionUpdatedHandler(event)
       case WebhookEventType.CustomerSubscriptionResumed:
         return await this.customerSubscriptionResumedHandler(event)
+      case WebhookEventType.PaymentMethodDetached:
+        return await this.paymentMethodDetachedHandler(event)
+      case WebhookEventType.PaymentMethodAttached:
+        return await this.paymentMethodAttachedHandler(event)
+      case WebhookEventType.ChargeDisputeCreated:
+        return await this.chargeDisputeCreatedHandler(event)
     }
     this.logger.warn(`Stripe Event type ${event.type} not handled`)
+  }
+
+  // Resolved lazily via ModuleRef, like the opponent dispatch above:
+  // OutreachModule imports PaymentsModule, so injecting the robocall service
+  // here would close that cycle. strict:false searches the whole app graph.
+  private robocallWebhookService(): OutreachRobocallWebhookService {
+    return this.moduleRef.get(OutreachRobocallWebhookService, { strict: false })
+  }
+
+  // payment_method.detached: a candidate removed a saved card. Cancel any
+  // robocall run bound to it that has NOT dialed and release its hold — never
+  // leave an authorization standing against a revoked card, and never dial one.
+  // Runs already dialing/dialed/settling/captured/charged are left untouched
+  // (their calls happened; capture must proceed). Idempotent across Stripe
+  // redeliveries via the per-row state CAS in the service.
+  async paymentMethodDetachedHandler(
+    event: Stripe.PaymentMethodDetachedEvent,
+  ): Promise<void> {
+    await this.robocallWebhookService().cancelNotYetDialedForDetachedPaymentMethod(
+      event.data.object.id,
+    )
+  }
+
+  // payment_method.attached: a candidate added/updated a saved card (via the pay
+  // step's SetupIntent or the billing portal). Immediately retry the hold for
+  // this customer's hold_failed robocall drafts whose send is still ahead — the
+  // team flow's "card updated before send time → retry the hold now" arm, so the
+  // candidate does not wait for the daily reminder. Cards only; the service owns
+  // the off-session-money kill-switch and the per-draft placement CAS.
+  async paymentMethodAttachedHandler(
+    event: Stripe.PaymentMethodAttachedEvent,
+  ): Promise<void> {
+    const pm = event.data.object
+    const customerId =
+      typeof pm.customer === 'string' ? pm.customer : pm.customer?.id
+    if (!customerId || pm.type !== 'card') {
+      return
+    }
+    await this.robocallWebhookService().retryHoldFailedForAttachedCard(
+      customerId,
+      pm.id,
+    )
+  }
+
+  // charge.dispute.created: mark the disputed robocall run and (integration
+  // point in the service) block the campaign's future sends. Map the dispute's
+  // payment intent back to the run so the wrong campaign is never marked.
+  async chargeDisputeCreatedHandler(
+    event: Stripe.ChargeDisputeCreatedEvent,
+  ): Promise<void> {
+    const dispute = event.data.object
+    const intentId =
+      typeof dispute.payment_intent === 'string'
+        ? dispute.payment_intent
+        : dispute.payment_intent?.id
+    if (!intentId) {
+      this.logger.warn(
+        { disputeId: dispute.id },
+        '[WEBHOOK] charge.dispute.created has no payment_intent; skipping',
+      )
+      return
+    }
+    await this.robocallWebhookService().markDisputedByIntent(intentId)
   }
 
   async customerSubscriptionCreatedHandler(
@@ -435,6 +505,18 @@ export class PaymentEventsService {
         prefetchedSession,
       )
     } catch (error) {
+      // A BadRequestException here is a permanent content rejection (e.g.
+      // Peerly refusing the script) — every Stripe redelivery would hit the
+      // same wall, so acknowledge the webhook instead of retrying forever.
+      // The idempotency marker was never stamped and the draft was reverted
+      // to pending_payment, so the client-facing paths stay correct.
+      if (error instanceof BadRequestException) {
+        this.logger.error(
+          { error },
+          `[WEBHOOK] Checkout session fulfillment permanently rejected - Session: ${sessionId}, PurchaseType: ${metadata.purchaseType}`,
+        )
+        return
+      }
       this.logger.error(
         { error },
         `[WEBHOOK] Failed to complete checkout session - Session: ${sessionId}, PurchaseType: ${metadata.purchaseType}`,

@@ -53,6 +53,7 @@ export const seedFilingComplete = async (
     placeId: 'ChIJ-seed-place-id',
     formattedAddress: '123 Capitol Ave, Cheyenne, WY 82001, USA',
     committeeName: 'Jane for Council',
+    candidateName: 'Jane Smith',
     // tcrComplianceBaseShape requires a filing URL that includes a path.
     filingUrl: 'https://sos.wyo.gov/filing/jane-for-council',
     email,

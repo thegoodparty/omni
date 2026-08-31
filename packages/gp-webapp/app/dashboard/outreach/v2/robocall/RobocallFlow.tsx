@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
   type SocialTone,
@@ -23,27 +25,26 @@ import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
 import { RobocallComposeStep } from './RobocallComposeStep'
 import { RobocallReviewStep } from './RobocallReviewStep'
+import { RobocallPayStep } from './RobocallPayStep'
 import { useRobocallRecorder } from './useRobocallRecorder'
 import { useRobocallAudioUpload } from './useRobocallAudioUpload'
-import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
+import {
+  combineScheduledAt,
+  resolveCampaignTimeZone,
+  ROBOCALL_MAX_SCHEDULE_DAYS,
+} from './scheduleTimeZone'
 
-// Steps grow as later slices land (pay). For now: pick a purpose, pick/build
-// the audience, choose when it goes out, record/compose the message, review the
-// pre-send summary, then a placeholder for the not-yet-built payment step.
-type StepId =
-  | 'purpose'
-  | 'audience'
-  | 'schedule'
-  | 'compose'
-  | 'review'
-  | 'placeholder'
+// The full flow: pick a purpose, pick/build the audience, choose when it goes
+// out, record/compose the message, review the pre-send summary, then pay
+// (create the draft, vault the card, authorize the hold).
+type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review' | 'pay'
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
   'schedule',
   'compose',
   'review',
-  'placeholder',
+  'pay',
 ]
 
 const STEP_TITLES: Record<StepId, string> = {
@@ -52,13 +53,9 @@ const STEP_TITLES: Record<StepId, string> = {
   schedule: 'When should it go out?',
   compose: 'What do you want to say?',
   review: 'Review your campaign',
-  placeholder: 'Robocall is coming soon',
+  pay: 'Payment',
 }
 
-// Hard 48h lead time (the compliance floor the design enforces). No upper
-// bound here — the payment-window ceiling is a pay-step concern.
-const MIN_LEAD_HOURS = 48
-const MIN_LEAD_MS = MIN_LEAD_HOURS * 60 * 60 * 1000
 // The recorded message caps at 60 seconds (one connected 60s CallHub billing
 // unit); enforced in the recorder and on upload.
 const MAX_RECORDING_SECONDS = 60
@@ -91,19 +88,27 @@ const ROBOCALL_COUNT_OVERLAY = { hasLandline: true }
 interface RobocallFlowProps {
   open: boolean
   onClose: () => void
+  // Called once payment settles (authorized/deferred/noop) so the hub can
+  // refetch the history list — the draft row now exists and is visible, and it
+  // should appear without a page reload.
+  onScheduled?: () => void
 }
 
 // Flow state is flat client state owned here (phase 1 TDD pattern): no server
 // drafts, reopening starts fresh. Mirrors SocialFlow.
-export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
+export const RobocallFlow = ({
+  open,
+  onClose,
+  onScheduled,
+}: RobocallFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
   const [campaignName, setCampaignName] = useState('')
   const [scheduledDay, setScheduledDay] = useState<Date | undefined>(undefined)
   const [time, setTime] = useState('')
-  // Re-pinned on entry to the schedule step (see goToSchedule) so the lead-time
-  // floor is measured from when the user reaches it, then held stable while they
-  // fill the step in rather than drifting on every re-render.
+  // Re-pinned on entry to the schedule step (see goToSchedule) so the earliest
+  // send instant is measured from when the user reaches it, then held stable
+  // while they fill the step in rather than drifting on every re-render.
   const [now, setNow] = useState<Date>(() => new Date())
   // The last name we auto-filled; lets us refresh it when the list changes
   // without clobbering a name the user typed themselves.
@@ -182,6 +187,21 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   // on entering compose so the draft can carry the required "paid for by" +
   // callback-number disclosure; held in flow state and reused across redrafts.
   const [callbackNumber, setCallbackNumber] = useState<string | null>(null)
+  // The authorize outcome, held here (not in the pay step) so it survives Back
+  // out of and back into the pay step — a settled outcome makes re-entry show
+  // the result rather than re-opening the Authorize form.
+  const [payOutcome, setPayOutcome] =
+    useState<RobocallAuthorizeResponse | null>(null)
+
+  // Wrap setPayOutcome so a settled outcome (authorized/deferred/noop, never
+  // hold_failed) also refreshes the hub's history list — the draft row now
+  // exists and its spine is visible, so it should appear without a reload.
+  const handlePayOutcome = (outcome: RobocallAuthorizeResponse | null) => {
+    setPayOutcome(outcome)
+    if (outcome && outcome.status !== 'hold_failed') {
+      onScheduled?.()
+    }
+  }
   const rentMutation = useMutation({
     mutationFn: async () => {
       const { data } = await clientRequest(
@@ -245,6 +265,7 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setTone('warm')
     setScript('')
     setCallbackNumber(null)
+    setPayOutcome(null)
     resetRent()
     resetCompliance()
     draftRequestRef.current = 0
@@ -277,14 +298,20 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     }
   }, [recorder.status, audioUpload.key, audioUpload.contentType, runCompliance])
 
-  // Validate against the combined UTC instant so it's tz-correct: the send must
-  // be at least 48h out. `earliest` (now + lead) drives both the "earliest
-  // send" hint and the violation alert, mirroring the design's flowWhen.
+  // Validate against the combined UTC instant so it's tz-correct: the send only
+  // has to be in the future (no lead-time buffer) and no more than
+  // ROBOCALL_MAX_SCHEDULE_DAYS out. `earliest` (now) drives the "earliest send"
+  // hint and the past-time alert, mirroring the design's flowWhen.
+  // `maxScheduledAt` bounds the calendar and the too-far-out alert. The
+  // 9am-7pm slot list is the only remaining timing constraint.
   const scheduledAt = combineScheduledAt(scheduledDay, time, timeZone)
-  const earliest = new Date(now.getTime() + MIN_LEAD_MS)
-  const violatesLeadTime =
+  const earliest = now
+  const maxScheduledAt = addDays(now, ROBOCALL_MAX_SCHEDULE_DAYS)
+  const isInPast =
     scheduledAt !== null && scheduledAt.getTime() < earliest.getTime()
-  const isScheduleValid = scheduledAt !== null && !violatesLeadTime
+  const isTooFarOut =
+    scheduledAt !== null && scheduledAt.getTime() > maxScheduledAt.getTime()
+  const isScheduleValid = scheduledAt !== null && !isInPast && !isTooFarOut
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -355,9 +382,9 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   }
 
   const goToSchedule = () => {
-    // Re-pin `now` on entry so the 48h floor is measured from when the user
-    // actually reaches this step, not from flow-open (they may have spent a
-    // while on earlier steps).
+    // Re-pin `now` on entry so the earliest-send instant is measured from when
+    // the user actually reaches this step, not from flow-open (they may have
+    // spent a while on earlier steps).
     setNow(new Date())
     // Auto-fill the campaign name from the chosen list (the design auto-fills
     // it). Refresh it when the list changes as long as the user hasn't edited
@@ -374,6 +401,20 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
       lastAutoName.current = auto
     }
     setStepId('schedule')
+  }
+
+  const goToPay = () => {
+    // With no lead-time buffer a near-term slot can elapse while the user is on
+    // compose/review. Re-pin `now` and, if the send time has already passed,
+    // bounce back to schedule (which then shows the past-time alert) rather than
+    // advancing to a pay step whose createDraft would 400 on the stale time.
+    const freshNow = new Date()
+    setNow(freshNow)
+    if (scheduledAt !== null && scheduledAt.getTime() <= freshNow.getTime()) {
+      setStepId('schedule')
+      return
+    }
+    setStepId('pay')
   }
 
   const handleCreateListContinue = async () => {
@@ -499,12 +540,17 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
             }
           : stepId === 'review'
             ? {
-                // The pay step (a sibling slice) lands here next; for now the
-                // review's primary CTA advances to the end placeholder.
                 label: 'Continue to payment',
-                onClick: () => setStepId('placeholder'),
+                onClick: goToPay,
               }
-            : null
+            : payOutcome && payOutcome.status !== 'hold_failed'
+              ? // Settled (authorized/deferred/noop): the success screen is
+                // shown, so the shell offers Done to close the flow.
+                { label: 'Done', onClick: onClose }
+              : // Before settling, the pay step owns its own submit button (the
+                // Stripe confirm must run inside the Elements context), so the
+                // shell shows no CTA.
+                null
 
   return (
     <OutreachFlowShell
@@ -566,9 +612,10 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           time={time}
           onTimeChange={setTime}
           timeZone={timeZone}
-          minLeadHours={MIN_LEAD_HOURS}
           earliest={earliest}
-          violates={violatesLeadTime}
+          maxScheduledDay={maxScheduledAt}
+          violates={isInPast || isTooFarOut}
+          isTooFarOut={isTooFarOut}
         />
       ) : stepId === 'compose' ? (
         <RobocallComposeStep
@@ -608,15 +655,19 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           script={script}
         />
       ) : (
-        <div className="space-y-2 py-8 text-center">
-          <h3 className="text-xl font-semibold text-foreground">
-            More coming soon
-          </h3>
-          <p className="text-base text-muted-foreground">
-            The rest of the robocall flow (compliance review and payment) is
-            still being built.
-          </p>
-        </div>
+        <RobocallPayStep
+          voterFileFilterId={audience.selectedListId}
+          audioKey={audioUpload.key}
+          callbackNumber={callbackNumber}
+          scheduledAt={scheduledAt}
+          timeZone={timeZone}
+          script={script}
+          campaignName={campaignName}
+          audienceName={audience.selectedList?.name ?? 'your list'}
+          reachCount={audience.reachableCount ?? 0}
+          outcome={payOutcome}
+          onOutcome={handlePayOutcome}
+        />
       )}
     </OutreachFlowShell>
   )

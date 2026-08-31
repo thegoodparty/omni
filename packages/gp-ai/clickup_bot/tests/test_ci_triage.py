@@ -16,6 +16,7 @@ import ci_triage
 from ci_triage import (
     ACTION_ESCALATE,
     ACTION_FIX,
+    ACTION_FIX_CONFLICTS,
     ACTION_FIX_FINDINGS,
     ACTION_HOLD,
     ACTION_NONE,
@@ -29,6 +30,7 @@ from ci_triage import (
     UNKNOWN,
     classify_check,
     decide,
+    is_conflicted,
     open_findings,
     parse_state,
     render_state,
@@ -74,6 +76,11 @@ PR_1306_BUGBOT_FINDING = {
         "<!-- DESCRIPTION END -->\n"
     ),
 }
+
+# What `gh pr view --json mergeable,mergeStateStatus` reports for a branch that
+# no longer merges, and for one that does.
+CONFLICTED = {"mergeable": "CONFLICTING", "merge_state": "DIRTY"}
+CLEAN = {"mergeable": "MERGEABLE", "merge_state": "CLEAN"}
 
 # A fixed instant, so the in-flight window is asserted against arithmetic rather
 # than against how long the test suite happened to take.
@@ -393,6 +400,120 @@ class TestMalformedInputCannotCrashTheDrive:
         assert isinstance(decision["reason"], str) and decision["reason"]
 
 
+class TestABranchThatNoLongerMergesIsWork:
+    """A PR can stop being mergeable with nothing red and nobody reviewing it.
+
+    Main moves, the branch conflicts, and every other signal the drive reads
+    still says the PR is fine: checks green, approval standing, no open
+    findings. The merge button greys out and nothing says so.
+    """
+
+    def test_a_conflicted_branch_buys_a_fix_run_even_with_everything_else_clean(self):
+        decision = decide([], FRESH_STATE, [], CONFLICTED, now=NOW)
+
+        assert decision["action"] == ACTION_FIX_CONFLICTS
+        assert decision["next_state"]["fixes"] == 1
+
+    def test_a_clean_branch_with_nothing_outstanding_does_nothing(self):
+        assert decide([], FRESH_STATE, [], CLEAN)["action"] == ACTION_NONE
+
+    def test_the_conflict_is_settled_before_the_red_checks(self):
+        # A conflicted branch does not merge however green it gets, and the
+        # merge that resolves it re-runs the checks anyway. Re-running them
+        # first spends CI minutes to learn nothing.
+        decision = decide([a_check()], FRESH_STATE, [], CONFLICTED, now=NOW)
+
+        assert decision["action"] == ACTION_FIX_CONFLICTS
+        assert decision["next_state"]["reruns"] == 0, "a re-run was spent on a branch that cannot merge"
+
+    def test_the_conflict_is_settled_before_the_review_findings(self):
+        decision = decide([], FRESH_STATE, [PR_1306_BUGBOT_FINDING], CONFLICTED, now=NOW)
+
+        assert decision["action"] == ACTION_FIX_CONFLICTS
+        assert decision["next_state"]["findings_attempted"] == [], "a finding was banked by a conflict run"
+
+    def test_conflicts_draw_on_the_same_fix_budget_as_everything_else(self):
+        # The budget bounds money, not any one activity. A PR that spent both
+        # runs on its checks does not get two more for conflicting.
+        state = {"reruns": 0, "fixes": MAX_FIX_RUNS, "escalated": False}
+
+        assert decide([], state, [], CONFLICTED, now=NOW)["action"] == ACTION_ESCALATE
+
+    def test_a_conflict_run_already_in_flight_is_not_launched_twice(self):
+        # Resolving a conflict changes nothing observable until the merge
+        # commit lands, so the next pass sees the identical conflict.
+        state = {"reruns": 0, "fixes": 1, "escalated": False, "fix_started_at": NOW - 60}
+
+        assert decide([], state, [], CONFLICTED, now=NOW)["action"] == ACTION_NONE
+
+    def test_a_human_reading_the_escalation_is_told_the_branch_conflicts(self):
+        # Without this line the Slack message says only "no fix runs left" on a
+        # PR whose checks are green, which reads as the bot giving up for no
+        # reason.
+        state = {"reruns": 0, "fixes": MAX_FIX_RUNS, "escalated": False}
+
+        summary = ci_triage.render_summary(decide([], state, [], CONFLICTED, now=NOW))
+
+        assert "conflicts with main" in summary
+
+    def test_the_conflict_is_reported_even_when_a_check_produced_the_verdict(self):
+        # Everything still outstanding belongs in the message, not only the
+        # half that decided the action.
+        state = {"reruns": MAX_RERUNS, "fixes": MAX_FIX_RUNS, "escalated": False}
+
+        summary = ci_triage.render_summary(decide([a_check()], state, [], CONFLICTED, now=NOW))
+
+        assert "conflicts with main" in summary
+
+    def test_the_comment_says_a_conflict_run_is_starting(self):
+        body = ci_triage.render_comment(decide([], FRESH_STATE, [], CONFLICTED, now=NOW))
+
+        assert "resolve the conflicts" in body.lower()
+
+
+class TestOnlyACertainConflictSpendsMoney:
+    """GitHub answers UNKNOWN while it works out whether a branch merges.
+
+    The default here runs opposite to open_findings' on purpose. A finding read
+    wrongly as open costs a fix run on a real PR; a clean branch read wrongly as
+    conflicted costs a fix run AND a pointless merge commit on a PR a human was
+    about to merge. So only an explicit CONFLICTING counts.
+    """
+
+    def test_an_unknown_verdict_never_buys_a_run(self):
+        assert not is_conflicted({"mergeable": "UNKNOWN", "merge_state": "UNKNOWN"})
+        assert decide([], FRESH_STATE, [], {"mergeable": "UNKNOWN"})["action"] == ACTION_NONE
+
+    def test_a_mergeable_branch_is_not_conflicted(self):
+        assert not is_conflicted(CLEAN)
+
+    def test_being_merely_behind_main_is_not_a_conflict(self):
+        # The ruleset does not require branches to be up to date, so a BEHIND
+        # branch still merges. Driving it would spend a CI cycle per bot PR
+        # every time anything lands on main.
+        assert not is_conflicted({"mergeable": "MERGEABLE", "merge_state": "BEHIND"})
+
+    def test_junk_cannot_buy_a_run(self):
+        for junk in (None, {}, "CONFLICTING", ["CONFLICTING"], {"mergeable": None}, {"mergeable": 1}, {"merge": "x"}):
+            assert not is_conflicted(junk), f"{junk!r} was read as a conflict"
+
+    def test_the_verdict_survives_casing_and_padding(self):
+        assert is_conflicted({"mergeable": "conflicting"})
+        assert is_conflicted({"mergeable": " CONFLICTING "})
+
+    def test_every_decision_carries_the_conflict_flag(self):
+        # render_summary reads it off the decision, so a branch that returned
+        # without it would drop the conflict from the message a human reads.
+        states = [FRESH_STATE, {"reruns": 0, "fixes": 0, "escalated": True}]
+        boards = [[], [a_check()], [a_check(failing_on_main=True)]]
+
+        for state in states:
+            for board in boards:
+                for mergeability, expected in ((CONFLICTED, True), (CLEAN, False), (None, False)):
+                    decision = decide(board, state, [PR_1306_BUGBOT_FINDING], mergeability, now=NOW)
+                    assert decision["conflicted"] is expected
+
+
 class TestEvidenceIsReportedToHumans:
     def test_every_classification_carries_why(self):
         # Escalation hands these strings to a human in Slack. A verdict with no
@@ -410,6 +531,7 @@ class TestEvidenceIsReportedToHumans:
             ACTION_RERUN,
             ACTION_FIX,
             ACTION_FIX_FINDINGS,
+            ACTION_FIX_CONFLICTS,
             ACTION_REPORT,
             ACTION_ESCALATE,
             ACTION_HOLD,
@@ -425,11 +547,13 @@ class TestEvidenceIsReportedToHumans:
         ]
         boards = [[], [a_check()], [PR_1306_E2E_SHARD_1], [a_check(failing_on_main=True)]]
         finding_sets = [None, [], [PR_1306_BUGBOT_FINDING]]
+        mergeabilities = [None, {}, CLEAN, CONFLICTED, {"mergeable": "UNKNOWN"}, "nonsense"]
 
         for state in states:
             for board in boards:
                 for findings in finding_sets:
-                    assert decide(board, state, findings)["action"] in known
+                    for mergeability in mergeabilities:
+                        assert decide(board, state, findings, mergeability)["action"] in known
 
 
 class TestTheRenderedCommentIsTheDurableState:

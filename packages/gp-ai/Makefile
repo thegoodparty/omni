@@ -4,8 +4,7 @@
 # invokes `make test`, so the two cannot drift. There is no repo-root tests/;
 # bare `pytest` would also sweep script-style dirs that ship no runnable suite.
 TEST_PATHS := broker/tests pmf_engine/tests shared/tests serve/v1_pipeline/tests \
-              clickup_bot/tests engineer_agent/tests campaign_plan_lambda/tests \
-              stitch_golden_data/prod_gold_data/tests
+              clickup_bot/tests engineer_agent/tests campaign_plan_lambda/tests
 
 help:
 	@echo "Available commands:"

@@ -53,6 +53,7 @@ beforeEach(async () => {
 const seedOutreach = (
   overrides: Partial<{
     status: OutreachStatus
+    outreachType: OutreachType
     projectId: string | null
     stripeCheckoutSessionId: string | null
   }> = {},
@@ -116,6 +117,26 @@ describe('POST /v1/outreach/:id/cancel', () => {
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(deleteJob).not.toHaveBeenCalled()
+  })
+
+  it('rejects canceling a robocall (lifecycle runs off the satellite)', async () => {
+    // A robocall reads `pending` once its hold commits, but its dial/capture is
+    // driven by the satellite settleState, so canceling here would desync the
+    // spine without voiding the hold or stopping the dial.
+    const row = await seedOutreach({
+      outreachType: OutreachType.robocall,
+      projectId: null,
+      stripeCheckoutSessionId: null,
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(deleteJob).not.toHaveBeenCalled()
+    const persisted = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(persisted.status).toBe(OutreachStatus.pending)
   })
 
   it('is idempotent: canceling a canceled row is a no-op', async () => {

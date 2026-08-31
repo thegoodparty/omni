@@ -572,6 +572,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       officeLevel,
       fecCommitteeId,
       committeeType,
+      candidateName,
       filingAddressLine1,
       filingAddressLine2,
       filingCity,
@@ -596,6 +597,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           | 'filingCity'
           | 'filingState'
           | 'filingZip'
+          | 'candidateName'
         >
       >,
     user: User,
@@ -671,10 +673,15 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       }
     }
 
+    // candidateName is the candidate's own name, collected on the
+    // registration form — distinct from the account holder's name, since a
+    // campaign manager often signs up under their own name and CV can't
+    // reconcile that against the election filing. Records created before
+    // this field existed have none, so fall back to the account holder's
+    // name as before.
+    const submissionName = candidateName ?? getUserFullName(user)
     const submitCVData = {
-      name: this.isTestEnvironment
-        ? `TEST-${getUserFullName(user)}`
-        : getUserFullName(user),
+      name: this.isTestEnvironment ? `TEST-${submissionName}` : submissionName,
       general_campaign_email: email,
       verification_type: verificationType,
       filing_url: ensureUrlHasProtocol(filingUrl),

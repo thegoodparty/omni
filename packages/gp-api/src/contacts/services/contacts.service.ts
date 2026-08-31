@@ -61,7 +61,6 @@ import {
   StatsDTO,
 } from '@/peopleDb/schemas/people.schema'
 import {
-  PeopleAggregatesResponse,
   StatsResponse,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
@@ -1081,11 +1080,9 @@ export class ContactsService {
 
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
-  // caller): one base count plus four channel-restricted counts. The five
-  // calls settle independently (ENG-10806) — a saved list's demographics and
-  // most reachability tiles shouldn't all flip to "Unavailable" because one
-  // aggregate query failed. Only the base call is load-bearing: there's
-  // nothing to show without it, so its rejection still fails the whole route.
+  // caller). One call, and on Databricks one statement: the channel counts
+  // are conditional aggregates over the same scan as the demographics, so
+  // this endpoint no longer fans out five statements per request.
   private async fetchListDetailAggregates(
     organization: Organization,
     baseFilters: FilterObject,
@@ -1094,119 +1091,40 @@ export class ContactsService {
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
-    const [base, cellphone, landline, anyPhone, address] =
-      await this.withOrgDistrictResolution(
-        organization,
-        async (districtParams) => {
-          // Resolve the load-bearing base tile FIRST, before firing the four
-          // channel scans. All five aggregates run the same DistrictVoter->Voter
-          // membership scan (they differ only by an extra has-phone/has-address
-          // predicate), and only `base` is load-bearing — a rejected base throws
-          // below regardless. Under the people-db statement-timeout incidents a
-          // failing list-detail otherwise launches 5 concurrent scans (x2 with
-          // the fenced retry), 4 of which are pure collateral load the moment
-          // base fails and can't render anything. Gating the channels on base
-          // keeps a failing request to a single scan family instead of amplifying
-          // the exact overload that's tripping the timeout. Healthy path is
-          // unchanged: base resolves fast, then the four channels still settle
-          // INDEPENDENTLY (ENG-10806) so one slow channel can't blank the others.
-          const [baseResult] = await Promise.allSettled([
-            this.fetchPeopleAggregates(
-              districtParams,
-              baseFilters,
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-          ])
-          if (baseResult.status === 'rejected') {
-            // Reuse the rejected base as the channel placeholders: the route
-            // throws on base below before any channel value is read.
-            return [
-              baseResult,
-              baseResult,
-              baseResult,
-              baseResult,
-              baseResult,
-            ] as const
-          }
-          const channels = await Promise.allSettled([
-            this.fetchPeopleAggregates(
-              districtParams,
-              { ...baseFilters, hasCellPhone: true },
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-            this.fetchPeopleAggregates(
-              districtParams,
-              { ...baseFilters, hasLandline: true },
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-            // phoneBanking (ENG-10914): reachable by any phone, cell or
-            // landline — the list builder freezes any phone, cell first, so
-            // this count must agree with the built list rather than the
-            // landline-only legacy raw-SQL export population.
-            this.fetchPeopleAggregates(
-              districtParams,
-              { ...baseFilters, hasAnyPhone: true },
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-            this.fetchPeopleAggregates(
-              districtParams,
-              { ...baseFilters, hasAddress: true },
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-          ])
-          return [baseResult, ...channels] as const
-        },
-      )
-
-    if (base.status === 'rejected') {
-      throw base.reason
-    }
-    const cellphoneValue =
-      cellphone.status === 'fulfilled' ? cellphone.value : null
-    const landlineValue =
-      landline.status === 'fulfilled' ? landline.value : null
-    const anyPhoneValue =
-      anyPhone.status === 'fulfilled' ? anyPhone.value : null
-    const addressValue = address.status === 'fulfilled' ? address.value : null
+    const aggregates = await this.withOrgDistrictResolution(
+      organization,
+      (districtParams) =>
+        this.voterQueryService.getListDetailAggregates(
+          AggregatesDTO.create({
+            ...districtParams,
+            filters: baseFilters,
+            idOverrides,
+            contactsMadeIdOverrides,
+          }),
+        ),
+    )
 
     return {
       demographics: {
-        people: base.value.count,
-        avgAge: base.value.avgAge,
-        avgIncome: base.value.avgIncome,
+        people: aggregates.count,
+        avgAge: aggregates.avgAge,
+        avgIncome: aggregates.avgIncome,
       },
       reachability: {
-        sms: cellphoneValue?.count ?? null,
+        sms: aggregates.sms,
         // Robocall/telemarketing reach landlines, not cell phones (mirrors
         // TYPE_OVERRIDES in voterFilePeopleFilter.util.ts).
-        robocall: landlineValue?.count ?? null,
-        phoneBanking: anyPhoneValue?.count ?? null,
-        doorKnocking: addressValue?.count ?? null,
+        robocall: aggregates.robocall,
+        // phoneBanking (ENG-10914): reachable by any phone, cell or landline
+        // — the list builder freezes any phone, cell first, so this count
+        // must agree with the built list rather than the landline-only
+        // legacy raw-SQL export population.
+        phoneBanking: aggregates.phoneBanking,
+        doorKnocking: aggregates.doorKnocking,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
-        polls: cellphoneValue?.count ?? null,
+        polls: aggregates.sms,
       },
     }
-  }
-
-  private fetchPeopleAggregates(
-    districtParams: { districtId: string },
-    filters: FilterObject,
-    idOverrides?: IdOverrides,
-    contactsMadeIdOverrides?: IdOverrides,
-  ): Promise<PeopleAggregatesResponse> {
-    return this.voterQueryService.getAggregates(
-      AggregatesDTO.create({
-        ...districtParams,
-        filters,
-        idOverrides,
-        contactsMadeIdOverrides,
-      }),
-    )
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {

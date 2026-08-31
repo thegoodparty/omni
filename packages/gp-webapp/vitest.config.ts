@@ -12,6 +12,10 @@ export default defineConfig({
     // on CI runners, timing out on slower or busier developer machines.
     testTimeout: 20_000,
     setupFiles: ['./vitest.setup.ts'],
+    // Builds contracts if its gitignored dist is missing or stale. It lives
+    // here rather than on the `test` script because `npx vitest run <path>`
+    // bypasses package.json, and that is the invocation that strands people.
+    globalSetup: ['../contracts/scripts/vitest-global-setup.ts'],
     globals: true,
     exclude: ['e2e-tests/**', 'node_modules/**'],
   },

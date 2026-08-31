@@ -20,11 +20,11 @@ nothing boring would work.
                      │            gp-api            │
                      │      (NestJS, ECS Fargate)   │
                      └───┬───────────┬──────────┬───┘
-              Prisma     │           │ HTTP     │ HTTP
-           (people-db)   ▼           ▼          ▼
+           Statement API  │           │ HTTP     │ HTTP
+             (voter data) ▼           ▼          ▼
                 ┌─────────────┐ ┌──────────────┐ ┌────────────────┐
-                │  people-db  │ │ election-api │ │ gp-ai-projects │
-                │  (Aurora)   │ │    (ECS)     │ │  (ext. Python) │
+                │ Databricks  │ │ election-api │ │     gp-ai      │
+                │(mart_gp_api)│ │    (ECS)     │ │  (Python/ECS)  │
                 └─────────────┘ └──────────────┘ └────────────────┘
 ```
 
@@ -33,14 +33,18 @@ nothing boring would work.
 - **gp-admin -> gp-api:** via `@goodparty_org/sdk`, authenticated with a
   per-environment Clerk M2M secret (no cookie flow). One Vercel deploy fronts
   dev/prod by switching the active Clerk org.
+- **gp-api -> Databricks:** the `mart_gp_api` schema over the Statement Execution
+  API (`packages/gp-api/src/peopleDb/databricks/`) for voter queries,
+  demographics, door-knocking targeting, and CSV exports.
 - **gp-api -> people-db:** direct Prisma access to the people-db Postgres cluster
-  (`packages/gp-api/src/peopleDb/`, ported from the retired `people-api` repo
-  package) for voter queries, demographics, and CSV exports. This is the only
-  path — the HTTP fallback and the flag that gated it are gone. The people-api
-  service is still deployed but frozen, with no repo package or CI pipeline in
-  omni.
+  for the precomputed voter-density heat map, the one read `mart_gp_api` has no
+  table for. The people-api service is still deployed but frozen, with no repo
+  package or CI pipeline in omni.
 - **gp-api -> election-api:** direct HTTP for election/race data.
-- **gp-api -> gp-ai-projects:** HTTP for AI campaign-plan generation (external repo).
+- **gp-api -> the PMF Engine:** SQS dispatch to the background-agent runtime in
+  `packages/gp-ai`, results back on gp-api's result queue. The whole path is
+  documented in `docs/cap-background-agents.md`.
+- **gp-api -> gp-ai:** HTTP for AI campaign-plan generation (`packages/gp-ai`).
 
 ## Auth flows
 
@@ -48,6 +52,7 @@ nothing boring would work.
 | --------------------------- | ------------------- | ------------------------------------------------ |
 | User -> gp-webapp -> gp-api | JWT cookie          | HTTP-only cookie, `credentials: 'include'`       |
 | Staff -> gp-admin -> gp-api | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret |
+| gp-api -> Databricks        | OAuth M2M (SP)      | `PEOPLE_DATABRICKS_*`; see `peopleDbx.config.ts` |
 | gp-api -> people-db         | Prisma (SSM creds)  | Direct DB connection; see `PeopleDbUrlProvider`  |
 | gp-api -> election-api      | HTTP                | Internal network / public data                   |
 | M2M caller -> gp-api        | Bearer `mt_*` token | `ClerkM2MAuthGuard`                              |
@@ -86,9 +91,9 @@ Each backend owns its own Postgres database, managed by Prisma with modular
 
 - **gp-api:** user, campaign, pathToVictory, aiChat, website, outreach, payments,
   etc. See `packages/gp-api/prisma/AGENTS.md`. It also holds a second, read-only
-  Prisma client for people-db (`src/peopleDb/`) — Voter (partitioned by state),
-  District, DistrictStats. Mostly raw SQL. ~200M+ L2 records — treat voter data as
-  restricted. See `packages/gp-api/src/peopleDb/AGENTS.md`.
+  Prisma client for people-db (`src/peopleDb/`), used for the precomputed
+  voter-density heat map. Voter data itself — ~200M+ L2 records — is read from
+  Databricks and is restricted. See `packages/gp-api/src/peopleDb/AGENTS.md`.
 - **election-api:** Race, Place, District, Position, Candidacy, ProjectedTurnout.
 
 Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
@@ -99,10 +104,9 @@ Both products that surface voter data — Serve (elected office) and Win (campai
 read it through gp-api, via the same `/dashboard/contacts` experience in
 gp-webapp. The browser calls gp-api (`GET /v1/contacts`, the voter-file filter
 endpoints, and the contact-engagement endpoints); gp-api runs its own queries
-(mostly raw SQL) against the partitioned `Voter` table in people-db, in-process
-via `src/peopleDb/` — the sole path, now that the legacy people-api HTTP
-fallback is gone. The raw SQL is an internal gp-api/people-db implementation
-detail, not something gp-webapp talks to.
+against the `mart_gp_api` voter tables in Databricks, in-process via
+`src/peopleDb/`. Which store answers and how the SQL is built are internal
+gp-api implementation details, not something gp-webapp talks to.
 
 - **Serve** has been on this contacts path from the start.
 - **Win** is now on it too, gated by the `win-voter-data` flag + `campaign.isPro`.
@@ -118,16 +122,6 @@ carry a `context: 'win' | 'serve'` property. Detail:
 
 Some systems live outside this monorepo. Consult them when:
 
-- **gp-ai-projects** (`thegoodparty/gp-ai-projects`) — Python AI/ML pipeline:
-  campaign-plan generation, civic message analysis, HubSpot-DDHQ matching. Read it
-  when changing how gp-api calls AI generation, or when debugging plan output. It
-  also hosts the **PMF Engine runtime**: gp-api's `agentExperiments` module enqueues
-  an `experiment_run` to SQS, which an ingest Lambda places on a DynamoDB priority
-  queue; a scheduler Lambda launches the single-use Fargate agent, whose only egress
-  is a privileged broker service; results come back on gp-api's `{branch}-Queue.fifo`
-  (consumed in `queue/consumer/`, with `communityIssues` a downstream consumer).
-  The experiment playbooks themselves are in-tree at `packages/runbooks/experiments/`.
-  See `packages/gp-api/src/agentExperiments/AGENTS.md`.
 - **gp-marketing** (`thegoodparty/gp-marketing`) — the public marketing site. It
   moved out of gp-webapp; `gp-webapp` is the product app for candidates & elected
   officials, not the marketing site. Marketing changes go there, not here.

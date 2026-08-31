@@ -216,7 +216,9 @@ export class S3Service extends AwsService {
   async getFileBytesWithContentType(
     bucket: string,
     key: string,
-  ): Promise<{ bytes: Buffer; contentType?: string } | undefined> {
+  ): Promise<
+    { bytes: Buffer; contentType?: string; etag?: string } | undefined
+  > {
     return this.executeAwsOperation(async () => {
       try {
         const response = await this.s3Client.send(
@@ -227,7 +229,11 @@ export class S3Service extends AwsService {
         )
         const bytes = await response.Body?.transformToByteArray()
         return bytes
-          ? { bytes: Buffer.from(bytes), contentType: response.ContentType }
+          ? {
+              bytes: Buffer.from(bytes),
+              contentType: response.ContentType,
+              etag: response.ETag,
+            }
           : undefined
       } catch (error) {
         if (error instanceof NoSuchKey) {
@@ -279,14 +285,17 @@ export class S3Service extends AwsService {
   async headObject(
     bucket: string,
     key: string,
-  ): Promise<{ contentLength: number | null } | null> {
+  ): Promise<{ contentLength: number | null; etag?: string | null } | null> {
     return this.executeAwsOperation(async () => {
       try {
         const { HeadObjectCommand } = await import('@aws-sdk/client-s3')
         const response = await this.s3Client.send(
           new HeadObjectCommand({ Bucket: bucket, Key: key }),
         )
-        return { contentLength: response.ContentLength ?? null }
+        return {
+          contentLength: response.ContentLength ?? null,
+          etag: response.ETag ?? null,
+        }
       } catch (error: unknown) {
         if (error instanceof NoSuchKey) return null
         if (isHttpStatusError(error, 404)) return null

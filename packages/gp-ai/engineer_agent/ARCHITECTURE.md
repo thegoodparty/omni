@@ -41,7 +41,7 @@ The agent can clone repos based on context:
 | ---------------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
 | gp-webapp        | Next.js frontend                                                   | UI bugs, frontend errors                                    |
 | gp-api           | NestJS backend API (also owns people/voter data via src/peopleDb/) | API errors, backend logic bugs, voter data issues, P2V bugs |
-| gp-ai-projects   | AI services (this repo)                                            | AI/ML bugs, campaign planning issues                        |
+| gp-ai   | AI services (this repo)                                            | AI/ML bugs, campaign planning issues                        |
 | gp-data-platform | Data platform                                                      | Data pipeline issues                                        |
 
 ## Agent Capabilities

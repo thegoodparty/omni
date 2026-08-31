@@ -30,7 +30,8 @@ import {
 import { TestFixturesService } from './services/testFixtures.service'
 
 // Test-only fixture provisioning for automated feature QA: mints
-// @test.goodparty.org users in a known product state with working browser
+// qa-<uuid>@goodparty.org users (real internal domain, so internal-targeted
+// feature flags apply) in a known product state with working browser
 // credentials, and cleans them up on demand (the deleteTestUsers cron is the
 // safety net). Responses carry credentials by contract — never log them.
 @Controller('test-fixtures')

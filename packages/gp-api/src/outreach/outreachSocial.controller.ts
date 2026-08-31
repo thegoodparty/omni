@@ -43,7 +43,10 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
-import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
+import {
+  OutreachSocialGenerationService,
+  WIN_SOCIAL_VOICE,
+} from './services/outreachSocialGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
 const candidateName = (user: User): string =>
@@ -98,6 +101,7 @@ export class OutreachSocialController {
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
+        WIN_SOCIAL_VOICE,
       ),
     }
   }
@@ -116,6 +120,7 @@ export class OutreachSocialController {
         candidateName(user),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
+        WIN_SOCIAL_VOICE,
       ),
     }
   }
@@ -127,7 +132,10 @@ export class OutreachSocialController {
     @Body(new ZodValidationPipe(SocialSaveRequestSchema))
     input: SocialSaveRequest,
   ): Promise<OutreachDetail> {
-    return this.socialService.saveSocialOutreach(campaign, input)
+    return this.socialService.saveSocialOutreach(
+      { campaignId: campaign.id, organizationSlug: campaign.organizationSlug },
+      input,
+    )
   }
 
   @Get(':id')
@@ -136,7 +144,7 @@ export class OutreachSocialController {
     @ReqCampaign() campaign: Campaign,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<OutreachDetail> {
-    return this.socialService.findDetail(campaign.id, id)
+    return this.socialService.findDetail({ campaignId: campaign.id }, id)
   }
 
   // Campaign-scoped like finalize: cancel moves the owning campaign's money
@@ -147,7 +155,16 @@ export class OutreachSocialController {
     @ReqCampaign() campaign: Campaign,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<CancelOutreachResponse> {
-    return this.outreachService.cancelOutreach(id, campaign.id)
+    const { outreach, refunded } = await this.outreachService.cancelOutreach(
+      id,
+      campaign.id,
+    )
+    // Campaign-scoped cancel only ever matches a Win row (organizationSlug
+    // is metadata here, not the scope path), so campaignId is always set.
+    return {
+      outreach: { ...outreach, campaignId: outreach.campaignId! },
+      refunded,
+    }
   }
 
   // Campaign-scoped like cancel: the receipt is the paying campaign's

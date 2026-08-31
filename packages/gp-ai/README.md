@@ -89,7 +89,7 @@ uv run ai_generated_campaign_plan/orchestrator.py
 This is a **uv workspace** with multiple packages optimized for minimal Docker image sizes:
 
 ```
-gp-ai-projects/
+packages/gp-ai/
 ├── pyproject.toml                 # Root: ALL deps for local development
 ├── shared/
 │   └── pyproject.toml             # gp-shared: core utilities
@@ -109,7 +109,7 @@ Docker builds use `uv sync --package <name>` to install only required dependenci
 ## Project Structure
 
 ```
-gp-ai-projects/
+packages/gp-ai/
 ├── serve/                         # Message analysis pipelines
 │   ├── v1_pipeline/              # Main pipeline (Docker-deployed)
 │   ├── hierarchical_discovery/   # Multi-cluster analysis
@@ -129,7 +129,7 @@ gp-ai-projects/
 ├── infrastructure/               # Terraform modules
 │   ├── environments/            # dev/prod configs
 │   └── modules/                 # Reusable modules
-└── stitch_golden_data/          # BR-to-L2 district matcher (prod_gold_data/l2_br_matcher.py)
+└── stitch_golden_data/          # vector-store generator (prod_gold_data/vector_store_generator.py)
 ```
 
 ## Key Libraries

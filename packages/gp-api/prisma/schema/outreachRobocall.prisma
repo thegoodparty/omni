@@ -1,0 +1,132 @@
+// The settlement lifecycle of a robocall's payment. A robocall is authorized
+// (a hold placed on the estimate) before it dials, then captured for the ACTUAL
+// billable count once CallHub reports it — hold + capture-actual, not
+// prepay-on-estimate. Terminal states cover the ways a hold ends: captured/
+// charged (money taken), voided/cancelled (hold released, no charge), disputed/
+// uncollectable (money owed but not collected). The hold and settlement
+// transitions themselves land in later slices; this slice only seeds
+// pending_payment.
+enum RobocallSettleState {
+  pending_payment
+  authorized
+  settling
+  captured
+  charged
+  voided
+  cancelled
+  disputed
+  uncollectable
+  // The single-owner claim held while the pay-time Stripe hold is in flight, and
+  // the terminal for a declined card. Appended (not slotted between
+  // pending_payment and authorized) so the enum order matches what the
+  // append-only ADD VALUE migration produces.
+  hold_pending
+  hold_failed
+  // The single-owner claim held while an authorized draft's CallHub voice-
+  // broadcast campaign is being staged (created PAUSED, not dialed). Transient:
+  // a successful stage releases the row back to authorized with its CallHub
+  // campaign pk_str set. Appended for the same append-only ADD VALUE reason.
+  staging
+  // The single-owner claim held while the send slice launches (STARTs) the
+  // staged CallHub campaign — the transient state that guards against dialing
+  // the same run twice. `dialed` is the terminal once the launch has committed
+  // and the broadcast is dialing, awaiting completion. Both appended for the
+  // same append-only ADD VALUE reason.
+  dialing
+  dialed
+  // The single-owner claim held while the capture slice captures the authorized
+  // hold for the actual completed-call count — the guard against capturing the
+  // same run twice. A successful capture advances to `captured`; a lapsed hold
+  // to `uncollectable`; a zero-billable run to `voided`. Appended for the same
+  // append-only ADD VALUE reason.
+  capturing
+  // The single-owner claim held while the fresh-charge recovery charges a
+  // delivered run whose authorization hold lapsed (an off-session charge, NOT a
+  // hold capture) — the guard against charging the same run twice. A successful
+  // charge advances to `charged`; a declined card returns to `uncollectable`
+  // (chargeIntentId set, so it is not re-attempted). Appended for the same
+  // append-only ADD VALUE reason.
+  charging
+}
+
+model OutreachRobocall {
+  id             Int      @id @default(autoincrement())
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  outreach       Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId     Int      @unique @map("outreach_id")
+  // The recorded audio's S3 object key (bucket ROBOCALL_AUDIO_BUCKET), persisted
+  // at draft so the later slices are self-contained when the browser is gone.
+  // Unique: a fresh per-recording key is one intended send, so the constraint
+  // is the atomic backstop that makes a concurrent double-submit fail the second
+  // INSERT rather than mint a second billable anchor.
+  audioKey       String   @unique @map("audio_key")
+  // The rented CallHub caller-ID number the candidate reads aloud as the
+  // callback; held through payment for the later send slice to dial from.
+  callbackNumber String   @map("callback_number")
+  // Server-derived landline count at draft time (the audience's hasLandline
+  // reachable count). A snapshot for the record and the pay-step estimate — the
+  // amount actually captured is re-derived from CallHub's dialed count later.
+  billableCount  Int      @map("billable_count")
+  // The authorized estimate, in cents — what the hold is placed for. The
+  // captured amount can be less once the actual dialed count is known.
+  amountInCents  Int      @map("amount_in_cents")
+
+  // --- payment / settlement state (populated by later slices) -------------
+
+  // The Stripe customer the hold and capture run against.
+  stripeCustomerId       String?             @map("stripe_customer_id")
+  // The saved card the hold and capture charge.
+  paymentMethodId        String?             @map("payment_method_id")
+  // The CallHub voice-broadcast campaign this robocall dials from (its PK, as a
+  // string — CallHub ids exceed a 32-bit int).
+  callhubCampaignPkStr   String?             @map("callhub_campaign_pk_str")
+  // The CallHub campaign's scheduled dial window, mirrored back for settlement.
+  callhubStartingDate    DateTime?           @map("callhub_starting_date")
+  callhubExpirationDate  DateTime?           @map("callhub_expiration_date")
+  // The Stripe PaymentIntent the hold is placed on (manual capture).
+  authorizationIntentId  String?             @map("authorization_intent_id")
+  // The amount actually authorized on the hold, in cents.
+  authorizedAmountInCents Int?               @map("authorized_amount_in_cents")
+  // The deadline by which the hold must be captured before Stripe auto-expires
+  // it (Stripe holds last ~7 days).
+  captureBefore          DateTime?           @map("capture_before")
+  // The amount actually captured off the hold once the dialed count is known.
+  capturedAmountInCents  Int?                @map("captured_amount_in_cents")
+  // The Stripe PaymentIntent a fresh charge is placed on when the hold has
+  // lapsed and a new charge is needed instead of a capture.
+  chargeIntentId         String?             @map("charge_intent_id")
+  // How many times settlement has been attempted, to bound retries.
+  payAttempt             Int                 @default(0) @map("pay_attempt")
+  // When the CallHub voice-broadcast was launched (START). Stamped by the send
+  // slice at the dialing → dialed commit; null until the run actually dials.
+  dialedAt               DateTime?           @map("dialed_at")
+  // When this draft's audio passed the server-side compliance check, mirrored
+  // from the RobocallComplianceResult at create. A hard prerequisite for
+  // dialing: the send slice refuses to launch a draft whose value is null, a
+  // belt-and-suspenders backstop under the create-time gate.
+  compliancePassedAt     DateTime?           @map("compliance_passed_at")
+  // The S3 ETag of the audio that passed compliance, FROZEN at create from the
+  // RobocallComplianceResult. The staging step re-reads the object's current
+  // ETag before uploading it to CallHub and refuses a mismatch, so bytes swapped
+  // after the create gate (a re-upload to the same presigned key) can never
+  // reach voters. Frozen on the draft — not re-read from the mutable verdict —
+  // so re-running compliance on swapped bytes can't retroactively bless them.
+  complianceAudioEtag    String?             @map("compliance_audio_etag")
+  // When the last "fix your card" reminder was sent for a hold_failed draft.
+  // The daily reminder sweep stamps this on emit and only re-reminds a draft
+  // whose value is null or older than ~1 day, so it is the primary once/day
+  // guard against a double sweep re-emailing.
+  lastReminderSentAt     DateTime?           @map("last_reminder_sent_at")
+  // The completion sweep's snapshot of CallHub's actual completed/billable call
+  // count (credits_usage `voice_calls`). Written on each terminal-status poll so
+  // one sweep pass never settles a still-moving count: settlement requires two
+  // consecutive polls to read the SAME count. The value the capture slice
+  // charges (min(actual, authorized)); null until the run finishes dialing.
+  completedCallCount     Int?                @map("completed_call_count")
+  // When the completion sweep last polled CallHub for this run's count.
+  completionPolledAt     DateTime?           @map("completion_polled_at")
+  settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
+
+  @@map("outreach_robocall")
+}

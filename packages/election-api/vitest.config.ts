@@ -21,12 +21,16 @@ export default defineConfig({
   test: {
     // Builds the Postgres schema template once per run so integration suites
     // (useTestService) can clone it instead of replaying every migration.
-    globalSetup: ['./src/test-global-setup.ts'],
+    globalSetup: [
+      '../contracts/scripts/vitest-global-setup.ts',
+      './src/test-global-setup.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],
     },
     include: ['src/**/*.test.ts'],
+    setupFiles: ['./src/test-setup.ts'],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,
     // Booting a Nest app against a testcontainer can exceed the 5s default.

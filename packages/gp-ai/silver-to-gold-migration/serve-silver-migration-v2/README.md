@@ -52,7 +52,7 @@ uv run silver-to-gold-migration/serve-silver-migration-v2/run_pipeline_v2.py \
 ## Prerequisites
 
 ### Environment Variables
-Create `.env` in `gp-ai-projects/`:
+Create `.env` in `packages/gp-ai/`:
 ```bash
 GOODPARTY_API_TOKEN=your_jwt_token
 ```

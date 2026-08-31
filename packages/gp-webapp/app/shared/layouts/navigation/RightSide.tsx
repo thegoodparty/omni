@@ -69,7 +69,7 @@ const RightSide = (): React.JSX.Element => {
         <>
           <Link href="/login" id="nav-login" className="lg:mr-3 xl:mr-6">
             <div className="font-medium text-base" data-testid="nav-login">
-              Login
+              Log In
             </div>
           </Link>
           <NavButton
@@ -78,7 +78,7 @@ const RightSide = (): React.JSX.Element => {
             className="lg:mr-3 xl:mr-6 inline-flex items-center justify-center"
             data-testid="nav-sign-up"
           >
-            <span className="font-medium text-base leading-6!">Sign up</span>
+            <span className="font-medium text-base leading-6!">Sign Up</span>
           </NavButton>
           <Button
             asChild

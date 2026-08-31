@@ -47,6 +47,7 @@ vi.mock('@styleguide/components/ui/icons', () => ({
   LayoutDashboardIcon: () => null,
   BookOpenIcon: () => null,
   CircleUserRoundIcon: () => null,
+  MegaphoneIcon: () => null,
 }))
 vi.mock('@styleguide', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),

@@ -235,7 +235,7 @@ export default function SignUpForm() {
         className="w-full border-[#0a0a0a] font-semibold text-[#0a0a0a] hover:bg-[#0a0a0a]/5"
         data-testid="signup-google"
       >
-        Sign in with Google
+        Continue with Google
       </Button>
 
       <div className="flex flex-col gap-4">
@@ -333,7 +333,7 @@ export default function SignUpForm() {
           disabled={!agreed || !clerk.isLoaded}
           data-testid="signup-submit"
         >
-          Sign up
+          Sign Up
         </Button>
         <p className="text-sm text-muted-foreground">
           Already have an account?{' '}
@@ -342,7 +342,7 @@ export default function SignUpForm() {
             className="text-primary underline"
             onClick={() => trackEvent(EVENTS.SignUp.ClickLogin)}
           >
-            Sign in
+            Log In
           </Link>
         </p>
       </div>

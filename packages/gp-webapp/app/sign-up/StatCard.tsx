@@ -45,7 +45,7 @@ const DonutChart = () => (
 export default function StatCard() {
   return (
     <div
-      className="w-[280px] max-w-full rounded-[14px] bg-white p-3 shadow-lg"
+      className="w-full max-w-[280px] rounded-[14px] bg-white p-3 shadow-lg"
       aria-hidden="true"
     >
       <div className="flex h-10 items-center rounded-md border border-[#a3a3a3]/50 bg-slate-50 px-3">

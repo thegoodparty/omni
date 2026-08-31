@@ -474,6 +474,74 @@ Post a short comment on the PR saying which findings you accepted, which you
 rejected, and why.
 """
 
+# MERGEABILITY DRIVE: what a run launched by .github/workflows/gpbot-ci-drive.yml
+# is told when the branch no longer merges into main (see clickup_bot/ci_triage.py).
+#
+# WHY THIS EXISTS: nothing else reports it. A conflicted PR keeps its green
+# checks and its approval, and the only visible sign is a disabled merge button
+# on a PR nobody is watching.
+#
+# NOTHING FROM THE CONFLICT IS INTERPOLATED, only the PR number. The agent runs
+# the merge itself and reads the conflicting hunks from the working tree, which
+# is both the accurate source and the one that keeps main's commit messages and
+# code out of this prompt.
+CONFLICTS_FIX_INSTRUCTION = """## YOUR TASK: Make an existing PR merge again
+
+PR **#{pr_number}** in `thegoodparty/omni` was opened by you and now conflicts
+with `main`. It cannot merge whatever its checks say. Resolve the conflict.
+
+```
+gh pr checkout {pr_number}
+git fetch origin main
+git merge origin/main
+```
+
+**Merge, do not rebase.** A rebase needs a force-push, which rewrites a branch
+that has already been reviewed and makes every review thread on it outdated.
+
+## RESOLVING IS A CODE CHANGE, NOT A TEXT EDIT
+
+Both sides of a conflict are somebody's intended change. The failure mode here
+is silent and expensive: keeping your side wholesale deletes work that is
+already on `main`, CI stays green because nothing tests for the deleted change,
+and the loss is found weeks later.
+
+So for every conflicting hunk, read both sides and work out what each was for
+(`git log --oneline HEAD..origin/main -- <path>` shows what landed and why). The
+resolution is whatever preserves BOTH intentions. It is often not either side
+verbatim.
+
+- `git checkout --ours` / `--theirs` on a whole file is almost never right.
+  Never reach for it to make a conflict go away.
+- If a change on `main` has made your PR's change unnecessary, the honest
+  resolution is to drop your side and say so in the PR comment.
+- If a change on `main` contradicts what your PR does, **stop.** Do not guess at
+  whose intent wins. `git merge --abort`, comment on the PR explaining the
+  collision, and leave it to a human.
+
+## ABSOLUTE PROHIBITIONS
+
+1. **NEVER force-push.** No `--force`, no `--force-with-lease`, no rebase of a
+   pushed branch.
+2. **NEVER weaken a test to make the merge come out green.** A test that
+   conflicts is two people disagreeing about intended behaviour, which is
+   exactly the case to hand to a human rather than to delete.
+3. **NEVER merge this PR.** No `gh pr merge`, no `--auto`. A bot may approve; a
+   human decides what lands.
+4. **NEVER open a second PR.** Commit the merge to this PR's existing branch.
+5. **Stay inside the conflict.** Resolve the conflicting hunks and nothing else.
+
+## BEFORE PUSHING
+
+A clean `git merge` is not evidence of a correct merge — the common breakage is
+semantic, where both sides applied without conflicting and the result does not
+build. Run the affected package's own lint/type/test steps (its `AGENTS.md`
+"Verify" section lists them) before you push.
+
+Post a short comment on the PR saying which files conflicted and how you settled
+each one. If you stopped, say what collided and why you did not judge it.
+"""
+
 ANALYZE_LABEL = "analyze"
 IMPLEMENT_LABEL = "implement"
 # Not in TAG_CONFIG, deliberately: a CI fix run has no ClickUp tag and must not
@@ -484,13 +552,18 @@ CI_FIX_LABEL = "ci-fix"
 # a CI run in the logs and in the cost figures. Neither is "analyze", which is
 # the only label engineer_agent lets escalate to an implement run.
 FINDINGS_FIX_LABEL = "findings-fix"
+# Same again. Separable in the cost figures because a conflict resolution is the
+# one of the three that is provoked by other people's merges rather than by
+# anything the bot's own diff did.
+CONFLICTS_FIX_LABEL = "conflicts-fix"
 
 # What the drive may ask for. Anything else is a malformed request rather than
-# something to guess at: the two modes carry different instructions, and picking
-# the wrong one points an agent at work nobody asked for.
+# something to guess at: the modes carry different instructions, and picking the
+# wrong one points an agent at work nobody asked for.
 CI_FIX_MODES = {
     "checks": (CI_FIX_INSTRUCTION, CI_FIX_LABEL),
     "findings": (FINDINGS_FIX_INSTRUCTION, FINDINGS_FIX_LABEL),
+    "conflicts": (CONFLICTS_FIX_INSTRUCTION, CONFLICTS_FIX_LABEL),
 }
 
 ANALYZE_TAG = "gpbot-analyze"

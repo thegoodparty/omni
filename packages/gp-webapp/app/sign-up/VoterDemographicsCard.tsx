@@ -16,7 +16,7 @@ const CheckedBox = () => (
 export default function VoterDemographicsCard() {
   return (
     <div
-      className="w-[280px] max-w-full rounded-[14px] bg-white p-5 shadow-lg"
+      className="w-full max-w-[280px] rounded-[14px] bg-white p-5 shadow-lg"
       aria-hidden="true"
     >
       <div className="flex items-center justify-between">

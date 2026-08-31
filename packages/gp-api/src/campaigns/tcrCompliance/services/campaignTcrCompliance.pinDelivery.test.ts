@@ -22,6 +22,7 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
 
 describe('CampaignTcrComplianceService - applyCvDetection', () => {
   const user = createMockUser({ id: 55 })
@@ -86,6 +87,7 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
         },
+        { provide: CvPreSubmissionValidationService, useValue: {} },
         CampaignTcrComplianceService,
       ],
     }).compile()

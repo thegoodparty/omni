@@ -183,9 +183,9 @@ Production spends 18.2 µs/row on this phase against 3.88 µs/row locally — a 
 penalty, which is the single Fargate vCPU, the GC stalls, and co-tenancy with
 whatever else that task is serving.
 
-The swap is unusually contained: `scanUnderCursor` has **exactly one production
-caller** (`voterPack.service.ts`), and `pg` (^8.11.5) and `pg-copy-streams`
-(^6.0.6) are already dependencies. Only `pg-cursor` would be new.
+The swap was unusually contained: the cursor scan had **exactly one production
+caller** (the pack build), and `pg` and `pg-copy-streams` were already
+dependencies.
 
 ---
 
@@ -324,7 +324,7 @@ There is a second reason that has nothing to do with this endpoint: **one Collin
 County build occupies half the production fleet for 23 seconds.** With two tasks
 and one core each, a single pack request is a availability problem for every
 other caller on that task, which is a plausible contributor to the `list-detail`
-504s documented in `perf/people-db/AGENTS.md`.
+504s seen over the same period.
 
 I would ship this before anything else and re-read the trace, because it is
 cheap, reversible, and it also sharpens every measurement above.
@@ -345,8 +345,8 @@ Risk: low.**
 > more column in `m_people_api__voter.sql`. No lock, no rollout risk, no live
 > migration on a running table: it lands on the next monthly build.
 
-`buildHouseholdKeySql` concatenates four address columns into a text key. It is
-computed per row in Postgres, serialized into JSON, parsed back into a JS string
+The household key concatenates four address columns into a text key. It is
+computed per row in the query, serialized, parsed back into a JS string
 and hashed into a `Map` — 611,000 times. The previous estimate costed the
 encoder-side `Map` work only; the full path is worth more than that, because
 this string is also a large share of the ~193 bytes/row on the wire. The
@@ -366,7 +366,7 @@ instead of it: when the pack is built in the pipeline anyway, a precomputed
 household key is nearly free there and it also lets the encoder index households
 numerically. On its own, ahead of caching, it buys 1–2 s of a 23 s request.
 
-### 4. Replace Prisma with `pg` in `scanUnderCursor` — **~2.5 s, contained**
+### 4. Replace Prisma with `pg` in the cursor scan — **~2.5 s, contained**
 
 **Saving: ~2.5 s (measured ratio, extrapolated). Cost: low-medium. Risk:
 low-medium.**
@@ -423,10 +423,10 @@ hardest-to-change layer for a perceived-latency win that option 1 makes moot.
 ### 7. `EXPLAIN (ANALYZE, BUFFERS)` on the real district — **not an optimisation, but the top follow-up**
 
 The largest single line in the table is 11,413 ms of Postgres, and I know only
-its size. `perf/people-db/AGENTS.md` records that this join is a nested loop
-doing one index probe per district member into a state partition, and that
-partition residency — not district size — dominates: US Cong 29 CA (398k
-members) measures 18.7 s while Orange County FL (898k members) measures 1.7 s.
+its size. The join is a nested loop doing one index probe per district member
+into a state partition, and partition residency — not district size —
+dominates: US Cong 29 CA (398k members) measured 18.7 s while Orange County FL
+(898k members) measured 1.7 s.
 Collin County is 611k members against the TX partition at ~18.7 µs/row, which
 fits the random-probe story.
 
@@ -438,34 +438,3 @@ and it is the only remaining place where a large, cheap win could still be
 hiding.
 
 ---
-
-## Reproducing this
-
-The harness is in [`packages/gp-api/perf/voter-pack/`](../../perf/voter-pack/);
-see its `AGENTS.md` for the full procedure.
-
-```bash
-docker run -d --name dkhpg -e POSTGRES_PASSWORD=pw -p 5599:5432 postgres:16
-ROWS=700000 node perf/voter-pack/gen-pack-table.mjs   # → 601,820 mappable rows
-
-npx esbuild perf/voter-pack/driverbench.ts --bundle --platform=node \
-  --format=cjs --target=node22 --packages=external \
-  --outfile=perf/voter-pack/driverbench.cjs
-
-# one process per variant — heap state bleeds between runs otherwise
-RUNS=4 node perf/voter-pack/driverbench.cjs a   # Prisma (today)
-RUNS=4 node perf/voter-pack/driverbench.cjs b   # pg + pg-cursor
-RUNS=4 node perf/voter-pack/driverbench.cjs d   # COPY TO STDOUT
-
-node perf/voter-pack/clientbench.mjs            # decode / filter / compression
-```
-
-**Read the CPU column, not the wall clock.** The bench reports both; wall clock
-on a shared machine moved the same measurement by 4× during this session and is
-only meaningful on an otherwise idle host. CPU per row is stable to ~10% under
-load average 20+, and it is also the quantity that binds in production, where
-the whole task is one vCPU.
-
-The production numbers come from trace `dbbf18dbf2b0090888fe8f434c025e6c` in
-`grafanacloud-traces` and from `{service_name="gp-api"} |= "door-knocking/pack"`
-in `grafanacloud-logs`.

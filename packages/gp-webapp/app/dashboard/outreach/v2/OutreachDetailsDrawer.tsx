@@ -57,7 +57,12 @@ import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import type { SmsEditTarget } from './sms/SmsEditFlow'
 import { shortOutreachDate } from './outreachDate.util'
-import { outreachDetailQueryKey, useOutreachDetail } from './useOutreachDetail'
+import {
+  fetchOutreachDetail,
+  outreachDetailQueryKey,
+  useOutreachDetail,
+  type OutreachDetailFetcher,
+} from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 import {
@@ -134,6 +139,10 @@ interface OutreachDetailsDrawerProps {
   // Cancel-window SMS rows offer Edit campaign; the hub opens SmsEditFlow
   // with the drawer's already-fetched detail.
   onEdit?: (target: SmsEditTarget) => void
+  // Detail fetch for this row. Defaults to Win's campaign-scoped read; the
+  // Serve caller threads its org-scoped sibling the same bound-function way
+  // SocialFlow's `surface` does, so this drawer never forks per surface.
+  detailFetcher?: OutreachDetailFetcher
 }
 
 interface DetailRow extends HistoryRow {
@@ -146,11 +155,16 @@ export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
   onEdit,
+  detailFetcher = fetchOutreachDetail,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
   const isDoorKnocking = row?.outreachType === OUTREACH_TYPES.nativeDoorKnocking
-  const detailQuery = useOutreachDetail(row?.id ?? null, row !== null)
+  const detailQuery = useOutreachDetail(
+    row?.id ?? null,
+    row !== null,
+    detailFetcher,
+  )
   const social = detailQuery.data?.social
   const phoneBanking = detailQuery.data?.phoneBanking
   const doorKnocking = detailQuery.data?.doorKnocking

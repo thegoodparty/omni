@@ -35,8 +35,8 @@ export type PeopleDbxConfig = {
 }
 
 // Resolved fresh rather than cached so a rotated credential is picked up
-// without a restart. Returns null when unconfigured, which is what keeps an
-// environment without Databricks serving from Postgres instead of failing.
+// without a restart. Returns null when unconfigured; voter reads then fail
+// loudly rather than silently answering from somewhere else.
 //
 // Reads the credential vars directly instead of through
 // resolveDatabricksConnection: that helper requires a host and an HTTP path in

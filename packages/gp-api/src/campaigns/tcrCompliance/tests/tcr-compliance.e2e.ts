@@ -8,6 +8,7 @@ const BASE_TCR_DATA = {
   placeId: 'ChIJN5kbvzXvZIgRND3iKCSUuxk',
   formattedAddress: '1099 Fannie Nicholson Rd, Chapmansboro, TN 37035, USA',
   committeeName: 'Paper Street Soap Co.',
+  candidateName: 'Tyler Durden',
   websiteDomain: 'www.paperstreet.store',
   filingUrl: 'https://sos.tn.co/filing',
   email: 'tyler@fightclub.org',

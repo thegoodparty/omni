@@ -2,8 +2,10 @@ import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { RobocallComplianceService } from '@/outreach/services/robocallCompliance.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign } from '../../generated/prisma'
 
 const service = useTestService()
@@ -11,17 +13,31 @@ const service = useTestService()
 const jsonCompletion = vi.fn()
 const rentNumber = vi.fn()
 const checkRecording = vi.fn()
+const getAreaCodeFromZip = vi.fn()
 
 let campaign: Campaign
 let orgSlug: string
+let headObjectSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
   const callhub = service.app.get(CallhubNumbersService)
   vi.spyOn(callhub, 'rentNumber').mockImplementation(rentNumber)
+  const areaCodeFromZip = service.app.get(AreaCodeFromZipService)
+  vi.spyOn(areaCodeFromZip, 'getAreaCodeFromZip').mockImplementation(
+    getAreaCodeFromZip,
+  )
   const compliance = service.app.get(RobocallComplianceService)
   vi.spyOn(compliance, 'checkRecording').mockImplementation(checkRecording)
+  // recordVerdict reads the audio's S3 ETag to bind the verdict to the bytes;
+  // mock it so the endpoint doesn't hit real S3 in tests.
+  headObjectSpy = vi
+    .spyOn(service.app.get(S3Service), 'headObject')
+    .mockResolvedValue({
+      contentLength: 1,
+      etag: '"compliance-etag"',
+    })
 
   const campaignId = 997
   orgSlug = `campaign-${campaignId}`
@@ -290,7 +306,31 @@ describe('POST /v1/outreach/robocall/draft', () => {
 })
 
 describe('POST /v1/outreach/robocall/number', () => {
-  it('rents a US caller-ID number and returns it', async () => {
+  it('rents a number local to the campaign zip', async () => {
+    // campaign.details.zip is '78634' (Georgetown, TX)
+    getAreaCodeFromZip.mockResolvedValue(['512', '737'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+15125550143',
+      region: 'TX',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+15125550143', region: 'TX' })
+    expect(getAreaCodeFromZip).toHaveBeenCalledWith('78634')
+    expect(rentNumber).toHaveBeenCalledWith({
+      countryIso: 'US',
+      areaCodePrefix: '512',
+    })
+  })
+
+  it('falls back to a national rental when the campaign has no zip', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { normalizedOffice: 'City Council' } },
+    })
     rentNumber.mockResolvedValue({
       phone_number: '+12025550147',
       region: 'DC',
@@ -301,7 +341,45 @@ describe('POST /v1/outreach/robocall/number', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
-    expect(rentNumber).toHaveBeenCalledWith({ countryIso: 'US' })
+    expect(getAreaCodeFromZip).not.toHaveBeenCalled()
+    expect(rentNumber).toHaveBeenCalledWith({
+      countryIso: 'US',
+      areaCodePrefix: undefined,
+    })
+  })
+
+  it('falls back to a national rental when the zip has no known area code', async () => {
+    getAreaCodeFromZip.mockResolvedValue(null)
+    rentNumber.mockResolvedValue({
+      phone_number: '+12025550147',
+      region: 'DC',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
+    expect(rentNumber).toHaveBeenCalledWith({
+      countryIso: 'US',
+      areaCodePrefix: undefined,
+    })
+  })
+
+  it('still succeeds when CallHub has no inventory for the requested area code', async () => {
+    // CallHub never errors on an exhausted prefix — it silently substitutes a
+    // national number, which the rental must surface, not reject.
+    getAreaCodeFromZip.mockResolvedValue(['512'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+12025550147',
+      region: 'DC',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
   })
 
   it('rejects a non-Pro campaign without renting', async () => {
@@ -319,6 +397,7 @@ describe('POST /v1/outreach/robocall/number', () => {
   it('propagates a CallHub rental failure as a 502', async () => {
     // The vendor service maps a CallHub failure to BadGateway; the controller
     // must not swallow or remap it.
+    getAreaCodeFromZip.mockResolvedValue(['512'])
     rentNumber.mockRejectedValue(new BadGatewayException('rental failed'))
 
     const res = await postNumber()
@@ -361,6 +440,37 @@ describe('POST /v1/outreach/robocall/compliance', () => {
     })
     expect(args).not.toHaveProperty('callbackNumber')
     expect(args.organizationName).toContain('City Council')
+
+    // The verdict is persisted keyed by audioKey so createDraft can enforce it.
+    const stored =
+      await service.prisma.robocallComplianceResult.findUniqueOrThrow({
+        where: { audioKey: 'robocall/997/clip.webm' },
+      })
+    expect(stored.passed).toBe(true)
+    // The verdict is bound to the audio's ETag so a later byte-swap is caught.
+    expect(stored.audioEtag).toBe('"compliance-etag"')
+  })
+
+  it('records a NULL bound ETag when the audio changes mid-check (TOCTOU)', async () => {
+    // The bytes are swapped between the pre-check and post-check ETag reads (a
+    // re-upload during the transcription window): the transcript passed on the
+    // OLD bytes but the object now holds new ones. The before/after ETags differ
+    // so the verdict is recorded with NO bound ETag — the create gate then
+    // refuses it, so a mid-check swap cannot dial unapproved audio.
+    headObjectSpy
+      .mockResolvedValueOnce({ contentLength: 1, etag: '"before"' })
+      .mockResolvedValueOnce({ contentLength: 1, etag: '"AFTER-swapped"' })
+
+    const res = await postCompliance(validCompliancePayload)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.passed).toBe(true)
+    const stored =
+      await service.prisma.robocallComplianceResult.findUniqueOrThrow({
+        where: { audioKey: 'robocall/997/clip.webm' },
+      })
+    expect(stored.passed).toBe(true)
+    expect(stored.audioEtag).toBeNull()
   })
 
   it('returns a failing verdict with the issues', async () => {
@@ -380,6 +490,50 @@ describe('POST /v1/outreach/robocall/compliance', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.passed).toBe(false)
     expect(res.data.issues).toHaveLength(2)
+
+    // A failing verdict is persisted too — the create gate reads `passed`, so a
+    // failing row is on record and cannot satisfy it.
+    const stored =
+      await service.prisma.robocallComplianceResult.findUniqueOrThrow({
+        where: { audioKey: 'robocall/997/clip.webm' },
+      })
+    expect(stored.passed).toBe(false)
+  })
+
+  it('overwrites the stored verdict when the audio is re-checked', async () => {
+    checkRecording.mockResolvedValueOnce({
+      passed: false,
+      checks: {
+        hasSelfIdentification: false,
+        hasOrganization: false,
+        hasCallbackNumber: false,
+      },
+      transcript: 'Silence.',
+      issues: ['State your name.'],
+    })
+    const first = await postCompliance(validCompliancePayload)
+    expect(first.data.passed).toBe(false)
+
+    // The candidate re-records and re-checks the SAME key: the row is upserted,
+    // so the latest verdict is the only one on record for the create gate.
+    checkRecording.mockResolvedValueOnce({
+      passed: true,
+      checks: {
+        hasSelfIdentification: true,
+        hasOrganization: true,
+        hasCallbackNumber: true,
+      },
+      transcript: 'Hi, this is Jane Doe, running for City Council...',
+      issues: [],
+    })
+    const second = await postCompliance(validCompliancePayload)
+    expect(second.data.passed).toBe(true)
+
+    const rows = await service.prisma.robocallComplianceResult.findMany({
+      where: { audioKey: 'robocall/997/clip.webm' },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.passed).toBe(true)
   })
 
   it('rejects an audio key from another campaign without checking', async () => {

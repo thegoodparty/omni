@@ -57,6 +57,7 @@ describe('AnalyticsService', () => {
           impersonation: true,
         },
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
@@ -74,6 +75,7 @@ describe('AnalyticsService', () => {
           impersonation: false,
         },
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
@@ -88,6 +90,7 @@ describe('AnalyticsService', () => {
           source: 'test',
         },
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
@@ -101,6 +104,7 @@ describe('AnalyticsService', () => {
         'Test Event',
         expect.any(Object),
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
@@ -129,6 +133,7 @@ describe('AnalyticsService', () => {
         'Test Event',
         { email: 'pre-fetched@example.com', source: 'test' },
         providedContext,
+        undefined,
       )
     })
   })

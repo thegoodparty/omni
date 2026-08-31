@@ -20,7 +20,7 @@ import {
 import { Cron } from '@nestjs/schedule'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
-import { subHours } from 'date-fns'
+import { addSeconds, subHours } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   PaginatedResults,
@@ -36,7 +36,12 @@ import {
   SIGN_UP_MODE,
 } from '../schemas/CreateUserInput.schema'
 import { hashPassword } from '../util/passwords.util'
-import { TEST_USER_DOMAIN } from '../util/users.util'
+import {
+  FIXTURE_USER_EMAIL_DOMAIN,
+  FIXTURE_USER_EMAIL_PREFIX,
+  isTestUser,
+  TEST_USER_DOMAIN,
+} from '../util/users.util'
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
@@ -49,6 +54,8 @@ export type ResolvedActorIdentity =
 const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
 const CLERK_PAGE_SIZE = 500
+
+const SIGN_IN_LINK_TTL_SECONDS = 3600
 
 // Refusal shown to sales when an EO magic link targets an email that already
 // belongs to a real, self-owned GoodParty login (password set or owns a
@@ -403,6 +410,30 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     return updatedCount === 1
   }
 
+  // Set-if-absent CAS on the Stripe customerId: the write lands only when no
+  // customerId is stored yet, so concurrent first-time card-vault requests can
+  // never each persist a different customer. Raw SQL because a conditional
+  // single-key JSON write can't be expressed as a Prisma merge (mirrors
+  // compareAndSwapCheckoutSessionId).
+  async setCustomerIdIfAbsent(
+    userId: number,
+    customerId: string,
+  ): Promise<boolean> {
+    const updatedCount = await this.client.$executeRaw`
+      UPDATE "user"
+      SET
+        meta_data = jsonb_set(
+          COALESCE(meta_data, '{}'::jsonb),
+          '{customerId}',
+          to_jsonb(${customerId}::text)
+        ),
+        updated_at = NOW()
+      WHERE id = ${userId}
+        AND meta_data->>'customerId' IS NULL
+    `
+    return updatedCount === 1
+  }
+
   async patchUserMetaData(
     userId: number,
     newMetaData: PrismaJson.UserMetaData,
@@ -580,6 +611,54 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   /**
+   * Mints a single-use Clerk sign-in token for an existing user so an admin can
+   * hand the account's real owner a way back in. Not impersonation: no actor
+   * claim is embedded, so the redeemed session is the user's own.
+   */
+  async createSignInLink(userId: number) {
+    const user = await this.findUser({ id: userId })
+    if (!user?.clerkId) {
+      throw new BadRequestException('User does not have an associated Clerk ID')
+    }
+    // Deliberately skips assertReusableForMagicLink's passwordless gate: this
+    // link is issued to the account's real owner, so an account the person
+    // already controls is the expected case here, not a takeover risk.
+    const expiresInSeconds = SIGN_IN_LINK_TTL_SECONDS
+    try {
+      const { token } = await this.clerkClient.signInTokens.createSignInToken({
+        userId: user.clerkId,
+        expiresInSeconds,
+      })
+      if (!token) {
+        throw new BadGatewayException('Clerk did not return a sign-in token')
+      }
+      return {
+        token,
+        expiresAt: addSeconds(new Date(), expiresInSeconds).toISOString(),
+      }
+    } catch (err) {
+      this.logger.error(
+        {
+          err,
+          userId,
+          targetClerkId: user.clerkId,
+          clerkStatus:
+            err instanceof Error
+              ? (err as Error & { status?: unknown }).status
+              : undefined,
+          clerkErrors:
+            err instanceof Error
+              ? (err as Error & { errors?: unknown }).errors
+              : undefined,
+          clerkMessage: err instanceof Error ? err.message : String(err),
+        },
+        'Failed to create Clerk sign-in token',
+      )
+      throw new BadGatewayException('Failed to create sign-in link')
+    }
+  }
+
+  /**
    * Provisions a passwordless Clerk identity + local user for a sales-sent EO
    * magic link and mints a single-use sign-in token. Idempotent on email:
    * reuses an existing Clerk user / local user when present, so returning leads
@@ -588,9 +667,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
    */
   // A magic-link sign-in may only be minted for a fresh EO lead (or a stranded
   // partial-create), never a real account: any assigned role (admin, sales,
-  // candidate, …) or campaign ownership marks a real account and is refused. A
-  // new lead and a stranded partial-create both have roles: [] and no campaign,
-  // so this never blocks legitimate provisioning (incl. admin retries).
+  // candidate, …), campaign ownership, or an onboarded elected office marks a
+  // real account and is refused. A new lead and a stranded partial-create have
+  // roles: [], no campaign, and no completed onboarding, so this never blocks
+  // legitimate provisioning (incl. admin retries).
   private async assertReusableForMagicLink(user: User): Promise<void> {
     if (user.roles.length > 0) {
       throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
@@ -599,6 +679,20 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       where: { userId: user.id },
     })
     if (campaignCount > 0) {
+      throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+    }
+
+    // A Serve (elected-official) account owns an Organization, not a Campaign,
+    // so the campaign check alone misses it. Scoped to a completed onboarding
+    // because this very flow creates the lead's Organization + ElectedOffice —
+    // plain ownership would refuse every legitimate admin retry.
+    const establishedOfficeCount = await this.client.organization.count({
+      where: {
+        ownerId: user.id,
+        electedOffice: { onboardingCompletedAt: { not: null } },
+      },
+    })
+    if (establishedOfficeCount > 0) {
       throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
     }
   }
@@ -807,14 +901,27 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     try {
       const cutoff = subHours(new Date(), 24)
 
-      // 1. Delete DB users.
-      const dbUsers = await this.model.findMany({
+      // 1. Delete DB users. The SQL clauses only prefilter candidates; the
+      // isTestUser pass is what makes the fixture match exact (qa-<uuid>
+      // only), so a real staff alias like qa-team@goodparty.org survives.
+      const candidates = await this.model.findMany({
         where: {
-          email: { endsWith: TEST_USER_DOMAIN },
+          OR: [
+            { email: { endsWith: TEST_USER_DOMAIN } },
+            {
+              email: {
+                startsWith: FIXTURE_USER_EMAIL_PREFIX,
+                endsWith: FIXTURE_USER_EMAIL_DOMAIN,
+              },
+            },
+          ],
           createdAt: { lt: cutoff },
         },
-        select: { id: true },
+        select: { id: true, email: true },
       })
+      const dbUsers = candidates.filter((user) =>
+        isTestUser({ email: user.email }),
+      )
 
       let dbDeleted = 0
       for (const dbUser of dbUsers) {
@@ -855,7 +962,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           (user) =>
             user.createdAt < cutoffMs &&
             user.emailAddresses.some((e) =>
-              e.emailAddress.endsWith(TEST_USER_DOMAIN),
+              isTestUser({ email: e.emailAddress }),
             ),
         )
 

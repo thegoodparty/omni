@@ -15,7 +15,7 @@ export interface MeetingPipelineBucketConfig {
  * before this file existed; Pulumi does NOT own it. This component creates
  * the prod bucket so the existing select() in deploy/index.ts has
  * something real to point at in those environments. When the larger
- * meeting-pipeline Terraform stack eventually lands in gp-ai-projects,
+ * meeting-pipeline Terraform stack eventually lands in gp-ai,
  * those buckets can be `terraform import`'d into that module's state and
  * this component retired.
  */

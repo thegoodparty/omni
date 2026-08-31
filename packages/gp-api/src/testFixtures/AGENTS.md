@@ -7,7 +7,7 @@ any script that needs a dev user in a known product state.
 
 | Route                                 | Purpose                                                                 |
 | ------------------------------------- | ----------------------------------------------------------------------- |
-| `POST /v1/test-fixtures/users`        | Mint a `@test.goodparty.org` user in a state: `free-win`, `pro-win`, `serve`, `serve-won-race` |
+| `POST /v1/test-fixtures/users`        | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `serve`, `serve-won-race` |
 | `DELETE /v1/test-fixtures/users`      | On-demand cleanup (DB + Clerk); the 6-hourly `deleteTestUsers` cron is the safety net |
 | `POST /v1/test-fixtures/users/:id/session` | Re-mint the 1h session token for runs longer than an hour          |
 
@@ -29,6 +29,10 @@ do NOT log a browser into the webapp.
 - Fixture creation composes existing services with every real-user side effect
   bypassed: no HubSpot (`createForUser` via `outerTx`, `launch`/`setIsPro`
   with tracking off), no emails, no Slack. If you add a state, keep it that way.
+- Fixture emails are `qa-<uuid>@goodparty.org` — the real internal domain, so
+  Amplitude flags targeting internal traffic apply on dev. The `qa-<uuid>`
+  local part is what `isTestUser` matches; staff `@goodparty.org` accounts
+  never take that shape and are never swept.
 - Fixture users are swept by `UsersService.deleteTestUsers` after ~24h — QA
   runs should still delete their own users.
 - `serve-won-race` sets `details.wonGeneral` + a **past** `electionDate` last,

@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import {
   Alert,
   AlertDescription,
@@ -19,20 +18,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@styleguide'
-import { CalendarIcon } from '@styleguide/components/ui/icons'
+import { CalendarIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import { Intro } from '../social/Intro'
 import { combineScheduledAt, timeZoneShortLabel } from './scheduleTimeZone'
 
-// Hourly 9:00 AM–9:00 PM, matching the design's time dropdown but without its
-// "Send now"/"Custom time…" entries: robocalls carry a hard lead time and a
-// per-contact-timezone delivery window, so only in-window slots are offered.
-const TIME_SLOTS = Array.from({ length: 13 }, (_, i) => {
+// Hourly 9:00 AM–7:00 PM, matching the design's time dropdown but without its
+// "Send now"/"Custom time…" entries: robocalls carry a per-contact-timezone
+// delivery window, so only in-window slots are offered. Capped at 7pm so a
+// slot doesn't run into CallHub's daily calling cutoff undialed.
+const TIME_SLOTS = Array.from({ length: 11 }, (_, i) => {
   const hour24 = 9 + i
   const value = `${String(hour24).padStart(2, '0')}:00`
   const hour12 = ((hour24 + 11) % 12) + 1
   const label = `${hour12}:00 ${hour24 < 12 ? 'AM' : 'PM'}`
   return { value, label }
 })
+
+// Selecting the last slot doesn't block sending, but calls placed that late
+// may not all finish dialing before CallHub's cutoff.
+const LATE_CUTOFF_TIME = '19:00'
 
 interface RobocallScheduleStepProps {
   campaignName: string
@@ -42,11 +46,16 @@ interface RobocallScheduleStepProps {
   time: string
   onTimeChange: (time: string) => void
   timeZone: string
-  minLeadHours: number
-  // The earliest allowed send instant (now + lead time) and whether the current
-  // day+time falls before it. Computed by the flow, which also gates the CTA.
+  // The earliest allowed send instant (now) and whether the current day+time
+  // falls before it. Computed by the flow, which also gates the CTA.
   earliest: Date
+  // The last selectable calendar day (now + the max schedule window), used to
+  // grey out dates beyond it. Computed by the flow, which also gates the CTA.
+  maxScheduledDay: Date
   violates: boolean
+  // True when `violates` is due to the 85-day cap rather than a past time —
+  // picks which message the shared Alert shows.
+  isTooFarOut: boolean
 }
 
 export const RobocallScheduleStep = ({
@@ -57,19 +66,19 @@ export const RobocallScheduleStep = ({
   time,
   onTimeChange,
   timeZone,
-  minLeadHours,
   earliest,
+  maxScheduledDay,
   violates,
+  isTooFarOut,
 }: RobocallScheduleStepProps) => {
   const [dateOpen, setDateOpen] = useState(false)
-  const earliestLabel = formatInTimeZone(earliest, timeZone, 'MMM d, h:mm a')
 
   return (
     <div className="space-y-6">
       <Intro
         channel="robocall"
         title="When do you want to send it?"
-        body={`We recommend mid-morning or early evening for higher engagement. Sends require at least ${minLeadHours} hours' notice.`}
+        body="We recommend mid-morning or early evening for higher engagement."
       />
 
       <div className="space-y-2">
@@ -115,6 +124,7 @@ export const RobocallScheduleStep = ({
               <Calendar
                 mode="single"
                 selected={scheduledDay}
+                disabled={{ after: maxScheduledDay }}
                 onSelect={(day) => {
                   onScheduledDayChange(day ?? undefined)
                   setDateOpen(false)
@@ -122,9 +132,6 @@ export const RobocallScheduleStep = ({
               />
             </PopoverContent>
           </Popover>
-          <p className="text-sm text-muted-foreground">
-            Earliest send: {earliestLabel}.
-          </p>
         </div>
 
         <div className="space-y-2">
@@ -153,8 +160,18 @@ export const RobocallScheduleStep = ({
       {violates && (
         <Alert variant="destructive">
           <AlertDescription>
-            Sends need at least {minLeadHours} hours&apos; notice. Pick a date
-            and time on or after {earliestLabel}.
+            {isTooFarOut
+              ? 'Pick a send date within the next 85 days.'
+              : 'Pick a send date and time in the future.'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {time === LATE_CUTOFF_TIME && (
+        <Alert variant="info" icon={<InfoIcon className="size-4" />}>
+          <AlertDescription>
+            Calls scheduled for 7 PM may run past the day&apos;s calling cutoff.
+            CallHub automatically sends any remaining calls the next morning.
           </AlertDescription>
         </Alert>
       )}

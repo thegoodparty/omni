@@ -305,7 +305,8 @@ merge them, and that closing a weak one is the expected outcome.
 | Setting | Value | Why |
 |---|---|---|
 | `vars.GPBOT_PR_CHANNEL_ID` | `C022VR6PRQC` (`#bugs`) | Where the people who triage these bugs already are, and the home of the `@serve-bugs` / `@win-bugs` groups the message mentions |
-| `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of `#bugs` with `chat:write` |
+| `vars.GPBOT_DIGEST_CHANNEL_ID` | `#eng-prod-design` | The weekly digest only. It reports on whether the system is worth keeping rather than asking anyone to do something today, and that audience is not the bug rotation |
+| `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of both channels, with `chat:write` |
 
 `@serve-bugs` and `@win-bugs` are two-week on-call rotations holding one person
 at a time, so `gpbot-pr-triage.yml` reads the current holder out of the group
@@ -322,8 +323,9 @@ token, so plan on updating both `secrets.GPBOT_SLACK_BOT_TOKEN` and
 
 It is deliberately **not** `secrets.SLACK_APP_BOT_TOKEN`. That is the analytics
 app, which is a member of `#product-analytics` only; pointing it at `#bugs` fails
-every post with `not_in_channel`. Both gpbot workflows must carry the same app,
-since they post to the same channel.
+every post with `not_in_channel`. Every gpbot workflow carries the same app, so
+`gp_ai_bot` has to be invited to each channel any of them posts to — including
+`#eng-prod-design` for the digest.
 
 If you move the channel, check the new one against the app first — a token without
 `chat:write.public` can only post where it has been invited:
@@ -347,8 +349,8 @@ run exits there. If CI then failed, nothing happened. PR #1306 was opened
 
 `.github/workflows/gpbot-ci-drive.yml` closes that gap. It fires when a CI
 workflow completes, waits until every check on a `[GP-Bot]` PR has resolved, and
-then acts on whichever of two things is outstanding: a red check, or a review
-finding nobody answered.
+then acts on whichever of three things is outstanding: a branch that no longer
+merges, a red check, or a review finding nobody answered.
 
 **Triage comes before action, and that ordering is the whole design.** Most
 bot-PR check failures we have actually observed were infrastructure, not
@@ -374,6 +376,42 @@ the trade: a flake clears for free, and a real regression comes back with
 evidence that it is deterministic. The taxonomy and the round caps are lifted
 from `.claude/skills/ship-pr/SKILL.md` "Phase 3" — this automates a judgement
 humans already make here rather than inventing a new one.
+
+### A branch that stops merging
+
+Green checks do not mean mergeable. `main` moves, the branch starts conflicting,
+and every signal the drive reads still says the PR is fine: checks passed,
+approval standing, no open findings. The only visible difference is a greyed-out
+merge button on a PR nobody is watching. Nothing reported that.
+
+So a conflicted branch is work too, and it is settled **before** checks and
+findings. A conflicted PR cannot land however green it is, so re-running its
+checks or answering its threads first spends CI minutes and model tokens to
+arrive at a PR that still cannot merge — and the merge that resolves the
+conflict re-runs the checks anyway.
+
+There is no cheap first move here, unlike a red check. A re-run is worth trying
+on a flake because it clears for free; "conflicting" is already git's answer to
+having tried. So the first move is the expensive one, drawn from the same fix-run
+budget.
+
+**Only an explicit `CONFLICTING` counts**, and this default runs opposite to the
+findings one. GitHub computes mergeability lazily and reports `UNKNOWN` until it
+has — asking is what triggers the computation, so the workflow asks up to three
+times before giving up and passing `UNKNOWN` through. Reading `UNKNOWN` as
+conflicted would point an agent at a branch that merges perfectly well: a wasted
+run and a pointless merge commit on a PR a human was about to merge. Erring the
+other way costs 30 minutes, and a real conflict does not clear on its own.
+
+**Being merely `BEHIND` `main` is not driven.** The `main` ruleset sets
+`strict_required_status_checks_policy` false, so an out-of-date branch still
+merges; updating one on every push to `main` would spend a full CI cycle per bot
+PR per merge to change nothing about whether it can land.
+
+There is no separate attempt ledger, unlike findings. A finding can stay open
+forever after a run that declined to act on it, so its ids have to be banked. A
+conflict cannot: a run that resolves it makes it disappear, and one that does not
+leaves the same conflict for the shared budget to bound.
 
 ### Unanswered review findings
 
@@ -422,8 +460,10 @@ ignore would fail in the direction that just cost us a production regression.
 | Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
 | Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
 
-The fix-run budget is **shared** between failing checks and review findings,
-because what it bounds is money rather than either activity on its own.
+The fix-run budget is **shared** between conflicts, failing checks and review
+findings, because what it bounds is money rather than any one activity. A PR
+that keeps colliding with `main` after spending it is one a human should look
+at, not one to keep paying to rebase.
 
 Both are **per-PR and cumulative for the life of the PR**, deliberately not
 per-commit. A fix run pushes a commit, and resetting on a new commit would let a
@@ -480,17 +520,18 @@ one audited route to Fargate. `mode` picks the instruction:
 |---|---|---|
 | `checks` (the default when absent) | `ci-fix` | `CI_FIX_INSTRUCTION` |
 | `findings` | `findings-fix` | `FINDINGS_FIX_INSTRUCTION` |
+| `conflicts` | `conflicts-fix` | `CONFLICTS_FIX_INSTRUCTION` |
 
 An unrecognised mode is a 400, not a default — quietly running the CI
 instruction against a request that asked for something else points an agent at
 work nobody asked for. Neither label is `analyze`, which keeps both out of the
-analyze→implement escalation, and neither is in `TAG_CONFIG`: a ClickUp tag must
+analyze→implement escalation, and none is in `TAG_CONFIG`: a ClickUp tag must
 never be able to launch a run that pushes to an arbitrary PR. The dedup claim is
-keyed on `ci-fix` for **both** modes, because they push to the same branch and a
-claim keyed per-mode could not see that collision.
+keyed on `ci-fix` for **every** mode, because they all push to the same branch
+and a claim keyed per-mode could not see that collision.
 
 **Only the PR number, the ClickUp task id and that fixed enum cross the
-boundary** — an integer, a character-class-checked id, and one of two literals.
+boundary** — an integer, a character-class-checked id, and one of three literals.
 Check names, step names, log text and review-comment bodies are all left out on
 purpose. The first three originate in CI output; the last is written by another
 model, in a thread anyone who can comment on the repo may add to. Interpolating
@@ -498,10 +539,10 @@ any of them into a system prompt would make every failing build and every review
 comment a prompt-injection surface. The agent holds `gh` and fetches its own
 evidence.
 
-Both instructions forbid, in order of how much damage they do: weakening a test
-to make it pass (deleting, skipping, loosening an assertion, or adding a retry
-to hide a real failure), merging, opening a second PR, and working outside the
-thing they were sent for.
+All three instructions forbid, in order of how much damage they do: weakening a
+test to make it pass (deleting, skipping, loosening an assertion, or adding a
+retry to hide a real failure), merging, opening a second PR, and working outside
+the thing they were sent for.
 
 `CI_FIX_INSTRUCTION` additionally tells the agent to check `main` and change
 nothing if the failure is infra or pre-existing — a second line of the same
@@ -519,6 +560,16 @@ say it could not be judged. Whichever it does, it replies and then resolves the
 thread — and it must **never resolve a thread it has not answered**, because
 resolving is the record that a finding was dealt with. An unanswered thread left
 open is a fine outcome; it goes to a human.
+
+`CONFLICTS_FIX_INSTRUCTION` says **merge `main`, never rebase**, because a
+rebase needs a force-push, and force-pushing a reviewed branch marks every
+review thread on it outdated — silently clearing the findings the section above
+exists to answer. Its real subject is the resolution itself: both sides of a
+conflict are somebody's intended change, and taking one side wholesale deletes
+work already on `main` while CI stays green, because nothing tests for the
+change that was dropped. So `--ours`/`--theirs` on a whole file is called out as
+almost never right, and a collision the agent cannot judge is a `git merge
+--abort` and a comment rather than a guess.
 
 **Nothing in this feature merges anything.** `gpbot-ci-drive.yml` carries the
 same header contract as `gpbot-pr-triage.yml`: the bot getting CI green is not
@@ -731,6 +782,232 @@ curl -s -X PUT -H "Authorization: $CLICKUP_API_KEY" -H "Content-Type: applicatio
 curl -s -H "Authorization: $CLICKUP_API_KEY" \
   "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[].events'
 ```
+
+## The weekly digest
+
+The section above ends on the failure the error alarm cannot see. This is the
+answer to it: `.github/workflows/gpbot-weekly-digest.yml` posts one message to
+`#eng-prod-design` every Monday at 15:00 UTC summarising the completed
+Monday–Sunday week.
+
+**Not `#bugs`, where the other gpbot workflows post.** Those are working
+messages for whoever is on bugs that day — a PR to review, a stale PR to chase.
+This one reports on whether the system is worth keeping, and its audience is the
+people who decide that. A monthly-interest message in a daily-interest feed is a
+message nobody reads. The channel is `vars.GPBOT_DIGEST_CHANNEL_ID`, separate
+from `vars.GPBOT_PR_CHANNEL_ID` so it can be moved without a deploy and so an
+unset value fails loudly rather than falling back to `#bugs`.
+
+```
+gpbot — week of Aug 17–23
+Coverage: 6 of 7 tagged bugs analyzed — 1 missed: DATA-2336
+Median time to analysis: 7.3 min
+Verdicts: 3 fix · 3 no-code-change · 1 needs-human → 4 tickets kept off the eng queue
+PRs: 3 opened · 1 merged · 0 closed unmerged · ⚠️ 1 open past 48h with no human review: #1306
+Cost: $38.00 this week · $3.71 median per analysis
+```
+
+**Coverage leads, not merges.** "How many bugs did the bot fix" is the wrong
+headline twice over. It misprices a triage system whose main output is a written
+root cause — of the seven verdicts recorded after escalation went live, four
+concluded there was no code fix to make — and it invites gaming, because "PRs
+merged" is a number you improve by opening PRs against tickets that are not code
+bugs, which is the exact thing `escalation.py` exists to prevent. Coverage is
+also where this system has actually failed, and failed silently.
+
+**It posts on a quiet week**, unlike `gpbot-stale-pr-alert.yml`, which stays
+silent when it finds nothing. That is right for a nag and wrong here: a missing
+digest is indistinguishable from a broken digest, and the Jul 31 – Aug 14 outage
+is what "everything looks fine" looks like.
+
+**Raw counts, never percentages.** Three genuinely autonomous bug-fix PRs is not
+a base anyone can compute a rate on, and a percentage that reaches Slack reaches
+a board deck by Thursday.
+
+**No engineering-time-saved estimate.** The arithmetic needs a per-ticket human
+diagnosis time and nothing records one (`time_estimate` and `time_spent` are
+empty on all 180 gpbot-touched tasks), so the honest range spans 4x. A weekly
+message that restarts an argument about its own inputs stops being read.
+
+### Where each line comes from
+
+| Source | Used for | Auth |
+|---|---|---|
+| ClickUp `GET /team/{id}/task?tags[]=gpbot-analyze` plus `/task/{id}/comment` | Coverage and latency | `secrets.CLICKUP_API_TOKEN` |
+| `gh pr list` | PRs opened / merged / closed unmerged, and open past 48h with no human review | `github.token` |
+| `aws logs filter-log-events --filter-pattern GPBOT_METRIC` | Verdicts, deflections and cost | OIDC via `vars.AWS_ROLE_ARN` |
+
+Tickets are bucketed by **creation** date, not by when they were analyzed —
+that is the only bucketing under which a ticket nobody looked at appears at all.
+The analysis itself is not required to fall inside the window, so a Sunday-night
+bug analyzed on Monday counts as covered rather than as a miss.
+
+Bot PRs are identified by title `[GP-Bot]` **or** head branch containing
+`/gp-bot_`, the same two signals as `gpbot-ci-drive.yml`. Both are applied to
+every open PR; the historical half of the query can only search on the title,
+because GitHub's `head:` qualifier matches whole branch names (`head:gp-bot`
+returns nothing) and a date-bounded scan of everything truncates silently — a
+seven-day `updated:>=` search hit the 200-result cap with the oldest hit three
+days old. The gap is therefore a *closed* PR carrying a bot branch and no bot
+title, which the implement instruction does not produce.
+
+### A source that failed says so — and so does a source that is merely empty
+
+**"0 missed" from a coverage check that never ran is worse than no message at
+all.** Every gather step writes `null` before it makes a call, so a step that
+dies leaves the source absent rather than empty, and the module renders that
+line as `unavailable`. The cost line never reads `$0` because CloudWatch was
+unreachable.
+
+**A healthy query that returns nothing needs the same care**, which the first
+production run of this digest proved the hard way. It reported *"Verdicts: no
+analyses recorded"* and *"Cost: no runs recorded this week"* for a week whose own
+coverage line, three rows above, said seven bugs had been analyzed. CloudWatch
+had not failed. It answered honestly, and the answer was zero because
+`GPBOT_METRIC` had not shipped yet — which is true of every week before the
+deploy, including the first one anybody sees.
+
+So a zero from CloudWatch is only reported as a quiet week when something
+independent agrees the week was quiet. ClickUp is that something: coverage
+counts analyses from the bot's own ticket comments, by a route that touches
+CloudWatch nowhere. Four states, not three:
+
+| CloudWatch | ClickUp | Cost line |
+|---|---|---|
+| Runs found | — | `$38.00 this week · $3.71 median per analysis` |
+| Nothing found | Nothing analyzed either | `no runs recorded this week` |
+| Nothing found | Analyses happened | `unavailable`, plus a note saying why |
+| Nothing found | Could not be read | `unavailable` — nothing to corroborate the zero against |
+| Query failed | — | `unavailable` |
+
+The note names the discriminator, because the symptom alone is not actionable —
+the same empty result is expected before the deploy and a real fault after it:
+
+> ⚠️ 7 tickets analyzed but no run metrics exist for this week, so verdicts and
+> cost are missing rather than zero. The agent has only recorded them since
+> GPBOT_METRIC shipped — an earlier week has none, and a later one means the
+> metric has stopped flowing.
+
+**A genuinely quiet week must still read as quiet.** Collapsing "nothing
+happened" into "something is broken" would make the digest cry wolf on the weeks
+it has least to say, and a warning that fires on a normal week is one people
+learn to skip.
+
+### ...and a source that answered for only part of the week
+
+The check above was all-or-nothing, and the next digest walked straight through
+the gap it left. On 2026-08-24 it posted:
+
+```
+Coverage: 8 of 8 tagged bugs analyzed
+Verdicts: 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
+Cost: $4.02 this week · $0.66 median per analysis
+```
+
+Eight bugs analyzed, one verdict. `GPBOT_METRIC` shipped on the Friday of that
+week, so six of the eight analyses ran before anything recorded them. CloudWatch
+had not failed and had not returned nothing, so every availability check passed
+and a sixth of the week was printed in the shape of a whole one. **A partial
+sample presented as complete is worse than an absent line**: a reader cannot
+tell it from a week where the bot genuinely concluded almost nothing.
+
+So the two lines built on run metrics say which part of the week they cover:
+
+```
+Verdicts (partial): 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
+Cost (partial): $4.02 this week · $0.66 median per analysis
+⚠️ 7 of 8 analyses left no run metric, so the verdicts and cost above describe
+part of the week rather than all of it. The agent has only recorded them since
+GPBOT_METRIC shipped — a week spanning that deploy is short by the runs that
+came before it, and a later one means the metric has stopped flowing.
+```
+
+The marker is on the **label** rather than appended to the numbers: whatever
+qualifier trails a line, the eye lands on the figures first and reads them as
+the week's.
+
+**Matched on ticket id, not by comparing two totals.** Each `GPBOT_METRIC` line
+carries its `task_id` and coverage knows which tickets it counted, so the
+question asked is "was this ticket's analysis recorded" rather than "do two
+numbers agree". Equal totals are the weaker claim and fail exactly when it
+matters: a week whose recorded runs all belong to the previous week's tickets
+tallies perfectly while every analysis in the report goes unrecorded.
+
+**It over-reports at the week boundary, deliberately.** Coverage buckets a
+ticket by when it was filed and counts an analysis that happened after the
+window closed; the metric query is bounded by when the run ran. So a bug filed
+late on Sunday can be marked unrecorded here when its metric line simply lands
+in the next week's query. That costs an occasional `1 of 8`. Staying quiet until
+a gap is provably not an edge effect is what let six missing analyses out of
+eight read as a normal week.
+
+Like the rollout gap, a partial week **does not turn the job red** — it is the
+same gap seen from the other side, and every week spanning the deploy has this
+shape.
+
+A comments fetch that fails takes the **whole** ClickUp source down rather than
+that one ticket, because a ticket with no comments reads as un-analyzed: a
+single dropped response would otherwise invent a miss and name an innocent
+ticket in Slack.
+
+The workflow posts a degraded digest **and then goes red** — the message is
+worth having, and so is somebody noticing the gap. The one exception is the
+rollout gap above: it is expected every Monday until `GPBOT_METRIC` has covered
+a full week, and a job that is expected to be red is a job whose redness stops
+meaning anything. It is reported in the message instead, where it will be read.
+
+**One line still has this shape and is not fixed.** If the `gpbot-analyze` tag
+stops being applied, the ClickUp query honestly returns nothing and coverage
+reads *"no bugs were tagged `gpbot-analyze` this week"*. That sentence is
+deliberately about the tagging rather than about the bot, so a reader who knows
+bugs were filed can see it is wrong — but nothing corroborates it. Doing so
+means counting bugs filed into the Bugs lists as a second denominator, which is
+a fourth query and a judgement about which lists count. Worth doing if tagging
+ever slips; it was ~100% across W31–W34.
+
+### `GPBOT_METRIC`, and why the agent emits it
+
+`engineer_agent/agent/metrics.py` logs one line at the end of every run:
+
+```
+GPBOT_METRIC {"task_id","label","verdict","status","cost_usd","duration_s","escalation"}
+```
+
+Before it existed, the verdict and the cost had to be scraped out of prose
+across two log groups and joined on an 8-character run id, and rewording either
+log line would have broken every query silently. Now the whole query is one
+`filter-log-events` call — no Insights query to start and poll, and no join.
+Retention on `/ecs/engineer-agent-prod` is 400 days, so a digest that runs late
+still finds its week.
+
+Three things about the line are load-bearing:
+
+- **The verdict is `parse_verdict`'s**, the same function that gates escalation,
+  so the digest reports the verdicts the system actually acted on rather than a
+  second reading of the same text.
+- **`escalation` is the outcome string, not a boolean.** A `fix` verdict that
+  ended in `disabled`, `already queued` or `escalation failed` is a ticket the
+  bot decided to fix and then did not, which is invisible in ClickUp and in
+  GitHub alike.
+- **An unknown number is `null`, never `0`.** The digest sums costs; one absent
+  cost silently coerced to zero would understate the week with nothing anywhere
+  to say so.
+
+The field names are a contract with `clickup_bot/weekly_digest.py`. Adding a
+field is free; renaming or removing one drops a line from the Monday message and
+nothing goes red.
+
+### Changing it
+
+The judgement lives in `clickup_bot/weekly_digest.py` as pure functions over
+JSON — no network, no clients — on the same contract as `ci_triage.py`: the
+workflow gathers facts and pipes one JSON blob in, the module decides what they
+mean. `clickup_bot/tests/test_weekly_digest.py` pins the whole message against
+the week of 2026-08-17 as recorded in the gpbot metrics report, so a change that
+alters a number has to say so in the diff.
+
+To try it without posting, run the workflow manually with `dry_run` checked and
+optionally a `week_start`; the rendered message goes to the job summary.
 
 ## Environment Variables
 

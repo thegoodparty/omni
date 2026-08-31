@@ -135,7 +135,7 @@ describe('DatabricksVoterDownloadService', () => {
     expect(gunzipSync(sink.body()).toString('utf8')).toBe('Voter ID\nLAL1\n')
   })
 
-  it('follows the chunk chain, requesting each link only when it gets there', async () => {
+  it('follows the chunk chain to the end', async () => {
     startCsvExport.mockResolvedValue({
       firstChunk: {
         externalLink: 'https://s3/chunk0',
@@ -158,6 +158,44 @@ describe('DatabricksVoterDownloadService', () => {
       'Voter ID\nLAL1\nLAL2\n',
     )
     expect(fetchCsvChunk).toHaveBeenCalledTimes(1)
+  })
+
+  // The link round trip for chunk N+1 is what the drain used to spend ~6.5s of
+  // a 22.6s large export waiting on, one chunk at a time. It now overlaps the
+  // current chunk instead of following it, so it must be in flight before the
+  // current body has even been read.
+  it('resolves the next chunk link before finishing the current one', async () => {
+    startCsvExport.mockResolvedValue({
+      firstChunk: {
+        externalLink: 'https://s3/chunk0',
+        nextChunkLink: '/api/2.0/sql/statements/s1/result/chunks/1',
+      },
+    })
+    fetchCsvChunk.mockResolvedValue({
+      externalLink: 'https://s3/chunk1',
+      nextChunkLink: null,
+    })
+    let releaseFirst: (() => void) | undefined
+    const firstBody = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    fetchMock
+      .mockImplementationOnce(async () => {
+        await firstBody
+        return chunkResponse('Voter ID\nLAL1\n')
+      })
+      .mockResolvedValueOnce(chunkResponse('LAL2\n'))
+    const sink = createSink()
+
+    const streaming = service.streamPeopleCsv(dto, sink.reply)
+    await vi.waitFor(() => expect(fetchCsvChunk).toHaveBeenCalled())
+    releaseFirst?.()
+    await streaming
+    await sink.finished
+
+    expect(gunzipSync(sink.body()).toString('utf8')).toBe(
+      'Voter ID\nLAL1\nLAL2\n',
+    )
   })
 
   it('applies the caller filename and extra headers', async () => {

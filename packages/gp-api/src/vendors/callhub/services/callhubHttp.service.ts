@@ -100,4 +100,22 @@ export class CallhubHttpService extends CallhubBaseConfig {
     )
     return res.data
   }
+
+  async put<T>(
+    path: string,
+    body?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    // Retry only the throttle (429, rejected before processing so safe), not
+    // 5xx — a PUT that transitions state (e.g. a voice-broadcast START) may
+    // have already executed, and re-sending could re-trigger the side effect.
+    const res = await this.withRetry<T>(
+      () =>
+        firstValueFrom(
+          this.httpService.put<T>(path, body, this.baseConfig(config)),
+        ),
+      { retryServerErrors: false, allowRetry: true },
+    )
+    return res.data
+  }
 }

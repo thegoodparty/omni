@@ -17,9 +17,12 @@ permissions:
   contents: read
   pull-requests: write
 
+# Cancel superseded PR runs: the comment body is derived from the PR number
+# alone, so every queued re-run would write the identical text. Keeping only the
+# latest also removes any chance of two upserts racing on the same comment.
 concurrency:
   group: pr-preview-comment-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   comment:

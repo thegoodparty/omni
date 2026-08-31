@@ -137,6 +137,23 @@ export class CampaignTcrComplianceController {
     await this.tcrComplianceService.revokeInternalTestingApproval(campaignId)
   }
 
+  // Admin override for a held pre-submission validation failure (ENG-10965):
+  // lets submission proceed to Peerly despite an unresolved failed verdict.
+  // Scoped to the current filing data — createAgentic clears the override
+  // the next time filingUrl/candidateName actually changes, forcing a fresh
+  // validation on the new data rather than letting the old bypass carry over.
+  @Post('admin/:campaignId/override-cv-validation')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async overrideCvValidationForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.overrideCvValidation(campaignId)
+  }
+
   @Post('submit-to-peerly')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)
@@ -153,10 +170,11 @@ export class CampaignTcrComplianceController {
       'issue). Calls with any earlier stage return 422; calls with ' +
       'generic or template content return 400. ' +
       'No request body is needed: gp-api reads the EIN, committee name, ' +
-      'office level, election filing details, contact email and phone, ' +
-      "and website host from the candidate's saved compliance record — " +
-      'just call it for the current campaign. gp-api re-validates the ' +
-      'saved filing URL and returns 400 if it is a goodparty.org page, ' +
+      'candidate name, office level, election filing details, contact ' +
+      "email and phone, and website host from the candidate's saved " +
+      'compliance record — just call it for the current campaign. ' +
+      'gp-api re-validates the saved filing URL and returns 400 if it ' +
+      'is a goodparty.org page, ' +
       "the candidate's own campaign website, or (for non-federal " +
       'candidates) an FEC filing URL (CampaignVerify rejects all of ' +
       'those); the candidate must correct their saved filing details ' +

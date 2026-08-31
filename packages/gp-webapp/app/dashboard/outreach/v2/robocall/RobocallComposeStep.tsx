@@ -10,6 +10,7 @@ import {
 import {
   Button,
   Card,
+  cn,
   FilterPill,
   FilterPillGroup,
   IconButton,
@@ -247,32 +248,9 @@ export const RobocallComposeStep = ({
             longer will be removed.
           </p>
 
-          <RecordBar
-            recorder={recorder}
-            maxSeconds={maxSeconds}
-            playing={playing}
-            onTogglePlay={togglePlay}
-            audioRef={audioRef}
-            onAudioPlay={() => setPlaying(true)}
-            onAudioPause={() => setPlaying(false)}
-            fileInputRef={fileInputRef}
-            onSave={onSaveRecording}
-            isUploading={isUploading}
-          />
-
-          {(recorder.error || uploadError) && (
-            <p className="text-sm text-destructive">
-              {recorder.error ?? uploadError}
-            </p>
-          )}
-
-          {complianceChecking && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2Icon className="size-4 animate-spin" />
-              Checking your recording…
-            </p>
-          )}
-
+          {/* Compliance result sits ABOVE the record card so the candidate
+              sees the verdict (or the re-record prompt) before the recording
+              controls, not scrolled below them. */}
           {complianceError && (
             <Card className="items-start gap-3 border-destructive p-4">
               <p className="text-sm text-foreground">
@@ -286,15 +264,24 @@ export const RobocallComposeStep = ({
 
           {complianceVerdict && !complianceVerdict.passed && (
             <Card className="items-start gap-2 border-destructive p-4">
-              <p className="text-sm font-medium text-foreground">
+              <p
+                data-vaul-no-drag
+                className="select-text text-sm font-medium text-foreground"
+              >
                 Your recording is missing:
               </p>
-              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              <ul
+                data-vaul-no-drag
+                className="select-text list-disc space-y-1 pl-5 text-sm text-muted-foreground"
+              >
                 {complianceVerdict.issues.map((issue) => (
                   <li key={issue}>{issue}</li>
                 ))}
               </ul>
-              <p className="text-sm text-muted-foreground">
+              <p
+                data-vaul-no-drag
+                className="select-text text-sm text-muted-foreground"
+              >
                 Re-record with all of these and we&apos;ll check again.
               </p>
             </Card>
@@ -309,6 +296,30 @@ export const RobocallComposeStep = ({
                 It names you, who paid for the call, and the callback number.
               </p>
             </Card>
+          )}
+
+          <RecordBar
+            recorder={recorder}
+            maxSeconds={maxSeconds}
+            playing={playing}
+            onTogglePlay={togglePlay}
+            audioRef={audioRef}
+            onAudioPlay={() => setPlaying(true)}
+            onAudioPause={() => setPlaying(false)}
+            fileInputRef={fileInputRef}
+            onSave={onSaveRecording}
+            isUploading={isUploading}
+            complianceChecking={complianceChecking}
+            complianceProblem={
+              (!!complianceVerdict && !complianceVerdict.passed) ||
+              complianceError
+            }
+          />
+
+          {(recorder.error || uploadError) && (
+            <p className="text-sm text-destructive">
+              {recorder.error ?? uploadError}
+            </p>
           )}
         </>
       )}
@@ -327,6 +338,34 @@ interface RecordBarProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>
   onSave: () => void
   isUploading: boolean
+  complianceChecking: boolean
+  complianceProblem: boolean
+}
+
+// The compliance check is one request that transcribes the clip then runs the
+// LLM disclosure check, with no per-phase signal back. Show a two-phase label
+// so the wait reads as progress rather than a single stalled spinner: the
+// transcription first, then the compliance review after a beat. Time-based, not
+// driven by real phase events — remounts (and so resets) each time a check runs.
+const TRANSCRIBING_LABEL_MS = 5000
+
+const CheckingLabel = () => {
+  const [phase, setPhase] = useState<'transcribing' | 'compliance'>(
+    'transcribing',
+  )
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setPhase('compliance'),
+      TRANSCRIBING_LABEL_MS,
+    )
+    return () => clearTimeout(timer)
+  }, [])
+  return (
+    <span className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Loader2Icon className="size-4 animate-spin" />
+      {phase === 'transcribing' ? 'Transcribing…' : 'Checking for compliance…'}
+    </span>
+  )
 }
 
 const RecordBar = ({
@@ -340,6 +379,8 @@ const RecordBar = ({
   fileInputRef,
   onSave,
   isUploading,
+  complianceChecking,
+  complianceProblem,
 }: RecordBarProps) => {
   if (recorder.status === 'recording') {
     return (
@@ -375,7 +416,12 @@ const RecordBar = ({
   if (rec) {
     const saved = recorder.status === 'saved'
     return (
-      <Card className="flex-row items-center gap-3 p-4">
+      <Card
+        className={cn(
+          'flex-row items-center gap-3 p-4',
+          saved && complianceProblem && 'border-destructive',
+        )}
+      >
         <IconButton
           type="button"
           variant="default"
@@ -398,15 +444,19 @@ const RecordBar = ({
           </p>
         </div>
         {saved ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="small"
-            onClick={recorder.discard}
-          >
-            <Trash2Icon className="size-4" />
-            Re-record
-          </Button>
+          complianceChecking ? (
+            <CheckingLabel />
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="small"
+              onClick={recorder.discard}
+            >
+              <Trash2Icon className="size-4" />
+              Re-record
+            </Button>
+          )
         ) : (
           <>
             <IconButton

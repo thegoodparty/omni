@@ -36,7 +36,7 @@ import { Campaign, User, UserRole } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { userHasRole } from 'src/users/util/users.util'
+import { isTestUser, userHasRole } from 'src/users/util/users.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
@@ -180,8 +180,8 @@ export class CampaignsController {
   // campaign (the Contacts pro-gated flows) had no way to provision one and were
   // stranded @dev-only. Hard-guarded so it can never grant Pro in production or
   // to a real user: fail-closed to a known non-prod deploy (so a misconfigured
-  // or absent env denies rather than ungates), and only for @test.goodparty.org
-  // users acting on their own campaign.
+  // or absent env denies rather than ungates), and only for test users
+  // (isTestUser: e2e or QA fixture accounts) acting on their own campaign.
   @Post('mine/test-set-pro')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)
@@ -189,7 +189,7 @@ export class CampaignsController {
     if (!IS_NON_PROD_DEPLOY) {
       throw new ForbiddenException('Not available in this environment')
     }
-    if (!user.email?.endsWith('@test.goodparty.org')) {
+    if (!user.email || !isTestUser({ email: user.email })) {
       throw new ForbiddenException('Test users only')
     }
     await this.campaigns.setIsPro(campaign.id, true, false)

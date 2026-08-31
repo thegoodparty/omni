@@ -52,6 +52,15 @@ const formatDuration = (seconds: number): string => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+// A dot per resident is fine at a house and runs off the screen at an apartment
+// complex — one Collin County stop carries 80+ knockable people, and every dot
+// is `shrink-0`, so the row pushed through the card and gave the whole page a
+// horizontal scrollbar. Truncating loses nothing: these dots are decorative on
+// a stop that expands (the expanded rows label each resident), and the
+// authoritative figure is the `N people` count immediately after them, which
+// renders whenever there is more than one dot.
+const STOP_DOT_LIMIT = 10
+
 // The numeral sits ON the stop's status color, so it has to invert with it the
 // way the map's pin numerals do — white on `not_home` yellow is a number nobody
 // can read at arm's length in daylight. The rule is `readableInkOn`
@@ -670,16 +679,18 @@ export default function WalkView({
                                 being left as an unlabelled colour the canvasser
                                 has to match against the legend three cards
                                 up. */}
-                            {stopKnockable(stop).map((target) => (
-                              <span
-                                key={target.stopTargetId}
-                                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                                style={{
-                                  backgroundColor:
-                                    STATUS_DOT_COLORS[target.knockStatus],
-                                }}
-                              />
-                            ))}
+                            {stopKnockable(stop)
+                              .slice(0, STOP_DOT_LIMIT)
+                              .map((target) => (
+                                <span
+                                  key={target.stopTargetId}
+                                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                                  style={{
+                                    backgroundColor:
+                                      STATUS_DOT_COLORS[target.knockStatus],
+                                  }}
+                                />
+                              ))}
                             {loneResidentStatus(stop) ?? (
                               <span className="tabular-nums">
                                 {/* The noun is visible, as in the canvas

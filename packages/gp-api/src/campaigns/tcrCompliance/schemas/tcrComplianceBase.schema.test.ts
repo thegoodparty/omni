@@ -95,6 +95,18 @@ describe('tcrComplianceBaseShape address fields', () => {
       tcrComplianceBaseShape.committeeName.safeParse('Friends of Jane').success,
     ).toBe(true)
   })
+
+  it('rejects an empty or whitespace-only candidateName', () => {
+    expect(tcrComplianceBaseShape.candidateName.safeParse('').success).toBe(
+      false,
+    )
+    expect(tcrComplianceBaseShape.candidateName.safeParse('   ').success).toBe(
+      false,
+    )
+    expect(
+      tcrComplianceBaseShape.candidateName.safeParse('Jane Doe').success,
+    ).toBe(true)
+  })
 })
 
 describe('ManualFilingAddressSchema', () => {
