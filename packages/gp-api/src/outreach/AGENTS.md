@@ -399,6 +399,22 @@ sweep. Ops: the Stripe webhook endpoint must subscribe to `payment_method.attach
   and must stay that way until the vendor question is settled — **do not build
   a partial robocall sweep**; half-populating those columns turns "we never
   looked" into a disposition. ADR 0013 costs the real thing.
+- **The spine is org-scoped, not just campaign-scoped (ENG-10976).**
+  `campaignId` is nullable — a Serve elected-office org (`eo-*` slug) has no
+  campaign row, so a serve outreach row persists as `campaignId: null` +
+  `organizationSlug` set. A DB CHECK (`outreach_scope_check`) requires at
+  least one of the two, so a both-null orphan can never be created. This is
+  also the Win/Serve isolation boundary: Win rows key on `campaignId` +
+  the campaign org's slug, Serve rows key on `organizationSlug` alone — a
+  serve write can never land in (or overwrite) a Win campaign's history.
+  Every current writer (text/p2p/robocall/social) still sets `campaignId`;
+  nothing writes a campaign-less row yet. `organization`'s FK is `Cascade`
+  (not `SetNull`): an org-only row has no other anchor, so deleting its org
+  must delete it too, rather than SetNull-ing `organizationSlug` into the
+  both-null state the CHECK forbids. This is a no-op for Win rows — deleting
+  an org already cascade-deletes its `Campaign` (`Campaign.organization` is
+  `Cascade`), which cascade-deletes that campaign's `Outreach` rows via
+  `campaignId` first.
 - `Outreach.archivedAt` (nullable, unset at creation) backs the v2 history
   drawer's archive/restore action. `OutreachService.setArchived` scopes the
   update by `organizationSlug` (not `campaignId`) and reads the response back

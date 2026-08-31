@@ -104,16 +104,22 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
 
     for (const draft of candidates) {
       const { campaign, organization } = draft.outreach
-      const user = campaign.user
-      // A robocall draft always carries a user and org; a row missing either
-      // can't place a hold, so log and skip rather than throw the whole sweep.
-      if (!user || !organization || !draft.paymentMethodId) {
+      // A robocall draft always carries a campaign, user, and org; a row
+      // missing any of these can't place a hold, so log and skip rather
+      // than throw the whole sweep.
+      if (
+        !campaign ||
+        !campaign.user ||
+        !organization ||
+        !draft.paymentMethodId
+      ) {
         this.logger.error(
           { outreachId: draft.outreachId },
           'deferred robocall hold missing user/org/card; skipping',
         )
         continue
       }
+      const user = campaign.user
       try {
         // Pass NO paymentMethodId: authorizeHold re-reads the card persisted on
         // the row AFTER it wins the placement claim (so the sweep can never bill
@@ -220,7 +226,9 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
     // review" forever.
     await this.markSpineCanceled(outreachId)
 
-    await this.emitCanceled(draft.outreach.campaign.userId, outreachId)
+    // A robocall row is always campaign-scoped (only social outreach can be
+    // org-only, outreach.prisma).
+    await this.emitCanceled(draft.outreach.campaign!.userId, outreachId)
   }
 
   // Flip the spine `pending → canceled` after the satellite cancel. Guarded on

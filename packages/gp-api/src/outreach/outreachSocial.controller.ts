@@ -147,7 +147,16 @@ export class OutreachSocialController {
     @ReqCampaign() campaign: Campaign,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<CancelOutreachResponse> {
-    return this.outreachService.cancelOutreach(id, campaign.id)
+    const { outreach, refunded } = await this.outreachService.cancelOutreach(
+      id,
+      campaign.id,
+    )
+    // Campaign-scoped cancel only ever matches a Win row (organizationSlug
+    // is metadata here, not the scope path), so campaignId is always set.
+    return {
+      outreach: { ...outreach, campaignId: outreach.campaignId! },
+      refunded,
+    }
   }
 
   // Campaign-scoped like cancel: the receipt is the paying campaign's
