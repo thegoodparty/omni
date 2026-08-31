@@ -1266,6 +1266,13 @@ describe('RobocallFlow', () => {
     // never a client computation.
     expect(await screen.findByText('Amount to authorize')).toBeInTheDocument()
     expect(screen.getByTestId('payment-element')).toBeInTheDocument()
+    // The breakdown is derived from server cents: the calls subtotal is the
+    // total minus the fee, so a broken subtraction or a zero fee fails here (the
+    // Authorize total alone would not catch it, since it reads amountInCents).
+    expect(screen.getByText('Calls (80 reachable)')).toBeInTheDocument()
+    expect(screen.getByText('$3.60')).toBeInTheDocument()
+    expect(screen.getByText('Outgoing number')).toBeInTheDocument()
+    expect(screen.getByText('$2.00')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /Authorize \$5\.60/ }),
     ).toBeInTheDocument()
