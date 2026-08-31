@@ -212,7 +212,7 @@ decommissioned. Environments: `dev`/`prod` only. Aurora PG prod:
 
 **Purpose**: Read-only API over BallotReady election data. All data written by gp-data-platform dbt models. Secured by default with Clerk JWT-format M2M tokens — every route except `GET /v1/health` requires a valid token (see Auth Between Services). Callers: gp-api and gp-marketing (both server-side).
 
-**Auth**: global `M2MAuthGuard` (`src/authentication/`) registered as `APP_GUARD` — default-deny, verifies Clerk JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` networkless (no per-request Clerk API call). Routes opt out with `@PublicAccess()` (only the health check). `ELECTION_API_AUTH_ENFORCED` toggles enforcement: while `!= 'true'` the guard runs in observe-only mode (verify + log, never reject) for safe rollout; set to `true` to start returning `401`. Swagger `/api` is only mounted outside production.
+**Auth**: global `M2MAuthGuard` (`src/authentication/`) registered as `APP_GUARD` — default-deny, verifies Clerk JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` networkless (no per-request Clerk API call). Routes opt out with `@PublicAccess()` (only the health check). `ELECTION_API_AUTH_ENFORCED` toggles enforcement: while `!= 'true'` the guard runs in observe-only mode (verify + log, never reject) for safe rollout; set to `true` to start returning `401`.
 
 **7 controllers**, all prefixed `/v1`:
 
