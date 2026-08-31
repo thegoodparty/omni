@@ -656,6 +656,14 @@ describe('Outreach submission flow — single API call contract', () => {
       })
       expect(reverted.status).toBe(OutreachStatus.pending_payment)
       expect(reverted.projectId).toBeNull()
+
+      // CAS is still told (a paid purchase failed to schedule) but the step
+      // reads validation — a user-content problem, not a vendor failure.
+      expect(slackMessage).toHaveBeenCalledTimes(1)
+      const blob = JSON.stringify(firstOrThrow(slackMessage.mock.calls))
+      expect(blob).toContain('FAILED')
+      expect(blob).toContain('validation')
+      expect(blob).not.toContain('peerlyJobCreation')
     })
 
     it('finalize rejects a missing draft or one owned by another campaign', async () => {
