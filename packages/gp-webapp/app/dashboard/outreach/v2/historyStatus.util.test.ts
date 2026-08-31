@@ -35,3 +35,25 @@ describe('getHistoryStatusLabel — scheduled paid rows', () => {
     ).toBe('Scheduled')
   })
 })
+
+describe('getHistoryStatusLabel — robocall', () => {
+  const robocallRow = (overrides: Partial<HistoryRow>): HistoryRow =>
+    ({
+      id: 2,
+      outreachType: 'robocall',
+      phoneListId: null,
+      ...overrides,
+    }) as HistoryRow
+
+  it('labels a pending robocall Scheduled, not In review', () => {
+    expect(getHistoryStatusLabel(robocallRow({ status: 'pending' }))).toBe(
+      'Scheduled',
+    )
+  })
+
+  it('labels a canceled robocall Canceled', () => {
+    expect(getHistoryStatusLabel(robocallRow({ status: 'canceled' }))).toBe(
+      'Canceled',
+    )
+  })
+})
