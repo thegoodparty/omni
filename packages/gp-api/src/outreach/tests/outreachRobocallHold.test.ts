@@ -85,6 +85,7 @@ const createDraft = async ({
   authorizationIntentId,
   paymentMethodId,
   stripeCustomerId,
+  callhubCampaignPkStr,
 }: {
   sendInDays?: number
   settleState?: RobocallSettleState
@@ -93,6 +94,7 @@ const createDraft = async ({
   authorizationIntentId?: string
   paymentMethodId?: string
   stripeCustomerId?: string
+  callhubCampaignPkStr?: string
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -117,6 +119,7 @@ const createDraft = async ({
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(paymentMethodId ? { paymentMethodId } : {}),
       ...(stripeCustomerId ? { stripeCustomerId } : {}),
+      ...(callhubCampaignPkStr ? { callhubCampaignPkStr } : {}),
     },
   })
   return spine.id
@@ -224,6 +227,28 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
     expect(event).toBe(EVENTS.Robocall.SendFailed)
     expect(messageId).toBe(`${outreachId}:send_failed`)
+  })
+
+  it('failSend records the staged campaign as orphaned so cleanup ABORTs it', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+      authorizationIntentId: 'pi_hold_9',
+      callhubCampaignPkStr: 'vb_send',
+    })
+    paymentIntentsCancel.mockResolvedValue({
+      id: 'pi_hold_9',
+      status: 'canceled',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'send')
+
+    // The staged PAUSED campaign never dialed and now lingers in CallHub —
+    // recorded so the cleanup sweep ABORTs it (it only aborts recorded pk_strs).
+    const orphan = await service.prisma.robocallOrphanedCampaign.findUnique({
+      where: { campaignPkStr: 'vb_send' },
+    })
+    expect(orphan?.reason).toBe('send_failed')
   })
 
   it('failSend is idempotent: a run already terminal is not re-voided or re-emailed', async () => {

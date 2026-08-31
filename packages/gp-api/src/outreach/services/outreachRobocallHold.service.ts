@@ -541,6 +541,27 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       )
     }
 
+    // A send-path failure has a staged PAUSED campaign (callhubCampaignPkStr set
+    // once staging committed). No calls were placed, but the paused campaign
+    // lingers in CallHub, and the cleanup sweep only ABORTs pk_strs recorded at a
+    // known abandonment point — record it here so it is retired. Best-effort: a
+    // PAUSED campaign charges nothing, so a lost record is harmless clutter and
+    // must never fail the send_failed path.
+    if (draft.callhubCampaignPkStr) {
+      try {
+        await this.orphanedCampaigns.record(
+          draft.callhubCampaignPkStr,
+          outreachId,
+          'send_failed',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, campaignPkStr: draft.callhubCampaignPkStr },
+          'robocall send_failed: failed to record orphaned CallHub campaign',
+        )
+      }
+    }
+
     await this.markSpineFailed(outreachId)
     await this.emitMilestone(
       draft.outreach.campaign.userId,
