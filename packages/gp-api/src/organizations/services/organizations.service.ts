@@ -184,20 +184,22 @@ export class OrganizationsService
     const clearsStaleCustomName =
       'ballotReadyPositionId' in updates && !('customPositionName' in updates)
 
-    // FriendlyOrganization exposes only a resolved position + a boolean, so
-    // read the raw columns to diff against. Diffing the request body instead
-    // would miss changes: an absent key arrives as undefined and Prisma
-    // ignores it, so an unchanged-looking body can still move a column.
-    const before = await this.model.findUnique({
-      where: { slug: org.slug },
-      select: { positionId: true, overrideDistrictId: true },
-    })
-
     // The identity update and the invalidation writes must commit or roll
     // back together — a failed invalidation after a committed identity
     // change is unrecoverable (see onOfficeIdentityWritten's own comment).
     const { updatedOrg, writeResult } = await this.client.$transaction(
       async (tx) => {
+        // FriendlyOrganization exposes only a resolved position + a boolean,
+        // so read the raw columns to diff against. Diffing the request body
+        // instead would miss changes: an absent key arrives as undefined and
+        // Prisma ignores it, so an unchanged-looking body can still move a
+        // column. Read before the write, inside the same tx, so this diff
+        // can't race a concurrent identity change on the same org.
+        const before = await tx.organization.findUnique({
+          where: { slug: org.slug },
+          select: { positionId: true, overrideDistrictId: true },
+        })
+
         const updatedOrg = await tx.organization.update({
           where: { slug: org.slug },
           data: {
