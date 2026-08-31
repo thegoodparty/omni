@@ -9,8 +9,19 @@ import { PrismaService } from './prisma/prisma.service'
 import { TEMPLATE_DB, startTestPostgres } from './test-postgres'
 
 export type TestServiceContext = {
-  /** An Axios client targeting the booted test service (base URL includes the port). */
+  /**
+   * An Axios client targeting the booted test service (base URL includes the
+   * port), sending a Bearer token so it clears the default-deny M2MAuthGuard —
+   * i.e. it behaves as an authenticated service-to-service caller, which is the
+   * only way these endpoints are reachable in production.
+   */
   client: AxiosInstance
+
+  /**
+   * An Axios client with no Authorization header, for asserting the guard's
+   * default-deny behaviour (every non-@PublicAccess route 401s without a token).
+   */
+  unauthedClient: AxiosInstance
 
   /** The NestJS application instance. */
   app: NestFastifyApplication
@@ -24,8 +35,10 @@ export type TestServiceContext = {
  *
  * Boots the real Nest Fastify app (same `bootstrap` as production) against a
  * throwaway Postgres testcontainer, so tests exercise the genuine Prisma
- * queries — including the PII `omit`/column-allowlist behaviour on the public
- * persons/officeholders endpoints — over real HTTP.
+ * queries — including the PII `omit`/column-allowlist behaviour on the
+ * M2M-protected persons/officeholders endpoints — over real HTTP. `client`
+ * sends a Bearer token (Clerk verify is stubbed in test-setup.ts) so it clears
+ * the default-deny guard; use `unauthedClient` to assert the guard rejects.
  *
  * @example
  * ```typescript
@@ -43,6 +56,7 @@ export type TestServiceContext = {
 export const useTestService = (): TestServiceContext => {
   let app: NestFastifyApplication
   let client: AxiosInstance
+  let unauthedClient: AxiosInstance
 
   beforeAll(async () => {
     const container: StartedPostgreSqlContainer = await startTestPostgres()
@@ -91,12 +105,19 @@ export const useTestService = (): TestServiceContext => {
         : // @ts-expect-error - address is not well-typed
           address.port
 
+    const baseURL = `http://127.0.0.1:${port}`
+    // We frequently assert on non-2xx status codes (404/400), so disable Axios
+    // throwing and let tests assert status explicitly.
+    const validateStatus = () => true
+
+    // The token value is irrelevant — test-setup.ts stubs Clerk's verify to
+    // accept any token — but it must be present so the guard doesn't 401.
     client = axios.create({
-      baseURL: `http://127.0.0.1:${port}`,
-      // We frequently assert on non-2xx status codes (404/400), so disable
-      // Axios throwing and let tests assert status explicitly.
-      validateStatus: () => true,
+      baseURL,
+      validateStatus,
+      headers: { Authorization: 'Bearer test-m2m-token' },
     })
+    unauthedClient = axios.create({ baseURL, validateStatus })
   }, 60_000)
 
   beforeEach(async () => {
@@ -123,6 +144,9 @@ export const useTestService = (): TestServiceContext => {
   return {
     get client() {
       return client
+    },
+    get unauthedClient() {
+      return unauthedClient
     },
     get app() {
       return app

@@ -50,7 +50,7 @@ All routes are mounted under the global prefix `v1` (set in `src/main.ts`). Cont
 
 Callers mint their own tokens with their own machine secret (`gp-api`: `GP_API_MACHINE_SECRET`, `gp-marketing`: `GP_MARKETING_MACHINE_SECRET`) and must be connected to the election-api machine in the Clerk dashboard. New consumers need the same wiring — see [ADR-0001](adr/0001-m2m-lockdown.md).
 
-Enforcement is gated on `ELECTION_API_AUTH_ENFORCED`. Until it is `'true'` the guard is **observe-only**: it verifies and logs what it would reject, but lets the request through. Rollout is per-env (dev → qa → prod); rollback is flipping the flag back.
+The guard rejects unconditionally in every environment: any non-`@PublicAccess` route without a valid M2M token gets a 401.
 
 CORS defaults to open (`origin: '*'`, override with `CORS_ORIGIN`) — auth, not CORS, is what gates access.
 

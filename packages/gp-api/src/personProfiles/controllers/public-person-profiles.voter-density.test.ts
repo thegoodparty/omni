@@ -90,8 +90,8 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
 
   it('forwards the M2M Authorization header to election-api', async () => {
     // Guards the auth wiring: election-api is M2M-locked, so a missing bearer
-    // would 401 (→ 502) once ELECTION_API_AUTH_ENFORCED is on. The test harness
-    // stubs ElectionApiTokenService.authHeader to 'Bearer test-election-api-token'.
+    // 401s (→ 502). The test harness stubs ElectionApiTokenService.authHeader to
+    // 'Bearer test-election-api-token'.
     let capturedHeaders: Record<string, string> | undefined
     // District resolution succeeds here, so the proxy goes on to read people-db;
     // stub that too or the unmocked client throws and the assertion sees a 500.

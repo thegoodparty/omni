@@ -9,7 +9,7 @@ Status: accepted
 > `GP_API_MACHINE_SECRET` to match the renamed `gp-api` machine. The guard no longer
 > gates on a token prefix (JWTs start with `eyJ`); `clerkClient.m2m.verify` rejects
 > anything that isn't a valid M2M token for this machine. Everything else below
-> (default-deny, `@PublicAccess()`, observe-only rollout) is unchanged.
+> (default-deny, `@PublicAccess()`) is unchanged.
 
 ## Context
 
@@ -43,18 +43,14 @@ the pattern gp-api already uses as a recipient (see gp-api ADR 0004).
   `tokenFormat: 'jwt'`, cached and renewed before expiry, and send
   `Authorization: Bearer eyJ...`. Each caller machine is connected to the election-api
   machine in the Clerk dashboard.
-- Enforcement is gated by `ELECTION_API_AUTH_ENFORCED`. While it is not `'true'` the
-  guard runs in **observe-only** mode: it verifies and logs what it would reject but
-  lets the request through. This lets us deploy consumers (sending tokens) and the
-  guard first, confirm every real caller authenticates, then flip enforcement on.
+- The guard rejects unconditionally: any non-`@PublicAccess` request without a valid
+  M2M token gets a 401 in every environment.
 
 ## Consequences
 
 - election-api is no longer a public read-only API; the internet-facing ALB is fine
-  because the app rejects unauthenticated traffic once enforcement is on.
+  because the app rejects unauthenticated traffic.
 - Rotation goes through Clerk; no per-caller keys are managed in election-api.
 - New consumers must have their machine connected to election-api in Clerk and mint
-  tokens with their own secret.
-- Rollout order matters: ship callers + observe-only guard first, verify token logs,
-  then set `ELECTION_API_AUTH_ENFORCED=true` per env (dev → qa → prod). Rollback is
-  flipping the flag back to `false`.
+  tokens with their own secret. A consumer that isn't wired up gets a 401 in every
+  environment, so verify the Clerk connection in dev before shipping.
