@@ -33,12 +33,20 @@ describe('OutreachHistoryTable — unified history', () => {
         phoneListId: 43,
         p2pJob: { status: 'building' },
       },
-      // Non-P2P pending means "request submitted" → In review.
+      // A robocall pending row is a paid, scheduled send → Scheduled.
       {
         id: 3,
         date: '2026-06-24',
         outreachType: 'robocall',
         name: 'Budget hearing reminder',
+        status: 'pending',
+      },
+      // Other non-P2P pending (social) means "request submitted" → In review.
+      {
+        id: 4,
+        date: '2026-06-20',
+        outreachType: 'socialMedia',
+        name: 'Issue update post',
         status: 'pending',
       },
     ]
@@ -47,7 +55,8 @@ describe('OutreachHistoryTable — unified history', () => {
 
     const table = within(desktopTable())
     expect(table.getByText('Done')).toBeInTheDocument()
-    expect(table.getByText('Scheduled')).toBeInTheDocument()
+    // Both the p2p vendor-job send and the paid robocall render Scheduled.
+    expect(table.getAllByText('Scheduled')).toHaveLength(2)
     expect(table.getByText('In review')).toBeInTheDocument()
     expect(table.getAllByText('SMS')).toHaveLength(2)
     expect(table.getByText('Robocall')).toBeInTheDocument()

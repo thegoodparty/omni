@@ -88,9 +88,11 @@ const OutreachHubContent = ({
     ])
   }
 
-  // Payment finalizes server-side (Peerly job, status flip), so the new row
-  // only exists after a refetch — same as the legacy purchase completion.
-  const handleSmsScheduled = async () => {
+  // A scheduled send only exists after a refetch (SMS finalizes server-side; a
+  // robocall's pay step authorizes/defers and its spine flips to pending), so
+  // the sending flows call this on their onScheduled to refresh the history
+  // list without a page reload.
+  const refetchOutreaches = async () => {
     const { data } = await clientRequest('GET /v1/outreach', {})
     setOutreaches(data ?? [])
   }
@@ -132,6 +134,7 @@ const OutreachHubContent = ({
       <RobocallFlow
         open={robocallFlowOpen}
         onClose={() => setRobocallFlowOpen(false)}
+        onScheduled={refetchOutreaches}
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
@@ -142,7 +145,7 @@ const OutreachHubContent = ({
         open={smsFlowOpen}
         onClose={() => setSmsFlowOpen(false)}
         tcrCompliance={tcrCompliance}
-        onScheduled={handleSmsScheduled}
+        onScheduled={refetchOutreaches}
       />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
