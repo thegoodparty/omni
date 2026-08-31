@@ -2077,7 +2077,18 @@ describe('office-change invalidation', () => {
     })
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
-      .mockResolvedValue({ runId: 'run-new' } as never)
+      .mockImplementation(async () => {
+        // Pins the ordering two addenda protect: invalidation must commit
+        // before dispatch fires, or the new run gets seeded with the old
+        // city's portal. Assert it from inside the spy so a regression that
+        // moves dispatch back inside the transaction fails this test.
+        expect(
+          await service.prisma.meetingResourceLocation.count({
+            where: { electedOfficeId: eo.id },
+          }),
+        ).toBe(0)
+        return { runId: 'run-new' } as never
+      })
 
     const result = await service.client.patch(`/v1/organizations/${slug}`, {
       ballotReadyPositionId: 'br-pos-new',
@@ -2087,5 +2098,6 @@ describe('office-change invalidation', () => {
     expect(dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'find_existing_ordinances' }),
     )
+    dispatchRun.mockRestore()
   })
 })

@@ -125,10 +125,11 @@ export class ElectedOfficeService extends createPrismaBase(
         let identityWriteResult: OfficeIdentityWriteResult | null = null
 
         // Serialize office creation per user. Task 01 removed the
-        // @@unique([userId]) constraint, so this advisory lock is what stops two
-        // concurrent creates from both passing the non-overlap check below and
-        // inserting overlapping offices (+ orphan orgs). pg_advisory_xact_lock
-        // auto-releases on commit/rollback — no TTL or claim-row cleanup needed.
+        // @@unique([userId]) constraint, so this advisory lock is what stops
+        // two concurrent creates from both passing the non-overlap check below
+        // and inserting overlapping offices (+ orphan orgs).
+        // pg_advisory_xact_lock auto-releases on commit/rollback — no TTL or
+        // claim-row cleanup needed.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ELECTED_OFFICE_CREATE_ADVISORY_LOCK_KEY}::integer, ${args.userId}::integer)`
 
         const existingForUser = await tx.electedOffice.findMany({
@@ -144,30 +145,31 @@ export class ElectedOfficeService extends createPrismaBase(
             orgPrefill.overrideDistrictId !== null)
 
         // An existing office with no term range is a placeholder (e.g. a
-        // magic-link lead provisioned before any BallotReady / onboarding data).
-        // create() is idempotent per user, so adopt that office rather than
-        // inserting a duplicate — a term-less placeholder never "overlaps" a
-        // dated term, so without this guard a later dated create would slip past
-        // the overlap check below.
+        // magic-link lead provisioned before any BallotReady / onboarding
+        // data). create() is idempotent per user, so adopt that office rather
+        // than inserting a duplicate — a term-less placeholder never "overlaps"
+        // a dated term, so without this guard a later dated create would slip
+        // past the overlap check below.
         const placeholder = existingForUser.find(
           (eo) => eo.termStartDate === null && eo.termEndDate === null,
         )
         if (placeholder) {
           // When this call carries the data the placeholder was waiting for — a
           // BallotReady prefill (term dates and/or position) arriving after a
-          // bare magic-link placeholder — fill it in now instead of dropping it.
-          // Otherwise the admin prefill response would advertise term/position
-          // data that never reached the database.
+          // bare magic-link placeholder — fill it in now instead of dropping
+          // it. Otherwise the admin prefill response would advertise
+          // term/position data that never reached the database.
           if (!hasNewTerm && !hasOrgPrefill) {
             return { office: placeholder, identityWriteResult }
           }
           if (hasNewTerm) {
             // The placeholder itself has no term, but the user may hold other
-            // dated offices — keep the no-overlap invariant when filling it. Any
-            // overlapping dated office is a genuine conflict: the idempotent-retry
-            // exemption used on the create path below cannot apply here, because a
-            // previously-filled placeholder would no longer have null term dates
-            // and so would not have matched the placeholder finder above.
+            // dated offices — keep the no-overlap invariant when filling it.
+            // Any overlapping dated office is a genuine conflict: the
+            // idempotent-retry exemption used on the create path below cannot
+            // apply here, because a previously-filled placeholder would no
+            // longer have null term dates and so would not have matched the
+            // placeholder finder above.
             const overlapping = existingForUser.find(
               (eo) =>
                 eo.id !== placeholder.id &&
@@ -227,8 +229,9 @@ export class ElectedOfficeService extends createPrismaBase(
               party: args.party,
               pledgedAt: args.pledgedAt,
               onboardingCompletedAt: args.onboardingCompletedAt,
-              // undefined leaves the placeholder's existing value untouched, so a
-              // prefill completion never clobbers it; a net-new completion sets it.
+              // undefined leaves the placeholder's existing value untouched, so
+              // a prefill completion never clobbers it; a net-new completion
+              // sets it.
               selfReported: args.selfReported,
               onboardingStep: args.onboardingStep,
             },
@@ -239,7 +242,8 @@ export class ElectedOfficeService extends createPrismaBase(
         if (hasNewTerm) {
           // Core invariant: a user may hold multiple elected offices over time,
           // but their term date ranges must never overlap. The advisory lock
-          // above guarantees this check and the insert below are atomic per user.
+          // above guarantees this check and the insert below are atomic per
+          // user.
           const overlapping = existingForUser.find((eo) =>
             dateRangesOverlap(
               eo.termStartDate,
@@ -252,9 +256,10 @@ export class ElectedOfficeService extends createPrismaBase(
             // Idempotent retry: a prior call may have committed the row but
             // crashed before dispatching the schedule. When the overlap is the
             // very same office (identical term start AND end), return it so the
-            // out-of-transaction dispatch below re-fires instead of failing. Both
-            // bounds must match — a same-start/different-end call is a term
-            // correction that must update (or conflict), not silently no-op.
+            // out-of-transaction dispatch below re-fires instead of failing.
+            // Both bounds must match — a same-start/different-end call is a
+            // term correction that must update (or conflict), not silently
+            // no-op.
             if (
               isSameDay(overlapping.termStartDate, newStart) &&
               isSameDay(overlapping.termEndDate, newEnd)
@@ -266,9 +271,9 @@ export class ElectedOfficeService extends createPrismaBase(
             )
           }
         } else if (existingForUser.length > 0) {
-          // No term dates provided (e.g. the legacy win→serve path). Preserve the
-          // historical "one elected office per user" idempotency / crash-recovery
-          // behavior by returning the existing record.
+          // No term dates provided (e.g. the legacy win→serve path). Preserve
+          // the historical "one elected office per user" idempotency /
+          // crash-recovery behavior by returning the existing record.
           const existing = existingForUser[0]
           if (existing) {
             return { office: existing, identityWriteResult }
@@ -321,12 +326,19 @@ export class ElectedOfficeService extends createPrismaBase(
     // the queue round-trip.
     await this.dispatchScheduleAfterCreate(office)
 
-    // The placeholder-adoption org-prefill above can itself be an office-
-    // identity change (a placeholder org already carrying a resolved
-    // position, later re-pointed). dispatchScheduleAfterCreate's
-    // onElectedOfficeCreated blocks on COMPLETED runs, which is exactly why
-    // this change-aware dispatch is needed too — the two are not redundant.
-    if (identityWriteResult) {
+    // The placeholder-adoption org-prefill above can itself be a genuine
+    // office-identity change (a placeholder org already carrying a resolved
+    // position, later re-pointed) — not merely initialization, which
+    // dispatchScheduleAfterCreate above already covers completely. Gate on
+    // invalidatedAt, not just a non-null result: on initialization no run
+    // could have existed yet (every dispatch gate requires a resolved
+    // position), so there is nothing for onElectedOfficeCreated's COMPLETED
+    // guard to suppress, and firing this fan-out too would double-dispatch
+    // ordinances (its onElectedOfficeCreated call above is fire-and-forget,
+    // so its run may not exist yet when this in-flight check runs). On a
+    // genuine re-point, that guard WOULD suppress, which is exactly why this
+    // change-aware dispatch is needed there — the two are not redundant.
+    if (identityWriteResult?.invalidatedAt) {
       await this.dispatchAfterOfficeIdentityChange(
         identityWriteResult.electedOffice,
       )
