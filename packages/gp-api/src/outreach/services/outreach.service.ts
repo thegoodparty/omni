@@ -638,6 +638,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     if (!outreach) {
       throw new NotFoundException('Outreach not found')
     }
+    // A robocall's send/capture lifecycle runs off its satellite settleState,
+    // not the spine status, so canceling here would flip the spine to canceled
+    // without voiding the hold or stopping the dial. Robocall has no cancel path
+    // yet; refuse rather than desync. (The spine reads `pending` once the pay
+    // step commits — see OutreachRobocallHoldService.markSpineScheduled.)
+    if (outreach.outreachType === OutreachType.robocall) {
+      throw new BadRequestException(
+        'Robocall campaigns cannot be canceled here',
+      )
+    }
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }
     }

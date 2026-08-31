@@ -131,6 +131,9 @@ const postAuthorize = (outreachId: number, paymentMethodId = 'pm_1') =>
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
+const readSpine = (outreachId: number) =>
+  service.prisma.outreach.findUniqueOrThrow({ where: { id: outreachId } })
+
 // A capture deadline comfortably past send + run + settle margin.
 const captureBeforeUnix = () => getUnixTime(addDays(new Date(), 7))
 
@@ -180,6 +183,10 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.stripeCustomerId).toBe('cus_test')
     expect(satellite.payAttempt).toBe(1)
     expect(satellite.captureBefore).not.toBeNull()
+
+    // The spine advances off pending_payment so the row shows in the history.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending')
 
     expect(trackSpy).toHaveBeenCalledTimes(1)
     const [userId, event, , , messageId] = trackSpy.mock.calls[0] ?? []
@@ -379,6 +386,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
     expect(satellite.paymentMethodId).toBe('pm_1')
     expect(satellite.stripeCustomerId).toBe('cus_test')
+    // Card saved and committed, so it shows in the history even before the hold.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending')
   })
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {
@@ -392,6 +402,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    // The guard only flips on success — a rejected authorize stays hidden.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending_payment')
   })
 
   it('records hold_failed (not a 502) when the card is declined', async () => {
@@ -420,6 +433,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     expect(satellite.payAttempt).toBe(1)
     expect(satellite.authorizationIntentId).toBeNull()
+    // A declined card is not a committed send: the spine stays hidden.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending_payment')
     // A first on-session decline must PERSIST the card + customer onto the
     // hold_failed row (the commit CAS is never reached on a decline), so the
     // card-update retry — which filters on stripeCustomerId — can later find it.

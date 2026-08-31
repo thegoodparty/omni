@@ -6,7 +6,11 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
-import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 
 // Daily, a non-:00 minute distinct from the other robocall crons (staging runs
@@ -211,7 +215,30 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
     })
     if (claim.count === 0) return
 
+    // The pay step's card-save advanced the spine to `pending` (visible in
+    // history); reflect the cancel there too, else the row lingers as "In
+    // review" forever.
+    await this.markSpineCanceled(outreachId)
+
     await this.emitCanceled(draft.outreach.campaign.userId, outreachId)
+  }
+
+  // Flip the spine `pending → canceled` after the satellite cancel. Guarded on
+  // `pending` (idempotent, and never touches a row that never became visible).
+  // Best-effort: the satellite cancel already committed, so a transient failure
+  // must not strand the sweep — log and move on (mirrors emitCanceled).
+  private async markSpineCanceled(outreachId: number): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.pending },
+        data: { status: OutreachStatus.canceled },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to cancel spine after deferred cancel',
+      )
+    }
   }
 
   // Best-effort Canceled milestone (deterministic messageId so a replay dedups

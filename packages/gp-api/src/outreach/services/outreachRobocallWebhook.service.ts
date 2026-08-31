@@ -3,7 +3,11 @@ import { addDays } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
-import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 
@@ -76,6 +80,11 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
         where: { id },
         select: { authorizationIntentId: true, outreachId: true },
       })
+      // A card-save made the spine visible (`pending`); reflect the cancel there
+      // too so the row doesn't linger as "In review" in history.
+      if (cancelled) {
+        await this.markSpineCanceled(cancelled.outreachId)
+      }
       if (cancelled?.authorizationIntentId) {
         await this.stripe.voidHold(cancelled.authorizationIntentId)
         // Record the hold so the reconcile sweep re-voids it if this best-effort
@@ -93,6 +102,24 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
           )
         }
       }
+    }
+  }
+
+  // Flip the spine `pending → canceled` after the satellite cancel. Guarded on
+  // `pending` (idempotent, never touches a row that never became visible).
+  // Best-effort: the satellite cancel already committed, so a transient failure
+  // must not throw and abort the loop over the customer's other drafts.
+  private async markSpineCanceled(outreachId: number): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.pending },
+        data: { status: OutreachStatus.canceled },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to cancel spine after payment-method-detached cancel',
+      )
     }
   }
 

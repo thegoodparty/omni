@@ -23,6 +23,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   Campaign,
   Organization,
+  OutreachStatus,
   OutreachType,
   RobocallSettleState,
   User,
@@ -154,6 +155,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       if (persisted.count === 0) {
         return this.currentStateResult(outreachId, draft.settleState)
       }
+      // Card saved and the send is committed (the hold lands later, when the
+      // deferred sweep runs in-window). Make the row visible now.
+      await this.markSpineScheduled(outreachId)
       return {
         status: 'deferred',
         settleState: RobocallSettleState.pending_payment,
@@ -423,6 +427,10 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       return this.currentStateResult(outreachId, draft.settleState)
     }
 
+    // The hold committed, so this is a real scheduled send: make it visible in
+    // the history list.
+    await this.markSpineScheduled(outreachId)
+
     // The commit just nulled callhubCampaignPkStr. If a previously-staged
     // campaign was there (a hold_failed re-auth re-derives the count, so the old
     // frozen phonebook must not dial), it is now orphaned — record it so the
@@ -454,6 +462,30 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
       authorizedAmountInCents: estimate,
+    }
+  }
+
+  // Robocall drafts start at spine status pending_payment, which the history
+  // list (findByCampaignId) filters out; the lifecycle otherwise only advances
+  // the satellite settleState, so the spine would stay pending_payment forever
+  // and the campaign never shows. Called once the pay step commits (authorize,
+  // or deferred with the card saved) to advance the spine to `pending`. Guarded
+  // on pending_payment: idempotent, never flips an unpaid/already-visible row.
+  // Best-effort (like the sibling post-commit side effects): the hold already
+  // committed, so a transient failure must not 500 a money-succeeded request —
+  // a 500 sends the retry to the placement CAS's noop path, which returns
+  // 'authorized' and never re-flips. A miss only leaves the row hidden; log it.
+  private async markSpineScheduled(outreachId: number) {
+    try {
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.pending_payment },
+        data: { status: OutreachStatus.pending },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to advance spine to pending for history',
+      )
     }
   }
 
