@@ -22,6 +22,8 @@ import {
 } from './test-postgres'
 import { ClerkUserEnricherService } from './vendors/clerk/services/clerk-user-enricher.service'
 import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
+import { ElectionsService } from './elections/services/elections.service'
+import { District } from './elections/types/elections.types'
 
 export const TEST_CLERK_ID = 'user_test_123'
 
@@ -204,14 +206,43 @@ export const useTestService = (): TestServiceContext => {
     )
 
     // election-api calls now require a Clerk M2M token (ElectionApiTokenService).
-    // Route tests don't set GP_API_MACHINE_SECRET and stub the election-api HTTP
-    // calls anyway, so stub the token — otherwise authHeader() throws and every
-    // election-api-backed endpoint (e.g. district resolution behind contacts
-    // count) returns a 502.
+    // Route tests don't set GP_API_MACHINE_SECRET, so stub the token —
+    // otherwise authHeader() throws and every election-api-backed endpoint
+    // (e.g. district resolution behind contacts count) returns a 502.
     const electionApiTokenService = app.get(ElectionApiTokenService)
     vi.spyOn(electionApiTokenService, 'authHeader').mockResolvedValue({
       Authorization: 'Bearer test-election-api-token',
     })
+
+    // ...and stub the two lookups that token was only ever buying access to.
+    // Stubbing the token alone left the REQUEST live, so any suite that did not
+    // stub election-api itself was quietly reading the dev deployment. That was
+    // invisible until election-api began enforcing M2M unconditionally, at
+    // which point the 401 surfaced as a 502 on every route that resolves a
+    // district (door-knocking, phone-banking, outreach — 138 tests).
+    //
+    // Both are only reached when the org carries the corresponding id, so this
+    // cannot manufacture a district for an org that has none — the "no
+    // position/district" paths still resolve to null. The L2 fields are what
+    // make VoterFileDownloadAccess.canDownload eligible, which is what the live
+    // service used to return here. A suite needing specific data re-spies these
+    // and its own mock wins.
+    const electionsService = app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getDistrict').mockImplementation(
+      (id: string): Promise<District> =>
+        Promise.resolve({
+          id,
+          state: 'IL',
+          L2DistrictType: 'City Council',
+          L2DistrictName: 'District 1',
+        }),
+    )
+    // Null rather than a synthetic position: the ids these suites invent do
+    // not exist upstream, so "not found" is what the live service already gave
+    // them, and callers fall back to campaign.details (normalizedOffice,
+    // ballotLevel) accordingly. Manufacturing one here would silently take that
+    // fallback away. Suites that need a real position stub it themselves.
+    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
 
     // SessionGuard enriches the request user through Clerk on every
     // authenticated call, so unstubbed this is a live round trip to
