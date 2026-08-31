@@ -433,6 +433,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     expect(satellite.payAttempt).toBe(1)
     expect(satellite.authorizationIntentId).toBeNull()
+    // A declined card is not a committed send: the spine stays hidden.
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending_payment')
     // A first on-session decline must PERSIST the card + customer onto the
     // hold_failed row (the commit CAS is never reached on a decline), so the
     // card-update retry — which filters on stripeCustomerId — can later find it.
