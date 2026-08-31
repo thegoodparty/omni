@@ -504,9 +504,14 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
                 label: 'Continue to payment',
                 onClick: () => setStepId('pay'),
               }
-            : // The pay step owns its own submit button (the Stripe confirm
-              // must run inside the Elements context), so the shell shows no CTA.
-              null
+            : payOutcome && payOutcome.status !== 'hold_failed'
+              ? // Settled (authorized/deferred/noop): the success screen is
+                // shown, so the shell offers Done to close the flow.
+                { label: 'Done', onClick: onClose }
+              : // Before settling, the pay step owns its own submit button (the
+                // Stripe confirm must run inside the Elements context), so the
+                // shell shows no CTA.
+                null
 
   return (
     <OutreachFlowShell
@@ -618,6 +623,8 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
           timeZone={timeZone}
           script={script}
           campaignName={campaignName}
+          audienceName={audience.selectedList?.name ?? 'your list'}
+          reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}
           onOutcome={setPayOutcome}
         />

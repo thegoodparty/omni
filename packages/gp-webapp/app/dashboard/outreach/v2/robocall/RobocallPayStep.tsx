@@ -16,11 +16,17 @@ import {
   type RobocallDraftCreateResponse,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
-import { ExternalLinkIcon, Loader2Icon } from '@styleguide/components/ui/icons'
+import {
+  CheckCircleIcon,
+  ExternalLinkIcon,
+  Loader2Icon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { PaymentPortalButton } from '@shared/PaymentPortalButton'
 import { NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY } from 'appEnv'
 import { Intro } from '../social/Intro'
+import { CHANNEL_META } from '../channelMeta'
+import { timeZoneShortLabel } from './scheduleTimeZone'
 
 // Opens the existing Stripe billing portal (the same portal-session call the
 // account-settings button makes) so a candidate can update or remove a saved
@@ -100,6 +106,10 @@ interface RobocallPayStepProps {
   timeZone: string
   script: string
   campaignName: string
+  // Read back on the success screen (never sent — the summary mirrors the
+  // pre-pay review the candidate just saw).
+  audienceName: string
+  reachCount: number
   // The authorize outcome is lifted into the flow so it survives leaving and
   // re-entering this step (Back is the only navigation, and it unmounts us).
   // A settled outcome (authorized/deferred/noop) makes re-entry show the
@@ -127,6 +137,8 @@ export const RobocallPayStep = ({
   timeZone,
   script,
   campaignName,
+  audienceName,
+  reachCount,
   outcome,
   onOutcome,
 }: RobocallPayStepProps) => {
@@ -206,6 +218,104 @@ export const RobocallPayStep = ({
     fetchCardIntent()
   }
 
+  // The success screen, shown once payment settles (authorized/deferred) or was
+  // already set up (noop). Mirrors the pre-pay review summary card so the
+  // candidate sees the same figures back, plus a "what happens next" note. The
+  // shell renders the Done CTA (this step owns no footer button once settled).
+  const renderSuccess = (settled: RobocallAuthorizeResponse) => {
+    const dateStr = scheduledAt
+      ? formatInTimeZone(scheduledAt, timeZone, 'EEE, MMM d, yyyy')
+      : '—'
+    const timeStr = scheduledAt
+      ? `${formatInTimeZone(scheduledAt, timeZone, 'h:mm a')} ${timeZoneShortLabel(
+          timeZone,
+          scheduledAt,
+        )}`
+      : '—'
+
+    const headline =
+      settled.status === 'noop' ? 'Payment is already set up' : "You're all set"
+    const subhead =
+      settled.status === 'authorized'
+        ? `Your card is saved and the estimated cost is authorized. We'll place your calls on ${dateStr}.`
+        : settled.status === 'deferred'
+          ? `Your card is saved. We'll authorize the estimated cost a few days before ${dateStr}, then place your calls.`
+          : 'This robocall is already paid for. There is nothing more to do here.'
+
+    // Money is shown only from the server-authorized amount, never a client
+    // computation. Deferred places no hold yet, so it shows no figure.
+    const authorizedCents =
+      settled.status === 'authorized'
+        ? (settled.authorizedAmountInCents ?? draft?.amountInCents ?? null)
+        : null
+
+    const rows: [string, string][] = [
+      ['Send date', dateStr],
+      ['Send time', timeStr],
+      ['Audience', audienceName],
+      ['People', reachCount.toLocaleString()],
+      ['Caller ID number', callbackNumber ?? '—'],
+    ]
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/10 text-success [&_svg]:size-5">
+            <CheckCircleIcon />
+          </span>
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-foreground">
+              {headline}
+            </h2>
+            <p className="text-sm text-muted-foreground">{subhead}</p>
+          </div>
+        </div>
+
+        <Card className="gap-0 overflow-hidden p-0">
+          <div className="flex items-center gap-3 p-4">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning [&_svg]:size-6">
+              {CHANNEL_META.robocall.icon}
+            </span>
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">
+                {CHANNEL_META.robocall.label}
+              </p>
+              <p className="truncate text-sm text-muted-foreground">
+                {campaignName || 'Untitled campaign'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5 border-t border-border p-4">
+            {rows.map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-4 text-sm">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="text-right text-foreground">{value}</span>
+              </div>
+            ))}
+          </div>
+          {authorizedCents !== null && (
+            <div className="flex justify-between border-t border-border p-4">
+              <span className="font-medium text-foreground">Authorized</span>
+              <span className="font-semibold text-foreground">
+                ${formatCents(authorizedCents)}
+              </span>
+            </div>
+          )}
+        </Card>
+
+        {settled.status !== 'noop' && (
+          <Card className="p-4">
+            <p className="text-sm text-muted-foreground">
+              {settled.status === 'authorized'
+                ? 'You are only charged for the calls we actually place, never more than the amount authorized. Anything we cannot complete is released back to you automatically.'
+                : 'Nothing is charged yet. Closer to your send date we authorize the estimate, then you are only charged for the calls we actually place.'}
+            </p>
+          </Card>
+        )}
+      </div>
+    )
+  }
+
   const body = () => {
     if (!hasDetails) {
       return (
@@ -234,47 +344,10 @@ export const RobocallPayStep = ({
       )
     }
 
-    if (outcome?.status === 'authorized') {
-      return (
-        <Card className="gap-1 border-success p-4">
-          <p className="text-sm font-medium text-foreground">
-            $
-            {formatCents(
-              outcome.authorizedAmountInCents ?? draft?.amountInCents ?? 0,
-            )}{' '}
-            authorized
-          </p>
-          <p className="text-sm text-muted-foreground">
-            You&apos;ll be charged for the calls actually placed, never more.
-          </p>
-        </Card>
-      )
-    }
-
-    if (outcome?.status === 'deferred') {
-      return (
-        <Card className="gap-1 p-4">
-          <p className="text-sm font-medium text-foreground">
-            Your card is saved
-          </p>
-          <p className="text-sm text-muted-foreground">
-            We&apos;ll finish setting up payment closer to your send date.
-          </p>
-        </Card>
-      )
-    }
-
-    if (outcome?.status === 'noop') {
-      return (
-        <Card className="gap-1 p-4">
-          <p className="text-sm font-medium text-foreground">
-            Payment for this robocall is already set up
-          </p>
-          <p className="text-sm text-muted-foreground">
-            There is nothing more to do here. You can close this window.
-          </p>
-        </Card>
-      )
+    // Any settled outcome (authorized/deferred/noop) shows the success screen;
+    // hold_failed is NOT settled and falls through to its retry card below.
+    if (outcome && isSettled(outcome)) {
+      return renderSuccess(outcome)
     }
 
     if (outcome?.status === 'hold_failed') {
@@ -322,13 +395,17 @@ export const RobocallPayStep = ({
 
     return (
       <div className="space-y-6">
-        <Card className="p-4">
+        <Card className="gap-2 p-4">
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Amount to authorize</span>
             <span className="font-semibold text-foreground">
               ${formatCents(draft.amountInCents)}
             </span>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Estimated for {reachCount.toLocaleString()} reachable voters. You
+            are only charged for the calls we complete, never more than this.
+          </p>
         </Card>
         <Elements
           key={clientSecret}
@@ -350,7 +427,7 @@ export const RobocallPayStep = ({
       <Intro
         channel="robocall"
         title="Payment"
-        body="Authorize the estimated cost. You'll only be charged for the calls we actually place."
+        body="We save your card and authorize the estimated cost now. You are not charged yet. Once your calls go out we charge the final amount, and only for the calls we actually place."
       />
       {body()}
     </div>
