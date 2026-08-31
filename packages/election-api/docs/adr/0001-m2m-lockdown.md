@@ -47,8 +47,6 @@ the pattern gp-api already uses as a recipient (see gp-api ADR 0004).
   guard runs in **observe-only** mode: it verifies and logs what it would reject but
   lets the request through. This lets us deploy consumers (sending tokens) and the
   guard first, confirm every real caller authenticates, then flip enforcement on.
-- Swagger (`/api`) is only mounted outside production so the schema is not exposed
-  publicly.
 
 ## Consequences
 
