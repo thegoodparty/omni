@@ -23,6 +23,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   Campaign,
   Organization,
+  OutreachStatus,
   OutreachType,
   RobocallSettleState,
   User,
@@ -154,6 +155,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       if (persisted.count === 0) {
         return this.currentStateResult(outreachId, draft.settleState)
       }
+      // Card saved and the send is committed (the hold lands later, when the
+      // deferred sweep runs in-window). Make the row visible now.
+      await this.markSpineScheduled(outreachId)
       return {
         status: 'deferred',
         settleState: RobocallSettleState.pending_payment,
@@ -423,6 +427,10 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       return this.currentStateResult(outreachId, draft.settleState)
     }
 
+    // The hold committed, so this is a real scheduled send: make it visible in
+    // the history list.
+    await this.markSpineScheduled(outreachId)
+
     // The commit just nulled callhubCampaignPkStr. If a previously-staged
     // campaign was there (a hold_failed re-auth re-derives the count, so the old
     // frozen phonebook must not dial), it is now orphaned — record it so the
@@ -455,6 +463,21 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       settleState: RobocallSettleState.authorized,
       authorizedAmountInCents: estimate,
     }
+  }
+
+  // Robocall drafts are created with spine status pending_payment, which
+  // findByCampaignId (the history list) filters out. The robocall lifecycle
+  // otherwise only advances the satellite settleState, so without this the spine
+  // stays pending_payment forever and the campaign never appears in history.
+  // Called once the pay step commits (hold authorized, or deferred with the card
+  // saved) to advance the spine to `pending` (renders as "In review"). Guarded on
+  // pending_payment so it's idempotent and never flips an unpaid or already-
+  // visible row.
+  private async markSpineScheduled(outreachId: number) {
+    await this.client.outreach.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending_payment },
+      data: { status: OutreachStatus.pending },
+    })
   }
 
   // The shared hold_pending → hold_failed terminal transition + HoldFailed
