@@ -40,6 +40,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -50,6 +51,10 @@ import { OutreachRobocallHoldService } from './services/outreachRobocallHold.ser
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import {
+  areaCodeFromE164UsNumber,
+  resolveRobocallAreaCode,
+} from './util/robocallAreaCode.util'
 
 const candidateName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
@@ -73,6 +78,7 @@ export class OutreachRobocallController {
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
     private readonly callhubNumbers: CallhubNumbersService,
+    private readonly areaCodeFromZipService: AreaCodeFromZipService,
     private readonly stripe: StripeService,
     private readonly s3: S3Service,
     private readonly logger: PinoLogger,
@@ -105,14 +111,44 @@ export class OutreachRobocallController {
   // Rents a fresh CallHub caller-ID number for this robocall. The candidate
   // reads it aloud as the callback number, so it must exist before the script
   // is drafted with its disclosure. A number is rented per robocall (numbers
-  // get spam-flagged); the account auto-un-rents idle ones.
+  // get spam-flagged); the account auto-un-rents idle ones. Requests a number
+  // local to the campaign's zip so the callback number looks like a local
+  // call to voters, rather than an arbitrary national area code. A missing
+  // zip, a zip lookup miss, or CallHub having no inventory for that area code
+  // all degrade to CallHub's plain national rental — this must never fail the
+  // rental over caller-ID geography.
   @Post('robocall/number')
   @ResponseSchema(RobocallNumberResponseSchema)
   async rentNumber(
+    @ReqCampaign() campaign: Campaign,
     @ReqOrganization() organization: Organization,
   ): Promise<RobocallNumberResponse> {
     await this.contacts.assertProAccess(organization)
-    const rented = await this.callhubNumbers.rentNumber({ countryIso: 'US' })
+
+    const areaCodePrefix = await resolveRobocallAreaCode(campaign.details, {
+      areaCodeFromZipService: this.areaCodeFromZipService,
+      logger: this.logger,
+    })
+
+    const rented = await this.callhubNumbers.rentNumber({
+      countryIso: 'US',
+      areaCodePrefix,
+    })
+
+    // CallHub never errors when the requested prefix has no inventory — it
+    // silently substitutes a national number (see callhubNumber.schema.ts).
+    // Detect and log that fallback rather than asserting on it; the rental
+    // itself already succeeded.
+    if (
+      areaCodePrefix &&
+      areaCodeFromE164UsNumber(rented.phone_number) !== areaCodePrefix
+    ) {
+      this.logger.warn(
+        'Robocall number rental: CallHub had no inventory for the requested area code, rented a national number instead',
+        { requestedAreaCodePrefix: areaCodePrefix, region: rented.region },
+      )
+    }
+
     return { phoneNumber: rented.phone_number, region: rented.region }
   }
 
