@@ -4,9 +4,10 @@
 export const PRICE_PER_ROBOCALL_TENTH_CENTS = 45
 
 // Flat fee for renting the outgoing caller-ID number, charged once per run on
-// top of the per-call cost. It is part of every authorized total and is always
-// captured for a dialed run — the number was really rented — so it does NOT
-// scale with the connected-call count. See `calcRobocallTotalInCents`.
+// top of the per-call cost. It is part of every authorized total but is RELEASED
+// (the hold voided), not collected, for a run that connected zero calls — the
+// fee is charged only when at least one call actually connects. See
+// `calcRobocallTotalInCents`.
 export const ROBOCALL_NUMBER_FEE_CENTS = 200
 
 // The per-call cost alone (no number fee). Used only where the calls portion is
@@ -19,9 +20,9 @@ export function calcRobocallAmountInCents(contactCount: number): number {
 
 // The full amount to authorize, capture, and charge for a run: the per-call
 // cost plus the flat number-rental fee. This is the single money figure the
-// hold, capture, and fresh-charge all price off, so the fee is authorized up
-// front and always collected for a dialed run (even one that connects zero
-// calls — the rented number is a sunk cost).
+// hold, capture, and fresh-charge all price off. The fee is authorized up front,
+// but a run that connects zero calls releases the whole hold (fee included) — the
+// fee is collected only when at least one call connects.
 export function calcRobocallTotalInCents(contactCount: number): number {
   return calcRobocallAmountInCents(contactCount) + ROBOCALL_NUMBER_FEE_CENTS
 }
