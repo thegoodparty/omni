@@ -226,6 +226,20 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     )
   })
 
+  it('DEFENSE-IN-DEPTH: voids a zero-connected run without an off-session charge', async () => {
+    // Unreachable today (capture voids every count-0 row before fresh charge is
+    // ever reached), but guarded locally: a zero-connected run owes nothing, so
+    // this must never fire the off-session charge.
+    const outreachId = await createDraft({ completedCallCount: 0 })
+
+    await freshCharge.chargeUncollectable(outreachId)
+
+    expect(chargeSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.voided,
+    )
+  })
+
   it('reconciles a lost-commit charge via search without charging again', async () => {
     const outreachId = await createDraft()
     // The prior attempt charged successfully but lost its DB commit; the row is

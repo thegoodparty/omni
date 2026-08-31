@@ -3,7 +3,10 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
+import {
+  calcRobocallAmountInCents,
+  calcRobocallTotalInCents,
+} from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import {
   StripeChargeDeclinedError,
@@ -201,6 +204,21 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
         outreachId,
         RobocallSettleState.uncollectable,
       )
+      return
+    }
+
+    // Defense-in-depth (mirrors capture): a zero-connected run owes nothing — the
+    // $2 number fee is released, never charged. Capture already routes every count-0
+    // row to `voided`, so this is unreachable today, but guard locally so this
+    // off-session charge path (no live authorization) can never bill the fee for a
+    // run that connected zero calls even if a future change let a count-0 row reach
+    // here. Guard on the CALLS-only amount, since the total is never <= 0 (fee floor).
+    if (calcRobocallAmountInCents(completedCallCount) <= 0) {
+      this.logger.info(
+        { outreachId, completedCallCount },
+        'robocall fresh charge: zero-connected run; voided (fee released)',
+      )
+      await this.transitionFromCharging(outreachId, RobocallSettleState.voided)
       return
     }
 
