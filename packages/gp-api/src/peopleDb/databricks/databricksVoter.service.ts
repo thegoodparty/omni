@@ -54,7 +54,9 @@ import {
 } from '../schemas/doorKnocking.schema'
 import {
   buildDistrictStatsSql,
+  buildLiveDistrictStatsSql,
   mapDistrictStatsRow,
+  mapLiveDistrictStatsRows,
   type ComputedDistrictStats,
 } from './databricksDistrictStatsSql.util'
 import {
@@ -337,6 +339,18 @@ export class DatabricksVoterService {
   async findStats(districtId: string): Promise<ComputedDistrictStats | null> {
     const { rows } = await this.run(buildDistrictStatsSql(districtId))
     return mapDistrictStatsRow(districtId, rows[0])
+  }
+
+  // The same five dimensions aggregated from the voter rows in one statement,
+  // for the dual read in StatsService. Unlike findStats this needs the district
+  // resolved, because there is no stats row to key on -- the voter rows have to
+  // be scoped the way every other voter read scopes them.
+  async findStatsLive(
+    districtId: string,
+  ): Promise<ComputedDistrictStats | null> {
+    const district = await this.resolveDistrict(districtId)
+    const { rows } = await this.run(buildLiveDistrictStatsSql(district))
+    return mapLiveDistrictStatsRows(districtId, rows)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to
