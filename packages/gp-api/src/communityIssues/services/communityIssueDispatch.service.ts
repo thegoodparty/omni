@@ -164,6 +164,18 @@ export class CommunityIssueDispatchService extends createPrismaBase(
   }
 
   /**
+   * The org's office identity changed, so the live issue set describes the
+   * wrong jurisdiction. Delegates to the cohort path, which blocks in-flight
+   * runs but treats terminal ones as re-dispatchable — unlike
+   * onElectedOfficeCreated, whose COMPLETED guard would suppress this.
+   */
+  async onOfficeIdentityChanged(electedOffice: ElectedOffice): Promise<void> {
+    if (!isAutomationEnabled()) return
+
+    await this.dispatchForCohort([electedOffice.organizationSlug])
+  }
+
+  /**
    * Admin/ops path: dispatch both experiment types for a list of org slugs,
    * applying the serve-ICP gate and an in-flight-run check per type.
    * Blocks QUEUED + RUNNING + AWAITING_RESUME (in-flight) to prevent

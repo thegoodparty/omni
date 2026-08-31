@@ -196,36 +196,44 @@ export class OrganizationsService
     // The identity update and the invalidation writes must commit or roll
     // back together — a failed invalidation after a committed identity
     // change is unrecoverable (see onOfficeIdentityWritten's own comment).
-    const updated = await this.client.$transaction(async (tx) => {
-      const updatedOrg = await tx.organization.update({
-        where: { slug: org.slug },
-        data: {
-          positionId: position?.id ?? null,
-          overrideDistrictId: updates.overrideDistrictId,
-          customPositionName: clearsStaleCustomName
-            ? null
-            : updates.customPositionName,
-        },
-        include: { campaign: true, electedOffice: true },
-      })
+    const { updatedOrg, writeResult } = await this.client.$transaction(
+      async (tx) => {
+        const updatedOrg = await tx.organization.update({
+          where: { slug: org.slug },
+          data: {
+            positionId: position?.id ?? null,
+            overrideDistrictId: updates.overrideDistrictId,
+            customPositionName: clearsStaleCustomName
+              ? null
+              : updates.customPositionName,
+          },
+          include: { campaign: true, electedOffice: true },
+        })
 
-      await this.electedOffice.onOfficeIdentityWritten({
-        organizationSlug: org.slug,
-        before: {
-          positionId: before?.positionId ?? null,
-          overrideDistrictId: before?.overrideDistrictId ?? null,
-        },
-        after: {
-          positionId: updatedOrg.positionId,
-          overrideDistrictId: updatedOrg.overrideDistrictId,
-        },
-        tx,
-      })
+        const writeResult = await this.electedOffice.onOfficeIdentityWritten({
+          organizationSlug: org.slug,
+          before: {
+            positionId: before?.positionId ?? null,
+            overrideDistrictId: before?.overrideDistrictId ?? null,
+          },
+          after: {
+            positionId: updatedOrg.positionId,
+            overrideDistrictId: updatedOrg.overrideDistrictId,
+          },
+          tx,
+        })
 
-      return updatedOrg
-    })
+        return { updatedOrg, writeResult }
+      },
+    )
 
-    return this.makeFriendly(updated)
+    if (writeResult) {
+      await this.electedOffice.dispatchAfterOfficeIdentityChange(
+        writeResult.electedOffice,
+      )
+    }
+
+    return this.makeFriendly(updatedOrg)
   }
 
   async adminListOrganizations(query: AdminListOrganizationsDto) {

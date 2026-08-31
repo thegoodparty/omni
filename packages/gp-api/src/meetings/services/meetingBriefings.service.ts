@@ -291,6 +291,38 @@ export class MeetingBriefingsService extends createPrismaBase(
     await this.dispatchSchedule(ctx)
   }
 
+  /**
+   * The org's office identity changed, so the newest schedule describes a body
+   * the holder no longer sits on. Unlike onElectedOfficeCreated this does NOT
+   * treat a COMPLETED run as blocking — that run is exactly what is being
+   * replaced. In-flight runs still block: they were dispatched moments ago and
+   * a second would just duplicate them.
+   */
+  async onOfficeIdentityChanged(electedOffice: ElectedOffice): Promise<void> {
+    if (!isAutomationEnabled()) return
+
+    const inFlight = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: electedOffice.organizationSlug,
+        experimentType: SCHEDULE_EXPERIMENT_TYPE,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
+      },
+      select: { runId: true },
+    })
+    if (inFlight) return
+
+    const ctx = await this.resolveDispatchContext(electedOffice)
+    if (!ctx) return
+
+    await this.dispatchSchedule(ctx)
+  }
+
   private async loadLocationHint(
     electedOfficeId: string,
     type: MeetingResourceLocationType,

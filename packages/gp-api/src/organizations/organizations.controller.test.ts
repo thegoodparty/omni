@@ -1,7 +1,8 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ExperimentRunStatus } from '../generated/prisma'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -2039,5 +2040,52 @@ describe('office-change invalidation', () => {
         where: { organizationSlug: slug },
       }),
     ).toBeNull()
+  })
+
+  afterEach(() => {
+    delete process.env.ORDINANCES_AUTOMATION_ENABLED
+  })
+
+  it('re-dispatches ordinances despite a prior completed run', async () => {
+    process.env.ORDINANCES_AUTOMATION_ENABLED = 'true'
+    const slug = 'eo-redispatch'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'find_existing_ordinances',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getPositionByBallotReadyId').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+    })
+    vi.spyOn(elections, 'getPositionById').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'run-new' } as never)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'find_existing_ordinances' }),
+    )
   })
 })

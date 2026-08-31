@@ -176,6 +176,44 @@ export class OrdinanceDispatchService extends createPrismaBase(
   }
 
   /**
+   * The org's office identity changed, so the place whose code we sourced may
+   * be a different place. This deliberately bypasses the one-time guard in
+   * onElectedOfficeCreated: that guard assumes a place's code corpus does not
+   * change per signup, and the place has now changed.
+   */
+  async onOfficeIdentityChanged(electedOffice: ElectedOffice): Promise<void> {
+    if (!isAutomationEnabled()) return
+
+    const { organizationSlug } = electedOffice
+
+    const inFlight = await this.model.findFirst({
+      where: {
+        organizationSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: { in: IN_FLIGHT_STATUSES },
+      },
+      select: { runId: true },
+    })
+    if (inFlight) return
+
+    const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
+    if (!dispatchable) return
+    if (await this.runAppearedDuringResolve(organizationSlug)) return
+
+    await this.experimentRuns.dispatchRun({
+      type: FIND_EXISTING_ORDINANCES,
+      organizationSlug,
+      clerkUserId: dispatchable.clerkUserId,
+      priority: 'HIGH',
+      params: {
+        organization_slug: organizationSlug,
+        state: dispatchable.state,
+        office: dispatchable.office,
+      },
+    })
+  }
+
+  /**
    * Daily refresh: re-dispatches find_existing_ordinances for orgs whose
    * record has gone stale (60 days), re-checks low-confidence not-found
    * records on a 14-day leash, and backfills office orgs that never got a
