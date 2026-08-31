@@ -190,11 +190,6 @@ create transaction).
 - **Campaign strategy** (`src/campaignStrategy/`) — experiments `opposition_research`
   - `opportunities_and_challenges`, persisted section by section.
 
-**ICP gating** (`OrganizationsService.resolveServeContext`): automated dispatch
-**fails closed** — `ctx.isServeIcp !== true` (false, null, _and_ undefined) skips
-dispatch. `isServeIcp` traces back to election-api's position data, ultimately the
-Databricks `int__icp_offices` table.
-
 ### Admin / bulk-dispatch surface
 
 - `POST /v1/meetings/briefings/dispatch` (`UserOrM2MGuard`) — M2M callers dispatch

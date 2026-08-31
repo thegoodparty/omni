@@ -7,11 +7,11 @@ import {
   SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
   SOCIAL_POST_COPY_MAX_LENGTH,
   SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
+  ServeSocialPurpose,
   SocialAsset,
   SocialAssetPlatformSchema,
-  SocialDraftRequest,
-  SocialGenerateRequest,
   SocialPurpose,
+  SocialTone,
   socialAssetKindForPlatform,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
@@ -22,14 +22,32 @@ import { SocialAssetKind, SocialAssetPlatform } from '../../generated/prisma'
 import { SOCIAL_PLATFORM_KIND } from '../util/socialAssets.util'
 import { TONE_STYLES } from '../util/messageTone.util'
 
-const PURPOSE_GOALS: Record<SocialPurpose, string> = {
-  introduce_myself: 'introduce the candidate to voters',
-  persuade_voters: 'persuade likely voters to support the candidate',
-  event_invite: 'invite people to a local event',
-  early_voting: 'encourage voters to vote early',
-  election_day_turnout: 'encourage voters to turn out on election day',
-  issue_update: 'share an update about a local issue',
-  custom: "deliver the candidate's own message as written",
+// The per-surface voice a compose request writes in. Win and Serve share
+// every other piece of the generation pipeline (platform rules, output
+// schemas, the LLM call plumbing) — only the purpose vocabulary and these
+// three system prompts vary. nameLabel/subjectFallback also vary: the
+// candidate/office context line must never say "candidate" for a Serve
+// request (the AC bans candidate/voter framing entirely).
+export interface SocialVoiceConfig<TPurpose extends string> {
+  purposeGoals: Record<TPurpose, string>
+  nameLabel: string
+  subjectFallback: string
+  officeLabel: string
+  draftSystemPrompt: string
+  improveSystemPrompt: string
+  generateSystemPrompt: string
+}
+
+interface DraftInput<TPurpose extends string> {
+  purpose: TPurpose
+  tone: SocialTone
+  currentDraft?: string
+}
+
+interface GenerateInput<TPurpose extends string> {
+  draftMessage: string
+  purpose: TPurpose
+  platforms: SocialAssetPlatform[]
 }
 
 const PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
@@ -57,7 +75,7 @@ const PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
     'post in the caption field.',
 }
 
-const DRAFT_SYSTEM_PROMPT = [
+const WIN_DRAFT_SYSTEM_PROMPT = [
   'You are a campaign writing assistant helping an independent,',
   'non-partisan local candidate draft one short campaign message.',
   'Rules:',
@@ -73,7 +91,7 @@ const DRAFT_SYSTEM_PROMPT = [
   '- Match the requested tone.',
 ].join('\n')
 
-const IMPROVE_SYSTEM_PROMPT = [
+const WIN_IMPROVE_SYSTEM_PROMPT = [
   'You are a campaign writing assistant helping an independent,',
   'non-partisan local candidate polish one short campaign message they',
   'wrote themselves.',
@@ -94,11 +112,7 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
-const DraftSchema = z.object({
-  draft: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
-})
-
-const SYSTEM_PROMPT = [
+const WIN_GENERATE_SYSTEM_PROMPT = [
   'You are a social media expert helping an independent, non-partisan',
   'local candidate adapt one confirmed campaign message into',
   'platform-native posts.',
@@ -114,6 +128,103 @@ const SYSTEM_PROMPT = [
   '- For video platforms, put the spoken script in "text" and the post',
   '  caption in "caption". For copy platforms, omit "caption".',
 ].join('\n')
+
+export const WIN_SOCIAL_VOICE: SocialVoiceConfig<SocialPurpose> = {
+  purposeGoals: {
+    introduce_myself: 'introduce the candidate to voters',
+    persuade_voters: 'persuade likely voters to support the candidate',
+    event_invite: 'invite people to a local event',
+    early_voting: 'encourage voters to vote early',
+    election_day_turnout: 'encourage voters to turn out on election day',
+    issue_update: 'share an update about a local issue',
+    custom: "deliver the candidate's own message as written",
+  },
+  nameLabel: 'Candidate name',
+  subjectFallback: 'The candidate',
+  officeLabel: 'Office sought',
+  draftSystemPrompt: WIN_DRAFT_SYSTEM_PROMPT,
+  improveSystemPrompt: WIN_IMPROVE_SYSTEM_PROMPT,
+  generateSystemPrompt: WIN_GENERATE_SYSTEM_PROMPT,
+}
+
+const SERVE_DRAFT_SYSTEM_PROMPT = [
+  'You are a writing assistant helping a local elected official write to',
+  'the constituents they serve. Draft one short constituent update.',
+  'Rules:',
+  '- Write in the first person, as the elected official.',
+  '- Keep the draft roughly 60-120 words of plain prose (no hashtags,',
+  '  no links, no headings).',
+  "- Ground details and specifics in the elected official's own",
+  '  materials when they are provided; never invent facts, decisions,',
+  '  statistics, dates, places, or events the materials do not',
+  '  contain. With no materials, stay general. The elected official',
+  '  edits this draft before it is used.',
+  '- Stay strictly non-partisan. No party labels, no attacks.',
+  '- Match the requested tone.',
+].join('\n')
+
+const SERVE_IMPROVE_SYSTEM_PROMPT = [
+  'You are a writing assistant helping a local elected official polish',
+  'one short constituent update they wrote themselves.',
+  'This is a light edit, NOT a rewrite. Rules:',
+  '- Every concrete detail in the original MUST appear in your output:',
+  '  dates, deadlines, places, events, times, names, numbers, asks.',
+  '  Dropping one is a failure. Do not paraphrase specifics away.',
+  '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
+  "  keep the author's meaning, structure, and voice.",
+  '- Keep roughly the same length as the original. Do not add new',
+  '  sentences, greetings, or sign-offs the original does not have.',
+  '- Return plain prose (no hashtags, no links, no headings).',
+  '- Never add facts, decisions, endorsements, statistics, dates,',
+  '  places, or events the original text does not contain — the',
+  "  official's own materials, when provided, are context for tone",
+  '  and accuracy, not a source of new content in a polish.',
+  '- Stay strictly non-partisan. No party labels, no attacks.',
+  '- Match the requested tone through word choice, not new content.',
+].join('\n')
+
+const SERVE_GENERATE_SYSTEM_PROMPT = [
+  'You are a social media expert helping a local elected official adapt',
+  'one confirmed constituent update into platform-native posts.',
+  'Rules:',
+  '- Write in the first person, as the elected official.',
+  "- Build on the provided draft message; the official's own materials,",
+  '  when provided, may ground supporting detail. Never invent facts,',
+  '  endorsements, statistics, dates, or places that neither the draft',
+  '  nor the materials contain.',
+  '- Stay strictly non-partisan. No party labels, no attacks.',
+  '- Return exactly one asset per requested platform, following each',
+  "  platform's rules.",
+  '- For video platforms, put the spoken script in "text" and the post',
+  '  caption in "caption". For copy platforms, omit "caption".',
+].join('\n')
+
+export const SERVE_SOCIAL_VOICE: SocialVoiceConfig<ServeSocialPurpose> = {
+  purposeGoals: {
+    introduce_myself:
+      'introduce the elected official to the constituents they serve',
+    explain_decision:
+      'explain a recent decision or vote and the reasoning behind it',
+    event_invite: 'invite constituents to a town hall or local event',
+    community_input:
+      'invite constituents to share input on a local issue or upcoming decision',
+    share_resource:
+      'announce a local program, service, or resource available to constituents',
+    issue_update:
+      'share a progress update on a local issue the official is working on',
+    custom: "deliver the elected official's own message as written",
+  },
+  nameLabel: 'Elected official name',
+  subjectFallback: 'The elected official',
+  officeLabel: 'Office held',
+  draftSystemPrompt: SERVE_DRAFT_SYSTEM_PROMPT,
+  improveSystemPrompt: SERVE_IMPROVE_SYSTEM_PROMPT,
+  generateSystemPrompt: SERVE_GENERATE_SYSTEM_PROMPT,
+}
+
+const DraftSchema = z.object({
+  draft: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
+})
 
 // Length caps live HERE, at the LLM boundary: an over-cap generation must
 // fail jsonCompletion (caught below as a retryable 502), not pass through
@@ -148,35 +259,36 @@ export class OutreachSocialGenerationService {
     this.logger.setContext(OutreachSocialGenerationService.name)
   }
 
-  async generateDraft(
-    input: SocialDraftRequest,
+  async generateDraft<TPurpose extends string>(
+    input: DraftInput<TPurpose>,
     candidateName: string,
     office: string,
     userId: string,
-    campaignContext: string[] = [],
+    campaignContext: string[],
+    voice: SocialVoiceConfig<TPurpose>,
   ): Promise<string> {
-    // Fresh generation only: improve mode polishes the candidate's own
-    // words, so it applies to custom-purpose messages too.
+    // Fresh generation only: improve mode polishes the author's own words,
+    // so it applies to custom-purpose messages too.
     if (input.purpose === 'custom' && !input.currentDraft) {
       throw new BadRequestException(
-        'Custom-purpose messages are written by the candidate',
+        'Custom-purpose messages are written by the user',
       )
     }
     const context = [
-      `Candidate name: ${candidateName || 'The candidate'}.`,
-      `Office sought: ${office || 'local office'}.`,
-      `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
+      `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
+      `${voice.officeLabel}: ${office || 'local office'}.`,
+      `Goal of this message: ${voice.purposeGoals[input.purpose]}.`,
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...campaignContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
       ? [
-          { role: 'system', content: IMPROVE_SYSTEM_PROMPT },
+          { role: 'system', content: voice.improveSystemPrompt },
           {
             role: 'user',
             content: [
               ...context,
-              "The candidate's message to polish:",
+              "The author's message to polish:",
               '"""',
               input.currentDraft,
               '"""',
@@ -185,7 +297,7 @@ export class OutreachSocialGenerationService {
           },
         ]
       : [
-          { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+          { role: 'system', content: voice.draftSystemPrompt },
           {
             role: 'user',
             content: [...context, 'Write the draft message.'].join('\n'),
@@ -208,18 +320,25 @@ export class OutreachSocialGenerationService {
     }
   }
 
-  async generateAssets(
-    input: SocialGenerateRequest,
+  async generateAssets<TPurpose extends string>(
+    input: GenerateInput<TPurpose>,
     candidateName: string,
     userId: string,
-    campaignContext: string[] = [],
+    campaignContext: string[],
+    voice: SocialVoiceConfig<TPurpose>,
   ): Promise<SocialAsset[]> {
     const platforms = [...new Set(input.platforms)]
     const messages: LlmMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: voice.generateSystemPrompt },
       {
         role: 'user',
-        content: buildPrompt(input, platforms, candidateName, campaignContext),
+        content: buildPrompt(
+          input,
+          platforms,
+          candidateName,
+          campaignContext,
+          voice,
+        ),
       },
     ]
 
@@ -265,15 +384,16 @@ export class OutreachSocialGenerationService {
   }
 }
 
-const buildPrompt = (
-  input: SocialGenerateRequest,
+const buildPrompt = <TPurpose extends string>(
+  input: GenerateInput<TPurpose>,
   platforms: SocialAssetPlatform[],
   candidateName: string,
   campaignContext: string[],
+  voice: SocialVoiceConfig<TPurpose>,
 ): string =>
   [
-    `Candidate name: ${candidateName || 'The candidate'}.`,
-    `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
+    `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
+    `Goal of this message: ${voice.purposeGoals[input.purpose]}.`,
     ...campaignContext,
     'Confirmed draft message:',
     '"""',

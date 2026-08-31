@@ -72,7 +72,7 @@ There's **no seed script** in this repo today — most data is populated by the 
 npm run start:dev    # http://localhost:3000  (watch mode)
 ```
 
-Health check: `curl http://localhost:3000/v1/health`. Swagger UI: http://localhost:3000/api.
+Health check: `curl http://localhost:3000/v1/health`.
 
 ## Test
 

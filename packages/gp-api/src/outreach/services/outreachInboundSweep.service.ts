@@ -96,7 +96,10 @@ interface SweepCounters {
   inboundRowsSeen: number
 }
 
+// The candidate query below scopes to text/p2p rows, which are always
+// campaign-scoped — only social outreach can be org-only (outreach.prisma).
 type SweepableOutreach = Outreach & {
+  campaignId: number
   campaign: { organizationSlug: string }
 }
 
@@ -150,7 +153,15 @@ export class OutreachInboundSweepService extends createPrismaBase(
 
     for (const outreach of candidates) {
       try {
-        const polled = await this.sweepOutreach(outreach, now, counters)
+        const polled = await this.sweepOutreach(
+          {
+            ...outreach,
+            campaignId: outreach.campaignId!,
+            campaign: outreach.campaign!,
+          },
+          now,
+          counters,
+        )
         if (!polled) {
           counters.jobsWithoutCapture += 1
           continue

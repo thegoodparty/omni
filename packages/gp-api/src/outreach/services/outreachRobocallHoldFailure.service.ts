@@ -159,8 +159,10 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     // messageId changes per day so a double sweep in the same day dedups to one
     // email downstream — the DB stamp above is the primary guard, this is the
     // Segment backstop.
+    // A robocall row is always campaign-scoped (only social outreach can be
+    // org-only, outreach.prisma).
     await this.emitMilestone(
-      draft.outreach.campaign.userId,
+      draft.outreach.campaign!.userId,
       outreachId,
       EVENTS.Robocall.Reminder,
       `${outreachId}:reminder:${format(now, 'yyyy-MM-dd')}`,
@@ -192,7 +194,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     if (claim.count === 0) return
 
     await this.emitMilestone(
-      draft.outreach.campaign.userId,
+      draft.outreach.campaign!.userId,
       outreachId,
       EVENTS.Robocall.Canceled,
       `${outreachId}:canceled`,

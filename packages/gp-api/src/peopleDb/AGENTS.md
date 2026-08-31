@@ -25,6 +25,11 @@ comes out. The destination is election-db rather than `mart_gp_api`: the
 density rows join to `District`, and `District` lives in election-db. See
 `packages/election-api/docs/voter-density-election-db-handoff.md`.
 
+It shares the district-stats dual read's shape below — shadow arm never
+awaited, failures swallowed — but it is counted rather than logged, because
+this one has an end condition someone has to watch for (`only_legacy` reaching
+zero is the cutover gate) rather than a standing agreement to monitor.
+
 ## Every voter read emits one log line
 
 `databricks/voterReadLog.service.ts` wraps each read: it times the Databricks
@@ -54,6 +59,52 @@ statement that timed out is exactly the sample a cold-start attribution needs,
 and dropping it would bias the measurement toward reads that were already
 fast. Voter data has one store, so a warehouse failure propagates rather than
 degrading to a second answer.
+
+## District stats runs a dual read
+
+`services/stats.service.ts` serves `stats` from the mirrored
+`gp_api_district_stats` table and, alongside it, aggregates the same five
+dimensions from the voter rows. The mirrored table stays **authoritative** -- it
+is what the response returns -- and the live scan only ever produces a log line
+at the stable message `district stats dual read`.
+
+The mirror is refreshed on a pipeline cadence, so what it serves can be weeks
+old; the comparison is how we find out whether computing on demand agrees with
+it. Verified across district sizes from ~1k to 23.3M constituents: totals,
+cell-phone counts, and every bucket count match exactly.
+
+| field                   |                                                        |
+| ----------------------- | ------------------------------------------------------ |
+| `agrees`                | `true`/`false`, or `null` when the live scan failed    |
+| `liveMs`                | wall-clock ms for the live scan                        |
+| `martTotal`/`liveTotal` | the two totals, so a gap is visible without re-running |
+| `mismatchedDimensions`  | dimension names, only when they disagree               |
+| `statementIds`          | the live scan's statement ids                          |
+
+Three properties the implementation depends on. The live scan is **never
+awaited** on the response path and its failures are swallowed into the log line,
+so it cannot slow or fail a request. Concurrent live scans are **capped at two**,
+because a statewide district scans tens of millions of rows for a number nobody
+is waiting on. And buckets are compared as label -> count maps rather than
+ordered arrays, so bucket order is not reported as a disagreement.
+
+`buildLiveDistrictStatsSql` is one statement over one scan: `GROUPING SETS`
+emits a row per bucket per dimension plus a grand-total row from the empty set,
+which is where both totals come from. Cost is roughly flat in district size --
+the scan is columnar with predicate pushdown, so fixed overhead dominates.
+
+Bucket labels for education, homeowner and presenceOfChildren are **derived from
+`VALUE_MAPPERS`**, not restated, so a change to the filter vocabulary cannot
+leave a stats bucket labelled by the old one. Age and income are ranges rather
+than a vocabulary, so their boundaries live in the builder; income labels use an
+en dash, matching the mirrored table, and a hyphen there would read as a
+disagreement on every district.
+
+Two differences from the mirrored table are expected and not defects.
+`updatedAt` has no live equivalent -- the scan describes the rows as they are
+now, so it reports the current time. And a district whose scan finds no voters
+maps to `null`, the same as a missing mirrored row, because absence is
+load-bearing: the product gates on it rather than rendering zeros.
 
 | `op`                                                                                            | served by                          | called from                    |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------ |
@@ -283,7 +334,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)        |
 | `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
-| `services/stats.service.ts`                     | District aggregate stats                                            |
+| `services/stats.service.ts`                     | District aggregate stats + the live-vs-mirror dual read             |
 | `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                      |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |

@@ -15,7 +15,7 @@ import {
 } from './persons.schema'
 
 // M2MAuthGuard tags verified machine callers with `m2mToken`; it stays unset
-// for unauthenticated (and observe-only passthrough) requests.
+// for unauthenticated requests (which the guard rejects before this runs).
 type MaybeAuthenticatedRequest = FastifyRequest & { m2mToken?: unknown }
 
 @Controller('persons')
@@ -29,9 +29,9 @@ export class PersonsController {
   ) {
     // gpApiUserId ties a person back to an internal gp-api user, so filtering
     // on it is an enumeration oracle (result presence/absence plus default
-    // fields like name/slug leak the association) on this public endpoint.
-    // Keep it strictly service-to-service: require a verified M2M token here
-    // regardless of the global ELECTION_API_AUTH_ENFORCED rollout flag.
+    // fields like name/slug leak the association). The global guard already
+    // requires a verified M2M token on this route; this is defense-in-depth,
+    // keeping the most sensitive filter explicitly service-to-service.
     if (filterDto.gpApiUserId && !req.m2mToken) {
       throw new UnauthorizedException(
         'gpApiUserId filter requires M2M authentication',

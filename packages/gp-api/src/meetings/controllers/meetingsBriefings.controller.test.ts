@@ -1045,7 +1045,7 @@ describe('GET /v1/meetings/briefings/dispatch/preview', () => {
     expect(result.status).toBe(403)
   })
 
-  it('reports gateWouldDispatch when ICP, uncovered, and a meeting is imminent', async () => {
+  it('reports gateWouldDispatch when uncovered and a meeting is imminent', async () => {
     const orgSlug = `eo-prev-pass-${Date.now()}`
     const eo = await seedBriefingTarget(orgSlug, 'FREQ=DAILY')
 
@@ -1066,7 +1066,7 @@ describe('GET /v1/meetings/briefings/dispatch/preview', () => {
     })
   })
 
-  it('reports a gate skip when the position is not serve-ICP', async () => {
+  it('reports isServeIcp:false without gating dispatch on it', async () => {
     const orgSlug = `eo-prev-icp-${Date.now()}`
     const eo = await seedBriefingTarget(orgSlug, 'FREQ=DAILY')
     vi.spyOn(
@@ -1087,7 +1087,7 @@ describe('GET /v1/meetings/briefings/dispatch/preview', () => {
 
     expect(result.status).toBe(200)
     expect(result.data.isServeIcp).toBe(false)
-    expect(result.data.gateWouldDispatch).toBe(false)
+    expect(result.data.gateWouldDispatch).toBe(true)
     expect(result.data.imminentMeetingDate).toEqual(expect.any(String))
     expect(result.data.overrideWouldDispatch).toBe(true)
   })

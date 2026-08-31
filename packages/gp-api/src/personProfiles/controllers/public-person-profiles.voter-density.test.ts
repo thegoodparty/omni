@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios'
-import { of, throwError } from 'rxjs'
+import { NEVER, of, throwError } from 'rxjs'
 import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
@@ -116,8 +116,8 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
 
   it('forwards the M2M Authorization header to election-api', async () => {
     // Guards the auth wiring: election-api is M2M-locked, so a missing bearer
-    // would 401 (→ 502) once ELECTION_API_AUTH_ENFORCED is on. The test harness
-    // stubs ElectionApiTokenService.authHeader to 'Bearer test-election-api-token'.
+    // 401s (→ 502). The test harness stubs ElectionApiTokenService.authHeader to
+    // 'Bearer test-election-api-token'.
     let capturedHeaders: Record<string, string> | undefined
     // District resolution succeeds here, so the proxy goes on to read people-db;
     // stub that too or the unmocked client throws and the assertion sees a 500.
@@ -293,6 +293,27 @@ describe('voter-density dual reads', () => {
               status: 404,
             } as never),
         ),
+    })
+    const densitySpy = mockDensity({ coverage: 0.82, cells: LEGACY_CELLS })
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.cells).toEqual(LEGACY_CELLS)
+    httpSpy.mockRestore()
+    densitySpy.mockRestore()
+  })
+
+  it('answers without waiting for the shadow leg to come back', async () => {
+    // The shadow is for our benefit, not the caller's, so it must not sit on
+    // the response's critical path. A shadow that never returns stands in for
+    // one that is merely slow: if this ever awaits both legs again, the request
+    // hangs here instead of quietly costing every map the slower of the two.
+    useSource('people-db')
+    const httpSpy = mockHttp({
+      voterDistrict: () =>
+        of({ data: { personId: PERSON_ID, districtId: DISTRICT_ID } }),
+      voterDensity: () => NEVER,
     })
     const densitySpy = mockDensity({ coverage: 0.82, cells: LEGACY_CELLS })
 

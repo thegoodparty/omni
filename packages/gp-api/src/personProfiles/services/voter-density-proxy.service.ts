@@ -46,9 +46,10 @@ function electionApiIsAuthoritative(): boolean {
  * the cells live beside the District they are keyed on. Both run on every
  * request; `VOTER_DENSITY_SOURCE` picks which one is believed, and the other is
  * compared against it and counted in
- * `person_profile_voter_density_compare_count_total`. A shadow failure is
- * counted and dropped — it must never turn a working page into an error — while
- * the authoritative leg keeps exactly the semantics it had before.
+ * `person_profile_voter_density_compare_count_total`. The shadow leg is never
+ * awaited and its failures are counted and dropped — it must not be able to
+ * slow a page or turn a working one into an error — while the authoritative leg
+ * keeps exactly the semantics it had before.
  *
  * The cells are aggregated H3 centroids only — no raw PII ever transits.
  *
@@ -76,16 +77,37 @@ export class VoterDensityProxyService {
   ): Promise<VoterDensityResponse | null> {
     const preferElectionApi = electionApiIsAuthoritative()
 
-    const [legacy, next] = await Promise.all([
-      this.attempt(() => this.readFromPeopleDb(personId)),
-      this.attempt(() => this.readFromElectionApi(personId)),
-    ])
+    // Both reads start here, concurrently, but only the authoritative one is
+    // awaited. The shadow must not be able to fail the response OR slow it, and
+    // awaiting both would put the slower of the two on every page's critical
+    // path for a number nobody is waiting on. Same property the district-stats
+    // dual read holds (see peopleDb/AGENTS.md).
+    const legacy = this.attempt(() => this.readFromPeopleDb(personId))
+    const next = this.attempt(() => this.readFromElectionApi(personId))
 
-    this.recordComparison(personId, legacy, next)
+    void this.compareOffResponsePath(personId, legacy, next)
 
-    const chosen = preferElectionApi ? next : legacy
+    const chosen = await (preferElectionApi ? next : legacy)
     if (!chosen.ok) throw chosen.error
     return chosen.value
+  }
+
+  /**
+   * Settles both legs and records the comparison after the response has gone
+   * out. `attempt` never rejects, so the only way this can throw is the
+   * recording itself, which is caught rather than left as an unhandled
+   * rejection.
+   */
+  private async compareOffResponsePath(
+    personId: string,
+    legacy: Promise<LegOutcome>,
+    next: Promise<LegOutcome>,
+  ): Promise<void> {
+    try {
+      this.recordComparison(personId, await legacy, await next)
+    } catch (error) {
+      this.logger.error({ error, personId }, 'Failed to compare voter density')
+    }
   }
 
   private async attempt(
@@ -149,9 +171,8 @@ export class VoterDensityProxyService {
   ): Promise<T | null> {
     try {
       // election-api is M2M-locked; attach the Clerk bearer like every other
-      // gp-api → election-api caller. Without it these reads 401 once
-      // ELECTION_API_AUTH_ENFORCED is on (a 401 is not a 404, so the caller
-      // would 502 instead of degrading to "no district").
+      // gp-api → election-api caller. Without it these reads 401 (a 401 is not
+      // a 404, so the caller would 502 instead of degrading to "no district").
       const headers = await this.tokenService.authHeader()
       const response = await lastValueFrom(
         this.httpService.get<T>(url, { headers }),

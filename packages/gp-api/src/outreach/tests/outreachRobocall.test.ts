@@ -2,6 +2,7 @@ import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { RobocallComplianceService } from '@/outreach/services/robocallCompliance.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -12,6 +13,7 @@ const service = useTestService()
 const jsonCompletion = vi.fn()
 const rentNumber = vi.fn()
 const checkRecording = vi.fn()
+const getAreaCodeFromZip = vi.fn()
 
 let campaign: Campaign
 let orgSlug: string
@@ -22,6 +24,10 @@ beforeEach(async () => {
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
   const callhub = service.app.get(CallhubNumbersService)
   vi.spyOn(callhub, 'rentNumber').mockImplementation(rentNumber)
+  const areaCodeFromZip = service.app.get(AreaCodeFromZipService)
+  vi.spyOn(areaCodeFromZip, 'getAreaCodeFromZip').mockImplementation(
+    getAreaCodeFromZip,
+  )
   const compliance = service.app.get(RobocallComplianceService)
   vi.spyOn(compliance, 'checkRecording').mockImplementation(checkRecording)
   // recordVerdict reads the audio's S3 ETag to bind the verdict to the bytes;
@@ -300,7 +306,31 @@ describe('POST /v1/outreach/robocall/draft', () => {
 })
 
 describe('POST /v1/outreach/robocall/number', () => {
-  it('rents a US caller-ID number and returns it', async () => {
+  it('rents a number local to the campaign zip', async () => {
+    // campaign.details.zip is '78634' (Georgetown, TX)
+    getAreaCodeFromZip.mockResolvedValue(['512', '737'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+15125550143',
+      region: 'TX',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+15125550143', region: 'TX' })
+    expect(getAreaCodeFromZip).toHaveBeenCalledWith('78634')
+    expect(rentNumber).toHaveBeenCalledWith({
+      countryIso: 'US',
+      areaCodePrefix: '512',
+    })
+  })
+
+  it('falls back to a national rental when the campaign has no zip', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { normalizedOffice: 'City Council' } },
+    })
     rentNumber.mockResolvedValue({
       phone_number: '+12025550147',
       region: 'DC',
@@ -311,7 +341,45 @@ describe('POST /v1/outreach/robocall/number', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
-    expect(rentNumber).toHaveBeenCalledWith({ countryIso: 'US' })
+    expect(getAreaCodeFromZip).not.toHaveBeenCalled()
+    expect(rentNumber).toHaveBeenCalledWith({
+      countryIso: 'US',
+      areaCodePrefix: undefined,
+    })
+  })
+
+  it('falls back to a national rental when the zip has no known area code', async () => {
+    getAreaCodeFromZip.mockResolvedValue(null)
+    rentNumber.mockResolvedValue({
+      phone_number: '+12025550147',
+      region: 'DC',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
+    expect(rentNumber).toHaveBeenCalledWith({
+      countryIso: 'US',
+      areaCodePrefix: undefined,
+    })
+  })
+
+  it('still succeeds when CallHub has no inventory for the requested area code', async () => {
+    // CallHub never errors on an exhausted prefix — it silently substitutes a
+    // national number, which the rental must surface, not reject.
+    getAreaCodeFromZip.mockResolvedValue(['512'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+12025550147',
+      region: 'DC',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
   })
 
   it('rejects a non-Pro campaign without renting', async () => {
@@ -329,6 +397,7 @@ describe('POST /v1/outreach/robocall/number', () => {
   it('propagates a CallHub rental failure as a 502', async () => {
     // The vendor service maps a CallHub failure to BadGateway; the controller
     // must not swallow or remap it.
+    getAreaCodeFromZip.mockResolvedValue(['512'])
     rentNumber.mockRejectedValue(new BadGatewayException('rental failed'))
 
     const res = await postNumber()
