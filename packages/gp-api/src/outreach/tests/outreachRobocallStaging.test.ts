@@ -252,9 +252,34 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     // A 4xx will never succeed on retry → fail the send (void the hold, email),
     // never revert to authorized to retry forever.
     expect(failSpy).toHaveBeenCalledWith(outreachId, 'staging')
+    // The marker is persisted BEFORE failSend, so a failSend that could not
+    // commit still lets the stale sweep fail (not re-stage) the row.
+    expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
     expect((await readSatellite(outreachId)).settleState).not.toBe(
       RobocallSettleState.authorized,
     )
+  })
+
+  it('fails a stale staging row already marked permanent, never re-staging', async () => {
+    // A permanent staging failure whose failSend could not commit left the row
+    // `staging` + marked. The stale sweep must fail it off the marker, never
+    // re-create a CallHub campaign into the same permanent reject.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+    })
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: { permanentSendFailure: true },
+    })
+    await ageStagingRow(outreachId, 45)
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'staging')
+    expect(createVbSpy).not.toHaveBeenCalled()
   })
 
   it('reverts to authorized on a TRANSIENT CallHub failure (retries, not surfaced)', async () => {

@@ -195,6 +195,17 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     })
     if (claim.count === 0) return
 
+    // A stale `staging` row we just reclaimed that already carries the permanent
+    // marker is a stranded permanent failure whose earlier failSend never
+    // committed — fail it now, never re-stage into the same permanent CallHub
+    // reject. `draft` was read before the claim, but the marker is only ever set
+    // by this permanent path (never cleared while dialing/staging), so it cannot
+    // have flipped under us.
+    if (draft.permanentSendFailure) {
+      await this.failStagingPermanent(outreachId)
+      return
+    }
+
     // We own the staging claim. Every failure from here must release it back to
     // authorized so the draft is never stranded — a PAUSED CallHub campaign
     // charges nothing, so reverting after a placed campaign is money-safe. No
@@ -261,7 +272,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       // to retry forever. The claim is `staging` here, which failSend accepts.
       // Transient errors revert + retry as before.
       if (err instanceof CallhubPermanentError) {
-        await this.hold.failSend(outreachId, 'staging')
+        await this.failStagingPermanent(outreachId)
         return
       }
       await this.revertClaim(outreachId)
@@ -354,6 +365,30 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       where: { outreachId, settleState: RobocallSettleState.staging },
       data: { settleState: RobocallSettleState.authorized },
     })
+  }
+
+  // Persists the permanent-failure marker (best-effort CAS on the `staging` row)
+  // then fails the send. The marker is set BEFORE failSend so that if failSend
+  // cannot commit (a transient DB error inside it) the row stays `staging`
+  // carrying the marker, and the stale-staging sweep reads it and fails the send
+  // rather than re-staging into the same permanent CallHub reject. If the marker
+  // write itself fails too, the row simply retries next stale pass (a fresh stage
+  // re-derives permanence), so it converges. Mirrors `failPermanentSend` in the
+  // send slice.
+  private async failStagingPermanent(outreachId: number): Promise<void> {
+    try {
+      await this.model.updateMany({
+        where: { outreachId, settleState: RobocallSettleState.staging },
+        data: { permanentSendFailure: true },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall staging: failed to persist the permanent send-failure ' +
+          'marker; stale recovery retries it next pass',
+      )
+    }
+    await this.hold.failSend(outreachId, 'staging')
   }
 }
 
