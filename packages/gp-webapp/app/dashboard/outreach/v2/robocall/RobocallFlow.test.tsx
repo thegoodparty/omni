@@ -328,17 +328,23 @@ const mockAudioUpload = (s3Ok = true) => {
   })
 }
 
-const gotoAudience = async (purposeLabel = 'Persuade likely voters') => {
-  render(<RobocallFlow open onClose={vi.fn()} />)
+const gotoAudience = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
+  render(<RobocallFlow open onClose={onClose} />)
   fireEvent.click(screen.getByText(purposeLabel))
 }
 
 // Purpose -> audience -> pick a saved list -> Continue, landing on the schedule
 // ("When") step.
-const gotoSchedule = async (purposeLabel = 'Persuade likely voters') => {
+const gotoSchedule = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
   mockSavedLists()
   mockListDetail(80)
-  await gotoAudience(purposeLabel)
+  await gotoAudience(purposeLabel, onClose)
   await userEvent.click(await screen.findByText('Choose a voter list'))
   await userEvent.click(await screen.findByText('Renters in 98103'))
   await userEvent.click(
@@ -349,9 +355,12 @@ const gotoSchedule = async (purposeLabel = 'Persuade likely voters') => {
 
 // Schedule -> set a comfortably-future date + time -> Continue, landing on the
 // compose ("What do you want to say?") step.
-const gotoCompose = async (purposeLabel = 'Persuade likely voters') => {
+const gotoCompose = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
   mockDraft()
-  await gotoSchedule(purposeLabel)
+  await gotoSchedule(purposeLabel, onClose)
   await userEvent.click(screen.getByText('Pick a date'))
   await userEvent.click(await screen.findByText('mock-pick-future'))
   await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -366,8 +375,11 @@ const gotoCompose = async (purposeLabel = 'Persuade likely voters') => {
 
 // Compose -> record + save (passes compliance via the beforeEach mock) ->
 // Continue, landing on the review ("Review your campaign") step.
-const gotoReview = async (purposeLabel = 'Persuade likely voters') => {
-  await gotoCompose(purposeLabel)
+const gotoReview = async (
+  purposeLabel = 'Persuade likely voters',
+  onClose: () => void = vi.fn(),
+) => {
+  await gotoCompose(purposeLabel, onClose)
   mockAudioUpload()
   await userEvent.click(screen.getByRole('button', { name: 'Start recording' }))
   await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
@@ -734,8 +746,7 @@ describe('RobocallFlow', () => {
     mockDraft()
     await gotoSchedule()
 
-    // Open the date popover and pick a comfortably-future day (clears the 48h
-    // floor), then a time.
+    // Open the date popover and pick a comfortably-future day, then a time.
     await userEvent.click(screen.getByText('Pick a date'))
     await userEvent.click(await screen.findByText('mock-pick-future'))
     await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -751,11 +762,12 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('warns and blocks when the chosen day+time is inside the 48-hour window', async () => {
+  it('warns and blocks when the chosen day+time is in the past', async () => {
     await gotoSchedule()
 
-    // A past day is unambiguously inside the 48h floor; the combined-instant
-    // check (not the calendar) is the gate.
+    // The send only has to be in the future (no lead-time buffer), so a past
+    // instant is the gate — enforced by the combined-instant check, not the
+    // calendar.
     await userEvent.click(screen.getByText('Pick a date'))
     await userEvent.click(await screen.findByText('mock-pick-past'))
     await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -764,7 +776,7 @@ describe('RobocallFlow', () => {
     )
 
     expect(
-      await screen.findByText(/Sends need at least 48 hours/),
+      await screen.findByText(/Pick a send date and time in the future/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
@@ -1296,10 +1308,13 @@ describe('RobocallFlow', () => {
     })
     await userEvent.click(submit)
 
-    // The success card renders the SERVER's authorized amount.
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    // The success screen renders with the SERVER's authorized amount.
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(screen.getByText('$3.60')).toBeInTheDocument()
     expect(
-      screen.getByText(/charged for the calls actually placed, never more/),
+      screen.getByText(
+        /only charged for the calls we actually place, never more/,
+      ),
     ).toBeInTheDocument()
 
     // create-draft carried the flow's list/audio/number and an offset-annotated
@@ -1319,6 +1334,50 @@ describe('RobocallFlow', () => {
     expect(authorizeBody).toEqual({ paymentMethodId: 'pm_test_123' })
   })
 
+  it('renders a Done CTA on the success screen that closes the flow', async () => {
+    const onClose = vi.fn()
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    mockAuthorize('authorized', 360, 'authorized')
+
+    await gotoReview('Persuade likely voters', onClose)
+    await enterPay()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
+    )
+    await screen.findByText("You're all set")
+
+    // The pay step owns no footer button once settled; the shell renders Done —
+    // the only way out of the flow after paying.
+    const done = screen.getByRole('button', { name: 'Done' })
+    await userEvent.click(done)
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('bounces back to schedule if the send time elapses before payment', async () => {
+    mockCreateDraft(360)
+    mockSaveCardIntent()
+    await gotoReview()
+
+    // Freeze the clock past the chosen slot (mock-pick-future is 60 days out),
+    // so goToPay sees the send time as elapsed at the review -> pay transition.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(Date.now() + 61 * 86_400_000))
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Continue to payment' }),
+      )
+      // Lands back on the schedule step with the past-time alert, not the pay
+      // step, so createDraft never fires on a stale time.
+      expect(
+        screen.getByText(/Pick a send date and time in the future/),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Amount to authorize')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows the deferred message when the hold is placed later', async () => {
     mockCreateDraft(360)
     mockSaveCardIntent()
@@ -1330,12 +1389,12 @@ describe('RobocallFlow', () => {
       await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
     )
 
-    // Accurate to current server behavior: the card is saved, but nothing
-    // asserts a hold will be placed (no PM persisted / no sweep yet).
+    // Deferred: the success screen shows the card is saved and the hold will be
+    // placed closer to the send date, with no authorized amount (no hold yet).
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(
-      await screen.findByText(/finish setting up payment closer to your send/),
+      screen.getByText(/authorize the estimated cost a few days before/),
     ).toBeInTheDocument()
-    expect(screen.getByText('Your card is saved')).toBeInTheDocument()
   })
 
   it('prompts for another card on a decline and remounts on a FRESH SetupIntent', async () => {
@@ -1450,7 +1509,7 @@ describe('RobocallFlow', () => {
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
 
     releaseConfirm()
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
     expect(authorizeCalls).toBe(1)
   })
@@ -1493,7 +1552,7 @@ describe('RobocallFlow', () => {
     await userEvent.click(
       screen.getByRole('button', { name: /Authorize \$3\.60/ }),
     )
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
     expect(authorizeCalls).toBe(2)
     expect(lastAuthorizeBody).toEqual({ paymentMethodId: 'pm_test_123' })
@@ -1611,7 +1670,7 @@ describe('RobocallFlow', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
     )
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(createCalls).toBe(1)
     expect(cardIntentCalls).toBe(1)
 
@@ -1622,7 +1681,7 @@ describe('RobocallFlow', () => {
       await screen.findByRole('button', { name: 'Continue to payment' }),
     )
 
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /Authorize/ }),
     ).not.toBeInTheDocument()

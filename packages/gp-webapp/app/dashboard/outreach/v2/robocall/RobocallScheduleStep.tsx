@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import {
   Alert,
   AlertDescription,
@@ -24,8 +23,8 @@ import { Intro } from '../social/Intro'
 import { combineScheduledAt, timeZoneShortLabel } from './scheduleTimeZone'
 
 // Hourly 9:00 AM–9:00 PM, matching the design's time dropdown but without its
-// "Send now"/"Custom time…" entries: robocalls carry a hard lead time and a
-// per-contact-timezone delivery window, so only in-window slots are offered.
+// "Send now"/"Custom time…" entries: robocalls carry a per-contact-timezone
+// delivery window, so only in-window slots are offered.
 const TIME_SLOTS = Array.from({ length: 13 }, (_, i) => {
   const hour24 = 9 + i
   const value = `${String(hour24).padStart(2, '0')}:00`
@@ -42,9 +41,8 @@ interface RobocallScheduleStepProps {
   time: string
   onTimeChange: (time: string) => void
   timeZone: string
-  minLeadHours: number
-  // The earliest allowed send instant (now + lead time) and whether the current
-  // day+time falls before it. Computed by the flow, which also gates the CTA.
+  // The earliest allowed send instant (now) and whether the current day+time
+  // falls before it. Computed by the flow, which also gates the CTA.
   earliest: Date
   violates: boolean
 }
@@ -57,19 +55,17 @@ export const RobocallScheduleStep = ({
   time,
   onTimeChange,
   timeZone,
-  minLeadHours,
   earliest,
   violates,
 }: RobocallScheduleStepProps) => {
   const [dateOpen, setDateOpen] = useState(false)
-  const earliestLabel = formatInTimeZone(earliest, timeZone, 'MMM d, h:mm a')
 
   return (
     <div className="space-y-6">
       <Intro
         channel="robocall"
         title="When do you want to send it?"
-        body={`We recommend mid-morning or early evening for higher engagement. Sends require at least ${minLeadHours} hours' notice.`}
+        body="We recommend mid-morning or early evening for higher engagement."
       />
 
       <div className="space-y-2">
@@ -122,9 +118,6 @@ export const RobocallScheduleStep = ({
               />
             </PopoverContent>
           </Popover>
-          <p className="text-sm text-muted-foreground">
-            Earliest send: {earliestLabel}.
-          </p>
         </div>
 
         <div className="space-y-2">
@@ -153,8 +146,7 @@ export const RobocallScheduleStep = ({
       {violates && (
         <Alert variant="destructive">
           <AlertDescription>
-            Sends need at least {minLeadHours} hours&apos; notice. Pick a date
-            and time on or after {earliestLabel}.
+            Pick a send date and time in the future.
           </AlertDescription>
         </Alert>
       )}
