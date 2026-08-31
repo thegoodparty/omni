@@ -495,32 +495,44 @@ export class ElectedOfficeService extends createPrismaBase(
     // there is nothing to warn about.
     if (!invalidatedAt) return
 
-    const dispatched = await this.client.experimentRun.count({
-      where: {
-        organizationSlug: electedOffice.organizationSlug,
-        createdAt: { gte: invalidatedAt },
-      },
-    })
-    if (dispatched === 0) {
-      // positionId / overrideDistrictId live on Organization, not
-      // ElectedOffice — re-fetch rather than threading `after` through the
-      // post-commit result, since this only runs on the rare no-redispatch
-      // path.
-      const { positionId, overrideDistrictId } =
-        await this.client.organization.findUniqueOrThrow({
-          where: { slug: electedOffice.organizationSlug },
-          select: { positionId: true, overrideDistrictId: true },
-        })
-      this.logger.warn(
-        {
+    // This whole check exists only to make a silent state visible — it must
+    // never be able to fail the request it's observing. The identity change
+    // and the three dispatches above have already committed/run by this
+    // point, so a transient failure here (count or the re-fetch) gets logged
+    // and swallowed rather than turning a successful change into a 500.
+    try {
+      const dispatched = await this.client.experimentRun.count({
+        where: {
           organizationSlug: electedOffice.organizationSlug,
-          electedOfficeId: electedOffice.id,
-          positionId,
-          overrideDistrictId,
+          createdAt: { gte: invalidatedAt },
         },
-        'office_identity_changed_no_redispatch: derived data was invalidated ' +
-          'but nothing re-dispatched; the org will stay empty until its ' +
-          'position resolves and is serve-ICP',
+      })
+      if (dispatched === 0) {
+        // positionId / overrideDistrictId live on Organization, not
+        // ElectedOffice — re-fetch rather than threading `after` through the
+        // post-commit result, since this only runs on the rare
+        // no-redispatch path.
+        const { positionId, overrideDistrictId } =
+          await this.client.organization.findUniqueOrThrow({
+            where: { slug: electedOffice.organizationSlug },
+            select: { positionId: true, overrideDistrictId: true },
+          })
+        this.logger.warn(
+          {
+            organizationSlug: electedOffice.organizationSlug,
+            electedOfficeId: electedOffice.id,
+            positionId,
+            overrideDistrictId,
+          },
+          'office_identity_changed_no_redispatch: derived data was ' +
+            'invalidated but nothing re-dispatched; the org will stay ' +
+            'empty until its position resolves and is serve-ICP',
+        )
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, electedOfficeId: electedOffice.id },
+        'no-redispatch warning check failed after office identity change',
       )
     }
   }
