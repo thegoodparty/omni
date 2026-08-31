@@ -734,8 +734,7 @@ describe('RobocallFlow', () => {
     mockDraft()
     await gotoSchedule()
 
-    // Open the date popover and pick a comfortably-future day (clears the 48h
-    // floor), then a time.
+    // Open the date popover and pick a comfortably-future day, then a time.
     await userEvent.click(screen.getByText('Pick a date'))
     await userEvent.click(await screen.findByText('mock-pick-future'))
     await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -751,11 +750,12 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('warns and blocks when the chosen day+time is inside the 48-hour window', async () => {
+  it('warns and blocks when the chosen day+time is in the past', async () => {
     await gotoSchedule()
 
-    // A past day is unambiguously inside the 48h floor; the combined-instant
-    // check (not the calendar) is the gate.
+    // The send only has to be in the future (no lead-time buffer), so a past
+    // instant is the gate — enforced by the combined-instant check, not the
+    // calendar.
     await userEvent.click(screen.getByText('Pick a date'))
     await userEvent.click(await screen.findByText('mock-pick-past'))
     await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -764,7 +764,7 @@ describe('RobocallFlow', () => {
     )
 
     expect(
-      await screen.findByText(/Sends need at least 48 hours/),
+      await screen.findByText(/Pick a send date and time in the future/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
@@ -1296,10 +1296,13 @@ describe('RobocallFlow', () => {
     })
     await userEvent.click(submit)
 
-    // The success card renders the SERVER's authorized amount.
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    // The success screen renders with the SERVER's authorized amount.
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(screen.getByText('$3.60')).toBeInTheDocument()
     expect(
-      screen.getByText(/charged for the calls actually placed, never more/),
+      screen.getByText(
+        /only charged for the calls we actually place, never more/,
+      ),
     ).toBeInTheDocument()
 
     // create-draft carried the flow's list/audio/number and an offset-annotated
@@ -1330,12 +1333,12 @@ describe('RobocallFlow', () => {
       await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
     )
 
-    // Accurate to current server behavior: the card is saved, but nothing
-    // asserts a hold will be placed (no PM persisted / no sweep yet).
+    // Deferred: the success screen shows the card is saved and the hold will be
+    // placed closer to the send date, with no authorized amount (no hold yet).
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(
-      await screen.findByText(/finish setting up payment closer to your send/),
+      screen.getByText(/authorize the estimated cost a few days before/),
     ).toBeInTheDocument()
-    expect(screen.getByText('Your card is saved')).toBeInTheDocument()
   })
 
   it('prompts for another card on a decline and remounts on a FRESH SetupIntent', async () => {
@@ -1450,7 +1453,7 @@ describe('RobocallFlow', () => {
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
 
     releaseConfirm()
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
     expect(authorizeCalls).toBe(1)
   })
@@ -1493,7 +1496,7 @@ describe('RobocallFlow', () => {
     await userEvent.click(
       screen.getByRole('button', { name: /Authorize \$3\.60/ }),
     )
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
     expect(authorizeCalls).toBe(2)
     expect(lastAuthorizeBody).toEqual({ paymentMethodId: 'pm_test_123' })
@@ -1611,7 +1614,7 @@ describe('RobocallFlow', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
     )
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(createCalls).toBe(1)
     expect(cardIntentCalls).toBe(1)
 
@@ -1622,7 +1625,7 @@ describe('RobocallFlow', () => {
       await screen.findByRole('button', { name: 'Continue to payment' }),
     )
 
-    expect(await screen.findByText(/\$3\.60 authorized/)).toBeInTheDocument()
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /Authorize/ }),
     ).not.toBeInTheDocument()
