@@ -321,6 +321,38 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
       expect.stringContaining('CRITICAL'),
     )
   })
+
+  it('emits CRITICAL even when the uncollectable park itself fails', async () => {
+    const outreachId = await createDraft()
+    usageSpy.mockRejectedValue(new ZodError([]))
+    const errorSpy = vi.spyOn(
+      (completion as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+    // The park transition hits a transient DB error. The CRITICAL alert is the
+    // only ops signal a delivered run was stranded, so it must fire regardless —
+    // it is logged BEFORE the park, and the park failure is caught (retry next
+    // sweep) rather than escaping and swallowing the alert. Restore the spy right
+    // after the poll so the rejected updateMany can't leak into later tests.
+    const updateManySpy = vi
+      .spyOn(
+        (
+          completion as unknown as {
+            model: { updateMany: () => Promise<unknown> }
+          }
+        ).model,
+        'updateMany',
+      )
+      .mockRejectedValue(new Error('db down'))
+
+    await completion.pollCompletion(outreachId, 'vb_1')
+    updateManySpy.mockRestore()
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId, campaignPkStr: 'vb_1' }),
+      expect.stringContaining('CRITICAL'),
+    )
+  })
 })
 
 describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {

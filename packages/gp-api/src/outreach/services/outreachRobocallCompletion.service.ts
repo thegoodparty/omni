@@ -170,15 +170,28 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     source: string,
   ): Promise<void> {
     if (err instanceof ZodError) {
-      await this.model.updateMany({
-        where: { outreachId, settleState: RobocallSettleState.dialed },
-        data: { settleState: RobocallSettleState.uncollectable },
-      })
+      // Emit the CRITICAL alert UNCONDITIONALLY, before the state transition: a
+      // DB error on the updateMany must not swallow the only signal that a
+      // delivered run was stranded by a permanent schema bug. The transition then
+      // has its own guard so its failure is logged and retried next sweep rather
+      // than escaping to the generic per-record catch.
       this.logger.error(
         { err, outreachId, campaignPkStr: pkStr },
         `CRITICAL robocall CallHub ${source} schema mismatch; delivered run ` +
           'parked uncollectable for manual settlement — response shape is wrong',
       )
+      try {
+        await this.model.updateMany({
+          where: { outreachId, settleState: RobocallSettleState.dialed },
+          data: { settleState: RobocallSettleState.uncollectable },
+        })
+      } catch (dbErr) {
+        this.logger.error(
+          { err: dbErr, outreachId, campaignPkStr: pkStr },
+          'robocall: failed to park delivered run uncollectable after a ' +
+            'schema mismatch; retry next sweep',
+        )
+      }
       return
     }
     this.logger.error(
