@@ -339,6 +339,32 @@ interface RecordBarProps {
   complianceProblem: boolean
 }
 
+// The compliance check is one request that transcribes the clip then runs the
+// LLM disclosure check, with no per-phase signal back. Show a two-phase label
+// so the wait reads as progress rather than a single stalled spinner: the
+// transcription first, then the compliance review after a beat. Time-based, not
+// driven by real phase events — remounts (and so resets) each time a check runs.
+const TRANSCRIBING_LABEL_MS = 8000
+
+const CheckingLabel = () => {
+  const [phase, setPhase] = useState<'transcribing' | 'compliance'>(
+    'transcribing',
+  )
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setPhase('compliance'),
+      TRANSCRIBING_LABEL_MS,
+    )
+    return () => clearTimeout(timer)
+  }, [])
+  return (
+    <span className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Loader2Icon className="size-4 animate-spin" />
+      {phase === 'transcribing' ? 'Transcribing…' : 'Checking for compliance…'}
+    </span>
+  )
+}
+
 const RecordBar = ({
   recorder,
   maxSeconds,
@@ -416,10 +442,7 @@ const RecordBar = ({
         </div>
         {saved ? (
           complianceChecking ? (
-            <span className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2Icon className="size-4 animate-spin" />
-              Checking…
-            </span>
+            <CheckingLabel />
           ) : (
             <Button
               type="button"
