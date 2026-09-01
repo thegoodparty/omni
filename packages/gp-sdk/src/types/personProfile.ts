@@ -9,6 +9,13 @@
  */
 export type PersonProfileRemoval = {
   personId: string
+  /**
+   * Resolved from the civics spine at read time, so both are null when that
+   * lookup fails — a takedown still lists, keyed only by its personId.
+   */
+  fullName: string | null
+  /** Absolute URL of the public /people page this takedown covers. */
+  profileUrl: string | null
   note: string | null
   requestedAt: string
   appliedBy: string

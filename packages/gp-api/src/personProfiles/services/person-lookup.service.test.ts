@@ -49,6 +49,7 @@ describe('PersonLookupService', () => {
     const logger = {
       setContext: vi.fn(),
       error: vi.fn(),
+      warn: vi.fn(),
     } as unknown as PinoLogger
     const tokenService = {
       authHeader: vi.fn().mockResolvedValue({ Authorization: 'Bearer t' }),
@@ -142,5 +143,65 @@ describe('PersonLookupService', () => {
   it('never calls election-api for an empty query', async () => {
     expect(await service.lookup('   ')).toBeNull()
     expect(httpService.get).not.toHaveBeenCalled()
+  })
+
+  describe('resolveIdentities', () => {
+    const OTHER_ID = 'ffffffff-0000-4000-8000-000000000000'
+
+    const batchOf = (people: object[]) => {
+      httpService.get.mockReturnValue(of({ data: people }))
+    }
+
+    it('builds the public /people URL the marketing site serves', async () => {
+      batchOf([person({ slug: 'jordan-reyes' })])
+
+      const identities = await service.resolveIdentities([PERSON_ID])
+
+      // The 8-hex id suffix is what actually resolves the page — slugs are not
+      // unique — so a URL missing it points at the wrong person or nobody.
+      expect(identities.get(PERSON_ID)).toEqual({
+        fullName: 'Jordan Reyes',
+        profileUrl: `${process.env.WEBAPP_ROOT_URL}/people/jordan-reyes-a1b2c3d4`,
+      })
+    })
+
+    it('asks for only the columns the log renders', async () => {
+      batchOf([person({ slug: 'jordan-reyes' })])
+
+      await service.resolveIdentities([PERSON_ID, OTHER_ID, PERSON_ID])
+
+      expect(httpService.get.mock.calls[0]?.[0]).toBe(
+        `${process.env.ELECTION_API_URL}/v1/persons`,
+      )
+      expect(httpService.get.mock.calls[0]?.[1]).toEqual({
+        headers: { Authorization: 'Bearer t' },
+        params: {
+          // Deduped: a person can appear once per takedown record.
+          ids: `${PERSON_ID},${OTHER_ID}`,
+          columns: 'id,slug,fullName,firstName,lastName',
+        },
+      })
+    })
+
+    it('leaves a person with no slug unlinkable rather than guessing a URL', async () => {
+      batchOf([person({ slug: null })])
+
+      expect(await service.resolveIdentities([PERSON_ID])).toEqual(
+        new Map([[PERSON_ID, { fullName: 'Jordan Reyes', profileUrl: null }]]),
+      )
+    })
+
+    it('returns what it has when election-api fails', async () => {
+      // The takedown log is the operator's only view of active removals;
+      // failing it wholesale over a naming nicety would hide them.
+      httpService.get.mockReturnValue(throwError(() => axiosStatus(500)))
+
+      expect(await service.resolveIdentities([PERSON_ID])).toEqual(new Map())
+    })
+
+    it('makes no call for an empty list', async () => {
+      expect(await service.resolveIdentities([])).toEqual(new Map())
+      expect(httpService.get).not.toHaveBeenCalled()
+    })
   })
 })
