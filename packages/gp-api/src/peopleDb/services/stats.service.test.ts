@@ -150,6 +150,63 @@ describe('StatsService', () => {
     )
   })
 
+  // Both latencies on one line, so the comparison is a paired per-request
+  // delta with identical n rather than two marginal distributions over
+  // whichever requests each line happened to cover.
+  it('reports both latencies and their delta on one line', async () => {
+    await service.findStats({ districtId: DISTRICT_ID } as never)
+    await settle()
+
+    const [fields] = info.mock.calls[0] as [Record<string, unknown>]
+    expect(fields).toMatchObject({
+      districtId: DISTRICT_ID,
+      martMs: expect.any(Number),
+      liveMs: expect.any(Number),
+      deltaMs: expect.any(Number),
+      queuedMs: expect.any(Number),
+    })
+    expect(fields.deltaMs).toBe(
+      (fields.liveMs as number) - (fields.martMs as number),
+    )
+  })
+
+  it('keeps martMs on the line when the live scan fails', async () => {
+    findStatsLive.mockRejectedValue(new Error('scan blew up'))
+
+    await service.findStats({ districtId: DISTRICT_ID } as never)
+    await settle()
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ martMs: expect.any(Number), agrees: null }),
+      STATS_DUAL_READ_MESSAGE,
+    )
+  })
+
+  // Slot wait is reported separately, not folded into liveMs: the mirrored read
+  // is uncapped, so charging the live arm for queueing would make the two
+  // incomparable, and omitting it would flatter the live arm.
+  it('reports slot wait separately from the scan', async () => {
+    findStatsLive.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      return statsWith(42)
+    })
+
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        service.findStats({ districtId: DISTRICT_ID } as never),
+      ),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    const queued = info.mock.calls.map(
+      ([f]) => (f as { queuedMs: number }).queuedMs,
+    )
+    const live = info.mock.calls.map(([f]) => (f as { liveMs: number }).liveMs)
+    // The last through the cap waited on a slot; no scan absorbed that wait.
+    expect(Math.max(...queued)).toBeGreaterThan(0)
+    expect(Math.max(...live)).toBeLessThan(100)
+  })
+
   it('counts absent-on-both as agreement', async () => {
     findStats.mockResolvedValue(null)
     findStatsLive.mockResolvedValue(null)
