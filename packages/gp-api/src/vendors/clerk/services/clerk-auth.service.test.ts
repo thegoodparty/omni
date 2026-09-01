@@ -1,9 +1,14 @@
 import { UnauthorizedException } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ClerkClient, verifyToken } from '@clerk/backend'
 import jwt from 'jsonwebtoken'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { CLERK_API_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { ClerkAuthService } from './clerk-auth.service'
+
+// Stands in for a Clerk call that never settles, so the only way the
+// caller can proceed is the timeout.
+const hangForever = <T>(): Promise<T> => new Promise(() => undefined)
 
 // ClerkClient is a type-only export, but SWC emits it as runtime decorator
 // metadata for the constructor param, so the mock must expose a placeholder.
@@ -230,6 +235,47 @@ describe('ClerkAuthService', () => {
       getUser.mockRejectedValue(new Error('clerk down'))
 
       await expect(service.getUser('user_1')).resolves.toBeNull()
+    })
+  })
+
+  describe('Clerk API timeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('rejects a hung M2M verification rather than hanging', async () => {
+      m2mVerify.mockReturnValue(hangForever())
+
+      const pending = service.verifyM2MToken('mt_hang')
+      const assertion = expect(pending).rejects.toThrow(UnauthorizedException)
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      await assertion
+    })
+
+    it('rejects a hung session-token verification rather than hanging', async () => {
+      vi.mocked(verifyToken).mockReturnValue(hangForever() as never)
+
+      const pending = service.verifySessionToken(CLERK_TOKEN)
+      const assertion = expect(pending).rejects.toThrow(
+        'Session token verification failed',
+      )
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      await assertion
+    })
+
+    it('returns null from a hung getUser rather than hanging', async () => {
+      getUser.mockReturnValue(hangForever())
+
+      const pending = service.getUser('user_hang')
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      expect(await pending).toBe(null)
     })
   })
 })

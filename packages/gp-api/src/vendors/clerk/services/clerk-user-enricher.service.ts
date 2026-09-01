@@ -5,6 +5,7 @@ import { PrismaService } from '@/prisma/prisma.service'
 import { isPrismaError } from '@/prisma/util/prismaErrors.util'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
+import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 
 export interface ClerkUserFields {
   email: string | null
@@ -52,7 +53,11 @@ export class ClerkUserEnricherService {
     }
 
     try {
-      const clerkUser = await this.clerkClient.users.getUser(clerkId)
+      const clerkUser = await clerkCall(
+        'users.getUser',
+        { 'clerk.user_id': clerkId },
+        () => this.clerkClient.users.getUser(clerkId),
+      )
       const fields = this.buildFields(clerkUser)
 
       this.fieldsCache.set(clerkId, {
@@ -137,10 +142,15 @@ export class ClerkUserEnricherService {
     if (uncachedIds.length === 0) return result
 
     try {
-      const clerkUsers = await this.clerkClient.users.getUserList({
-        userId: uncachedIds,
-        limit: uncachedIds.length,
-      })
+      const clerkUsers = await clerkCall(
+        'users.getUserList',
+        { 'clerk.user_count': uncachedIds.length },
+        () =>
+          this.clerkClient.users.getUserList({
+            userId: uncachedIds,
+            limit: uncachedIds.length,
+          }),
+      )
 
       for (const clerkUser of clerkUsers.data) {
         const fields = this.buildFields(clerkUser)
@@ -237,11 +247,18 @@ export class ClerkUserEnricherService {
     if (missUntil != null && missUntil > Date.now()) return null
 
     try {
-      const { data } = await clerkThrottle(() =>
-        this.clerkClient.users.getUserList({
-          emailAddress: [email],
-          limit: 1,
-        }),
+      // Wraps the throttle, not the request inside it: clerkThrottle's queue
+      // is uncapped, so waiting for a slot is as unbounded as the call itself.
+      const { data } = await clerkCall(
+        'users.getUserList.byEmail',
+        { 'clerk.throttled': true },
+        () =>
+          clerkThrottle(() =>
+            this.clerkClient.users.getUserList({
+              emailAddress: [email],
+              limit: 1,
+            }),
+          ),
       )
       const clerkUser = data[0]
       if (!clerkUser?.id) {
