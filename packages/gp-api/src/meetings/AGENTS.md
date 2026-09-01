@@ -218,6 +218,16 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
   That last one matters beyond correctness: meetings has no recovery cron,
   so without a cutoff-aware create-path guard a missed re-dispatch there
   would never self-heal the way ordinances and community issues do.
+  `dispatchBriefingIfNeeded`'s coverage dedupe is scoped to the stamp too
+  (by the `MeetingBriefing` row's `createdAt`, not its `meetingDate`) —
+  otherwise a briefing written for the old office with a future meeting
+  date would suppress briefing dispatch for the new one indefinitely.
+  The `dispatchDailyBriefings` cron's DB-side pre-filter is NOT
+  cutoff-scoped, though — it excludes an office with any future
+  `MeetingBriefing` row regardless of `createdAt`, so a pre-cutoff
+  briefing can still stop the cron from calling `dispatchBriefingIfNeeded`
+  at all for that office. The on-demand path (`dispatchBriefingIfDue`)
+  has no such pre-filter and is not affected.
 
 ## Pointer table
 

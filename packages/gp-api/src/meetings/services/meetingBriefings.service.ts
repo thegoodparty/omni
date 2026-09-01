@@ -928,6 +928,12 @@ export class MeetingBriefingsService extends createPrismaBase(
     // dedupe) depend on the election-api / the S3 schedule artifact / user
     // metadata and can't be expressed here, so they stay in the per-office
     // guard below.
+    // NOTE: predicate 2 above is not cutoff-scoped the way the per-office
+    // dedupe in dispatchBriefingIfNeeded is, so a pre-cutoff briefing (one
+    // created before an office-identity change, still with a future
+    // meetingDate) can pre-filter an office out here even though the
+    // per-office guard would now let it through. Known gap, not fixed by
+    // this pass — see src/meetings/AGENTS.md.
     const offices = await this.client.electedOffice.findMany({
       where: {
         organization: {
@@ -999,8 +1005,21 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     // Coverage dedupe: skip if a briefing already covers an upcoming meeting.
+    // Scoped to the office-identity cutoff by the row's createdAt, not its
+    // meetingDate — a briefing created before the change describes the old
+    // jurisdiction, so it must not count as coverage for the new one.
+    const org = await this.client.organization.findUnique({
+      where: { slug: eo.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
     const futureBriefing = await this.model.findFirst({
-      where: { electedOfficeId: eo.id, meetingDate: { gte: now } },
+      where: {
+        electedOfficeId: eo.id,
+        meetingDate: { gte: now },
+        ...(org?.officeIdentityChangedAt
+          ? { createdAt: { gte: org.officeIdentityChangedAt } }
+          : {}),
+      },
       select: { id: true },
     })
     if (futureBriefing) return notDispatched

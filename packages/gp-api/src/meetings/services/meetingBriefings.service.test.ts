@@ -1587,6 +1587,77 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
   })
 })
 
+describe('MeetingBriefingsService — office-identity cutoff coverage dedupe', () => {
+  beforeEach(async () => {
+    vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+    mockResolveServeContext(null)
+    await service.prisma.cronRun.deleteMany({})
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('does not let a pre-cutoff briefing suppress dispatch for the new office', async () => {
+    const orgSlug = `eo-cutoff-briefing-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: `br-pos-${orgSlug}` })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    // A briefing for the OLD office, created before the identity change,
+    // with a future meetingDate — must not count as coverage for the new
+    // office (only its createdAt, not its meetingDate, is pre-cutoff).
+    const staleBriefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: new Date('2099-12-31'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: staleBriefingRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'stale.json',
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.organization.update({
+      where: { slug: orgSlug },
+      data: { officeIdentityChangedAt: subDays(new Date(), 1) },
+    })
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    const result = await service.app
+      .get(MeetingBriefingsService)
+      .dispatchBriefingIfDue(eo)
+
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('MeetingBriefingsService.dispatchManual', () => {
   beforeEach(() => {
     mockResolveServeContext(null)
