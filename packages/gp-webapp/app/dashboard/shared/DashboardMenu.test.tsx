@@ -2,11 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { getDashboardMenuItems } from './DashboardMenu'
 
 const links = ({
-  serveAccessEnabled = false,
   isElectedOffice = false,
   isElectedOfficeLoading = false,
   campaignStoryEnabled = false,
-  communityIssuesEnabled = true,
   ordinancesEnabled = false,
   serveOutreachEnabled = false,
   ecanvasserConnected = false,
@@ -18,11 +16,9 @@ const links = ({
   // off so every case below reads as "would the link be offered at all".
   outreachHubEnabled = false,
 }: {
-  serveAccessEnabled?: boolean
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
   campaignStoryEnabled?: boolean
-  communityIssuesEnabled?: boolean
   ordinancesEnabled?: boolean
   serveOutreachEnabled?: boolean
   ecanvasserConnected?: boolean
@@ -32,12 +28,10 @@ const links = ({
   outreachHubEnabled?: boolean
 } = {}) =>
   getDashboardMenuItems(
-    serveAccessEnabled,
     isElectedOffice,
     isElectedOfficeLoading,
     false,
     campaignStoryEnabled,
-    communityIssuesEnabled,
     ordinancesEnabled,
     serveOutreachEnabled,
     {
@@ -85,7 +79,6 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 
   it('leaves Serve/elected-office Contacts gating unchanged', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
     })
 
@@ -102,12 +95,10 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 describe('getDashboardMenuItems: "Your story" sidebar item', () => {
   it('renders "Your story" just above the tracker when the story flag is on', () => {
     const items = getDashboardMenuItems(
-      false, // serveAccessEnabled
       false, // isElectedOffice
       false, // isElectedOfficeLoading
       true, // campaignStrategyExists
       true, // campaignStoryEnabled
-      false, // communityIssuesEnabled
       false, // ordinancesEnabled
       false, // serveOutreachEnabled
     )
@@ -122,12 +113,10 @@ describe('getDashboardMenuItems: "Your story" sidebar item', () => {
 
   it('omits "Your story" when the story flag is off', () => {
     const items = getDashboardMenuItems(
-      false, // serveAccessEnabled
       false, // isElectedOffice
       false, // isElectedOfficeLoading
       true, // campaignStrategyExists
       false, // campaignStoryEnabled
-      false, // communityIssuesEnabled
       false, // ordinancesEnabled
       false, // serveOutreachEnabled
     )
@@ -146,14 +135,12 @@ describe('getDashboardMenuItems — Campaign Plan tab label', () => {
 
   it('labels the item "Campaign Plan" when campaignStoryEnabled is false', () => {
     // Story off: the item only appears when a campaign strategy exists, so pass
-    // that flag (position 4) directly rather than via the `links` helper.
+    // that flag (position 2) directly rather than via the `links` helper.
     const items = getDashboardMenuItems(
-      false, // serveAccessEnabled
       false, // isElectedOffice
       false, // isElectedOfficeLoading
       true, // campaignStrategyExists
       false, // campaignStoryEnabled
-      false, // communityIssuesEnabled
       false, // ordinancesEnabled
       false, // serveOutreachEnabled
     )
@@ -182,25 +169,15 @@ describe('getDashboardMenuItems — Know Your Opponent nav', () => {
 })
 
 describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
-  it('shows the Chief of Staff item when serve-access + elected-office', () => {
+  it('shows the Chief of Staff item for an elected office', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
     })
     expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(true)
   })
 
-  it('hides the Chief of Staff item when serve-access is off', () => {
-    const items = links({
-      serveAccessEnabled: false,
-      isElectedOffice: true,
-    })
-    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
-  })
-
   it('hides the Chief of Staff item when not elected office', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: false,
     })
     expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
@@ -208,7 +185,6 @@ describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
 
   it('renders Chief of Staff before Briefing Assistant when both are shown', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
     })
     const cosIdx = items.findIndex((i) => i.id === 'chief-of-staff-dashboard')
@@ -220,39 +196,26 @@ describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
 })
 
 describe('getDashboardMenuItems — Community Issues nav gating', () => {
-  it('shows the Community Issues nav for an elected office when the flag is on', () => {
+  it('shows the Community Issues nav for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      communityIssuesEnabled: true,
     })
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(true)
   })
 
-  it('hides the Community Issues nav for an elected office when the flag is off', () => {
-    const items = links({
-      isElectedOffice: true,
-      communityIssuesEnabled: false,
-    })
-    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
-  })
-
-  it('hides the Community Issues nav for a non-elected-office user even when the flag is on', () => {
+  it('hides the Community Issues nav for a non-elected-office user', () => {
     const items = links({
       isElectedOffice: false,
-      communityIssuesEnabled: true,
     })
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('still renders Campaign Plan when the flag hides Community Issues for an elected office', () => {
-    // With Community Issues hidden, the front-of-list offset drops by one;
-    // the campaign-category items must still render in order.
+  it('still renders Campaign Plan alongside Community Issues for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      communityIssuesEnabled: false,
       campaignStoryEnabled: true,
     })
-    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
+    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(true)
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
     expect(planIdx).toBeGreaterThanOrEqual(0)
   })
@@ -285,9 +248,8 @@ describe('getDashboardMenuItems — Ordinances tab gating', () => {
 })
 
 describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
-  it('shows the item for an elected office with serve-access when the flag is on', () => {
+  it('shows the item for an elected office when the flag is on', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
       serveOutreachEnabled: true,
     })
@@ -298,7 +260,6 @@ describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
 
   it('hides the item when the flag is off', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
       serveOutreachEnabled: false,
     })
@@ -309,19 +270,7 @@ describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
 
   it('hides the item for a campaign (non-elected-office) org even when the flag is on', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: false,
-      serveOutreachEnabled: true,
-    })
-    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
-      false,
-    )
-  })
-
-  it('hides the item when serve-access is off even when the flag is on', () => {
-    const items = links({
-      serveAccessEnabled: false,
-      isElectedOffice: true,
       serveOutreachEnabled: true,
     })
     expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(

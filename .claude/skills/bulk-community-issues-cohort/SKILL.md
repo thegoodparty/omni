@@ -11,7 +11,7 @@ description: Use when manually dispatching a cohort of community-issue agent job
 > 2. The `top_community_issues` and `trending_issues` **runbooks are published to S3** in the PMF engine's runbook bucket.
 > 3. The `POST /v1/community-issues/dispatch` endpoint is **live in prod** — confirmed by the Prerequisites check below (bad-token probe returns 401/403, not 404).
 >
-> Note: this dispatch path is **not** gated by a feature flag or by `MEETINGS_AUTOMATION_ENABLED` — it is an `AdminOrM2MGuard` (M2M) endpoint. `MEETINGS_AUTOMATION_ENABLED` gates only the daily crons / signup hook, and `serve-community-issues-v1` gates only the webapp nav item — so there is no flag to "enable" for a manual cohort.
+> Note: this dispatch path is **not** gated by a feature flag or by `MEETINGS_AUTOMATION_ENABLED` — it is an `AdminOrM2MGuard` (M2M) endpoint. `MEETINGS_AUTOMATION_ENABLED` gates only the daily crons / signup hook — so there is no flag to "enable" for a manual cohort.
 >
 > If any of these are false, abort and tell the human which precondition is not yet met. Do not attempt to dispatch.
 

@@ -311,12 +311,10 @@ interface DoorKnockingNavGate {
 }
 
 export const getDashboardMenuItems = (
-  serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
   campaignStrategyExists: boolean,
   campaignStoryEnabled: boolean,
-  communityIssuesEnabled: boolean,
   ordinancesEnabled: boolean,
   serveOutreachEnabled: boolean,
   doorKnocking: DoorKnockingNavGate = {
@@ -329,18 +327,17 @@ export const getDashboardMenuItems = (
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
-  // Community Issues nav is gated behind serve-community-issues-v1 so it can be
-  // dark-launched independently; the page route itself is serve-access gated.
-  const communityIssuesShown = isElectedOffice && communityIssuesEnabled
+  // Community Issues nav mirrors page-level access (serveAccess.ts): both are
+  // elected-office existence alone.
+  const communityIssuesShown = isElectedOffice
   const ordinancesShown = isElectedOffice && ordinancesEnabled
   // Constituent Outreach nav is gated behind serve-outreach so it can be
   // dark-launched independently; the page route's FeatureFlagGuard is the
   // treatment surface.
-  const constituentOutreachShown =
-    serveAccessEnabled && isElectedOffice && serveOutreachEnabled
+  const constituentOutreachShown = isElectedOffice && serveOutreachEnabled
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
-  if (serveAccessEnabled && isElectedOffice) {
+  if (isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
   } else if (!isElectedOfficeLoading) {
     // Hold off until the elected-office query settles — until then a Serve
@@ -370,17 +367,18 @@ export const getDashboardMenuItems = (
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
-  // Briefing Assistant. Gated on the same serve-access + elected-office check.
-  const chiefOfStaffShown = serveAccessEnabled && isElectedOffice
+  // Briefing Assistant. Gated on the same elected-office check as the rest of
+  // the Serve rail.
+  const chiefOfStaffShown = isElectedOffice
   if (chiefOfStaffShown) {
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
 
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
-  // unshifted above it: BRIEFINGS for an elected office, COMMUNITY_ISSUES when
-  // its flag is on, then Chief of Staff when shown. Insert the Plan/Tracker
-  // item right after Campaign Manager to render the campaign-category nav as
-  // [Campaign Manager, Campaign Plan, …].
+  // unshifted above it: BRIEFINGS and COMMUNITY_ISSUES for an elected office,
+  // then Chief of Staff when shown. Insert the Plan/Tracker item right after
+  // Campaign Manager to render the campaign-category nav as [Campaign
+  // Manager, Campaign Plan, …].
   const afterCampaignManager =
     1 +
     (isElectedOffice ? 1 : 0) +
@@ -476,13 +474,9 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
-  const { ready: _flagsReady, on: serveAccessEnabled } =
-    useFlagOn('serve-access')
   // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so
   // don't track exposure here.
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
-  // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
-  const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
   // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
   // treatment surface.
   const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
@@ -503,12 +497,10 @@ export default function DashboardMenu({
   const menuItems = useMemo(
     () =>
       getDashboardMenuItems(
-        serveAccessEnabled,
         !!electedOffice,
         isElectedOfficeLoading,
         campaignStrategyExists,
         campaignStoryEnabled,
-        communityIssuesEnabled,
         ordinancesEnabled,
         serveOutreachEnabled,
         {
@@ -520,13 +512,11 @@ export default function DashboardMenu({
         },
       ),
     [
-      serveAccessEnabled,
       ecanvasser,
       electedOffice,
       isElectedOfficeLoading,
       campaignStrategyExists,
       campaignStoryEnabled,
-      communityIssuesEnabled,
       ordinancesEnabled,
       serveOutreachEnabled,
       nativeDoorKnockingReady,
