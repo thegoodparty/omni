@@ -4,13 +4,16 @@ import { SERVE_PHONE_BANKING_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { LlmService } from '@/llm/services/llm.service'
+import { ElectedOffice } from '../../generated/prisma'
 import { SERVE_PHONE_BANKING_VOICE } from '../services/outreachPhoneBankingGeneration.service'
+import { TONE_STYLES } from '../util/messageTone.util'
 
 const service = useTestService()
 
 const jsonCompletion = vi.fn()
 
 let eoOrgSlug: string
+let electedOffice: ElectedOffice
 
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
@@ -23,7 +26,7 @@ beforeEach(async () => {
     data: { slug: eoOrgSlug, ownerId: service.user.id },
   })
 
-  await service.prisma.electedOffice.create({
+  electedOffice = await service.prisma.electedOffice.create({
     data: { userId: service.user.id, organizationSlug: eoOrgSlug },
   })
 })
@@ -180,5 +183,58 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
 
     const res = await postDraft({ purpose: 'explain-decision', tone: 'urgent' })
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+})
+
+describe('Public Profile grounding (ENG-10982)', () => {
+  it('includes the Public Profile blocks in the phone-banking draft prompt', async () => {
+    mockDraft('You: Hi. Voter: Hello.')
+    await service.prisma.personProfile.create({
+      data: {
+        personId: `person-${Date.now()}`,
+        userId: electedOffice.userId,
+        bioOverride: 'I have lived here for 20 years.',
+        whyRunning: 'I want to make sure every neighbor has a voice.',
+      },
+    })
+
+    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).toContain(
+      [
+        "The official's bio, in their own words:",
+        '"""',
+        'I have lived here for 20 years.',
+        '"""',
+      ].join('\n'),
+    )
+    expect(userPrompt).toContain(
+      [
+        'Why they serve, in their own words:',
+        '"""',
+        'I want to make sure every neighbor has a voice.',
+        '"""',
+      ].join('\n'),
+    )
+  })
+
+  it('degrades to the exact baseline prompt for an official with no PersonProfile row', async () => {
+    mockDraft('You: Hi. Voter: Hello.')
+
+    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).toBe(
+      [
+        `${SERVE_PHONE_BANKING_VOICE.nameLabel}: Johnny Goodparty.`,
+        `${SERVE_PHONE_BANKING_VOICE.officeLabel}: local office.`,
+        SERVE_PHONE_BANKING_VOICE.purposePrompts.introduce,
+        `Tone: ${TONE_STYLES.warm}`,
+        'Write the call script.',
+      ].join('\n'),
+    )
   })
 })

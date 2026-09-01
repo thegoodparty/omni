@@ -18,6 +18,7 @@ import {
   OutreachPhoneBankingGenerationService,
   SERVE_PHONE_BANKING_VOICE,
 } from './services/outreachPhoneBankingGeneration.service'
+import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
 
 const electedOfficialName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
@@ -35,6 +36,7 @@ const electedOfficialName = (user: User): string =>
 export class OutreachServePhoneBankingController {
   constructor(
     private readonly generationService: OutreachPhoneBankingGenerationService,
+    private readonly profileContext: OutreachServeComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
@@ -43,18 +45,23 @@ export class OutreachServePhoneBankingController {
 
   // Office name + place are prompt enrichment only, same as
   // outreachServeSocial.controller's buildServeContext — an election-api
-  // failure must not fail the draft.
+  // failure must not fail the draft. The Public Profile lookup is a local
+  // DB read (never campaign tables — the serve/win isolation invariant), so
+  // it runs outside this try/catch and propagates a real failure instead of
+  // degrading silently.
   private async buildServeContext(
-    organizationSlug: string,
+    electedOffice: ElectedOffice,
   ): Promise<{ office: string; context: string[] }> {
     let office = ''
     const context: string[] = []
     try {
       const [positionName, district] = await Promise.all([
         this.organizations.resolvePositionNameByOrganizationSlug(
-          organizationSlug,
+          electedOffice.organizationSlug,
         ),
-        this.organizations.getDistrictForOrgSlug(organizationSlug),
+        this.organizations.getDistrictForOrgSlug(
+          electedOffice.organizationSlug,
+        ),
       ])
       office = positionName ?? ''
       const city =
@@ -71,6 +78,9 @@ export class OutreachServePhoneBankingController {
         'office/place resolution failed for serve phone-banking compose',
       )
     }
+    context.push(
+      ...(await this.profileContext.buildProfileContext(electedOffice.userId)),
+    )
     return { office, context }
   }
 
@@ -82,9 +92,7 @@ export class OutreachServePhoneBankingController {
     @Body(new ZodValidationPipe(ServePhoneBankingScriptDraftRequestSchema))
     input: ServePhoneBankingScriptDraftRequest,
   ): Promise<PhoneBankingScriptDraftResponse> {
-    const { office, context } = await this.buildServeContext(
-      electedOffice.organizationSlug,
-    )
+    const { office, context } = await this.buildServeContext(electedOffice)
     return {
       draft: await this.generationService.generateDraft(
         input,
