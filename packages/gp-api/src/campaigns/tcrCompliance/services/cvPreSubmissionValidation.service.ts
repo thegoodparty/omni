@@ -5,11 +5,11 @@ import { promisify } from 'node:util'
 import { Injectable } from '@nestjs/common'
 import axios from 'axios'
 import { MimeTypes } from 'http-constants-ts'
-import { PDFParse } from 'pdf-parse'
 import { PinoLogger } from 'nestjs-pino'
 import sanitizeHtml from 'sanitize-html'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
+import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
 import {
   isPublicAddress,
   ssrfSafeLookup,
@@ -400,10 +400,9 @@ export class CvPreSubmissionValidationService {
   }
 
   private async extractPdfText(body: Buffer): Promise<string> {
-    const parser = new PDFParse({ data: new Uint8Array(body) })
     try {
-      const result = await parser.getText()
-      return (result.text ?? '').trim()
+      const { text } = await parsePdfText(new Uint8Array(body))
+      return text
     } catch (err) {
       // A corrupt/unparseable PDF is unreadable, not a fetch failure — fall
       // through to the same near-empty-text handling a scanned image gets,
@@ -413,8 +412,6 @@ export class CvPreSubmissionValidationService {
         '[CV pre-submission] PDF text extraction failed; treating as unreadable',
       )
       return ''
-    } finally {
-      await parser.destroy()
     }
   }
 
