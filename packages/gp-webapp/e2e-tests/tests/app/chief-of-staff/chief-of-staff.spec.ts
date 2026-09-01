@@ -1,25 +1,19 @@
 import { expect, test } from '@playwright/test'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 
-// The Chief of Staff route is gated by the `chief-of-staff` + `serve-access`
-// Amplitude flags (FeatureFlagGuard redirects to /dashboard when off); force
-// both on via the override cookie in beforeEach so a preview reaches the route.
+// The Chief of Staff route is gated by the server `serveAccess()` helper
+// (redirects to /dashboard when the user has no elected office) — no feature
+// flag; `setupElectedOfficeUser` satisfies the gate.
 // The chat test drives the real Anthropic-backed agent, but that's an OUTBOUND
 // call the preview's own gp-api makes (it runs on the dev secret) — not an
 // inbound pipeline a preview can't receive — so this runs on PRs.
 test.describe('Chief of Staff', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    // Force the gating flags on before the per-test auth navigation.
-    await setFlagOverrides(page, {
-      'chief-of-staff': 'on',
-      'serve-access': 'on',
-    })
   })
 
   test('renders the dashboard for an elected office', async ({ page }) => {
@@ -30,8 +24,8 @@ test.describe('Chief of Staff', () => {
     })
     await NavigationHelper.dismissOverlays(page)
 
-    // The flag guard redirects to /dashboard when the route is gated off, so
-    // staying on the route is itself the access assertion.
+    // serveAccess() redirects to /dashboard when the user has no elected
+    // office, so staying on the route is itself the access assertion.
     await expect(page).toHaveURL(/\/dashboard\/chief-of-staff/, {
       timeout: 15_000,
     })

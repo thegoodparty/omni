@@ -9,6 +9,7 @@ import {
 } from '@/authentication/interfaces/auth-provider.interface'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { M2M_TOKEN_PREFIX } from '@/vendors/clerk/clerk.consts'
+import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 
 const {
   CLERK_SECRET_KEY,
@@ -91,10 +92,12 @@ export class ClerkAuthService implements AuthProvider {
       }
     }
 
-    const payload = await verifyToken(token, {
-      secretKey: CLERK_SECRET_KEY,
-      authorizedParties,
-    }).catch(() => {
+    const payload = await clerkCall('verifyToken', {}, () =>
+      verifyToken(token, {
+        secretKey: CLERK_SECRET_KEY,
+        authorizedParties,
+      }),
+    ).catch(() => {
       throw new UnauthorizedException('Session token verification failed')
     })
 
@@ -111,10 +114,12 @@ export class ClerkAuthService implements AuthProvider {
 
   async verifyM2MToken(token: string): Promise<VerifiedM2MToken> {
     try {
-      const { id, subject } = await this.clerkClient.m2m.verify({
-        token,
-        machineSecretKey: GP_API_MACHINE_SECRET,
-      })
+      const { id, subject } = await clerkCall('m2m.verify', {}, () =>
+        this.clerkClient.m2m.verify({
+          token,
+          machineSecretKey: GP_API_MACHINE_SECRET,
+        }),
+      )
       return { id, subject }
     } catch (err) {
       // Never log the token or machine secret; pass the raw error so pino
@@ -135,7 +140,11 @@ export class ClerkAuthService implements AuthProvider {
     avatarUrl?: string
   } | null> {
     try {
-      const clerkUser = await this.clerkClient.users.getUser(externalUserId)
+      const clerkUser = await clerkCall(
+        'users.getUser',
+        { 'clerk.user_id': externalUserId },
+        () => this.clerkClient.users.getUser(externalUserId),
+      )
       const email =
         clerkUser.primaryEmailAddress?.emailAddress ??
         clerkUser.emailAddresses?.[0]?.emailAddress

@@ -75,6 +75,17 @@ const voterDensityDuration = meter.createHistogram(
   },
 )
 
+// person_profile_voter_density_compare_count_total{result=...}
+// Temporary: exists only for the people-db -> election-db migration window and
+// is removed with the people-db leg.
+const voterDensityCompareCounter = meter.createCounter(
+  'person_profile.voter_density_compare.count',
+  {
+    description:
+      'Agreement between the people-db and election-api voter-density sources by outcome',
+  },
+)
+
 /**
  * Render-gate outcome for a public profile fetch. `unpublished` used to be
  * folded into `not_found`, which hid how often an owner's draft was being
@@ -123,6 +134,31 @@ export type ClaimRequestCrmSyncResult =
  *  - error:       upstream (election-api / people-api) failure
  */
 export type VoterDensityResult = 'live' | 'empty' | 'no_district' | 'error'
+
+/**
+ * Agreement between the two voter-density sources while the serving tables move
+ * from people-db into election-db:
+ *  - match:             both sides returned the same coverage and the same cells
+ *  - cell_mismatch:     the cells differ in count, position, or voter count
+ *  - coverage_mismatch: the cells agree but the coverage does not
+ *  - only_legacy:       people-db has cells, election-api has none
+ *  - only_new:          election-api has cells, people-db has none
+ *  - error:             the shadow read threw, so there was nothing to compare
+ *
+ * `only_legacy` is the one that gates the cutover. During the window it is the
+ * expected majority — it just means the data platform has not published that
+ * district to election-db yet — so it must fall to zero before the flip, and it
+ * is also exactly what an id-derivation mistake would look like. Separating it
+ * from `cell_mismatch` is the whole point: "not loaded yet" and "loaded, and
+ * wrong" need different responses and would otherwise be one number.
+ */
+export type VoterDensityCompareResult =
+  | 'match'
+  | 'cell_mismatch'
+  | 'coverage_mismatch'
+  | 'only_legacy'
+  | 'only_new'
+  | 'error'
 
 /**
  * Outcome of re-resolving one already-linked user against election-api:
@@ -208,5 +244,16 @@ export function recordVoterDensityRequest(
     voterDensityDuration.record(durationMs, attrs)
   } catch (error) {
     logger.error('Failed to record voter density request metric', error)
+  }
+}
+
+export function recordVoterDensityCompare(
+  result: VoterDensityCompareResult,
+): void {
+  if (!isOtelEnabled()) return
+  try {
+    voterDensityCompareCounter.add(1, { result, environment: environment() })
+  } catch (error) {
+    logger.error('Failed to record voter density compare metric', error)
   }
 }

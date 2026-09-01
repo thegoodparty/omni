@@ -44,7 +44,7 @@ export class UserAvatarService {
       }
 
       const contentType =
-        (resp.headers.get('content-type') ?? '').split(';')[0] ?? ''
+        (resp.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
       const extension = EXTENSIONS[contentType]
       if (!extension) {
         this.logger.warn(
@@ -60,14 +60,38 @@ export class UserAvatarService {
         return null
       }
 
-      const body = Buffer.from(await resp.arrayBuffer())
-      if (body.byteLength > MAX_AVATAR_BYTES) {
-        this.logger.warn(
-          { userId, bytes: body.byteLength },
-          'Avatar body exceeded the size cap',
-        )
+      if (!resp.body) {
+        this.logger.warn({ userId }, 'Avatar source returned no body')
         return null
       }
+
+      // The content-length check above is only a cheap pre-filter: chunked and
+      // redirected CDN responses routinely omit the header, and this runs in
+      // the API process on the provisioning path, so an unbounded
+      // arrayBuffer() would let a hostile or broken source decide our heap
+      // usage. Read incrementally and abandon the response the moment it
+      // crosses the cap.
+      // Annotated because the ambient Response types body as
+      // ReadableStream<any>, which would make every read() result untyped.
+      const reader: ReadableStreamDefaultReader<Uint8Array> =
+        resp.body.getReader()
+      const chunks: Buffer[] = []
+      let total = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > MAX_AVATAR_BYTES) {
+          await reader.cancel()
+          this.logger.warn(
+            { userId, bytes: total },
+            'Avatar body exceeded the size cap',
+          )
+          return null
+        }
+        chunks.push(Buffer.from(value))
+      }
+      const body = Buffer.concat(chunks)
 
       const key = this.s3.buildKey(`uploads/${userId}`, `avatar.${extension}`)
       return await this.s3.uploadFile(ASSET_DOMAIN, body, key, {

@@ -72,14 +72,12 @@ const LOGO_FIELDNAME = 'logoFile'
 const HERO_FIELDNAME = 'heroFile'
 // Public endpoints: do NOT select campaign.details — it carries the campaign's
 // EIN, filing, and subscription data, which must never reach an anonymous
-// caller. clerkId is selected only so the user can be enriched from Clerk; the
-// PublicWebsiteResponseSchema strips it from the serialized response.
+// caller.
 const WEBSITE_CONTENT_INCLUDES = {
   campaign: {
     select: {
       user: {
         select: {
-          clerkId: true,
           firstName: true,
           lastName: true,
         },

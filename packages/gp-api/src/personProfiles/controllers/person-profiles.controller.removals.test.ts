@@ -37,6 +37,7 @@ describe('PersonProfilesController removals', () => {
     listRemovals: ReturnType<typeof vi.fn>
   }
   let revalidation: { revalidatePerson: ReturnType<typeof vi.fn> }
+  let personLookup: { resolveIdentities: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     profiles = {
@@ -45,13 +46,14 @@ describe('PersonProfilesController removals', () => {
       listRemovals: vi.fn().mockResolvedValue([]),
     }
     revalidation = { revalidatePerson: vi.fn() }
+    personLookup = { resolveIdentities: vi.fn().mockResolvedValue(new Map()) }
     controller = new PersonProfilesController(
       profiles as unknown as PersonProfilesService,
       revalidation as unknown as MarketingRevalidationService,
       {} as unknown as S3Service,
       {} as unknown as PersonIdBackfillService,
       {} as unknown as UsersService,
-      {} as unknown as PersonLookupService,
+      personLookup as unknown as PersonLookupService,
     )
   })
 

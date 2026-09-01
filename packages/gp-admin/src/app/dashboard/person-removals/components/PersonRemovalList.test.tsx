@@ -8,11 +8,14 @@ vi.mock('./RestoreProfileButton', () => ({
 }))
 
 const PERSON_ID = '22222222-2222-2222-2222-222222222222'
+const PROFILE_URL = 'https://goodparty.org/people/jordan-reyes-22222222'
 
 const removal = (
   overrides: Partial<PersonProfileRemoval> = {}
 ): PersonProfileRemoval => ({
   personId: PERSON_ID,
+  fullName: 'Jordan Reyes',
+  profileUrl: PROFILE_URL,
   note: 'CA privacy request',
   requestedAt: '2026-08-01T00:00:00.000Z',
   appliedBy: 'ops@goodparty.org',
@@ -36,6 +39,30 @@ describe('PersonRemovalList', () => {
     expect(screen.getByText('ops@goodparty.org')).toBeInTheDocument()
     expect(screen.getByText('CA privacy request')).toBeInTheDocument()
     expect(screen.getByText(PERSON_ID)).toBeInTheDocument()
+  })
+
+  it('names the person and links their public page', () => {
+    // A UUID alone tells the operator nothing about whose page is down, and
+    // gives them no way to check that the takedown did what was asked.
+    render(<PersonRemovalList removals={[removal()]} />)
+
+    expect(screen.getByText('Jordan Reyes')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: PROFILE_URL })).toHaveAttribute(
+      'href',
+      PROFILE_URL
+    )
+  })
+
+  it('falls back to the personId when the identity did not resolve', () => {
+    render(
+      <PersonRemovalList
+        removals={[removal({ fullName: null, profileUrl: null })]}
+      />
+    )
+
+    expect(screen.getByText('Name unavailable')).toBeInTheDocument()
+    expect(screen.getByText(PERSON_ID)).toBeInTheDocument()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('offers Undo on an active takedown', () => {

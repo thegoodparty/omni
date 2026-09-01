@@ -872,6 +872,7 @@ describe('phone banking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.data.purpose).toBe('introduce')
+      expect(res.data.isServe).toBe(false)
       expect(res.data.entries).toHaveLength(2)
       const seqs = res.data.entries.map((entry: { seq: number }) => entry.seq)
       expect(seqs).toEqual([...seqs].sort((a: number, b: number) => a - b))

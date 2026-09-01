@@ -125,22 +125,22 @@ whose shape fails the read DTO would slip through. Added
 Uses a future meeting date so the cards stay in the `active` bucket regardless
 of when the suite runs. Both tests pass; lint + prettier clean.
 
-## Layer 2: deployed e2e (against dev), marked `@dev-only`
+## Layer 2: deployed e2e
 
-These run against a deployed environment, depend on live feature flags and the
-real model, and are nondeterministic, so they are tagged `@dev-only` and are
-grepped out of per-PR runs (they run on the post-merge `main` run and on
-demand). See the `@dev-only` convention in `e2e-tests/CLAUDE.md`.
+These run against a deployed environment (per-PR previews and dev). The chat
+test drives the real model, but that is an OUTBOUND call the preview's own
+gp-api makes, so the suite runs on PRs — nothing here meets the `@dev-only`
+bar (see the convention in `e2e-tests/CLAUDE.md`).
 
-### gp-webapp e2e: CoS page + chat (`@dev-only`) — BUILT
+### gp-webapp e2e: CoS page + chat — BUILT
 
 `packages/gp-webapp/e2e-tests/tests/app/chief-of-staff/chief-of-staff.spec.ts`,
-using the existing `setupElectedOfficeUser` helper. The describe is tagged
-`@dev-only` (flag-gated route + real model round-trip).
+using the existing `setupElectedOfficeUser` helper.
 
 1. `renders the dashboard for an elected office` — `goto('/dashboard/chief-of-staff')`,
-   assert the URL stays on the route (the `FeatureFlagGuard` redirects to
-   `/dashboard` when the flag is off, so staying is the access assertion) and
+   assert the URL stays on the route (the server `serveAccess()` gate redirects
+   to `/dashboard` when the user has no elected office, so staying is the
+   access assertion) and
    the heading "Your prioritized tasks this week" is visible. NOTE: the
    SupportHero ("Likely supporters") is currently hidden in `DashboardContent`
    (data coverage too sparse), so the tasks heading is the stable anchor, not
@@ -152,9 +152,9 @@ using the existing `setupElectedOfficeUser` helper. The describe is tagged
    grows well beyond the prompt (a substantive streamed reply) — tolerant of
    model nondeterminism, no exact-text match.
 
-Not yet executed against a live env (needs `BASE_URL`, `CLERK_SECRET_KEY`, and
-the dev flag enabled for the test cohort). Verified: e2e typecheck, eslint,
-prettier, and selectors checked against the actual components.
+Not yet executed against a live env (needs `BASE_URL` and `CLERK_SECRET_KEY`).
+Verified: e2e typecheck, eslint, prettier, and selectors checked against the
+actual components.
 
 ### gp-api e2e: CoS chat flow — DEFERRED (redundant + blocked on EO bootstrap)
 
@@ -180,14 +180,14 @@ it moves to the Archive sub-view at `/dashboard/chief-of-staff/archive`. Not
 built yet (needs a generated card present, which depends on the dev briefing
 pipeline having run for the test office).
 
-## Feature-flag dependency (UI layer)
+## Access gating (UI layer)
 
-The page is gated by the Amplitude `chief-of-staff` flag plus `serve-access`
-plus an elected office. e2e tests do not flip Amplitude flags. So the UI spec
-only passes where those flags are enabled for the `@test.goodparty.org` cohort
-in the dev Amplitude environment. One ops action is required: confirm the test
-cohort is in the dev audience for `chief-of-staff` and `serve-access`. This is
-why the UI spec is `@dev-only`.
+The page is gated server-side by the `serveAccess()` helper
+(`app/dashboard/shared/serveAccess.ts`): the current user must belong to an
+elected-office organization, or the request is redirected away. There is no
+feature flag on this route. `setupElectedOfficeUser` provisions exactly that
+state, so the spec is deterministic in any environment — no Amplitude
+configuration or ops action is involved.
 
 ## Dev / CI model cost (chat)
 
@@ -198,10 +198,10 @@ runs already use Sonnet, not Opus.
 Cost is mostly controlled by test placement, not by the model:
 
 - Integration tests (Layer 1) do not call a real model. Zero cost.
-- The real-LLM chat specs are `@dev-only`, so they are excluded from per-PR CI
-  and only run on the post-merge `main` run. So PR CI cost is zero.
+- The real-LLM chat specs run once per suite run (per-PR, post-merge, local),
+  each a single short conversation on Sonnet.
 
-If we still want to cut the post-merge and local cost, the lever is to pin
+If we still want to cut the CI and local cost, the lever is to pin
 dev/CI to a cheaper Claude model (Haiku 4.5). Constraints and trade-offs:
 
 - The scope is sensitive (`isSensitive = true`) and fails closed unless every
@@ -215,10 +215,9 @@ dev/CI to a cheaper Claude model (Haiku 4.5). Constraints and trade-offs:
   assertion can get flaky for reasons unrelated to the code under test. If that
   happens, keep Sonnet as the dev default.
 
-Recommendation: rely on `@dev-only` placement as the primary cost control (it
-already takes per-PR cost to zero). Consider a non-prod Haiku override only if
-the post-merge or local cost proves material, and watch tool-use reliability if
-we do.
+Recommendation: the cost of one short Sonnet conversation per run is small;
+consider a non-prod Haiku override only if the CI or local cost proves
+material, and watch tool-use reliability if we do.
 
 ## Deliverables and status
 
@@ -227,13 +226,12 @@ we do.
       onboarding, priorities, chat controller). Added the generation->read
       bridge: `src/dashboardCards/tests/cardsFromBriefing.test.ts` (passing,
       lint clean).
-- [x] gp-webapp e2e: `tests/app/chief-of-staff/chief-of-staff.spec.ts`
-      (`@dev-only`) — page render; onboarding-card load -> Skip -> verify it
-      lands in the Archive "Skipped" list; chat stream. All three PASS against
-      live dev (also confirms `chief-of-staff` + `serve-access` are on for the
-      dev test cohort, and the chat works against the real model). Note: the
-      Archive filter is a Radix single-toggle (role="radio"); target its
-      `data-value`, not a button role. The real-LLM chat test can need a retry.
+- [x] gp-webapp e2e: `tests/app/chief-of-staff/chief-of-staff.spec.ts` — page
+      render; onboarding-card load -> Skip -> verify it lands in the Archive
+      "Skipped" list; chat stream. All three PASS against live dev (the chat
+      works against the real model). Note: the Archive filter is a Radix
+      single-toggle (role="radio"); target its `data-value`, not a button
+      role. The real-LLM chat test can need a retry.
 - [x] Archive sub-view (`/dashboard/chief-of-staff/archive`) — covered for a
       skipped onboarding card (the Skipped bucket includes skipped onboarding
       cards, so no briefing is needed).
@@ -246,9 +244,6 @@ we do.
       pipeline).
 - [ ] gp-api e2e CoS chat spec — deferred (redundant with the UI chat test +
       blocked on an EO-over-API bootstrap). See the deferred section above.
-- [x] Ops: test cohort is in the dev Amplitude audience for `chief-of-staff` and
-      `serve-access` — confirmed by the live run (page rendered, no redirect).
 
 Definition of done: `npm run verify` green for the gp-api integration tests
-(the bridge test passes); the `@dev-only` gp-webapp spec verified on the
-post-merge main run once the dev flag audience is confirmed.
+(the bridge test passes); the gp-webapp spec green on the per-PR `E2E` check.

@@ -211,6 +211,20 @@ const ELECTION_DATE_DISAMBIGUATION_RULE =
   'and a general), ground the call in whichever one is the next ' +
   'upcoming election — never combine or confuse the two.'
 
+// ENG-10970: the dialogue-format purpose copy (ENG-10990) runs longer than
+// the old prose scripts, and a purpose like "persuade" now regularly
+// crosses PHONE_BANKING_SCRIPT_MAX_LENGTH. State an explicit budget with
+// headroom below the wire cap so the model stops itself on a clean
+// dialogue turn instead of relying on trimDraftToDialogueBoundary's
+// safety-net cut. Shared by Win and Serve — both surfaces use the same
+// You:/Voter: dialogue format and wire cap.
+const SCRIPT_LENGTH_BUDGET_HEADROOM = 200
+const SCRIPT_LENGTH_RULE =
+  'Keep the entire script under ' +
+  `${PHONE_BANKING_SCRIPT_MAX_LENGTH - SCRIPT_LENGTH_BUDGET_HEADROOM} ` +
+  'characters total, across every You:/Voter: line combined, and end on ' +
+  'a complete dialogue turn — never stop mid-sentence or mid-word.'
+
 // ENG-10936: instructions personalize the draft but never outrank the
 // grounding/compliance/token rules above — named explicitly so the model
 // treats them as a floor the candidate's ask cannot punch through.
@@ -233,6 +247,7 @@ const DRAFT_SYSTEM_PROMPT = [
   '  materials, stay issue-neutral.',
   '- Follow the purpose instructions given below for this call,',
   '  including their You:/Voter: dialogue format and closing.',
+  `- ${SCRIPT_LENGTH_RULE}`,
   `- ${COMPLIANCE_BAN_RULE}`,
   `- ${NO_PLACEHOLDER_BRACKETS_RULE}`,
   `- ${ELECTION_DATE_DISAMBIGUATION_RULE}`,
@@ -413,6 +428,7 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '  materials, stay general.',
   '- Follow the purpose instructions given below for this call,',
   '  including their You:/Voter: dialogue format and closing.',
+  `- ${SCRIPT_LENGTH_RULE}`,
   `- ${SERVE_COMPLIANCE_BAN_RULE}`,
   `- ${SERVE_NO_PLACEHOLDER_BRACKETS_RULE}`,
   `- ${SERVE_INSTRUCTIONS_PRIORITY_RULE}`,
@@ -509,6 +525,31 @@ const buildPreviousDraftBlock = <TPurpose extends string>(
     'different sentence rhythm, and different supporting details from ' +
     `the ${voice.materialsLabel}. Do not reuse its distinctive phrases.`,
 ]
+
+// Safety net for a result that lands over PHONE_BANKING_SCRIPT_MAX_LENGTH
+// despite the SCRIPT_LENGTH_RULE budget above (see the no-max() comment on
+// DraftSchema for why this can't be a Zod validation instead). A raw
+// `.slice()` cuts mid-word or mid-sentence — this cuts at the last complete
+// dialogue turn instead, falling back a step at a time when the draft
+// doesn't offer that boundary. Exported for unit testing.
+export const trimDraftToDialogueBoundary = (
+  draft: string,
+  maxLength: number,
+): string => {
+  if (draft.length <= maxLength) return draft
+
+  const truncated = draft.slice(0, maxLength)
+
+  const lastNewline = truncated.lastIndexOf('\n')
+  const atLine =
+    lastNewline > 0 ? truncated.slice(0, lastNewline).trimEnd() : ''
+  if (atLine.length > 0) return atLine
+
+  const atWord = truncated.replace(/\s+\S*$/, '').trimEnd()
+  if (atWord.length > 0) return atWord
+
+  return truncated
+}
 
 // Mirrors filingInstructions.util's formatFilingDate: these date strings
 // come from the same details/BR writers, so an unparseable value must not
@@ -619,7 +660,10 @@ export class OutreachPhoneBankingGenerationService {
         userId,
       })
       // Safety net for a slightly-over-limit result (see DraftSchema above).
-      return object.draft.slice(0, PHONE_BANKING_SCRIPT_MAX_LENGTH)
+      return trimDraftToDialogueBoundary(
+        object.draft,
+        PHONE_BANKING_SCRIPT_MAX_LENGTH,
+      )
     } catch (err) {
       this.logger.error({ err }, 'Phone banking script generation failed')
       throw new BadGatewayException('Phone banking script generation failed')

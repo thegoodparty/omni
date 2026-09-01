@@ -12,10 +12,23 @@ delegates to a `databricks/` service and logs the read.
 
 One read is the exception. `VoterDensityService` reads the precomputed H3
 heat-map table through a second, read-only Prisma client against people-db
-Postgres, because `mart_gp_api` holds no density table and this cannot move
-until the data platform publishes one. Everything below about connection
-handling, the client hot-swap and `createPeopleDbBase` exists for that one
-read.
+Postgres. Everything below about connection handling, the client hot-swap and
+`createPeopleDbBase` exists for that one read.
+
+**That read is being retired.** The density tables now also exist in
+election-db, beside the `District` they are keyed on, and
+`VoterDensityProxyService` reads both sources on every request and compares
+them (`person_profile_voter_density_compare_count_total`). Once that reads
+clean, `VOTER_DENSITY_SOURCE=election-api` makes election-api authoritative and
+this service — and with it the second Prisma client and everything below —
+comes out. The destination is election-db rather than `mart_gp_api`: the
+density rows join to `District`, and `District` lives in election-db. See
+`packages/election-api/docs/voter-density-election-db-handoff.md`.
+
+It shares the district-stats dual read's shape below — shadow arm never
+awaited, failures swallowed — but it is counted rather than logged, because
+this one has an end condition someone has to watch for (`only_legacy` reaching
+zero is the cutover gate) rather than a standing agreement to monitor.
 
 ## Every voter read emits one log line
 
@@ -60,20 +73,41 @@ old; the comparison is how we find out whether computing on demand agrees with
 it. Verified across district sizes from ~1k to 23.3M constituents: totals,
 cell-phone counts, and every bucket count match exactly.
 
-| field                   |                                                        |
-| ----------------------- | ------------------------------------------------------ |
-| `agrees`                | `true`/`false`, or `null` when the live scan failed    |
-| `liveMs`                | wall-clock ms for the live scan                        |
-| `martTotal`/`liveTotal` | the two totals, so a gap is visible without re-running |
-| `mismatchedDimensions`  | dimension names, only when they disagree               |
-| `statementIds`          | the live scan's statement ids                          |
+| field                   |                                                           |
+| ----------------------- | --------------------------------------------------------- |
+| `agrees`                | `true`/`false`, or `null` when the live scan failed       |
+| `martMs`                | wall-clock ms for the mirrored read that served the reply |
+| `liveMs`                | wall-clock ms for the live scan, slot wait excluded       |
+| `deltaMs`               | `liveMs - martMs`; positive means the scan was slower     |
+| `queuedMs`              | ms spent waiting for one of the two live-scan slots       |
+| `martTotal`/`liveTotal` | the two totals, so a gap is visible without re-running    |
+| `mismatchedDimensions`  | dimension names, only when they disagree                  |
+| `statementIds`          | the live scan's statement ids                             |
+
+**Both latencies are on this one line on purpose.** Split across two lines --
+`dbxMs` on the `people-db voter read` line and `liveMs` here -- they can only be
+compared as marginal distributions over whichever requests each line happened to
+cover, which gives mismatched n and no way to pair them. `deltaMs` is the paired
+per-request difference and is the number to aggregate; a difference of two
+independent p95s is not. `queuedMs` is reported rather than folded into `liveMs`
+because the mirrored read is uncapped, so charging the live arm for waiting on a
+slot would make the two incomparable, while omitting it silently would flatter
+the live arm.
+
+`liveMs` does include resolving the district through election-api, which the
+mirrored read does not need because its table is keyed by district id. That
+resolution is memoized per process, so it is ~0 after the first call, and it is
+a genuine cost of computing on demand rather than a measurement artifact.
 
 Three properties the implementation depends on. The live scan is **never
 awaited** on the response path and its failures are swallowed into the log line,
 so it cannot slow or fail a request. Concurrent live scans are **capped at two**,
 because a statewide district scans tens of millions of rows for a number nobody
-is waiting on. And buckets are compared as label -> count maps rather than
-ordered arrays, so bucket order is not reported as a disagreement.
+is waiting on. And buckets are compared as label -> count maps with
+their labels sorted, so bucket order is not reported as a disagreement -- the
+comparison is a `JSON.stringify` equality, which is key-order sensitive, and the
+mirrored table returns buckets in arbitrary order while the live mapper sorts by
+descending count.
 
 `buildLiveDistrictStatsSql` is one statement over one scan: `GROUPING SETS`
 emits a row per bucket per dimension plus a grand-total row from the empty set,

@@ -257,14 +257,16 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const existingByClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
-    if (existingByClerkId) return existingByClerkId
+    if (existingByClerkId) {
+      return this.maybeIngestAvatar(existingByClerkId, data.avatarUrl)
+    }
 
     const existingByEmail = await this.findUserByEmail(data.email)
     if (existingByEmail) {
       // A concurrent provision of the same Clerk user may have created the
       // row between our two lookups — same clerkId is a match, not a rebind.
       if (existingByEmail.clerkId === data.clerkId) {
-        return existingByEmail
+        return this.maybeIngestAvatar(existingByEmail, data.avatarUrl)
       }
       if (existingByEmail.clerkId) {
         this.logger.warn(
@@ -277,7 +279,9 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         )
         return null
       }
-      return this.tryBindClerkId(existingByEmail.id, data.clerkId)
+      const bound = await this.tryBindClerkId(existingByEmail.id, data.clerkId)
+      if (!bound) return bound
+      return this.maybeIngestAvatar(bound, data.avatarUrl)
     }
 
     try {
@@ -291,24 +295,55 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         },
       })
       // Ingest after the insert, because the S3 key is scoped by user id.
-      const avatar = data.avatarUrl
-        ? await this.userAvatar.ingestFromUrl(user.id, data.avatarUrl)
-        : null
-      if (avatar) {
-        await this.model.update({ where: { id: user.id }, data: { avatar } })
-        user.avatar = avatar
-      }
+      const withAvatar = await this.maybeIngestAvatar(user, data.avatarUrl)
       this.logger.info(
         { userId: user.id, clerkId: data.clerkId },
         'Created new user from Clerk',
       )
-      return user
+      return withAvatar
     } catch (err) {
       if (isPrismaError(err, 'P2002')) {
         return this.resolveAfterP2002(data)
       }
       throw err
     }
+  }
+
+  // Every provisioning path funnels through here because they share one
+  // subtle invariant: the row may already hold a picture the user uploaded
+  // themselves via POST /v1/users/me/upload-image, and a Clerk-hosted image
+  // must never overwrite it. Two traps this centralises — read the STORED
+  // avatar rather than trusting user.avatar, which can predate a self-upload
+  // that landed after the caller loaded the row; and treat '' as empty, which
+  // is what most legacy rows hold.
+  //
+  // Safe to call from the every-sign-in fast path: Clerk reports no image for
+  // the vast majority of users, so avatarUrl is undefined and this returns
+  // before issuing any query. That is what lets a picture added to Clerk
+  // after the backfill ran still land, without a perpetual re-run.
+  private async maybeIngestAvatar(
+    user: User,
+    avatarUrl: string | undefined,
+  ): Promise<User> {
+    if (!avatarUrl) return user
+
+    const stored = await this.model.findUnique({
+      where: { id: user.id },
+      select: { avatar: true },
+    })
+    if (stored?.avatar) return user
+
+    const avatar = await this.userAvatar.ingestFromUrl(user.id, avatarUrl)
+    if (!avatar) return user
+
+    // Filtered on "still empty" so a self-upload that landed between the read
+    // above and here still wins.
+    const written = await this.model.updateMany({
+      where: { id: user.id, OR: [{ avatar: null }, { avatar: '' }] },
+      data: { avatar },
+    })
+    if (written.count > 0) user.avatar = avatar
+    return user
   }
 
   private async tryBindClerkId(
@@ -338,6 +373,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   private async resolveAfterP2002(data: {
     clerkId: string
     email: string
+    avatarUrl?: string
   }): Promise<User | null> {
     this.logger.debug(
       { clerkId: data.clerkId },
@@ -346,7 +382,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const byClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
-    if (byClerkId) return byClerkId
+    if (byClerkId) return this.maybeIngestAvatar(byClerkId, data.avatarUrl)
 
     const byEmail = await this.findUserByEmail(data.email)
     if (!byEmail) {
@@ -368,9 +404,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       return null
     }
     if (!byEmail.clerkId) {
-      return this.tryBindClerkId(byEmail.id, data.clerkId)
+      const bound = await this.tryBindClerkId(byEmail.id, data.clerkId)
+      if (!bound) return bound
+      return this.maybeIngestAvatar(bound, data.avatarUrl)
     }
-    return byEmail
+    return this.maybeIngestAvatar(byEmail, data.avatarUrl)
   }
 
   async updateUser(where: Prisma.UserWhereUniqueInput, data: Partial<User>) {

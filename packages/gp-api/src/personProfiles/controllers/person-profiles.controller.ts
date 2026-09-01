@@ -322,9 +322,17 @@ export class PersonProfilesController {
   async listRemovals(
     @Query() query: ListPersonProfileRemovalsDto,
   ): Promise<PersonProfileRemovalList> {
-    return this.personProfilesService.listRemovals({
+    const removals = await this.personProfilesService.listRemovals({
       includeCleared: query.includeCleared ?? false,
     })
+    const identities = await this.personLookup.resolveIdentities(
+      removals.map((removal) => removal.personId),
+    )
+    return removals.map((removal) => ({
+      ...removal,
+      fullName: identities.get(removal.personId)?.fullName ?? null,
+      profileUrl: identities.get(removal.personId)?.profileUrl ?? null,
+    }))
   }
 
   // Resolves the public URL a privacy request actually names into the personId
