@@ -9,6 +9,11 @@ enum PhoneBankingPurpose {
   vote_early
   election_day
   custom
+  // Serve-only purposes (ENG-10985): explain-decision / community-input /
+  // share-resource in contracts' kebab-case vocabulary.
+  explain_decision
+  community_input
+  share_resource
 }
 
 model PhoneBankingList {

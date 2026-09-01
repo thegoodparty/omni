@@ -19,6 +19,8 @@ import {
   RecordPhoneBankingCall,
   RecordPhoneBankingCallResponseSchema,
   RecordPhoneBankingCallSchema,
+  ServePhoneBankingCreate,
+  ServePhoneBankingCreateSchema,
 } from '@goodparty_org/contracts'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
@@ -26,9 +28,16 @@ import { UseOrganization } from '@/organizations/decorators/UseOrganization.deco
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
+import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
+import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { Campaign, Organization, User } from '../generated/prisma'
+import {
+  Campaign,
+  ElectedOffice,
+  Organization,
+  User,
+} from '../generated/prisma'
 import { PhoneBankingCallService } from './services/phoneBankingCall.service'
 import { PhoneBankingListService } from './services/phoneBankingList.service'
 
@@ -55,7 +64,37 @@ export class PhoneBankingController {
     input: PhoneBankingCreate,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.listService.create(organization, campaign, input)
+    return this.listService.create(
+      organization,
+      campaign && {
+        campaignId: campaign.id,
+        organizationSlug: campaign.organizationSlug,
+      },
+      input,
+    )
+  }
+
+  // Serve counterpart: @UseElectedOffice() re-derives the surface from the
+  // org's own ElectedOffice row (never trusting the client), same as
+  // OutreachServeSocialController. The scope is always { campaignId: null,
+  // organizationSlug } — never derived from whether this org also happens to
+  // hold a Campaign (the Win/Serve isolation invariant, ENG-10976).
+  @Post('serve/lists')
+  @UseElectedOffice()
+  @UseOrganization()
+  @ResponseSchema(PhoneBankingCreateResponseSchema)
+  async createServe(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(ServePhoneBankingCreateSchema))
+    input: ServePhoneBankingCreate,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.listService.create(
+      organization,
+      { campaignId: null, organizationSlug: electedOffice.organizationSlug },
+      input,
+    )
   }
 
   @Get('lists/:id')

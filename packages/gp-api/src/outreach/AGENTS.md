@@ -430,7 +430,14 @@ sweep. Ops: the Stripe webhook endpoint must subscribe to `payment_method.attach
   the save call, so a failed generate has a blast radius of one request.
   Phone banking draft is stateless the same way and has no save call at
   all — the create flow freezes the chosen script onto the phone-banking
-  list itself, not onto an `Outreach` row.
+  list itself, not onto an `Outreach` row. `POST /v1/phone-banking/serve/lists`
+  (`src/phoneBanking/`, ENG-10985) is the Serve counterpart of
+  `POST /v1/phone-banking/lists`, gated by `@UseElectedOffice()`: both routes
+  call the same `PhoneBankingListService.create`, differing only in the scope
+  they pass (`{ campaignId: null, organizationSlug }` for Serve) — the
+  controller derives the scope from which route was called, never from
+  whether the org happens to have a `Campaign` row, so a dual-role org keeps
+  Win and Serve lists isolated the same way social does.
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.
 - `nativePhoneBanking` and `nativeDoorKnocking` envelopes are never touched
