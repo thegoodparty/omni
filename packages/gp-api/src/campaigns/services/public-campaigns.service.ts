@@ -115,7 +115,7 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
   >(campaign: T): Omit<T, 'user'> & { avatar: string | null } {
     const { user, ...rest } = campaign
 
-    return { ...rest, avatar: user?.avatar ?? null }
+    return { ...rest, avatar: user?.avatar?.trim() || null }
   }
 
   private normalizeToTokens(value: string): string[] {

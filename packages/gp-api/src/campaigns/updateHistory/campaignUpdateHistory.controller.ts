@@ -64,7 +64,7 @@ export class CampaignUpdateHistoryController {
       ...update,
       user: {
         name: getUserFullName(user),
-        avatar: update?.user?.avatar,
+        avatar: update?.user?.avatar?.trim() || null,
       },
     }))
   }

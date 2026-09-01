@@ -71,4 +71,29 @@ describe('GET /v1/campaigns/mine/update-history', () => {
 
     expect(result.status).toBe(404)
   })
+
+  it('nulls an empty-string avatar rather than passing it through', async () => {
+    const campaign = await seedCampaign(
+      'campaign-4',
+      { electionDate: '2099-11-03' },
+      null,
+    )
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { avatar: '' },
+    })
+    await service.prisma.campaignUpdateHistory.create({
+      data: {
+        campaignId: campaign.id,
+        userId: service.user.id,
+        type: 'calls',
+        quantity: 1,
+      },
+    })
+
+    const result = await service.client.get('/v1/campaigns/mine/update-history')
+
+    expect(result.status).toBe(200)
+    expect(result.data[0].user.avatar).toBeNull()
+  })
 })
