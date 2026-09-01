@@ -92,6 +92,7 @@ const orgs: Organization[] = [
 ]
 
 beforeEach(() => {
+  testQueryClient.clear()
   mockSetCookie.mockClear()
   mockGetCookie.mockReset().mockReturnValue(false)
   mockRouterPush.mockClear()
