@@ -5,6 +5,8 @@ import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type {
+  ServePhoneBankingCreate,
+  ServePhoneBankingScriptDraftRequest,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   SocialAsset,
@@ -58,6 +60,42 @@ vi.mock('helpers/useSnackbar', () => ({
     errorSnackbar: vi.fn(),
   }),
 }))
+
+// The phone banking flow's audience builder (useListWizardCount) reads the
+// active org slug — same precedent as PhoneBankingFlow.test.tsx.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'eo-test-org' }),
+}))
+
+// The phone banking flow's audience step calls these on mount/interaction
+// regardless of which test exercises it — mocked at module scope, same as
+// PhoneBankingFlow.test.tsx's beforeEach, so every test in this file that
+// opens the phone banking flow gets a working audience step for free.
+const mockPhoneBankingAudience = () => {
+  api.mock('GET /v1/elected-office/current', {
+    status: 404,
+    data: { message: 'No elected office' },
+  })
+  api.mock('GET /v1/voters/voter-file/filters', {
+    status: 200,
+    data: [{ id: 3, name: 'Downtown constituents' }],
+  })
+  api.mock('POST /v1/contacts/count', { status: 200, data: { count: 42 } })
+  api.mock('GET /v1/contacts/list-detail', {
+    status: 200,
+    data: {
+      demographics: { people: 20, avgAge: null, avgIncome: null },
+      reachability: {
+        sms: null,
+        robocall: null,
+        phoneBanking: 10,
+        doorKnocking: null,
+        polls: null,
+      },
+      outreachHistory: [],
+    },
+  })
+}
 
 const assetFor = (platform: SocialAssetPlatform): SocialAsset => ({
   platform,
@@ -186,10 +224,10 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('opens the social flow (serve surface) when the enabled card is clicked, and the other two cards stay inert', async () => {
+  it('opens the social flow (serve surface) when the Social media card is clicked, and Door knocking stays inert', async () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
-    expect(screen.getByRole('button', { name: /Phone banking/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Door knocking/ })).toBeDisabled()
 
     await user.click(screen.getByText('Social media'))
@@ -199,6 +237,22 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(
       await screen.findByText('Explain a recent decision'),
     ).toBeInTheDocument()
+  })
+
+  it('opens the phone banking flow (serve surface) when the Phone banking card is clicked', async () => {
+    mockPhoneBankingAudience()
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    await user.click(screen.getByText('Phone banking'))
+
+    // "Write my own script" is phone banking's custom-purpose card copy;
+    // social's is "Write my own message" — proves the phone banking flow
+    // (not the social flow) mounted, on the serve surface (SERVE_PHONE_
+    // BANKING_SURFACE's Win-side equivalent has no "constituents" framing).
+    expect(
+      await screen.findByText('Introduce myself to constituents'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Write my own script')).toBeInTheDocument()
   })
 
   it('onSaved seeds the new row into history without a page reload', async () => {
@@ -300,5 +354,126 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     )
 
     expect(archiveBody).toEqual({ archived: true })
+  })
+
+  const serveCreateResponse = {
+    id: 5,
+    name: 'Introduction calls',
+    sheetCount: 1,
+    entryCount: 10,
+    personCount: 10,
+    outreachId: 88,
+    hasMore: false,
+  }
+
+  const mockServePhoneBankingDraft = () => {
+    const calls: ServePhoneBankingScriptDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/phone-banking/draft', ({ body }) => {
+      calls.push(body)
+      return { status: 200, data: { draft: `AI script for ${body.purpose}` } }
+    })
+    return calls
+  }
+
+  // Drives the serve phone banking flow purpose -> who -> script -> sheets,
+  // stopping right before the sheets step's Continue (the create call).
+  const advanceServePhoneBankingToSheets = async () => {
+    await user.click(screen.getByText('Phone banking'))
+    await user.click(
+      await screen.findByText('Introduce myself to constituents'),
+    )
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Downtown constituents'))
+    await user.click(
+      await screen.findByRole('button', { name: /Continue \(10\)/ }),
+    )
+    await screen.findAllByText('Write your call script')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+  }
+
+  it('onSaved seeds the new phone banking row into history without a page reload', async () => {
+    mockPhoneBankingAudience()
+    mockServePhoneBankingDraft()
+    const createCalls: ServePhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/serve/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: serveCreateResponse }
+    })
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    await advanceServePhoneBankingToSheets()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      (await screen.findAllByText('Your call sheet is ready')).length,
+    ).toBeGreaterThan(0)
+    expect(createCalls).toHaveLength(1)
+
+    // Seeded via state (handlePhoneBankingSaved), not a list refetch — found
+    // even while the flow sheet still occupies the accessibility tree. Both
+    // the desktop table and the mobile card list render it.
+    expect(await screen.findAllByText('Introduction calls')).toHaveLength(2)
+  })
+
+  it('clicking a saved phone banking row opens the drawer against the serve detail route', async () => {
+    const savedPhoneBankingDetail = {
+      ...savedDetail,
+      id: 88,
+      outreachType: 'nativePhoneBanking' as const,
+      name: 'Introduction calls',
+      phoneBanking: {
+        listId: 5,
+        entriesTotal: 10,
+        entriesCalled: 4,
+        peopleTotal: 10,
+        peopleCalled: 4,
+        byOutcome: {
+          answered: 4,
+          no_answer: 0,
+          voicemail: 0,
+          wrong_number: 0,
+          refused: 0,
+          disconnected: 0,
+          hung_up: 0,
+        },
+        supporters: 2,
+        unsure: 1,
+        nonSupporters: 1,
+      },
+    }
+    let serveDetailCalls = 0
+    api.mock('GET /v1/outreach/serve/:id', ({ params }) => {
+      serveDetailCalls += 1
+      expect(params.id).toBe('88')
+      return { status: 200, data: savedPhoneBankingDetail }
+    })
+
+    const outreaches: HistoryRow[] = [
+      {
+        id: 88,
+        createdAt: '2026-08-30T00:00:00Z',
+        outreachType: 'nativePhoneBanking',
+        name: 'Introduction calls',
+        status: 'in_progress',
+      },
+    ]
+    render(<ConstituentOutreachPage outreaches={outreaches} />)
+
+    const table = within(desktopTable())
+    await user.click(table.getByText('Introduction calls'))
+
+    // Only the serve detail route is mocked — if the drawer called the Win
+    // route instead, this fetch would go unmocked and the query would error.
+    expect(await screen.findByText('4 of 10 reached')).toBeInTheDocument()
+    expect(serveDetailCalls).toBeGreaterThan(0)
+    expect(
+      screen.queryByText(/couldn't load this campaign's call progress/),
+    ).not.toBeInTheDocument()
   })
 })
