@@ -526,7 +526,8 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // pre-delivery states — do not re-void or re-email.
     if (claim.count === 0) return
 
-    // Surfaced for the ops-alert follow-up (this line is the alert hook).
+    // The `win-robocall-critical` alert pages win-bugs on this `CRITICAL
+    // robocall` line (deploy/components/alerts.ts).
     this.logger.error(
       { outreachId, reason },
       'CRITICAL robocall send_failed: permanent CallHub failure; hold voided',
