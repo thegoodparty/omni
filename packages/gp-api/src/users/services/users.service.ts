@@ -302,10 +302,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         data.avatarUrl,
       )
       if (avatar) {
-        // avatar: null in the filter so a self-upload that landed between the
-        // read above and here still wins.
+        // Filtering on "still empty" so a self-upload that landed between the
+        // read above and here still wins. Both NULL and '' mean no avatar.
         const written = await this.model.updateMany({
-          where: { id: bound.id, avatar: null },
+          where: { id: bound.id, OR: [{ avatar: null }, { avatar: '' }] },
           data: { avatar },
         })
         if (written.count > 0) bound.avatar = avatar

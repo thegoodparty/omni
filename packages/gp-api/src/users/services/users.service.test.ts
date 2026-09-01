@@ -1438,6 +1438,39 @@ describe('UsersService', () => {
       expect(after?.avatar).toBe('https://assets.test/uploads/7/avatar.png')
     })
 
+    it('persists the ingested avatar over an empty-string avatar', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/11/avatar.png')
+      const legacy = await service.prisma.user.create({
+        data: {
+          email: 'bind-blank-avatar@test.goodparty.org',
+          clerkId: null,
+          avatar: '',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_blank_avatar',
+        email: 'bind-blank-avatar@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(ingest).toHaveBeenCalledWith(
+        legacy.id,
+        'https://img.clerk.com/bind',
+      )
+      expect(result?.avatar).toBe('https://assets.test/uploads/11/avatar.png')
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.avatar).toBe('https://assets.test/uploads/11/avatar.png')
+    })
+
     it('keeps a self-uploaded avatar when binding a legacy unlinked user', async () => {
       const avatars = service.app.get(UserAvatarService)
       const ingest = vi
