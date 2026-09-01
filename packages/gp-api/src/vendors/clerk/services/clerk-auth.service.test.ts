@@ -236,6 +236,36 @@ describe('ClerkAuthService', () => {
 
       await expect(service.getUser('user_1')).resolves.toBeNull()
     })
+
+    it('returns the Clerk image url when the user has one', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        firstName: 'A',
+        lastName: 'B',
+        hasImage: true,
+        imageUrl: 'https://img.clerk.com/abc',
+      })
+
+      const result = await service.getUser('user_1')
+
+      expect(result?.avatarUrl).toBe('https://img.clerk.com/abc')
+    })
+
+    it('returns no image url when Clerk has no image', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        firstName: 'A',
+        lastName: 'B',
+        hasImage: false,
+        imageUrl: 'https://img.clerk.com/default',
+      })
+
+      const result = await service.getUser('user_1')
+
+      expect(result?.avatarUrl).toBeUndefined()
+    })
   })
 
   describe('Clerk API timeout', () => {

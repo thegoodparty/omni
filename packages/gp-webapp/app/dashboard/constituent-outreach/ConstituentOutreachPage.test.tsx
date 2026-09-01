@@ -15,8 +15,8 @@ import type {
 import ConstituentOutreachPage from './ConstituentOutreachPage'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 
-// Desktop history table, scoped so its "Door knocking" channel badge isn't
-// confused with the (also-rendered) Door knocking channel card above it.
+// Desktop history table, scoped so its content isn't confused with the
+// mobile card list (also in the DOM, hidden via CSS).
 const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
 vi.mock('@shared/experiments/FeatureFlagsProvider', async (importOriginal) => ({
@@ -225,11 +225,13 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('opens the social flow (serve surface) when the Social media card is clicked, and Door knocking stays inert', async () => {
+  it('opens the social flow (serve surface) when the Social media card is clicked, with no Door knocking card', async () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
     expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /Door knocking/ })).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: /Door knocking/ }),
+    ).not.toBeInTheDocument()
 
     await user.click(screen.getByText('Social media'))
 

@@ -3,11 +3,7 @@
 // ConstituentOutreachPage, which is already a Client Component — no new
 // entry into the 'use client' ratchet is needed for it.
 import { ChannelCard } from '@styleguide'
-import {
-  DoorOpenIcon,
-  HeadphonesIcon,
-  Share2Icon,
-} from '@styleguide/components/ui/icons'
+import { HeadphonesIcon, Share2Icon } from '@styleguide/components/ui/icons'
 
 interface ServeChannelDefinition {
   key: string
@@ -21,8 +17,8 @@ interface ServeChannelDefinition {
 // TaskFlow launches — and channelMeta is keyed on every OutreachType,
 // including channels Serve doesn't have yet). No subCopy: the candidate
 // grid's subCopy is per-message pricing, which doesn't apply here. Social and
-// phone banking are wired (ENG-10970); door knocking stays disabled pending
-// its own wiring ticket.
+// phone banking are wired (ENG-10970); door knocking is out until it gets
+// its own wiring ticket — no disabled placeholder card.
 const SERVE_CHANNELS: ServeChannelDefinition[] = [
   {
     key: 'socialMedia',
@@ -35,12 +31,6 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
     iconClassName: 'bg-destructive-light',
-  },
-  {
-    key: 'doorKnocking',
-    label: 'Door knocking',
-    icon: <DoorOpenIcon />,
-    iconClassName: 'bg-success-light',
   },
 ]
 
@@ -62,20 +52,18 @@ const ServeChannelCards = ({
         Reach your constituents through these channels.
       </p>
     </div>
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+    {/* Two cards, so two columns; max-w-md keeps each tile at the same
+        ~220px width the old 5-column xl grid gave, instead of stretching
+        them across the max-w-7xl page container. */}
+    <div className="grid max-w-md grid-cols-2 gap-3">
       {SERVE_CHANNELS.map((channel) => (
         <ChannelCard
           key={channel.key}
           icon={channel.icon}
           iconClassName={channel.iconClassName}
           label={channel.label}
-          disabled={channel.key === 'doorKnocking'}
           onClick={
-            channel.key === 'socialMedia'
-              ? onSocialClick
-              : channel.key === 'phoneBanking'
-                ? onPhoneBankingClick
-                : undefined
+            channel.key === 'socialMedia' ? onSocialClick : onPhoneBankingClick
           }
         />
       ))}

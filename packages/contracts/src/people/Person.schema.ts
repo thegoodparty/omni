@@ -11,10 +11,10 @@ import { VoterLikelihoodSchema } from './ContactStatus.schema'
 // existing importers (gp-api's contactInteraction.types.ts, this file's own
 // PersonSchema.supportStatus field) don't change. Single-sourced against the
 // shipped `SupportAnswer` enum (`supporter | unsure | non_supporter` storage):
-// `supporter` and `non_supporter` map 1:1, `unsure` and "no interaction
-// history at all" both roll up to `unknown`. gp-api's contactInteraction.types.ts
-// ties its SUPPORT_ANSWER_ROLLUP derivation to this schema's inferred type via
-// `satisfies`, so the two can't drift.
+// `supporter` and `non_supporter` map 1:1, `unsure` rolls up to `undecided`,
+// and `unknown` means no support answer was ever captured. gp-api's
+// contactInteraction.types.ts ties its SUPPORT_ANSWER_ROLLUP derivation to
+// this schema's inferred type via `satisfies`, so the two can't drift.
 export const SupportStatusRollupSchema = GeneratedSupportStatusRollupSchema
 
 export type SupportStatusRollup = GeneratedSupportStatusRollup

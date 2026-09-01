@@ -74,23 +74,27 @@ export const SUPPORT_STATUS_UNKNOWN: SupportStatusRollup = 'unknown'
 // `satisfies` clause pins every arm to contracts' SupportStatusRollup — the
 // same vocabulary the person-detail response serializes (ENG-10696) — so the
 // derivation can't silently drift from what the contract promises.
+// `unsure` is `undecided`, not `unknown`: a canvasser who got an answer
+// learned something, and collapsing that into the never-contacted bucket
+// hid it from every count and filter that reads this rollup.
 export const SUPPORT_ANSWER_ROLLUP = {
   [SupportAnswer.supporter]: 'supporter',
   [SupportAnswer.non_supporter]: 'non_supporter',
-  [SupportAnswer.unsure]: SUPPORT_STATUS_UNKNOWN,
+  [SupportAnswer.unsure]: 'undecided',
 } as const satisfies Record<SupportAnswer, SupportStatusRollup>
 
 // The subset of SupportStatusRollup that SupportStatusService can derive
-// from interaction rows. `undecided`/`refused` (ENG-10833) extend the shared
-// rollup vocabulary for manual overrides only — nothing derives them from
-// interaction history, so they're absent here. Shared by
-// filterDimensions.catalog.ts (the assistant's vocabulary, ENG-10837 now
-// advertises all five) and SupportStatusService.personIdsByEffectiveStatus
-// (which needs to know which requested values it can resolve by derivation
-// vs. override-only) so the two can't drift apart.
+// from interaction rows. `refused` (ENG-10833) extends the shared rollup
+// vocabulary for manual overrides only — nothing derives it from interaction
+// history, so it's absent here. Shared by filterDimensions.catalog.ts (the
+// assistant's vocabulary, ENG-10837 advertises all five) and
+// SupportStatusService.personIdsByEffectiveStatus (which needs to know which
+// requested values it can resolve by derivation vs. override-only) so the two
+// can't drift apart.
 export const DERIVED_SUPPORT_STATUS_VALUES = [
   'supporter',
   'non_supporter',
+  'undecided',
   SUPPORT_STATUS_UNKNOWN,
 ] as const satisfies readonly SupportStatusRollup[]
 

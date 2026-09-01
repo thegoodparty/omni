@@ -82,7 +82,7 @@ describe('SupportStatusService', () => {
     expect(statuses.get('p-1')).toBe('non_supporter')
   })
 
-  it('rolls unsure up to unknown', async () => {
+  it('rolls unsure up to undecided, not unknown', async () => {
     const org = await seedOrganization('campaign-unsure')
     await knock(
       org,
@@ -90,6 +90,14 @@ describe('SupportStatusService', () => {
       new Date('2026-06-01T12:00:00.000Z'),
       SupportAnswer.unsure,
     )
+
+    const statuses = await supportStatus.statusForPeople(org, ['p-1'])
+    expect(statuses.get('p-1')).toBe('undecided')
+  })
+
+  it('keeps unknown for an answered knock that captured no support answer', async () => {
+    const org = await seedOrganization('campaign-answer-less')
+    await knock(org, 'p-1', new Date('2026-06-01T12:00:00.000Z'))
 
     const statuses = await supportStatus.statusForPeople(org, ['p-1'])
     expect(statuses.get('p-1')).toBe('unknown')
@@ -196,7 +204,11 @@ describe('SupportStatusService', () => {
 
     const unknowns = await supportStatus.personIdsByStatus(org, ['unknown'])
     expect(unknowns.sort()).toEqual(byRollup('unknown'))
-    expect(unknowns.sort()).toEqual(['p-null', 'p-uns'])
+    expect(unknowns.sort()).toEqual(['p-null'])
+
+    const undecideds = await supportStatus.personIdsByStatus(org, ['undecided'])
+    expect(undecideds.sort()).toEqual(byRollup('undecided'))
+    expect(undecideds.sort()).toEqual(['p-uns'])
 
     const multi = await supportStatus.personIdsByStatus(org, [
       'supporter',
@@ -236,9 +248,8 @@ describe('SupportStatusService', () => {
       )
     })
 
-    it('undecided/refused resolve exactly to the manually-overridden persons (no derivation exists for them)', async () => {
+    it('refused resolves exactly to the manually-overridden persons (no derivation exists for it)', async () => {
       const org = await seedOrganization('campaign-effective-override-only')
-      await override(org, 'p-undecided', 'undecided')
       await override(org, 'p-refused', 'refused')
       // A derived supporter must never leak into an override-only bucket.
       await knock(
@@ -250,14 +261,51 @@ describe('SupportStatusService', () => {
 
       expect(
         (
-          await supportStatus.personIdsByEffectiveStatus(org, ['undecided'])
-        ).sort(),
-      ).toEqual(['p-undecided'])
-      expect(
-        (
           await supportStatus.personIdsByEffectiveStatus(org, ['refused'])
         ).sort(),
       ).toEqual(['p-refused'])
+    })
+
+    it('undecided unions derived unsure answers with manual overrides', async () => {
+      const org = await seedOrganization('campaign-effective-undecided-union')
+      await knock(
+        org,
+        'p-derived-unsure',
+        new Date('2026-06-01T12:00:00.000Z'),
+        SupportAnswer.unsure,
+      )
+      await override(org, 'p-override-undecided', 'undecided')
+      // A derived supporter must never leak into the undecided bucket.
+      await knock(
+        org,
+        'p-sup',
+        new Date('2026-06-01T12:00:00.000Z'),
+        SupportAnswer.supporter,
+      )
+
+      expect(
+        (
+          await supportStatus.personIdsByEffectiveStatus(org, ['undecided'])
+        ).sort(),
+      ).toEqual(['p-derived-unsure', 'p-override-undecided'])
+    })
+
+    it('an unsure answer overridden to supporter leaves the undecided bucket', async () => {
+      const org = await seedOrganization('campaign-effective-unsure-overridden')
+      await knock(
+        org,
+        'p-flip',
+        new Date('2026-06-01T12:00:00.000Z'),
+        SupportAnswer.unsure,
+      )
+      await override(org, 'p-flip', 'supporter')
+
+      expect(
+        await supportStatus.personIdsByEffectiveStatus(org, ['undecided']),
+      ).toEqual([])
+      expect(
+        await supportStatus.personIdsByEffectiveStatus(org, ['supporter']),
+      ).toEqual(['p-flip'])
     })
 
     it('a derived supporter overridden to undecided appears only under undecided, not supporter', async () => {

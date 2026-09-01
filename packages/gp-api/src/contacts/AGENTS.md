@@ -41,14 +41,15 @@ fixes track under ENG-10744.
   materialized as one interaction row per person — those rows are the
   audit truth. There is no `ContactList` model.
 - **Support status is derived, with an optional manual override.** Latest
-  interaction carrying a non-null `supportAnswer` wins; `unsure` and no-data
-  both roll up to `unknown` — the derivation itself is single-sourced via the
-  `SUPPORT_ANSWER_ROLLUP` constant in
+  interaction carrying a non-null `supportAnswer` wins; `unsure` rolls up to
+  `undecided`, and `unknown` means no support answer was ever captured (never
+  contacted, or contacted with no answer recorded) — the derivation itself is
+  single-sourced via the `SUPPORT_ANSWER_ROLLUP` constant in
   `src/contactInteraction/contactInteraction.types.ts`. A person can also
   carry a manual `support_status` override (`ContactStatusService`,
   `contact_current_status` table) to any of the five `SupportStatusRollup`
-  values — `undecided`/`refused` exist _only_ as overrides, nothing derives
-  them. Effective status = override ?? derived everywhere: display
+  values — `refused` exists _only_ as an override, nothing derives it.
+  Effective status = override ?? derived everywhere: display
   (`ContactsService.effectiveStatus`) and filter resolution/counts
   (`SupportStatusService.personIdsByEffectiveStatus`, ENG-10837) both compose
   the two sources the same way, so a manual change is never masked by a
