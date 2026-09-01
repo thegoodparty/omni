@@ -201,6 +201,23 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
 - **`MeetingBriefing.artifact` is a typed JSONB cache.** Source of truth is the S3 object at `artifactBucket`/`artifactKey`. `GET /:date/briefing` always re-reads from S3; the JSONB copy is only used in list aggregation and is fine to drift in dev.
 - **`awaiting_agenda` is a 200 response, not a 404.** The frontend renders a placeholder for it. If you "fix" this to return 404, you'll break the list view.
 - **`getBriefing` returns raw `JSON.parse` output.** No Zod validation on the response (intentional — the artifact schema is evolving and validating here would cause 500s on legitimate new fields). Treat the response as untrusted-ish in any downstream consumer.
+- **`Organization.officeIdentityChangedAt` gates the read, the write-back,
+  and both dispatch guards.** `loadLatestScheduleForOrg` ignores
+  `meeting_schedule` runs created before that stamp, which
+  `ElectedOfficeService.onOfficeIdentityWritten` sets whenever the org's
+  `positionId` / `overrideDistrictId` changes. Without it the old
+  jurisdiction's RRULE keeps projecting meetings forever.
+  `MeetingResourceLocation` rows are deleted by the same hook, so the
+  re-dispatched schedule run is not seeded with the previous city's portal.
+  `onExperimentRunCompleted` skips a `meeting_schedule` run whose
+  `createdAt` predates the stamp, so an in-flight run dispatched for the
+  old office can't complete afterward and re-poison that same hint.
+  `onOfficeIdentityChanged`'s in-flight check and `onElectedOfficeCreated`'s
+  COMPLETED guard are both scoped to the stamp too, so a pre-cutoff run
+  never suppresses the schedule re-dispatch an identity change requires.
+  That last one matters beyond correctness: meetings has no recovery cron,
+  so without a cutoff-aware create-path guard a missed re-dispatch there
+  would never self-heal the way ordinances and community issues do.
 
 ## Pointer table
 

@@ -1,5 +1,6 @@
 import { ElectionsService } from '@/elections/services/elections.service'
 import { createMockClerkEnricher } from '@/shared/test-utils/mockClerkEnricher.util'
+import { ModuleRef } from '@nestjs/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from './organizations.service'
 
@@ -27,6 +28,7 @@ describe('OrganizationsService', () => {
         cleanDistrictName: mockCleanDistrictName,
       } as unknown as ElectionsService,
       createMockClerkEnricher(),
+      { get: vi.fn() } as unknown as ModuleRef,
     )
     ;(
       service as unknown as { logger: { error: ReturnType<typeof vi.fn> } }

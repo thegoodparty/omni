@@ -5,6 +5,7 @@ import {
   DashboardCardType,
   ExperimentRunStatus,
 } from '../generated/prisma'
+import { subDays } from 'date-fns'
 import {
   afterEach,
   beforeEach,
@@ -285,6 +286,58 @@ describe('CommunityIssueService.onExperimentRunCompleted', () => {
     })
     expect(row?.archivedAt).toBeNull()
     expect(row?.title).toBe('Resurrected Issue')
+  })
+
+  it('does not resurrect an archived row when the run predates an office-identity change', async () => {
+    const officeIdentityChangedAt = new Date()
+    await service.prisma.organization.update({
+      where: { slug: ORG },
+      data: { officeIdentityChangedAt },
+    })
+    // Archived by the invalidation that stamped officeIdentityChangedAt.
+    const archived = await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.low,
+        title: 'Old City Issue',
+        summary: 'archived by the office change.',
+        archivedAt: officeIdentityChangedAt,
+      },
+    })
+
+    const key = `precutoff-resurrect-${Date.now()}.json`
+    // Belongs to the OLD identity: dispatched (and thus created) before the
+    // office-identity change the org was just stamped with.
+    const run = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: ORG,
+        experimentType: 'top_community_issues',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: BUCKET,
+        artifactKey: key,
+        createdAt: subDays(officeIdentityChangedAt, 1),
+      },
+    })
+    mockS3({
+      [key]: JSON.stringify(
+        makeArtifact(ORG, run.runId, [
+          makeIssue(1, {
+            existing_issue_id: archived.id,
+            title: 'Resurrected By Stale Run',
+          }),
+        ]),
+      ),
+    })
+
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
+
+    const row = await service.prisma.communityIssue.findUnique({
+      where: { id: archived.id },
+    })
+    expect(row?.archivedAt).not.toBeNull()
+    expect(row?.title).toBe('Old City Issue')
   })
 
   it('rejects the whole run when existing_issue_id belongs to a different org', async () => {

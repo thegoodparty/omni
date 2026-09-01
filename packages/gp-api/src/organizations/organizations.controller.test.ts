@@ -1,6 +1,10 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { describe, expect, it, vi } from 'vitest'
+import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
+import { ExperimentRunStatus } from '../generated/prisma'
+import { subDays } from 'date-fns'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -1770,5 +1774,435 @@ describe('GET /v1/organizations/admin/list', () => {
 
     expect(result.status).toBe(200)
     expect(result.data.organizations).toHaveLength(0)
+  })
+})
+
+describe('office-change invalidation', () => {
+  // makeFriendly throws a 500 when positionId is set and getPositionById
+  // resolves null, and every PATCH resolves the pre-update org through it.
+  // Seeding a position therefore requires a matching mock or the request
+  // fails before reaching any invalidation.
+  const seedServeOrg = async (slug: string, positionId: string | null) => {
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id, positionId },
+    })
+    if (positionId) {
+      vi.spyOn(
+        service.app.get(ElectionsService),
+        'getPositionById',
+      ).mockResolvedValue({
+        id: positionId,
+        brPositionId: `br-${positionId}`,
+        brDatabaseId: `db-${positionId}`,
+        state: 'MN',
+        name: 'City Council',
+      })
+    }
+    return service.prisma.electedOffice.create({
+      data: { organizationSlug: slug, userId: service.user.id },
+    })
+  }
+
+  const seedDerivedData = async (slug: string, electedOfficeId: string) => {
+    await service.prisma.meetingResourceLocation.create({
+      data: {
+        electedOfficeId,
+        type: 'SCHEDULE',
+        description: 'https://old-city.example.gov/calendar',
+      },
+    })
+    await service.prisma.ordinanceCodeRecord.create({
+      data: {
+        organizationSlug: slug,
+        codeFound: true,
+        dataQuality: 'OK',
+        confidence: 'HIGH',
+        place: 'Old City',
+        state: 'MN',
+        verifiedEvidence: 'seeded',
+        artifactBucket: 'b',
+        artifactKey: 'k',
+        verifiedAt: new Date(),
+      },
+    })
+    await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: slug,
+        list: 'top_community',
+        category: 'public_safety',
+        priority: 'high',
+        title: 'Old city issue',
+        summary: 'seeded',
+      },
+    })
+    // MeetingBriefing rows are an explicit non-goal for invalidation — they
+    // must survive an office-identity change untouched (see the "briefings
+    // survive" assertion below).
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId,
+        meetingDate: new Date('2026-09-01T00:00:00Z'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Chicago',
+        experimentRunId: briefingRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'k',
+      },
+    })
+  }
+
+  const mockPosition = (id: string, brId: string) => {
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getPositionByBallotReadyId').mockResolvedValue({
+      id,
+      brPositionId: brId,
+      brDatabaseId: `db-${id}`,
+      state: 'MN',
+      name: 'City Council',
+    })
+    vi.spyOn(elections, 'getPositionById').mockResolvedValue({
+      id,
+      brPositionId: brId,
+      brDatabaseId: `db-${id}`,
+      state: 'MN',
+      name: 'City Council',
+    })
+  }
+
+  it('invalidates derived data when the position changes', async () => {
+    const slug = 'eo-change-1'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    mockPosition('pos-new', 'br-pos-new')
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.meetingResourceLocation.count({
+        where: { electedOfficeId: eo.id },
+      }),
+    ).toBe(0)
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).toBeNull()
+    const issue = await service.prisma.communityIssue.findFirst({
+      where: { organizationSlug: slug },
+    })
+    expect(issue?.archivedAt).toBeInstanceOf(Date)
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
+    expect(
+      await service.prisma.meetingBriefing.count({
+        where: { electedOfficeId: eo.id },
+      }),
+    ).toBe(1)
+  })
+
+  // The self-service PATCH strips overrideDistrictId (IDOR guard, see
+  // "ignores overrideDistrictId from a self-service caller"), so the only
+  // route through applyPatch that can move this column is the admin one.
+  it('invalidates when only overrideDistrictId changes', async () => {
+    const slug = 'eo-change-2'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getDistrict',
+    ).mockResolvedValue({
+      id: 'dist-new',
+      state: 'MN',
+      L2DistrictType: 'City',
+      L2DistrictName: 'Minneapolis',
+    })
+
+    const result = await service.client.patch(
+      `/v1/organizations/admin/${slug}`,
+      { overrideDistrictId: 'dist-new' },
+    )
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).toBeNull()
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
+  })
+
+  it('treats a first position (null -> set) as initialization', async () => {
+    const slug = 'eo-init'
+    const eo = await seedServeOrg(slug, null)
+    await seedDerivedData(slug, eo.id)
+    mockPosition('pos-first', 'br-pos-first')
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-first',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).not.toBeNull()
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeNull()
+  })
+
+  it('does nothing for a campaign org with no elected office', async () => {
+    const slug = 'campaign-900'
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id, positionId: 'pos-old' },
+    })
+    await service.prisma.ordinanceCodeRecord.create({
+      data: {
+        organizationSlug: slug,
+        codeFound: true,
+        dataQuality: 'OK',
+        confidence: 'HIGH',
+        place: 'Old City',
+        state: 'MN',
+        verifiedEvidence: 'seeded',
+        artifactBucket: 'b',
+        artifactKey: 'k',
+        verifiedAt: new Date(),
+      },
+    })
+    mockPosition('pos-new', 'br-pos-new')
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).not.toBeNull()
+  })
+
+  it('does nothing when the patch does not move the identity', async () => {
+    const slug = 'eo-noop'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      customPositionName: 'Renamed Only',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).not.toBeNull()
+    const org = await service.prisma.organization.findUnique({
+      where: { slug },
+    })
+    expect(org?.officeIdentityChangedAt).toBeNull()
+  })
+
+  it('invalidates when the position is cleared for a custom name', async () => {
+    const slug = 'eo-custom'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: null,
+      customPositionName: 'Village Trustee',
+    })
+    expect(result.status).toBe(200)
+
+    expect(
+      await service.prisma.ordinanceCodeRecord.findUnique({
+        where: { organizationSlug: slug },
+      }),
+    ).toBeNull()
+  })
+
+  afterEach(() => {
+    delete process.env.ORDINANCES_AUTOMATION_ENABLED
+    delete process.env.MEETINGS_AUTOMATION_ENABLED
+  })
+
+  it('re-dispatches ordinances despite a prior completed run', async () => {
+    process.env.ORDINANCES_AUTOMATION_ENABLED = 'true'
+    const slug = 'eo-redispatch'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'find_existing_ordinances',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getPositionByBallotReadyId').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+    })
+    vi.spyOn(elections, 'getPositionById').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockImplementation(async () => {
+        // Invalidation must commit before dispatch fires, or the new run
+        // gets seeded with the old city's portal. Assert it from inside the
+        // spy so a regression that moves dispatch back inside the
+        // transaction fails this test.
+        expect(
+          await service.prisma.meetingResourceLocation.count({
+            where: { electedOfficeId: eo.id },
+          }),
+        ).toBe(0)
+        return { runId: 'run-new' } as never
+      })
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'find_existing_ordinances' }),
+    )
+    dispatchRun.mockRestore()
+  })
+
+  it('does not let a pre-cutoff in-flight ordinance run suppress re-dispatch', async () => {
+    process.env.ORDINANCES_AUTOMATION_ENABLED = 'true'
+    const slug = 'eo-inflight-precutoff'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    // A run belonging to the OLD identity, still QUEUED. It was dispatched
+    // before the change and must not block the re-dispatch the change
+    // requires.
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'find_existing_ordinances',
+        status: ExperimentRunStatus.QUEUED,
+        createdAt: subDays(new Date(), 1),
+      },
+    })
+
+    const elections = service.app.get(ElectionsService)
+    vi.spyOn(elections, 'getPositionByBallotReadyId').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+    })
+    vi.spyOn(elections, 'getPositionById').mockResolvedValue({
+      id: 'pos-new',
+      brPositionId: 'br-pos-new',
+      brDatabaseId: 'db-new',
+      state: 'MN',
+      name: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'run-new' } as never)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'find_existing_ordinances' }),
+    )
+    dispatchRun.mockRestore()
+  })
+
+  it('re-dispatches the meeting schedule despite a prior completed run', async () => {
+    process.env.MEETINGS_AUTOMATION_ENABLED = 'true'
+    const slug = 'eo-meetings-redispatch'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: slug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+
+    mockPosition('pos-new', 'br-pos-new')
+
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'run-new' } as never)
+
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: 'br-pos-new',
+    })
+    expect(result.status).toBe(200)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_schedule' }),
+    )
+    dispatchRun.mockRestore()
+  })
+
+  it('warns when an invalidated org re-dispatched nothing', async () => {
+    const slug = 'eo-nothing'
+    const eo = await seedServeOrg(slug, 'pos-old')
+    await seedDerivedData(slug, eo.id)
+
+    const warn = vi.spyOn(
+      service.app.get(ElectedOfficeService)['logger'],
+      'warn',
+    )
+
+    // No position resolves, so nothing can dispatch.
+    const result = await service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: null,
+      customPositionName: 'Village Trustee',
+    })
+    expect(result.status).toBe(200)
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: slug }),
+      expect.stringContaining('no_redispatch'),
+    )
+    warn.mockRestore()
   })
 })

@@ -360,9 +360,13 @@ export class ElectedOfficeController {
         L2DistrictName: body.L2DistrictName,
       })
 
-    await this.organizationsService.model.update({
-      where: { slug: orgSlug },
-      data: { overrideDistrictId },
+    await this.electedOfficeService.setOverrideDistrict({
+      organizationSlug: orgSlug,
+      overrideDistrictId,
+      before: {
+        positionId: org.positionId,
+        overrideDistrictId: org.overrideDistrictId,
+      },
     })
 
     return { electedOfficeId: id, overrideDistrictId }

@@ -65,6 +65,18 @@ export class CommunityIssueReadService extends createPrismaBase(
         ? CommunityIssueList.top_community
         : CommunityIssueList.trending
 
+    // Scope the refresh metadata to runs at or after the org's last
+    // office-identity change — otherwise a stale run for the old
+    // jurisdiction reports "last refreshed <old date>" next to a feed that
+    // was just archived out from under it.
+    const org = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
+    const sinceIdentityChange = org?.officeIdentityChangedAt
+      ? { createdAt: { gte: org.officeIdentityChangedAt } }
+      : {}
+
     const [issues, latestRun, latestCompletedRun] = await Promise.all([
       this.model.findMany({
         where: { organizationSlug, list: prismaList, archivedAt: null },
@@ -74,6 +86,7 @@ export class CommunityIssueReadService extends createPrismaBase(
         where: {
           organizationSlug,
           experimentType: EXPERIMENT_TYPE_FOR_LIST[list],
+          ...sinceIdentityChange,
         },
         orderBy: { createdAt: Prisma.SortOrder.desc },
       }),
@@ -82,6 +95,7 @@ export class CommunityIssueReadService extends createPrismaBase(
           organizationSlug,
           experimentType: EXPERIMENT_TYPE_FOR_LIST[list],
           status: ExperimentRunStatus.COMPLETED,
+          ...sinceIdentityChange,
         },
         orderBy: { updatedAt: Prisma.SortOrder.desc },
       }),

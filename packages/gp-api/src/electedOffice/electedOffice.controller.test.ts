@@ -1,8 +1,10 @@
 import { useTestService } from '@/test-service'
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { Campaign, User } from '../generated/prisma'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
+import { v7 as uuidv7 } from 'uuid'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ElectedOfficeController } from './electedOffice.controller'
 
 const service = useTestService()
@@ -520,6 +522,87 @@ describe('ElectedOfficeController', () => {
     })
   })
 
+  describe('POST /elected-office placeholder-adoption invalidation', () => {
+    // No x-organization-slug header on either call, so orgData comes from
+    // the body's ballotReadyPositionId, not the beforeEach campaign org.
+    const createWithPosition = (positionId: string) =>
+      service.client.post('/v1/elected-office', {
+        ballotReadyPositionId: positionId,
+      })
+
+    it('invalidates derived data when a second prefill changes the position', async () => {
+      const first = await createWithPosition('pos-A')
+      expect(first.status).toBe(200)
+      const orgSlug = `eo-${first.data.id}`
+
+      await service.prisma.ordinanceCodeRecord.create({
+        data: {
+          organizationSlug: orgSlug,
+          codeFound: true,
+          dataQuality: 'OK',
+          confidence: 'HIGH',
+          place: 'Old City',
+          state: 'MN',
+          verifiedEvidence: 'seeded',
+          artifactBucket: 'b',
+          artifactKey: 'k',
+          verifiedAt: new Date(),
+        },
+      })
+
+      const second = await createWithPosition('pos-B')
+      expect(second.status).toBe(200)
+      expect(second.data.id).toBe(first.data.id)
+
+      expect(
+        await service.prisma.ordinanceCodeRecord.findUnique({
+          where: { organizationSlug: orgSlug },
+        }),
+      ).toBeNull()
+      const org = await service.prisma.organization.findUnique({
+        where: { slug: orgSlug },
+      })
+      expect(org?.positionId).toBe('pos-B')
+      expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
+    })
+
+    it('does not invalidate when the first prefill sets the position (initialization)', async () => {
+      const placeholder = await service.client.post('/v1/elected-office', {})
+      expect(placeholder.status).toBe(200)
+      const orgSlug = `eo-${placeholder.data.id}`
+
+      await service.prisma.ordinanceCodeRecord.create({
+        data: {
+          organizationSlug: orgSlug,
+          codeFound: true,
+          dataQuality: 'OK',
+          confidence: 'HIGH',
+          place: 'Old City',
+          state: 'MN',
+          verifiedEvidence: 'seeded',
+          artifactBucket: 'b',
+          artifactKey: 'k',
+          verifiedAt: new Date(),
+        },
+      })
+
+      const prefilled = await createWithPosition('pos-A')
+      expect(prefilled.status).toBe(200)
+      expect(prefilled.data.id).toBe(placeholder.data.id)
+
+      expect(
+        await service.prisma.ordinanceCodeRecord.findUnique({
+          where: { organizationSlug: orgSlug },
+        }),
+      ).not.toBeNull()
+      const org = await service.prisma.organization.findUnique({
+        where: { slug: orgSlug },
+      })
+      expect(org?.positionId).toBe('pos-A')
+      expect(org?.officeIdentityChangedAt).toBeNull()
+    })
+  })
+
   describe('PUT /elected-office/:id', () => {
     it('updates elected office fields', async () => {
       const created = await createElectedOffice()
@@ -923,6 +1006,116 @@ describe('ElectedOfficeController', () => {
           m2mRequest(),
         ),
       ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+  })
+
+  describe('PUT /elected-office/:id/district', () => {
+    it('invalidates derived data when the district override changes', async () => {
+      // organizationSlug is a required FK on ElectedOffice, so the org must
+      // exist before the office row does — pre-generate the id to break the
+      // cycle, mirroring what ElectedOfficeService.create does internally.
+      const eoId = uuidv7()
+      const orgSlug = OrganizationsService.electedOfficeOrgSlug(eoId)
+      await service.prisma.organization.create({
+        data: {
+          slug: orgSlug,
+          ownerId: service.user.id,
+          positionId: 'pos-old',
+          overrideDistrictId: 'dist-old',
+        },
+      })
+      const eo = await service.prisma.electedOffice.create({
+        data: { id: eoId, organizationSlug: orgSlug, userId: service.user.id },
+      })
+      await service.prisma.ordinanceCodeRecord.create({
+        data: {
+          organizationSlug: orgSlug,
+          codeFound: true,
+          dataQuality: 'OK',
+          confidence: 'HIGH',
+          place: 'Old City',
+          state: 'MN',
+          verifiedEvidence: 'seeded',
+          artifactBucket: 'b',
+          artifactKey: 'k',
+          verifiedAt: new Date(),
+        },
+      })
+
+      const organizations = service.app.get(OrganizationsService)
+      vi.spyOn(organizations, 'resolveOverrideDistrictId').mockResolvedValue(
+        'dist-new',
+      )
+
+      const controller = service.app.get(ElectedOfficeController)
+      await controller.setDistrict(eo.id, {
+        state: 'MN',
+        L2DistrictType: 'City',
+        L2DistrictName: 'New City',
+      })
+
+      expect(
+        await service.prisma.ordinanceCodeRecord.findUnique({
+          where: { organizationSlug: orgSlug },
+        }),
+      ).toBeNull()
+      const org = await service.prisma.organization.findUnique({
+        where: { slug: orgSlug },
+      })
+      expect(org?.overrideDistrictId).toBe('dist-new')
+      expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
+    })
+
+    it('does not invalidate when the resolved district is unchanged', async () => {
+      const eoId = uuidv7()
+      const orgSlug = OrganizationsService.electedOfficeOrgSlug(eoId)
+      await service.prisma.organization.create({
+        data: {
+          slug: orgSlug,
+          ownerId: service.user.id,
+          positionId: 'pos-old',
+          overrideDistrictId: 'dist-same',
+        },
+      })
+      const eo = await service.prisma.electedOffice.create({
+        data: { id: eoId, organizationSlug: orgSlug, userId: service.user.id },
+      })
+      await service.prisma.ordinanceCodeRecord.create({
+        data: {
+          organizationSlug: orgSlug,
+          codeFound: true,
+          dataQuality: 'OK',
+          confidence: 'HIGH',
+          place: 'Old City',
+          state: 'MN',
+          verifiedEvidence: 'seeded',
+          artifactBucket: 'b',
+          artifactKey: 'k',
+          verifiedAt: new Date(),
+        },
+      })
+
+      const organizations = service.app.get(OrganizationsService)
+      vi.spyOn(organizations, 'resolveOverrideDistrictId').mockResolvedValue(
+        'dist-same',
+      )
+
+      const controller = service.app.get(ElectedOfficeController)
+      await controller.setDistrict(eo.id, {
+        state: 'MN',
+        L2DistrictType: 'City',
+        L2DistrictName: 'Old City',
+      })
+
+      expect(
+        await service.prisma.ordinanceCodeRecord.findUnique({
+          where: { organizationSlug: orgSlug },
+        }),
+      ).not.toBeNull()
+      const org = await service.prisma.organization.findUnique({
+        where: { slug: orgSlug },
+      })
+      expect(org?.officeIdentityChangedAt).toBeNull()
     })
   })
 })

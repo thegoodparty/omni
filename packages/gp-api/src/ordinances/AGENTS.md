@@ -22,19 +22,19 @@ state bill back into ordinance style.
 
 ## Key files
 
-| File | Role |
-|------|------|
-| `controllers/ordinanceFlow.controller.ts` | All `/v1/ordinances` routes: CRUD, clarify answers, quality-report (manual run), quality-loop (start/cancel), quality-iterations, export |
-| `ordinances.controller.ts` | `GET /organizations/:slug/ordinance-code` — persisted municipal-code record |
-| `ordinances.constants.ts` | Loop constants (`MAX_QUALITY_LOOP_REVISIONS`, pinned `QUALITY_LOOP_MODELS`, timeouts), the shared `MANUAL_RUN_STALE_MINUTES` window, flag + env-var names |
-| `services/ordinances.service.ts` | CRUD, `toResponse` (assembles `qualityRunStatus` + `qualityLoop`), manual QC claim-and-poll, loop pass-throughs, supersession hooks, manual-QC 409 while a loop runs |
-| `services/ordinanceQualityLoop.service.ts` | Loop orchestrator: `start`/`cancel`/`supersedeOnEdit`/`handleStep`/`sweepStalled`/`listIterations` |
-| `services/ordinanceQualityLoop.types.ts` | Start input/result, trigger, Segment event props |
-| `services/ordinanceQualityReport.service.ts` | Six-check QC judge; returns `{ report, degradedCheckIds }`; exports `qualityReportInputHash` |
-| `services/ordinanceDraftRevision.service.ts` | Reviser (editor-not-author): fixes only flagged checks, strict output schema, ≥50%-length guard → `OrdinanceRevisionGuardError`, resolves `sourceIdsToAdd` against on-record sources only |
-| `services/ordinanceDispatch.service.ts` | Cron dispatching `find_existing_ordinances` agent experiments (sourcing) |
-| `services/ordinanceCodePersist.service.ts` / `ordinanceCodeRead.service.ts` | Persist/read municipal-code records from experiment artifacts |
-| `services/ordinanceExport.service.ts` | PDF/DOCX draft export |
+| File                                                                        | Role                                                                                                                                                                                      |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `controllers/ordinanceFlow.controller.ts`                                   | All `/v1/ordinances` routes: CRUD, clarify answers, quality-report (manual run), quality-loop (start/cancel), quality-iterations, export                                                  |
+| `ordinances.controller.ts`                                                  | `GET /organizations/:slug/ordinance-code` — persisted municipal-code record                                                                                                               |
+| `ordinances.constants.ts`                                                   | Loop constants (`MAX_QUALITY_LOOP_REVISIONS`, pinned `QUALITY_LOOP_MODELS`, timeouts), the shared `MANUAL_RUN_STALE_MINUTES` window, flag + env-var names                                 |
+| `services/ordinances.service.ts`                                            | CRUD, `toResponse` (assembles `qualityRunStatus` + `qualityLoop`), manual QC claim-and-poll, loop pass-throughs, supersession hooks, manual-QC 409 while a loop runs                      |
+| `services/ordinanceQualityLoop.service.ts`                                  | Loop orchestrator: `start`/`cancel`/`supersedeOnEdit`/`handleStep`/`sweepStalled`/`listIterations`                                                                                        |
+| `services/ordinanceQualityLoop.types.ts`                                    | Start input/result, trigger, Segment event props                                                                                                                                          |
+| `services/ordinanceQualityReport.service.ts`                                | Six-check QC judge; returns `{ report, degradedCheckIds }`; exports `qualityReportInputHash`                                                                                              |
+| `services/ordinanceDraftRevision.service.ts`                                | Reviser (editor-not-author): fixes only flagged checks, strict output schema, ≥50%-length guard → `OrdinanceRevisionGuardError`, resolves `sourceIdsToAdd` against on-record sources only |
+| `services/ordinanceDispatch.service.ts`                                     | Cron dispatching `find_existing_ordinances` agent experiments (sourcing)                                                                                                                  |
+| `services/ordinanceCodePersist.service.ts` / `ordinanceCodeRead.service.ts` | Persist/read municipal-code records from experiment artifacts                                                                                                                             |
+| `services/ordinanceExport.service.ts`                                       | PDF/DOCX draft export                                                                                                                                                                     |
 
 Cost tracking: the Ordinance record carries three per-draft token counters,
 each split input/output — the interactive guided flow
@@ -49,6 +49,20 @@ hold the same loop spend as per-pass detail (feeding the iterations endpoint's
 derived via the pricing map (`estimateCostUsd`) in the same util at read/log
 time.
 
+Office-identity re-dispatch: `onOfficeIdentityChanged`
+(`services/ordinanceDispatch.service.ts`) deliberately bypasses the one-time
+guard. `onElectedOfficeCreated` blocks on any prior `COMPLETED` run, because
+a place's code corpus does not change per signup. An office change means the
+place itself may differ, so the change hook dispatches anyway — blocking
+only on in-flight runs created at or after `officeIdentityChangedAt`, so a
+run dispatched for the old place can't suppress the new dispatch. Deleting
+the `OrdinanceCodeRecord` alone is not enough to trigger a re-derive: the
+daily cron's no-record branch still requires no `COMPLETED` run inside the
+60-day stale cutoff. `OrdinanceCodePersistService.onExperimentRunCompleted`
+skips persisting a result whose run predates that same stamp — otherwise
+the old run's record would land right after invalidation deleted it, and
+the 60-day cutoff would then refuse to re-dispatch for the new place.
+
 Prisma: `prisma/schema/ordinance.prisma` (both machines' columns) +
 `prisma/schema/ordinanceQualityIteration.prisma` (per-pass history — the
 handler's position-resolution substrate, the terminal best-restore source,
@@ -58,12 +72,12 @@ the design, the quality report card is the only quality surface, so the
 
 ## Two state machines — do not conflate them
 
-| | **qualityRun\*** (manual, PR #863) | **qualityLoop\*** (SQS loop) |
-|---|---|---|
-| Columns | `qualityRunStatus/StartedAt/Error` (string status: `running`/`done`/`error`) | `qualityLoopStatus` (enum: `running` + 6 write-once terminals), `RunId`, `Iteration`, `UpdatedAt` + `OrdinanceQualityIteration` rows |
-| Trigger | `POST :slug/quality-report` — atomic claim (10-min stale reclaim), in-process `void` runner, `claimedAt`-fenced writes; `GET` polls | auto (`saveDraft` hook — supersedes + restarts a running loop) or manual `POST :slug/quality-loop` (409 when running) |
-| Work | one QC pass | QC → revise → QC …, up to `MAX_QUALITY_LOOP_REVISIONS`, one LLM step per SQS message |
-| Judge | two-model fallback | pinned `QUALITY_LOOP_MODELS` (no opus) — fallback would swap the judge mid-loop |
+|         | **qualityRun\*** (manual, PR #863)                                                                                                  | **qualityLoop\*** (SQS loop)                                                                                                         |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Columns | `qualityRunStatus/StartedAt/Error` (string status: `running`/`done`/`error`)                                                        | `qualityLoopStatus` (enum: `running` + 6 write-once terminals), `RunId`, `Iteration`, `UpdatedAt` + `OrdinanceQualityIteration` rows |
+| Trigger | `POST :slug/quality-report` — atomic claim (10-min stale reclaim), in-process `void` runner, `claimedAt`-fenced writes; `GET` polls | auto (`saveDraft` hook — supersedes + restarts a running loop) or manual `POST :slug/quality-loop` (409 when running)                |
+| Work    | one QC pass                                                                                                                         | QC → revise → QC …, up to `MAX_QUALITY_LOOP_REVISIONS`, one LLM step per SQS message                                                 |
+| Judge   | two-model fallback                                                                                                                  | pinned `QUALITY_LOOP_MODELS` (no opus) — fallback would swap the judge mid-loop                                                      |
 
 Coexistence rules:
 

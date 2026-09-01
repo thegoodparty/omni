@@ -611,6 +611,83 @@ describe('GET /v1/meetings', () => {
     expect(adhoc).toBeDefined()
     expect(adhoc?.hasBriefing).toBe(true)
   })
+
+  it('ignores a schedule run created before officeIdentityChangedAt, but keeps briefings visible', async () => {
+    const orgSlug = 'eo-cutoff'
+    await service.prisma.organization.create({
+      data: {
+        slug: orgSlug,
+        ownerId: service.user.id,
+        officeIdentityChangedAt: new Date(),
+      },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey: 'stale-schedule.json',
+        createdAt: subDays(new Date(), 1),
+      },
+    })
+    mockS3({ 'stale-schedule.json': JSON.stringify(foundSchedule) })
+
+    // Briefings are an explicit non-goal of invalidation — they must stay
+    // visible even though the schedule that would have projected them is
+    // cut off.
+    const meetingDate = formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd')
+    await seedBriefing(eo.id, orgSlug, {
+      meetingDate,
+      artifactBucket: 'schedule-bucket',
+      artifactKey: 'briefing.json',
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.data.scheduleKnown).toBe(false)
+    const meetings = result.data.meetings as Array<{
+      meetingDate: string
+      hasBriefing: boolean
+    }>
+    const briefingRow = meetings.find((m) => m.meetingDate === meetingDate)
+    expect(briefingRow?.hasBriefing).toBe(true)
+  })
+
+  it('uses a schedule run created after officeIdentityChangedAt', async () => {
+    const orgSlug = 'eo-cutoff-fresh'
+    await service.prisma.organization.create({
+      data: {
+        slug: orgSlug,
+        ownerId: service.user.id,
+        officeIdentityChangedAt: subDays(new Date(), 1),
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey: 'fresh-schedule.json',
+      },
+    })
+    mockS3({ 'fresh-schedule.json': JSON.stringify(foundSchedule) })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.data.scheduleKnown).toBe(true)
+  })
 })
 
 const validBriefingArtifact = {

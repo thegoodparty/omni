@@ -7,6 +7,11 @@ model Organization {
   positionId                      String?                          @map("position_id")
   overrideDistrictId              String?                          @map("override_district_id")
   customPositionName              String?                          @map("custom_position_name")
+  // Cutoff for run-derived data that has no row to delete. Set whenever the
+  // org's office identity (positionId / overrideDistrictId) changes, so reads
+  // that resolve an artifact from the newest COMPLETED run ignore runs that
+  // predate the change. See ElectedOfficeService.onOfficeIdentityWritten.
+  officeIdentityChangedAt         DateTime?                        @map("office_identity_changed_at")
   campaign                        Campaign?
   electedOffice                   ElectedOffice?
   voterFileFilters                VoterFileFilter[]

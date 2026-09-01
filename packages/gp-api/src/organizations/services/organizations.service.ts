@@ -7,7 +7,9 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  OnApplicationBootstrap,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   Campaign,
   ElectedOffice,
@@ -24,6 +26,8 @@ import {
 
 import { OrgDistrict } from '../organizations.types'
 import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
+import type { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
+import { ELECTED_OFFICE_SERVICE_TOKEN } from '@/electedOffice/electedOffice.consts'
 
 export type FriendlyOrganization = {
   slug: string
@@ -41,14 +45,35 @@ export type FriendlyOrganization = {
 }
 
 @Injectable()
-export class OrganizationsService extends createPrismaBase(
-  MODELS.Organization,
-) {
+export class OrganizationsService
+  extends createPrismaBase(MODELS.Organization)
+  implements OnApplicationBootstrap
+{
   constructor(
     private readonly electionsService: ElectionsService,
     private readonly clerkEnricher: ClerkUserEnricherService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
+  }
+
+  // Resolved lazily via ModuleRef rather than injected: ElectedOfficeService's
+  // constructor transitively imports this file (through its dispatch
+  // services), so importing the class here would eagerly load that whole
+  // chain and corrupt an unrelated class's constructor metadata if it's
+  // caught mid-cycle. strict:false searches the whole app graph, so
+  // OrganizationsModule doesn't need to import ElectedOfficeModule either.
+  private get electedOffice(): ElectedOfficeService {
+    return this.moduleRef.get<ElectedOfficeService>(
+      ELECTED_OFFICE_SERVICE_TOKEN,
+      { strict: false },
+    )
+  }
+
+  // Touches the lazy getter once at boot so a misregistered token surfaces
+  // as a boot failure, not a runtime error the first time applyPatch runs.
+  onApplicationBootstrap() {
+    this.electedOffice
   }
 
   static campaignOrgSlug(campaignId: number): string {
@@ -159,19 +184,56 @@ export class OrganizationsService extends createPrismaBase(
     const clearsStaleCustomName =
       'ballotReadyPositionId' in updates && !('customPositionName' in updates)
 
-    const updated = await this.client.organization.update({
-      where: { slug: org.slug },
-      data: {
-        positionId: position?.id ?? null,
-        overrideDistrictId: updates.overrideDistrictId,
-        customPositionName: clearsStaleCustomName
-          ? null
-          : updates.customPositionName,
-      },
-      include: { campaign: true, electedOffice: true },
-    })
+    // The identity update and the invalidation writes must commit or roll
+    // back together — a failed invalidation after a committed identity
+    // change is unrecoverable (see onOfficeIdentityWritten's own comment).
+    const { updatedOrg, writeResult } = await this.client.$transaction(
+      async (tx) => {
+        // FriendlyOrganization exposes only a resolved position + a boolean,
+        // so read the raw columns to diff against. Diffing the request body
+        // instead would miss changes: an absent key arrives as undefined and
+        // Prisma ignores it, so an unchanged-looking body can still move a
+        // column. Read before the write, inside the same tx, so this diff
+        // can't race a concurrent identity change on the same org.
+        const before = await tx.organization.findUnique({
+          where: { slug: org.slug },
+          select: { positionId: true, overrideDistrictId: true },
+        })
 
-    return this.makeFriendly(updated)
+        const updatedOrg = await tx.organization.update({
+          where: { slug: org.slug },
+          data: {
+            positionId: position?.id ?? null,
+            overrideDistrictId: updates.overrideDistrictId,
+            customPositionName: clearsStaleCustomName
+              ? null
+              : updates.customPositionName,
+          },
+          include: { campaign: true, electedOffice: true },
+        })
+
+        const writeResult = await this.electedOffice.onOfficeIdentityWritten({
+          organizationSlug: org.slug,
+          before: {
+            positionId: before?.positionId ?? null,
+            overrideDistrictId: before?.overrideDistrictId ?? null,
+          },
+          after: {
+            positionId: updatedOrg.positionId,
+            overrideDistrictId: updatedOrg.overrideDistrictId,
+          },
+          tx,
+        })
+
+        return { updatedOrg, writeResult }
+      },
+    )
+
+    if (writeResult) {
+      await this.electedOffice.dispatchAfterOfficeIdentityChange(writeResult)
+    }
+
+    return this.makeFriendly(updatedOrg)
   }
 
   async adminListOrganizations(query: AdminListOrganizationsDto) {

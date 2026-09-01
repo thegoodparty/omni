@@ -80,6 +80,31 @@ lives in `src/shared/util/userActivity.util.ts`, shared with
 `meetingBriefings.service.ts` — the two domains use the same threshold and
 comparison, just wired through different dispatch flows.
 
+## Office-identity re-dispatch
+
+An office change archives the live issue set.
+`ElectedOfficeService.onOfficeIdentityWritten` sets `archivedAt` on every
+non-archived issue for the org, then re-dispatches via
+`onOfficeIdentityChanged` → `dispatchForCohort`. Archival (not deletion)
+keeps `Priority.sourceCommunityIssueId` provenance intact — `Priority`
+carries its own denormalized title/description, so a promoted priority
+survives its source being archived.
+
+`onOfficeIdentityChanged` passes `dispatchForCohort` an `inFlightCutoff`
+(the org's `officeIdentityChangedAt`), threaded on to
+`dispatchTypeForOrg`'s in-flight check so a run dispatched for the old
+office can't suppress the re-dispatch. The parameter is optional and
+defaults to unset, so the admin cohort endpoint and the self-serve refresh
+button — the other two callers of `dispatchForCohort` — keep blocking on
+any in-flight run regardless of age.
+
+`CommunityIssueService.onExperimentRunCompleted` also skips persisting a
+result whose run predates that same stamp. Without that guard, an
+old-office run's upsert would clear `archivedAt` via `existing_issue_id`
+and resurrect an issue from the jurisdiction the invalidation just
+archived — exactly what the archive-not-delete design assumes can't
+happen.
+
 ## Test command
 
 ```bash

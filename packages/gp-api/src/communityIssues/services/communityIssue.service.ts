@@ -1,6 +1,7 @@
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { Injectable } from '@nestjs/common'
+import { isBefore } from 'date-fns'
 import {
   CommunityIssueList,
   CommunityIssuePriority,
@@ -69,6 +70,7 @@ export class CommunityIssueService extends createPrismaBase(
 
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
     if (!COMMUNITY_ISSUE_EXPERIMENT_TYPES.has(run.experimentType)) return
+    if (await this.predatesOfficeIdentityChange(run)) return
     if (!run.artifactBucket || !run.artifactKey) {
       this.logger.warn(
         { runId: run.runId },
@@ -145,6 +147,32 @@ export class CommunityIssueService extends createPrismaBase(
 
     await this.emitGenerationEvents(run, summary)
     await this.syncCardsForCreatedIssues(run, summary)
+  }
+
+  // An old run's result belongs to the OLD office identity if it was created
+  // before the org's officeIdentityChangedAt stamp. Persisting it would
+  // resurrect archived issues via the upsert's existing_issue_id path
+  // (archivedAt: null) — exactly what the archive-not-delete design assumes
+  // cannot happen.
+  private async predatesOfficeIdentityChange(
+    run: ExperimentRun,
+  ): Promise<boolean> {
+    const organization = await this.client.organization.findUnique({
+      where: { slug: run.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
+    const cutoff = organization?.officeIdentityChangedAt
+    if (!cutoff || !isBefore(run.createdAt, cutoff)) return false
+    this.logger.info(
+      {
+        runId: run.runId,
+        organizationSlug: run.organizationSlug,
+        runCreatedAt: run.createdAt,
+        officeIdentityChangedAt: cutoff,
+      },
+      'community_issue_run_predates_office_change: skipping persistence',
+    )
+    return true
   }
 
   // Turns each issue a non-initial run newly created into a Chief of Staff task
