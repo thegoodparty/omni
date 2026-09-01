@@ -1438,6 +1438,118 @@ describe('UsersService', () => {
       expect(after?.avatar).toBe('https://assets.test/uploads/7/avatar.png')
     })
 
+    it('ingests the provider avatar for a user already linked to Clerk', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/15/avatar.png')
+      const existing = await createUser(
+        'fastpath-avatar@test.goodparty.org',
+        'user_fastpath_avatar',
+      )
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_fastpath_avatar',
+        email: 'fastpath-avatar@test.goodparty.org',
+        firstName: 'Fast',
+        lastName: 'Path',
+        avatarUrl: 'https://img.clerk.com/added-later',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(ingest).toHaveBeenCalledWith(
+        existing.id,
+        'https://img.clerk.com/added-later',
+      )
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.avatar).toBe('https://assets.test/uploads/15/avatar.png')
+    })
+
+    it('does not re-ingest for a linked user who already has an avatar', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi.spyOn(avatars, 'ingestFromUrl')
+      const existing = await service.prisma.user.create({
+        data: {
+          email: 'fastpath-has-avatar@test.goodparty.org',
+          clerkId: 'user_fastpath_has_avatar',
+          avatar: 'https://assets.test/uploads/16/self-uploaded.png',
+        },
+      })
+
+      await usersService.findOrProvisionByClerk({
+        clerkId: 'user_fastpath_has_avatar',
+        email: 'fastpath-has-avatar@test.goodparty.org',
+        firstName: 'Fast',
+        lastName: 'Path',
+        avatarUrl: 'https://img.clerk.com/ignored',
+      })
+
+      expect(ingest).not.toHaveBeenCalled()
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.avatar).toBe(
+        'https://assets.test/uploads/16/self-uploaded.png',
+      )
+    })
+
+    // The sign-in hot path: Clerk reports no image for the overwhelming
+    // majority of users, so the avatar helper must add no query of its own.
+    // Matched on the avatar projection because the path's own clerkId lookup
+    // is a findUnique too.
+    it('runs no avatar query when the provider has no image', async () => {
+      await createUser(
+        'fastpath-no-image@test.goodparty.org',
+        'user_fastpath_no_image',
+      )
+      const findUnique = vi.spyOn(service.prisma.user, 'findUnique')
+
+      await usersService.findOrProvisionByClerk({
+        clerkId: 'user_fastpath_no_image',
+        email: 'fastpath-no-image@test.goodparty.org',
+        firstName: 'Fast',
+        lastName: 'Path',
+      })
+
+      const avatarReads = findUnique.mock.calls.filter(
+        (call) => call[0]?.select?.avatar === true,
+      )
+      expect(avatarReads).toHaveLength(0)
+    })
+
+    it('ingests when a concurrent provision matched the same clerkId', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/17/avatar.png')
+      const existing = await createUser(
+        'concurrent-match@test.goodparty.org',
+        'user_concurrent_match',
+      )
+      // Simulates the row landing between the clerkId and email lookups.
+      vi.spyOn(usersService, 'findUser').mockResolvedValueOnce(null)
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_concurrent_match',
+        email: 'concurrent-match@test.goodparty.org',
+        firstName: 'Concurrent',
+        lastName: 'Match',
+        avatarUrl: 'https://img.clerk.com/concurrent',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(ingest).toHaveBeenCalledWith(
+        existing.id,
+        'https://img.clerk.com/concurrent',
+      )
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.avatar).toBe('https://assets.test/uploads/17/avatar.png')
+    })
+
     it('persists the ingested avatar over an empty-string avatar', async () => {
       const avatars = service.app.get(UserAvatarService)
       const ingest = vi

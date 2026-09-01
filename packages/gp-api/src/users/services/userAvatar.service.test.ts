@@ -91,6 +91,27 @@ describe('UserAvatarService', () => {
     expect(uploadFile.mock.calls[0]?.[1]).toEqual(Buffer.from(PNG))
   })
 
+  it('accepts a content-type with a space before the parameter', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        // Headers normalization trims the whole value, not around internal
+        // delimiters, so this reaches us with the space intact.
+        headers: new Headers({
+          'content-type': 'image/jpeg ;charset=utf-8',
+          'content-length': '4',
+        }),
+        body: streamOf(PNG),
+      }),
+    )
+
+    const url = await service.ingestFromUrl(1, 'https://img.clerk.com/x')
+
+    expect(url).toBe('https://assets.test/uploads/1/a.png')
+    expect(uploadFile).toHaveBeenCalledOnce()
+  })
+
   it('returns null when the source is not an image', async () => {
     vi.stubGlobal(
       'fetch',

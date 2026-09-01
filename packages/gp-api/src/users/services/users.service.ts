@@ -265,14 +265,16 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const existingByClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
-    if (existingByClerkId) return existingByClerkId
+    if (existingByClerkId) {
+      return this.maybeIngestAvatar(existingByClerkId, data.avatarUrl)
+    }
 
     const existingByEmail = await this.findUserByEmail(data.email)
     if (existingByEmail) {
       // A concurrent provision of the same Clerk user may have created the
       // row between our two lookups — same clerkId is a match, not a rebind.
       if (existingByEmail.clerkId === data.clerkId) {
-        return existingByEmail
+        return this.maybeIngestAvatar(existingByEmail, data.avatarUrl)
       }
       if (existingByEmail.clerkId) {
         this.logger.warn(
@@ -322,6 +324,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   // avatar, not user.avatar, because user came back through the
   // Clerk-enrichment read wrapper whose avatar mirrors Clerk rather than
   // Postgres; and treat '' as empty, which is what most legacy rows hold.
+  //
+  // Safe to call from the every-sign-in fast path: Clerk reports no image for
+  // the vast majority of users, so avatarUrl is undefined and this returns
+  // before issuing any query. That is what lets a picture added to Clerk
+  // after the backfill ran still land, without a perpetual re-run.
   private async maybeIngestAvatar(
     user: User,
     avatarUrl: string | undefined,

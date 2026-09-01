@@ -44,7 +44,7 @@ export class UserAvatarService {
       }
 
       const contentType =
-        (resp.headers.get('content-type') ?? '').split(';')[0] ?? ''
+        (resp.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
       const extension = EXTENSIONS[contentType]
       if (!extension) {
         this.logger.warn(
