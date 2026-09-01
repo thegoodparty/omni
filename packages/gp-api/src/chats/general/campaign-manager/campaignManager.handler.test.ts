@@ -10,6 +10,7 @@ import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import type { ConstituentTableConfig } from '../chief-of-staff/services/constituentDataScope'
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
+import type { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
   buildCampaignManagerGreeting,
@@ -122,9 +123,25 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
 describe('CampaignManagerHandler.loadContext — constituent tool gating', () => {
   const ORG_SLUG = 'win-campaign'
 
+  const buildResolvingDistrictResolver = (): DistrictResolverService =>
+    ({
+      resolveByOrgSlug: vi.fn(() =>
+        Promise.resolve({
+          state: 'IL',
+          l2DistrictType: 'city',
+          l2DistrictName: 'Springfield',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => [
+        { column: 'state_postal_code', value: 'IL' },
+        { column: 'City', value: 'Springfield' },
+      ]),
+    }) as unknown as DistrictResolverService
+
   const buildContextHandler = (
     provider: DatabricksProvider | undefined,
     tables: ConstituentTableConfig[],
+    districtResolver?: DistrictResolverService,
   ): CampaignManagerHandler => {
     const store = {
       findFirst: vi.fn(() =>
@@ -148,23 +165,42 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
       {} as ChatStoreService,
       tables,
       provider,
+      districtResolver,
     )
   }
 
-  it('enables the constituent tool when provider + tables are present', async () => {
-    const handler = buildContextHandler(fakeProvider, WIN_CONSTITUENT_TABLES)
+  it('enables the constituent tool when provider + tables + district resolve', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      buildResolvingDistrictResolver(),
+    )
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.constituentToolEnabled).toBe(true)
   })
 
   it('disables the constituent tool without a provider', async () => {
-    const handler = buildContextHandler(undefined, WIN_CONSTITUENT_TABLES)
+    const handler = buildContextHandler(
+      undefined,
+      WIN_CONSTITUENT_TABLES,
+      buildResolvingDistrictResolver(),
+    )
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.constituentToolEnabled).toBe(false)
   })
 
   it('disables the constituent tool when no table is configured', async () => {
-    const handler = buildContextHandler(fakeProvider, [])
+    const handler = buildContextHandler(
+      fakeProvider,
+      [],
+      buildResolvingDistrictResolver(),
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(false)
+  })
+
+  it('disables the constituent tool when the district does not resolve', async () => {
+    const handler = buildContextHandler(fakeProvider, WIN_CONSTITUENT_TABLES)
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.constituentToolEnabled).toBe(false)
   })

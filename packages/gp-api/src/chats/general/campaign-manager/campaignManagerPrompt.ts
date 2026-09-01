@@ -41,8 +41,8 @@ export interface CampaignManagerContext {
   daysToFilingDeadline: number | null
   topTasks: { title: string; date: Date }[]
   // Server-bound district filters for the constituent-data tool (null when the
-  // campaign's district can't be resolved). constituentToolEnabled also gates
-  // on the provider being configured and the per-user rollout flag.
+  // campaign's district can't be resolved). constituentToolEnabled folds this
+  // in along with the provider + table allowlist being configured.
   districtFilters: MandatoryFilter[] | null
   constituentToolEnabled: boolean
   // The full org row for the CRM contact tools (null when no organization

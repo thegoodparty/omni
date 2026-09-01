@@ -319,7 +319,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const ballotStatus = parseBallotStatus(campaign.ballotStatus)
 
     // Scope constituent queries to the campaign's district (from its org's
-    // position), same shape Chief of Staff uses.
+    // position), same shape Chief of Staff uses. Folding districtFilters into
+    // constituentToolEnabled (rather than leaving it a separate buildTools
+    // check) keeps prompt advertising and tool registration on one signal,
+    // same as crmToolsEnabled/savedFilterToolsEnabled below.
     const resolved =
       await this.districtResolver?.resolveByOrgSlug(organizationSlug)
     const districtFilters =
@@ -327,7 +330,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         ? this.districtResolver.toMandatoryFilters(resolved)
         : null
     const constituentToolEnabled =
-      !!this.constituentProvider && this.constituentTables.length > 0
+      !!this.constituentProvider &&
+      this.constituentTables.length > 0 &&
+      districtFilters !== null
 
     // The org row the CRM contact tools bind counts to. Folding the service
     // presence into crmToolsEnabled keeps prompt advertising and tool
