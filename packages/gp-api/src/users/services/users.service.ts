@@ -285,7 +285,32 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         )
         return null
       }
-      return this.tryBindClerkId(existingByEmail.id, data.clerkId)
+      const bound = await this.tryBindClerkId(existingByEmail.id, data.clerkId)
+      if (!bound || !data.avatarUrl) return bound
+      // Unlike the create path, this row may be an existing user who already
+      // uploaded their own picture via POST /v1/users/me/upload-image, and a
+      // Clerk-hosted image must never overwrite it. Test the STORED avatar,
+      // not bound.avatar: bound came back through the Clerk-enrichment read
+      // wrapper, whose avatar mirrors Clerk rather than Postgres.
+      const stored = await this.model.findUnique({
+        where: { id: bound.id },
+        select: { avatar: true },
+      })
+      if (stored?.avatar) return bound
+      const avatar = await this.userAvatar.ingestFromUrl(
+        bound.id,
+        data.avatarUrl,
+      )
+      if (avatar) {
+        // avatar: null in the filter so a self-upload that landed between the
+        // read above and here still wins.
+        const written = await this.model.updateMany({
+          where: { id: bound.id, avatar: null },
+          data: { avatar },
+        })
+        if (written.count > 0) bound.avatar = avatar
+      }
+      return bound
     }
 
     try {

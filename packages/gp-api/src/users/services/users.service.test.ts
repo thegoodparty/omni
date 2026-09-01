@@ -1410,6 +1410,88 @@ describe('UsersService', () => {
       expect(user?.avatar).toBe(null)
     })
 
+    it('ingests the provider avatar when binding a legacy unlinked user', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/7/avatar.png')
+      const legacy = await createUser('bind-avatar@test.goodparty.org')
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_avatar',
+        email: 'bind-avatar@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(ingest).toHaveBeenCalledWith(
+        legacy.id,
+        'https://img.clerk.com/bind',
+      )
+      expect(result?.avatar).toBe('https://assets.test/uploads/7/avatar.png')
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.clerkId).toBe('user_bind_avatar')
+      expect(after?.avatar).toBe('https://assets.test/uploads/7/avatar.png')
+    })
+
+    it('keeps a self-uploaded avatar when binding a legacy unlinked user', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/8/avatar.png')
+      const legacy = await service.prisma.user.create({
+        data: {
+          email: 'bind-keeps-avatar@test.goodparty.org',
+          clerkId: null,
+          avatar: 'https://assets.test/uploads/8/self-uploaded.png',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_keeps_avatar',
+        email: 'bind-keeps-avatar@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(ingest).not.toHaveBeenCalled()
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.clerkId).toBe('user_bind_keeps_avatar')
+      expect(after?.avatar).toBe(
+        'https://assets.test/uploads/8/self-uploaded.png',
+      )
+    })
+
+    it('still binds the legacy user when avatar ingestion fails', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(null)
+      const legacy = await createUser('bind-avatar-fail@test.goodparty.org')
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_avatar_fail',
+        email: 'bind-avatar-fail@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(result?.clerkId).toBe('user_bind_avatar_fail')
+      expect(result?.avatar).toBe(null)
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.avatar).toBe(null)
+    })
+
     it('returns user when updateMany loses race to same clerkId', async () => {
       const legacy = await createUser('occ-same@test.goodparty.org')
       await service.prisma.user.update({
