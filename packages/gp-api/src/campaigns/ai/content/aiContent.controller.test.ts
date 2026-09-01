@@ -12,7 +12,6 @@ const controller = new AiContentController(
   mockCampaigns as never,
   {} as never,
   {} as never,
-  {} as never,
   createMockLogger(),
 )
 
