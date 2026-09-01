@@ -38,3 +38,10 @@ Auth state is enforced globally via three guards registered in order. Most route
 - `effectiveUser.util.ts` returns the **impersonated** user, not the admin doing the impersonation. Audit logging needs both — pull the real admin from the request, not from `effectiveUser`.
 - `AdminAudit.interceptor.ts` only fires when explicitly applied — it is **not** global. Routes that mutate user data should opt in.
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
+- **`SessionGuard` calls Clerk only to verify the session token.** Identity
+  fields (email, name, avatar) come from Postgres, which is authoritative;
+  there is no per-request Clerk profile fetch. `verifyToken` and `m2m.verify`
+  are capped at `CLERK_API_TIMEOUT_MS` (default 2s, see
+  `vendors/clerk/clerk.consts.ts`) and wrapped in `clerkCall()`, which also
+  emits the span — the SDK uses undici, which our OTel setup does not
+  instrument, so a call made without that wrapper is invisible in Tempo.
