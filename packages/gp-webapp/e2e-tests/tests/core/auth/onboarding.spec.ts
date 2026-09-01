@@ -44,6 +44,7 @@ async function completeOnboardingFlow(page: Page): Promise<void> {
   await completePartyAffiliationStep(page)
   await completeOfficeSelectionStep(page)
   await completePathToVictoryStep(page)
+  await completeCampaignStoryStep(page)
   await completePledgeStep(page)
 }
 
@@ -121,13 +122,32 @@ async function completePathToVictoryStep(page: Page): Promise<void> {
   await clickContinue(page)
 }
 
+// The campaign story is three individually-skippable steps (why → background →
+// issues) that always sit between path-to-victory and the pledge. Skip
+// advances one step at a time, so clearing the whole story means clicking
+// Skip on each step until the pledge appears.
+async function completeCampaignStoryStep(page: Page): Promise<void> {
+  console.log('Step: Campaign story')
+  const stepHeadings = [
+    /why are you running/i,
+    /what's your background/i,
+    /what issues do you most want to solve/i,
+  ]
+  for (const heading of stepHeadings) {
+    await expect(
+      page.getByRole('heading', { level: 1, name: heading }),
+    ).toBeVisible({ timeout: 30000 })
+    await page.getByRole('button', { name: /^skip$/i }).click()
+  }
+}
+
 async function completePledgeStep(page: Page): Promise<void> {
   console.log('Step: Pledge')
   await expect(
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()
   const submit = page
-    .getByRole('button', { name: /agree.*create my plan/i })
+    .getByRole('button', { name: /meet your campaign manager/i })
     .first()
   await expect(submit).toBeVisible({ timeout: 15000 })
   await expect(submit).toBeEnabled()

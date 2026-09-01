@@ -69,8 +69,22 @@ test.describe('Custom office flow', () => {
     await expect(continueButton).toBeEnabled()
     await continueButton.click()
 
-    // Manual flow skips P2V/voter-demographics; lands on the pledge step
-    // (H1 reads "Take our pledge to get your campaign plan").
+    // Manual flow skips P2V/voter-demographics, landing directly on the
+    // campaign story steps (why → background → issues), each skippable.
+    const storyStepHeadings = [
+      /why are you running/i,
+      /what's your background/i,
+      /what issues do you most want to solve/i,
+    ]
+    for (const heading of storyStepHeadings) {
+      await expect(
+        page.getByRole('heading', { level: 1, name: heading }),
+      ).toBeVisible({ timeout: 30000 })
+      await page.getByRole('button', { name: /^skip$/i }).click()
+    }
+
+    // Then lands on the pledge step (H1 reads "Take our pledge to get your
+    // campaign plan").
     await expect(
       page.getByRole('heading', { level: 1, name: /take our pledge/i }),
     ).toBeVisible({ timeout: 15000 })
