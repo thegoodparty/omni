@@ -474,6 +474,13 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       'Flag rather than silently alter or remove anything in the ' +
         'original message',
     )
+    // The user-message framing must also drop the polish framing — it
+    // would otherwise recreate the same light-edit contradiction the
+    // system-prompt swap fixes.
+    expect(userPrompt).toContain('The message to adapt, as written:')
+    expect(userPrompt).toContain('Adapt the message into a call script.')
+    expect(userPrompt).not.toContain('The existing call script to polish:')
+    expect(userPrompt).not.toContain('Polish the script.')
 
     // ENG-10990 blocker fix: custom's adapt-into-dialogue copy contradicts
     // improveSystemPrompt's light-edit/same-length/format-already-there

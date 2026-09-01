@@ -570,11 +570,22 @@ export class OutreachPhoneBankingGenerationService {
             role: 'user',
             content: [
               ...context,
-              'The existing call script to polish:',
+              // Surface-neutral wording (never "candidate"/"official") so
+              // the shared path doesn't leak Win framing onto Serve — see
+              // the isCustomAdapt system-prompt swap above for why custom
+              // needs its own framing here too: "polish"/"the script"
+              // implies a light edit of an existing call script, which
+              // contradicts custom's adapt-into-dialogue-plus-scaffolding
+              // instructions.
+              isCustomAdapt
+                ? 'The message to adapt, as written:'
+                : 'The existing call script to polish:',
               '"""',
               input.currentDraft,
               '"""',
-              'Polish the script.',
+              isCustomAdapt
+                ? 'Adapt the message into a call script.'
+                : 'Polish the script.',
               ...(input.instructions
                 ? buildInstructionsBlock(input.instructions, voice)
                 : []),
