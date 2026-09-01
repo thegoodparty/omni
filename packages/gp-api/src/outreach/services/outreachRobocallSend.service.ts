@@ -14,6 +14,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { OutreachMaterializationService } from './outreachMaterialization.service'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
 // nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
@@ -72,6 +73,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
     private readonly hold: OutreachRobocallHoldService,
+    private readonly materialization: OutreachMaterializationService,
   ) {
     super()
   }
@@ -440,6 +442,53 @@ export class OutreachRobocallSendService extends createPrismaBase(
         { outreachId, dialingCampaignPkStr: pkStr },
         'CRITICAL robocall launched but commit matched no row; campaign may be ' +
           'dialing with no dialed record — reconcile by hand',
+      )
+      return
+    }
+    // The dial committed here — calls are actually going out (or already
+    // did, for the reconcile/stale-recovery callers that land in this same
+    // commit on a confirmed STARTED/ABORT/END read). Materialize the
+    // recipient rows now so the person feed reflects a robocall that
+    // actually dialed, mirroring how text/p2p materialize at launch.
+    await this.tryMaterializeRobocall(outreachId)
+  }
+
+  // Best-effort, mirroring OutreachService.tryMaterializeOutreach: the dial
+  // already committed, so a materialization failure must only log — it must
+  // NEVER throw out of the send path or touch the hold. The commit above is a
+  // one-time `dialing → dialed` CAS (a repeat call finds the row no longer
+  // `dialing` and matches zero rows), so this fires at most once per
+  // outreach in practice; the (outreachId, personId) unique constraint's
+  // skipDuplicates write (ContactInteractionRobocallService.
+  // createManyIdempotent) makes a second invocation a no-op regardless.
+  private async tryMaterializeRobocall(outreachId: number): Promise<void> {
+    try {
+      // Loaded fresh rather than threaded through from startCampaign: this is
+      // also reached from reconcileDialing/recoverStaleDialing, which never
+      // load the outreach/campaign themselves.
+      const outreach = await this.client.outreach.findUnique({
+        where: { id: outreachId },
+        include: { campaign: true },
+      })
+      // A robocall row is always campaign-scoped (outreach.prisma) — a
+      // missing campaign here means the outreach itself is gone. Log and
+      // move on; the dial already happened and must not be affected.
+      if (!outreach?.campaign) {
+        this.logger.error(
+          { outreachId },
+          'robocall materialization: outreach or campaign not found',
+        )
+        return
+      }
+      await this.materialization.materializeOutreach(
+        outreach.campaign,
+        outreach,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall recipient materialization failed after dial; the call ' +
+          'went out, only the person-feed audit rows are missing',
       )
     }
   }

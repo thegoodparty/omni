@@ -4,8 +4,11 @@ import { addDays, addHours, subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
+import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
+import { OutreachMaterializationService } from '@/outreach/services/outreachMaterialization.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
@@ -467,6 +470,150 @@ describe('OutreachRobocallSendService.startCampaign', () => {
       expect.objectContaining({ dialingCampaignPkStr: 'vb_1' }),
       expect.stringContaining('CRITICAL'),
     )
+  })
+})
+
+describe('OutreachRobocallSendService.startCampaign — recipient materialization', () => {
+  const makePerson = (id: string): Person => ({
+    id,
+    lalVoterId: `lal-${id}`,
+    firstName: null,
+    middleName: null,
+    lastName: null,
+    nameSuffix: null,
+    age: null,
+    state: 'TX',
+    address: {
+      line1: null,
+      line2: null,
+      city: null,
+      state: null,
+      zip: null,
+      zipPlus4: null,
+      latitude: null,
+      longitude: null,
+    },
+    cellPhone: null,
+    landline: null,
+    gender: null,
+    politicalParty: 'Independent',
+    registeredVoter: 'Yes',
+    estimatedIncomeAmount: null,
+    voterStatus: null,
+    maritalStatus: null,
+    hasChildrenUnder18: null,
+    veteranStatus: null,
+    homeowner: null,
+    businessOwner: null,
+    levelOfEducation: null,
+    ethnicityGroup: null,
+    language: 'English',
+  })
+
+  const peoplePage = (ids: string[]): PeopleListResponse => ({
+    people: ids.map(makePerson),
+    pagination: {
+      totalResults: ids.length,
+      currentPage: 1,
+      pageSize: ids.length,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    },
+  })
+
+  const recipientRows = (outreachId: number) =>
+    service.prisma.contactInteractionRobocall.findMany({
+      where: { outreachId },
+      orderBy: { personId: 'asc' },
+    })
+
+  it('writes one ContactInteractionRobocall row per recipient once the dial commits', async () => {
+    const outreachId = await createDraft()
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockResolvedValue(peoplePage(['rc-1', 'rc-2']))
+
+    await send.startCampaign(outreachId)
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    const rows = await recipientRows(outreachId)
+    expect(rows.map((r) => r.personId)).toEqual(['rc-1', 'rc-2'])
+    expect(rows.every((r) => r.organizationSlug === orgSlug)).toBe(true)
+    expect(rows.every((r) => r.outreachId === outreachId)).toBe(true)
+  })
+
+  it('materializes on the reconciled-STARTED path too (a lost launch that dialed)', async () => {
+    const outreachId = await createDraft()
+    launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockResolvedValue(peoplePage(['rc-3']))
+
+    await send.startCampaign(outreachId)
+
+    // The commit reached via reconcileDialing (not the happy launch path)
+    // still materializes — the calls dialed either way.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect((await recipientRows(outreachId)).map((r) => r.personId)).toEqual([
+      'rc-3',
+    ])
+  })
+
+  it('never fails the dial when materialization throws (best-effort, audit trail only)', async () => {
+    const outreachId = await createDraft()
+    const errorSpy = loggerErrorSpy()
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockRejectedValue(new Error('people-api down'))
+
+    await send.startCampaign(outreachId)
+
+    // The dial itself is unaffected — money already moved, calls already
+    // launched. Only the audit rows are missing.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect(await recipientRows(outreachId)).toHaveLength(0)
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId }),
+      expect.stringContaining('materialization failed'),
+    )
+  })
+
+  it('is idempotent: a repeat materialization call for the same dial does not duplicate or crash', async () => {
+    const outreachId = await createDraft()
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockResolvedValue(peoplePage(['rc-1', 'rc-2']))
+
+    await send.startCampaign(outreachId)
+
+    // Simulates materializeOutreach being invoked again for the same
+    // outreach — the CAS in commitDialed already makes this unreachable in
+    // practice (a second commit finds the row no longer `dialing`), but the
+    // (outreachId, personId) unique constraint's skipDuplicates write is the
+    // belt-and-suspenders guarantee this test exercises directly.
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    await expect(
+      service.app
+        .get(OutreachMaterializationService)
+        .materializeOutreach(campaign, outreach),
+    ).resolves.not.toThrow()
+
+    const rows = await recipientRows(outreachId)
+    expect(rows.map((r) => r.personId)).toEqual(['rc-1', 'rc-2'])
   })
 })
 
