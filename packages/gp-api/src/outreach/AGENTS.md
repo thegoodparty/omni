@@ -315,13 +315,15 @@ the completion poll's PERMANENT schema mismatch (a `ZodError` on the
 strictly pre-delivery.
 
 A third `failSend` caller is the stranded-`authorized` sweep
-(`outreachRobocallStranded.service.ts`, reason `expired_unstaged`): a draft that
-reached `authorized` (hold placed) but whose send passed WITHOUT ever staging
-(`callhubCampaignPkStr` still NULL) is caught by no other sweep — the staging
-sweep only stages future sends, the send sweep only dials staged drafts — so it
-would strand in `authorized` forever with its hold reserved and the spine still
-"Scheduled". The sweep `failSend`s it (releasing the money, the safe direction),
-which is why it is prod-only but NOT kill-switch-gated.
+(`outreachRobocallStranded.service.ts`): a draft that reached `authorized` (hold
+placed) but whose send passed WITHOUT ever staging (`callhubCampaignPkStr` still
+NULL) is caught by no other sweep — the staging sweep only stages future sends,
+the send sweep only dials staged drafts — so it would strand in `authorized`
+forever with its hold reserved and the spine still "Scheduled". It calls
+`failSend` with reason `expired_unstaged`, which surfaces only in the CRITICAL
+log line — the voided-hold and orphaned-campaign records are still stamped
+`send_failed`, like every other `failSend` path. It only releases the money (the
+safe direction), which is why it is prod-only but NOT kill-switch-gated.
 
 **Capture (settlement).** `OutreachRobocallCaptureService.captureDraft` captures
 the authorization hold for the ACTUAL completed-call count once the completion
