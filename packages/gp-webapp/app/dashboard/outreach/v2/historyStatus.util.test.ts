@@ -21,6 +21,18 @@ describe('getHistoryStatusLabel', () => {
   })
 })
 
+describe('getHistoryStatusLabel — send failures', () => {
+  it("labels a failed robocall row Couldn't send", () => {
+    expect(
+      getHistoryStatusLabel({
+        id: 2,
+        outreachType: 'robocall',
+        status: 'failed',
+      } as HistoryRow),
+    ).toBe("Couldn't send")
+  })
+})
+
 describe('getHistoryStatusLabel — scheduled paid rows', () => {
   it('labels a pending p2p row with a live vendor job Scheduled, not Draft', () => {
     expect(

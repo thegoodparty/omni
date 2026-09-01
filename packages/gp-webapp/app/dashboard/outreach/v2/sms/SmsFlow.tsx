@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { useRouter } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
@@ -11,43 +10,9 @@ import type {
   SocialTone,
 } from '@goodparty_org/contracts'
 import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
-import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertTitle,
-  Badge,
-  Button,
-  Card,
-} from '@styleguide'
-import {
-  BookmarkIcon,
-  CircleCheckIcon,
-  ClipboardListIcon,
-  ClockIcon,
-  DownloadIcon,
-  InfoIcon,
-  ShieldAlertIcon,
-  ShieldCheckIcon,
-} from '@styleguide/components/ui/icons'
+import { Button, Card } from '@styleguide'
+import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import type { TcrCompliance } from 'helpers/types'
-import {
-  ELECTION_FILING_PATH,
-  SUBMIT_PIN_PATH,
-} from 'app/dashboard/shared/ComplianceModal'
-import {
-  TCR_COMPLIANCE_STATUS,
-  isTcrCleared,
-} from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -124,7 +89,6 @@ const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
 interface SmsFlowProps {
   open: boolean
   onClose: () => void
-  tcrCompliance?: TcrCompliance
   // Fired after payment (or free redemption) completes server-side; the hub
   // refetches the outreach list there.
   onScheduled: () => Promise<void>
@@ -260,85 +224,12 @@ export const SuccessScreen = ({
   )
 }
 
-const VerificationRow = ({
-  icon,
-  title,
-  body,
-}: {
-  icon: React.ReactNode
-  title: string
-  body: string
-}) => (
-  <div className="flex items-start gap-3">
-    <span className="mt-0.5 shrink-0 text-info [&_svg]:size-4">{icon}</span>
-    <span>
-      <span className="block text-sm font-semibold text-foreground">
-        {title}
-      </span>
-      <span className="block text-sm text-muted-foreground">{body}</span>
-    </span>
-  </div>
-)
-
-// Post-success interstitial (shown only while CampaignVerify clearance is
-// pending): the send is saved but held by the carriers, so the one useful
-// next action is starting verification.
-const VerificationInterstitial = () => (
-  <div className="space-y-6 py-8">
-    <Badge
-      shape="pill"
-      className="h-6.5 gap-1.5 border-transparent bg-info-light px-3 text-xs font-semibold text-foreground"
-    >
-      Verification
-    </Badge>
-    <div className="space-y-2">
-      <h2 className="text-2xl font-semibold text-foreground">
-        One more step before this can send
-      </h2>
-      <p className="text-muted-foreground">
-        Your text is saved and scheduled, but it will not go out until your
-        campaign is verified with the carriers.
-      </p>
-    </div>
-    <Card className="gap-0 divide-y divide-border p-0 [&>div]:p-4">
-      <VerificationRow
-        icon={<ClipboardListIcon />}
-        title="What we need"
-        body="Your candidacy, your campaign EIN and your filing details"
-      />
-      <VerificationRow
-        icon={<ClockIcon />}
-        title="How long it takes"
-        body="About 1 to 2 weeks for the carriers to clear your campaign"
-      />
-      <VerificationRow
-        icon={<BookmarkIcon />}
-        title="Nothing is lost"
-        body="Your text stays saved and scheduled while this is under review"
-      />
-    </Card>
-    <Alert variant="info" icon={<InfoIcon />}>
-      <AlertTitle>Start now if you can</AlertTitle>
-      <AlertDescription>
-        Verification runs in the background, so starting today keeps your send
-        date safe.
-      </AlertDescription>
-    </Alert>
-  </div>
-)
-
 // Flow state is flat client state owned here (phase 1 shell convention):
 // nothing persists until the pay step's draft-first create, and reopening
 // starts fresh.
-export const SmsFlow = ({
-  open,
-  onClose,
-  tcrCompliance,
-  onScheduled,
-}: SmsFlowProps) => {
+export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
-  const router = useRouter()
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsPurpose | null>(null)
@@ -377,7 +268,6 @@ export const SmsFlow = ({
   const draftGenerationRef = useRef(0)
   const [scheduled, setScheduled] = useState(false)
   const [paidSend, setPaidSend] = useState(false)
-  const [showVerify, setShowVerify] = useState(false)
 
   const draftRequestRef = useRef(0)
 
@@ -426,7 +316,6 @@ export const SmsFlow = ({
     setDraftCreateError(false)
     setScheduled(false)
     setPaidSend(false)
-    setShowVerify(false)
     resetDraftMutation()
   }, [open, resetDraftMutation, resetAudience])
 
@@ -451,22 +340,13 @@ export const SmsFlow = ({
   const composedLength = composedMessage.length
   const missingIdentification = !hasIdentification(body, user?.firstName ?? '')
 
-  // The design's flowEarliest: while identity verification is pending
-  // (CampaignVerify not VERIFIED), the earliest send moves from 48 hours to
-  // 14 days out so verification has time to clear before the job runs; the
-  // review step's not-cleared banner covers the case where it still hasn't.
-  const notCleared = !isTcrCleared(tcrCompliance)
-  // Validation floor: 14 days while verification pends, else 48h. The
-  // CALENDAR only ever blocks the hard 48h window — dates inside the
-  // compliance window stay selectable and surface the explanatory alert
-  // instead (design parity).
+  // Only fully verified campaigns can reach this flow (the 2026-08-28 full
+  // gate), so the send floor is the hard 48-hour scheduling window.
   const earliestSend = useMemo(
-    () =>
-      Date.now() +
-      (notCleared ? 14 * 24 * 60 * 60 * 1000 : 48 * 60 * 60 * 1000),
+    () => Date.now() + 48 * 60 * 60 * 1000,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute on
     // each open, like the fresh-state reset
-    [open, notCleared],
+    [open],
   )
 
   const scheduledAt = useMemo(() => {
@@ -717,30 +597,6 @@ export const SmsFlow = ({
     await onScheduled()
   }
 
-  // ComplianceModal's status-aware target: a SUBMITTED registration is
-  // waiting on the CampaignVerify PIN; anything else (typically no record)
-  // enters at the election-filing form.
-  const startVerification = () => {
-    router.push(
-      tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
-        ? SUBMIT_PIN_PATH
-        : ELECTION_FILING_PATH,
-    )
-    onClose()
-  }
-
-  // The banner's Start compliance leaves the wizard, and onClose bypasses
-  // the shell's dirty-close confirm — so it gets its own when the flow has
-  // unsaved selections. The interstitial path is post-save and never dirty.
-  const [verifyConfirmOpen, setVerifyConfirmOpen] = useState(false)
-  const requestStartCompliance = () => {
-    if (!scheduled && purpose !== null) {
-      setVerifyConfirmOpen(true)
-      return
-    }
-    startVerification()
-  }
-
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
   const handleBack = () => {
@@ -769,85 +625,78 @@ export const SmsFlow = ({
 
   const dirty = !scheduled && purpose !== null
 
-  const cta: FlowShellCta | null =
-    scheduled && showVerify
+  const cta: FlowShellCta | null = scheduled
+    ? null
+    : stepId === 'audience' && audience.mode === 'filters'
       ? {
-          label: 'Start verification',
-          onClick: startVerification,
-          secondary: { label: 'Later', onClick: onClose },
+          label: audience.builderCounting
+            ? 'Continue'
+            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+          onClick: () => audience.setMode('name'),
+          disabled:
+            !hasAnyVoterFileSelection(
+              audience.builderFilters,
+              audience.builderSupportStatus,
+              audience.builderPrecincts,
+            ) ||
+            audience.builderCounting ||
+            audience.builderZeroMatch ||
+            audience.builderCapError,
+          loading:
+            hasAnyVoterFileSelection(
+              audience.builderFilters,
+              audience.builderSupportStatus,
+              audience.builderPrecincts,
+            ) && audience.builderCounting,
         }
-      : scheduled
-        ? null
-        : stepId === 'audience' && audience.mode === 'filters'
+      : stepId === 'audience' && audience.mode === 'name'
+        ? {
+            label: 'Continue',
+            onClick: () => {
+              void handleCreateListContinue()
+            },
+            disabled: audience.builderName.trim().length === 0,
+            loading: audience.createListPending || phoneListCreating,
+          }
+        : stepId === 'audience'
           ? {
-              label: audience.builderCounting
-                ? 'Continue'
-                : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
-              onClick: () => audience.setMode('name'),
+              label: phoneListError
+                ? 'Try again'
+                : reachableCount !== null
+                  ? `Continue (${reachableCount.toLocaleString()})`
+                  : 'Continue',
+              onClick: () => {
+                void handleAudienceContinue()
+              },
               disabled:
-                !hasAnyVoterFileSelection(
-                  audience.builderFilters,
-                  audience.builderSupportStatus,
-                  audience.builderPrecincts,
-                ) ||
-                audience.builderCounting ||
-                audience.builderZeroMatch ||
-                audience.builderCapError,
-              loading:
-                hasAnyVoterFileSelection(
-                  audience.builderFilters,
-                  audience.builderSupportStatus,
-                  audience.builderPrecincts,
-                ) && audience.builderCounting,
+                !selectedList ||
+                audience.reachableLoading ||
+                reachableCount === null ||
+                reachableCount === 0,
+              loading: phoneListCreating,
             }
-          : stepId === 'audience' && audience.mode === 'name'
+          : stepId === 'schedule'
             ? {
                 label: 'Continue',
-                onClick: () => {
-                  void handleCreateListContinue()
-                },
-                disabled: audience.builderName.trim().length === 0,
-                loading: audience.createListPending || phoneListCreating,
+                onClick: () => setStepId('compose'),
+                disabled:
+                  name.trim().length === 0 ||
+                  scheduledAt === null ||
+                  violates48h ||
+                  outsideWindow,
               }
-            : stepId === 'audience'
+            : stepId === 'compose'
               ? {
-                  label: phoneListError
-                    ? 'Try again'
-                    : reachableCount !== null
-                      ? `Continue (${reachableCount.toLocaleString()})`
-                      : 'Continue',
-                  onClick: () => {
-                    void handleAudienceContinue()
-                  },
+                  label: 'Continue',
+                  onClick: () => setStepId('review'),
                   disabled:
-                    !selectedList ||
-                    audience.reachableLoading ||
-                    reachableCount === null ||
-                    reachableCount === 0,
-                  loading: phoneListCreating,
+                    body.trim().length === 0 ||
+                    missingIdentification ||
+                    composedLength > SMS_COMPOSED_MAX_LENGTH ||
+                    image === null ||
+                    draftMutation.isPending,
                 }
-              : stepId === 'schedule'
-                ? {
-                    label: 'Continue',
-                    onClick: () => setStepId('compose'),
-                    disabled:
-                      name.trim().length === 0 ||
-                      scheduledAt === null ||
-                      violates48h ||
-                      outsideWindow,
-                  }
-                : stepId === 'compose'
-                  ? {
-                      label: 'Continue',
-                      onClick: () => setStepId('review'),
-                      disabled:
-                        body.trim().length === 0 ||
-                        missingIdentification ||
-                        composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                        image === null ||
-                        draftMutation.isPending,
-                    }
-                  : null
+              : null
 
   return (
     <OutreachFlowShell
@@ -875,37 +724,13 @@ export const SmsFlow = ({
           limit={60}
         />
       )}
-      {!scheduled && notCleared && (
-        // Persistent while CampaignVerify clearance pends: every step opens
-        // with the design's compliance call-to-action so the user can start
-        // verification before the scheduled send needs it.
-        <Alert variant="info" icon={<ShieldAlertIcon />} className="mb-6">
-          <AlertTitle>Compliance needed before this can send</AlertTitle>
-          <AlertDescription>
-            Carrier approval takes 1 to 2 weeks. Schedule now, start compliance
-            so your text clears in time.
-          </AlertDescription>
-          <AlertAction>
-            <Button
-              type="button"
-              variant="alertOutline"
-              onClick={requestStartCompliance}
-            >
-              <ShieldCheckIcon />
-              Start compliance
-            </Button>
-          </AlertAction>
-        </Alert>
-      )}
-      {scheduled && showVerify ? (
-        <VerificationInterstitial />
-      ) : scheduled ? (
+      {scheduled ? (
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
           sendAt={scheduledAt}
           outreachId={draftOutreachId}
           paid={paidSend}
-          onDone={notCleared ? () => setShowVerify(true) : onClose}
+          onDone={onClose}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />
@@ -963,7 +788,6 @@ export const SmsFlow = ({
       ) : stepId === 'schedule' ? (
         <SmsScheduleStep
           name={name}
-          notCleared={notCleared}
           onNameChange={(value) => {
             setName(value)
             setNameEdited(true)
@@ -975,9 +799,7 @@ export const SmsFlow = ({
           customTime={customTime}
           onCustomTimeChange={setCustomTime}
           earliestSend={earliestSend}
-          calendarFloor={
-            earliestSend - (notCleared ? 12 * 24 * 60 * 60 * 1000 : 0)
-          }
+          calendarFloor={earliestSend}
           violates48h={violates48h}
           outsideWindow={outsideWindow}
         />
@@ -1038,23 +860,6 @@ export const SmsFlow = ({
           />
         </CheckoutSessionProvider>
       )}
-      <AlertDialog open={verifyConfirmOpen} onOpenChange={setVerifyConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Leave and start compliance?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Your draft and selections will be lost. Compliance runs in the
-              background, so you can come back and schedule after starting it.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep editing</AlertDialogCancel>
-            <AlertDialogAction onClick={startVerification}>
-              Start compliance
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </OutreachFlowShell>
   )
 }

@@ -3,7 +3,7 @@ import { handleRouteParams } from '@shared/utils/handleRouteParams'
 
 interface BuildUrlEndpoint {
   path: string
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   nextApiRoute?: boolean
 }
 

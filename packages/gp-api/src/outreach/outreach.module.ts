@@ -24,6 +24,7 @@ import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
+import { OutreachServePhoneBankingController } from './outreachServePhoneBanking.controller'
 import { OutreachRobocallController } from './outreachRobocall.controller'
 import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
@@ -56,6 +57,7 @@ import { RobocallComplianceService } from './services/robocallCompliance.service
 import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
 import { RobocallPhonebookService } from './services/robocallPhonebook.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
@@ -94,6 +96,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachSocialController,
     OutreachServeSocialController,
     OutreachPhoneBankingController,
+    OutreachServePhoneBankingController,
     OutreachSmsController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
@@ -125,6 +128,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     RobocallComplianceResultService,
     RobocallPhonebookService,
     OutreachComposeContextService,
+    OutreachServeComposeContextService,
     OutreachRobocallAudioService,
     OutreachCompletionService,
     OutreachInboundSweepService,

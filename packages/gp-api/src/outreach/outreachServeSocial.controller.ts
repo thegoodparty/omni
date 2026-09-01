@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,14 +9,17 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  excludedSocialPlatformsForPurpose,
   OutreachDetail,
   OutreachDetailSchema,
   ServeSocialDraftRequest,
   ServeSocialDraftRequestSchema,
   ServeSocialGenerateRequest,
   ServeSocialGenerateRequestSchema,
+  ServeSocialPurpose,
   ServeSocialSaveRequest,
   ServeSocialSaveRequestSchema,
+  SocialAssetPlatform,
   SocialDraftResponse,
   SocialDraftResponseSchema,
   SocialGenerateResponse,
@@ -36,6 +40,7 @@ import {
   OutreachSocialGenerationService,
   SERVE_SOCIAL_VOICE,
 } from './services/outreachSocialGeneration.service'
+import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
 
 const electedOfficialName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
@@ -53,6 +58,7 @@ export class OutreachServeSocialController {
     private readonly socialService: OutreachSocialService,
     private readonly outreachService: OutreachService,
     private readonly generationService: OutreachSocialGenerationService,
+    private readonly profileContext: OutreachServeComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
@@ -60,18 +66,23 @@ export class OutreachServeSocialController {
   }
 
   // Office name + place are prompt enrichment only, same as the Win draft
-  // route — an election-api failure must not fail the draft.
+  // route — an election-api failure must not fail the draft. The Public
+  // Profile lookup is a local DB read (never campaign tables — the serve/win
+  // isolation invariant), so it runs outside this try/catch and propagates a
+  // real failure instead of degrading silently.
   private async buildServeContext(
-    organizationSlug: string,
+    electedOffice: ElectedOffice,
   ): Promise<{ office: string; context: string[] }> {
     let office = ''
     const context: string[] = []
     try {
       const [positionName, district] = await Promise.all([
         this.organizations.resolvePositionNameByOrganizationSlug(
-          organizationSlug,
+          electedOffice.organizationSlug,
         ),
-        this.organizations.getDistrictForOrgSlug(organizationSlug),
+        this.organizations.getDistrictForOrgSlug(
+          electedOffice.organizationSlug,
+        ),
       ])
       office = positionName ?? ''
       const city =
@@ -88,7 +99,29 @@ export class OutreachServeSocialController {
         'office/place resolution failed for serve compose',
       )
     }
+    context.push(
+      ...(await this.profileContext.buildProfileContext(electedOffice.userId)),
+    )
     return { office, context }
+  }
+
+  // Mirrors the Win gate (ENG-10989): the client platform list is UI-only.
+  // Serve's exclusion matrix is empty today, so this never rejects a real
+  // Serve request on generate OR save — it only guards against drift if a
+  // future Serve purpose ever gains one.
+  private assertPlatformsAllowed(
+    purpose: ServeSocialPurpose,
+    platforms: SocialAssetPlatform[],
+  ): void {
+    const excludedRequested = platforms.filter((platform) =>
+      excludedSocialPlatformsForPurpose('serve', purpose).includes(platform),
+    )
+    if (excludedRequested.length > 0) {
+      throw new BadRequestException(
+        `Platform not available for purpose "${purpose}": ` +
+          excludedRequested.join(', '),
+      )
+    }
   }
 
   @Post('social/draft')
@@ -99,9 +132,7 @@ export class OutreachServeSocialController {
     @Body(new ZodValidationPipe(ServeSocialDraftRequestSchema))
     input: ServeSocialDraftRequest,
   ): Promise<SocialDraftResponse> {
-    const { office, context } = await this.buildServeContext(
-      electedOffice.organizationSlug,
-    )
+    const { office, context } = await this.buildServeContext(electedOffice)
     return {
       draft: await this.generationService.generateDraft(
         input,
@@ -122,13 +153,13 @@ export class OutreachServeSocialController {
     @Body(new ZodValidationPipe(ServeSocialGenerateRequestSchema))
     input: ServeSocialGenerateRequest,
   ): Promise<SocialGenerateResponse> {
-    const { context } = await this.buildServeContext(
-      electedOffice.organizationSlug,
-    )
+    this.assertPlatformsAllowed(input.purpose, input.platforms)
+    const { office, context } = await this.buildServeContext(electedOffice)
     return {
       assets: await this.generationService.generateAssets(
         input,
         electedOfficialName(user),
+        office,
         String(user.id),
         context,
         SERVE_SOCIAL_VOICE,
@@ -143,6 +174,10 @@ export class OutreachServeSocialController {
     @Body(new ZodValidationPipe(ServeSocialSaveRequestSchema))
     input: ServeSocialSaveRequest,
   ): Promise<OutreachDetail> {
+    this.assertPlatformsAllowed(
+      input.purpose,
+      input.assets.map((asset) => asset.platform),
+    )
     return this.socialService.saveSocialOutreach(
       { campaignId: null, organizationSlug: electedOffice.organizationSlug },
       input,

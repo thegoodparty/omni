@@ -116,11 +116,22 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.text) {
-      if (!runTextGate()) return
       if (smsV2.ready && smsV2.enabled) {
+        // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to
+        // the Pro upgrade wizard instead of the legacy marketing modal, the
+        // same pattern the phone-banking tile set. Pro candidates with an
+        // unfinished registration run through the gate's status-aware
+        // ComplianceModal below (legacy semantics: approved passes).
+        if (!isPro) {
+          trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
+          router.push('/dashboard/pro-upgrade')
+          return
+        }
+        if (!runTextGate()) return
         onCreateSms()
         return
       }
+      if (!runTextGate()) return
       setFlowType(type)
       return
     }

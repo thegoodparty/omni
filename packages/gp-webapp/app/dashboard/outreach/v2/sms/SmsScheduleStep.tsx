@@ -57,9 +57,6 @@ const fmtDateTime = (d: Date) =>
   `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
 
 interface SmsScheduleStepProps {
-  // Verification pending: the 14-day minimum applies (see SmsFlow's
-  // earliestSend) and the copy explains why.
-  notCleared: boolean
   name: string
   onNameChange: (value: string) => void
   date: Date | undefined
@@ -69,8 +66,6 @@ interface SmsScheduleStepProps {
   customTime: string
   onCustomTimeChange: (value: string) => void
   earliestSend: number
-  // The calendar's hard floor (48h) — looser than earliestSend while
-  // verification pends, so compliance-window dates stay selectable.
   calendarFloor: number
   violates48h: boolean
   outsideWindow: boolean
@@ -78,7 +73,6 @@ interface SmsScheduleStepProps {
 
 export const SmsScheduleStep = ({
   name,
-  notCleared,
   onNameChange,
   date,
   onDateChange,
@@ -110,11 +104,7 @@ export const SmsScheduleStep = ({
       <Intro
         channel="text"
         title="When do you want to send it?"
-        body={
-          notCleared
-            ? 'We recommend mid-morning or early evening for higher engagement.'
-            : "We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
-        }
+        body="We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
       />
 
       <div className="space-y-2">
@@ -167,10 +157,7 @@ export const SmsScheduleStep = ({
             </PopoverContent>
           </Popover>
           <p className="text-sm text-muted-foreground">
-            {notCleared
-              ? 'Earliest send while compliance is pending: '
-              : 'Earliest send: '}
-            {fmtDateTime(new Date(earliestSend))}.
+            Earliest send: {fmtDateTime(new Date(earliestSend))}.
           </p>
         </div>
 
@@ -203,11 +190,8 @@ export const SmsScheduleStep = ({
       {violates48h && (
         <Alert variant="destructive" icon={<CircleAlertIcon />}>
           <AlertDescription>
-            {notCleared
-              ? 'Texting needs Pro plus carrier compliance approval, which can take up to two weeks. '
-              : "Sends need at least 48 hours' notice. "}
-            Pick a date and time on or after{' '}
-            {fmtDateTime(new Date(earliestSend))}.
+            Sends need at least 48 hours&rsquo; notice. Pick a date and time on
+            or after {fmtDateTime(new Date(earliestSend))}.
           </AlertDescription>
         </Alert>
       )}

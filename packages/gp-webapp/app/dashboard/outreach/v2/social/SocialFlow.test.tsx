@@ -270,6 +270,50 @@ describe('SocialFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
+  // ENG-10989: Nextdoor bans telling neighbors how to vote, so Win excludes
+  // it for purposes that pair persuasion or vote-timing language with a
+  // platform request — disabled with a one-line reason, not hidden, and
+  // every other platform stays selectable.
+  it('disables Nextdoor with a reason for a Win purpose that excludes it, leaving other platforms selectable', async () => {
+    mockDraft()
+    mockGenerate()
+    openFlow()
+
+    await user.click(screen.getByText('Persuade likely voters'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'persuade_voters', tone: 'warm' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      (await screen.findAllByText('Where do you want to share it?')).length,
+    ).toBeGreaterThan(0)
+
+    const nextdoorCard = screen.getByRole('button', { name: /Nextdoor/ })
+    expect(nextdoorCard).toHaveAttribute('aria-disabled', 'true')
+    expect(nextdoorCard).toHaveAttribute('aria-pressed', 'false')
+    expect(
+      screen.getByText("Nextdoor doesn't allow telling neighbors how to vote."),
+    ).toBeInTheDocument()
+
+    // Clicking the disabled card is a no-op.
+    await user.click(nextdoorCard)
+    expect(nextdoorCard).toHaveAttribute('aria-pressed', 'false')
+
+    // The other five platforms are unaffected and stay on by default.
+    expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(5)
+  })
+
+  it('leaves Nextdoor selectable for a Win purpose the matrix does not exclude', async () => {
+    mockDraft()
+    mockGenerate()
+    openFlow()
+    await advanceToPlatforms()
+
+    const nextdoorCard = screen.getByRole('button', { name: /Nextdoor/ })
+    expect(nextdoorCard).not.toHaveAttribute('aria-disabled', 'true')
+    expect(nextdoorCard).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('asks to discard on close once the flow is dirty, and closes silently when pristine', async () => {
     mockDraft()
     mockGenerate()
@@ -757,5 +801,27 @@ describe('SocialFlow with the serve surface', () => {
 
     expect(screen.getByLabelText('Campaign name')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  // ENG-10989: Serve carries no vote ask, so the matrix excludes nothing —
+  // Nextdoor stays selectable even for explain_decision, the Serve
+  // counterpart of Win's excluded persuade_voters.
+  it('leaves Nextdoor selectable on Serve for every purpose, including explain_decision', async () => {
+    mockServeDraft()
+    mockServeGenerate()
+    openServeFlow()
+
+    await user.click(screen.getByText('Explain a recent decision'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'explain_decision', tone: 'warm' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      (await screen.findAllByText('Where do you want to share it?')).length,
+    ).toBeGreaterThan(0)
+
+    const nextdoorCard = screen.getByRole('button', { name: /Nextdoor/ })
+    expect(nextdoorCard).not.toHaveAttribute('aria-disabled', 'true')
+    expect(nextdoorCard).toHaveAttribute('aria-pressed', 'true')
   })
 })

@@ -39,6 +39,49 @@ export const SERVE_SOCIAL_PURPOSE_VALUES = [
 export const ServeSocialPurposeSchema = z.enum(SERVE_SOCIAL_PURPOSE_VALUES)
 export type ServeSocialPurpose = z.infer<typeof ServeSocialPurposeSchema>
 
+// Nextdoor purpose/surface availability matrix (ENG-10989, product/politics
+// CSV 2026-09-01): Nextdoor bans telling neighbors how to vote, so a Win
+// purpose that pairs persuasion or vote-timing language with Nextdoor is
+// excluded outright. introduce_myself and custom stay INCLUDED with
+// Nextdoor-specific handling instead (a vote-CTA-drop prompt override and a
+// flag-don't-alter instruction, respectively) rather than exclusion — both
+// live in outreachSocialGeneration.service.ts, not here. Serve carries no
+// vote ask, so every Serve purpose is included.
+export type SocialSurface = 'win' | 'serve'
+
+export const WIN_SOCIAL_PLATFORM_EXCLUSIONS: Partial<
+  Record<SocialPurpose, readonly SocialAssetPlatform[]>
+> = {
+  persuade_voters: ['nextdoor'],
+  early_voting: ['nextdoor'],
+  election_day_turnout: ['nextdoor'],
+}
+
+export const SERVE_SOCIAL_PLATFORM_EXCLUSIONS: Partial<
+  Record<ServeSocialPurpose, readonly SocialAssetPlatform[]>
+> = {}
+
+export const SOCIAL_PLATFORM_EXCLUSION_REASON: Partial<
+  Record<SocialAssetPlatform, string>
+> = {
+  nextdoor: "Nextdoor doesn't allow telling neighbors how to vote.",
+}
+
+export const excludedSocialPlatformsForPurpose = (
+  surface: SocialSurface,
+  purpose: SocialPurpose | ServeSocialPurpose,
+): readonly SocialAssetPlatform[] =>
+  (surface === 'win'
+    ? WIN_SOCIAL_PLATFORM_EXCLUSIONS[purpose as SocialPurpose]
+    : SERVE_SOCIAL_PLATFORM_EXCLUSIONS[purpose as ServeSocialPurpose]) ?? []
+
+export const isSocialPlatformAllowed = (
+  surface: SocialSurface,
+  purpose: SocialPurpose | ServeSocialPurpose,
+  platform: SocialAssetPlatform,
+): boolean =>
+  !excludedSocialPlatformsForPurpose(surface, purpose).includes(platform)
+
 export const SOCIAL_TONE_VALUES = [
   'warm',
   'direct',

@@ -29,32 +29,45 @@ import {
 } from '@styleguide/components/ui/icons'
 import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import {
-  ChannelBadge,
-  HistoryStatusText,
-  WILL_NOT_SEND_LABEL,
-} from './channelMeta'
+import { ChannelBadge, HistoryStatusText } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
-import { useOutreachDetail } from './useOutreachDetail'
+import {
+  fetchOutreachDetail,
+  useOutreachDetail,
+  type OutreachDetailFetcher,
+} from './useOutreachDetail'
 
 const PAGE_SIZE = 10
 
 interface OutreachHistoryTableProps {
   rows: HistoryRow[]
-  // Optional: a caller with no row-click destination (the Serve shell has no
-  // details drawer yet) omits it, and rows render as plain, non-interactive
-  // content instead of faking a clickable row that does nothing.
+  // Optional: a caller with no row-click destination omits it, and rows
+  // render as plain, non-interactive content instead of faking a clickable
+  // row that does nothing.
   onRowClick?: (row: HistoryRow) => void
-  // CampaignVerify clearance still pending: scheduled SMS rows will be held
-  // by the carriers, so their displayed status becomes "Needs compliance".
-  notCleared?: boolean
+  // Per-row gate on top of `onRowClick`, for a caller whose drawer only
+  // covers some row types (constituent-outreach: social rows only, since no
+  // other Serve channel exists yet). Defaults to every row being clickable,
+  // matching every existing caller's byte-identical behavior.
+  rowClickable?: (row: HistoryRow) => boolean
+  // Detail fetch used by the social/phone-banking metric cells above.
+  // Defaults to Win's campaign-scoped read; the Serve caller threads its
+  // org-scoped sibling the same bound-function way SocialFlow's `surface`
+  // does, so this table never forks per surface.
+  detailFetcher?: OutreachDetailFetcher
 }
 
 // Social rows carry no send counts on the list payload — the platform count
 // lives on the detail (assets.length). One cached detail fetch per social
 // row, shared with the drawer via the query key.
-const SocialPlatformsMetric = ({ id }: { id: number }) => {
-  const { data } = useOutreachDetail(id)
+const SocialPlatformsMetric = ({
+  id,
+  detailFetcher,
+}: {
+  id: number
+  detailFetcher: OutreachDetailFetcher
+}) => {
+  const { data } = useOutreachDetail(id, true, detailFetcher)
   const count = data?.social?.assets.length
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
@@ -75,8 +88,14 @@ const peopleUnit = (type: HistoryRow['outreachType']): string =>
 // nativePhoneBanking carries no send counts on the list payload either — the
 // live-called count lives on the detail's phoneBanking block, same pattern
 // as SocialPlatformsMetric.
-const PhoneBankingCalledMetric = ({ id }: { id: number }) => {
-  const { data } = useOutreachDetail(id)
+const PhoneBankingCalledMetric = ({
+  id,
+  detailFetcher,
+}: {
+  id: number
+  detailFetcher: OutreachDetailFetcher
+}) => {
+  const { data } = useOutreachDetail(id, true, detailFetcher)
   const count = data?.phoneBanking?.peopleCalled
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
@@ -84,8 +103,14 @@ const PhoneBankingCalledMetric = ({ id }: { id: number }) => {
   return <>{count.toLocaleString()} people called</>
 }
 
-const PhoneBankingSupportersMetric = ({ id }: { id: number }) => {
-  const { data } = useOutreachDetail(id)
+const PhoneBankingSupportersMetric = ({
+  id,
+  detailFetcher,
+}: {
+  id: number
+  detailFetcher: OutreachDetailFetcher
+}) => {
+  const { data } = useOutreachDetail(id, true, detailFetcher)
   const count = data?.phoneBanking?.supporters
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
@@ -102,15 +127,19 @@ const PhoneBankingSupportersMetric = ({ id }: { id: number }) => {
 const RowMetric = ({
   row,
   compact,
+  detailFetcher,
 }: {
   row: HistoryRow
   compact?: boolean
+  detailFetcher: OutreachDetailFetcher
 }) => {
   if (row.outreachType === OUTREACH_TYPES.socialMedia) {
-    return <SocialPlatformsMetric id={row.id} />
+    return <SocialPlatformsMetric id={row.id} detailFetcher={detailFetcher} />
   }
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
-    return <PhoneBankingCalledMetric id={row.id} />
+    return (
+      <PhoneBankingCalledMetric id={row.id} detailFetcher={detailFetcher} />
+    )
   }
   const sent = row.textCount ?? row.billableTextCount
   if (typeof sent === 'number') {
@@ -136,9 +165,17 @@ const RowMetric = ({
 // missing-results placeholder. Social keeps it permanently (engagements are
 // cut from v1 by the social channel spec). nativePhoneBanking's results
 // (supporter count) are already computed on the detail, so it fills the slot.
-const RowResults = ({ row }: { row: HistoryRow }) => {
+const RowResults = ({
+  row,
+  detailFetcher,
+}: {
+  row: HistoryRow
+  detailFetcher: OutreachDetailFetcher
+}) => {
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
-    return <PhoneBankingSupportersMetric id={row.id} />
+    return (
+      <PhoneBankingSupportersMetric id={row.id} detailFetcher={detailFetcher} />
+    )
   }
   return <span className="text-muted-foreground">—</span>
 }
@@ -173,14 +210,12 @@ const channelFilterKey = (
     (c.types as readonly string[]).includes(type ?? ''),
   )?.key ?? null
 
-// The unified label vocabulary across both legacy status maps, plus the
-// verification-pending substitution label.
+// The unified label vocabulary across both legacy status maps.
 const STATUS_FILTERS = [
   'Draft',
   'In review',
   'Denied',
   'Scheduled',
-  'Needs compliance',
   'In progress',
   'Done',
   'Pending payment',
@@ -204,7 +239,8 @@ const rowDisplayDate = (row: HistoryRow): string | null => {
 export const OutreachHistoryTable = ({
   rows,
   onRowClick,
-  notCleared = false,
+  rowClickable = () => true,
+  detailFetcher = fetchOutreachDetail,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
@@ -215,25 +251,14 @@ export const OutreachHistoryTable = ({
     Set<(typeof STATUS_FILTERS)[number]>
   >(() => new Set(STATUS_FILTERS))
 
-  // A scheduled-not-sent SMS row while verification pends displays (and
-  // filters) as "Needs compliance" — filtering on "Scheduled" must not catch
-  // it. Two shapes qualify: legacy rows displaying "Scheduled" (spine
-  // paid/in_progress) and draft-first rows finalize left at spine `pending`
-  // with a phone list — the same set cancel-before-send acts on.
   const displayStatusLabel = (row: HistoryRow): string | null => {
-    const label = getHistoryStatusLabel(row)
-    const isSms =
-      row.outreachType === OUTREACH_TYPES.text ||
-      row.outreachType === OUTREACH_TYPES.p2p
-    if (
-      notCleared &&
-      isSms &&
-      (label === 'Scheduled' ||
-        (row.status === 'pending' && row.phoneListId != null))
-    ) {
-      return WILL_NOT_SEND_LABEL
+    // An archived row reads "Archived" no matter what state it was shelved
+    // in (prototype: effStatus) — the underlying status is a detail the
+    // archive view doesn't relitigate.
+    if (row.archivedAt) {
+      return 'Archived'
     }
-    return label
+    return getHistoryStatusLabel(row)
   }
 
   const visible = useMemo(
@@ -253,8 +278,7 @@ export const OutreachHistoryTable = ({
           )
         })
         .sort((a, b) => rowTime(b) - rowTime(a)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- notCleared is the only input displayStatusLabel closes over
-    [rows, showArchive, channelFilter, statusFilter, notCleared],
+    [rows, showArchive, channelFilter, statusFilter],
   )
 
   const activeFilterCount =
@@ -419,49 +443,52 @@ export const OutreachHistoryTable = ({
                 </TableCell>
               </TableRow>
             ) : (
-              paged.map((row) => (
-                <TableRow
-                  key={row.id}
-                  id={`outreach-row-${row.id}`}
-                  role={onRowClick ? 'button' : undefined}
-                  tabIndex={onRowClick ? 0 : undefined}
-                  className={onRowClick ? 'cursor-pointer' : undefined}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  onKeyDown={
-                    onRowClick
-                      ? (e: React.KeyboardEvent<HTMLTableRowElement>) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            onRowClick(row)
+              paged.map((row) => {
+                const clickable = Boolean(onRowClick) && rowClickable(row)
+                return (
+                  <TableRow
+                    key={row.id}
+                    id={`outreach-row-${row.id}`}
+                    role={clickable ? 'button' : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    className={clickable ? 'cursor-pointer' : undefined}
+                    onClick={clickable ? () => onRowClick?.(row) : undefined}
+                    onKeyDown={
+                      clickable
+                        ? (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              onRowClick?.(row)
+                            }
                           }
-                        }
-                      : undefined
-                  }
-                >
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {rowDisplayDate(row) ?? (
-                      <span className="text-muted-foreground">n/a</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <ChannelBadge type={row.outreachType} />
-                  </TableCell>
-                  <TableCell className="max-w-0 font-medium">
-                    <span className="block truncate">
-                      {row.name || row.title || 'Untitled campaign'}
-                    </span>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    <RowMetric row={row} />
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    <RowResults row={row} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <HistoryStatusText label={displayStatusLabel(row)} />
-                  </TableCell>
-                </TableRow>
-              ))
+                        : undefined
+                    }
+                  >
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {rowDisplayDate(row) ?? (
+                        <span className="text-muted-foreground">n/a</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <ChannelBadge type={row.outreachType} />
+                    </TableCell>
+                    <TableCell className="max-w-0 font-medium">
+                      <span className="block truncate">
+                        {row.name || row.title || 'Untitled campaign'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      <RowMetric row={row} detailFetcher={detailFetcher} />
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      <RowResults row={row} detailFetcher={detailFetcher} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <HistoryStatusText label={displayStatusLabel(row)} />
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>
@@ -474,39 +501,43 @@ export const OutreachHistoryTable = ({
             {emptyMessage}
           </Card>
         ) : (
-          paged.map((row) => (
-            <Card
-              key={row.id}
-              role={onRowClick ? 'button' : undefined}
-              tabIndex={onRowClick ? 0 : undefined}
-              onClick={onRowClick ? () => onRowClick(row) : undefined}
-              onKeyDown={
-                onRowClick
-                  ? (e: React.KeyboardEvent<HTMLDivElement>) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        onRowClick(row)
+          paged.map((row) => {
+            const clickable = Boolean(onRowClick) && rowClickable(row)
+            return (
+              <Card
+                key={row.id}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                onClick={clickable ? () => onRowClick?.(row) : undefined}
+                onKeyDown={
+                  clickable
+                    ? (e: React.KeyboardEvent<HTMLDivElement>) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onRowClick?.(row)
+                        }
                       }
-                    }
-                  : undefined
-              }
-              className={cn('gap-1.5 p-4', onRowClick && 'cursor-pointer')}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{rowDisplayDate(row) ?? 'n/a'}</span>
-                  <ChannelBadge type={row.outreachType} />
+                    : undefined
+                }
+                className={cn('gap-1.5 p-4', clickable && 'cursor-pointer')}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{rowDisplayDate(row) ?? 'n/a'}</span>
+                    <ChannelBadge type={row.outreachType} />
+                  </div>
+                  <HistoryStatusText label={displayStatusLabel(row)} />
                 </div>
-                <HistoryStatusText label={displayStatusLabel(row)} />
-              </div>
-              <span className="truncate text-base font-medium text-foreground">
-                {row.name || row.title || 'Untitled campaign'}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                <RowMetric row={row} compact /> · <RowResults row={row} />
-              </span>
-            </Card>
-          ))
+                <span className="truncate text-base font-medium text-foreground">
+                  {row.name || row.title || 'Untitled campaign'}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  <RowMetric row={row} compact detailFetcher={detailFetcher} />{' '}
+                  · <RowResults row={row} detailFetcher={detailFetcher} />
+                </span>
+              </Card>
+            )
+          })
         )}
       </div>
 

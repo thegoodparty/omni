@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -19,6 +20,7 @@ import {
   OutreachDetailSchema,
   OutreachReceipt,
   OutreachReceiptSchema,
+  SocialAssetPlatform,
   SocialDraftRequest,
   SocialDraftRequestSchema,
   SocialDraftResponse,
@@ -27,8 +29,10 @@ import {
   SocialGenerateRequestSchema,
   SocialGenerateResponse,
   SocialGenerateResponseSchema,
+  SocialPurpose,
   SocialSaveRequest,
   SocialSaveRequestSchema,
+  excludedSocialPlatformsForPurpose,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -70,19 +74,12 @@ export class OutreachSocialController {
     this.logger.setContext(OutreachSocialController.name)
   }
 
-  @Post('social/draft')
-  @ResponseSchema(SocialDraftResponseSchema)
-  async draft(
-    @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
-    @Body(new ZodValidationPipe(SocialDraftRequestSchema))
-    input: SocialDraftRequest,
-  ): Promise<SocialDraftResponse> {
-    // The office name lives on the org's election-api position (what
-    // campaigns/mine surfaces as positionName), not reliably in the
-    // details JSON — normalizedOffice is empty for org-era campaigns.
-    // Office is prompt enrichment, so an election-api failure degrades to
-    // the fallback chain instead of failing the draft.
+  // The office name lives on the org's election-api position (what
+  // campaigns/mine surfaces as positionName), not reliably in the details
+  // JSON — normalizedOffice is empty for org-era campaigns. Office is
+  // prompt enrichment, so an election-api failure degrades to the
+  // fallback chain instead of failing the request.
+  private async resolveOffice(campaign: Campaign): Promise<string> {
     let positionName: string | null = null
     if (campaign.organizationSlug) {
       try {
@@ -91,14 +88,44 @@ export class OutreachSocialController {
             campaign.organizationSlug,
           )
       } catch (err) {
-        this.logger.warn({ err }, 'position resolution failed for draft')
+        this.logger.warn({ err }, 'position resolution failed for compose')
       }
     }
+    return positionName ?? campaign.details.normalizedOffice ?? ''
+  }
+
+  // The client platform list is UI-only; a Nextdoor-excluded purpose on Win
+  // (ENG-10989) is rejected here — on BOTH generate and save, since save
+  // persists assets without ever calling generate and must never silently
+  // accept an excluded pairing straight into outreach history.
+  private assertPlatformsAllowed(
+    purpose: SocialPurpose,
+    platforms: SocialAssetPlatform[],
+  ): void {
+    const excludedRequested = platforms.filter((platform) =>
+      excludedSocialPlatformsForPurpose('win', purpose).includes(platform),
+    )
+    if (excludedRequested.length > 0) {
+      throw new BadRequestException(
+        `Platform not available for purpose "${purpose}": ` +
+          excludedRequested.join(', '),
+      )
+    }
+  }
+
+  @Post('social/draft')
+  @ResponseSchema(SocialDraftResponseSchema)
+  async draft(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @Body(new ZodValidationPipe(SocialDraftRequestSchema))
+    input: SocialDraftRequest,
+  ): Promise<SocialDraftResponse> {
     return {
       draft: await this.generationService.generateDraft(
         input,
         candidateName(user),
-        positionName ?? campaign.details.normalizedOffice ?? '',
+        await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
         WIN_SOCIAL_VOICE,
@@ -114,10 +141,12 @@ export class OutreachSocialController {
     @Body(new ZodValidationPipe(SocialGenerateRequestSchema))
     input: SocialGenerateRequest,
   ): Promise<SocialGenerateResponse> {
+    this.assertPlatformsAllowed(input.purpose, input.platforms)
     return {
       assets: await this.generationService.generateAssets(
         input,
         candidateName(user),
+        await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
         WIN_SOCIAL_VOICE,
@@ -132,6 +161,10 @@ export class OutreachSocialController {
     @Body(new ZodValidationPipe(SocialSaveRequestSchema))
     input: SocialSaveRequest,
   ): Promise<OutreachDetail> {
+    this.assertPlatformsAllowed(
+      input.purpose,
+      input.assets.map((asset) => asset.platform),
+    )
     return this.socialService.saveSocialOutreach(
       { campaignId: campaign.id, organizationSlug: campaign.organizationSlug },
       input,

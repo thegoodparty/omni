@@ -47,6 +47,14 @@ enum RobocallSettleState {
   // (chargeIntentId set, so it is not re-attempted). Appended for the same
   // append-only ADD VALUE reason.
   charging
+  // Terminal for a robocall the send chain could NOT deliver, reached ONLY
+  // pre-dial: a PERMANENT CallHub staging or send failure (a non-recoverable
+  // 4xx). The authorization hold is voided (no calls were placed, so no charge),
+  // the spine flips to `failed`, and the candidate is emailed (SendFailed).
+  // Distinct from `uncollectable`, a DELIVERED run we could not capture — a
+  // completion-poll failure on a dialed run goes there, never here. Appended for
+  // the same append-only ADD VALUE reason.
+  send_failed
 }
 
 model OutreachRobocall {
@@ -101,6 +109,15 @@ model OutreachRobocall {
   // When the CallHub voice-broadcast was launched (START). Stamped by the send
   // slice at the dialing → dialed commit; null until the run actually dials.
   dialedAt               DateTime?           @map("dialed_at")
+  // Set true when the send slice confirmed a PERMANENT CallHub launch rejection
+  // (a definitive 4xx — the campaign is guaranteed still PAUSED, never dialed)
+  // but could not immediately commit the send_failed terminal (e.g. a transient
+  // DB error inside failSend). Persisting the fact is what lets the stale-dialing
+  // sweep FAIL the send instead of reading a still-PAUSED campaign as a transient
+  // strand, reverting to `authorized`, and relaunching into the same 4xx forever.
+  // Only ever read while the row is still `dialing`; a send_failed row is
+  // terminal, so a lingering true value on it is inert.
+  permanentSendFailure   Boolean             @default(false) @map("permanent_send_failure")
   // When this draft's audio passed the server-side compliance check, mirrored
   // from the RobocallComplianceResult at create. A hard prerequisite for
   // dialing: the send slice refuses to launch a draft whose value is null, a

@@ -14,6 +14,8 @@ import {
   PhoneBankingListPerson,
   PhoneBankingPurpose,
   Person,
+  ServePhoneBankingCreate,
+  ServePhoneBankingPurpose,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -25,7 +27,6 @@ import { ContactStatusService } from '@/contactInteraction/services/contactStatu
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ListPeopleDTO } from '@/peopleDb/schemas/people.schema'
 import {
-  Campaign,
   ContactStatusField,
   NotAVoterStatus,
   Organization,
@@ -68,24 +69,38 @@ const CONCURRENT_CREATE_RETRY_MESSAGE =
   'Another campaign was just created from this list and claimed these ' +
   'contacts — try again to get the next batch'
 
-const PURPOSE_TO_DB: Record<PhoneBankingPurpose, PrismaPhoneBankingPurpose> = {
+// Keyed over the Win|Serve union (not just PhoneBankingPurpose) so a new
+// slug added to either contracts vocabulary without a matching entry here
+// is a compile error, not a runtime gap.
+export const PURPOSE_TO_DB: Record<
+  PhoneBankingPurpose | ServePhoneBankingPurpose,
+  PrismaPhoneBankingPurpose
+> = {
   introduce: PrismaPhoneBankingPurpose.introduce,
   persuade: PrismaPhoneBankingPurpose.persuade,
   event: PrismaPhoneBankingPurpose.event,
   'vote-early': PrismaPhoneBankingPurpose.vote_early,
   'election-day': PrismaPhoneBankingPurpose.election_day,
   custom: PrismaPhoneBankingPurpose.custom,
+  'explain-decision': PrismaPhoneBankingPurpose.explain_decision,
+  'community-input': PrismaPhoneBankingPurpose.community_input,
+  'share-resource': PrismaPhoneBankingPurpose.share_resource,
 }
 
-const PURPOSE_FROM_DB: Record<PrismaPhoneBankingPurpose, PhoneBankingPurpose> =
-  {
-    [PrismaPhoneBankingPurpose.introduce]: 'introduce',
-    [PrismaPhoneBankingPurpose.persuade]: 'persuade',
-    [PrismaPhoneBankingPurpose.event]: 'event',
-    [PrismaPhoneBankingPurpose.vote_early]: 'vote-early',
-    [PrismaPhoneBankingPurpose.election_day]: 'election-day',
-    [PrismaPhoneBankingPurpose.custom]: 'custom',
-  }
+export const PURPOSE_FROM_DB: Record<
+  PrismaPhoneBankingPurpose,
+  PhoneBankingPurpose | ServePhoneBankingPurpose
+> = {
+  [PrismaPhoneBankingPurpose.introduce]: 'introduce',
+  [PrismaPhoneBankingPurpose.persuade]: 'persuade',
+  [PrismaPhoneBankingPurpose.event]: 'event',
+  [PrismaPhoneBankingPurpose.vote_early]: 'vote-early',
+  [PrismaPhoneBankingPurpose.election_day]: 'election-day',
+  [PrismaPhoneBankingPurpose.custom]: 'custom',
+  [PrismaPhoneBankingPurpose.explain_decision]: 'explain-decision',
+  [PrismaPhoneBankingPurpose.community_input]: 'community-input',
+  [PrismaPhoneBankingPurpose.share_resource]: 'share-resource',
+}
 
 const LIST_WITH_ENTRIES_INCLUDE = {
   entries: {
@@ -99,6 +114,19 @@ type ListWithEntries = Prisma.PhoneBankingListGetPayload<{
 }>
 
 type PersonName = { personId: string; name: string; firstName: string | null }
+
+// The history-envelope scope, mirroring OutreachSocialService's isolation
+// boundary (ENG-10976): the controller derives this from WHICH route was
+// called, never from whether a Campaign row happens to exist, so a dual-role
+// org (both a Campaign and an ElectedOffice) can't have its Serve create
+// mistaken for a Win one. Win passes { campaignId, organizationSlug } off its
+// own campaign; Serve passes { campaignId: null, organizationSlug } off the
+// ElectedOffice's org. A null scope (Win's continueIfNotFound case — no
+// Campaign row) writes no envelope at all, same as before this change.
+type PhoneBankingScope = {
+  campaignId: number | null
+  organizationSlug: string
+}
 
 const formatAddress = (address: Person['address']): string | null => {
   const cityState = [address.city, address.state].filter(Boolean).join(', ')
@@ -121,8 +149,8 @@ export class PhoneBankingListService extends createPrismaBase(
 
   async create(
     organization: Organization,
-    campaign: Campaign | null,
-    input: PhoneBankingCreate,
+    scope: PhoneBankingScope | null,
+    input: PhoneBankingCreate | ServePhoneBankingCreate,
   ): Promise<PhoneBankingCreateResponse> {
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
@@ -205,7 +233,7 @@ export class PhoneBankingListService extends createPrismaBase(
       )
     }
 
-    return this.freeze(organization, campaign, input, grouped, hasMore)
+    return this.freeze(organization, scope, input, grouped, hasMore)
   }
 
   async getForOrganization(
@@ -363,8 +391,8 @@ export class PhoneBankingListService extends createPrismaBase(
 
   private async freeze(
     organization: Organization,
-    campaign: Campaign | null,
-    input: PhoneBankingCreate,
+    scope: PhoneBankingScope | null,
+    input: PhoneBankingCreate | ServePhoneBankingCreate,
     grouped: Map<string, PersonName[]>,
     hasMore: boolean,
   ): Promise<PhoneBankingCreateResponse> {
@@ -459,11 +487,11 @@ export class PhoneBankingListService extends createPrismaBase(
         })
 
         let outreachId: number | null = null
-        if (campaign) {
+        if (scope) {
           const outreach = await tx.outreach.create({
             data: {
-              campaignId: campaign.id,
-              organizationSlug: campaign.organizationSlug,
+              campaignId: scope.campaignId,
+              organizationSlug: scope.organizationSlug,
               outreachType: OutreachType.nativePhoneBanking,
               status: OutreachStatus.in_progress,
               name: input.name,

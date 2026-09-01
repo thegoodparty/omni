@@ -4,16 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { SmsDraftRequest } from '@goodparty_org/contracts'
-import type { TcrCompliance } from 'helpers/types'
-import { router } from 'helpers/test-utils/router-mocking'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
-
-// A cleared (VERIFIED) compliance keeps the default flow on the 48-hour
-// scheduling floor; the verification-pending test omits it to exercise
-// the 14-day floor.
-const verifiedCompliance = {
-  peerlyCvStatus: 'VERIFIED',
-} as TcrCompliance
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -136,20 +127,10 @@ const attachImage = async () => {
   await userEvent.upload(input, file)
 }
 
-// null = render with NO compliance record (verification pending); the
-// explicit sentinel avoids the default-parameter trap where a passed
-// undefined silently becomes verifiedCompliance.
-const openFlow = (tcrCompliance: TcrCompliance | null = verifiedCompliance) => {
+const openFlow = () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
-  render(
-    <SmsFlow
-      open
-      onClose={onClose}
-      tcrCompliance={tcrCompliance ?? undefined}
-      onScheduled={onScheduled}
-    />,
-  )
+  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
   return { onClose, onScheduled }
 }
 
@@ -158,8 +139,8 @@ const openFlow = (tcrCompliance: TcrCompliance | null = verifiedCompliance) => {
 // clock, both the month the target lands in and whether its day number is a
 // prefix of another same-weekday day ("September 1" also matches "September
 // 15") change from one day to the next. Freeze the date — Date only, so
-// timers stay real for userEvent/waitFor — on a day where +4 and +16 both
-// stay inside the month and address exactly one day each.
+// timers stay real for userEvent/waitFor — on a day where +4 stays inside
+// the month and addresses exactly one day.
 const FROZEN_NOW = new Date('2026-09-01T12:00:00Z')
 
 // The picked day, addressed the way react-day-picker names its buttons
@@ -192,68 +173,6 @@ describe('SmsFlow', () => {
 
   afterEach(() => {
     vi.useRealTimers()
-  })
-
-  it('shows the persistent compliance banner while verification is pending and routes Start compliance', async () => {
-    const { onClose } = openFlow(null)
-
-    expect(
-      screen.getByText('Compliance needed before this can send'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/Carrier approval takes 1 to 2 weeks/),
-    ).toBeInTheDocument()
-
-    // No TCR record → the election-filing entry, per ComplianceModal.
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start compliance' }),
-    )
-    expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/profile/texting-compliance/election-filing',
-    )
-    expect(onClose).toHaveBeenCalled()
-  })
-
-  it('hides the compliance banner once verification has cleared', () => {
-    openFlow()
-
-    expect(
-      screen.queryByText('Compliance needed before this can send'),
-    ).not.toBeInTheDocument()
-  })
-
-  it('pushes the earliest send to 14 days while verification is pending', async () => {
-    mockDraft()
-    openFlow(null)
-
-    await userEvent.click(screen.getByText('Introduce myself'))
-    expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
-    await userEvent.click(screen.getByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Likely voters'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
-    )
-
-    expect(
-      await screen.findByText('When do you want to send it?'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/Earliest send while compliance is pending/),
-    ).toBeInTheDocument()
-
-    // Design parity: a date 4 days out clears the hard 48h calendar floor,
-    // so it stays SELECTABLE — picking it surfaces the compliance alert and
-    // blocks Continue instead of disabling the day outright.
-    await userEvent.click(screen.getByText('Pick a date'))
-    const dayButton = await screen.findByRole('button', { name: dayName(4) })
-    expect(dayButton).toBeEnabled()
-    await userEvent.click(dayButton)
-    expect(
-      await screen.findByText(
-        /Texting needs Pro plus carrier compliance approval/,
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
   it('runs purpose → audience → schedule → compose → review and schedules free', async () => {
@@ -429,63 +348,6 @@ describe('SmsFlow', () => {
     await userEvent.click(screen.getByText('Persuade likely voters'))
     expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-  })
-
-  it('routes Done into the verification interstitial while clearance pends', async () => {
-    mockDraft()
-    const { onClose } = openFlow(null)
-
-    await userEvent.click(screen.getByText('Introduce myself'))
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Likely voters'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
-    )
-
-    // The 14-day compliance floor: a date 16 days out clears it.
-    expect(
-      await screen.findByText('When do you want to send it?'),
-    ).toBeInTheDocument()
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: dayName(16) }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    await screen.findByText(/AI body \(warm\) for introduce_myself/)
-    await attachImage()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Pay $0.00' }),
-    )
-    await waitFor(() =>
-      expect(screen.getByText('Payment successful!')).toBeInTheDocument(),
-    )
-
-    // Done swaps the sheet body to the interstitial instead of closing.
-    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
-    expect(onClose).not.toHaveBeenCalled()
-    expect(
-      screen.getByText('One more step before this can send'),
-    ).toBeInTheDocument()
-    expect(screen.getByText('What we need')).toBeInTheDocument()
-    expect(screen.getByText('How long it takes')).toBeInTheDocument()
-    expect(screen.getByText('Nothing is lost')).toBeInTheDocument()
-    expect(screen.getByText('Start now if you can')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Later' })).toBeInTheDocument()
-
-    // No TCR record → the election-filing entry, per ComplianceModal.
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start verification' }),
-    )
-    expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/profile/texting-compliance/election-filing',
-    )
-    expect(onClose).toHaveBeenCalled()
   })
 })
 

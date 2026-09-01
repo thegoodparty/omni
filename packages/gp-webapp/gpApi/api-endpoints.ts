@@ -47,6 +47,8 @@ import type {
   RecordPhoneBankingCallResponse,
   PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponse,
+  ServePhoneBankingScriptDraftRequest,
+  ServePhoneBankingCreate,
   RobocallScriptDraftRequest,
   RobocallScriptDraftResponse,
   RobocallAudioPresignRequest,
@@ -365,6 +367,20 @@ export type APIEndpoints = {
     Response: OutreachDetail
   }
 
+  // Serve's org-scoped list/detail reads (ENG-10970): siblings of
+  // `GET /v1/outreach` / `GET /v1/outreach/:id`, scoped by organizationSlug
+  // rather than campaignId. Empty array is a valid response (a fresh org has
+  // no history) — unlike the campaign-scoped list, this never 404s.
+  'GET /v1/outreach/serve': {
+    Request: {}
+    Response: Outreach[]
+  }
+
+  'GET /v1/outreach/serve/:id': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
   // Stateless script draft/improve for the phone-banking create flow —
   // mirrors the social draft endpoint (purpose + tone; currentDraft polishes
   // in place instead of writing fresh). 502 on model failure.
@@ -372,6 +388,16 @@ export type APIEndpoints = {
     Request: PhoneBankingScriptDraftRequest
     Response: PhoneBankingScriptDraftResponse
   }
+
+  // Serve sibling of the phone-banking draft endpoint above (ENG-10970): same
+  // shape with the purpose field swapped to ServePhoneBankingPurpose. Not yet
+  // mounted by any flow config — the wiring ticket points PhoneBankingFlow's
+  // serve surface at this.
+  'POST /v1/outreach/serve/phone-banking/draft': {
+    Request: ServePhoneBankingScriptDraftRequest
+    Response: PhoneBankingScriptDraftResponse
+  }
+
   // Robocall AI script draft — stateless, same shape as social/phone-banking
   // (purpose + tone; currentDraft polishes in place). Pro-gated. 502 on model
   // failure.
@@ -433,6 +459,16 @@ export type APIEndpoints = {
   // Pro-gated; 400 when the resolved audience is empty.
   'POST /v1/phone-banking/lists': {
     Request: PhoneBankingCreate
+    Response: PhoneBankingCreateResponse
+  }
+
+  // Serve sibling of the phone-banking create endpoint above (ENG-10970):
+  // same shape with the purpose field swapped to ServePhoneBankingPurpose,
+  // org-scoped rather than campaign-scoped. Not yet mounted by any flow
+  // config — the wiring ticket points PhoneBankingFlow's serve surface at
+  // this.
+  'POST /v1/phone-banking/serve/lists': {
+    Request: ServePhoneBankingCreate
     Response: PhoneBankingCreateResponse
   }
 

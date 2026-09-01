@@ -121,7 +121,7 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     try {
       return (await this.campaignReport.getCampaignStatus(pkStr)).status
     } catch (err) {
-      this.logCallhubReadFailure(err, outreachId, pkStr, 'status')
+      await this.handleCallhubReadFailure(err, outreachId, pkStr, 'status')
       return null
     }
   }
@@ -143,7 +143,12 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
       const usage = await this.credits.getVoiceCampaignUsage(pkStr)
       return usage.voice_calls ?? null
     } catch (err) {
-      this.logCallhubReadFailure(err, outreachId, pkStr, 'credits_usage')
+      await this.handleCallhubReadFailure(
+        err,
+        outreachId,
+        pkStr,
+        'credits_usage',
+      )
       return null
     }
   }
@@ -152,23 +157,41 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   // again. That is right for a TRANSIENT vendor/network error (a 502 from the
   // http wrapper). But a ZodError is PERMANENT: the credits_usage/status
   // response shape is wrong for real CallHub data (e.g. a DRF `results[]`
-  // wrapper we have not confirmed) — this is exactly the UNVERIFIED-shape
-  // release-gate concern surfacing. A plain null-and-retry there would re-hit
-  // CallHub every sweep forever, silently, never settling. So a schema mismatch
-  // is logged as a CRITICAL alert to SURFACE it (the row stays `dialed`, but the
-  // alert is the signal); a transient error is logged normally and retried.
-  private logCallhubReadFailure(
+  // wrapper we have not confirmed). A plain null-and-retry there would re-hit
+  // CallHub every sweep forever, silently, never settling. The run has DIALED,
+  // so it may owe money for connected calls we can no longer count — park it in
+  // `uncollectable` (the fresh-charge recovery / manual review settles it), NOT
+  // `send_failed` (which voids the hold — we must never void a delivered run).
+  // The CRITICAL alert surfaces the schema bug to ops.
+  private async handleCallhubReadFailure(
     err: unknown,
     outreachId: number,
     pkStr: string,
     source: string,
-  ): void {
+  ): Promise<void> {
     if (err instanceof ZodError) {
+      // Emit the CRITICAL alert UNCONDITIONALLY, before the state transition: a
+      // DB error on the updateMany must not swallow the only signal that a
+      // delivered run was stranded by a permanent schema bug. The transition then
+      // has its own guard so its failure is logged and retried next sweep rather
+      // than escaping to the generic per-record catch.
       this.logger.error(
         { err, outreachId, campaignPkStr: pkStr },
-        `CRITICAL robocall CallHub ${source} schema mismatch; run left dialed ` +
-          'and surfaced — response shape is wrong for real data, needs a fix',
+        `CRITICAL robocall CallHub ${source} schema mismatch; delivered run ` +
+          'parked uncollectable for manual settlement — response shape is wrong',
       )
+      try {
+        await this.model.updateMany({
+          where: { outreachId, settleState: RobocallSettleState.dialed },
+          data: { settleState: RobocallSettleState.uncollectable },
+        })
+      } catch (dbErr) {
+        this.logger.error(
+          { err: dbErr, outreachId, campaignPkStr: pkStr },
+          'robocall: failed to park delivered run uncollectable after a ' +
+            'schema mismatch; retry next sweep',
+        )
+      }
       return
     }
     this.logger.error(

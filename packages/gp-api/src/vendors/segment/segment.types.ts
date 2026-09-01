@@ -178,6 +178,10 @@ export const EVENTS = {
     HoldFailed: 'Robocall - Hold Failed',
     Reminder: 'Robocall - Reminder',
     Canceled: 'Robocall - Canceled',
+    // The send chain could not deliver the robocall (a permanent CallHub
+    // failure): the hold was voided and no charge was made. Emitted once from
+    // the winning send_failed transition, messageId `<outreachId>:send_failed`.
+    SendFailed: 'Robocall - Send Failed',
     // The capture receipt: emitted once from the winning capturing → captured
     // transition after the actual completed-call count is charged off the hold,
     // messageId `<outreachId>:receipt` so a replay dedups to one email.
