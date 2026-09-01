@@ -3,6 +3,7 @@ import { SocialToneSchema } from './OutreachSocial.schema'
 import {
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
+  ServePhoneBankingPurposeSchema,
 } from '../phoneBanking/PhoneBankingCreate.schema'
 
 // Same six purpose values as PhoneBankingCreateSchema's audience step
@@ -57,6 +58,36 @@ export const PhoneBankingScriptDraftRequestSchema = z
   )
 export type PhoneBankingScriptDraftRequest = z.infer<
   typeof PhoneBankingScriptDraftRequestSchema
+>
+
+// Serve's counterpart — identical shape with the purpose swapped to the
+// serve vocabulary. Response schema is shared: PhoneBankingScriptDraftResponseSchema.
+export const ServePhoneBankingScriptDraftRequestSchema = z
+  .object({
+    purpose: ServePhoneBankingPurposeSchema,
+    tone: SocialToneSchema,
+    currentDraft: z
+      .string()
+      .min(1)
+      .max(PHONE_BANKING_SCRIPT_MAX_LENGTH)
+      .optional(),
+    previousDraft: z.string().max(PHONE_BANKING_SCRIPT_MAX_LENGTH).optional(),
+    instructions: z
+      .string()
+      .trim()
+      .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
+      .transform((v) => (v.length === 0 ? undefined : v))
+      .optional(),
+  })
+  .refine(
+    (v) => v.currentDraft === undefined || v.previousDraft === undefined,
+    {
+      message: 'currentDraft and previousDraft are mutually exclusive',
+      path: ['previousDraft'],
+    },
+  )
+export type ServePhoneBankingScriptDraftRequest = z.infer<
+  typeof ServePhoneBankingScriptDraftRequestSchema
 >
 
 export const PhoneBankingScriptDraftResponseSchema = z.object({

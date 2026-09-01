@@ -11,6 +11,25 @@ export const PHONE_BANKING_PURPOSE_VALUES = [
 export const PhoneBankingPurposeSchema = z.enum(PHONE_BANKING_PURPOSE_VALUES)
 export type PhoneBankingPurpose = z.infer<typeof PhoneBankingPurposeSchema>
 
+// Serve's own purpose vocabulary (constituent framing, no election
+// mechanics). Shared slugs (introduce, event, custom) deliberately reuse the
+// Win strings above — rows are disambiguated by scoping (campaignId vs
+// organizationSlug), not by slug, same rule as serve social.
+export const SERVE_PHONE_BANKING_PURPOSE_VALUES = [
+  'introduce',
+  'explain-decision',
+  'event',
+  'community-input',
+  'share-resource',
+  'custom',
+] as const
+export const ServePhoneBankingPurposeSchema = z.enum(
+  SERVE_PHONE_BANKING_PURPOSE_VALUES,
+)
+export type ServePhoneBankingPurpose = z.infer<
+  typeof ServePhoneBankingPurposeSchema
+>
+
 export const PHONE_BANKING_NAME_MAX_LENGTH = 60
 // Distinct from PHONE_BANKING_SCRIPT_MAX_LENGTH (outreach/PhoneBankingScript
 // .schema.ts, 2000) — that one caps an AI-generated draft; this caps the
@@ -39,6 +58,22 @@ export const PhoneBankingCreateSchema = z
   .strict()
 
 export type PhoneBankingCreate = z.infer<typeof PhoneBankingCreateSchema>
+
+// Identical shape to PhoneBankingCreateSchema with the purpose field swapped
+// to the serve vocabulary.
+export const ServePhoneBankingCreateSchema = z
+  .object({
+    name: z.string().min(1).max(PHONE_BANKING_NAME_MAX_LENGTH),
+    script: z.string().min(1).max(PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH),
+    sheetCount: z.number().int().min(1).max(PHONE_BANKING_MAX_SHEET_COUNT),
+    voterFileFilterId: z.number().int().positive(),
+    purpose: ServePhoneBankingPurposeSchema,
+  })
+  .strict()
+
+export type ServePhoneBankingCreate = z.infer<
+  typeof ServePhoneBankingCreateSchema
+>
 
 export const PhoneBankingCreateResponseSchema = z.object({
   id: z.number().int(),

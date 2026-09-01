@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { PhoneBankingCreateSchema } from './PhoneBankingCreate.schema'
+import {
+  PhoneBankingCreateSchema,
+  ServePhoneBankingCreateSchema,
+  SERVE_PHONE_BANKING_PURPOSE_VALUES,
+} from './PhoneBankingCreate.schema'
 
 const base = {
   name: 'GOTV week 1',
@@ -44,4 +48,35 @@ describe('PhoneBankingCreateSchema', () => {
     const request = { ...base, script: 'x'.repeat(5_001) }
     expect(() => PhoneBankingCreateSchema.parse(request)).toThrow()
   })
+
+  it('rejects a serve-only purpose slug', () => {
+    const request = { ...base, purpose: 'explain-decision' }
+    expect(() => PhoneBankingCreateSchema.parse(request)).toThrow()
+  })
+})
+
+describe('ServePhoneBankingCreateSchema', () => {
+  const serveBase = { ...base, purpose: 'introduce' as const }
+
+  it('accepts a saved-filter create request', () => {
+    expect(() => ServePhoneBankingCreateSchema.parse(serveBase)).not.toThrow()
+  })
+
+  it.each(SERVE_PHONE_BANKING_PURPOSE_VALUES)(
+    'accepts the serve purpose slug %s',
+    (purpose) => {
+      expect(() =>
+        ServePhoneBankingCreateSchema.parse({ ...serveBase, purpose }),
+      ).not.toThrow()
+    },
+  )
+
+  it.each(['persuade', 'vote-early', 'election-day'])(
+    'rejects the Win-only purpose slug %s',
+    (purpose) => {
+      expect(() =>
+        ServePhoneBankingCreateSchema.parse({ ...serveBase, purpose }),
+      ).toThrow()
+    },
+  )
 })
