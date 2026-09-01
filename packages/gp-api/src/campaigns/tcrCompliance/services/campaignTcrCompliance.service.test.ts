@@ -2710,6 +2710,39 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
     })
 
+    // ENG-11000: an overridden record with the hold actually cleared (the
+    // fixed overrideCvValidation always clears cvValidationFailedAt in the
+    // same write) must reach and win the pre-Peerly submission claim, whose
+    // WHERE unconditionally requires cvValidationFailedAt: null. Before the
+    // fix, the override left that column set and this claim's WHERE never
+    // matched a real Postgres row — reproduced in prod on campaigns 326653
+    // and 326890.
+    it('proceeds to and wins the pre-Peerly claim for an overridden record whose hold was cleared', async () => {
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        cvValidationOverriddenAt: new Date(),
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+      })
+
+      await service.submitToPeerlyForAgent(user, campaign)
+
+      expect(mockCvValidation.validate).not.toHaveBeenCalled()
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: existingRecord.id,
+          peerlyIdentityId: null,
+          cvValidationFailedAt: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: { peerlySubmissionStartedAt: expect.any(Date) },
+      })
+      expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    })
+
     it('re-validates (does not bypass) once a prior override has been cleared by a filing-data update', async () => {
       // Represents the record after createAgentic's clear-on-update branch
       // cleared cvValidationOverriddenAt (see the createAgentic describe
@@ -2736,6 +2769,12 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
 
     it('treats a transient validation outcome (the real fetch-throw case) as a retryable 502 — holds and pings nothing', async () => {
       mockCvValidation.validate.mockResolvedValue({ outcome: 'transient' })
+      // First transient hit on this row (below the ENG-10998 hold threshold
+      // of 3) — still a plain retryable 502, not a hold.
+      mockTcrModel.update.mockResolvedValueOnce({
+        ...existingRecord,
+        cvValidationTransientCount: 1,
+      })
 
       await expect(
         service.submitToPeerlyForAgent(user, campaign),
@@ -2749,6 +2788,108 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       )
       expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
       expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+    })
+
+    // ENG-10998: a run of transient blips never resolves on its own either —
+    // it used to retry forever through the agent's paid resume loop. Count
+    // consecutive transient outcomes on the row and convert to a hold once
+    // the threshold is hit, same as a genuine 'failed' verdict.
+    describe('transient escalation counter', () => {
+      it('increments the counter and still returns a retryable 502 below the hold threshold', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 0,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'transient' })
+        mockTcrModel.update.mockResolvedValueOnce({
+          ...existingRecord,
+          cvValidationTransientCount: 1,
+        })
+
+        await expect(
+          service.submitToPeerlyForAgent(user, campaign),
+        ).rejects.toThrow(BadGatewayException)
+
+        expect(mockTcrModel.update).toHaveBeenCalledWith({
+          where: { id: existingRecord.id },
+          data: { cvValidationTransientCount: { increment: 1 } },
+        })
+        expect(mockSlack.message).not.toHaveBeenCalled()
+        expect(mockTcrModel.updateMany).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ cvValidationFailedAt: null }),
+          }),
+        )
+        expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+      })
+
+      it('converts to a held failure once the transient counter reaches the threshold (3) — hold columns written, Slack alerted once, CvPreSubmissionValidationException thrown', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 2,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'transient' })
+        mockTcrModel.update.mockResolvedValueOnce({
+          ...existingRecord,
+          cvValidationTransientCount: 3,
+        })
+
+        await expect(
+          service.submitToPeerlyForAgent(user, campaign),
+        ).rejects.toThrow(CvPreSubmissionValidationException)
+
+        expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: existingRecord.id,
+            cvValidationFailedAt: null,
+            peerlyIdentityId: null,
+            OR: [
+              { peerlySubmissionStartedAt: null },
+              { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+            ],
+          },
+          data: {
+            cvValidationFailedAt: expect.any(Date),
+            cvValidationFailureReasons: [
+              'Filing page could not be fetched after 3 attempts; staff ' +
+                'review needed',
+            ],
+          },
+        })
+        expect(mockSlack.message).toHaveBeenCalledTimes(1)
+        expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+      })
+
+      it('resets the counter to 0 once a later attempt produces a genuine passed verdict', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 2,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'passed' })
+
+        await service.submitToPeerlyForAgent(user, campaign)
+
+        expect(mockTcrModel.update).toHaveBeenCalledWith({
+          where: { id: existingRecord.id },
+          data: { cvValidationTransientCount: 0 },
+        })
+        expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not bother resetting the counter when it is already zero', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 0,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'passed' })
+
+        await service.submitToPeerlyForAgent(user, campaign)
+
+        expect(mockTcrModel.update).not.toHaveBeenCalledWith({
+          where: { id: existingRecord.id },
+          data: { cvValidationTransientCount: 0 },
+        })
+      })
     })
   })
 })
@@ -4038,7 +4179,37 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
 
     expect(mockModel.update).toHaveBeenCalledWith({
       where: { id: 'tcr-1' },
-      data: { cvValidationOverriddenAt: expect.any(Date) },
+      data: {
+        cvValidationOverriddenAt: expect.any(Date),
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+      },
+    })
+  })
+
+  // ENG-11000: overriding a held record used to leave cvValidationFailedAt
+  // set, so the pre-Peerly submission claim's unconditional
+  // cvValidationFailedAt: null WHERE matched 0 rows and
+  // assertCvPreSubmissionValid's claim.count === 0 fallback re-threw the
+  // stale stored reasons — the override changed nothing (campaigns 326653,
+  // 326890, Sep 2026).
+  it('clears the held failure columns in the same update, not just the override stamp', async () => {
+    mockModel.findUnique.mockResolvedValue({
+      id: 'tcr-1',
+      campaignId: 123,
+      cvValidationFailedAt: new Date(),
+      cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+    })
+
+    await service.overrideCvValidation(123)
+
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-1' },
+      data: {
+        cvValidationOverriddenAt: expect.any(Date),
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+      },
     })
   })
 })

@@ -562,7 +562,13 @@ the LLM.
   `assertCvPreSubmissionValid` — set, and the gate (and any stale held failure) is
   bypassed entirely on the next submission attempt, **until the filing data changes**
   (see "Clearing the hold — and the override" above), which clears the override and
-  forces a fresh validation.
+  forces a fresh validation. It also clears `cvValidationFailedAt` /
+  `cvValidationFailureReasons` in the **same** update as the override stamp
+  (ENG-11000): the pre-Peerly submission claim's `WHERE` unconditionally requires
+  `cvValidationFailedAt: null` (the claim-matrix symmetry above), so stamping only the
+  override left the claim unwinnable — the gate passed but the claim then matched 0
+  rows and its `claim.count === 0` fallback re-threw the stale stored reasons,
+  making the override a no-op (campaigns 326653, 326890, Sep 2026).
 
 ## Recovering a rejected record (`tcr_rejected`)
 

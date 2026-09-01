@@ -105,6 +105,13 @@ const UNSUBMITTED_USECASE_SWEEP_CRON_JOB = 'tcrUnsubmittedUsecaseSweep'
 // plus a comfortable margin; tune if Peerly latency drifts.
 const PEERLY_SUBMISSION_CLAIM_TTL_MINUTES = 5
 
+// A deterministic non-2xx (404/403) holds immediately (ENG-10998), but a
+// string of transient fetch/LLM blips never resolves on its own either — it
+// used to retry indefinitely through the agent's paid resume loop (~$6/
+// campaign to the resume cap, Aug 2026 triage). After this many consecutive
+// transient outcomes, treat it as a hold instead of another 502.
+const CV_VALIDATION_TRANSIENT_HOLD_THRESHOLD = 3
+
 // Agentic dispatch claim TTL: a claim older than this is treated as stale
 // (worker crashed between claim and dispatchRun completion) and re-claimable.
 // Bounds dispatchRun's normal duration (SQS sendMessage + tcr_compliance write)
@@ -730,6 +737,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // though the LLM couldn't confirm it). assertCvPreSubmissionValid checks
   // this before the held-failure short-circuit, so it fully bypasses the
   // gate on every subsequent submission attempt.
+  //
+  // Must also clear the hold columns in this same write (ENG-11000): the
+  // pre-Peerly submission claim's WHERE unconditionally requires
+  // cvValidationFailedAt: null (the claim-matrix invariant in this dir's
+  // CLAUDE.md — cvValidationFailedAt and peerlyIdentityId can never coexist),
+  // so stamping only cvValidationOverriddenAt left the claim unwinnable: the
+  // gate passed (override checked first) but the submission claim then
+  // matched 0 rows and the claim.count === 0 fallback re-threw the stale
+  // stored reasons. Reproduced in prod on campaigns 326653 and 326890.
   async overrideCvValidation(campaignId: number) {
     const existing = await this.fetchByCampaignId(campaignId)
     if (!existing) {
@@ -739,7 +755,11 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
     await this.model.update({
       where: { id: existing.id },
-      data: { cvValidationOverriddenAt: new Date() },
+      data: {
+        cvValidationOverriddenAt: new Date(),
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+      },
     })
   }
 
@@ -1069,13 +1089,38 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
 
     if (result.outcome === 'transient') {
-      // A vendor blip is not evidence of a bad URL — never hold or alert on
-      // this outcome. 502 so agent/wizard callers retry later, same as any
-      // other transient Peerly failure.
-      throw new BadGatewayException(
-        'CV pre-submission validation is temporarily unavailable; retry shortly',
-      )
+      // A vendor blip is not evidence of a bad URL on its own, but a string
+      // of them never resolving is what burned the agent's resume loop
+      // (ENG-10998) — count consecutive blips on the row itself (the
+      // validation service stays stateless) and convert to a hold once the
+      // threshold is hit, exactly like a genuine 'failed' verdict.
+      const { cvValidationTransientCount } = await this.model.update({
+        where: { id: existing.id },
+        data: { cvValidationTransientCount: { increment: 1 } },
+      })
+      if (cvValidationTransientCount < CV_VALIDATION_TRANSIENT_HOLD_THRESHOLD) {
+        throw new BadGatewayException(
+          'CV pre-submission validation is temporarily unavailable; retry shortly',
+        )
+      }
+      const reasons = [
+        'Filing page could not be fetched after ' +
+          `${CV_VALIDATION_TRANSIENT_HOLD_THRESHOLD} attempts; staff review ` +
+          'needed',
+      ]
+      await this.recordCvValidationFailure(existing, user, campaign, reasons)
+      throw new CvPreSubmissionValidationException(reasons)
     }
+
+    // A genuine verdict supersedes past blips — reset so a later transient
+    // run starts counting from zero rather than compounding toward the hold.
+    if (existing.cvValidationTransientCount > 0) {
+      await this.model.update({
+        where: { id: existing.id },
+        data: { cvValidationTransientCount: 0 },
+      })
+    }
+
     if (result.outcome === 'failed') {
       await this.recordCvValidationFailure(
         existing,

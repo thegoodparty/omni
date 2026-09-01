@@ -4,7 +4,10 @@ import * as dns from 'node:dns'
 import { promisify } from 'node:util'
 import { Injectable } from '@nestjs/common'
 import axios from 'axios'
+import { MimeTypes } from 'http-constants-ts'
+import { PDFParse } from 'pdf-parse'
 import { PinoLogger } from 'nestjs-pino'
+import sanitizeHtml from 'sanitize-html'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
@@ -24,6 +27,32 @@ const FILING_PAGE_FETCH_TIMEOUT_MS = 10_000
 // Bounds prompt size/cost — the LLM only needs enough of the page to find the
 // candidate's name and evidence of a filing, not the full document.
 const FILING_PAGE_MAX_CONTENT_CHARS = 15_000
+// Always-included lead-in — keeps the page's own framing (title, header)
+// even when the name only appears deep in a long document.
+const FILING_PAGE_HEAD_CHARS = 5_000
+// Half-width of each name-match window (~1.5k chars per match, centered).
+const NAME_WINDOW_RADIUS_CHARS = 750
+// Below this, the extracted text is too thin to be a real page read — a
+// scanned PDF with no text layer, or a JS app shell that never hydrated.
+// Never hand this to the LLM: it would confidently report the name as
+// missing for content it never actually saw (real cases: a scanned filing
+// affidavit and a near-empty client-rendered shell, Aug 2026 triage).
+const MIN_READABLE_TEXT_CHARS = 500
+
+// A vendor-looking UA — several election-authority sites (e.g.
+// klec.ky.gov) 403 the default axios UA but 200 a browser one.
+const FILING_PAGE_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
+const PDF_MAGIC_BYTES = '%PDF'
+
+// Plain numbers, not HttpStatus: axios reports status as a number, and
+// comparing that to the HttpStatus enum trips no-unsafe-enum-comparison
+// (same reasoning as callhubHttp.service.ts).
+const HTTP_FORBIDDEN = 403
+const HTTP_NOT_FOUND = 404
+const HTTP_SERVER_ERROR_MIN = 500
 
 export type CvPreSubmissionValidationResult =
   | { outcome: 'passed' }
@@ -31,6 +60,11 @@ export type CvPreSubmissionValidationResult =
   // A fetch/LLM failure is not evidence the URL is bad — never hold or alert
   // on this outcome, just let the caller retry later (ENG-10965).
   | { outcome: 'transient' }
+
+type FilingPageFetchResult =
+  | { kind: 'ok'; text: string }
+  | { kind: 'http_error'; status: number }
+  | { kind: 'network_error' }
 
 const SYSTEM_PROMPT = [
   'You are validating a 10DLC Campaign Verify filing-URL submission before',
@@ -60,6 +94,141 @@ const SYSTEM_PROMPT = [
   'true. If the page content is empty, unrelated, or unreadable, mark every',
   'check false and say so.',
 ].join('\n')
+
+const isPdfBody = (contentType: string | null, body: Buffer): boolean =>
+  (contentType ?? '').toLowerCase().includes(MimeTypes.APPLICATION_PDF) ||
+  body.subarray(0, PDF_MAGIC_BYTES.length).toString('latin1') ===
+    PDF_MAGIC_BYTES
+
+const HTML_ENTITY_DECODES: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': "'",
+  '&apos;': "'",
+}
+
+// sanitize-html strips tags but still HTML-escapes the text it keeps (it's
+// built to re-embed, not to extract plain text) — undo that so a name like
+// "O&apos;Brien" reads as "O'Brien" for matching/windowing.
+const decodeBasicHtmlEntities = (text: string): string =>
+  text
+    .replace(
+      /&amp;|&lt;|&gt;|&quot;|&#39;|&apos;/g,
+      (entity) => HTML_ENTITY_DECODES[entity] ?? entity,
+    )
+    .replace(/&#(\d+);/g, (_match, code: string) =>
+      String.fromCodePoint(Number(code)),
+    )
+
+const extractVisibleText = (html: string): string =>
+  decodeBasicHtmlEntities(
+    sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }),
+  )
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const findMatchIndexes = (text: string, needle: string): number[] => {
+  if (!needle) {
+    return []
+  }
+  const pattern = new RegExp(escapeRegExp(needle), 'gi')
+  const indexes: number[] = []
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(text)) !== null) {
+    indexes.push(match.index)
+  }
+  return indexes
+}
+
+const buildMergedRanges = (
+  text: string,
+  needle: string,
+): [number, number][] => {
+  const merged: [number, number][] = []
+  for (const index of findMatchIndexes(text, needle)) {
+    const start = Math.max(0, index - NAME_WINDOW_RADIUS_CHARS)
+    const end = Math.min(text.length, index + NAME_WINDOW_RADIUS_CHARS)
+    const last = merged[merged.length - 1]
+    if (last && start <= last[1]) {
+      last[1] = Math.max(last[1], end)
+    } else {
+      merged.push([start, end])
+    }
+  }
+  return merged
+}
+
+const rangesOverlap = (a: [number, number], b: [number, number]): boolean =>
+  a[0] < b[1] && b[0] < a[1]
+
+// Windows around every match of the full submission name, then (lower
+// priority) every match of just its last token — a results table that only
+// prints the last name would otherwise lose the match to truncation even
+// though a human would recognize it. Full-name windows are returned first so
+// a common surname (several unrelated rows sharing it on a filing-database
+// results page) can't crowd the real match out of the budget in
+// buildLlmPageContent.
+const buildNameWindows = (text: string, submissionName: string): string[] => {
+  const trimmedName = submissionName.trim()
+  const lastToken = trimmedName.split(/\s+/).pop() ?? ''
+  const strongRanges = buildMergedRanges(text, trimmedName)
+  const weakRanges =
+    lastToken && lastToken !== trimmedName
+      ? buildMergedRanges(text, lastToken).filter(
+          (range) =>
+            !strongRanges.some((strong) => rangesOverlap(range, strong)),
+        )
+      : []
+  return [...strongRanges, ...weakRanges].map(([start, end]) =>
+    text.slice(start, end),
+  )
+}
+
+const CONTENT_SEPARATOR = '\n...\n'
+
+// Guarantees nameFound can't be lost to truncation: the head keeps the
+// page's own framing, and a window around every occurrence of the name (or
+// its last token) is added — highest-priority (full-name) windows first —
+// until the cap is reached, rather than joining everything and slicing the
+// end, which silently dropped whichever windows came last (frequently the
+// real match, sitting near the tail of the document).
+const buildLlmPageContent = (text: string, submissionName: string): string => {
+  if (text.length <= FILING_PAGE_MAX_CONTENT_CHARS) {
+    return text
+  }
+  const head = text.slice(0, FILING_PAGE_HEAD_CHARS)
+  let content = head
+  for (const window of buildNameWindows(text, submissionName)) {
+    const candidate = content + CONTENT_SEPARATOR + window
+    if (candidate.length <= FILING_PAGE_MAX_CONTENT_CHARS) {
+      content = candidate
+    }
+  }
+  return content
+}
+
+const buildHttpErrorReason = (status: number): string => {
+  if (status === HTTP_NOT_FOUND) {
+    return `Filing URL returns HTTP ${status} (page not found)`
+  }
+  if (status === HTTP_FORBIDDEN) {
+    return (
+      `Filing URL blocks automated access (HTTP ${status}); staff ` +
+      'review needed'
+    )
+  }
+  return `Filing URL returned HTTP ${status}; staff review needed`
+}
+
+const UNREADABLE_PAGE_REASON =
+  'The filing page could not be read automatically (no readable text ' +
+  'found — a scanned PDF with no text layer, or a page that renders via ' +
+  'JavaScript with no server-rendered content); staff review needed'
 
 // Fetch-then-LLM pre-submission gate for the filing URL / candidate name
 // CampaignVerify will check (ENG-10965). Cheap deterministic checks (URL
@@ -134,14 +303,32 @@ export class CvPreSubmissionValidationService {
       }
     }
 
-    const pageText = await this.fetchFilingPageText(filingUrl)
-    if (pageText === null) {
+    const fetchResult = await this.fetchFilingPageText(filingUrl)
+    if (fetchResult.kind === 'network_error') {
       return { outcome: 'transient' }
     }
+    if (fetchResult.kind === 'http_error') {
+      // A deterministic non-2xx is not evidence of a vendor blip — a dead
+      // link or an access block is a bad submission that must hold, not
+      // retry forever (ENG-10998). Only a server-side failure is transient.
+      if (fetchResult.status >= HTTP_SERVER_ERROR_MIN) {
+        return { outcome: 'transient' }
+      }
+      return {
+        outcome: 'failed',
+        reasons: [buildHttpErrorReason(fetchResult.status)],
+      }
+    }
+
+    if (fetchResult.text.length < MIN_READABLE_TEXT_CHARS) {
+      return { outcome: 'failed', reasons: [UNREADABLE_PAGE_REASON] }
+    }
+
+    const pageContent = buildLlmPageContent(fetchResult.text, submissionName)
 
     try {
       const { object: verdict } = await this.llm.jsonCompletion({
-        messages: this.buildMessages(pageText, submissionName, filingUrl),
+        messages: this.buildMessages(pageContent, submissionName, filingUrl),
         schema: CvPreSubmissionVerdictSchema,
         temperature: 0,
         maxTokens: 512,
@@ -163,37 +350,71 @@ export class CvPreSubmissionValidationService {
     }
   }
 
-  // Returns the fetched page text, or null on any fetch failure/empty body —
-  // a vendor blip, never evidence the URL is bad.
-  private async fetchFilingPageText(filingUrl: string): Promise<string | null> {
+  private async fetchFilingPageText(
+    filingUrl: string,
+  ): Promise<FilingPageFetchResult> {
+    let response
     try {
-      const response = await axios.get<string>(
-        ensureUrlHasProtocol(filingUrl),
-        {
-          timeout: FILING_PAGE_FETCH_TIMEOUT_MS,
-          responseType: 'text',
-          validateStatus: (status) => status >= 200 && status < 300,
-          maxRedirects: 5,
-          transformResponse: [(data: string) => data],
-          httpAgent: new http.Agent({ lookup: ssrfSafeLookup }),
-          httpsAgent: new https.Agent({ lookup: ssrfSafeLookup }),
-        },
-      )
-      const body = typeof response.data === 'string' ? response.data : ''
-      if (!body.trim()) {
-        this.logger.warn(
-          { filingUrl },
-          '[CV pre-submission] filing page fetch returned an empty body',
-        )
-        return null
-      }
-      return body.slice(0, FILING_PAGE_MAX_CONTENT_CHARS)
+      response = await axios.get<ArrayBuffer>(ensureUrlHasProtocol(filingUrl), {
+        timeout: FILING_PAGE_FETCH_TIMEOUT_MS,
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+        maxRedirects: 5,
+        headers: { 'User-Agent': FILING_PAGE_USER_AGENT },
+        httpAgent: new http.Agent({ lookup: ssrfSafeLookup }),
+        httpsAgent: new https.Agent({ lookup: ssrfSafeLookup }),
+      })
     } catch (err) {
       this.logger.warn(
         { err, filingUrl },
         '[CV pre-submission] filing page fetch failed; treating as transient',
       )
-      return null
+      return { kind: 'network_error' }
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      this.logger.warn(
+        { filingUrl, status: response.status },
+        '[CV pre-submission] filing page fetch returned a non-2xx status',
+      )
+      return { kind: 'http_error', status: response.status }
+    }
+
+    const body = Buffer.from(response.data)
+    const contentType = response.headers['content-type']
+    const text = await this.extractPageText(
+      body,
+      typeof contentType === 'string' ? contentType : null,
+    )
+    return { kind: 'ok', text }
+  }
+
+  private async extractPageText(
+    body: Buffer,
+    contentType: string | null,
+  ): Promise<string> {
+    if (isPdfBody(contentType, body)) {
+      return this.extractPdfText(body)
+    }
+    return extractVisibleText(body.toString('utf-8'))
+  }
+
+  private async extractPdfText(body: Buffer): Promise<string> {
+    const parser = new PDFParse({ data: new Uint8Array(body) })
+    try {
+      const result = await parser.getText()
+      return (result.text ?? '').trim()
+    } catch (err) {
+      // A corrupt/unparseable PDF is unreadable, not a fetch failure — fall
+      // through to the same near-empty-text handling a scanned image gets,
+      // rather than letting pdf-parse's throw escape validate() uncaught.
+      this.logger.warn(
+        { err },
+        '[CV pre-submission] PDF text extraction failed; treating as unreadable',
+      )
+      return ''
+    } finally {
+      await parser.destroy()
     }
   }
 
