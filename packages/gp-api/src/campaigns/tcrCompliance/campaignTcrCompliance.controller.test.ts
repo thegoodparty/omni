@@ -18,8 +18,6 @@ import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
-import { createMockClerkEnricher } from '@/shared/test-utils/mockClerkEnricher.util'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 
 function getGuards(methodName: keyof CampaignTcrComplianceController) {
@@ -120,10 +118,6 @@ describe('CampaignTcrComplianceController', () => {
         },
         { provide: CampaignsService, useValue: mockCampaignsService },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        {
-          provide: ClerkUserEnricherService,
-          useValue: createMockClerkEnricher(),
-        },
         { provide: PinoLogger, useValue: createMockLogger() },
         CampaignTcrComplianceController,
       ],
