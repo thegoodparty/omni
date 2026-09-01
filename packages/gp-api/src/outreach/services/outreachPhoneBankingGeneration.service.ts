@@ -5,9 +5,10 @@ import {
 } from '@nestjs/common'
 import {
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
-  PhoneBankingScriptDraftRequest,
   PhoneBankingScriptPurpose,
   type RaceTargetMetrics,
+  ServePhoneBankingPurpose,
+  SocialTone,
   VOTER_NAME_TOKEN,
 } from '@goodparty_org/contracts'
 import { isValid } from 'date-fns'
@@ -24,6 +25,35 @@ import {
 } from '@/shared/util/date.util'
 import { Campaign } from '../../generated/prisma'
 import { TONE_STYLES } from '../util/messageTone.util'
+
+// The per-surface voice a draft/improve request writes in. Win and Serve
+// share every other piece of the generation pipeline (the LLM call
+// plumbing, the custom-purpose fresh-generation refusal, the length
+// safety-net) — only the purpose copy and these prompts vary.
+// purposePrompts is the FULL instruction block for a purpose (Win: its
+// goal + structure lines combined; Serve: the product CSV's prompt text,
+// verbatim) injected into the context as-is.
+export interface PhoneBankingVoiceConfig<TPurpose extends string> {
+  purposePrompts: Record<TPurpose, string>
+  draftSystemPrompt: string
+  improveSystemPrompt: string
+  openerRule: string
+  nameLabel: string
+  officeLabel: string
+  subjectFallback: string
+  // What buildPreviousDraftBlock calls the source of "supporting details"
+  // in the regenerate-variation rule — Win's own campaign materials vs.
+  // the elected official's own materials for Serve.
+  materialsLabel: string
+}
+
+interface DraftInput<TPurpose extends string> {
+  purpose: TPurpose
+  tone: SocialTone
+  currentDraft?: string
+  previousDraft?: string
+  instructions?: string
+}
 
 const PURPOSE_GOALS: Record<PhoneBankingScriptPurpose, string> = {
   introduce: 'introduce the candidate to a voter for the first time',
@@ -69,6 +99,33 @@ const PURPOSE_STRUCTURE: Record<PhoneBankingScriptPurpose, string> = {
   custom:
     "Structure: deliver the candidate's own message as written, " +
     'polished for a phone script read aloud by a volunteer.',
+}
+
+const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
+  introduce: [
+    `Goal of this call: ${PURPOSE_GOALS.introduce}.`,
+    PURPOSE_STRUCTURE.introduce,
+  ].join('\n'),
+  persuade: [
+    `Goal of this call: ${PURPOSE_GOALS.persuade}.`,
+    PURPOSE_STRUCTURE.persuade,
+  ].join('\n'),
+  event: [
+    `Goal of this call: ${PURPOSE_GOALS.event}.`,
+    PURPOSE_STRUCTURE.event,
+  ].join('\n'),
+  'vote-early': [
+    `Goal of this call: ${PURPOSE_GOALS['vote-early']}.`,
+    PURPOSE_STRUCTURE['vote-early'],
+  ].join('\n'),
+  'election-day': [
+    `Goal of this call: ${PURPOSE_GOALS['election-day']}.`,
+    PURPOSE_STRUCTURE['election-day'],
+  ].join('\n'),
+  custom: [
+    `Goal of this call: ${PURPOSE_GOALS.custom}.`,
+    PURPOSE_STRUCTURE.custom,
+  ].join('\n'),
 }
 
 const VOLUNTEER_OPENER_RULE =
@@ -168,6 +225,196 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
+export const WIN_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<PhoneBankingScriptPurpose> =
+  {
+    purposePrompts: WIN_PURPOSE_PROMPTS,
+    draftSystemPrompt: DRAFT_SYSTEM_PROMPT,
+    improveSystemPrompt: IMPROVE_SYSTEM_PROMPT,
+    openerRule: VOLUNTEER_OPENER_RULE,
+    nameLabel: 'Candidate name',
+    officeLabel: 'Office sought',
+    subjectFallback: 'The candidate',
+    materialsLabel: 'campaign materials',
+  }
+
+// The serve purpose prompts are the product CSV's copy (2026-08-31),
+// verbatim — do not paraphrase or "improve" it. Each is a full,
+// self-contained instruction block (rapport beat, per-purpose recipe,
+// invention ban, closing), injected as-is instead of a goal+structure
+// pair. "Voter:" is the CSV's own dialogue speaker label — format, not
+// candidate/voter framing.
+const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
+  introduce:
+    'Write a phonebank script for a volunteer or staffer introducing ' +
+    'the elected official to a constituent for the first time. Format ' +
+    'as alternating You:/Voter: lines. Open with a warm, brief rapport ' +
+    "beat before introducing the official's name, office held, and " +
+    'why-they-serve statement in a sentence or two. Ask an open-ended ' +
+    'question about what issues matter most to the constituent, and ' +
+    'show an example of them sharing something with a brief, genuine ' +
+    'acknowledgment in response, not a pivot into a pitch. Do not ' +
+    'invent facts not present in the source material. Do not reference ' +
+    'party affiliation or use inflammatory language. Close by thanking ' +
+    "them and inviting them to follow the official's updates or reach " +
+    'out anytime. Keep the whole call brief and low-pressure, the goal ' +
+    'of a first constituent contact is building a relationship, not ' +
+    'delivering a message.',
+  'explain-decision':
+    'Write a phonebank script for a volunteer or staffer explaining a ' +
+    'recent decision or vote made by the elected official and the ' +
+    'reasoning behind it. Format as alternating You:/Voter: lines. ' +
+    'Open with a brief rapport beat, then state the decision plainly ' +
+    'and explain the reasoning in 2-3 plain-language sentences using ' +
+    'only the details provided, avoiding jargon. Include an example of ' +
+    'the constituent reacting, whether a question, a concern, or ' +
+    'agreement, with a calm, non-defensive model response. Do not ' +
+    'invent facts, outcomes, or justifications not present in the ' +
+    'source material. Do not attack colleagues or other officials, and ' +
+    'avoid inflammatory language. Close by inviting further questions ' +
+    'or feedback and thanking them for their time. Keep this call ' +
+    'short and transparent in tone, informing rather than persuading.',
+  event:
+    'Write a phonebank script for a volunteer or staffer inviting a ' +
+    'constituent to a town hall or local event. Format as alternating ' +
+    'You:/Voter: lines. Open with a brief rapport beat, then state the ' +
+    'event name, date, time, and location as provided, and briefly ' +
+    'explain why it matters (e.g. a chance to ask questions directly ' +
+    'or weigh in on a local issue). Include an example follow-up ' +
+    'question from the constituent with a model answer where ' +
+    'information is available. Do not invent event details not ' +
+    'provided. Avoid inflammatory language. Close by asking if they ' +
+    'can make it and thanking them regardless of their answer.',
+  'community-input':
+    'Write a phonebank script for a volunteer or staffer inviting a ' +
+    'constituent to share input on a local issue or upcoming decision. ' +
+    'Format as alternating You:/Voter: lines. Open with a brief ' +
+    'rapport beat, then name the issue or decision using the details ' +
+    'provided and ask an open-ended question inviting the constituent ' +
+    'to share their perspective, not a yes/no question. Include an ' +
+    'example of the constituent sharing a concern, with the caller ' +
+    'reflecting it back to show they heard it, rather than immediately ' +
+    'pivoting to a response or solution. Do not invent details not ' +
+    'provided. Avoid inflammatory language. Close by thanking them and ' +
+    'letting them know their input will be passed along. Keep the tone ' +
+    'unhurried and listening-focused throughout, this call is meant to ' +
+    'hear from them, not to persuade or inform.',
+  'share-resource':
+    'Write a phonebank script for a volunteer or staffer telling a ' +
+    'constituent about a local program, service, or resource available ' +
+    'to them. Format as alternating You:/Voter: lines. Open with a ' +
+    'brief rapport beat, then introduce the resource using the details ' +
+    'provided in plain language, explain who it helps and how to ' +
+    'access it, and include an example of the constituent asking a ' +
+    'natural follow-up question with a model answer. Do not invent ' +
+    'details not provided. Avoid inflammatory language. Close by ' +
+    "asking if they'd like more information sent to them and thanking " +
+    'them for their time. Keep this call informational and ' +
+    'low-pressure, not persuasive.',
+  custom:
+    "Take the elected official's own message, provided as written, " +
+    'and adapt it into a natural phonebank call script formatted as ' +
+    'alternating You:/Voter: lines. Preserve the substance and wording ' +
+    'of the original message as closely as possible; do not add new ' +
+    'claims, priorities, or asks not present in the original. Add only ' +
+    'the conversational scaffolding needed to make it sound like a ' +
+    'real call, not new substantive content. Flag rather than ' +
+    'silently alter or remove anything in the original message that ' +
+    'reads awkwardly or inappropriately for a live phone conversation.',
+}
+
+const SERVE_OPENER_RULE =
+  'The opener is the first line of every script and is spoken by the ' +
+  'VOLUNTEER or staffer making the call, in their own first person, on ' +
+  'behalf of the elected official, never the elected official ' +
+  `themselves: "Hi, is this ${VOTER_NAME_TOKEN}? My name is [your ` +
+  'name], and I am calling on behalf of" followed by the elected ' +
+  'official name given below. Keep "[your name]" and ' +
+  `"${VOTER_NAME_TOKEN}" as literal bracketed placeholders — never ` +
+  'invent a volunteer name or a constituent name.'
+
+const SERVE_COMPLIANCE_BAN_RULE =
+  'NEVER include SMS or robocall compliance lines: no "Reply STOP", no ' +
+  '"Paid for by", and no callback phone number. This is a live script ' +
+  'a volunteer reads to a constituent on the phone, not a text or ' +
+  'recorded message.'
+
+const SERVE_NO_PLACEHOLDER_BRACKETS_RULE =
+  'Never emit a bracketed placeholder anywhere in the script other ' +
+  `than "[your name]" and "${VOTER_NAME_TOKEN}" in the opener. Where a ` +
+  'specific date, time, or place is not given below, write around the ' +
+  'gap in plain language instead of inventing one or leaving a bracket ' +
+  'for a volunteer to fill in.'
+
+const SERVE_INSTRUCTIONS_PRIORITY_RULE =
+  "If the elected official's own instructions are given below, follow " +
+  'them as long as they do not conflict with the rules above — never ' +
+  'invent a date, place, or fact even if instructed to, and never ' +
+  `drop the opener or the "[your name]"/"${VOTER_NAME_TOKEN}" tokens.`
+
+const SERVE_DRAFT_SYSTEM_PROMPT = [
+  'You are a writing assistant helping a local elected official draft',
+  'one phonebank call script for a volunteer or staffer to read to a',
+  'constituent.',
+  'Rules:',
+  `- ${SERVE_OPENER_RULE}`,
+  '- Ground the why-they-serve statement, decisions, and any specifics',
+  "  in the elected official's own materials when they are provided;",
+  '  never invent facts, decisions, endorsements, statistics, dates,',
+  '  places, or events the materials do not contain. With no',
+  '  materials, stay general.',
+  '- Follow the purpose instructions given below for this call,',
+  '  including their You:/Voter: dialogue format and closing.',
+  `- ${SERVE_COMPLIANCE_BAN_RULE}`,
+  `- ${SERVE_NO_PLACEHOLDER_BRACKETS_RULE}`,
+  `- ${SERVE_INSTRUCTIONS_PRIORITY_RULE}`,
+  '- Stay strictly non-partisan. No party labels, no attacks.',
+  '- Match the requested tone.',
+].join('\n')
+
+const SERVE_IMPROVE_SYSTEM_PROMPT = [
+  'You are a writing assistant helping a local elected official polish',
+  'one phonebank call script they or a volunteer wrote themselves.',
+  'This is a light edit, NOT a rewrite. Rules:',
+  '- Every concrete detail in the original MUST appear in your output:',
+  '  the opener, dates, deadlines, places, events, times, names,',
+  '  numbers, and asks. Dropping one is a failure. Do not paraphrase',
+  '  specifics away.',
+  `- The literal "[your name]" and "${VOTER_NAME_TOKEN}" placeholders`,
+  '  in the opener MUST be preserved exactly.',
+  '- Strip any other bracketed placeholder the original contains and',
+  '  rewrite around the gap in plain language instead — never leave it',
+  '  as a bracket, and never invent a specific date, time, or place to',
+  '  fill it.',
+  '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
+  "  keep the author's meaning, structure, and voice.",
+  '- Preserve the You:/Voter: alternating dialogue format.',
+  '- Keep roughly the same length as the original and do not add new',
+  "  sentences it does not have, UNLESS the elected official's own",
+  '  instructions below explicitly ask for additions — then make the',
+  '  instructed additions instead of holding to this length rule.',
+  '- Never add facts, decisions, endorsements, statistics, dates,',
+  '  places, or events the original text does not contain — the',
+  "  official's own materials, when provided, are context for tone",
+  '  and accuracy, not a source of new content in a polish.',
+  `- ${SERVE_COMPLIANCE_BAN_RULE} Remove any that appear in the`,
+  '  original.',
+  `- ${SERVE_INSTRUCTIONS_PRIORITY_RULE}`,
+  '- Stay strictly non-partisan. No party labels, no attacks.',
+  '- Match the requested tone through word choice, not new content.',
+].join('\n')
+
+export const SERVE_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<ServePhoneBankingPurpose> =
+  {
+    purposePrompts: SERVE_PURPOSE_PROMPTS,
+    draftSystemPrompt: SERVE_DRAFT_SYSTEM_PROMPT,
+    improveSystemPrompt: SERVE_IMPROVE_SYSTEM_PROMPT,
+    openerRule: SERVE_OPENER_RULE,
+    nameLabel: 'Elected official name',
+    officeLabel: 'Office held',
+    subjectFallback: 'The elected official',
+    materialsLabel: "official's own materials",
+  }
+
 // No max() here: an instructions-driven or near-cap improve result can land
 // a few chars over PHONE_BANKING_SCRIPT_MAX_LENGTH, and a hard max would
 // fail Zod validation -> caught -> 502 (an unrecoverable error from a
@@ -181,26 +428,37 @@ const DraftSchema = z.object({
 // Delimited the same way currentDraft is (a triple-quote fence) so the
 // model reads it as quoted candidate text, not further instructions to the
 // prompt itself.
-const buildInstructionsBlock = (instructions: string): string[] => [
-  "The candidate's own instructions for this draft — follow them as " +
-    'long as they do not conflict with the rules above:',
+const buildInstructionsBlock = <TPurpose extends string>(
+  instructions: string,
+  voice: PhoneBankingVoiceConfig<TPurpose>,
+): string[] => [
+  `${voice.subjectFallback}'s own instructions for this draft — follow ` +
+    'them as long as they do not conflict with the rules above:',
   '"""',
   instructions,
   '"""',
 ]
 
-const PREVIOUS_DRAFT_VARIATION_RULE =
-  'The candidate rejected this draft. Write a noticeably different ' +
-  'script: a different opening after the volunteer opener, different ' +
-  'sentence rhythm, and different supporting details from the campaign ' +
-  'materials. Do not reuse its distinctive phrases.'
+// Kept generic (parametrized by voice.subjectFallback/materialsLabel)
+// rather than duplicated per surface — everything but the subject and the
+// materials phrase is identical prose for both surfaces. For Win this must
+// stay byte-identical to the pre-refactor literal text (see
+// outreachPhoneBanking.test.ts's previousDraft assertions).
+const lowerFirst = (value: string): string =>
+  value.charAt(0).toLowerCase() + value.slice(1)
 
-const buildPreviousDraftBlock = (previousDraft: string): string[] => [
-  'The script the candidate just rejected:',
+const buildPreviousDraftBlock = <TPurpose extends string>(
+  previousDraft: string,
+  voice: PhoneBankingVoiceConfig<TPurpose>,
+): string[] => [
+  `The script ${lowerFirst(voice.subjectFallback)} just rejected:`,
   '"""',
   previousDraft,
   '"""',
-  PREVIOUS_DRAFT_VARIATION_RULE,
+  `${voice.subjectFallback} rejected this draft. Write a noticeably ` +
+    'different script: a different opening after the volunteer opener, ' +
+    'different sentence rhythm, and different supporting details from ' +
+    `the ${voice.materialsLabel}. Do not reuse its distinctive phrases.`,
 ]
 
 // Mirrors filingInstructions.util's formatFilingDate: these date strings
@@ -221,33 +479,31 @@ export class OutreachPhoneBankingGenerationService {
     this.logger.setContext(OutreachPhoneBankingGenerationService.name)
   }
 
-  async generateDraft(
-    input: PhoneBankingScriptDraftRequest,
-    candidateName: string,
+  async generateDraft<TPurpose extends string>(
+    input: DraftInput<TPurpose>,
+    name: string,
     office: string,
     userId: string,
-    campaign: Campaign,
-    campaignContext: string[] = [],
+    extraContext: string[],
+    voice: PhoneBankingVoiceConfig<TPurpose>,
   ): Promise<string> {
-    // Fresh generation only: improve mode polishes the candidate's own
+    // Fresh generation only: improve mode polishes the author's own
     // words, so it applies to custom-purpose scripts too.
     if (input.purpose === 'custom' && !input.currentDraft) {
       throw new BadRequestException(
-        'Custom-purpose scripts are written by the candidate',
+        'Custom-purpose scripts are written by the user',
       )
     }
     const context = [
-      `Candidate name: ${candidateName || 'The candidate'}.`,
-      `Office sought: ${office || 'local office'}.`,
-      `Goal of this call: ${PURPOSE_GOALS[input.purpose]}.`,
-      PURPOSE_STRUCTURE[input.purpose],
+      `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
+      `${voice.officeLabel}: ${office || 'local office'}.`,
+      voice.purposePrompts[input.purpose],
       `Tone: ${TONE_STYLES[input.tone]}`,
-      ...(await this.buildDateContext(input.purpose, campaign)),
-      ...campaignContext,
+      ...extraContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
       ? [
-          { role: 'system', content: IMPROVE_SYSTEM_PROMPT },
+          { role: 'system', content: voice.improveSystemPrompt },
           {
             role: 'user',
             content: [
@@ -258,23 +514,23 @@ export class OutreachPhoneBankingGenerationService {
               '"""',
               'Polish the script.',
               ...(input.instructions
-                ? buildInstructionsBlock(input.instructions)
+                ? buildInstructionsBlock(input.instructions, voice)
                 : []),
             ].join('\n'),
           },
         ]
       : [
-          { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+          { role: 'system', content: voice.draftSystemPrompt },
           {
             role: 'user',
             content: [
               ...context,
               ...(input.previousDraft
-                ? buildPreviousDraftBlock(input.previousDraft)
+                ? buildPreviousDraftBlock(input.previousDraft, voice)
                 : []),
               'Write the call script.',
               ...(input.instructions
-                ? buildInstructionsBlock(input.instructions)
+                ? buildInstructionsBlock(input.instructions, voice)
                 : []),
             ].join('\n'),
           },
@@ -297,11 +553,13 @@ export class OutreachPhoneBankingGenerationService {
     }
   }
 
-  // Grounds the election date / early-voting window from real data only
-  // (ENG-10932) — never an estimate. The election date lives on the
-  // campaign row already; the early-voting window is a live BR fetch, so
-  // it's only worth making for the purpose that uses it.
-  private async buildDateContext(
+  // Win-only grounding: the election date / early-voting window from real
+  // data only (ENG-10932) — never an estimate. Serve purposes carry no
+  // voting mechanics, so the serve controller never calls this and never
+  // reads campaign.details. The election date lives on the campaign row
+  // already; the early-voting window is a live BR fetch, so it's only
+  // worth making for the purpose that uses it.
+  async buildDateContext(
     purpose: PhoneBankingScriptPurpose,
     campaign: Campaign,
   ): Promise<string[]> {
