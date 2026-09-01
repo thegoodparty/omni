@@ -32,6 +32,8 @@ const STAGE_LABELS: Record<ComplianceStage, string> = {
   [ComplianceStage.needs_filing]: 'Filing details needed',
   [ComplianceStage.pending_domain_purchase]: 'Domain purchase pending',
   [ComplianceStage.pending_website_live]: 'Website not live',
+  [ComplianceStage.ready_to_submit]: 'Not yet submitted',
+  [ComplianceStage.filing_review_hold]: 'Filing review hold',
   [ComplianceStage.awaiting_pin]: 'Awaiting PIN',
   [ComplianceStage.tcr_in_review]: 'In carrier review',
   [ComplianceStage.tcr_approved]: 'Approved',
@@ -46,6 +48,11 @@ const STAGE_BADGE_COLORS: Record<
   [ComplianceStage.needs_filing]: 'gray',
   [ComplianceStage.pending_domain_purchase]: 'gray',
   [ComplianceStage.pending_website_live]: 'gray',
+  [ComplianceStage.ready_to_submit]: 'gray',
+  // Red, not amber: a hold needs staff action (correct the filing data or
+  // override). Amber reads as "waiting on the candidate", which is how these
+  // records hid as "Awaiting PIN" before ENG-11018.
+  [ComplianceStage.filing_review_hold]: 'red',
   [ComplianceStage.awaiting_pin]: 'amber',
   [ComplianceStage.tcr_in_review]: 'amber',
   [ComplianceStage.tcr_approved]: 'green',

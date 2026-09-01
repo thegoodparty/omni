@@ -163,9 +163,10 @@ export class CampaignTcrComplianceController {
     description:
       "Submit the candidate's TCR/Identity registration to Peerly for " +
       '10DLC compliance. Precondition (enforced by the route): the ' +
-      'compliance stage must be `awaiting_pin` — i.e., the domain is ' +
+      'compliance stage must be `ready_to_submit` — i.e., the domain is ' +
       "registered and the candidate's website is published and " +
-      'verified live, AND the website content is genuine (a real bio ' +
+      'verified live and nothing has been submitted to Peerly yet, AND ' +
+      'the website content is genuine (a real bio ' +
       'of at least 500 characters and at least one real, non-template ' +
       'issue). Calls with any earlier stage return 422; calls with ' +
       'generic or template content return 400. ' +
