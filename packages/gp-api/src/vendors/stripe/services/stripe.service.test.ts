@@ -1,5 +1,6 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { BadGatewayException } from '@nestjs/common'
+import { fromUnixTime } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
@@ -309,5 +310,101 @@ describe('StripeService.createOffSessionCharge', () => {
     paymentIntentsSearch.mockResolvedValue({ data: [] })
 
     expect(await service.findSucceededChargeByOutreach(42)).toBeNull()
+  })
+})
+
+describe('StripeService.createManualCaptureHold', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as SlackService,
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  const holdArgs = {
+    customerId: 'cus_1',
+    paymentMethodId: 'pm_1',
+    amountInCents: 450,
+    robocallId: 42,
+    attempt: 0,
+    metadata: { outreachId: '42' },
+  }
+
+  it('places a manual-capture hold and returns the capture deadline', async () => {
+    const captureBeforeUnix = 1893456000
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix,
+    })
+
+    const result = await service.createManualCaptureHold(holdArgs)
+
+    expect(result).toEqual({
+      paymentIntentId: 'pi_hold',
+      captureBefore: fromUnixTime(captureBeforeUnix),
+    })
+    const [body, opts] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({
+      amount: 450,
+      customer: 'cus_1',
+      payment_method: 'pm_1',
+      capture_method: 'manual',
+      confirm: true,
+      off_session: true,
+      metadata: { outreachId: '42' },
+    })
+    // The account is not enrolled in extended authorization, so the hold must
+    // never request it — an ineligible account rejects the whole intent.
+    expect(body).not.toHaveProperty('payment_method_options')
+    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-42-0' })
+  })
+
+  it('falls back to now+7d when Stripe omits capture_before', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+    })
+
+    const before = Date.now()
+    const result = await service.createManualCaptureHold(holdArgs)
+    const after = Date.now()
+
+    expect(result.paymentIntentId).toBe('pi_hold')
+    const captured = result.captureBefore.getTime()
+    expect(captured).toBeGreaterThanOrEqual(before + 7 * 24 * 60 * 60 * 1000)
+    expect(captured).toBeLessThanOrEqual(after + 7 * 24 * 60 * 60 * 1000)
+  })
+
+  it('maps a card decline to StripeHoldDeclinedError', async () => {
+    paymentIntentsCreate.mockRejectedValue(
+      new MockStripeCardError('card_declined'),
+    )
+
+    await expect(
+      service.createManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({ name: 'StripeHoldDeclinedError' })
+  })
+
+  it('treats a confirmed PI that did not reach requires_capture as a decline', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_pending',
+      status: 'requires_action',
+    })
+
+    await expect(
+      service.createManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({ name: 'StripeHoldDeclinedError' })
+  })
+
+  it('maps a non-card Stripe failure to a 502', async () => {
+    paymentIntentsCreate.mockRejectedValue(new Error('stripe down'))
+
+    await expect(
+      service.createManualCaptureHold(holdArgs),
+    ).rejects.toBeInstanceOf(BadGatewayException)
   })
 })
