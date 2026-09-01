@@ -570,6 +570,10 @@ export class PhoneBankingListService extends createPrismaBase(
       purpose: PURPOSE_FROM_DB[list.purpose],
       createdAt: list.createdAt,
       entries,
+      // Same `eo-` prefix check as `party` above — the system-wide Win/Serve
+      // signal (src/contacts/AGENTS.md), not derived from the Outreach
+      // envelope: a Win list can exist with none at all (continueIfNotFound).
+      isServe: organization.slug.startsWith('eo-'),
     }
   }
 

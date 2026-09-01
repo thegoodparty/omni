@@ -101,17 +101,28 @@ export default function PhoneBankingCallerPage({
       }).then((res) => res.data),
   })
 
+  const list = listQuery.data
+
+  // This shared caller page can't tell Win from Serve off its own URL (both
+  // surfaces navigate to the same /dashboard/outreach/phone-banking/[id]) —
+  // the signal has to come from the loaded list. `list` is undefined while
+  // still loading, and undefined !== true, so a not-yet-loaded page defaults
+  // to the Win hub rather than flashing the wrong surface.
+  const isServe = list?.isServe === true
+  const hubPathname = isServe
+    ? '/dashboard/constituent-outreach'
+    : '/dashboard/outreach'
+  const hubLabel = isServe ? 'Constituent Outreach' : 'Voter Outreach'
+
   const deleteMutation = useMutation({
     mutationFn: () =>
       clientRequest('DELETE /v1/phone-banking/lists/:id', {
         id: String(listId),
       }),
-    onSuccess: () => router.push('/dashboard/outreach'),
+    onSuccess: () => router.push(hubPathname),
     onError: () =>
       errorSnackbar("Couldn't delete this list. Please try again."),
   })
-
-  const list = listQuery.data
 
   // The distinct sheet numbers actually present, ascending — not a 1..N
   // range, since a small audience can freeze fewer sheets than a candidate
@@ -206,7 +217,7 @@ export default function PhoneBankingCallerPage({
 
   return (
     <DashboardLayout
-      pathname="/dashboard/outreach"
+      pathname={hubPathname}
       wrapperClassName="!p-0 flex flex-col"
     >
       <div className="flex h-[calc(100dvh-4rem)] w-full flex-col">
@@ -216,14 +227,14 @@ export default function PhoneBankingCallerPage({
               asChild
               variant="ghost"
               size="small"
-              aria-label="Back to Voter Outreach"
+              aria-label={`Back to ${hubLabel}`}
             >
               {/* The hub's outreach-detail cache is invalidated per-save
                   (below), but its RSC-sourced row list and status can still
                   come from Next's Router Cache on the way back — router.refresh()
                   busts that so the hub re-renders with the real status
                   instead of the in-progress snapshot it had on the way in. */}
-              <Link href="/dashboard/outreach" onClick={() => router.refresh()}>
+              <Link href={hubPathname} onClick={() => router.refresh()}>
                 <ArrowLeftIcon size={18} />
               </Link>
             </IconButton>

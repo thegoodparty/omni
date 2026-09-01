@@ -63,6 +63,11 @@ export const PhoneBankingListSchema = z.object({
   purpose: z.union([PhoneBankingPurposeSchema, ServePhoneBankingPurposeSchema]),
   createdAt: zCoerceDate(),
   entries: z.array(PhoneBankingListEntrySchema),
+  // The owning org's surface (the `eo-` slug prefix, the system-wide Win/
+  // Serve invariant — see src/contacts/AGENTS.md) — callers that share this
+  // route across both surfaces (e.g. the caller page's back-link) can't
+  // infer it from the URL, which is identical for both.
+  isServe: z.boolean(),
 })
 export type PhoneBankingList = z.infer<typeof PhoneBankingListSchema>
 

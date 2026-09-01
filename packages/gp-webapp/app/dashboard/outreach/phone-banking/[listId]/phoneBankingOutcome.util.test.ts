@@ -54,6 +54,7 @@ const makeList = (entries: PhoneBankingListEntry[]): PhoneBankingList => ({
   sheetCount: 1,
   purpose: 'introduce',
   createdAt: new Date('2026-01-01'),
+  isServe: false,
   entries,
 })
 
