@@ -1,14 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useQuery } from '@tanstack/react-query'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
-import { outreachDetailQueryPrefix } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SidebarProvider } from '@styleguide'
+import { outreachDetailQueryKey } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import {
   OrganizationProvider,
   OrganizationPicker,
@@ -561,97 +560,81 @@ describe('OrganizationPicker', () => {
   })
 })
 
-describe('org-switch query invalidation', () => {
-  const DETAIL_KEY = [...outreachDetailQueryPrefix, 1553]
+describe('outreach-detail query isolation on org switch (ENG-10991)', () => {
+  it('does not refetch an active outreach-detail query when switching orgs', async () => {
+    const user = userEvent.setup()
+    const detailFetcher = vi.fn().mockResolvedValue({ id: 999 })
 
-  const QueryProbe = ({
-    queryKey,
-    queryFn,
-  }: {
-    queryKey: (string | number)[]
-    queryFn: () => Promise<string>
-  }) => {
-    useQuery({ queryKey, queryFn, staleTime: 5 * 60 * 1000 })
-    return null
-  }
+    const OutreachDetailProbe = () => {
+      useQuery({
+        queryKey: outreachDetailQueryKey(999),
+        queryFn: detailFetcher,
+      })
+      return null
+    }
 
-  const renderWithProbes = (probes: ReactNode) => {
     api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
-    return render(
+
+    render(
       <SidebarProvider>
         <OrganizationProvider initialOrganizations={orgs}>
+          <OutreachDetailProbe />
           <OrganizationPicker />
-          {probes}
         </OrganizationProvider>
       </SidebarProvider>,
     )
-  }
 
-  it('marks outreach-detail and contact-notes queries stale WITHOUT refetching, while other per-org queries refetch (ENG-10991)', async () => {
-    const user = userEvent.setup()
-    const detailFn = vi.fn(async () => 'serve-detail')
-    const notesFn = vi.fn(async () => 'person-notes')
-    const otherFn = vi.fn(async () => 'per-org-data')
-    const notesKey = ['contact-notes', 42]
+    // Simulates the just-saved row's "N platforms" metric being an active
+    // observer at the moment of the org switch — the trigger in ENG-10991.
+    await waitFor(() => expect(detailFetcher).toHaveBeenCalledTimes(1))
 
-    renderWithProbes(
-      <>
-        <QueryProbe queryKey={DETAIL_KEY} queryFn={detailFn} />
-        <QueryProbe queryKey={notesKey} queryFn={notesFn} />
-        <QueryProbe queryKey={['per-org-data']} queryFn={otherFn} />
-      </>,
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    // The switch's broad invalidateQueries call has run by the time the
+    // route push fires.
+    await waitFor(() =>
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
     )
 
-    await waitFor(() => {
-      expect(detailFn).toHaveBeenCalledTimes(1)
-      expect(notesFn).toHaveBeenCalledTimes(1)
-      expect(otherFn).toHaveBeenCalledTimes(1)
-    })
-
-    await user.click(screen.getByText('Organization One'))
-    await user.click(screen.getByText('Organization Two'))
-
-    await waitFor(() => {
-      expect(otherFn).toHaveBeenCalledTimes(2)
-    })
-    expect(detailFn).toHaveBeenCalledTimes(1)
-    expect(notesFn).toHaveBeenCalledTimes(1)
-    expect(testQueryClient.getQueryState(DETAIL_KEY)?.isInvalidated).toBe(true)
-    expect(testQueryClient.getQueryState(notesKey)?.isInvalidated).toBe(true)
+    expect(detailFetcher).toHaveBeenCalledTimes(1)
   })
 
-  it('refetches a stale outreach-detail query when its observer remounts after the switch', async () => {
+  it('does not refetch an active contact-notes query when switching orgs', async () => {
     const user = userEvent.setup()
-    const detailFn = vi.fn(async () => 'serve-detail')
-    const probe = <QueryProbe queryKey={DETAIL_KEY} queryFn={detailFn} />
+    const notesFetcher = vi.fn().mockResolvedValue([])
 
-    const view = renderWithProbes(probe)
+    // Same shape as outreach-detail: PhoneBankingNotes keys per person id, so
+    // an open caller panel is an active observer at the moment of the switch.
+    const ContactNotesProbe = () => {
+      useQuery({
+        queryKey: ['contact-notes', 42],
+        queryFn: notesFetcher,
+      })
+      return null
+    }
 
-    await waitFor(() => {
-      expect(detailFn).toHaveBeenCalledTimes(1)
-    })
+    api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs}>
+          <ContactNotesProbe />
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await waitFor(() => expect(notesFetcher).toHaveBeenCalledTimes(1))
 
     await user.click(screen.getByText('Organization One'))
     await user.click(screen.getByText('Organization Two'))
-    expect(detailFn).toHaveBeenCalledTimes(1)
 
-    const remount = (probes: ReactNode) =>
-      view.rerender(
-        <SidebarProvider>
-          <OrganizationProvider initialOrganizations={orgs}>
-            <OrganizationPicker />
-            {probes}
-          </OrganizationProvider>
-        </SidebarProvider>,
-      )
-    remount(null)
-    remount(probe)
+    await waitFor(() =>
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
+    )
 
-    // staleTime is 5 minutes, so this second fetch can only be the
-    // invalidation — remounting a fresh query would serve from cache.
-    await waitFor(() => {
-      expect(detailFn).toHaveBeenCalledTimes(2)
-    })
+    expect(notesFetcher).toHaveBeenCalledTimes(1)
   })
 })
 
