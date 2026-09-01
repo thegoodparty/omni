@@ -136,10 +136,10 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   hung_up: 'Hung Up',
 }
 
-// All five values (ENG-10837): `undecided`/`refused` (ENG-10833) exist only
-// as manual overrides, but SupportStatusService.personIdsByEffectiveStatus
-// now resolves overrides alongside derivation, so advertising them here no
-// longer risks a filter that silently matches zero people.
+// All five values (ENG-10837): `refused` (ENG-10833) exists only as a manual
+// override, but SupportStatusService.personIdsByEffectiveStatus resolves
+// overrides alongside derivation, so advertising it here doesn't risk a
+// filter that silently matches zero people.
 const SUPPORT_STATUS_LABELS: Record<
   (typeof SupportStatusRollupSchema.options)[number],
   string

@@ -505,6 +505,17 @@ Drive, Facebook, YouTube, goodparty.org, IRS — SSRF-blocked via the same
 `assertPublicHostname`/`ssrfSafeLookup` `verify-live` uses) run first and never touch
 the LLM.
 
+- **A scanned PDF falls back to a vision pass instead of holding immediately
+  (Phase 2).** When the fetched body is a PDF and text extraction yields
+  under-threshold text (a scanned filing with no text layer), the same
+  three-check verdict runs with the raw PDF bytes attached to the LLM
+  message as a `file` content part (`LlmMessage`'s `LlmFilePart`,
+  `messageConversion.ts` forwards it to the AI SDK unchanged) instead of
+  extracted text — Claude reads scanned pages natively. A PDF over 4MB skips
+  vision and holds directly; a vision-call error (or a verdict that fails
+  any check) holds with the same reasons/`UNREADABLE_PAGE_REASON` a text-path
+  failure would, never `transient` — a genuinely unreadable scan must not
+  retry forever. Non-PDF unreadable content (a JS app shell) is unaffected.
 - **A failed verdict holds, never rejects.** `submitToPeerlyForAgent` persists
   `cvValidationFailedAt` + `cvValidationFailureReasons` and posts once to
   `bot-10dlc-compliance`; `status` stays `submitted` (not `rejected`/`error`) so the
@@ -562,7 +573,13 @@ the LLM.
   `assertCvPreSubmissionValid` — set, and the gate (and any stale held failure) is
   bypassed entirely on the next submission attempt, **until the filing data changes**
   (see "Clearing the hold — and the override" above), which clears the override and
-  forces a fresh validation.
+  forces a fresh validation. It also clears `cvValidationFailedAt` /
+  `cvValidationFailureReasons` in the **same** update as the override stamp
+  (ENG-11000): the pre-Peerly submission claim's `WHERE` unconditionally requires
+  `cvValidationFailedAt: null` (the claim-matrix symmetry above), so stamping only the
+  override left the claim unwinnable — the gate passed but the claim then matched 0
+  rows and its `claim.count === 0` fallback re-threw the stale stored reasons,
+  making the override a no-op (campaigns 326653, 326890, Sep 2026).
 
 ## Recovering a rejected record (`tcr_rejected`)
 

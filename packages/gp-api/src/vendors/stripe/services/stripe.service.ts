@@ -248,10 +248,9 @@ export class StripeService {
 
   // Places a manual-capture authorization hold on the vaulted card off-session
   // (the candidate is not present). Returns the intent id and the capture
-  // deadline Stripe stamps on the auth. Extended authorization is requested so
-  // the hold outlives the standard ~7-day window when the network supports it;
-  // capture_before is the real deadline, parsed from the response (falling back
-  // to now+7d when Stripe omits it). A card decline is an expected business
+  // deadline Stripe stamps on the auth. capture_before is the real deadline,
+  // parsed from the response (falling back to now+7d when Stripe omits it). A
+  // card decline is an expected business
   // outcome, surfaced as StripeHoldDeclinedError so the caller can record
   // hold_failed rather than a 502; every other failure is infra → 502. The DB
   // write of the returned ids happens in the caller, outside this try/catch.
@@ -281,9 +280,6 @@ export class StripeService {
           capture_method: 'manual',
           confirm: true,
           off_session: true,
-          payment_method_options: {
-            card: { request_extended_authorization: 'if_available' },
-          },
           metadata,
         },
         { idempotencyKey: `robocall-hold-${robocallId}-${attempt}` },
