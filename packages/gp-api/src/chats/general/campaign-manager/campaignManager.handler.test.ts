@@ -8,6 +8,7 @@ import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import type { ConstituentTableConfig } from '../chief-of-staff/services/constituentDataScope'
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
@@ -118,13 +119,63 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
   })
 })
 
+describe('CampaignManagerHandler.loadContext — constituent tool gating', () => {
+  const ORG_SLUG = 'win-campaign'
+
+  const buildContextHandler = (
+    provider: DatabricksProvider | undefined,
+    tables: ConstituentTableConfig[],
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: ORG_SLUG }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      tables,
+      provider,
+    )
+  }
+
+  it('enables the constituent tool when provider + tables are present', async () => {
+    const handler = buildContextHandler(fakeProvider, WIN_CONSTITUENT_TABLES)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(true)
+  })
+
+  it('disables the constituent tool without a provider', async () => {
+    const handler = buildContextHandler(undefined, WIN_CONSTITUENT_TABLES)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(false)
+  })
+
+  it('disables the constituent tool when no table is configured', async () => {
+    const handler = buildContextHandler(fakeProvider, [])
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(false)
+  })
+})
+
 const buildHandlerWithStory = (): CampaignManagerHandler =>
   new CampaignManagerHandler(
     {} as GeneralChatStoreService,
     {} as CampaignsService,
     {} as ChatStoreService,
     WIN_CONSTITUENT_TABLES,
-    undefined,
     undefined,
     undefined,
     {} as CampaignStoryIntakeService,
@@ -221,7 +272,6 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       contacts,
       voterFileFilters,
     )
@@ -295,7 +345,6 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       {} as CampaignsService,
       {} as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
-      undefined,
       undefined,
       undefined,
       undefined,
@@ -431,7 +480,6 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       buildContacts(),
       buildVoterFileFilters(),
     )
@@ -543,7 +591,6 @@ describe('CampaignManagerHandler.resolveConversation — single ongoing thread',
       { findFirst } as unknown as CampaignsService,
       { appendMessage } as unknown as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
-      undefined,
       undefined,
       undefined,
       { read } as unknown as CampaignStoryIntakeService,

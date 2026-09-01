@@ -5,7 +5,6 @@ import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
-  CONSTITUENT_DATA_TOOL_FLAG,
 } from '@/llm/tools/queryConstituentData.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import {
@@ -59,13 +58,6 @@ export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
 // Token for the app-layer table/dimension allowlist (lever 1). Injected so prod
 // uses the in-code CONSTITUENT_TABLES const while tests can supply a fixture.
 export const CONSTITUENT_TABLES_CONFIG = 'CONSTITUENT_TABLES_CONFIG'
-
-// Enablement requires ALL of: the shared DATABRICKS_* credential, an approved
-// table in CONSTITUENT_TABLES, the user's district resolving to server-bound
-// filters, AND the per-user cos-constituent-data-tool Amplitude flag being on.
-// The flag is the rollout control while the tool runs against the shared (broad)
-// key: it stays off for everyone until explicitly enabled per internal tester.
-export { CONSTITUENT_DATA_TOOL_FLAG }
 
 // Serve's CRM rollout flag (same key the webapp's contacts page reads). It
 // gates the contact describe/count tools so the assistant capability ramps
@@ -142,13 +134,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
-    // Resolve the per-user flag only when the tool could otherwise register
-    // (provider + an approved table present), so we don't hit Amplitude for
-    // users who can't use it anyway.
     const constituentToolEnabled =
-      !!this.constituentProvider &&
-      this.constituentTables.length > 0 &&
-      (await this.isFlagOn(userId, CONSTITUENT_DATA_TOOL_FLAG))
+      !!this.constituentProvider && this.constituentTables.length > 0
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
@@ -214,9 +201,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
 
     // Aggregate-only constituent data. Registers ONLY when all of: the provider
     // is configured (shared DATABRICKS_* present), the user's district resolved
-    // into server-bound filters, an approved table is in the in-code allowlist,
-    // AND the per-user cos-constituent-data-tool flag is on. Any one missing
-    // keeps the tool off.
+    // into server-bound filters, and an approved table is in the in-code
+    // allowlist. Any one missing keeps the tool off.
     if (
       this.constituentProvider &&
       ctx.districtFilters &&

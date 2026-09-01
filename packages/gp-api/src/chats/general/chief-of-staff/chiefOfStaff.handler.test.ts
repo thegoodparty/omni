@@ -200,7 +200,8 @@ describe('ChiefOfStaffHandler', () => {
     expect(prompt).toContain('Council Member')
   })
 
-  it('registers constituent-data tools when provider + filters + table + flag', async () => {
+  it('registers constituent-data tools when provider + filters + table are present, without consulting Amplitude', async () => {
+    const features = buildFeatures(true)
     const handler = new ChiefOfStaffHandler(
       store,
       context,
@@ -209,48 +210,14 @@ describe('ChiefOfStaffHandler', () => {
       TEST_TABLES,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
-      buildFeatures(true),
+      features,
     )
     const ctx = await handler.loadContext('c1', USER_ID)
+    expect(ctx.constituentToolEnabled).toBe(true)
+    expect(features.isFeatureEnabled).not.toHaveBeenCalled()
     const tools = handler.buildTools(ctx)
     expect(Object.keys(tools)).toContain('query_constituent_data')
     expect(Object.keys(tools)).toContain('describe_constituent_data')
-  })
-
-  it('omits constituent-data tools when the feature flag is off', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      TEST_TABLES,
-      new InMemoryDatabricksProvider(new Map()),
-      buildResolver(),
-      buildFeatures(false),
-    )
-    const ctx = await handler.loadContext('c1', USER_ID)
-    expect(ctx.constituentToolEnabled).toBe(false)
-    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-      'query_constituent_data',
-    )
-  })
-
-  it('keeps the chat working (tool off) when the flag service throws', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      TEST_TABLES,
-      new InMemoryDatabricksProvider(new Map()),
-      buildResolver(),
-      buildThrowingFeatures(),
-    )
-    const ctx = await handler.loadContext('c1', USER_ID)
-    expect(ctx.constituentToolEnabled).toBe(false)
-    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-      'query_constituent_data',
-    )
   })
 
   it('omits constituent-data tools without a scoped provider', async () => {

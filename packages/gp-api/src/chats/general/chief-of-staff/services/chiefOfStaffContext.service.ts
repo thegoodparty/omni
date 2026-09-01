@@ -24,8 +24,9 @@ export interface ChiefOfStaffContext {
   // service leaves this null; the handler fills it from DistrictResolverService
   // (which also populates jurisdiction).
   districtFilters: MandatoryFilter[] | null
-  // Whether the per-user cos-constituent-data-tool flag is on. The context
-  // service defaults it false; the handler resolves it from FeaturesService.
+  // Whether the constituent-data tool can register (provider + an approved
+  // table configured). The context service defaults it false; the handler
+  // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
   // Whether the serve-crm flag enables the contact describe/count tools.
   // Defaults false here; the handler resolves it from FeaturesService.

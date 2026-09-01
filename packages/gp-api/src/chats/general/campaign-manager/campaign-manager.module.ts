@@ -5,7 +5,6 @@
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { Module } from '@nestjs/common'
-import { FeaturesModule } from '@/features/features.module'
 import { ChatsModule } from '@/chats/chats.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { WebsitesModule } from '@/websites/websites.module'
@@ -47,8 +46,8 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
 
 // Registers the campaign_assistant scope handler. Exported so the general chats
 // module can collect it into the scope registry. Imports ChatsModule for the
-// shared ChatStoreService (greeting seeding), Organizations/Elections/Features
-// for the reused constituent-data tool (district resolution + flag), and
+// shared ChatStoreService (greeting seeding), Organizations/Elections for the
+// reused constituent-data tool's district resolution, and
 // CampaignStory/Websites/CampaignStrategy for the Campaign Story intake (story +
 // website bio/issues + plan generation).
 @Module({
@@ -56,7 +55,6 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     ChatsModule,
     OrganizationsModule,
     ElectionsModule,
-    FeaturesModule,
     CampaignStoryModule,
     WebsitesModule,
     CampaignStrategyModule,
