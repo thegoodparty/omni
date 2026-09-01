@@ -198,6 +198,9 @@ describe('POST /v1/outreach/serve/social/draft', () => {
     expect(systemPrompt).not.toMatch(/voters?/i)
     expect(userPrompt).not.toMatch(/candidate/i)
     expect(userPrompt).not.toMatch(/voters?/i)
+    // SERVE_PURPOSE_PROMPTS.custom describes the GENERATE (platform-adapt)
+    // step and must not leak into this improve/polish call.
+    expect(userPrompt).not.toContain('adapt it to fit the selected platform')
   })
 
   it('maps an LLM failure to 502', async () => {

@@ -291,6 +291,14 @@ describe('POST /v1/outreach/social/draft', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ draft: 'Polished custom words.' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    // WIN_PURPOSE_PROMPTS.custom describes the GENERATE (platform-adapt)
+    // step and must not leak into this improve/polish call.
+    expect(userPrompt).not.toContain('adapt it to fit the selected platform')
   })
 
   it('rejects an empty or oversized currentDraft without calling the LLM', async () => {
