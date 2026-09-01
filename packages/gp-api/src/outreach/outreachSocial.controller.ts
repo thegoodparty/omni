@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -19,6 +20,7 @@ import {
   OutreachDetailSchema,
   OutreachReceipt,
   OutreachReceiptSchema,
+  SocialAssetPlatform,
   SocialDraftRequest,
   SocialDraftRequestSchema,
   SocialDraftResponse,
@@ -27,8 +29,10 @@ import {
   SocialGenerateRequestSchema,
   SocialGenerateResponse,
   SocialGenerateResponseSchema,
+  SocialPurpose,
   SocialSaveRequest,
   SocialSaveRequestSchema,
+  excludedSocialPlatformsForPurpose,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -90,6 +94,25 @@ export class OutreachSocialController {
     return positionName ?? campaign.details.normalizedOffice ?? ''
   }
 
+  // The client platform list is UI-only; a Nextdoor-excluded purpose on Win
+  // (ENG-10989) is rejected here — on BOTH generate and save, since save
+  // persists assets without ever calling generate and must never silently
+  // accept an excluded pairing straight into outreach history.
+  private assertPlatformsAllowed(
+    purpose: SocialPurpose,
+    platforms: SocialAssetPlatform[],
+  ): void {
+    const excludedRequested = platforms.filter((platform) =>
+      excludedSocialPlatformsForPurpose('win', purpose).includes(platform),
+    )
+    if (excludedRequested.length > 0) {
+      throw new BadRequestException(
+        `Platform not available for purpose "${purpose}": ` +
+          excludedRequested.join(', '),
+      )
+    }
+  }
+
   @Post('social/draft')
   @ResponseSchema(SocialDraftResponseSchema)
   async draft(
@@ -118,6 +141,7 @@ export class OutreachSocialController {
     @Body(new ZodValidationPipe(SocialGenerateRequestSchema))
     input: SocialGenerateRequest,
   ): Promise<SocialGenerateResponse> {
+    this.assertPlatformsAllowed(input.purpose, input.platforms)
     return {
       assets: await this.generationService.generateAssets(
         input,
@@ -137,6 +161,10 @@ export class OutreachSocialController {
     @Body(new ZodValidationPipe(SocialSaveRequestSchema))
     input: SocialSaveRequest,
   ): Promise<OutreachDetail> {
+    this.assertPlatformsAllowed(
+      input.purpose,
+      input.assets.map((asset) => asset.platform),
+    )
     return this.socialService.saveSocialOutreach(
       { campaignId: campaign.id, organizationSlug: campaign.organizationSlug },
       input,

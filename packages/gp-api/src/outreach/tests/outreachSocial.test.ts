@@ -481,9 +481,12 @@ describe('POST /v1/outreach/social/generate', () => {
       llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
     )
 
+    // issue_update carries no Nextdoor exclusion on Win, unlike
+    // persuade_voters — this asserts the missing-platform gap, not the
+    // ENG-10989 exclusion gate (covered separately below).
     const res = await postGenerate({
-      draftMessage: 'Vote for me.',
-      purpose: 'persuade_voters',
+      draftMessage: 'Sharing an update.',
+      purpose: 'issue_update',
       platforms: ['facebook', 'nextdoor'],
     })
 
@@ -540,6 +543,83 @@ describe('POST /v1/outreach/social/generate', () => {
 
     expect(jsonCompletion).not.toHaveBeenCalled()
   })
+
+  // ENG-10989: Nextdoor bans telling neighbors how to vote, so Win excludes
+  // it outright for the three purposes that pair persuasion or vote-timing
+  // language with a platform request — never silently dropped, always a 400.
+  it.each(['persuade_voters', 'early_voting', 'election_day_turnout'])(
+    'rejects %s paired with Nextdoor on Win with a 400, without calling the LLM',
+    async (purpose) => {
+      const res = await postGenerate({
+        draftMessage: 'Vote for me.',
+        purpose,
+        platforms: ['facebook', 'nextdoor'],
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
+    },
+  )
+
+  it('allows the same excluded-elsewhere purposes on Nextdoor for every other platform', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Vote for me.',
+      purpose: 'persuade_voters',
+      platforms: ['facebook'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+  })
+
+  it('drops the vote CTA and closes on bio/priorities for introduce_myself on Nextdoor', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'nextdoor', text: 'Hi neighbors, I am Jane.' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Hi, I am Jane and I am running for city council.',
+      purpose: 'introduce_myself',
+      platforms: ['nextdoor'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Do not close with a call to action to vote for the candidate',
+    )
+    expect(userPrompt).toContain(
+      "Close on the candidate's bio or top priorities instead.",
+    )
+  })
+
+  it('carries the flag-dont-alter instruction for the custom purpose on Nextdoor', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'nextdoor', text: 'Trimmed message' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'My own words, unedited.',
+      purpose: 'custom',
+      platforms: ['nextdoor'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Flag rather than silently alter or remove language that may not ' +
+        "comply with a platform's content policy",
+    )
+  })
 })
 
 describe('POST /v1/outreach/social', () => {
@@ -568,6 +648,30 @@ describe('POST /v1/outreach/social', () => {
     expect(spine.status).toBe(OutreachStatus.completed)
     expect(spine.social?.purpose).toBe('introduce_myself')
     expect(spine.social?.assets).toHaveLength(2)
+  })
+
+  // ENG-10989: save is the persistence path even without a preceding
+  // generate call, so it must never silently accept an excluded pairing
+  // straight into outreach history.
+  it('rejects an excluded purpose+Nextdoor pairing on save, without persisting', async () => {
+    const res = await postSave({
+      ...validSaveBody(),
+      purpose: 'persuade_voters',
+      assets: [
+        {
+          platform: SocialAssetPlatform.nextdoor,
+          kind: SocialAssetKind.post_copy,
+          text: 'Vote for me on Nextdoor.',
+        },
+      ],
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(await countAllSocialRows()).toEqual({
+      outreach: 0,
+      social: 0,
+      assets: 0,
+    })
   })
 
   it('rejects a kind that does not match its platform', async () => {
