@@ -41,6 +41,10 @@ export interface PhoneBankingVoiceConfig<TPurpose extends string> {
   nameLabel: string
   officeLabel: string
   subjectFallback: string
+  // What buildPreviousDraftBlock calls the source of "supporting details"
+  // in the regenerate-variation rule — Win's own campaign materials vs.
+  // the elected official's own materials for Serve.
+  materialsLabel: string
 }
 
 interface DraftInput<TPurpose extends string> {
@@ -230,6 +234,7 @@ export const WIN_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<PhoneBankingScript
     nameLabel: 'Candidate name',
     officeLabel: 'Office sought',
     subjectFallback: 'The candidate',
+    materialsLabel: 'campaign materials',
   }
 
 // The serve purpose prompts are the product CSV's copy (2026-08-31),
@@ -407,6 +412,7 @@ export const SERVE_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<ServePhoneBankin
     nameLabel: 'Elected official name',
     officeLabel: 'Office held',
     subjectFallback: 'The elected official',
+    materialsLabel: "official's own materials",
   }
 
 // No max() here: an instructions-driven or near-cap improve result can land
@@ -433,21 +439,26 @@ const buildInstructionsBlock = <TPurpose extends string>(
   '"""',
 ]
 
-// Kept generic (parametrized by voice.subjectFallback) rather than
-// duplicated per surface — the variation rule itself carries no
-// candidate/voter framing that needs reframing.
+// Kept generic (parametrized by voice.subjectFallback/materialsLabel)
+// rather than duplicated per surface — everything but the subject and the
+// materials phrase is identical prose for both surfaces. For Win this must
+// stay byte-identical to the pre-refactor literal text (see
+// outreachPhoneBanking.test.ts's previousDraft assertions).
+const lowerFirst = (value: string): string =>
+  value.charAt(0).toLowerCase() + value.slice(1)
+
 const buildPreviousDraftBlock = <TPurpose extends string>(
   previousDraft: string,
   voice: PhoneBankingVoiceConfig<TPurpose>,
 ): string[] => [
-  'The script rejected last time:',
+  `The script ${lowerFirst(voice.subjectFallback)} just rejected:`,
   '"""',
   previousDraft,
   '"""',
   `${voice.subjectFallback} rejected this draft. Write a noticeably ` +
-    'different script: a different opening after the opener, ' +
+    'different script: a different opening after the volunteer opener, ' +
     'different sentence rhythm, and different supporting details from ' +
-    'the materials provided. Do not reuse its distinctive phrases.',
+    `the ${voice.materialsLabel}. Do not reuse its distinctive phrases.`,
 ]
 
 // Mirrors filingInstructions.util's formatFilingDate: these date strings
