@@ -29,7 +29,7 @@ import { TONE_STYLES } from '../util/messageTone.util'
 // candidate/office context line must never say "candidate" for a Serve
 // request (the AC bans candidate/voter framing entirely).
 export interface SocialVoiceConfig<TPurpose extends string> {
-  purposeGoals: Record<TPurpose, string>
+  purposePrompts: Record<TPurpose, string>
   nameLabel: string
   subjectFallback: string
   officeLabel: string
@@ -50,29 +50,71 @@ interface GenerateInput<TPurpose extends string> {
   platforms: SocialAssetPlatform[]
 }
 
+// A spoken-word script is unchanged by the CSV guidance — only the
+// caption/description field's length and hashtag advice below is new.
+const VIDEO_SCRIPT_RULE =
+  'A spoken-word video script of roughly 30-45 seconds, written to be ' +
+  'read to camera in the first person. '
+
+// Nextdoor's per-purpose include/exclude/flag matrix is ENG-10989; this
+// ticket carries only the tone guidance, unchanged by purpose.
+const NEXTDOOR_RULE =
+  'Conversational, neighbor-to-neighbor tone. Open by addressing ' +
+  'neighbors directly (for example "Hi neighbors,"). Hyper-local, never ' +
+  'salesy. No hashtags.'
+
+// Canonical platform guidance (product/politics CSV
+// social-copy-prompts-and-platform-guidance, 2026-09-01) for every
+// AI-generated, non-custom purpose.
 const PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
   [SocialAssetPlatform.facebook]:
-    'Post copy. Conversational and community-minded. End with a short ' +
-    'link line inviting readers to learn more (the candidate appends ' +
-    'their campaign link after it).',
+    'Aim for a short caption, roughly 80 characters performs best in ' +
+    'feed; up to 2,200 if posted as a Reel. 2-3 lowercase hashtags kept ' +
+    'in the caption.',
   [SocialAssetPlatform.instagram]:
-    'Post copy written as an Instagram caption. Close with 3-5 relevant, ' +
-    'non-partisan hashtags.',
-  [SocialAssetPlatform.nextdoor]:
-    'Post copy in a neighbor-to-neighbor tone. Open by addressing ' +
-    'neighbors directly (for example "Hi neighbors,"). Hyper-local, ' +
-    'never salesy.',
+    "Front-load the hook in the first 125-150 characters, since that's " +
+    "what shows before 'more.' 3-5 relevant hashtags.",
+  [SocialAssetPlatform.nextdoor]: NEXTDOOR_RULE,
   [SocialAssetPlatform.x]:
-    'A single post of at most 230 characters, leaving room for a URL ' +
-    'the candidate appends. At most one hashtag.',
+    'A single post within the 280-character hard limit, leaving room ' +
+    'for a URL the candidate appends; aim for 70-150 characters for ' +
+    'best engagement. 1-2 hashtags max, more measurably hurts ' +
+    'engagement.',
   [SocialAssetPlatform.tiktok]:
-    'A spoken-word video script of roughly 30-45 seconds, written to be ' +
-    'read to camera in the first person, plus a short caption for the ' +
-    'post in the caption field.',
+    VIDEO_SCRIPT_RULE +
+    'Caption accompanies the intro video itself. Front-load the hook, ' +
+    'since only ~100-150 characters show before truncation; ideal ' +
+    'total length 150-300 characters. 3-5 hashtags.',
   [SocialAssetPlatform.youtube_shorts]:
-    'A spoken-word video script of roughly 30-45 seconds, written to be ' +
-    'read to camera in the first person, plus a short caption for the ' +
-    'post in the caption field.',
+    VIDEO_SCRIPT_RULE +
+    'Description allows up to 5,000 characters but only ~100 show ' +
+    'above the fold, front-load it. 3-5 hashtags placed at the end.',
+}
+
+// The custom purpose's GENERATE path adapts the candidate/official's own
+// written message rather than a fresh draft — trim/reformat, don't
+// rewrite. Same CSV, its "custom purpose" table.
+const CUSTOM_PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
+  [SocialAssetPlatform.facebook]:
+    'Trim/reformat to ~80 characters for feed, or up to 2,200 if ' +
+    'posted as a Reel. Adjust hashtag count to 2-3 if present.',
+  [SocialAssetPlatform.instagram]:
+    'Trim/reformat so the hook lands in the first 125-150 characters. ' +
+    'Adjust hashtag count to 3-5 if present.',
+  [SocialAssetPlatform.nextdoor]: NEXTDOOR_RULE,
+  [SocialAssetPlatform.x]:
+    'Trim/reformat to fit 280 characters, ideally 70-150, leaving room ' +
+    'for a URL the candidate appends. Adjust hashtag count to 1-2 if ' +
+    'present.',
+  [SocialAssetPlatform.tiktok]:
+    VIDEO_SCRIPT_RULE +
+    'Trim/reformat so the hook lands in the first 100-150 characters; ' +
+    'total 150-300 characters. Adjust hashtag count to 3-5 if present.',
+  [SocialAssetPlatform.youtube_shorts]:
+    VIDEO_SCRIPT_RULE +
+    'Trim/reformat so the first ~100 characters carry the hook, ' +
+    'within the 5,000-character limit. Adjust hashtag count to 3-5 if ' +
+    'present.',
 }
 
 const WIN_DRAFT_SYSTEM_PROMPT = [
@@ -129,16 +171,108 @@ const WIN_GENERATE_SYSTEM_PROMPT = [
   '  caption in "caption". For copy platforms, omit "caption".',
 ].join('\n')
 
+// Product/politics prompt copy (CSV social-copy-prompts-and-platform-
+// guidance, 2026-09-01), transcribed VERBATIM — do not editorialize, fix
+// grammar, or reflow. Supersedes the launch-era one-line purposeGoals.
+//
+// Source-material mapping (prompt term -> context block; "not modeled"
+// means no context builder emits it today, so the invention ban is what
+// keeps the model from fabricating it):
+//   candidate's name / office sought -> nameLabel/officeLabel lines
+//   location                         -> OutreachComposeContextService's
+//                                        "Where the candidate is running"
+//   bio / why-they're-running        -> CampaignStory.background ("The
+//                                        candidate's campaign story, in
+//                                        their own words") — Win has one
+//                                        combined story field, not two
+//   top platform priorities          -> customIssues ("The candidate's
+//                                        stated issue positions")
+//   accomplishments                  -> not modeled
+//   event / issue update details     -> not modeled (per-message specifics)
+const WIN_PURPOSE_PROMPTS: Record<SocialPurpose, string> = {
+  introduce_myself: [
+    'Write a first-person social media post in which the candidate',
+    "introduces themselves to voters. Use the candidate's name, office",
+    "sought, location, bio, why-they're-running statement, and top",
+    'platform priorities as source material. Do not invent biographical',
+    'details, accomplishments, or positions not present in these inputs.',
+    'Do not reference party affiliation, criticize opponents, or use',
+    'inflammatory language. Structure: an opening hook line, 2-3',
+    "sentences drawing from bio and why-they're-running, one sentence",
+    'naming a top priority, then a closing call to action to vote for',
+    'them. Keep framing consistent with how this candidate has',
+    'introduced themselves before. Match the tone selected for this',
+    'message.',
+  ].join(' '),
+  persuade_voters: [
+    'Write a first-person social media post aimed at persuading likely',
+    "voters to support the candidate. Use the candidate's name, office",
+    "sought, bio, why-they're-running statement, accomplishments, and",
+    'top platform priorities as source material. Do not invent facts',
+    'not present in these inputs. Do not reference party affiliation,',
+    'attack or name opponents, or use inflammatory language. Structure:',
+    'an opening line naming the stakes or a shared concern, 2-3',
+    "sentences connecting the candidate's platform to that concern,",
+    'then a closing call to action to vote for them. Match the tone',
+    'selected for this message.',
+  ].join(' '),
+  event_invite: [
+    'Write a first-person social media post inviting people to a local',
+    "event. Use the candidate's name, office sought, and the event",
+    'details provided (name, date, time, location) as source material.',
+    'Do not invent event details not provided. Avoid inflammatory',
+    'language. Structure: an opening hook naming the event, 1-2',
+    'sentences on why it matters or what to expect, then a closing',
+    'call to action to attend, including date/time/location. Match',
+    'the tone selected for this message.',
+  ].join(' '),
+  early_voting: [
+    'Write a first-person social media post encouraging voters to vote',
+    "early. Use the candidate's name and office sought as source",
+    'material. Keep the message strictly nonpartisan and focused on',
+    'participation, not persuasion, do not reference how to vote on',
+    'any issue or candidate, and avoid inflammatory language.',
+    'Structure: an opening line encouraging early voting, 1-2',
+    'sentences on why participating matters, practical information on',
+    'how/where to vote early if provided, then a closing encouragement',
+    'to vote. Match the tone selected for this message.',
+  ].join(' '),
+  election_day_turnout: [
+    'Write a first-person social media post encouraging voters to turn',
+    "out on election day. Use the candidate's name and office sought",
+    'as source material. Keep the message strictly nonpartisan and',
+    'focused on participation, not persuasion, do not reference how to',
+    'vote on any issue or candidate, and avoid inflammatory language.',
+    'Structure: an opening line marking election day, 1-2 sentences on',
+    'the importance of voting, practical voting information if',
+    'provided, then a closing encouragement to vote. Match the tone',
+    'selected for this message.',
+  ].join(' '),
+  issue_update: [
+    'Write a first-person social media post sharing an update about a',
+    "local issue the candidate is working on. Use the candidate's",
+    'name, office sought, and the issue update details provided as',
+    'source material. Do not invent facts, outcomes, or details not',
+    'provided. Avoid inflammatory language. Structure: name the issue,',
+    'explain the update in 2-3 sentences, then a closing line inviting',
+    'continued engagement or follow-up. Match the tone selected for',
+    'this message.',
+  ].join(' '),
+  custom: [
+    "Take the candidate's own message, provided as written, and adapt",
+    "it to fit the selected platform's format and length. Preserve the",
+    'substance and wording of the original message as closely as',
+    'possible. Do not add new claims, priorities, or calls to action',
+    'not present in the original. Only adjust structure, length, and',
+    'formatting (e.g. hashtags, line breaks) to match platform',
+    'conventions. Flag rather than silently alter or remove language',
+    "that may not comply with a platform's content policy (e.g. a",
+    'direct vote-for-me ask on Nextdoor).',
+  ].join(' '),
+}
+
 export const WIN_SOCIAL_VOICE: SocialVoiceConfig<SocialPurpose> = {
-  purposeGoals: {
-    introduce_myself: 'introduce the candidate to voters',
-    persuade_voters: 'persuade likely voters to support the candidate',
-    event_invite: 'invite people to a local event',
-    early_voting: 'encourage voters to vote early',
-    election_day_turnout: 'encourage voters to turn out on election day',
-    issue_update: 'share an update about a local issue',
-    custom: "deliver the candidate's own message as written",
-  },
+  purposePrompts: WIN_PURPOSE_PROMPTS,
   nameLabel: 'Candidate name',
   subjectFallback: 'The candidate',
   officeLabel: 'Office sought',
@@ -199,21 +333,99 @@ const SERVE_GENERATE_SYSTEM_PROMPT = [
   '  caption in "caption". For copy platforms, omit "caption".',
 ].join('\n')
 
+// Same CSV as WIN_PURPOSE_PROMPTS above; transcribed VERBATIM.
+//
+// Source-material mapping (prompt term -> context block; "not modeled"
+// as above):
+//   their name / office held  -> nameLabel/officeLabel lines
+//   location served           -> the serve controller's
+//                                 "Where the elected official serves" line
+//   bio                       -> PersonProfile.bioOverride ("The
+//                                 official's bio, in their own words")
+//   why-they-serve statement  -> PersonProfile.whyRunning ("Why they
+//                                 serve, in their own words")
+//   top priorities            -> published PersonProfileIssues ("The
+//                                 official's published priorities")
+//   decision / event / resource / issue update details -> not modeled
+const SERVE_PURPOSE_PROMPTS: Record<ServeSocialPurpose, string> = {
+  introduce_myself: [
+    'Write a first-person social media post in which the elected',
+    'official introduces themselves to the constituents they serve.',
+    'Use their name, office held, location served, bio, why-they-serve',
+    'statement, and top priorities as source material. Do not invent',
+    'biographical details, accomplishments, or positions not present',
+    'in these inputs. Do not reference party affiliation or use',
+    'inflammatory language. Structure: an opening hook line, 2-3',
+    'sentences drawing from bio and why-they-serve, one sentence',
+    'naming a top priority, then a closing line inviting constituents',
+    'to follow along or reach out. Keep framing consistent with how',
+    'this official has introduced themselves before. Match the tone',
+    'selected for this message.',
+  ].join(' '),
+  explain_decision: [
+    'Write a first-person social media post in which the elected',
+    'official explains a recent decision or vote and the reasoning',
+    "behind it. Use the official's name, office held, and the decision",
+    'details and reasoning provided as source material. Do not invent',
+    'facts, outcomes, or justifications not present in these inputs.',
+    'Do not attack colleagues or other officials, or use inflammatory',
+    'language. Structure: state the decision plainly first, explain',
+    'the reasoning in 2-3 sentences, then close with an invitation for',
+    'questions or feedback. Match the tone selected for this message.',
+  ].join(' '),
+  event_invite: [
+    'Write a first-person social media post inviting constituents to a',
+    "town hall or local event. Use the official's name, office held,",
+    'and the event details provided (name, date, time, location) as',
+    'source material. Do not invent event details not provided. Avoid',
+    'inflammatory language. Structure: an opening hook naming the',
+    'event, 1-2 sentences on why it matters or what to expect, then a',
+    'closing call to action to attend, including date/time/location.',
+    'Match the tone selected for this message.',
+  ].join(' '),
+  community_input: [
+    'Write a first-person social media post inviting constituents to',
+    'share input on a local issue or upcoming decision. Use the',
+    "official's name, office held, and the issue or decision details",
+    'provided as source material. Do not invent details not provided.',
+    'Avoid inflammatory language. Structure: name the issue or',
+    'decision, explain briefly why input matters, then a clear closing',
+    'call to action on how to share feedback (e.g. link, meeting,',
+    'email). Match the tone selected for this message.',
+  ].join(' '),
+  share_resource: [
+    'Write a first-person social media post announcing a local',
+    'program, service, or resource available to constituents. Use the',
+    "official's name, office held, and the resource details provided",
+    'as source material. Do not invent details not provided. Avoid',
+    'inflammatory language. Structure: name the resource, explain',
+    'briefly who it helps and how, then a closing call to action on',
+    'how to access it. Match the tone selected for this message.',
+  ].join(' '),
+  issue_update: [
+    'Write a first-person social media post sharing a progress update',
+    "on a local issue the official is working on. Use the official's",
+    'name, office held, and the issue update details provided as',
+    'source material. Do not invent facts, outcomes, or details not',
+    'provided. Avoid inflammatory language. Structure: name the issue,',
+    'explain the update in 2-3 sentences, then a closing line inviting',
+    'continued engagement or follow-up. Match the tone selected for',
+    'this message.',
+  ].join(' '),
+  custom: [
+    "Take the official's own message, provided as written, and adapt",
+    "it to fit the selected platform's format and length. Preserve the",
+    'substance and wording of the original message as closely as',
+    'possible. Do not add new claims, priorities, or calls to action',
+    'not present in the original. Only adjust structure, length, and',
+    'formatting (e.g. hashtags, line breaks) to match platform',
+    'conventions. Flag rather than silently alter or remove language',
+    "that may not comply with a platform's content policy.",
+  ].join(' '),
+}
+
 export const SERVE_SOCIAL_VOICE: SocialVoiceConfig<ServeSocialPurpose> = {
-  purposeGoals: {
-    introduce_myself:
-      'introduce the elected official to the constituents they serve',
-    explain_decision:
-      'explain a recent decision or vote and the reasoning behind it',
-    event_invite: 'invite constituents to a town hall or local event',
-    community_input:
-      'invite constituents to share input on a local issue or upcoming decision',
-    share_resource:
-      'announce a local program, service, or resource available to constituents',
-    issue_update:
-      'share a progress update on a local issue the official is working on',
-    custom: "deliver the elected official's own message as written",
-  },
+  purposePrompts: SERVE_PURPOSE_PROMPTS,
   nameLabel: 'Elected official name',
   subjectFallback: 'The elected official',
   officeLabel: 'Office held',
@@ -277,7 +489,7 @@ export class OutreachSocialGenerationService {
     const context = [
       `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
-      `Goal of this message: ${voice.purposeGoals[input.purpose]}.`,
+      voice.purposePrompts[input.purpose],
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...campaignContext,
     ]
@@ -390,18 +602,21 @@ const buildPrompt = <TPurpose extends string>(
   candidateName: string,
   campaignContext: string[],
   voice: SocialVoiceConfig<TPurpose>,
-): string =>
-  [
+): string => {
+  // custom is the only purpose adapting the author's own written message
+  // rather than a fresh confirmed draft — trim/reformat, don't rewrite.
+  const platformRules =
+    input.purpose === 'custom' ? CUSTOM_PLATFORM_RULES : PLATFORM_RULES
+  return [
     `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
-    `Goal of this message: ${voice.purposeGoals[input.purpose]}.`,
+    voice.purposePrompts[input.purpose],
     ...campaignContext,
     'Confirmed draft message:',
     '"""',
     input.draftMessage,
     '"""',
     'Requested platforms and their rules:',
-    ...platforms.map(
-      (platform) => `- ${platform}: ${PLATFORM_RULES[platform]}`,
-    ),
+    ...platforms.map((platform) => `- ${platform}: ${platformRules[platform]}`),
     'Adapt the draft into one asset per requested platform.',
   ].join('\n')
+}
