@@ -30,9 +30,9 @@ import { TONE_STYLES } from '../util/messageTone.util'
 // share every other piece of the generation pipeline (the LLM call
 // plumbing, the custom-purpose fresh-generation refusal, the length
 // safety-net) — only the purpose copy and these prompts vary.
-// purposePrompts is the FULL instruction block for a purpose (Win: its
-// goal + structure lines combined; Serve: the product CSV's prompt text,
-// verbatim) injected into the context as-is.
+// purposePrompts is the FULL instruction block for a purpose — the
+// product CSV's prompt text, verbatim, for both surfaces — injected into
+// the context as-is.
 export interface PhoneBankingVoiceConfig<TPurpose extends string> {
   purposePrompts: Record<TPurpose, string>
   draftSystemPrompt: string
@@ -55,77 +55,127 @@ interface DraftInput<TPurpose extends string> {
   instructions?: string
 }
 
-const PURPOSE_GOALS: Record<PhoneBankingScriptPurpose, string> = {
-  introduce: 'introduce the candidate to a voter for the first time',
-  persuade: 'persuade an undecided voter to support the candidate',
-  event: 'invite the voter to a campaign event',
-  'vote-early': 'remind the voter to vote early and tell them how',
-  'election-day': 'remind the voter to vote today and tell them how',
-  custom: "deliver the candidate's own message as written",
-}
-
-// Structural shape per purpose — separate from PURPOSE_GOALS because the
-// vote-early / election-day / persuade requirements are about what the
-// script must contain, not why the call is happening.
-const PURPOSE_STRUCTURE: Record<PhoneBankingScriptPurpose, string> = {
-  introduce:
-    'Structure: (1) the volunteer opener, (2) one or two sentences on ' +
-    "why the candidate is running, grounded in the candidate's real " +
-    "story or top issues, (3) a soft ask for the voter's support.",
-  persuade:
-    'Structure: (1) the volunteer opener, (2) an issue-ID question ' +
-    'asking the voter what matters most to them this election, (3) a ' +
-    "bridge connecting whatever the voter might say to the candidate's " +
-    "real positions, (4) the ask for the voter's support.",
-  event:
-    'Structure: (1) the volunteer opener, (2) the reason for the call — ' +
-    'inviting the voter to a specific campaign event, (3) the ask to ' +
-    'attend.',
-  'vote-early':
-    'Structure: (1) the volunteer opener, (2) a reminder to vote early, ' +
-    'stating the early-voting window given below when one is provided, ' +
-    '(3) if no early-voting window is given, ask the voter to vote ' +
-    'early and point them to check their local election office for ' +
-    'dates, hours, and locations, instead of stating any, (4) the ask ' +
-    'to vote. Never invent a specific date, time, or address that is ' +
-    'not given below.',
-  'election-day':
-    'Structure: (1) the volunteer opener, (2) a reminder that today is ' +
-    'election day, stating the election date given below when one is ' +
-    'provided, (3) point the voter to check their polling place and ' +
-    'hours for their address, instead of stating any, since polling ' +
-    'hours and locations are never provided, (4) the ask to vote. ' +
-    'Never invent a specific time or address.',
-  custom:
-    "Structure: deliver the candidate's own message as written, " +
-    'polished for a phone script read aloud by a volunteer.',
-}
-
+// Product/politics prompt copy (CSV phonebank-script-prompts, 2026-08-31),
+// transcribed VERBATIM — do not editorialize, fix grammar, or reflow.
+// Supersedes the launch-era PURPOSE_GOALS/PURPOSE_STRUCTURE one-liners.
+// The `custom` entry is the improve-path copy (candidate-authored text is
+// adapted, never freshly generated — see generateDraft's custom guard).
+//
+// Source-material mapping (prompt term -> context block; "not modeled"
+// means no context builder emits it today, so the invention ban is what
+// keeps the model from fabricating it):
+//   candidate's name / office sought  -> nameLabel/officeLabel lines
+//   motto/tagline                     -> not modeled (lives on the
+//                                        candidate website, not compose
+//                                        context)
+//   bio / why-they're-running         -> CampaignStory.background ("The
+//   statement                            candidate's campaign story, in
+//                                        their own words") — Win has one
+//                                        combined story field, not two
+//   platform priorities               -> customIssues ("The candidate's
+//                                        stated issue positions")
+//   accomplishments                   -> not modeled
+//   event name/date/time/location     -> not modeled by context; carried
+//                                        via the candidate's own
+//                                        instructions field when given
+//   early-voting window / election    -> buildDateContext below (grounded
+//   day date                             from campaign.details + a live
+//                                        milestones fetch, vote-early only)
 const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
-  introduce: [
-    `Goal of this call: ${PURPOSE_GOALS.introduce}.`,
-    PURPOSE_STRUCTURE.introduce,
-  ].join('\n'),
-  persuade: [
-    `Goal of this call: ${PURPOSE_GOALS.persuade}.`,
-    PURPOSE_STRUCTURE.persuade,
-  ].join('\n'),
-  event: [
-    `Goal of this call: ${PURPOSE_GOALS.event}.`,
-    PURPOSE_STRUCTURE.event,
-  ].join('\n'),
-  'vote-early': [
-    `Goal of this call: ${PURPOSE_GOALS['vote-early']}.`,
-    PURPOSE_STRUCTURE['vote-early'],
-  ].join('\n'),
-  'election-day': [
-    `Goal of this call: ${PURPOSE_GOALS['election-day']}.`,
-    PURPOSE_STRUCTURE['election-day'],
-  ].join('\n'),
-  custom: [
-    `Goal of this call: ${PURPOSE_GOALS.custom}.`,
-    PURPOSE_STRUCTURE.custom,
-  ].join('\n'),
+  introduce:
+    'Write a phonebank voter ID script for a volunteer introducing the ' +
+    'candidate to a voter for the first time. This is an identification ' +
+    'call, not a persuasion call, the goal is a respectful first ' +
+    'contact, not winning them over in one conversation. Format as ' +
+    'alternating You:/Voter: lines with a realistic example response. ' +
+    "Open with a warm, brief rapport beat: confirm you've reached the " +
+    'right person, introduce yourself by name as a volunteer for ' +
+    '[candidate], and a genuine one-line check-in. Briefly introduce ' +
+    'the candidate using their name, office sought, and motto/tagline ' +
+    'if provided, in a sentence or two, not a speech. Ask one simple, ' +
+    "low-pressure question, such as whether they're familiar with the " +
+    'candidate or leaning toward supporting them, and show an example ' +
+    'response. Thank the voter regardless of their answer. Do not ' +
+    'invent facts not present in the source material. Do not reference ' +
+    'party affiliation or use inflammatory language. Close with a ' +
+    'brief, warm sign-off. Keep the whole call short, under about 60 ' +
+    'seconds of talk time, since voter ID calls work best when quick ' +
+    'and respectful, with deeper persuasion happening on a separate ' +
+    'call. Keep the language conversational and natural throughout.',
+  persuade:
+    'Write a phonebank persuasion script for a volunteer talking with ' +
+    'an undecided voter. Format as alternating You:/Voter: lines. Open ' +
+    'with a brief rapport beat, then ask an open-ended question about ' +
+    'what matters most to the voter in this election (not a yes/no ' +
+    'question) and show a realistic example response. Have the ' +
+    'volunteer reflect back what the voter said to show they were ' +
+    'actually listening, before connecting it, briefly and only where ' +
+    "a genuine and true connection exists, to the candidate's bio, " +
+    "why-they're-running statement, accomplishments, or platform " +
+    'priorities, drawing only on the source material provided. Do not ' +
+    'invent facts. Do not reference party affiliation, attack or name ' +
+    'opponents, or use inflammatory language. Close with one clear, ' +
+    "specific ask for the voter's support and vote, not a vague hope. " +
+    'Keep the tone conversational and unhurried, this call is meant to ' +
+    'build genuine understanding, not deliver a pitch, so favor ' +
+    'listening over talking.',
+  event:
+    'Write a phonebank script for a volunteer inviting a voter to a ' +
+    'campaign event. Format as alternating You:/Voter: lines. Open ' +
+    'with a brief rapport beat, then state the event name, date, ' +
+    "time, and location as provided, and briefly explain why it's " +
+    'worth attending. Include an example of the voter asking a ' +
+    'natural follow-up question (e.g. about parking or bringing a ' +
+    'friend) with a model answer where that detail is available. ' +
+    'After the primary ask to attend, include one soft secondary ask ' +
+    'appropriate to a campaign event, such as bringing a friend or ' +
+    'considering volunteering, without pressuring them if they decline ' +
+    'the first ask. Do not invent event details not provided. Avoid ' +
+    'inflammatory language. Close by thanking them for their time ' +
+    'regardless of their answer.',
+  'vote-early':
+    'Write a phonebank script for a volunteer helping a voter make a ' +
+    'specific plan to vote early, not just reminding them early ' +
+    'voting exists. Format as alternating You:/Voter: lines. Open ' +
+    'with a brief rapport beat, then let the voter know early voting ' +
+    'is open. Instead of only stating how and where to vote early, ' +
+    "walk through a plan with them: ask when they're thinking of " +
+    'going, and offer help such as a polling location lookup or ' +
+    'transportation if that information is available. Use inclusive, ' +
+    "collective language (e.g. 'we want to make sure you have a " +
+    "plan') rather than directive language. Include an example of the " +
+    'voter answering with a specific plan, or asking a follow-up ' +
+    'question, with a model response. Do not invent voting logistics ' +
+    'not provided. Avoid inflammatory language. Close by confirming ' +
+    'their plan, asking for their support of the candidate as part of ' +
+    'that plan, and thanking them.',
+  'election-day':
+    "Write a phonebank script confirming a known supporter's vote on " +
+    'election day. This call should be noticeably shorter and more ' +
+    'direct than the other scripts, election day calls work best when ' +
+    'brief and to the point. Format as alternating You:/Voter: lines, ' +
+    'no more than three exchanges. Open with a quick identity ' +
+    'confirmation, remind them polls close at a specific time (using ' +
+    "the detail provided), and ask directly whether they've voted " +
+    "yet. Include one example each of a 'yes, already voted' response " +
+    "and a 'not yet' response, with a model reply for each, offering " +
+    "help getting to the polls in the 'not yet' case if that " +
+    'information is available. Do not invent voting logistics not ' +
+    'provided. Avoid inflammatory language. Keep the entire call ' +
+    'short enough to read aloud in under a minute, and close with a ' +
+    'quick, warm thank-you regardless of their answer.',
+  custom:
+    "Take the candidate's own message, provided as written, and adapt " +
+    'it into a natural phonebank call script formatted as alternating ' +
+    'You:/Voter: lines. Preserve the substance and wording of the ' +
+    'original message as closely as possible; do not add new claims, ' +
+    'priorities, or asks not present in the original. Add only the ' +
+    'conversational scaffolding needed to make it sound like a real ' +
+    'call (a rapport-building opener, natural transitions, and a ' +
+    'plausible example voter response), not new substantive content. ' +
+    'Flag rather than silently alter or remove anything in the ' +
+    'original message that reads awkwardly or inappropriately for a ' +
+    'live phone conversation.',
 }
 
 const VOLUNTEER_OPENER_RULE =
@@ -181,16 +231,14 @@ const DRAFT_SYSTEM_PROMPT = [
   '  invent policy positions, issue stances, endorsements, statistics,',
   '  dates, places, or events the materials do not contain. With no',
   '  materials, stay issue-neutral.',
-  '- Follow the structure given below for this call.',
+  '- Follow the purpose instructions given below for this call,',
+  '  including their You:/Voter: dialogue format and closing.',
   `- ${COMPLIANCE_BAN_RULE}`,
   `- ${NO_PLACEHOLDER_BRACKETS_RULE}`,
   `- ${ELECTION_DATE_DISAMBIGUATION_RULE}`,
   `- ${INSTRUCTIONS_PRIORITY_RULE}`,
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone.',
-  '- Keep the script roughly 60-150 words of spoken, conversational',
-  '  prose, written to be read aloud (no hashtags, no links, no',
-  '  headings).',
 ].join('\n')
 
 const IMPROVE_SYSTEM_PROMPT = [
@@ -211,6 +259,7 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  fill it.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
+  '- Preserve the You:/Voter: alternating dialogue format.',
   '- Keep roughly the same length as the original and do not add new',
   "  sentences it does not have, UNLESS the candidate's own instructions",
   '  below explicitly ask for additions — then make the instructed',

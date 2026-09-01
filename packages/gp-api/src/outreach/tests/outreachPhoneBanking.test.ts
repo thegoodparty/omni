@@ -74,7 +74,13 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).toContain('introduce the candidate to a voter')
+    expect(userPrompt).toContain(
+      'introducing the candidate to a voter for the first time',
+    )
+    expect(userPrompt).toContain(
+      'This is an identification call, not a persuasion call',
+    )
+    expect(userPrompt).toContain('Format as alternating You:/Voter: lines')
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
     expect(userPrompt).toContain(
@@ -135,7 +141,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(systemPrompt).toContain('no callback phone number')
   })
 
-  it('includes an issue-ID question for the persuade purpose', async () => {
+  it('includes an open-ended issue question for the persuade purpose', async () => {
     mockDraft('A script.')
 
     const res = await postDraft({ purpose: 'persuade', tone: 'direct' })
@@ -145,9 +151,44 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).toContain('issue-ID question')
-    expect(userPrompt).toContain('what matters most to them')
+    expect(userPrompt).toContain(
+      'what matters most to the voter in this election (not a yes/no ' +
+        'question)',
+    )
+    expect(userPrompt).toContain('favor listening over talking')
   })
+
+  // ENG-10990: each purpose's prompt carries the product CSV copy
+  // verbatim (see WIN_PURPOSE_PROMPTS) — one representative sentence per
+  // purpose, not a full-string pin, so the assertion survives an
+  // unrelated word-level product tweak elsewhere in the block without
+  // going stale.
+  it.each([
+    ['event', "briefly explain why it's worth attending"],
+    [
+      'vote-early',
+      "walk through a plan with them: ask when they're thinking of going",
+    ],
+    [
+      'election-day',
+      'Format as alternating You:/Voter: lines, no more than three ' +
+        'exchanges.',
+    ],
+  ])(
+    'carries the CSV copy verbatim for the %s purpose',
+    async (purpose, snippet) => {
+      mockDraft('A script.')
+
+      const res = await postDraft({ purpose, tone: 'warm' })
+      expect(res.status).toBe(HttpStatus.CREATED)
+
+      const call = jsonCompletion.mock.calls[0]?.[0]
+      const userPrompt = call.messages.find(
+        (m: { role: string }) => m.role === 'user',
+      )?.content
+      expect(userPrompt).toContain(snippet)
+    },
+  )
 
   it.each(['vote-early', 'election-day'])(
     'never instructs bracketed voting-logistics placeholders for %s',
@@ -408,7 +449,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(res.data.draft).toHaveLength(2000)
   })
 
-  it('allows improve mode for the custom purpose', async () => {
+  it('allows improve mode for the custom purpose, adapting with scaffolding', async () => {
     mockDraft('Polished custom words.')
 
     const res = await postDraft({
@@ -419,6 +460,19 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ draft: 'Polished custom words.' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Preserve the substance and wording of the original message as ' +
+        'closely as possible',
+    )
+    expect(userPrompt).toContain(
+      'Flag rather than silently alter or remove anything in the ' +
+        'original message',
+    )
   })
 
   it('rejects fresh generation for the custom purpose without calling the LLM', async () => {
