@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { PhoneBankingScriptDraftRequestSchema } from './PhoneBankingScript.schema'
+import {
+  PhoneBankingScriptDraftRequestSchema,
+  ServePhoneBankingScriptDraftRequestSchema,
+} from './PhoneBankingScript.schema'
+import { SERVE_PHONE_BANKING_PURPOSE_VALUES } from '../phoneBanking/PhoneBankingCreate.schema'
 
 describe('PhoneBankingScriptDraftRequestSchema', () => {
   it('accepts a fresh generation with no currentDraft or previousDraft', () => {
@@ -68,5 +72,44 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
     expect(() => PhoneBankingScriptDraftRequestSchema.parse(request)).toThrow(
       /currentDraft and previousDraft are mutually exclusive/,
     )
+  })
+
+  it('rejects a serve-only purpose slug', () => {
+    const request = { purpose: 'explain-decision', tone: 'warm' }
+    expect(() => PhoneBankingScriptDraftRequestSchema.parse(request)).toThrow()
+  })
+})
+
+describe('ServePhoneBankingScriptDraftRequestSchema', () => {
+  it.each(SERVE_PHONE_BANKING_PURPOSE_VALUES)(
+    'accepts the serve purpose slug %s',
+    (purpose) => {
+      const request = { purpose, tone: 'warm' as const }
+      expect(() =>
+        ServePhoneBankingScriptDraftRequestSchema.parse(request),
+      ).not.toThrow()
+    },
+  )
+
+  it.each(['persuade', 'vote-early', 'election-day'])(
+    'rejects the Win-only purpose slug %s',
+    (purpose) => {
+      const request = { purpose, tone: 'warm' as const }
+      expect(() =>
+        ServePhoneBankingScriptDraftRequestSchema.parse(request),
+      ).toThrow()
+    },
+  )
+
+  it('rejects currentDraft and previousDraft together', () => {
+    const request = {
+      purpose: 'introduce' as const,
+      tone: 'warm' as const,
+      currentDraft: 'My own words.',
+      previousDraft: 'A script the candidate rejected.',
+    }
+    expect(() =>
+      ServePhoneBankingScriptDraftRequestSchema.parse(request),
+    ).toThrow(/currentDraft and previousDraft are mutually exclusive/)
   })
 })
