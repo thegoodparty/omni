@@ -132,6 +132,7 @@ export class ClerkAuthService implements AuthProvider {
     email?: string
     firstName?: string
     lastName?: string
+    avatarUrl?: string
   } | null> {
     try {
       const clerkUser = await this.clerkClient.users.getUser(externalUserId)
@@ -143,6 +144,9 @@ export class ClerkAuthService implements AuthProvider {
         email: email ?? undefined,
         firstName: clerkUser.firstName ?? undefined,
         lastName: clerkUser.lastName ?? undefined,
+        // hasImage is false while Clerk is serving a generated placeholder,
+        // which is not worth copying into our bucket.
+        avatarUrl: clerkUser.hasImage ? clerkUser.imageUrl : undefined,
       }
     } catch (err) {
       this.logger.error(

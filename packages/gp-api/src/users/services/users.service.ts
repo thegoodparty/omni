@@ -44,6 +44,7 @@ import {
 } from '../util/users.util'
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
+import { UserAvatarService } from './userAvatar.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 
 /** Result of resolving a gp-api Clerk user by email for impersonation actor.sub. */
@@ -77,6 +78,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     private readonly clerkEnricher: WrapperType<ClerkUserEnricherService>,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
+    private readonly userAvatar: UserAvatarService,
   ) {
     super()
   }
@@ -258,6 +260,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     email: string
     firstName: string
     lastName: string
+    avatarUrl?: string
   }): Promise<User | null> {
     const existingByClerkId = await this.findUser({
       clerkId: data.clerkId,
@@ -295,6 +298,14 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           name: `${data.firstName} ${data.lastName}`.trim(),
         },
       })
+      // Ingest after the insert, because the S3 key is scoped by user id.
+      const avatar = data.avatarUrl
+        ? await this.userAvatar.ingestFromUrl(user.id, data.avatarUrl)
+        : null
+      if (avatar) {
+        await this.model.update({ where: { id: user.id }, data: { avatar } })
+        user.avatar = avatar
+      }
       this.logger.info(
         { userId: user.id, clerkId: data.clerkId },
         'Created new user from Clerk',

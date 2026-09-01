@@ -15,6 +15,7 @@ import {
 } from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CrmUsersService } from './crmUsers.service'
+import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { UserRole } from '../../generated/prisma'
 import { subDays } from 'date-fns'
@@ -1374,6 +1375,39 @@ describe('UsersService', () => {
       )
       expect(result?.clerkId).toBe('user_brand_new')
       expect(result?.email).toBe('brand-new@test.goodparty.org')
+    })
+
+    it('ingests the provider avatar when creating a new user', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/9/avatar.png')
+
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_new_avatar',
+        email: 'new-avatar@goodparty.org',
+        firstName: 'New',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/abc',
+      })
+
+      expect(ingest).toHaveBeenCalledWith(user?.id, 'https://img.clerk.com/abc')
+      expect(user?.avatar).toBe('https://assets.test/uploads/9/avatar.png')
+    })
+
+    it('creates the user without an avatar when ingestion fails', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(null)
+
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_new_no_avatar',
+        email: 'new-no-avatar@goodparty.org',
+        firstName: 'New',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/abc',
+      })
+
+      expect(user?.avatar).toBe(null)
     })
 
     it('returns user when updateMany loses race to same clerkId', async () => {
