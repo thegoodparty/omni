@@ -60,20 +60,41 @@ old; the comparison is how we find out whether computing on demand agrees with
 it. Verified across district sizes from ~1k to 23.3M constituents: totals,
 cell-phone counts, and every bucket count match exactly.
 
-| field                   |                                                        |
-| ----------------------- | ------------------------------------------------------ |
-| `agrees`                | `true`/`false`, or `null` when the live scan failed    |
-| `liveMs`                | wall-clock ms for the live scan                        |
-| `martTotal`/`liveTotal` | the two totals, so a gap is visible without re-running |
-| `mismatchedDimensions`  | dimension names, only when they disagree               |
-| `statementIds`          | the live scan's statement ids                          |
+| field                   |                                                           |
+| ----------------------- | --------------------------------------------------------- |
+| `agrees`                | `true`/`false`, or `null` when the live scan failed       |
+| `martMs`                | wall-clock ms for the mirrored read that served the reply |
+| `liveMs`                | wall-clock ms for the live scan, slot wait excluded       |
+| `deltaMs`               | `liveMs - martMs`; positive means the scan was slower     |
+| `queuedMs`              | ms spent waiting for one of the two live-scan slots       |
+| `martTotal`/`liveTotal` | the two totals, so a gap is visible without re-running    |
+| `mismatchedDimensions`  | dimension names, only when they disagree                  |
+| `statementIds`          | the live scan's statement ids                             |
+
+**Both latencies are on this one line on purpose.** Split across two lines --
+`dbxMs` on the `people-db voter read` line and `liveMs` here -- they can only be
+compared as marginal distributions over whichever requests each line happened to
+cover, which gives mismatched n and no way to pair them. `deltaMs` is the paired
+per-request difference and is the number to aggregate; a difference of two
+independent p95s is not. `queuedMs` is reported rather than folded into `liveMs`
+because the mirrored read is uncapped, so charging the live arm for waiting on a
+slot would make the two incomparable, while omitting it silently would flatter
+the live arm.
+
+`liveMs` does include resolving the district through election-api, which the
+mirrored read does not need because its table is keyed by district id. That
+resolution is memoized per process, so it is ~0 after the first call, and it is
+a genuine cost of computing on demand rather than a measurement artifact.
 
 Three properties the implementation depends on. The live scan is **never
 awaited** on the response path and its failures are swallowed into the log line,
 so it cannot slow or fail a request. Concurrent live scans are **capped at two**,
 because a statewide district scans tens of millions of rows for a number nobody
-is waiting on. And buckets are compared as label -> count maps rather than
-ordered arrays, so bucket order is not reported as a disagreement.
+is waiting on. And buckets are compared as label -> count maps with
+their labels sorted, so bucket order is not reported as a disagreement -- the
+comparison is a `JSON.stringify` equality, which is key-order sensitive, and the
+mirrored table returns buckets in arbitrary order while the live mapper sorts by
+descending count.
 
 `buildLiveDistrictStatsSql` is one statement over one scan: `GROUPING SETS`
 emits a row per bucket per dimension plus a grand-total row from the empty set,
