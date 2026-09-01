@@ -16,6 +16,7 @@ import type {
   SocialSaveRequest,
   SocialTone,
 } from '@goodparty_org/contracts'
+import { excludedSocialPlatformsForPurpose } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
@@ -71,6 +72,13 @@ interface SocialFlowSaveInput {
 export interface SocialFlowSurface {
   purposes: { id: SocialFlowPurpose; label: string }[]
   nameSuggestion: (purpose: SocialFlowPurpose) => string
+  // Platforms excluded for a given purpose on this surface (ENG-10989),
+  // read off the contracts matrix that gp-api's generate gate also reads —
+  // one source of truth for both the UI's disabled-with-reason treatment
+  // and the server-side 400.
+  excludedPlatforms: (
+    purpose: SocialFlowPurpose,
+  ) => readonly SocialAssetPlatform[]
   endpoints: {
     draft: (input: SocialFlowDraftInput) => Promise<string>
     generate: (input: SocialFlowGenerateInput) => Promise<SocialAsset[]>
@@ -85,6 +93,8 @@ export interface SocialFlowSurface {
 const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
   purposes: SOCIAL_PURPOSES,
   nameSuggestion: socialPurposeNameSuggestion,
+  excludedPlatforms: (purpose) =>
+    excludedSocialPlatformsForPurpose('win', purpose as SocialPurpose),
   endpoints: {
     draft: async (input) => {
       const { data } = await clientRequest(
@@ -116,6 +126,8 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
 export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
   purposes: SERVE_SOCIAL_PURPOSES,
   nameSuggestion: serveSocialPurposeNameSuggestion,
+  excludedPlatforms: (purpose) =>
+    excludedSocialPlatformsForPurpose('serve', purpose as ServeSocialPurpose),
   endpoints: {
     draft: async (input) => {
       const { data } = await clientRequest(
@@ -339,6 +351,12 @@ export const SocialFlow = ({
     resetDraftMutation()
     setStepId('compose')
     requestDraft(selected, 'warm', '', false)
+    // A purpose newly excluding a platform (ENG-10989, e.g. persuade_voters
+    // excluding Nextdoor on Win) must drop it from the current selection —
+    // otherwise a platform toggled on for a prior purpose could still reach
+    // generate for one that excludes it.
+    const excluded = surface.excludedPlatforms(selected)
+    setPlatforms((current) => current.filter((p) => !excluded.includes(p)))
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
@@ -493,7 +511,13 @@ export const SocialFlow = ({
           isCustomPurpose={purpose === 'custom'}
         />
       ) : stepId === 'platforms' ? (
-        <PlatformsStep selected={platforms} onToggle={handleTogglePlatform} />
+        <PlatformsStep
+          selected={platforms}
+          onToggle={handleTogglePlatform}
+          excludedPlatforms={
+            purpose ? [...surface.excludedPlatforms(purpose)] : []
+          }
+        />
       ) : (
         <ShareStep
           platforms={platforms}
