@@ -6,12 +6,12 @@ import { ChannelCard } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import TaskFlow from 'app/dashboard/components/tasks/flows/TaskFlow'
-import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+} from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
-import { useVoterOutreachV2SocialFlag } from '@shared/experiments/voterOutreachV2SocialFlag'
 import { useVoterOutreachV2RobocallFlag } from '@shared/experiments/voterOutreachV2RobocallFlag'
-import { useVoterOutreachV2PhoneBankingFlag } from '@shared/experiments/voterOutreachV2PhoneBankingFlag'
 import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -29,8 +29,8 @@ interface ChannelTileGridProps {
 }
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
-// legacy channels. Pricing sub-copy comes from the same OUTREACH_OPTIONS
-// constants the legacy cards read, until phase 2 moves pricing server-side.
+// channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
+// pricing server-side.
 const TILE_ORDER: OutreachType[] = [
   OUTREACH_TYPES.socialMedia,
   OUTREACH_TYPES.text,
@@ -56,34 +56,25 @@ export const ChannelTileGrid = ({
   const [flowType, setFlowType] = useState<OutreachType | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
-  // Each tile is its own divergence point: flag on opens the new flow,
-  // off (or unsettled) launches the legacy TaskFlow — the same fallback
-  // shape every channel gets until its phase swaps the tile target.
-  const socialV2 = useVoterOutreachV2SocialFlag()
   // The robocall tile's own swap: flag on opens the new robocall flow, off
-  // (or unsettled) falls through to the legacy robocall TaskFlow — same shape
-  // as the social swap, but checked after the Pro gate since robocall is
-  // Pro-locked.
+  // (or unsettled) falls through to the legacy robocall TaskFlow — checked
+  // after the Pro gate since robocall is Pro-locked.
   const robocallV2 = useVoterOutreachV2RobocallFlag()
-  // The phone-banking tile's own swap. Unlike social/robocall, flag-on ALSO
-  // changes the Pro gate: a non-Pro click redirects straight to
-  // /dashboard/pro-upgrade instead of the legacy Pro modal (upgrade-at-entry,
-  // ENG-10920) — flag off/unsettled keeps the legacy TaskFlow + Pro modal
-  // byte-identical.
-  const phoneBankingV2 = useVoterOutreachV2PhoneBankingFlag()
   // Own equivalent of ContactsTableProvider's canUseProFeatures — not
   // imported from there (contacts-scoped, would force an organization
   // provider onto every tile-grid test). A pending elected-office query must
   // NOT read as a refusal, or a Serve org's first render redirects to
-  // pro-upgrade before its own entitlement resolves.
+  // pro-upgrade before its own entitlement resolves. Backs the phone-banking
+  // tile's upgrade-at-entry: a non-Pro click redirects straight to
+  // /dashboard/pro-upgrade (ENG-10920) instead of the legacy Pro modal.
   const { data: electedOffice, isPending: electedOfficePending } =
     useElectedOffice()
   const canUseProFeatures = !!isPro || !!electedOffice
   // The SMS tile's own swap, checked after the text gate passes.
   const smsV2 = useVoterOutreachV2SmsFlag()
 
-  // Consume-once preselected list (ENG-10762 conventions, mirrored from
-  // OutreachCreateCards): the deep-link strip's router.replace re-runs the
+  // Consume-once preselected list (ENG-10762 conventions): the deep-link
+  // strip's router.replace re-runs the
   // force-dynamic page's server render without ?listId, reverting the prop to
   // undefined — state on this instance survives that pass. Cleared as soon as
   // a consuming flow has taken it, so a later-opened flow starts clean: on
@@ -108,11 +99,7 @@ export const ChannelTileGrid = ({
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.socialMedia) {
-      if (socialV2.ready && socialV2.enabled) {
-        onCreateSocial()
-        return
-      }
-      setFlowType(type)
+      onCreateSocial()
       return
     }
     if (type === OUTREACH_TYPES.text) {
@@ -135,11 +122,7 @@ export const ChannelTileGrid = ({
       setFlowType(type)
       return
     }
-    if (
-      type === OUTREACH_TYPES.phoneBanking &&
-      phoneBankingV2.ready &&
-      phoneBankingV2.enabled
-    ) {
+    if (type === OUTREACH_TYPES.phoneBanking) {
       // A pending elected-office query is not a refusal — wait for it to
       // settle rather than redirecting a Serve org that will resolve true.
       if (!canUseProFeatures && !electedOfficePending) {
@@ -216,9 +199,7 @@ export const ChannelTileGrid = ({
               subCopy={formatCost(option?.cost ?? 0)}
               locked={Boolean(
                 option?.requiresPro &&
-                (type === OUTREACH_TYPES.phoneBanking &&
-                phoneBankingV2.ready &&
-                phoneBankingV2.enabled
+                (type === OUTREACH_TYPES.phoneBanking
                   ? !canUseProFeatures && !electedOfficePending
                   : !isPro),
               )}
@@ -243,12 +224,12 @@ export const ChannelTileGrid = ({
           preselectedListId={pendingPreselectedListId}
           onClose={() => {
             // Only flows whose audience step applies the preselect consume
-            // it on close (text/robocall/phoneBanking — door knocking
-            // carries it away in the URL instead of opening TaskFlow here).
+            // it on close (text/robocall — door knocking carries it away in
+            // the URL instead of opening TaskFlow here; social and phone
+            // banking never reach this legacy TaskFlow at all).
             const isConsumingFlow =
               flowType === OUTREACH_TYPES.text ||
-              flowType === OUTREACH_TYPES.robocall ||
-              flowType === OUTREACH_TYPES.phoneBanking
+              flowType === OUTREACH_TYPES.robocall
             setFlowType(null)
             if (isConsumingFlow) {
               setPendingPreselectedListId(undefined)

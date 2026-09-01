@@ -19,8 +19,10 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
-import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+} from 'app/dashboard/outreach/constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
   OutreachAudienceStep,

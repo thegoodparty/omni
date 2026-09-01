@@ -70,9 +70,8 @@ const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
 }
 
 // No per-outreach detail route exists in this app (app/dashboard/outreach has
-// no [id] page) — link to the outreach list with ?outreachId= so the page
-// scrolls to and highlights that campaign's row (ENG-10769; consumed and
-// stripped by OutreachTable).
+// no [id] page) — link to the outreach hub with ?outreachId= so it opens that
+// campaign's details drawer (ENG-10769; consumed and stripped on mount).
 const outreachHref = (outreachId: number): string =>
   `/dashboard/outreach?outreachId=${outreachId}`
 

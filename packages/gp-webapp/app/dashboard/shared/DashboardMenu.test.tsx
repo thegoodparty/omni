@@ -6,24 +6,11 @@ const links = ({
   isElectedOfficeLoading = false,
   campaignStoryEnabled = false,
   serveOutreachEnabled = false,
-  ecanvasserConnected = false,
-  nativeEnabled = false,
-  districtResolvable = true,
-  proAccess = true,
-  // Door knocking is entered from the outreach hub's channel tile, so the nav
-  // entry only survives for the cohort that hasn't got the hub yet. Default it
-  // off so every case below reads as "would the link be offered at all".
-  outreachHubEnabled = false,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
   campaignStoryEnabled?: boolean
   serveOutreachEnabled?: boolean
-  ecanvasserConnected?: boolean
-  nativeEnabled?: boolean
-  districtResolvable?: boolean
-  proAccess?: boolean
-  outreachHubEnabled?: boolean
 } = {}) =>
   getDashboardMenuItems(
     isElectedOffice,
@@ -31,17 +18,7 @@ const links = ({
     false,
     campaignStoryEnabled,
     serveOutreachEnabled,
-    {
-      ecanvasserConnected,
-      nativeEnabled,
-      districtResolvable,
-      proAccess,
-      outreachHubEnabled,
-    },
   )
-
-const hasDoorKnocking = (options: Parameters<typeof links>[0] = {}): boolean =>
-  links(options).some((item) => item.id === 'door-knocking-dashboard')
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -263,117 +240,12 @@ describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
   })
 })
 
-describe('getDashboardMenuItems — Door Knocking nav gating', () => {
-  // The regression this gating fixes: the link used to be pushed only for orgs
-  // with an eCanvasser integration record, so a pilot candidate on the native
-  // flag had no way to reach the feature at all.
-  it('shows the item on the native flag without an eCanvasser record', () => {
-    expect(hasDoorKnocking({ nativeEnabled: true })).toBe(true)
-  })
-
-  it('hides the item with neither the flag nor an eCanvasser record', () => {
-    expect(hasDoorKnocking()).toBe(false)
-  })
-
-  it('still shows the legacy item for an integrated org with the flag off', () => {
-    expect(hasDoorKnocking({ ecanvasserConnected: true })).toBe(true)
-  })
-
-  // Every pack and turf read resolves a district server-side and 400s without
-  // one, so the native map would render an error, not a walk list.
-  it('hides the item on the native flag when the district is unresolvable', () => {
-    expect(
-      hasDoorKnocking({ nativeEnabled: true, districtResolvable: false }),
-    ).toBe(false)
-  })
-
-  // Flag on means the route renders the native map regardless of eCanvasser, so
-  // an integrated org with no district would land on the same error page.
-  it('does not let an eCanvasser record rescue the item on the native flag', () => {
-    expect(
-      hasDoorKnocking({
-        nativeEnabled: true,
-        ecanvasserConnected: true,
-        districtResolvable: false,
-      }),
-    ).toBe(false)
-  })
-
-  // While the flag is unsettled the page renders the eCanvasser dashboard, so
-  // the nav must match rather than flashing a link that changes meaning.
-  it('ignores district resolution while the flag is unsettled', () => {
-    expect(hasDoorKnocking({ districtResolvable: true })).toBe(false)
-    expect(
-      hasDoorKnocking({ ecanvasserConnected: true, districtResolvable: false }),
-    ).toBe(true)
-  })
-
-  // ENG-10888: every native route is Pro-gated in gp-api, so the link would
-  // only reach an upgrade prompt.
-  it('hides the item on the native flag for a non-Pro org', () => {
-    expect(hasDoorKnocking({ nativeEnabled: true, proAccess: false })).toBe(
-      false,
-    )
-  })
-
-  it('shows the item on the native flag for a Pro org', () => {
-    expect(hasDoorKnocking({ nativeEnabled: true, proAccess: true })).toBe(true)
-  })
-
-  // Same reason an eCanvasser record can't rescue a missing district: the flag
-  // decides which product the route renders, and the native one needs both.
-  it('does not let an eCanvasser record rescue a non-Pro org on the flag', () => {
-    expect(
-      hasDoorKnocking({
-        nativeEnabled: true,
-        ecanvasserConnected: true,
-        proAccess: false,
-      }),
-    ).toBe(false)
-  })
-
-  // The control path is entitlement-free and stays that way — the legacy
-  // eCanvasser dashboard was never Pro-gated and this change must not gate it.
-  it('leaves the legacy item visible for a non-Pro integrated org', () => {
-    expect(
-      hasDoorKnocking({ ecanvasserConnected: true, proAccess: false }),
-    ).toBe(true)
-  })
-})
-
-describe('getDashboardMenuItems — Door Knocking moves under Voter Outreach', () => {
-  // The product call: door knocking is a channel of Voter Outreach, not a peer
-  // of it. The hub's tile is the entry, and it is the only one that can carry a
-  // saved list across as `?listId=`.
-  it('drops the item once the outreach hub carries the channel tile', () => {
-    expect(
-      hasDoorKnocking({ nativeEnabled: true, outreachHubEnabled: true }),
-    ).toBe(false)
-  })
-
-  it('drops the legacy item for an integrated org on the hub too', () => {
-    expect(
-      hasDoorKnocking({ ecanvasserConnected: true, outreachHubEnabled: true }),
-    ).toBe(false)
-  })
-
-  // `voter-outreach-v2` and `native-door-knocking` are separate experiments and
-  // an unassigned flag reads off, so a candidate can be on the native pilot
-  // while their outreach tab is still the legacy page — which has no
-  // door-knocking tile. Withdrawing the entry from them would leave no route
-  // into the feature at all.
-  it('keeps the item while the outreach tab is still the legacy page', () => {
-    expect(
-      hasDoorKnocking({ nativeEnabled: true, outreachHubEnabled: false }),
-    ).toBe(true)
-    expect(
-      hasDoorKnocking({ ecanvasserConnected: true, outreachHubEnabled: false }),
-    ).toBe(true)
-  })
-
-  // The hub does not rescue an org that had no business following the link:
-  // reachability is still decided first, so this can only ever remove an entry.
-  it('does not add the item for an org that never qualified', () => {
-    expect(hasDoorKnocking({ outreachHubEnabled: true })).toBe(false)
+describe('getDashboardMenuItems — Door Knocking has no standalone nav item', () => {
+  // Door knocking is a channel of Voter Outreach, not a peer of it: the outreach
+  // hub's channel tile (`v2/ChannelTileGrid.tsx`) is the only entry, since it's
+  // the only one that can carry a saved list across as `?listId=`.
+  it('never includes a door-knocking item', () => {
+    const items = links({ isElectedOffice: true })
+    expect(items.some((i) => i.id === 'door-knocking-dashboard')).toBe(false)
   })
 })

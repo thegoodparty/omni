@@ -234,8 +234,8 @@ describe('OutreachComposeDeepLink', () => {
     const taskFlow = await screen.findByTestId('task-flow')
     expect(taskFlow).toHaveAttribute('data-type', 'text')
     // This component opens its own TaskFlow directly (it never routes
-    // through OutreachPage/OutreachCreateCards), so it must parse and carry
-    // listId itself rather than relying on the server-threaded prop.
+    // through the hub's channel tiles), so it must parse and carry listId
+    // itself rather than relying on the server-threaded prop.
     expect(taskFlow).toHaveAttribute('data-preselected-list-id', '123')
     expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
       scroll: false,

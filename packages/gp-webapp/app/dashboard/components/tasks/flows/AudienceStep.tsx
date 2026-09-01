@@ -206,7 +206,7 @@ export default function AudienceStep({
 
   // ENG-10763: applies the CRM "Send outreach" list link's preselectedListId
   // whenever a NEW id arrives that hasn't been applied yet (tracked by value,
-  // not a one-shot boolean — a caller like OutreachCreateCards can update the
+  // not a one-shot boolean — a caller like ChannelTileGrid can update the
   // id it threads down, e.g. a later deep link while this step stays
   // mounted, and that new id must still take). Never re-applies the SAME id
   // again, so a user who deliberately switches lists (or back to "Build a

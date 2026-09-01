@@ -26,7 +26,7 @@ import {
   FlowState,
   AudienceState,
 } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
+import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/constants'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { dollarsToCents } from 'helpers/numberHelper'

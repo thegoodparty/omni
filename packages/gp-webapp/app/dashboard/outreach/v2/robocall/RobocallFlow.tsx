@@ -11,8 +11,10 @@ import {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
-import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+} from 'app/dashboard/outreach/constants'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { type RobocallPurpose } from '../robocallPurposes'
 import {

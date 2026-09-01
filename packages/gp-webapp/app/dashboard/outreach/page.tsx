@@ -1,5 +1,5 @@
 import pageMetaData from 'helpers/metadataHelper'
-import { OutreachPageGate } from './v2/OutreachPageGate'
+import { OutreachHubPage } from './v2/OutreachHubPage'
 import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
@@ -63,14 +63,14 @@ export default async function Page({
     : undefined
 
   return (
-    <OutreachPageGate
+    <OutreachHubPage
       {...{
         pathname: '/dashboard/outreach',
         campaign,
         outreaches,
         tcrCompliance,
         preselectedListId,
-        highlightOutreachId,
+        initialOutreachId: highlightOutreachId,
       }}
     />
   )

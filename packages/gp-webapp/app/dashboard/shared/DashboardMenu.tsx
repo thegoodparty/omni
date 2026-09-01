@@ -10,13 +10,11 @@ import {
   MdMessage,
   MdPeople,
   MdPoll,
-  MdSensorDoor,
 } from 'react-icons/md'
 import {
   Circle,
   CircleUserRound,
   ClipboardList,
-  DoorClosed,
   ExternalLink,
   FileText,
   LogOut,
@@ -37,8 +35,6 @@ import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
-import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
-import { useDistrictResolution } from './useDistrictResolution'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
 // so the left rail and the top of the page can never read differently.
@@ -73,7 +69,6 @@ import {
   useOrganization,
 } from '@shared/organization-picker'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
-import { useVoterOutreachV2Flag } from '@shared/experiments/voterOutreachV2Flag'
 import { useServeOutreachFlag } from '@shared/experiments/serveOutreachFlag'
 
 interface MenuItem {
@@ -160,16 +155,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
   },
 ]
-
-const DOOR_KNOCKING_MENU_ITEM: MenuItem = {
-  id: 'door-knocking-dashboard',
-  label: 'Door Knocking',
-  link: '/dashboard/door-knocking',
-  icon: <MdSensorDoor />,
-  v2Icon: DoorClosed,
-  v2Category: 'campaign',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickDoorKnocking),
-}
 
 const CONTACTS_MENU_ITEM: MenuItem = {
   id: 'contacts-dashboard',
@@ -293,35 +278,12 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
-// Which of the two door-knocking products the candidate would actually land on.
-// `nativeEnabled` is the flag's settled value, so it matches what
-// DoorKnockingPageGate decides on the page itself. `proAccess` is the CRM's
-// canUseProFeatures (isPro OR elected office), which is the same predicate
-// gp-api's ContactsService.assertProAccess enforces on every native route.
-// `outreachHubEnabled` is the settled `voter-outreach-v2` value — whether the
-// candidate's Voter Outreach tab is the hub that carries the door-knocking
-// channel tile.
-interface DoorKnockingNavGate {
-  ecanvasserConnected: boolean
-  nativeEnabled: boolean
-  districtResolvable: boolean
-  proAccess: boolean
-  outreachHubEnabled: boolean
-}
-
 export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
   campaignStrategyExists: boolean,
   campaignStoryEnabled: boolean,
   serveOutreachEnabled: boolean,
-  doorKnocking: DoorKnockingNavGate = {
-    ecanvasserConnected: false,
-    nativeEnabled: false,
-    districtResolvable: false,
-    proAccess: false,
-    outreachHubEnabled: false,
-  },
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -419,49 +381,6 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
-  // Mirror DoorKnockingPageGate: with the flag on, the route renders the native
-  // voter map and an eCanvasser record is irrelevant; with it off (or
-  // unsettled) it renders the legacy eCanvasser dashboard, which is only worth
-  // linking to for an integrated org. Gating on eCanvasser alone hid the native
-  // pilot from every candidate who never integrated it. The native map also
-  // needs a resolvable district — every pack and turf read 400s without one —
-  // and, since ENG-10888, Pro: every native route is entitlement-gated in
-  // gp-api, so without it the link leads only to an upgrade prompt. Unlike
-  // Know Your Opponent, which advertises itself to non-Pro candidates, this
-  // stays hidden — routing spends real vendor credits per knock, so the pitch
-  // does not belong in a nav entry the pilot allowlist already scopes.
-  // The control branch is deliberately untouched: flag-off users keep the
-  // eCanvasser experience on the same terms as before.
-  //
-  // `proAccess` folds in elected office, so it reads false while that query is
-  // in flight and this item appears once it settles. Unlike the Contacts slot
-  // above there is nothing to hold — the item is appended, so waiting for the
-  // query and hiding during it are the same behavior. Resolving the other way
-  // (assume access until refused) would flash a Pro-only link at every non-Pro
-  // Win candidate, which is the thing this entry is hidden to avoid; the page
-  // gate, which can show a real loading state, is where that wait belongs.
-  //
-  // Door knocking is a channel of Voter Outreach, not a peer of it, so the hub
-  // is where it is entered from: `v2/ChannelTileGrid.tsx` has a door-knocking
-  // tile that routes here and carries the selected saved list as `?listId=`,
-  // which a top-level nav entry cannot do. The tile only exists on the v2 hub
-  // though, and `voter-outreach-v2` is a separate Amplitude experiment from
-  // `native-door-knocking` — a candidate can be on one and not the other, and
-  // an unassigned flag reads off. So the entry is withdrawn from the cohort
-  // that HAS the tile rather than from everyone: dropping it unconditionally
-  // would leave a pilot candidate whose outreach tab is still the legacy page
-  // with no route into the feature at all. Once the hub is at 100% and its
-  // flag is cleaned up, `outreachHubEnabled` goes with it and the item goes
-  // with that. Nothing here is an access check — Pro is enforced by
-  // DoorKnockingPageGate and by every `/v1/door-knocking` route (ENG-10888);
-  // `proAccess` above only decides whether a link worth following is offered.
-  const doorKnockingReachable = doorKnocking.nativeEnabled
-    ? doorKnocking.districtResolvable && doorKnocking.proAccess
-    : doorKnocking.ecanvasserConnected
-  if (doorKnockingReachable && !doorKnocking.outreachHubEnabled) {
-    menuItems.push(DOOR_KNOCKING_MENU_ITEM)
-  }
-
   return menuItems
 }
 
@@ -478,15 +397,6 @@ export default function DashboardMenu({
   // Nav-only gate for the Constituent Outreach tab; the page's
   // FeatureFlagGuard is the treatment surface.
   const { enabled: serveOutreachEnabled } = useServeOutreachFlag(false)
-  // The page's gate is the treatment surface, so read without tracking exposure.
-  const { ready: nativeDoorKnockingReady, enabled: nativeDoorKnockingEnabled } =
-    useNativeDoorKnockingFlag(false)
-  // OutreachPageGate is that experiment's treatment surface; the nav only needs
-  // to know whether the outreach tab is the hub that carries the door-knocking
-  // tile, so read it without tracking exposure.
-  const { ready: outreachHubReady, enabled: outreachHubEnabled } =
-    useVoterOutreachV2Flag(false)
-  const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(
@@ -497,27 +407,13 @@ export default function DashboardMenu({
         campaignStrategyExists,
         campaignStoryEnabled,
         serveOutreachEnabled,
-        {
-          ecanvasserConnected: !!ecanvasser,
-          nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
-          districtResolvable: !isDistrictUnresolvable,
-          proAccess: !!campaign?.isPro || !!electedOffice,
-          outreachHubEnabled: outreachHubReady && outreachHubEnabled,
-        },
       ),
     [
-      ecanvasser,
       electedOffice,
       isElectedOfficeLoading,
       campaignStrategyExists,
       campaignStoryEnabled,
       serveOutreachEnabled,
-      nativeDoorKnockingReady,
-      nativeDoorKnockingEnabled,
-      outreachHubReady,
-      outreachHubEnabled,
-      isDistrictUnresolvable,
-      campaign,
     ],
   )
 
