@@ -77,6 +77,9 @@ const baseTcrCompliance: TcrCompliance = {
   phone: '5551234567',
   email: 'jane@example.com',
   status: 'submitted',
+  // A record actually awaiting a PIN always carries a Peerly identity; the
+  // gate uses it to tell awaiting_pin from the pre-submission stages.
+  peerlyIdentityId: 'peerly-1',
   createdAt: new Date(),
   updatedAt: new Date(),
   campaignId: 1,
@@ -126,6 +129,25 @@ describe('EnterPin — gating', () => {
       expect(getDigitInputs()).toHaveLength(6)
     })
     expect(screen.getByRole('button', { name: /submit/i })).toBeInTheDocument()
+  })
+
+  // ENG-11018: `submitted` spans ready_to_submit / filing_review_hold as well
+  // as awaiting_pin. Without a Peerly identity nothing was ever sent to
+  // CampaignVerify, so this page must say "not available yet" rather than
+  // claiming a verification is in progress.
+  it('renders OutOfStateNotice when submitted but nothing reached Peerly', async () => {
+    mockGetTcrCompliance.mockResolvedValue({
+      ...tcrWith('submitted'),
+      peerlyIdentityId: null,
+    })
+    render(<EnterPin />)
+    await waitFor(() => {
+      expect(
+        screen.getByText(/this step isn’t available yet/i),
+      ).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: /submit/i })).toBeNull()
+    expect(screen.queryByText(/still verifying/i)).toBeNull()
   })
 
   it.each<[TcrComplianceStatus | null]>([['rejected'], ['error'], [null]])(
