@@ -4,17 +4,22 @@ import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import {
   Campaign,
+  ElectedOffice,
   OutreachStatus,
   OutreachType,
+  PrioritySource,
   SocialAssetKind,
   SocialAssetPlatform,
 } from '../../generated/prisma'
+import { SERVE_SOCIAL_VOICE } from '../services/outreachSocialGeneration.service'
+import { TONE_STYLES } from '../util/messageTone.util'
 
 const service = useTestService()
 
 const jsonCompletion = vi.fn()
 
 let eoOrgSlug: string
+let electedOffice: ElectedOffice
 
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
@@ -27,7 +32,7 @@ beforeEach(async () => {
     data: { slug: eoOrgSlug, ownerId: service.user.id },
   })
 
-  await service.prisma.electedOffice.create({
+  electedOffice = await service.prisma.electedOffice.create({
     data: { userId: service.user.id, organizationSlug: eoOrgSlug },
   })
 })
@@ -191,6 +196,233 @@ describe('POST /v1/outreach/serve/social/draft', () => {
   })
 })
 
+describe('Public Profile grounding (ENG-10982)', () => {
+  const mockDraftLlm = () => {
+    jsonCompletion.mockResolvedValue({
+      object: { draft: 'A grounded update.' },
+      tokens: 50,
+      inputTokens: 25,
+      outputTokens: 25,
+      model: 'claude-test',
+    })
+  }
+
+  const draftUserPrompt = async () => {
+    const res = await postDraft({ purpose: 'issue_update', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    return call.messages.find((m: { role: string }) => m.role === 'user')
+      ?.content
+  }
+
+  const createPriority = (title: string, description: string) =>
+    service.prisma.priority.create({
+      data: {
+        electedOfficeId: electedOffice.id,
+        title,
+        description,
+        source: PrioritySource.user_stated,
+      },
+    })
+
+  it('includes all five labeled blocks verbatim, priorities in sortOrder', async () => {
+    mockDraftLlm()
+    const profile = await service.prisma.personProfile.create({
+      data: {
+        personId: `person-${Date.now()}`,
+        userId: service.user.id,
+        bioOverride: 'I have lived here for 20 years.',
+        whyRunning: 'I want to make sure every neighbor has a voice.',
+        accomplishments: [
+          {
+            title: 'Balanced the budget',
+            description: 'Cut waste without cutting services',
+          },
+          { title: 'Opened the new library' },
+        ],
+        recentExperience: [
+          { title: 'City Council Member', organization: 'City of Fairview' },
+          { title: 'Volunteer firefighter' },
+        ],
+      },
+    })
+    const housing = await createPriority(
+      'Housing',
+      'Build more affordable units',
+    )
+    const roads = await createPriority('Roads', 'Repave Main Street')
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: roads.id,
+        visible: true,
+        sortOrder: 1,
+      },
+    })
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: housing.id,
+        visible: true,
+        sortOrder: 0,
+      },
+    })
+
+    const userPrompt = await draftUserPrompt()
+
+    expect(userPrompt).toContain(
+      [
+        "The official's bio, in their own words:",
+        '"""',
+        'I have lived here for 20 years.',
+        '"""',
+      ].join('\n'),
+    )
+    expect(userPrompt).toContain(
+      [
+        'Why they serve, in their own words:',
+        '"""',
+        'I want to make sure every neighbor has a voice.',
+        '"""',
+      ].join('\n'),
+    )
+    expect(userPrompt).toContain(
+      [
+        "The official's accomplishments:",
+        '- Balanced the budget: Cut waste without cutting services',
+        '- Opened the new library',
+      ].join('\n'),
+    )
+    expect(userPrompt).toContain(
+      [
+        "The official's recent experience:",
+        '- City Council Member, City of Fairview',
+        '- Volunteer firefighter',
+      ].join('\n'),
+    )
+    expect(userPrompt).toContain(
+      [
+        "The official's published priorities:",
+        '- Housing: Build more affordable units',
+        '- Roads: Repave Main Street',
+      ].join('\n'),
+    )
+  })
+
+  it('excludes a hidden profile issue', async () => {
+    mockDraftLlm()
+    const profile = await service.prisma.personProfile.create({
+      data: { personId: `person-${Date.now()}`, userId: service.user.id },
+    })
+    const hidden = await createPriority('Hidden issue', 'Should not appear')
+    const visible = await createPriority('Visible issue', 'Should appear')
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: hidden.id,
+        visible: false,
+        sortOrder: 0,
+      },
+    })
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: visible.id,
+        visible: true,
+        sortOrder: 1,
+      },
+    })
+
+    const userPrompt = await draftUserPrompt()
+
+    expect(userPrompt).not.toContain('Hidden issue')
+    expect(userPrompt).toContain('- Visible issue: Should appear')
+  })
+
+  it('excludes a profile issue whose priority is archived', async () => {
+    mockDraftLlm()
+    const profile = await service.prisma.personProfile.create({
+      data: { personId: `person-${Date.now()}`, userId: service.user.id },
+    })
+    const archived = await createPriority('Archived issue', 'Should not appear')
+    await service.prisma.priority.update({
+      where: { id: archived.id },
+      data: { archivedAt: new Date() },
+    })
+    const active = await createPriority('Active issue', 'Should appear')
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: archived.id,
+        visible: true,
+        sortOrder: 0,
+      },
+    })
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: active.id,
+        visible: true,
+        sortOrder: 1,
+      },
+    })
+
+    const userPrompt = await draftUserPrompt()
+
+    expect(userPrompt).not.toContain('Archived issue')
+    expect(userPrompt).toContain('- Active issue: Should appear')
+  })
+
+  it('degrades to the exact baseline prompt for an official with no PersonProfile row', async () => {
+    mockDraftLlm()
+
+    const userPrompt = await draftUserPrompt()
+
+    expect(userPrompt).toBe(
+      [
+        `${SERVE_SOCIAL_VOICE.nameLabel}: Johnny Goodparty.`,
+        `${SERVE_SOCIAL_VOICE.officeLabel}: local office.`,
+        `Goal of this message: ${SERVE_SOCIAL_VOICE.purposeGoals.issue_update}.`,
+        `Tone: ${TONE_STYLES.warm}`,
+        'Write the draft message.',
+      ].join('\n'),
+    )
+  })
+
+  it('trims an over-cap bio to 2000 chars and caps priorities at 10', async () => {
+    mockDraftLlm()
+    const longBio = 'x'.repeat(2500)
+    const profile = await service.prisma.personProfile.create({
+      data: {
+        personId: `person-${Date.now()}`,
+        userId: service.user.id,
+        bioOverride: longBio,
+      },
+    })
+    for (let i = 0; i < 12; i++) {
+      const priority = await createPriority(`Issue ${i}`, `Description ${i}`)
+      await service.prisma.personProfileIssue.create({
+        data: {
+          personProfileId: profile.id,
+          issueId: priority.id,
+          visible: true,
+          sortOrder: i,
+        },
+      })
+    }
+
+    const userPrompt = await draftUserPrompt()
+
+    expect(userPrompt).toContain(`${'x'.repeat(1999)}…`)
+    expect(userPrompt).not.toContain('x'.repeat(2001))
+    for (let i = 0; i < 10; i++) {
+      expect(userPrompt).toContain(`- Issue ${i}: Description ${i}`)
+    }
+    expect(userPrompt).not.toContain('- Issue 10:')
+    expect(userPrompt).not.toContain('- Issue 11:')
+  })
+})
+
 describe('POST /v1/outreach/serve/social/generate', () => {
   it('returns platform assets for a serve org', async () => {
     jsonCompletion.mockResolvedValue(
@@ -228,6 +460,39 @@ describe('POST /v1/outreach/serve/social/generate', () => {
       eoHeaders(bareOrg.slug),
     )
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('receives the same Public Profile context blocks as the draft path', async () => {
+    await service.prisma.personProfile.create({
+      data: {
+        personId: `person-${Date.now()}`,
+        userId: service.user.id,
+        bioOverride: 'I have lived here for 20 years.',
+      },
+    })
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Join me for a town hall.',
+      purpose: 'event_invite',
+      platforms: ['facebook'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      [
+        "The official's bio, in their own words:",
+        '"""',
+        'I have lived here for 20 years.',
+        '"""',
+      ].join('\n'),
+    )
   })
 })
 
