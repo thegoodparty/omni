@@ -107,6 +107,36 @@ export class RobocallPhonebookService {
     campaign: Campaign,
     voterFileFilterId: number,
   ): Promise<string[]> {
+    // TEST OVERRIDE (supervised live-test harness). When
+    // ROBOCALL_TEST_OVERRIDE_NUMBER is set, the phonebook is loaded with ONLY
+    // that one number and the real audience is never resolved. This is what lets
+    // the full real-money flow (hold on the real estimate, dial, capture-actual,
+    // refund) run end to end while guaranteeing no real voter is ever called —
+    // this method is the single chokepoint for every number that reaches CallHub.
+    // Fail CLOSED: a set-but-malformed value throws rather than falling through
+    // to the real audience, since falling through would dial real people during
+    // a "test". Unset = normal behavior below, untouched.
+    const override = process.env.ROBOCALL_TEST_OVERRIDE_NUMBER
+    if (override !== undefined && override !== '') {
+      const digits = override.replace(/\D/g, '')
+      const normalized =
+        digits.length === 11 && digits.startsWith('1')
+          ? digits.slice(1)
+          : digits
+      if (normalized.length !== 10) {
+        throw new BadRequestException(
+          'ROBOCALL_TEST_OVERRIDE_NUMBER is set but is not a valid 10-digit ' +
+            'US number; refusing to load the real audience during a test',
+        )
+      }
+      this.logger.warn(
+        { filterId: voterFileFilterId, overrideNumber: normalized },
+        'ROBOCALL TEST OVERRIDE active: loading ONLY the override number; the ' +
+          'real audience is NOT resolved or dialed',
+      )
+      return [normalized]
+    }
+
     const organization = await this.organizations.findFirst({
       where: { slug: campaign.organizationSlug },
     })

@@ -36,6 +36,7 @@ describe('RobocallPhonebookService', () => {
 
   beforeEach(() => {
     process.env.ROBOCALL_AUDIO_BUCKET = 'robocall-audio-test'
+    delete process.env.ROBOCALL_TEST_OVERRIDE_NUMBER
     contacts = { findContactsForFilter: vi.fn() }
     organizations = { findFirst: vi.fn().mockResolvedValue({ id: 1 }) }
     voterFileFilterService = {
@@ -227,5 +228,49 @@ describe('RobocallPhonebookService', () => {
     await expect(
       service.loadAudienceToPhonebook(campaign as Campaign, 99),
     ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+
+  describe('ROBOCALL_TEST_OVERRIDE_NUMBER (live-test harness)', () => {
+    it('loads ONLY the override number and never resolves the real audience', async () => {
+      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '804-222-1111'
+      phonebooks.getContactCount.mockResolvedValue(1)
+
+      const result = await run()
+
+      // The real audience is never touched: no voter is resolved or dialed.
+      expect(contacts.findContactsForFilter).not.toHaveBeenCalled()
+      // Exactly the normalized override number is loaded into the phonebook.
+      expect(s3.uploadFile).toHaveBeenCalledWith(
+        'robocall-audio-test',
+        'phone\n8042221111\n',
+        expect.any(String),
+        { contentType: 'text/csv' },
+      )
+      expect(result).toEqual({ phonebookPkStr: 'pb-1', importedCount: 1 })
+    })
+
+    it('normalizes a leading US country code and formatting', async () => {
+      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '+1 (804) 222-1111'
+      phonebooks.getContactCount.mockResolvedValue(1)
+
+      await run()
+
+      expect(s3.uploadFile).toHaveBeenCalledWith(
+        'robocall-audio-test',
+        'phone\n8042221111\n',
+        expect.any(String),
+        { contentType: 'text/csv' },
+      )
+    })
+
+    it('fails closed on a malformed override, never touching the real audience', async () => {
+      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '555-1234' // 7 digits
+
+      await expect(
+        service.loadAudienceToPhonebook(campaign as Campaign, 99),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(contacts.findContactsForFilter).not.toHaveBeenCalled()
+      expect(phonebooks.createPhonebook).not.toHaveBeenCalled()
+    })
   })
 })
