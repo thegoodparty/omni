@@ -138,6 +138,7 @@ describe('serve phone banking routes', () => {
         )
         expect(get.status).toBe(200)
         expect(get.data.purpose).toBe(purpose)
+        expect(get.data.isServe).toBe(true)
         // party stays null for a Serve org even after live enrichment.
         expect(get.data.entries[0]?.persons[0]?.party).toBeNull()
       },

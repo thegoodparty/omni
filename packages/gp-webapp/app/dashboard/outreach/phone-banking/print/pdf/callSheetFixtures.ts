@@ -52,6 +52,7 @@ export const list = (
   sheetCount: 1,
   purpose: 'introduce',
   createdAt: new Date('2026-07-21T00:00:00Z'),
+  isServe: false,
   entries: [entry()],
   ...overrides,
 })

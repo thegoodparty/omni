@@ -34,6 +34,7 @@ describe('PhoneBankingListSchema', () => {
           persons: [person],
         },
       ],
+      isServe: false,
     }
     expect(() => PhoneBankingListSchema.parse(list)).not.toThrow()
   })
@@ -65,6 +66,7 @@ describe('PhoneBankingListSchema', () => {
           ],
         },
       ],
+      isServe: true,
     }
     expect(() => PhoneBankingListSchema.parse(list)).not.toThrow()
   })

@@ -56,6 +56,7 @@ const buildList = (): PhoneBankingList => ({
   sheetCount: 1,
   purpose: 'introduce',
   createdAt: new Date('2026-01-01'),
+  isServe: false,
   entries: [
     {
       id: 1,
@@ -119,6 +120,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
   sheetCount: 2,
   purpose: 'introduce',
   createdAt: new Date('2026-01-01'),
+  isServe: false,
   entries: [
     {
       id: 1,
@@ -253,6 +255,17 @@ describe('<PhoneBankingCallerPage>', () => {
     )
 
     expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('a Serve list (isServe) points the back link at Constituent Outreach', async () => {
+    mockGetList({ ...buildList(), isServe: true })
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    const link = screen.getByRole('link', {
+      name: 'Back to Constituent Outreach',
+    })
+    expect(link).toHaveAttribute('href', '/dashboard/constituent-outreach')
   })
 
   it('an answered save carries the active tab personId, and switching tabs shows a different logged record', async () => {
@@ -747,6 +760,26 @@ describe('<PhoneBankingCallerPage>', () => {
 
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith('/dashboard/outreach'),
+    )
+  })
+
+  it('a Serve list Delete returns to Constituent Outreach', async () => {
+    const user = userEvent.setup()
+    mockGetList({ ...buildList(), isServe: true })
+    api.mock('DELETE /v1/phone-banking/lists/:id', {
+      status: 200,
+      data: undefined,
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Delete/ }))
+    await user.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith('/dashboard/constituent-outreach'),
     )
   })
 
