@@ -274,10 +274,41 @@ guard rails live:
 | Only on `status: success` | A budget-capped or deadline-killed run can leave a confident-looking partial analysis |
 | Only on a recognized `fix` verdict | Missing, malformed or unknown → leave the ticket alone |
 | Skipped if `gpbot-work` is already present | Re-adding an existing tag emits no webhook anyway |
+| Skipped if the ticket is out of scope | A mirror of the Lambda's scope guard, checked before the tag write — see below |
 | Never raises | It runs after the analysis is already posted; failing here would turn a useful run into a task-failure alarm |
 
 The verdict is read from the **last** match in the response, because a model
 routinely restates the instructions it was given before answering.
+
+**Why escalation checks scope too.** The Lambda's scope guard is still the thing
+that protects the repository, and it runs whatever escalation decides. But
+tagging a ticket that guard will refuse is not free, and the bill arrived on
+2026-09-01. `DATA-2393` was filed twice from HubSpot, analyzed twice, and both
+analyses returned `fix`. Both escalations tagged it and recorded `escalated`. The
+guard then correctly refused both implement runs, because the ticket is
+`DATA-`-prefixed and sits in Data Backlog. What that left was two `fix` verdicts,
+two escalations reported as successful, no implement run, and no PR — which is
+indistinguishable from a broken pipeline, and took a full investigation to read
+as the guard working perfectly.
+
+So escalation now applies the same rule to the task it **already fetches** for the
+`gpbot-work` check, at no extra API call. An out-of-scope ticket is left untagged
+and the outcome reads `out of scope (custom_id DATA-2393 is not omni code work)`,
+which is the sentence that would have answered the question in a minute.
+
+The rule exists twice because it has to. Terraform zips the Lambda as a single
+named file, so `handler.py` can import nothing from this repository, and the
+agent runs in a different image. `clickup_bot/tests/test_scope_is_mirrored.py`
+runs both copies over the same cases — including malformed ones — and fails if
+they ever disagree. The dangerous direction of drift is the mirror becoming
+**narrower** than the guard: that silently stops real bugs escalating, and looks
+exactly like the bot having no opinion.
+
+One trap is pinned by its own test. `ClickUpTask` aliases the API's `list` onto a
+field named `list_id`, so a plain `model_dump()` drops the `list` key and the
+list check matches nothing. The dump is taken `by_alias=True`. Without it,
+Growth-Bugs tickets pass — they carry an `ENG-` custom ID and no data tag, so the
+list is the only thing that identifies them.
 
 **Ramp switch / kill switch.** `GPBOT_ESCALATE_TO_WORK` on the engineer-agent task
 definition (`escalate_analysis_to_work` in `environments/prod/engineer-agent-fargate`).
@@ -605,6 +636,13 @@ a legitimate re-tag for the whole TTL.
 If the lookup itself fails the guard **fails open** and the run proceeds, with
 an alarm-matching log line. One wasted run costs a few dollars and a closeable
 PR; refusing every bug during a ClickUp blip is a silent outage.
+
+This rule is mirrored in `engineer_agent/agent/escalation.py`, which applies it
+before tagging so a refused ticket is never tagged in the first place. **This
+guard remains the authority** — it runs on the task it fetches itself, whatever
+the agent decided earlier. A change here needs the same change there, and
+`clickup_bot/tests/test_scope_is_mirrored.py` fails if it does not get one. See
+"Why escalation checks scope too" above.
 
 ## Dedup semantics
 

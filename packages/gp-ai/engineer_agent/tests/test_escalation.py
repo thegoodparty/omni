@@ -16,6 +16,7 @@ from engineer_agent.agent.escalation import (
     maybe_escalate,
     parse_verdict,
 )
+from shared.clickup_client import ClickUpTask
 
 TASK_ID = "86acb46d4"
 
@@ -63,6 +64,10 @@ class FakeClickUpClient:
     def get_task(self, task_id: str):
         if self._get_task_error is not None:
             raise self._get_task_error
+        # A real ClickUpTask is passed through untouched, so a test can opt into
+        # the actual model when the model itself is what is under test.
+        if hasattr(self._task, "model_dump"):
+            return self._task
         return FakeTask(self._task)
 
     def add_tag_to_task(self, task_id: str, tag_name: str):
@@ -83,7 +88,10 @@ class FakeTask:
     def __init__(self, payload: dict):
         self._payload = payload
 
-    def model_dump(self) -> dict:
+    def model_dump(self, **kwargs) -> dict:
+        # Accepts by_alias and ignores it: these payloads are written in the
+        # API's own spelling already. The alias itself is pinned by the tests
+        # that build a real ClickUpTask.
         return self._payload
 
 
@@ -255,6 +263,134 @@ def test_a_fix_verdict_without_a_task_id_cannot_escalate():
 
     assert outcome == "no task_id"
     assert client.added_tags == []
+
+
+# ---------------------------------------------------------------------------
+# Work the implement agent is not allowed to do
+#
+# The Lambda refuses these runs whatever this module decides. What is tested
+# here is that the ticket is left clean and the outcome is reported honestly:
+# before this, an out-of-scope ticket came back "escalated" with a gpbot-work
+# tag on it and no PR would ever follow.
+# ---------------------------------------------------------------------------
+
+
+def in_scope_task(**overrides) -> ClickUpTask:
+    fields = {
+        "id": TASK_ID,
+        "custom_id": "ENG-11017",
+        "name": "Compliance status is incorrect.",
+        "tags": [{"name": "production-bug"}],
+        "list": {"id": "901326170555", "name": "Bugs"},
+    }
+    fields.update(overrides)
+    return ClickUpTask(**fields)
+
+
+def test_the_data_ticket_that_prompted_this_is_not_queued(log):
+    # DATA-2393, 2026-09-01: filed twice from HubSpot, analyzed twice, both
+    # analyses concluded `fix`, both escalations reported "escalated", and no
+    # implement run ever ran because the Lambda refused it. The pipeline looked
+    # broken for a day because of what this line now says.
+    task = in_scope_task(
+        custom_id="DATA-2393",
+        name="Pro Upgrade Date Doubling as Downgrade Date",
+        list={"id": escalation.DATA_BACKLOG_LIST_ID, "name": "Data Backlog"},
+    )
+    client = FakeClickUpClient(task=task)
+
+    outcome = maybe_escalate(analysis("root cause found\n\nGPBOT-VERDICT: fix"), "analyze", factory_for(client))
+
+    assert outcome.startswith("out of scope")
+    assert "DATA-2393" in outcome
+    assert client.added_tags == []
+    # The verdict was still real and still worth reading. It has to stay
+    # visible, or this looks identical to an analysis that found nothing.
+    assert any("fix" in line and TASK_ID in line for line in log.infos)
+
+
+def test_a_growth_bugs_ticket_is_caught_through_the_real_task_model():
+    # Deliberately built from ClickUpTask rather than a hand-written dict.
+    # ClickUpTask aliases the API's `list` onto a field named `list_id`, so a
+    # plain model_dump() drops the `list` key entirely — and the list is the
+    # ONLY thing identifying this ticket, which carries an ENG custom_id and no
+    # data tag. A hand-made dict would pass while production silently widened.
+    task = in_scope_task(
+        custom_id="ENG-11020",
+        name="marketing site footer link 404s",
+        list={"id": escalation.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"},
+    )
+    client = FakeClickUpClient(task=task)
+
+    outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client))
+
+    assert outcome.startswith("out of scope")
+    assert "Growth-Bugs" in outcome
+    assert client.added_tags == []
+
+
+def test_a_district_assignment_ticket_filed_into_an_eng_list_is_still_data_work():
+    # The case neither the custom_id nor the list can catch: data work triaged
+    # into a bug list, marked only by the data team's own tag.
+    task = in_scope_task(tags=[{"name": "production-bug"}, {"name": "bug: district-assignment"}])
+    client = FakeClickUpClient(task=task)
+
+    outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client))
+
+    assert outcome.startswith("out of scope")
+    assert client.added_tags == []
+
+
+def test_an_ordinary_bug_still_gets_queued():
+    # The guard rail is only worth having if the main path survives it.
+    client = FakeClickUpClient(task=in_scope_task())
+
+    outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client))
+
+    assert outcome == "escalated"
+    assert client.added_tags == [(TASK_ID, IMPLEMENT_TAG)]
+
+
+def test_out_of_scope_is_reported_ahead_of_already_queued():
+    # Both are true of DATA-2393 today, since the escalation that ran before
+    # this change left the tag behind. "Already queued" would claim a run is
+    # coming; nothing is coming, and the reason a human needs is the scope one.
+    task = in_scope_task(
+        custom_id="DATA-2393",
+        tags=[{"name": IMPLEMENT_TAG}],
+        list={"id": escalation.DATA_BACKLOG_LIST_ID, "name": "Data Backlog"},
+    )
+    client = FakeClickUpClient(task=task)
+
+    outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client))
+
+    assert outcome.startswith("out of scope")
+    assert client.added_tags == []
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        None,
+        "not-a-dict",
+        {},
+        {"custom_id": None, "list": None, "tags": None},
+        {"custom_id": 42},
+        {"list": "Data Backlog"},
+        {"list": {"id": 901326391561}},
+        {"tags": [None, "bug: district-assignment"]},
+    ],
+)
+def test_an_unreadable_ticket_is_left_to_the_lambda(task):
+    # Fails open, matching the Lambda exactly. This copy is a courtesy; the
+    # guard that actually protects the repository runs later and sees the task
+    # again. Guessing "out of scope" from a malformed field here would drop
+    # real fixes silently, which is the worse of the two failures.
+    assert escalation.out_of_scope_reason(task) is None
+
+
+def test_a_lowercase_data_prefix_is_still_data_work():
+    assert escalation.out_of_scope_reason({"custom_id": "data-2393"}) is not None
 
 
 # ---------------------------------------------------------------------------
