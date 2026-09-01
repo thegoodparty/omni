@@ -1815,4 +1815,21 @@ describe('UsersService', () => {
       expect(getUserList.mock.calls[2]?.[0]).toMatchObject({ offset: 996 })
     })
   })
+
+  describe('reads are not enriched', () => {
+    it('returns the Postgres avatar unchanged', async () => {
+      const created = await usersService.model.create({
+        data: {
+          email: `raw-read-${randomUUID()}@goodparty.org`,
+          firstName: 'Raw',
+          lastName: 'Row',
+          avatar: 'https://assets.goodparty.org/uploads/1/a.png',
+        },
+      })
+
+      const found = await usersService.findUser({ id: created.id })
+
+      expect(found?.avatar).toBe('https://assets.goodparty.org/uploads/1/a.png')
+    })
+  })
 })
