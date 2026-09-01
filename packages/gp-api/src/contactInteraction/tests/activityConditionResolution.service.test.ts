@@ -1060,6 +1060,32 @@ describe('ActivityConditionResolutionService', () => {
       }
     })
 
+    it('an unsure answer resolves under undecided and drops out of unknown', async () => {
+      const org = await seedOrganization('org-support-unsure-undecided')
+      await doorKnocks.create({
+        organizationSlug: org,
+        personId: 'p-unsure',
+        occurredAt: new Date(),
+        outcome: DoorKnockOutcome.answered,
+        supportAnswer: SupportAnswer.unsure,
+        manual: true,
+      })
+
+      expect(
+        await resolution.resolveIdFilter(org, { supportStatus: ['undecided'] }),
+      ).toEqual({ kind: 'filter', idFilter: { in: ['p-unsure'] } })
+
+      const unknown = await resolution.resolveIdFilter(org, {
+        supportStatus: ['unknown'],
+      })
+      expect(unknown.kind).toBe('filter')
+      if (unknown.kind === 'filter' && 'notIn' in unknown.idFilter) {
+        expect(unknown.idFilter.notIn).toEqual(['p-unsure'])
+      } else {
+        throw new Error('expected a notIn filter')
+      }
+    })
+
     it('an "unknown" selection excludes people overridden to undecided/refused, not just supporter/non_supporter', async () => {
       const org = await seedOrganization('org-support-unknown-widened')
       // No interaction rows and no override — a genuine derived-unknown.
