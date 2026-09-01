@@ -528,6 +528,9 @@ export const PhoneBankingFlow = ({
         label: 'Go to call list',
         onClick: () => {
           if (!createResponse) return
+          // The caller page is shared across surfaces by design: it is
+          // auth-only (no campaign required) and fetches org-scoped, so
+          // serve lists open here too (ENG-10970) — not a per-surface path.
           router.push(`/dashboard/outreach/phone-banking/${createResponse.id}`)
           onClose()
         },
