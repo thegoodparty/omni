@@ -17,7 +17,10 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, Organization, User } from '../generated/prisma'
-import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
+import {
+  OutreachPhoneBankingGenerationService,
+  WIN_PHONE_BANKING_VOICE,
+} from './services/outreachPhoneBankingGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
 const candidateName = (user: User): string =>
@@ -67,14 +70,19 @@ export class OutreachPhoneBankingController {
       }
     }
 
+    const [dateContext, campaignContext] = await Promise.all([
+      this.generationService.buildDateContext(input.purpose, campaign),
+      this.composeContext.buildCampaignContext(campaign),
+    ])
+
     return {
       draft: await this.generationService.generateDraft(
         input,
         candidateName(user),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
-        campaign,
-        await this.composeContext.buildCampaignContext(campaign),
+        [...dateContext, ...campaignContext],
+        WIN_PHONE_BANKING_VOICE,
       ),
     }
   }

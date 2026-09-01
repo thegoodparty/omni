@@ -4,9 +4,21 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import ServeChannelCards from './ServeChannelCards'
 
+const renderCards = () => {
+  const onSocialClick = vi.fn()
+  const onPhoneBankingClick = vi.fn()
+  render(
+    <ServeChannelCards
+      onSocialClick={onSocialClick}
+      onPhoneBankingClick={onPhoneBankingClick}
+    />,
+  )
+  return { onSocialClick, onPhoneBankingClick }
+}
+
 describe('ServeChannelCards', () => {
   it('renders exactly the three Serve channel cards', () => {
-    render(<ServeChannelCards onSocialClick={vi.fn()} />)
+    renderCards()
 
     expect(screen.getByText('Social media')).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
@@ -15,7 +27,7 @@ describe('ServeChannelCards', () => {
   })
 
   it('never renders SMS, Robocall, or pricing copy', () => {
-    render(<ServeChannelCards onSocialClick={vi.fn()} />)
+    renderCards()
 
     expect(screen.queryByText(/texting/i)).not.toBeInTheDocument()
     expect(screen.queryByText('SMS')).not.toBeInTheDocument()
@@ -25,27 +37,34 @@ describe('ServeChannelCards', () => {
   })
 
   it('opens the social flow when the Social media card is clicked', async () => {
-    const onSocialClick = vi.fn()
-    render(<ServeChannelCards onSocialClick={onSocialClick} />)
+    const { onSocialClick, onPhoneBankingClick } = renderCards()
 
     await userEvent.click(screen.getByText('Social media'))
 
     expect(onSocialClick).toHaveBeenCalledTimes(1)
+    expect(onPhoneBankingClick).not.toHaveBeenCalled()
   })
 
-  it('only the Social media card is enabled — Phone banking and Door knocking stay disabled and inert', async () => {
-    const onSocialClick = vi.fn()
-    render(<ServeChannelCards onSocialClick={onSocialClick} />)
+  it('opens the phone banking flow when the Phone banking card is clicked', async () => {
+    const { onSocialClick, onPhoneBankingClick } = renderCards()
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onPhoneBankingClick).toHaveBeenCalledTimes(1)
+    expect(onSocialClick).not.toHaveBeenCalled()
+  })
+
+  it('only Door knocking stays disabled and inert — Social media and Phone banking are enabled', async () => {
+    const { onSocialClick, onPhoneBankingClick } = renderCards()
 
     expect(screen.getByRole('button', { name: /Social media/ })).toBeEnabled()
-    const phoneBanking = screen.getByRole('button', { name: /Phone banking/ })
+    expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
     const doorKnocking = screen.getByRole('button', { name: /Door knocking/ })
-    expect(phoneBanking).toBeDisabled()
     expect(doorKnocking).toBeDisabled()
 
-    await userEvent.click(phoneBanking)
     await userEvent.click(doorKnocking)
 
     expect(onSocialClick).not.toHaveBeenCalled()
+    expect(onPhoneBankingClick).not.toHaveBeenCalled()
   })
 })

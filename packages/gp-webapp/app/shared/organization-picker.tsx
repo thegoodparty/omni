@@ -15,6 +15,7 @@ import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { useSelectedOrgSlug } from '@shared/hooks/useSelectedOrgSlug'
+import { outreachDetailQueryPrefix } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -75,6 +76,10 @@ export const ORGANIZATIONS_QUERY_KEY = ['organizations']
 // Eligibility is per-user, not per-org, so it must survive an org switch
 // untouched (see the invalidation predicate in setSelectedSlug).
 export const ELIGIBILITY_QUERY_KEY = ['eligibility']
+// The person-notes family (NotesSection, PhoneBankingNotes) — per-person-id
+// rows, excluded from the org-switch invalidation for the same reason as
+// outreach-detail (see setSelectedSlug).
+const CONTACT_NOTES_QUERY_PREFIX = 'contact-notes'
 
 export const OrganizationProvider = ({
   children,
@@ -126,10 +131,25 @@ export const OrganizationProvider = ({
       // neither changes when switching between orgs (the org list doesn't
       // change, and eligibility is per-user). Invalidating the org list also
       // causes a brief flash where nav items disappear while it refetches.
+      //
+      // outreach-detail is excluded too, and for a different reason: it's
+      // per-row-id, not per-org, so a query for a row owned by the org we're
+      // leaving can still be actively observed (e.g. the history table's "N
+      // platforms" metric for a just-saved row) at the moment we switch. The
+      // cookie above already points at the new org, so invalidateQueries'
+      // default `refetchType: 'active'` would immediately refetch that old
+      // row's detail endpoint under the NEW org's header, 404ing (ENG-10991).
+      // Row ids never repeat across orgs, so the new org's own rows never
+      // need this cache entry refreshed either — there's nothing to gain by
+      // invalidating it here. contact-notes is the same shape (per-person-id,
+      // observed by PhoneBankingNotes while the caller panel is open), so it
+      // gets the same exclusion.
       void queryClient.invalidateQueries({
         predicate: (query) =>
           query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
-          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0],
+          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0] &&
+          query.queryKey[0] !== outreachDetailQueryPrefix[0] &&
+          query.queryKey[0] !== CONTACT_NOTES_QUERY_PREFIX,
       })
     },
     [queryClient],

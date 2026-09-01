@@ -1,6 +1,7 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { addHours, subMinutes } from 'date-fns'
+import { ZodError } from 'zod'
 import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
@@ -266,12 +267,20 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         callerId: draft.callbackNumber,
       })
     } catch (err) {
-      // A PERMANENT CallHub failure (a 4xx validation — e.g. a rejected caller
-      // ID or media) will never succeed on retry, so surface it: fail the send
-      // (void the hold, email the candidate) instead of reverting to authorized
-      // to retry forever. The claim is `staging` here, which failSend accepts.
-      // Transient errors revert + retry as before.
-      if (err instanceof CallhubPermanentError) {
+      // A PERMANENT CallHub failure will never succeed on retry, so surface it:
+      // fail the send (void the hold, email the candidate) instead of reverting
+      // to authorized to retry forever. TWO shapes are permanent here:
+      //   - a 4xx validation reject (`CallhubPermanentError` — e.g. a rejected
+      //     caller ID or media), and
+      //   - a `ZodError` from parsing the createVoiceBroadcast response: the
+      //     response shape is wrong for real CallHub data, which a retry can
+      //     never fix (the completion poll treats its own credits/status ZodError
+      //     the same way).
+      // BOTH are money-safe to fail here because staging NEVER dials — it only
+      // creates a PAUSED campaign — so no calls were placed regardless of which
+      // failure it was. The claim is `staging`, which failSend accepts. Transient
+      // errors revert + retry as before.
+      if (err instanceof CallhubPermanentError || err instanceof ZodError) {
         await this.failStagingPermanent(outreachId)
         return
       }

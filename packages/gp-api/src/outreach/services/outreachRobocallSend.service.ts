@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
+import { ZodError } from 'zod'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
@@ -38,6 +39,19 @@ const ROBOCALL_DIALING_STALE_MINUTES = 15
 // prod-only guard — both must pass.
 const isRobocallSendEnabled = (): boolean =>
   process.env.ROBOCALL_SEND_ENABLED === 'true'
+
+// Why a launch attempt did not cleanly commit `dialed`, which decides how a
+// reconcile treats a PAUSED / unresolved status read (see `reconcileDialing`):
+//   - `permanent`: a definitive 4xx reject — the START was refused, so the
+//     campaign is guaranteed still PAUSED (never dialed) whatever the status
+//     read says. Safe to fail on ANY read.
+//   - `shape`: the launch response could not be parsed (a ZodError — a garbage /
+//     unexpected body), so the dial state is UNKNOWN. Safe to fail ONLY when a
+//     status read CONFIRMS PAUSED; an unresolved read must not fail (it may have
+//     dialed).
+//   - `transient`: a lost/5xx response or a non-STARTED 200 — retry via the
+//     status read (revert on PAUSED, leave dialing on unresolved).
+type LaunchOutcome = 'permanent' | 'shape' | 'transient'
 
 // The send-time dial slice: STARTs a staged, still-paid robocall's CallHub
 // voice-broadcast campaign once its send time has arrived. THIS is the step that
@@ -226,16 +240,21 @@ export class OutreachRobocallSendService extends createPrismaBase(
         { err, outreachId, dialingCampaignPkStr: pkStr },
         'robocall launch failed; reconciling against CallHub status',
       )
-      // A PERMANENT launch rejection (a 4xx) will never START, so once the
-      // status read confirms the campaign is still PAUSED (never dialed) we fail
-      // the send instead of reverting to retry forever. A lost/transient response
-      // reconciles as before. Either way we NEVER blind-retry (a second START
-      // could re-dial) and NEVER fail a campaign that reads STARTED — reconcile
-      // commits that to dialed.
+      // Classify why the launch failed so reconcile knows how far to trust an
+      // unresolved status read. A 4xx reject (`permanent`) never STARTs → fail on
+      // any read. A ZodError parsing the launch response (`shape`) leaves the dial
+      // state unknown → fail only on a CONFIRMED PAUSED read, never on an
+      // unresolved one. Anything else is `transient` → reconcile + retry. Either
+      // way we NEVER blind-retry (a second START could re-dial) and NEVER fail a
+      // campaign that reads STARTED — reconcile commits that to dialed.
       await this.reconcileDialing(
         outreachId,
         pkStr,
-        err instanceof CallhubPermanentError,
+        err instanceof CallhubPermanentError
+          ? 'permanent'
+          : err instanceof ZodError
+            ? 'shape'
+            : 'transient',
       )
       return
     }
@@ -282,10 +301,15 @@ export class OutreachRobocallSendService extends createPrismaBase(
       where: { outreachId },
       select: { permanentSendFailure: true },
     })
+    // A marked row was already confirmed not-dialed when the marker was set
+    // (either a 4xx, or a `shape` failure whose status read was PAUSED), so it is
+    // safe to fail on any read → `permanent`. An unmarked stale row is treated as
+    // `transient`: reconcile against a fresh status read, which re-derives the
+    // real outcome on the next launch attempt.
     await this.reconcileDialing(
       outreachId,
       pkStr,
-      row?.permanentSendFailure ?? false,
+      row?.permanentSendFailure ? 'permanent' : 'transient',
     )
   }
 
@@ -317,16 +341,24 @@ export class OutreachRobocallSendService extends createPrismaBase(
   }
 
   // Resolves a `dialing` row against CallHub's actual campaign status — the ONLY
-  // safe way to conclude a launch whose response was lost. STARTED means the dial
-  // DID happen → commit `dialed` idempotently (no re-dial). PAUSED means it did
-  // NOT → revert to `authorized`, safe to relaunch next sweep. A read failure or
-  // any other status is unresolved: LEAVE the row in `dialing` (never relaunch
-  // without a PAUSED read, never mark dialed without a STARTED read) for the
-  // stale-dialing sweep to retry, and alert.
+  // safe way to conclude a launch whose response was lost, garbage, or rejected.
+  // STARTED means the dial DID happen → commit `dialed` idempotently (no re-dial),
+  // regardless of `outcome`. What a PAUSED or unresolved read does depends on WHY
+  // the launch didn't cleanly succeed (`outcome`, see the type above):
+  //   - `permanent` (a 4xx reject): fail the send on BOTH a PAUSED read AND an
+  //     unresolved read — a 4xx never dialed whatever the read says.
+  //   - `shape` (an unparseable launch body, dial state UNKNOWN): fail ONLY on a
+  //     confirmed PAUSED read; on an unresolved read leave it `dialing`, because
+  //     the run MIGHT have dialed and we must never void a live run on a guess.
+  //   - `transient` (lost/5xx, or a non-STARTED 200): revert on PAUSED to
+  //     relaunch; leave `dialing` on an unresolved read.
+  // Invariants throughout: never relaunch without a PAUSED read, never mark dialed
+  // without a STARTED read, and never fail on an unresolved read unless the launch
+  // was a definitive 4xx.
   private async reconcileDialing(
     outreachId: number,
     pkStr: string,
-    permanent = false,
+    outcome: LaunchOutcome = 'transient',
   ): Promise<void> {
     const status = await this.readVbStatus(pkStr)
     // PAUSE is the ONLY status that means the START never took effect, so it is
@@ -343,24 +375,28 @@ export class OutreachRobocallSendService extends createPrismaBase(
       return
     }
     if (status === CALLHUB_VB_STATUS.PAUSE) {
-      // Confirmed the START never took effect (no calls dialed). A permanent
-      // launch rejection can't be retried into success, so fail the send (void
-      // the hold, email the candidate); otherwise release the claim to retry.
-      if (permanent) {
+      // Confirmed the START never took effect (no calls dialed). A launch that
+      // can't be retried into success — a 4xx reject (`permanent`) OR an
+      // unreadable response body (`shape`) — is failed here: the PAUSED read
+      // authoritatively confirms no dial, so voiding the hold is money-safe even
+      // when the launch body itself was garbage. A `transient` failure just
+      // releases the claim to relaunch next sweep.
+      if (outcome !== 'transient') {
         await this.failPermanentSend(outreachId)
         return
       }
       await this.revertClaim(outreachId)
       return
     }
-    // A permanent launch rejection guarantees the campaign never STARTED (a
-    // definitive 4xx leaves it PAUSED), so a failed status read introduces no
-    // uncertainty about whether it dialed — it did not. Fail the send now (via
-    // the marker-persisting path, so a failSend that can't commit still leaves
-    // the stale sweep able to fail it) rather than leaving the row `dialing` for
-    // the sweep to reconcile WITHOUT the permanent flag — a later PAUSE read
-    // would otherwise revert to `authorized` and relaunch into the same reject.
-    if (permanent) {
+    // Unresolved status (a failed/garbage status read, or an unrecognized code).
+    // ONLY a definitive 4xx (`permanent`) is failed here: a 4xx guarantees the
+    // campaign never STARTED, so an unresolved read introduces no uncertainty —
+    // it did not dial. Fail via the marker-persisting path so a failSend that
+    // can't commit still leaves the stale sweep able to fail it (rather than
+    // reverting + relaunching into the same 4xx). A `shape` or `transient` failure
+    // with an unresolved read leaves the dial state UNKNOWN — the run may have
+    // dialed — so it stays `dialing` for the stale sweep, never failed on a guess.
+    if (outcome === 'permanent') {
       await this.failPermanentSend(outreachId)
       return
     }

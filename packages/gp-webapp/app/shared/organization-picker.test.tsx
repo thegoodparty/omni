@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useQuery } from '@tanstack/react-query'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SidebarProvider } from '@styleguide'
+import { outreachDetailQueryKey } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import {
   OrganizationProvider,
   OrganizationPicker,
@@ -89,6 +91,7 @@ const orgs: Organization[] = [
 ]
 
 beforeEach(() => {
+  testQueryClient.clear()
   mockSetCookie.mockClear()
   mockGetCookie.mockReset().mockReturnValue(false)
   mockRouterPush.mockClear()
@@ -554,6 +557,84 @@ describe('OrganizationPicker', () => {
       EVENTS.OrgSwitcher.RunForOfficeClicked,
       { intent: 'new-office' },
     )
+  })
+})
+
+describe('outreach-detail query isolation on org switch (ENG-10991)', () => {
+  it('does not refetch an active outreach-detail query when switching orgs', async () => {
+    const user = userEvent.setup()
+    const detailFetcher = vi.fn().mockResolvedValue({ id: 999 })
+
+    const OutreachDetailProbe = () => {
+      useQuery({
+        queryKey: outreachDetailQueryKey(999),
+        queryFn: detailFetcher,
+      })
+      return null
+    }
+
+    api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs}>
+          <OutreachDetailProbe />
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    // Simulates the just-saved row's "N platforms" metric being an active
+    // observer at the moment of the org switch — the trigger in ENG-10991.
+    await waitFor(() => expect(detailFetcher).toHaveBeenCalledTimes(1))
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    // The switch's broad invalidateQueries call has run by the time the
+    // route push fires.
+    await waitFor(() =>
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
+    )
+
+    expect(detailFetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not refetch an active contact-notes query when switching orgs', async () => {
+    const user = userEvent.setup()
+    const notesFetcher = vi.fn().mockResolvedValue([])
+
+    // Same shape as outreach-detail: PhoneBankingNotes keys per person id, so
+    // an open caller panel is an active observer at the moment of the switch.
+    const ContactNotesProbe = () => {
+      useQuery({
+        queryKey: ['contact-notes', 42],
+        queryFn: notesFetcher,
+      })
+      return null
+    }
+
+    api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs}>
+          <ContactNotesProbe />
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await waitFor(() => expect(notesFetcher).toHaveBeenCalledTimes(1))
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() =>
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
+    )
+
+    expect(notesFetcher).toHaveBeenCalledTimes(1)
   })
 })
 
