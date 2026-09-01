@@ -5,7 +5,6 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
 // Pins the invariant ENG-11003 introduced: the Serve left rail gates on
 // elected-office existence alone (mirroring the server-side serveAccess()
@@ -25,12 +24,6 @@ test.describe('Serve nav renders without flag overrides', () => {
   test('an elected office sees the complete Serve rail with no overrides', async ({
     page,
   }) => {
-    // TODO(ENG-11004 task 04 — serve-ordinances removal): the Ordinances tab
-    // is still gated behind serve-ordinances, which hasn't been retired yet.
-    // Force it on so this spec can assert the full rail today; drop this
-    // override once that task lands and the tab is unconditional.
-    await setFlagOverrides(page, { 'serve-ordinances': 'on' })
-
     await setupElectedOfficeUser(page)
     await page.goto('/dashboard/chief-of-staff', {
       waitUntil: 'domcontentloaded',

@@ -1,9 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { ChatScope } from '../../../generated/prisma'
 import {
   ORDINANCE_FLOW_MODELS,
@@ -59,7 +55,6 @@ describe('OrdinanceFlowHandler', () => {
   let tools: OrdinanceFlowToolsService
   let fetchService: OrdinanceFlowFetchService
   let searchService: OrdinanceFlowSearchService
-  let features: { isFeatureEnabled: ReturnType<typeof vi.fn> }
 
   const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
   const originalBraveKey = process.env.BRAVE_API_KEY
@@ -82,7 +77,6 @@ describe('OrdinanceFlowHandler', () => {
     tools = {} as unknown as OrdinanceFlowToolsService
     fetchService = {} as unknown as OrdinanceFlowFetchService
     searchService = {} as unknown as OrdinanceFlowSearchService
-    features = { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) }
   })
 
   const build = (districtResolver?: {
@@ -94,7 +88,6 @@ describe('OrdinanceFlowHandler', () => {
       tools,
       fetchService,
       searchService,
-      features as never,
       districtResolver as never,
     )
 
@@ -151,21 +144,6 @@ describe('OrdinanceFlowHandler', () => {
       ),
     ).rejects.toBeInstanceOf(NotFoundException)
     expect(store.createScopedConversation).not.toHaveBeenCalled()
-  })
-
-  it('rejects the scope when the serve-ordinances flag is off', async () => {
-    features.isFeatureEnabled = vi.fn(() => Promise.resolve(false))
-    await expect(
-      build().resolveConversation(
-        {
-          scope: ChatScope.ordinance_flow,
-          organizationSlug: ORG,
-          anchor: ANCHOR,
-        },
-        USER_ID,
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException)
-    expect(store.findByAnchorResource).not.toHaveBeenCalled()
   })
 
   it('resumes the existing conversation for the same step', async () => {
