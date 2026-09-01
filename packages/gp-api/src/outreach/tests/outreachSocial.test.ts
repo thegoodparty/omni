@@ -396,7 +396,7 @@ describe('POST /v1/outreach/social/generate', () => {
     )?.content
     expect(userPrompt).toContain(
       'A single post within the 280-character hard limit, leaving room ' +
-        'for a URL the candidate appends; aim for 70-150 characters for ' +
+        'for a URL appended alongside; aim for 70-150 characters for ' +
         'best engagement. 1-2 hashtags max, more measurably hurts ' +
         'engagement.',
     )
@@ -424,7 +424,7 @@ describe('POST /v1/outreach/social/generate', () => {
     )?.content
     expect(userPrompt).toContain(
       'Trim/reformat to fit 280 characters, ideally 70-150, leaving ' +
-        'room for a URL the candidate appends.',
+        'room for a URL appended alongside.',
     )
     expect(userPrompt).not.toContain('280-character hard limit')
   })

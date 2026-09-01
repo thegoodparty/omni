@@ -76,10 +76,11 @@ const PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
     "what shows before 'more.' 3-5 relevant hashtags.",
   [SocialAssetPlatform.nextdoor]: NEXTDOOR_RULE,
   [SocialAssetPlatform.x]:
+    // Shared across Win and Serve — never name "the candidate" here (see
+    // CUSTOM_PLATFORM_RULES.x below for the same constraint).
     'A single post within the 280-character hard limit, leaving room ' +
-    'for a URL the candidate appends; aim for 70-150 characters for ' +
-    'best engagement. 1-2 hashtags max, more measurably hurts ' +
-    'engagement.',
+    'for a URL appended alongside; aim for 70-150 characters for best ' +
+    'engagement. 1-2 hashtags max, more measurably hurts engagement.',
   [SocialAssetPlatform.tiktok]:
     VIDEO_SCRIPT_RULE +
     'Caption accompanies the intro video itself. Front-load the hook, ' +
@@ -104,17 +105,20 @@ const CUSTOM_PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
   [SocialAssetPlatform.nextdoor]: NEXTDOOR_RULE,
   [SocialAssetPlatform.x]:
     'Trim/reformat to fit 280 characters, ideally 70-150, leaving room ' +
-    'for a URL the candidate appends. Adjust hashtag count to 1-2 if ' +
+    'for a URL appended alongside. Adjust hashtag count to 1-2 if ' +
     'present.',
   [SocialAssetPlatform.tiktok]:
+    // The script stays 30-45s; only the caption is trimmed to these
+    // lengths — see the Bugbot note this addressed.
     VIDEO_SCRIPT_RULE +
-    'Trim/reformat so the hook lands in the first 100-150 characters; ' +
-    'total 150-300 characters. Adjust hashtag count to 3-5 if present.',
+    'Trim/reformat the caption so the hook lands in the first 100-150 ' +
+    'characters; total 150-300 characters. Adjust hashtag count to 3-5 ' +
+    'if present.',
   [SocialAssetPlatform.youtube_shorts]:
     VIDEO_SCRIPT_RULE +
-    'Trim/reformat so the first ~100 characters carry the hook, ' +
-    'within the 5,000-character limit. Adjust hashtag count to 3-5 if ' +
-    'present.',
+    'Trim/reformat the description so the first ~100 characters carry ' +
+    'the hook, within the 5,000-character limit. Adjust hashtag count ' +
+    'to 3-5 if present.',
 }
 
 const WIN_DRAFT_SYSTEM_PROMPT = [
@@ -486,10 +490,17 @@ export class OutreachSocialGenerationService {
         'Custom-purpose messages are written by the user',
       )
     }
+    // custom's purposePrompt describes the GENERATE (platform-adapt) step,
+    // not this draft/improve call — custom never reaches fresh draft
+    // (refused above), and injecting it into an improve-only, no-platform
+    // context would tell the model to add hashtags/restructure for a
+    // platform mid-polish.
     const context = [
       `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
-      voice.purposePrompts[input.purpose],
+      ...(input.purpose === 'custom'
+        ? []
+        : [voice.purposePrompts[input.purpose]]),
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...campaignContext,
     ]

@@ -458,6 +458,26 @@ describe('POST /v1/outreach/serve/social/generate', () => {
     ])
   })
 
+  it('never sends candidate/voter framing in the shared X platform rule', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'x', text: 'X adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Join me for a town hall.',
+      purpose: 'event_invite',
+      platforms: ['x'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toMatch(/candidate/i)
+    expect(userPrompt).not.toMatch(/voters?/i)
+  })
+
   it('404s for an organization with no elected office', async () => {
     const bareOrg = await service.prisma.organization.create({
       data: { slug: `eo-bare-${Date.now()}`, ownerId: service.user.id },
