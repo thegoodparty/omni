@@ -1066,6 +1066,58 @@ describe('ElectedOfficeController', () => {
       expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
     })
 
+    // Regression: positionId is null here, but customPositionName +
+    // overrideDistrictId still resolve a serve context (resolveServeContext
+    // falls back to them), so the org DOES dispatch and CAN have derived
+    // data. The null-positionId guard in onOfficeIdentityWritten must not
+    // treat this as first-time initialization.
+    it('invalidates a null-position org with a custom name + district override', async () => {
+      const eoId = uuidv7()
+      const orgSlug = OrganizationsService.electedOfficeOrgSlug(eoId)
+      await service.prisma.organization.create({
+        data: {
+          slug: orgSlug,
+          ownerId: service.user.id,
+          positionId: null,
+          customPositionName: 'City Council',
+          overrideDistrictId: 'dist-old',
+        },
+      })
+      const eo = await service.prisma.electedOffice.create({
+        data: { id: eoId, organizationSlug: orgSlug, userId: service.user.id },
+      })
+      await service.prisma.meetingResourceLocation.create({
+        data: {
+          electedOfficeId: eo.id,
+          type: 'SCHEDULE',
+          description: 'https://old-city.example.gov/calendar',
+        },
+      })
+
+      const organizations = service.app.get(OrganizationsService)
+      vi.spyOn(organizations, 'resolveOverrideDistrictId').mockResolvedValue(
+        'dist-new',
+      )
+
+      const controller = service.app.get(ElectedOfficeController)
+      await controller.setDistrict(eo.id, {
+        state: 'MN',
+        L2DistrictType: 'City',
+        L2DistrictName: 'New City',
+      })
+
+      expect(
+        await service.prisma.meetingResourceLocation.count({
+          where: { electedOfficeId: eo.id },
+        }),
+      ).toBe(0)
+      const org = await service.prisma.organization.findUnique({
+        where: { slug: orgSlug },
+      })
+      expect(org?.overrideDistrictId).toBe('dist-new')
+      expect(org?.officeIdentityChangedAt).toBeInstanceOf(Date)
+    })
+
     it('does not invalidate when the resolved district is unchanged', async () => {
       const eoId = uuidv7()
       const orgSlug = OrganizationsService.electedOfficeOrgSlug(eoId)

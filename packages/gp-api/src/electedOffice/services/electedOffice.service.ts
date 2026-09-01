@@ -110,9 +110,10 @@ export type OfficeIdentity = {
 
 export type OfficeIdentityWriteResult = {
   electedOffice: ElectedOffice
-  // null means initialization — nothing was invalidated because a
-  // null-position org can never have produced derived data. Re-dispatch is
-  // still warranted, which is why this returns a result rather than null.
+  // null means initialization — nothing was invalidated because an org with
+  // neither a position nor a district override can never have resolved a
+  // serve context, so there is by construction no derived data. Re-dispatch
+  // is still warranted, which is why this returns a result rather than null.
   invalidatedAt: Date | null
 }
 
@@ -424,11 +425,14 @@ export class ElectedOfficeService extends createPrismaBase(
     })
     if (!electedOffice) return null
 
-    // A Serve org with no position dispatches nothing (every gate is
-    // fail-closed on the resolved serve context), so there is by construction
-    // no derived data from a null-position era to invalidate. Treat it as
-    // initialization: skip straight to dispatch.
-    if (before.positionId === null) {
+    // An org with neither a position nor a district override cannot resolve
+    // a serve context (resolveServeContext needs state + positionName, and
+    // both fall back through position/overrideDistrict), so nothing can
+    // have dispatched and there is nothing to invalidate. A custom position
+    // name plus a district override DOES resolve a context even with
+    // positionId null, so the guard must require both fields to be null —
+    // checking positionId alone would skip invalidation for that case.
+    if (before.positionId === null && before.overrideDistrictId === null) {
       return { electedOffice, invalidatedAt: null }
     }
 
