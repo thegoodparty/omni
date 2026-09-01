@@ -763,10 +763,17 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
 
-    // Must be in serial so as to not overwrite campaign details w/ concurrent queries
-    await this.patchCampaignDetails(campaignId, {
-      isProUpdatedAt: formatISO(new Date()),
-    })
+    // `isProUpdatedAt` is what the CRM sync publishes as HubSpot's
+    // `pro_upgrade_date`, so only a genuine non-Pro -> Pro transition may stamp
+    // it. Stamping unconditionally overwrote the real upgrade date with the
+    // cancellation date on every downgrade, and re-stamped it on no-op rewrites
+    // from at-least-once Stripe webhook deliveries.
+    if (isBecomingProFirstTime) {
+      // Must be in serial so as to not overwrite campaign details w/ concurrent queries
+      await this.patchCampaignDetails(campaignId, {
+        isProUpdatedAt: formatISO(new Date()),
+      })
+    }
 
     if (isBecomingProFirstTime) {
       void this.campaignTasks.notifySlackOnProUpgrade(campaignId)

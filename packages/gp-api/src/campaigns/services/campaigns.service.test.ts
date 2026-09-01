@@ -1584,3 +1584,188 @@ describe('CampaignsService - findActiveByUserId', () => {
     expect(result).toBeNull()
   })
 })
+
+const buildSetIsProModule = async () => {
+  const mockCampaignUpdate = vi.fn(
+    async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 1,
+      userId: 7,
+      isPro: data.isPro ?? true,
+      details: {},
+    }),
+  )
+  const mockTxCampaignFindUnique = vi.fn()
+  const mockCampaignFindFirst = vi.fn()
+  const mockTransaction = vi.fn(
+    async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
+      const tx = {
+        campaign: {
+          findUnique: mockTxCampaignFindUnique,
+          update: mockCampaignUpdate,
+        },
+      }
+      return callback(
+        tx as unknown as Parameters<
+          Parameters<PrismaClient['$transaction']>[0]
+        >[0],
+      )
+    },
+  ) as MockedFunction<PrismaClient['$transaction']>
+
+  const mockPrismaService = {
+    $transaction: mockTransaction,
+    campaign: {
+      findFirst: mockCampaignFindFirst,
+      findUnique: vi.fn(),
+    },
+  }
+
+  const module: TestingModule = await Test.createTestingModule({
+    providers: [
+      { provide: PrismaService, useValue: mockPrismaService },
+      { provide: UsersService, useValue: {} },
+      { provide: CrmCampaignsService, useValue: { trackCampaign: vi.fn() } },
+      { provide: SegmentService, useValue: {} },
+      {
+        provide: AnalyticsService,
+        useValue: { track: vi.fn(), identify: vi.fn() },
+      },
+      { provide: CampaignPlanVersionsService, useValue: {} },
+      { provide: StripeService, useValue: {} },
+      { provide: GooglePlacesService, useValue: {} },
+      { provide: ElectionsService, useValue: {} },
+      { provide: BallotReadyService, useValue: {} },
+      { provide: OrganizationsService, useValue: {} },
+      { provide: SlackService, useValue: {} },
+      {
+        provide: CampaignTasksService,
+        useValue: { notifySlackOnProUpgrade: vi.fn() },
+      },
+      { provide: PinoLogger, useValue: createMockLogger() },
+      CampaignsService,
+    ],
+  }).compile()
+
+  const service = module.get<CampaignsService>(CampaignsService)
+
+  Object.defineProperty(service, '_prisma', {
+    get: () => mockPrismaService,
+    configurable: true,
+  })
+  Object.defineProperty(service, 'logger', {
+    get: () => createMockLogger(),
+    configurable: true,
+  })
+
+  // Every `campaign.update` that carries a `details` payload — i.e. the writes
+  // routed through patchCampaignDetails, not the isPro scalar flip.
+  const detailsWrites = () =>
+    mockCampaignUpdate.mock.calls
+      .map(([args]) => args.data)
+      .filter(
+        (data): data is { details: PrismaJson.CampaignDetails } =>
+          'details' in data,
+      )
+
+  return {
+    service,
+    mockTxCampaignFindUnique,
+    mockCampaignFindFirst,
+    detailsWrites,
+  }
+}
+
+describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
+  const PRIOR_UPGRADE_DATE = '2026-01-15T00:00:00Z'
+
+  it('stamps isProUpdatedAt when a campaign transitions to Pro', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+    mockCampaignFindFirst.mockResolvedValue({ id: 1, details: {} })
+
+    await service.setIsPro(1, true, false)
+
+    const writes = detailsWrites()
+    expect(writes).toHaveLength(1)
+    expect(firstOrThrow(writes).details.isProUpdatedAt).toBeDefined()
+  })
+
+  it('leaves isProUpdatedAt untouched when a Pro campaign is downgraded', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: true,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+    mockCampaignFindFirst.mockResolvedValue({
+      id: 1,
+      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
+    })
+
+    await service.setIsPro(1, false, false)
+
+    expect(detailsWrites()).toHaveLength(0)
+  })
+
+  it('leaves isProUpdatedAt untouched when an already-Pro campaign is re-written', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: true,
+      hasFreeTextsOffer: true,
+      freeTextsOfferRedeemedAt: null,
+    })
+    mockCampaignFindFirst.mockResolvedValue({
+      id: 1,
+      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
+    })
+
+    await service.setIsPro(1, true, false)
+
+    expect(detailsWrites()).toHaveLength(0)
+  })
+
+  it('re-stamps isProUpdatedAt when a cancelled campaign upgrades again', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: true,
+      freeTextsOfferRedeemedAt: new Date(),
+    })
+    mockCampaignFindFirst.mockResolvedValue({
+      id: 1,
+      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
+    })
+
+    await service.setIsPro(1, true, false)
+
+    const writes = detailsWrites()
+    expect(writes).toHaveLength(1)
+    expect(firstOrThrow(writes).details.isProUpdatedAt).not.toBe(
+      PRIOR_UPGRADE_DATE,
+    )
+  })
+})
