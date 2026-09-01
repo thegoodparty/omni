@@ -9,6 +9,7 @@ import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocal
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
+import { ZodError } from 'zod'
 import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
@@ -217,6 +218,42 @@ describe('OutreachRobocallSendService.startCampaign', () => {
       expect.anything(),
       expect.stringContaining('unresolved'),
     )
+  })
+
+  it('fails a SHAPE-error launch (unparseable response) once CallHub confirms PAUSED', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    // A ZodError = the launch response body could not be parsed. The dial state
+    // is unknown from the launch alone, but the status read authoritatively
+    // confirms PAUSED (never dialed), so failing the send is money-safe.
+    launchSpy.mockRejectedValueOnce(new ZodError([]))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
+    expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
+  })
+
+  it('does NOT fail a SHAPE-error launch when the status read is unresolved (dial state unknown)', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    // Unlike a 4xx, an unparseable launch body does NOT guarantee the campaign
+    // never STARTED. With an unresolved status read the dial state is unknown, so
+    // it must be LEFT dialing for the stale sweep — never voided on a guess.
+    launchSpy.mockRejectedValueOnce(new ZodError([]))
+    statusSpy.mockRejectedValue(new BadGatewayException('status read down'))
+
+    await send.startCampaign(outreachId)
+
+    expect(failSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialing)
+    expect(satellite.permanentSendFailure).toBe(false)
   })
 
   it('NEVER dials twice: a lost launch that CallHub reports STARTED commits dialed, no re-launch', async () => {
