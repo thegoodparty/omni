@@ -586,20 +586,24 @@ describe('org-switch query invalidation', () => {
     )
   }
 
-  it('marks outreach-detail queries stale WITHOUT refetching, while other per-org queries refetch (ENG-10991)', async () => {
+  it('marks outreach-detail and contact-notes queries stale WITHOUT refetching, while other per-org queries refetch (ENG-10991)', async () => {
     const user = userEvent.setup()
     const detailFn = vi.fn(async () => 'serve-detail')
+    const notesFn = vi.fn(async () => 'person-notes')
     const otherFn = vi.fn(async () => 'per-org-data')
+    const notesKey = ['contact-notes', 42]
 
     renderWithProbes(
       <>
         <QueryProbe queryKey={DETAIL_KEY} queryFn={detailFn} />
+        <QueryProbe queryKey={notesKey} queryFn={notesFn} />
         <QueryProbe queryKey={['per-org-data']} queryFn={otherFn} />
       </>,
     )
 
     await waitFor(() => {
       expect(detailFn).toHaveBeenCalledTimes(1)
+      expect(notesFn).toHaveBeenCalledTimes(1)
       expect(otherFn).toHaveBeenCalledTimes(1)
     })
 
@@ -610,7 +614,9 @@ describe('org-switch query invalidation', () => {
       expect(otherFn).toHaveBeenCalledTimes(2)
     })
     expect(detailFn).toHaveBeenCalledTimes(1)
+    expect(notesFn).toHaveBeenCalledTimes(1)
     expect(testQueryClient.getQueryState(DETAIL_KEY)?.isInvalidated).toBe(true)
+    expect(testQueryClient.getQueryState(notesKey)?.isInvalidated).toBe(true)
   })
 
   it('refetches a stale outreach-detail query when its observer remounts after the switch', async () => {

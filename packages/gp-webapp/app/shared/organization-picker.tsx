@@ -76,6 +76,9 @@ export const ORGANIZATIONS_QUERY_KEY = ['organizations']
 // Eligibility is per-user, not per-org, so it must survive an org switch
 // untouched (see the invalidation predicate in setSelectedSlug).
 export const ELIGIBILITY_QUERY_KEY = ['eligibility']
+// The person-notes family (NotesSection, PhoneBankingNotes) — id-addressed
+// per-org rows, handled like outreach-detail in setSelectedSlug.
+const CONTACT_NOTES_QUERY_PREFIX = 'contact-notes'
 
 export const OrganizationProvider = ({
   children,
@@ -127,20 +130,25 @@ export const OrganizationProvider = ({
       // neither changes when switching between orgs (the org list doesn't
       // change, and eligibility is per-user). Invalidating the org list also
       // causes a brief flash where nav items disappear while it refetches.
-      // Outreach detail queries are id-addressed rows of the org we're
-      // leaving: their observers are still mounted at this instant (the page
-      // unmounts only after router.push), so a refetching invalidate would
-      // replay each id under the NEW org's slug header — guaranteed 404s
-      // (ENG-10991). Mark them stale without refetching; a later remount
-      // under the right org refetches fresh.
+      // Outreach detail and contact-notes queries are id-addressed rows of
+      // the org we're leaving: their observers are still mounted at this
+      // instant (the page unmounts only after router.push), so a refetching
+      // invalidate would replay each id under the NEW org's slug header —
+      // guaranteed 404s (ENG-10991). Mark them stale without refetching; a
+      // later remount under the right org refetches fresh.
       void queryClient.invalidateQueries({
         predicate: (query) =>
           query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
           query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0] &&
-          query.queryKey[0] !== outreachDetailQueryPrefix[0],
+          query.queryKey[0] !== outreachDetailQueryPrefix[0] &&
+          query.queryKey[0] !== CONTACT_NOTES_QUERY_PREFIX,
       })
       void queryClient.invalidateQueries({
         queryKey: outreachDetailQueryPrefix,
+        refetchType: 'none',
+      })
+      void queryClient.invalidateQueries({
+        queryKey: [CONTACT_NOTES_QUERY_PREFIX],
         refetchType: 'none',
       })
     },
