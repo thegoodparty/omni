@@ -6,10 +6,15 @@ import { api } from 'helpers/test-utils/api-mocking'
 import type {
   PhoneBankingCreate,
   PhoneBankingScriptDraftRequest,
+  ServePhoneBankingCreate,
+  ServePhoneBankingScriptDraftRequest,
 } from '@goodparty_org/contracts'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { router } from 'helpers/test-utils/router-mocking'
-import { PhoneBankingFlow } from './PhoneBankingFlow'
+import {
+  PhoneBankingFlow,
+  SERVE_PHONE_BANKING_SURFACE,
+} from './PhoneBankingFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -42,7 +47,7 @@ const draftFor = ({
   purpose,
   tone,
   currentDraft,
-}: PhoneBankingScriptDraftRequest) =>
+}: PhoneBankingScriptDraftRequest | ServePhoneBankingScriptDraftRequest) =>
   currentDraft === undefined
     ? `AI script (${tone}) for ${purpose}`
     : `Improved (${tone}): ${currentDraft}`
@@ -1070,5 +1075,112 @@ describe('PhoneBankingFlow', () => {
     await screen.findAllByText('Your call sheet is ready')
 
     expect(onSaved).not.toHaveBeenCalled()
+  })
+})
+
+// ENG-10986: the same flow, config-swapped to Serve's own purpose vocabulary
+// and org-scoped endpoints. Nothing here is a new component — only the
+// surface prop differs from the suite above.
+describe('PhoneBankingFlow with the serve surface', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSavedLists([])
+    mockCount()
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'No elected office' },
+    })
+  })
+
+  const mockServeDraft = () => {
+    const calls: ServePhoneBankingScriptDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/phone-banking/draft', ({ body }) => {
+      calls.push(body)
+      return { status: 200, data: { draft: draftFor(body) } }
+    })
+    return calls
+  }
+
+  const openServeFlow = () => {
+    const onClose = vi.fn()
+    render(
+      <PhoneBankingFlow
+        open
+        onClose={onClose}
+        surface={SERVE_PHONE_BANKING_SURFACE}
+      />,
+    )
+    return { onClose }
+  }
+
+  it('renders the 6 serve cards and hits the serve routes with serve slugs', async () => {
+    const draftCalls = mockServeDraft()
+    const createCalls: ServePhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/serve/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openServeFlow()
+
+    for (const label of [
+      'Introduce myself to constituents',
+      'Explain a recent decision',
+      'Invite constituents to a local event',
+      'Ask for community input',
+      'Share a resource or service',
+      'Write my own script',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+
+    mockSavedLists([{ id: 3, name: 'Constituents near downtown' }])
+    mockListDetail(10)
+    await user.click(screen.getByText('Explain a recent decision'))
+    await pickSavedListAndContinue('Constituents near downtown')
+    await screen.findAllByText('Write your call script')
+
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+    expect(draftCalls[0]).toMatchObject({
+      purpose: 'explain-decision',
+      tone: 'warm',
+    })
+
+    // Name auto-suggestion fills from the serve record, not the card copy.
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Decision update calls',
+    )
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText(
+      'How many call sheets would you like me to create?',
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      (await screen.findAllByText('Your call sheet is ready')).length,
+    ).toBeGreaterThan(0)
+    expect(createCalls).toHaveLength(1)
+    expect(createCalls[0]).toMatchObject({
+      purpose: 'explain-decision',
+      voterFileFilterId: 3,
+    })
+  })
+
+  it('leaves the name empty with the CTA disabled for the custom purpose', async () => {
+    mockServeDraft()
+    mockSavedLists([{ id: 3, name: 'Constituents near downtown' }])
+    mockListDetail(10)
+    openServeFlow()
+
+    await user.click(screen.getByText('Write my own script'))
+    await pickSavedListAndContinue('Constituents near downtown')
+    await screen.findAllByText('Write your call script')
+
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('')
+    await user.type(screen.getByLabelText('Call script'), 'My own script')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 })
