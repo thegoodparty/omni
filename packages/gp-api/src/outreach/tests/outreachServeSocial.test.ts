@@ -87,22 +87,34 @@ const countAllSocialRows = async () => ({
 })
 
 describe('POST /v1/outreach/serve/social/draft', () => {
-  it('drafts for each serve purpose with the serve goal + system prompt, never candidate/voter framing', async () => {
-    const goals: Record<string, string> = {
+  it('drafts for each serve purpose with its CSV prompt + system prompt, never candidate/voter framing', async () => {
+    // One representative sentence per purpose (not a full-string pin —
+    // brittle to whitespace); the source of truth is SERVE_PURPOSE_PROMPTS.
+    const sentences: Record<string, string> = {
       introduce_myself:
-        'introduce the elected official to the constituents they serve',
+        'Use their name, office held, location served, bio, ' +
+        'why-they-serve statement, and top priorities as source material.',
       explain_decision:
-        'explain a recent decision or vote and the reasoning behind it',
-      event_invite: 'invite constituents to a town hall or local event',
+        'Do not attack colleagues or other officials, or use ' +
+        'inflammatory language.',
+      event_invite:
+        'Structure: an opening hook naming the event, 1-2 sentences on ' +
+        'why it matters or what to expect, then a closing call to ' +
+        'action to attend, including date/time/location.',
       community_input:
-        'invite constituents to share input on a local issue or upcoming decision',
+        'Structure: name the issue or decision, explain briefly why ' +
+        'input matters, then a clear closing call to action on how to ' +
+        'share feedback (e.g. link, meeting, email).',
       share_resource:
-        'announce a local program, service, or resource available to constituents',
+        'Structure: name the resource, explain briefly who it helps ' +
+        'and how, then a closing call to action on how to access it.',
       issue_update:
-        'share a progress update on a local issue the official is working on',
+        'Structure: name the issue, explain the update in 2-3 ' +
+        'sentences, then a closing line inviting continued engagement ' +
+        'or follow-up.',
     }
 
-    for (const [purpose, goal] of Object.entries(goals)) {
+    for (const [purpose, sentence] of Object.entries(sentences)) {
       jsonCompletion.mockClear()
       jsonCompletion.mockResolvedValue({
         object: { draft: 'A constituent update.' },
@@ -123,7 +135,7 @@ describe('POST /v1/outreach/serve/social/draft', () => {
         (m: { role: string }) => m.role === 'user',
       )?.content
 
-      expect(userPrompt).toContain(goal)
+      expect(userPrompt).toContain(sentence)
       expect(userPrompt).toContain('Office held')
       expect(userPrompt).not.toContain('Office sought')
       expect(systemPrompt).toContain('elected official')
@@ -186,6 +198,9 @@ describe('POST /v1/outreach/serve/social/draft', () => {
     expect(systemPrompt).not.toMatch(/voters?/i)
     expect(userPrompt).not.toMatch(/candidate/i)
     expect(userPrompt).not.toMatch(/voters?/i)
+    // SERVE_PURPOSE_PROMPTS.custom describes the GENERATE (platform-adapt)
+    // step and must not leak into this improve/polish call.
+    expect(userPrompt).not.toContain('adapt it to fit the selected platform')
   })
 
   it('maps an LLM failure to 502', async () => {
@@ -382,7 +397,7 @@ describe('Public Profile grounding (ENG-10982)', () => {
       [
         `${SERVE_SOCIAL_VOICE.nameLabel}: Johnny Goodparty.`,
         `${SERVE_SOCIAL_VOICE.officeLabel}: local office.`,
-        `Goal of this message: ${SERVE_SOCIAL_VOICE.purposeGoals.issue_update}.`,
+        SERVE_SOCIAL_VOICE.purposePrompts.issue_update,
         `Tone: ${TONE_STYLES.warm}`,
         'Write the draft message.',
       ].join('\n'),
@@ -446,6 +461,68 @@ describe('POST /v1/outreach/serve/social/generate', () => {
     ])
   })
 
+  it('includes the office line in the generate prompt', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Join me for a town hall.',
+      purpose: 'event_invite',
+      platforms: ['facebook'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Office held: local office.')
+  })
+
+  it('uses the adapt-dont-rewrite platform guidance for the custom purpose', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'x', text: 'Trimmed post' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'My own words, unedited.',
+      purpose: 'custom',
+      platforms: ['x'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Trim/reformat to fit 280 characters, ideally 70-150, leaving ' +
+        'room for a URL appended alongside.',
+    )
+    expect(userPrompt).not.toContain('280-character hard limit')
+  })
+
+  it('never sends candidate/voter framing in the shared X platform rule', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'x', text: 'X adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Join me for a town hall.',
+      purpose: 'event_invite',
+      platforms: ['x'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toMatch(/candidate/i)
+    expect(userPrompt).not.toMatch(/voters?/i)
+  })
+
   it('404s for an organization with no elected office', async () => {
     const bareOrg = await service.prisma.organization.create({
       data: { slug: `eo-bare-${Date.now()}`, ownerId: service.user.id },
@@ -492,6 +569,50 @@ describe('POST /v1/outreach/serve/social/generate', () => {
         'I have lived here for 20 years.',
         '"""',
       ].join('\n'),
+    )
+  })
+
+  // ENG-10989: Serve carries no vote ask, so every Serve purpose stays
+  // included on Nextdoor — the Win exclusion gate never fires here, even
+  // for the Serve counterparts of Win's excluded purposes (explain_decision
+  // ~ persuade_voters, community_input ~ early_voting, share_resource ~
+  // election_day_turnout).
+  it.each(['explain_decision', 'community_input', 'share_resource'])(
+    'succeeds for %s paired with Nextdoor (no Win-style exclusion on Serve)',
+    async (purpose) => {
+      jsonCompletion.mockResolvedValue(
+        llmResult([{ platform: 'nextdoor', text: 'Hi neighbors.' }]),
+      )
+
+      const res = await postGenerate({
+        draftMessage: 'An update for the neighborhood.',
+        purpose,
+        platforms: ['nextdoor'],
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+    },
+  )
+
+  it('carries the flag-dont-alter instruction for the custom purpose on Nextdoor', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'nextdoor', text: 'Trimmed message' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'My own words, unedited.',
+      purpose: 'custom',
+      platforms: ['nextdoor'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Flag rather than silently alter or remove language that may not ' +
+        "comply with a platform's content policy",
     )
   })
 })
@@ -550,6 +671,25 @@ describe('POST /v1/outreach/serve/social', () => {
       social: 0,
       assets: 0,
     })
+  })
+
+  // ENG-10989: Serve's exclusion matrix is empty, so the same explain_decision
+  // + Nextdoor pairing that 400s on Win's save must persist here.
+  it('accepts explain_decision paired with Nextdoor on save (no Win-style exclusion on Serve)', async () => {
+    const res = await postSave(
+      validSaveBody({
+        purpose: 'explain_decision',
+        assets: [
+          {
+            platform: SocialAssetPlatform.nextdoor,
+            kind: SocialAssetKind.post_copy,
+            text: 'An update for the neighborhood.',
+          },
+        ],
+      }),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
   })
 })
 

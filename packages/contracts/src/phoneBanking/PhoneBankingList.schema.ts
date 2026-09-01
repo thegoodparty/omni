@@ -5,7 +5,10 @@ import {
   WillVoteAnswerSchema,
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
-import { PhoneBankingPurposeSchema } from './PhoneBankingCreate.schema'
+import {
+  PhoneBankingPurposeSchema,
+  ServePhoneBankingPurposeSchema,
+} from './PhoneBankingCreate.schema'
 
 // The saved interaction for one person on the list, or null if nobody has
 // logged a call with them yet.
@@ -49,12 +52,15 @@ export const PhoneBankingListEntrySchema = z.object({
 })
 export type PhoneBankingListEntry = z.infer<typeof PhoneBankingListEntrySchema>
 
+// The list read route is shared by Win and Serve (no serve-specific GET), so
+// purpose must accept either vocabulary — a Win-only PhoneBankingPurposeSchema
+// here would 500 the response interceptor on a serve-created list.
 export const PhoneBankingListSchema = z.object({
   id: z.number().int(),
   name: z.string(),
   script: z.string(),
   sheetCount: z.number().int(),
-  purpose: PhoneBankingPurposeSchema,
+  purpose: z.union([PhoneBankingPurposeSchema, ServePhoneBankingPurposeSchema]),
   createdAt: zCoerceDate(),
   entries: z.array(PhoneBankingListEntrySchema),
 })

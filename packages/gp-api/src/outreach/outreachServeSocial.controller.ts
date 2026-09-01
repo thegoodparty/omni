@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,14 +9,17 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  excludedSocialPlatformsForPurpose,
   OutreachDetail,
   OutreachDetailSchema,
   ServeSocialDraftRequest,
   ServeSocialDraftRequestSchema,
   ServeSocialGenerateRequest,
   ServeSocialGenerateRequestSchema,
+  ServeSocialPurpose,
   ServeSocialSaveRequest,
   ServeSocialSaveRequestSchema,
+  SocialAssetPlatform,
   SocialDraftResponse,
   SocialDraftResponseSchema,
   SocialGenerateResponse,
@@ -101,6 +105,25 @@ export class OutreachServeSocialController {
     return { office, context }
   }
 
+  // Mirrors the Win gate (ENG-10989): the client platform list is UI-only.
+  // Serve's exclusion matrix is empty today, so this never rejects a real
+  // Serve request on generate OR save — it only guards against drift if a
+  // future Serve purpose ever gains one.
+  private assertPlatformsAllowed(
+    purpose: ServeSocialPurpose,
+    platforms: SocialAssetPlatform[],
+  ): void {
+    const excludedRequested = platforms.filter((platform) =>
+      excludedSocialPlatformsForPurpose('serve', purpose).includes(platform),
+    )
+    if (excludedRequested.length > 0) {
+      throw new BadRequestException(
+        `Platform not available for purpose "${purpose}": ` +
+          excludedRequested.join(', '),
+      )
+    }
+  }
+
   @Post('social/draft')
   @ResponseSchema(SocialDraftResponseSchema)
   async draft(
@@ -130,11 +153,13 @@ export class OutreachServeSocialController {
     @Body(new ZodValidationPipe(ServeSocialGenerateRequestSchema))
     input: ServeSocialGenerateRequest,
   ): Promise<SocialGenerateResponse> {
-    const { context } = await this.buildServeContext(electedOffice)
+    this.assertPlatformsAllowed(input.purpose, input.platforms)
+    const { office, context } = await this.buildServeContext(electedOffice)
     return {
       assets: await this.generationService.generateAssets(
         input,
         electedOfficialName(user),
+        office,
         String(user.id),
         context,
         SERVE_SOCIAL_VOICE,
@@ -149,6 +174,10 @@ export class OutreachServeSocialController {
     @Body(new ZodValidationPipe(ServeSocialSaveRequestSchema))
     input: ServeSocialSaveRequest,
   ): Promise<OutreachDetail> {
+    this.assertPlatformsAllowed(
+      input.purpose,
+      input.assets.map((asset) => asset.platform),
+    )
     return this.socialService.saveSocialOutreach(
       { campaignId: null, organizationSlug: electedOffice.organizationSlug },
       input,

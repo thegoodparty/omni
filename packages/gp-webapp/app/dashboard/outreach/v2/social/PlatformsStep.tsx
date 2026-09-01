@@ -1,6 +1,7 @@
 'use client'
 
 import type { SocialAssetPlatform } from '@goodparty_org/contracts'
+import { SOCIAL_PLATFORM_EXCLUSION_REASON } from '@goodparty_org/contracts'
 import { Card, cn } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
 import { SOCIAL_PLATFORMS } from '../socialPlatforms'
@@ -9,9 +10,17 @@ import { Intro } from './Intro'
 interface PlatformsStepProps {
   selected: SocialAssetPlatform[]
   onToggle: (platform: SocialAssetPlatform) => void
+  // Platforms excluded for the flow's current purpose (ENG-10989, e.g.
+  // Nextdoor on Win's persuade_voters) — rendered disabled with a one-line
+  // reason rather than hidden, so the omission doesn't read as a bug.
+  excludedPlatforms: SocialAssetPlatform[]
 }
 
-export const PlatformsStep = ({ selected, onToggle }: PlatformsStepProps) => (
+export const PlatformsStep = ({
+  selected,
+  onToggle,
+  excludedPlatforms,
+}: PlatformsStepProps) => (
   <div className="space-y-6">
     <Intro
       channel="socialMedia"
@@ -21,15 +30,21 @@ export const PlatformsStep = ({ selected, onToggle }: PlatformsStepProps) => (
 
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
       {SOCIAL_PLATFORMS.map((platform) => {
-        const active = selected.includes(platform.id)
+        const disabled = excludedPlatforms.includes(platform.id)
+        const active = !disabled && selected.includes(platform.id)
+        const reason = SOCIAL_PLATFORM_EXCLUSION_REASON[platform.id]
         return (
           <Card
             key={platform.id}
             role="button"
             aria-pressed={active}
-            tabIndex={0}
-            onClick={() => onToggle(platform.id)}
+            aria-disabled={disabled}
+            tabIndex={disabled ? -1 : 0}
+            onClick={() => {
+              if (!disabled) onToggle(platform.id)
+            }}
             onKeyDown={(e) => {
+              if (disabled) return
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
                 onToggle(platform.id)
@@ -37,7 +52,11 @@ export const PlatformsStep = ({ selected, onToggle }: PlatformsStepProps) => (
             }}
             className={cn(
               'relative items-center gap-2 rounded-2xl p-4 text-center transition-colors',
-              active ? 'border-primary' : 'hover:border-primary/50',
+              disabled
+                ? 'cursor-not-allowed opacity-50'
+                : active
+                  ? 'border-primary'
+                  : 'hover:border-primary/50',
             )}
           >
             {active && (
@@ -52,7 +71,7 @@ export const PlatformsStep = ({ selected, onToggle }: PlatformsStepProps) => (
               {platform.label}
             </span>
             <span className="text-xs text-muted-foreground">
-              {platform.helper}
+              {disabled && reason ? reason : platform.helper}
             </span>
           </Card>
         )
