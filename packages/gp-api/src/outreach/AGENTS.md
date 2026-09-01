@@ -278,12 +278,16 @@ phone was dialed, so nothing is owed), records any staged PAUSED campaign
 best-effort) so the cleanup sweep ABORTs it rather than leaving it in CallHub,
 flips the SPINE `Outreach.status → failed`
 (guarded on `pending|pending_payment`, best-effort, like `markSpineScheduled`), and
-emits `EVENTS.Robocall.SendFailed`. It logs CRITICAL as an ops hook (the alert
-wiring in `deploy/components/alerts.ts` is a separate follow-up). The SEND path
-fails only on a read that RULES OUT a dial: a confirmed PAUSED for either permanent
-kind, plus — for a definitive 4xx (`permanent`) only — an unresolved read too (a
-rejected START never dialed). A launch that reads STARTED still commits `dialed`,
-never `send_failed`, because a dialed run must never have its hold voided. Symmetrically,
+emits `EVENTS.Robocall.SendFailed`. It logs a `CRITICAL robocall` line, which the
+`win-robocall-critical` alert (`deploy/components/alerts.ts`) matches to page the
+win-bugs group — that alert fires on ANY `CRITICAL robocall` log across the send
++ settlement chain (send_failed, uncollectable capture, schema mismatch, dial
+commit-miss, ETag mismatch, orphaned-hold), so every exceptional path surfaces to
+ops. The SEND path fails only on a read that RULES OUT a dial: a confirmed PAUSED
+for either permanent kind, plus — for a definitive 4xx (`permanent`) only — an
+unresolved read too (a rejected START never dialed). A launch that reads STARTED
+still commits `dialed`, never `send_failed`, because a dialed run must never have
+its hold voided. Symmetrically,
 the completion poll's PERMANENT schema mismatch (a `ZodError` on the
 `credits_usage` read) routes a DELIVERED run to `uncollectable` + CRITICAL, NOT
 `send_failed` — money may be owed on a run that already dialed. `send_failed` is

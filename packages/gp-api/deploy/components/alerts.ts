@@ -158,6 +158,39 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
+    slug: 'win-robocall-critical',
+    name: '[Win] Robocall send/settlement CRITICAL',
+    type: 'log',
+    // The robocall send + settlement chain (staging, dial, capture,
+    // fresh-charge, completion poll, hold recovery) logs `CRITICAL robocall ...`
+    // on every exceptional path a human must look at: a permanently-failed send
+    // (`send_failed`, hold voided), a delivered run we could NOT capture
+    // (`uncollectable` — money may be owed), a CallHub response-schema mismatch
+    // stranding a delivered run, a dial commit-miss (the campaign may be dialing
+    // with no `dialed` record), an audio ETag mismatch refused at staging, or an
+    // orphaned-hold cancel. Every one shares the `CRITICAL robocall` prefix, so a
+    // single line filter catches every path. They should almost never fire; each
+    // is a money- or delivery-integrity event, not routine error noise.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "CRITICAL robocall"',
+      '[1h]))',
+    ].join(' '),
+    threshold: 0,
+    for: '5m',
+    // A rare event matched on a [1h] range vector; the default 600s fetch would
+    // see only 10 minutes and miss it (same reason as the paid-not-scheduled
+    // alert above).
+    timeRangeSeconds: 3600,
+    message: [
+      'A robocall send/settlement CRITICAL was logged in the last hour — a money- or delivery-integrity event that needs a human.',
+      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
+      'These are not self-healing beyond the automatic sweeps; check the settleState and the Stripe hold/charge for the named outreachId before assuming recovery.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'log',
