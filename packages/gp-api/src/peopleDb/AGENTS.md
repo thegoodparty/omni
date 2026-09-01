@@ -12,10 +12,23 @@ delegates to a `databricks/` service and logs the read.
 
 One read is the exception. `VoterDensityService` reads the precomputed H3
 heat-map table through a second, read-only Prisma client against people-db
-Postgres, because `mart_gp_api` holds no density table and this cannot move
-until the data platform publishes one. Everything below about connection
-handling, the client hot-swap and `createPeopleDbBase` exists for that one
-read.
+Postgres. Everything below about connection handling, the client hot-swap and
+`createPeopleDbBase` exists for that one read.
+
+**That read is being retired.** The density tables now also exist in
+election-db, beside the `District` they are keyed on, and
+`VoterDensityProxyService` reads both sources on every request and compares
+them (`person_profile_voter_density_compare_count_total`). Once that reads
+clean, `VOTER_DENSITY_SOURCE=election-api` makes election-api authoritative and
+this service — and with it the second Prisma client and everything below —
+comes out. The destination is election-db rather than `mart_gp_api`: the
+density rows join to `District`, and `District` lives in election-db. See
+`packages/election-api/docs/voter-density-election-db-handoff.md`.
+
+It shares the district-stats dual read's shape below — shadow arm never
+awaited, failures swallowed — but it is counted rather than logged, because
+this one has an end condition someone has to watch for (`only_legacy` reaching
+zero is the cutover gate) rather than a standing agreement to monitor.
 
 ## Every voter read emits one log line
 
