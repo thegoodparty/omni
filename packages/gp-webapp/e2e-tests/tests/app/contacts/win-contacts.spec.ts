@@ -3,7 +3,6 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   closePersonPanel,
   crmSheet,
-  enableCrmFlags,
   fetchListMembers,
   fullPersonName,
   gotoCrmContacts,
@@ -17,6 +16,19 @@ import {
 } from 'src/helpers/crm-contacts-e2e'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 
+// The canonical Voter Likelihood option order (most → least likely), read
+// from filters.config.ts ("Voter Likelihood" field): Super, Likely,
+// Unreliable, Unlikely, Unknown. Ported from the retired
+// segment-builder-count-order.spec.ts — this is the order the wizard's pill
+// group must render.
+const VOTER_LIKELY_ORDER = [
+  'Super',
+  'Likely',
+  'Unreliable',
+  'Unlikely',
+  'Unknown',
+]
+
 // Exercises the Win Contacts surface for a pro campaign org. setupProCampaignUser
 // provisions Pro via the test-only endpoint (no Stripe webhook), and a per-PR
 // preview's gp-api serves the same real district voter data as dev — so this
@@ -29,7 +41,6 @@ import { setupProCampaignUser } from 'src/helpers/organizations'
 test.describe('Win Contacts', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   test('universe, branch step, party list, download, and person record', async ({
@@ -98,10 +109,14 @@ test.describe('Win Contacts', () => {
       timeout: 10_000,
     })
     // Voter Likelihood is Win-only the same way; the Serve spec asserts its
-    // absence, so this is the paired positive.
-    await expect(wizardPillGroup(wizard, 'Voter Likelihood')).toBeVisible({
-      timeout: 10_000,
-    })
+    // absence, so this is the paired positive. Also assert the exact
+    // most-→-least-likely render order.
+    const voterLikelihoodGroup = wizardPillGroup(wizard, 'Voter Likelihood')
+    await expect(voterLikelihoodGroup).toBeVisible({ timeout: 10_000 })
+    const voterLikelihoodLabels = (
+      await voterLikelihoodGroup.getByRole('button').allTextContents()
+    ).map((label) => label.trim())
+    expect(voterLikelihoodLabels).toEqual(VOTER_LIKELY_ORDER)
 
     const unfiltered = await readSettledWizardCount(page)
     expect(unfiltered).toBeGreaterThan(0)
