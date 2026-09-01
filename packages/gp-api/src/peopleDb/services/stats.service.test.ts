@@ -87,6 +87,42 @@ describe('StatsService', () => {
     )
   })
 
+  // The comparison is a JSON.stringify equality, which is key-order sensitive.
+  // The mirrored table returns buckets in arbitrary order and the live mapper
+  // sorts by descending count, so without canonical ordering this reported a
+  // disagreement on every multi-bucket dimension while the totals matched --
+  // which is exactly what it did in prod before this was fixed.
+  it('ignores bucket order', async () => {
+    const reordered = statsWith(42)
+    reordered.buckets.age = [...reordered.buckets.age].reverse()
+    findStatsLive.mockResolvedValue(reordered)
+
+    await service.findStats({ districtId: DISTRICT_ID } as never)
+    await settle()
+
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({ agrees: true }),
+      STATS_DUAL_READ_MESSAGE,
+    )
+  })
+
+  it('still reports a real per-bucket difference under reordering', async () => {
+    const changed = statsWith(42)
+    changed.buckets.age = [
+      { label: '18-25', count: 1, percent: 1 },
+      { label: '51+', count: 99, percent: 1 },
+    ]
+    findStatsLive.mockResolvedValue(changed)
+
+    await service.findStats({ districtId: DISTRICT_ID } as never)
+    await settle()
+
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({ agrees: false, mismatchedDimensions: ['age'] }),
+      STATS_DUAL_READ_MESSAGE,
+    )
+  })
+
   it('names the dimensions that disagree', async () => {
     findStatsLive.mockResolvedValue(statsWith(42, 99))
 

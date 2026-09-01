@@ -72,8 +72,11 @@ Three properties the implementation depends on. The live scan is **never
 awaited** on the response path and its failures are swallowed into the log line,
 so it cannot slow or fail a request. Concurrent live scans are **capped at two**,
 because a statewide district scans tens of millions of rows for a number nobody
-is waiting on. And buckets are compared as label -> count maps rather than
-ordered arrays, so bucket order is not reported as a disagreement.
+is waiting on. And buckets are compared as label -> count maps with
+their labels sorted, so bucket order is not reported as a disagreement -- the
+comparison is a `JSON.stringify` equality, which is key-order sensitive, and the
+mirrored table returns buckets in arbitrary order while the live mapper sorts by
+descending count.
 
 `buildLiveDistrictStatsSql` is one statement over one scan: `GROUPING SETS`
 emits a row per bucket per dimension plus a grand-total row from the empty set,
