@@ -20,9 +20,9 @@ interface ServeChannelDefinition {
 // (not imported — that grid is candidate-specific: swap flags, Pro gates,
 // TaskFlow launches — and channelMeta is keyed on every OutreachType,
 // including channels Serve doesn't have yet). No subCopy: the candidate
-// grid's subCopy is per-message pricing, which doesn't apply here. Social is
-// the first wired channel (ENG-10970); phone banking and door knocking stay
-// disabled pending their own wiring tickets.
+// grid's subCopy is per-message pricing, which doesn't apply here. Social and
+// phone banking are wired (ENG-10970); door knocking stays disabled pending
+// its own wiring ticket.
 const SERVE_CHANNELS: ServeChannelDefinition[] = [
   {
     key: 'socialMedia',
@@ -46,10 +46,12 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
 
 interface ServeChannelCardsProps {
   onSocialClick: () => void
+  onPhoneBankingClick: () => void
 }
 
 const ServeChannelCards = ({
   onSocialClick,
+  onPhoneBankingClick,
 }: ServeChannelCardsProps): React.JSX.Element => (
   <section className="space-y-3">
     <div>
@@ -67,8 +69,14 @@ const ServeChannelCards = ({
           icon={channel.icon}
           iconClassName={channel.iconClassName}
           label={channel.label}
-          disabled={channel.key !== 'socialMedia'}
-          onClick={channel.key === 'socialMedia' ? onSocialClick : undefined}
+          disabled={channel.key === 'doorKnocking'}
+          onClick={
+            channel.key === 'socialMedia'
+              ? onSocialClick
+              : channel.key === 'phoneBanking'
+                ? onPhoneBankingClick
+                : undefined
+          }
         />
       ))}
     </div>
