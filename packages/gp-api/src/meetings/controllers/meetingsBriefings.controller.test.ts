@@ -1201,6 +1201,46 @@ describe('GET /v1/meetings/briefings/dispatch/preview', () => {
     expect(result.data.overrideWouldDispatch).toBe(true)
   })
 
+  // The preview must report the same gate result dispatchManual would
+  // actually apply — a pre-cutoff briefing describes the OLD jurisdiction
+  // and must not show as coverage for the new one.
+  it('ignores a pre-cutoff briefing when computing coverage', async () => {
+    const orgSlug = `eo-prev-cutoff-${Date.now()}`
+    const eo = await seedBriefingTarget(orgSlug, 'FREQ=DAILY')
+    const staleRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: new Date('2099-12-31'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: staleRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'stale.json',
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.organization.update({
+      where: { slug: orgSlug },
+      data: { officeIdentityChangedAt: subDays(new Date(), 1) },
+    })
+
+    const result = await service.client.get(
+      `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${eo.id}`,
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.coveredByBriefingDate).toBeNull()
+    expect(result.data.gateWouldDispatch).toBe(true)
+  })
+
   it('reports scheduleKnown:false and no dispatch paths when no schedule exists', async () => {
     const orgSlug = `eo-prev-nosched-${Date.now()}`
     await service.prisma.organization.create({

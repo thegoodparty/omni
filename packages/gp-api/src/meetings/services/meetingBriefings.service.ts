@@ -577,8 +577,22 @@ export class MeetingBriefingsService extends createPrismaBase(
         )
         return { dispatched: false }
       }
+      // Scoped to the office-identity cutoff, same as the coverage dedupe in
+      // dispatchBriefingIfNeeded — this path claims to match the cron
+      // exactly, so a pre-cutoff briefing for the old jurisdiction must not
+      // suppress it.
+      const org = await this.client.organization.findUnique({
+        where: { slug: electedOffice.organizationSlug },
+        select: { officeIdentityChangedAt: true },
+      })
       const futureBriefing = await this.model.findFirst({
-        where: { electedOfficeId, meetingDate: { gte: now } },
+        where: {
+          electedOfficeId,
+          meetingDate: { gte: now },
+          ...(org?.officeIdentityChangedAt
+            ? { createdAt: { gte: org.officeIdentityChangedAt } }
+            : {}),
+        },
         select: { id: true },
       })
       if (futureBriefing) return { dispatched: false }
@@ -620,8 +634,22 @@ export class MeetingBriefingsService extends createPrismaBase(
     const ctx = await this.resolveDispatchContext(electedOffice)
     const now = new Date()
 
+    // Scoped to the office-identity cutoff so this preview reports the same
+    // gate result dispatchManual would actually apply — otherwise a
+    // pre-cutoff briefing would show as coverage for a jurisdiction the org
+    // no longer holds.
+    const org = await this.client.organization.findUnique({
+      where: { slug: electedOffice.organizationSlug },
+      select: { officeIdentityChangedAt: true },
+    })
     const futureBriefing = await this.model.findFirst({
-      where: { electedOfficeId, meetingDate: { gte: now } },
+      where: {
+        electedOfficeId,
+        meetingDate: { gte: now },
+        ...(org?.officeIdentityChangedAt
+          ? { createdAt: { gte: org.officeIdentityChangedAt } }
+          : {}),
+      },
       orderBy: { meetingDate: Prisma.SortOrder.asc },
       select: { meetingDate: true },
     })
@@ -668,6 +696,16 @@ export class MeetingBriefingsService extends createPrismaBase(
     if (run.status !== ExperimentRunStatus.COMPLETED) return
 
     if (run.experimentType === BRIEFING_EXPERIMENT_TYPE) {
+      // A briefing dispatched before the office change but completing after
+      // it describes a jurisdiction the holder no longer sits on. "Briefings
+      // are kept in full" (see AGENTS.md) covers rows that already existed
+      // at the moment of the change — it is not a licence for a new one to
+      // land afterward. Skipping here also stops writeBriefingRowFromArtifact
+      // from inserting a row whose createdAt is post-cutoff (which would
+      // falsely satisfy the coverage dedupe below) and stops
+      // persistAgendaLocationFromArtifact from re-creating the AGENDA hint
+      // the invalidation just deleted.
+      if (await this.predatesOfficeIdentityChange(run)) return
       await this.handleBriefingCompletion(run)
       return
     }
@@ -682,10 +720,13 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
   }
 
-  // A schedule run belongs to the OLD office identity if it was created
-  // before the org's officeIdentityChangedAt stamp. Persisting its hint
-  // would re-poison the SCHEDULE MeetingResourceLocation the invalidation
-  // just deleted, seeding the next dispatch with the old city's portal.
+  // A run belongs to the OLD office identity if it was created before the
+  // org's officeIdentityChangedAt stamp. For a schedule run, persisting its
+  // hint would re-poison the SCHEDULE MeetingResourceLocation the
+  // invalidation just deleted, seeding the next dispatch with the old
+  // city's portal. For a briefing run, completing it would land a fresh row
+  // that falsely satisfies the coverage dedupe and re-poison the AGENDA hint
+  // the same way.
   private async predatesOfficeIdentityChange(
     run: ExperimentRun,
   ): Promise<boolean> {
@@ -698,11 +739,12 @@ export class MeetingBriefingsService extends createPrismaBase(
     this.logger.info(
       {
         runId: run.runId,
+        experimentType: run.experimentType,
         organizationSlug: run.organizationSlug,
         runCreatedAt: run.createdAt,
         officeIdentityChangedAt: cutoff,
       },
-      'schedule_run_predates_office_change: skipping persistence',
+      'run_predates_office_change: skipping completion handling',
     )
     return true
   }
@@ -1052,7 +1094,10 @@ export class MeetingBriefingsService extends createPrismaBase(
     // In-flight dedupe: a briefing run for this office was already dispatched
     // and hasn't completed yet (no MeetingBriefing row exists yet to catch
     // above). Without this, calling the on-demand path repeatedly while a
-    // cron-dispatched run is still processing would double-dispatch.
+    // cron-dispatched run is still processing would double-dispatch. Scoped
+    // to the office-identity cutoff like the coverage dedupe above — an
+    // in-flight run from before the change belongs to the OLD identity and
+    // must not block the new office's dispatch.
     const inFlightRun = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug: eo.organizationSlug,
@@ -1064,6 +1109,9 @@ export class MeetingBriefingsService extends createPrismaBase(
             ExperimentRunStatus.AWAITING_RESUME,
           ],
         },
+        ...(org?.officeIdentityChangedAt
+          ? { createdAt: { gte: org.officeIdentityChangedAt } }
+          : {}),
       },
       select: { params: true },
     })

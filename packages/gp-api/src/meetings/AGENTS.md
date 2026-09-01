@@ -229,6 +229,21 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
   `ElectedOffice`, and Prisma field references only compare fields on the
   same model. It fetches each candidate's future briefings and its org's
   cutoff, then filters in JS before the per-office loop.
+  `onExperimentRunCompleted` applies the same predates-cutoff skip to a
+  `meeting_briefing` run, not just `meeting_schedule` — a briefing
+  dispatched before the change but completing after it would otherwise
+  land a row whose `createdAt` is post-cutoff (falsely satisfying the
+  coverage dedupe above) and re-create the AGENDA `MeetingResourceLocation`
+  the invalidation just deleted. "Briefings are kept in full" only covers
+  rows that already existed at the moment of the change, not new ones
+  landing from stale runs afterward. `dispatchBriefingIfNeeded`'s in-flight
+  dedupe is cutoff-scoped too, for the same reason as its coverage dedupe:
+  a briefing run still queued/running from before the change belongs to
+  the OLD identity and must not block the new office's dispatch.
+  `dispatchManual`'s gated coverage check (`useImminenceGate: true`, which
+  claims to match the cron exactly) and `previewManualDispatch`'s
+  equivalent lookup are both cutoff-scoped as well, so the admin dispatch
+  endpoint and its preview agree with the cron and with each other.
 
 ## Pointer table
 

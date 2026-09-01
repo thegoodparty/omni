@@ -535,6 +535,73 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     expect(row?.artifact?.location).toBe('Council Chambers')
   })
 
+  // A briefing dispatched before the office change but completing after it
+  // describes the OLD jurisdiction. Landing the row would falsely satisfy
+  // the createdAt-scoped coverage dedupe, and persisting the AGENDA hint
+  // would re-poison what the invalidation just deleted.
+  it('skips briefing completion entirely for a pre-cutoff run', async () => {
+    const orgSlug = `eo-briefing-precutoff-${Date.now()}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'stale-briefing.json',
+        params: { elected_office_id: eo.id },
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    mockS3({
+      'stale-briefing.json': JSON.stringify({
+        briefing_status: 'briefing_ready',
+        meeting_date: '2026-06-08',
+        meeting_time: '19:00',
+        meeting_timezone: 'America/Chicago',
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        run_metadata: {
+          discovered_agenda_location: 'https://old-city.example.gov/agendas',
+        },
+      }),
+    })
+    await service.prisma.organization.update({
+      where: { slug: orgSlug },
+      data: { officeIdentityChangedAt: subDays(new Date(), 1) },
+    })
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(briefingRun)
+
+    const row = await service.prisma.meetingBriefing.findUnique({
+      where: {
+        electedOfficeId_meetingDate: {
+          electedOfficeId: eo.id,
+          meetingDate: new Date('2026-06-08'),
+        },
+      },
+    })
+    expect(row).toBeNull()
+
+    const agendaLocation =
+      await service.prisma.meetingResourceLocation.findUnique({
+        where: {
+          electedOfficeId_type: {
+            electedOfficeId: eo.id,
+            type: MeetingResourceLocationType.AGENDA,
+          },
+        },
+      })
+    expect(agendaLocation).toBeNull()
+  })
+
   it('does not write a row when meeting_time is missing or malformed', async () => {
     const orgSlug = `eo-bad-time-${Date.now()}`
     await service.prisma.organization.create({
@@ -1589,6 +1656,37 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
     expect(result.meetingDate).toBe('2099-01-01')
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
+
+  // An in-flight run from before the office-identity change belongs to the
+  // OLD identity and must not block the new office's dispatch — same
+  // reasoning as the coverage dedupe covered separately below.
+  it('does not let a pre-cutoff in-flight run block dispatch (on-demand path)', async () => {
+    const orgSlug = `eo-inflight-cutoff-${Date.now()}`
+    const eo = await seedEligibleOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.RUNNING,
+        params: { meetingDate: '2099-01-01' },
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.organization.update({
+      where: { slug: orgSlug },
+      data: { officeIdentityChangedAt: subDays(new Date(), 1) },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    const result = await service.app
+      .get(MeetingBriefingsService)
+      .dispatchBriefingIfDue(eo)
+
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('MeetingBriefingsService — office-identity cutoff coverage dedupe', () => {
@@ -1876,6 +1974,62 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       isServeIcp: true,
     })
     await seedScheduleForOrg(orgSlug)
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'manual-dispatch-run' } as ExperimentRun)
+
+    const result = await service.app
+      .get(MeetingBriefingsService)
+      .dispatchManual(eo.id, 'briefing', true)
+
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
+    )
+  })
+
+  // This path claims to "match the daily cron exactly", so it must apply
+  // the same cutoff-scoped coverage dedupe dispatchBriefingIfNeeded does —
+  // a pre-cutoff briefing describes the OLD jurisdiction and must not
+  // suppress dispatch for the new one.
+  it('gated dispatch is not suppressed by a pre-cutoff future briefing', async () => {
+    const orgSlug = `eo-manual-gate-cutoff-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-gate-cutoff' })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const staleRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: new Date('2099-12-31'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: staleRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'stale.json',
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.organization.update({
+      where: { slug: orgSlug },
+      data: { officeIdentityChangedAt: subDays(new Date(), 1) },
+    })
+
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'manual-dispatch-run' } as ExperimentRun)
