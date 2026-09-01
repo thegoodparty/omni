@@ -501,7 +501,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   // that connected. The claim CAS makes it single-owner and idempotent.
   async failSend(
     outreachId: number,
-    reason: 'staging' | 'send',
+    reason: 'staging' | 'send' | 'expired_unstaged',
   ): Promise<void> {
     const draft = await this.findFirst({
       where: { outreachId },
