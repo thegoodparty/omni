@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
+import { outreachDetailQueryPrefix } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SidebarProvider } from '@styleguide'
 import {
@@ -554,6 +557,94 @@ describe('OrganizationPicker', () => {
       EVENTS.OrgSwitcher.RunForOfficeClicked,
       { intent: 'new-office' },
     )
+  })
+})
+
+describe('org-switch query invalidation', () => {
+  const DETAIL_KEY = [...outreachDetailQueryPrefix, 1553]
+
+  const QueryProbe = ({
+    queryKey,
+    queryFn,
+  }: {
+    queryKey: (string | number)[]
+    queryFn: () => Promise<string>
+  }) => {
+    useQuery({ queryKey, queryFn, staleTime: 5 * 60 * 1000 })
+    return null
+  }
+
+  const renderWithProbes = (probes: ReactNode) => {
+    api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
+    return render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs}>
+          <OrganizationPicker />
+          {probes}
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+  }
+
+  it('marks outreach-detail queries stale WITHOUT refetching, while other per-org queries refetch (ENG-10991)', async () => {
+    const user = userEvent.setup()
+    const detailFn = vi.fn(async () => 'serve-detail')
+    const otherFn = vi.fn(async () => 'per-org-data')
+
+    renderWithProbes(
+      <>
+        <QueryProbe queryKey={DETAIL_KEY} queryFn={detailFn} />
+        <QueryProbe queryKey={['per-org-data']} queryFn={otherFn} />
+      </>,
+    )
+
+    await waitFor(() => {
+      expect(detailFn).toHaveBeenCalledTimes(1)
+      expect(otherFn).toHaveBeenCalledTimes(1)
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(otherFn).toHaveBeenCalledTimes(2)
+    })
+    expect(detailFn).toHaveBeenCalledTimes(1)
+    expect(testQueryClient.getQueryState(DETAIL_KEY)?.isInvalidated).toBe(true)
+  })
+
+  it('refetches a stale outreach-detail query when its observer remounts after the switch', async () => {
+    const user = userEvent.setup()
+    const detailFn = vi.fn(async () => 'serve-detail')
+    const probe = <QueryProbe queryKey={DETAIL_KEY} queryFn={detailFn} />
+
+    const view = renderWithProbes(probe)
+
+    await waitFor(() => {
+      expect(detailFn).toHaveBeenCalledTimes(1)
+    })
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+    expect(detailFn).toHaveBeenCalledTimes(1)
+
+    const remount = (probes: ReactNode) =>
+      view.rerender(
+        <SidebarProvider>
+          <OrganizationProvider initialOrganizations={orgs}>
+            <OrganizationPicker />
+            {probes}
+          </OrganizationProvider>
+        </SidebarProvider>,
+      )
+    remount(null)
+    remount(probe)
+
+    // staleTime is 5 minutes, so this second fetch can only be the
+    // invalidation — remounting a fresh query would serve from cache.
+    await waitFor(() => {
+      expect(detailFn).toHaveBeenCalledTimes(2)
+    })
   })
 })
 

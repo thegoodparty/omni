@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
+import { outreachDetailQueryPrefix } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { useSelectedOrgSlug } from '@shared/hooks/useSelectedOrgSlug'
@@ -126,10 +127,21 @@ export const OrganizationProvider = ({
       // neither changes when switching between orgs (the org list doesn't
       // change, and eligibility is per-user). Invalidating the org list also
       // causes a brief flash where nav items disappear while it refetches.
+      // Outreach detail queries are id-addressed rows of the org we're
+      // leaving: their observers are still mounted at this instant (the page
+      // unmounts only after router.push), so a refetching invalidate would
+      // replay each id under the NEW org's slug header — guaranteed 404s
+      // (ENG-10991). Mark them stale without refetching; a later remount
+      // under the right org refetches fresh.
       void queryClient.invalidateQueries({
         predicate: (query) =>
           query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
-          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0],
+          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0] &&
+          query.queryKey[0] !== outreachDetailQueryPrefix[0],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: outreachDetailQueryPrefix,
+        refetchType: 'none',
       })
     },
     [queryClient],
