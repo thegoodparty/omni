@@ -10,7 +10,17 @@ export interface LlmImageUrlPart {
   image_url: { url: string; detail?: 'auto' | 'low' | 'high' }
 }
 
-export type LlmUserContentPart = LlmTextPart | LlmImageUrlPart
+// A raw file (e.g. a PDF) handed to the model as a document part. The
+// Anthropic provider reads PDFs with vision, scanned pages included — this
+// is deliberately narrower than the AI SDK's own FilePart (no URL variant,
+// no filename) since every current caller has the bytes in hand already.
+export interface LlmFilePart {
+  type: 'file'
+  data: Uint8Array
+  mediaType: string
+}
+
+export type LlmUserContentPart = LlmTextPart | LlmImageUrlPart | LlmFilePart
 
 export interface LlmToolCall {
   id: string

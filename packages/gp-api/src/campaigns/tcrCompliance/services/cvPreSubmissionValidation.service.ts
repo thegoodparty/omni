@@ -62,7 +62,7 @@ export type CvPreSubmissionValidationResult =
   | { outcome: 'transient' }
 
 type FilingPageFetchResult =
-  | { kind: 'ok'; text: string }
+  | { kind: 'ok'; text: string; pdfBody: Buffer | null }
   | { kind: 'http_error'; status: number }
   | { kind: 'network_error' }
 
@@ -233,6 +233,16 @@ const UNREADABLE_PAGE_REASON =
   'found — a scanned PDF with no text layer, or a page that renders via ' +
   'JavaScript with no server-rendered content); staff review needed'
 
+// Above this, skip the vision pass entirely rather than inline a large
+// document into the completion request — a scanned filing affidavit is a
+// handful of pages, so a PDF past this size is not the case this fallback
+// exists for.
+const MAX_VISION_PDF_BYTES = 4 * 1024 * 1024
+
+const OVERSIZED_SCANNED_PDF_REASON =
+  'The filing PDF has no readable text and is too large (over 4MB) for ' +
+  'automated visual review; staff review needed'
+
 // Fetch-then-LLM pre-submission gate for the filing URL / candidate name
 // CampaignVerify will check (ENG-10965). Cheap deterministic checks (URL
 // parses, hostname isn't an obvious junk source) run first and never touch
@@ -324,7 +334,14 @@ export class CvPreSubmissionValidationService {
     }
 
     if (fetchResult.text.length < MIN_READABLE_TEXT_CHARS) {
-      return { outcome: 'failed', reasons: [UNREADABLE_PAGE_REASON] }
+      if (!fetchResult.pdfBody) {
+        return { outcome: 'failed', reasons: [UNREADABLE_PAGE_REASON] }
+      }
+      return this.validateScannedPdfWithVision(
+        fetchResult.pdfBody,
+        submissionName,
+        filingUrl,
+      )
     }
 
     const pageContent = buildLlmPageContent(fetchResult.text, submissionName)
@@ -385,11 +402,14 @@ export class CvPreSubmissionValidationService {
 
     const body = Buffer.from(response.data)
     const contentType = response.headers['content-type']
-    const text = await this.extractPageText(
-      body,
-      typeof contentType === 'string' ? contentType : null,
-    )
-    return { kind: 'ok', text }
+    const normalizedContentType =
+      typeof contentType === 'string' ? contentType : null
+    const text = await this.extractPageText(body, normalizedContentType)
+    return {
+      kind: 'ok',
+      text,
+      pdfBody: isPdfBody(normalizedContentType, body) ? body : null,
+    }
   }
 
   private async extractPageText(
@@ -435,6 +455,80 @@ export class CvPreSubmissionValidationService {
           pageText,
           '"""',
         ].join('\n'),
+      },
+    ]
+  }
+
+  // A scanned PDF whose text layer is empty or OCR garbage still has real
+  // content a vision-capable model can read directly off the page images
+  // (Claude's document support). Runs the same three-check verdict as the
+  // text path, with the PDF attached instead of extracted text.
+  private async validateScannedPdfWithVision(
+    pdfBody: Buffer,
+    submissionName: string,
+    filingUrl: string,
+  ): Promise<CvPreSubmissionValidationResult> {
+    if (pdfBody.byteLength > MAX_VISION_PDF_BYTES) {
+      return {
+        outcome: 'failed',
+        reasons: [OVERSIZED_SCANNED_PDF_REASON],
+      }
+    }
+
+    try {
+      const { object: verdict } = await this.llm.jsonCompletion({
+        messages: this.buildVisionMessages(pdfBody, submissionName, filingUrl),
+        schema: CvPreSubmissionVerdictSchema,
+        temperature: 0,
+        maxTokens: 512,
+      })
+      if (
+        verdict.urlAcceptable &&
+        verdict.nameFound &&
+        verdict.filingEvidenced
+      ) {
+        return { outcome: 'passed' }
+      }
+      return { outcome: 'failed', reasons: verdict.reasons }
+    } catch (err) {
+      // The PDF genuinely couldn't be machine-read (text layer empty and
+      // vision failed too) — this is the pre-phase-2 unreadable hold, not a
+      // transient vendor blip. Never let a vision failure become an
+      // infinite retry.
+      this.logger.warn(
+        { err, filingUrl },
+        '[CV pre-submission] vision verdict failed; holding as unreadable',
+      )
+      return { outcome: 'failed', reasons: [UNREADABLE_PAGE_REASON] }
+    }
+  }
+
+  private buildVisionMessages(
+    pdfBody: Buffer,
+    submissionName: string,
+    filingUrl: string,
+  ): LlmMessage[] {
+    return [
+      { role: 'system', content: SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: [
+              `Candidate name: ${submissionName}`,
+              `Filing URL: ${filingUrl}`,
+              'The filing page is a PDF with no extractable text layer ' +
+                '(likely a scanned document) — it is attached below. Read ' +
+                'it visually to make the same three checks.',
+            ].join('\n'),
+          },
+          {
+            type: 'file',
+            data: new Uint8Array(pdfBody),
+            mediaType: MimeTypes.APPLICATION_PDF,
+          },
+        ],
       },
     ]
   }
