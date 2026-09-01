@@ -22,7 +22,6 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                          |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                          |
 | `util/effectiveUser.util.ts`             | Resolves the "acting as" user when admins impersonate                                           |
-| `providers/clerk-client.provider.ts`     | Constructs the Clerk SDK client                                                                 |
 
 ## Patterns
 
