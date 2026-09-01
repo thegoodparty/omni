@@ -135,6 +135,10 @@ describe('POST /v1/outreach/social/draft', () => {
     // One representative sentence per purpose (not a full-string pin —
     // brittle to whitespace); the source of truth is WIN_PURPOSE_PROMPTS.
     const sentences: Record<string, string> = {
+      introduce_myself:
+        'Structure: an opening hook line, 2-3 ' +
+        "sentences drawing from bio and why-they're-running, one sentence " +
+        'naming a top priority, then a closing call to action to vote for them.',
       persuade_voters:
         'Structure: an opening line naming the stakes or a shared ' +
         "concern, 2-3 sentences connecting the candidate's platform to " +
