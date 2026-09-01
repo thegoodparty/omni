@@ -33,7 +33,6 @@ import Image from 'next/image'
 import { useUser } from '@shared/hooks/useUser'
 import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
@@ -68,7 +67,6 @@ import {
   OrganizationPicker,
   useOrganization,
 } from '@shared/organization-picker'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useServeOutreachFlag } from '@shared/experiments/serveOutreachFlag'
 
 interface MenuItem {
@@ -252,7 +250,7 @@ const ORDINANCES_MENU_ITEM: MenuItem = {
 
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
-  label: NAV_LABELS.campaignPlan,
+  label: NAV_LABELS.campaignTracker,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
   v2Icon: NAV_HEADER_ICONS.scroll,
@@ -281,8 +279,6 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
-  campaignStrategyExists: boolean,
-  campaignStoryEnabled: boolean,
   serveOutreachEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
@@ -346,27 +342,10 @@ export const getDashboardMenuItems = (
     (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
 
-  // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
-  // — the cached campaign object gets overwritten by responses that lack that
-  // computed field (see useCampaignStrategyExists). Campaign-story users see
-  // the tab even before a plan exists: it hosts the "complete your story to
-  // generate a plan" gate.
-  if (campaignStrategyExists || campaignStoryEnabled) {
-    // The story cohort gets the campaign tracker on this page, so label it as
-    // such; the legacy (story-off) cohort still sees the plan content there.
-    menuItems.splice(afterCampaignManager, 0, {
-      ...CAMPAIGN_PLAN_MENU_ITEM,
-      label: campaignStoryEnabled
-        ? NAV_LABELS.campaignTracker
-        : CAMPAIGN_PLAN_MENU_ITEM.label,
-    })
-  }
-
-  // Story-cohort users get a "Your story" tab just above the tracker (the story
-  // is what the tracker + plan are generated from).
-  if (campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
-  }
+  // The campaign tracker tab, and the "Your story" tab just above it (the
+  // story is what the tracker + plan are generated from).
+  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
+  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
@@ -391,30 +370,18 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
-  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so
-  // don't track exposure here.
-  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Constituent Outreach tab; the page's
   // FeatureFlagGuard is the treatment surface.
   const { enabled: serveOutreachEnabled } = useServeOutreachFlag(false)
-  const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(
     () =>
       getDashboardMenuItems(
         !!electedOffice,
         isElectedOfficeLoading,
-        campaignStrategyExists,
-        campaignStoryEnabled,
         serveOutreachEnabled,
       ),
-    [
-      electedOffice,
-      isElectedOfficeLoading,
-      campaignStrategyExists,
-      campaignStoryEnabled,
-      serveOutreachEnabled,
-    ],
+    [electedOffice, isElectedOfficeLoading, serveOutreachEnabled],
   )
 
   useEffect(() => {

@@ -4,11 +4,10 @@ import { getServerUser } from 'helpers/userServerHelper'
 import { serverRequest } from 'gpApi/server-request'
 import CampaignPlanRouter from './components/CampaignPlanRouter'
 
-// Same source of truth as the sidebar tab (useCampaignStrategyExists): the
-// dedicated existence endpoint, not a field on the campaign payload. Fails
-// closed — an error reads as "no plan", matching the legacy server-redirect
-// behavior (legacy users redirect to /dashboard; campaign-story users see the
-// gate).
+// The dedicated existence endpoint, not a field on the campaign payload.
+// Fails closed — an error reads as "no plan", so CampaignPlanRouter falls
+// through to the story-completeness gate rather than a tracker that can't
+// populate.
 const strategyExists = async (): Promise<boolean> => {
   try {
     const res = await serverRequest('GET /v1/campaignStrategy/mine/exists', {})

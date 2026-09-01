@@ -26,19 +26,13 @@ import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { numberFormatter } from 'helpers/numberHelper'
 import type { Campaign } from 'helpers/types'
-import { prewarmCommunityEvents } from '../success/hooks/useCommunityEvents'
 import { prewarmStrategicLandscape } from '../success/hooks/useStrategicLandscape'
-import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import {
   ONBOARDING_STEPS,
   firstOnboardingStepId,
   isStoryStepId,
 } from './onboardingConfig'
-import {
-  getVisibleOnboardingSteps,
-  resolvePostPledgeRoute,
-} from './onboardingHelpers'
+import { getVisibleOnboardingSteps } from './onboardingHelpers'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { ManualOfficeEntryStep } from './ManualOfficeEntryStep'
 import { PathToVictoryStep } from './PathToVictoryStep'
@@ -408,30 +402,7 @@ export default function OnboardingFlow({
   const [contextCampaign] = useCampaign()
   const campaign = contextCampaign ?? initialCampaign
   const [user] = useUser()
-  // Gates the post-pledge Campaign Plan flow. When off, we skip the LLM
-  // pre-warm calls and route the candidate directly to /dashboard after
-  // pledge instead of /onboarding/success.
-  const { ready: campaignStrategyReady, enabled: campaignStrategyEnabled } =
-    useCampaignStrategyFlag()
-  // Campaign-story users don't auto-generate a plan during onboarding: they
-  // write their Campaign Story first, then generate from it. So we skip the
-  // pre-warm and route them to the story page instead of /onboarding/success.
-  // trackExposure=false: onboarding only reads the flag for routing, it's not
-  // the treatment surface (the story page is), so the read mustn't fire
-  // exposure for every onboarding visitor.
-  const { ready: campaignStoryReady, enabled: campaignStoryEnabled } =
-    useCampaignStoryFlag(false)
-  // The campaign-story step lives in the static config but only for the story
-  // cohort. Inject it (flag-gated) into the array getVisibleOnboardingSteps
-  // filters, so the stepper count and back/forward navigation stay correct.
-  const [welcomeStep, ...laterOnboardingSteps] = ONBOARDING_STEPS
-  const effectiveSteps: NonEmptyArray<OnboardingStepConfig> =
-    campaignStoryEnabled
-      ? ONBOARDING_STEPS
-      : [
-          welcomeStep,
-          ...laterOnboardingSteps.filter((step) => !isStoryStepId(step.id)),
-        ]
+  const effectiveSteps: NonEmptyArray<OnboardingStepConfig> = ONBOARDING_STEPS
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -447,9 +418,7 @@ export default function OnboardingFlow({
   // campaign and leave the draft stuck in its error state by the time they
   // arrive. Fetching on entry to the first story step mirrors the old
   // mount-time fetch.
-  const storyDraft = useOnboardingStoryDraft(
-    campaignStoryEnabled && isStoryStepId(activeStepId),
-  )
+  const storyDraft = useOnboardingStoryDraft(isStoryStepId(activeStepId))
   const [isPersistingStory, setIsPersistingStory] = useState(false)
   // True while a story card is mid-dictation; blocks Continue so advancing
   // can't persist before an in-flight transcript lands.
@@ -522,22 +491,11 @@ export default function OnboardingFlow({
     liveCampaign?.organization?.customPositionName ||
     liveCampaign?.office ||
     null
-  // Block the pledge step's Continue until both plan flags resolve — routing
-  // post-pledge depends on them, and reading them mid-init would default to
-  // false and misroute (e.g. a campaign-story user sent to /onboarding/success
-  // and into the pre-warm they're excluded from).
-  const pledgeFlagsReady =
-    activeStep.id !== 'pledge' || (campaignStrategyReady && campaignStoryReady)
   const canContinue =
     isActiveStepValid &&
     !isSavingOffice &&
     !isP2vBlocking &&
-    !isOfficeHydrationBlocking &&
-    // Hold Continue until the story flag resolves so effectiveSteps is stable
-    // (story step present) before the candidate can advance past it. Otherwise
-    // a slow flag load drops the step and they never see it.
-    campaignStoryReady &&
-    pledgeFlagsReady
+    !isOfficeHydrationBlocking
 
   const handleP2vLoadingChange = useCallback((loading: boolean) => {
     setIsP2vLoading(loading)
@@ -698,7 +656,7 @@ export default function OnboardingFlow({
     // Skipping jumps straight from a story step to the pledge, so Back from the
     // pledge must return to the story question the candidate left unanswered —
     // not step them back through each story question one at a time.
-    if (activeStep.id === 'pledge' && campaignStoryEnabled) {
+    if (activeStep.id === 'pledge') {
       setActiveStepId(firstUnansweredStoryStepId())
       return
     }
@@ -1030,32 +988,6 @@ export default function OnboardingFlow({
         })
         const ok = await persistStructuredOffice(answers.structuredOffice)
         if (!ok) return
-        // Pre-warm the success-page LLM sections now that raceId +
-        // electionDate are persisted. Both endpoints poll on mount, but
-        // firing here gives them a ~15-90s head start so sections are usually
-        // ready by the time the user lands. Fire-and-forget — both helpers
-        // swallow errors and gp-api dedupes via the per-pod inFlight slot, so
-        // pre-warm + success-page mount collapse to a single LLM run.
-        //
-        // Gated on the strategy-only cohort (campaign-strategy on,
-        // campaign-story off): they land on the legacy success page. No point
-        // spending Gemini calls for campaign-story users (who generate on
-        // demand after their story, and whose events come from the tracker)
-        // or flag-off users (routed straight to /dashboard).
-        if (campaignStrategyEnabled && !campaignStoryEnabled) {
-          // These prewarm calls are the real first request for the strategic
-          // landscape and community events, so the `Requested` events fire
-          // here (not on the success page, which only re-polls afterward).
-          const planCampaignId = liveCampaign?.id ?? campaign?.id
-          trackEvent(EVENTS.OnboardingV2.StrategicLandscapeRequested, {
-            campaignId: planCampaignId,
-          })
-          trackEvent(EVENTS.OnboardingV2.CommunityEventsRequested, {
-            campaignId: planCampaignId,
-          })
-          void prewarmStrategicLandscape()
-          void prewarmCommunityEvents()
-        }
         router.refresh()
       } finally {
         setIsSavingOffice(false)
@@ -1108,16 +1040,9 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Campaign-story users land on the Campaign Manager home, whose chat
-      // opens with the story intake (the plan + tracker are generated from
-      // the story later). Otherwise: campaign-strategy on →
-      // /onboarding/success (legacy LLM plan); off → /dashboard (legacy).
-      router.push(
-        resolvePostPledgeRoute({
-          campaignStoryEnabled,
-          campaignStrategyEnabled,
-        }),
-      )
+      // Lands on the Campaign Manager home, whose chat opens with the story
+      // intake (the plan + tracker are generated from the story later).
+      router.push('/dashboard')
       return
     }
     if (nextStep) {
@@ -1421,9 +1346,7 @@ export default function OnboardingFlow({
               {nextStep
                 ? 'Continue'
                 : activeStep.id === 'pledge'
-                  ? campaignStoryEnabled
-                    ? 'Meet your campaign manager'
-                    : 'Agree & Create My Plan'
+                  ? 'Meet your campaign manager'
                   : 'Complete'}
             </Button>
           )}

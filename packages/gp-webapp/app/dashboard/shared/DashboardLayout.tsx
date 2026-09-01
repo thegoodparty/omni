@@ -27,7 +27,6 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 
 export interface DashboardNavHeaderConfig {
@@ -186,20 +185,13 @@ const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
-const getMobilePageTitle = (
-  pathname: string | null,
-  campaignStoryEnabled: boolean,
-): string | null => {
+const getMobilePageTitle = (pathname: string | null): string | null => {
   if (!pathname) return null
-  // Exact matches, ahead of the table: a '/dashboard' entry in it would prefix-
-  // match (and mistitle) every dashboard subroute that isn't listed, and the
-  // plan tab's name depends on the campaign-story flag exactly as it does in
-  // DashboardMenu.
+  // Exact matches, ahead of the table: a '/dashboard' entry in it would
+  // prefix-match (and mistitle) every dashboard subroute that isn't listed.
   if (pathname === '/dashboard') return NAV_LABELS.campaignManager
   if (pathname === '/dashboard/campaign-plan') {
-    return campaignStoryEnabled
-      ? NAV_LABELS.campaignTracker
-      : NAV_LABELS.campaignPlan
+    return NAV_LABELS.campaignTracker
   }
   for (const [prefix, title] of MOBILE_PAGE_TITLES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return title
@@ -215,15 +207,12 @@ const MobileMenuTrigger = () => {
   // (useWinVoterContext) so the header and content always agree — and wait for
   // isReady so a Win user never flashes "Constituent Data" during load.
   const { isWin, isReady } = useWinVoterContext()
-  // Same trackExposure=false read DashboardMenu uses to label the plan tab —
-  // the mobile title must not disagree with the sidebar item it mirrors.
-  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   const pageTitle =
     pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
-      : getMobilePageTitle(pathname, campaignStoryEnabled)
+      : getMobilePageTitle(pathname)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

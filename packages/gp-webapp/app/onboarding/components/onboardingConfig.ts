@@ -128,10 +128,10 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
 
 export const firstOnboardingStepId = ONBOARDING_STEPS[0].id
 
-// The three Campaign Story steps, in order. Grouped so the flag-gated injection,
-// the follow-on filter, and OnboardingFlow's per-step branching all agree on
-// what counts as a story step. `campaign-story-issues` is the final one (its
-// Continue persists all three answers).
+// The three Campaign Story steps, in order. Grouped so the follow-on filter
+// and OnboardingFlow's per-step branching all agree on what counts as a story
+// step. `campaign-story-issues` is the final one (its Continue persists all
+// three answers).
 export const STORY_STEP_IDS = [
   'campaign-story-why',
   'campaign-story-background',

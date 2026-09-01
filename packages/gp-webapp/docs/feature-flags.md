@@ -45,13 +45,13 @@ While the flag is loading, the guard renders a centered spinner. While the flag 
 
 ## Per-flag wrapper hooks
 
-When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/campaignStoryFlag.ts`:
+When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/serveCrmFlag.ts`:
 
 ```ts
-export const CAMPAIGN_STORY_FLAG_KEY = 'campaign-story'
+export const SERVE_CRM_FLAG_KEY = 'serve-crm'
 
-export const useCampaignStoryFlag = (trackExposure = true) => {
-  const { ready, on } = useFlagOn(CAMPAIGN_STORY_FLAG_KEY, { trackExposure })
+export const useServeCrmFlag = (trackExposure = true) => {
+  const { ready, on } = useFlagOn(SERVE_CRM_FLAG_KEY, { trackExposure })
   return { ready, enabled: on }
 }
 ```
@@ -66,7 +66,7 @@ The SSR seed is resolved for the authenticated user by gp-api. Client-side, the 
 
 ## E2E overrides
 
-Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `enableCampaignStoryFlag(page)` (`e2e-tests/src/helpers/campaignStory.helper.ts`).
+Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `setFlagOverrides(page, { 'serve-crm': 'on' })` (`e2e-tests/src/helpers/campaignStory.helper.ts`), or a per-flag wrapper like `enableCrmFlags` (`e2e-tests/src/helpers/crm-contacts-e2e.ts`).
 
 It's honored on every environment **except production** (`process.env.VERCEL_ENV === 'production'` — Vercel's reserved runtime var, not the unreliable `NEXT_PUBLIC_VERCEL_TARGET_ENV`), read only from a cookie, and schema-validated. Flags gate UX, not authz, so the off-prod blast radius is the requester's own gated UI.
 

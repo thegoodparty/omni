@@ -69,13 +69,10 @@ already round-trips through `Website.content.about`.
 
 ## Patterns
 
-- **Gated behind the `campaign-story` Amplitude flag** (`useCampaignStoryFlag()`,
-  `@shared/experiments/campaignStoryFlag.ts`). No route or sidebar item reads it
-  directly anymore. It now drives the onboarding step config
-  (`onboardingConfig.ts` / `OnboardingFlow.tsx`), the plan tab's routing and
-  "Campaign Tracker" label (`CampaignPlanRouter.tsx`, `CampaignPlanView.tsx`,
-  `DashboardMenu.tsx`), and the story-completeness gate
-  (`CampaignPlanStoryGate`).
+- **Always on** — the onboarding story steps, the "Your story" dashboard page,
+  the plan tab's "Campaign Tracker" label and routing (`CampaignPlanRouter.tsx`,
+  `CampaignPlanView.tsx`, `DashboardMenu.tsx`), and the story-completeness gate
+  (`CampaignPlanStoryGate`) all run unconditionally now — there is no flag.
 - **Persistence (background).** Consumers (the onboarding story draft, the
   "Your story" page, `CampaignPlanStoryGate`) read the story client-side via
   `useCampaignStory()` (`GET /v1/campaigns/mine/story`) and write via
@@ -173,10 +170,8 @@ already round-trips through `Website.content.about`.
   `StoryIssuesCard`, `StoryFieldBar`) used by both onboarding (deferred, one save
   on leaving the story) and the `/dashboard/campaign-story` page (single header
   Save + Start over) — see `app/onboarding/CLAUDE.md`.
-- `app/shared/experiments/campaignStoryFlag.ts` — flag wrapper hook + key.
-- `app/dashboard/shared/DashboardMenu.tsx` — reads the flag to label the plan
-  tab "Campaign Tracker" for the story cohort. No dedicated sidebar entry for
-  Campaign Story exists anymore.
+- `app/dashboard/shared/DashboardMenu.tsx` — always labels the plan tab
+  "Campaign Tracker" and always renders the "Your story" sidebar entry.
 - `app/dashboard/campaign-plan/components/CampaignPlanStoryGate.tsx` — reads
   the story + website to gate/preview the plan tab before generation.
 - `packages/gp-api/src/campaignStory/` — `campaign_story` table (`background`,
