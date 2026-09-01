@@ -1,10 +1,15 @@
 import { Test } from '@nestjs/testing'
 import { LoggerModule } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
+import { CLERK_API_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { PrismaService } from '@/prisma/prisma.service'
 import { ClerkUserEnricherService } from './clerk-user-enricher.service'
+
+// Stands in for a Clerk call that never settles, so the only way the
+// caller can proceed is the timeout.
+const hangForever = <T>(): Promise<T> => new Promise(() => undefined)
 
 vi.mock('@/vendors/clerk/util/clerkThrottle.util', () => ({
   clerkThrottle: <T>(fn: () => Promise<T>) => fn(),
@@ -369,6 +374,113 @@ describe('ClerkUserEnricherService', () => {
 
       expect(enriched).toEqual(dbUser)
       expect(getUser).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Clerk API timeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('gives up on a hung getUser and degrades like a fetch failure', async () => {
+      getUser.mockReturnValue(hangForever())
+
+      const dbUser = {
+        id: 600,
+        clerkId: 'user_hang',
+        email: 'keep@goodparty.org',
+        firstName: 'Keep',
+        lastName: 'Me',
+        avatar: 'https://legacy/z.png',
+      }
+
+      const pending = enricher.enrichUser(dbUser)
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      const enriched = await pending
+
+      expect(enriched.firstName).toBe('Keep')
+      expect(enriched.email).toBe('keep@goodparty.org')
+      expect(enriched.avatar).toBe(null)
+    })
+
+    it('gives up on a hung getUserList in bulk enrichment', async () => {
+      getUserList.mockReturnValue(hangForever())
+
+      const dbUser = {
+        id: 601,
+        clerkId: 'user_hang_bulk',
+        email: 'bulk@goodparty.org',
+        firstName: 'Bulk',
+        lastName: 'User',
+        avatar: 'https://legacy/z.png',
+      }
+
+      const pending = enricher.enrichUsers([dbUser])
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      const enriched = firstOrThrow(await pending)
+
+      expect(enriched.firstName).toBe('Bulk')
+      expect(enriched.avatar).toBe(null)
+    })
+
+    it('gives up on a hung lazy clerkId link', async () => {
+      getUserList.mockReturnValue(hangForever())
+
+      const dbUser = {
+        id: 602,
+        clerkId: null as string | null,
+        email: 'lazy@goodparty.org',
+        firstName: 'Lazy',
+        lastName: 'Link',
+        avatar: 'https://legacy/z.png',
+      }
+
+      const pending = enricher.enrichUser(dbUser)
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      const enriched = await pending
+
+      expect(enriched.firstName).toBe('Lazy')
+      expect(enriched.avatar).toBe(null)
+      expect(userUpdate).not.toHaveBeenCalled()
+    })
+
+    it('does not cache a timed-out lookup, so the next call retries', async () => {
+      getUser.mockReturnValueOnce(hangForever())
+
+      const dbUser = {
+        id: 603,
+        clerkId: 'user_retry',
+        email: 'db@goodparty.org',
+        firstName: 'Db',
+        lastName: 'Name',
+        avatar: null as string | null,
+      }
+
+      const pending = enricher.enrichUser(dbUser)
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+      await pending
+
+      getUser.mockResolvedValueOnce(
+        buildClerkUser({
+          id: 'user_retry',
+          firstName: 'Fresh',
+          hasImage: true,
+          imageUrl: 'https://clerk/fresh.png',
+        }),
+      )
+
+      const enriched = await enricher.enrichUser(dbUser)
+
+      expect(enriched.firstName).toBe('Fresh')
+      expect(enriched.avatar).toBe('https://clerk/fresh.png')
+      expect(getUser).toHaveBeenCalledTimes(2)
     })
   })
 })
