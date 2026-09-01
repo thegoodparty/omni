@@ -72,7 +72,6 @@ import {
   OrganizationPicker,
   useOrganization,
 } from '@shared/organization-picker'
-import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useVoterOutreachV2Flag } from '@shared/experiments/voterOutreachV2Flag'
 import { useServeOutreachFlag } from '@shared/experiments/serveOutreachFlag'
@@ -315,7 +314,6 @@ export const getDashboardMenuItems = (
   isElectedOfficeLoading: boolean,
   campaignStrategyExists: boolean,
   campaignStoryEnabled: boolean,
-  ordinancesEnabled: boolean,
   serveOutreachEnabled: boolean,
   doorKnocking: DoorKnockingNavGate = {
     ecanvasserConnected: false,
@@ -330,7 +328,7 @@ export const getDashboardMenuItems = (
   // Community Issues nav mirrors page-level access (serveAccess.ts): both are
   // elected-office existence alone.
   const communityIssuesShown = isElectedOffice
-  const ordinancesShown = isElectedOffice && ordinancesEnabled
+  const ordinancesShown = isElectedOffice
   // Constituent Outreach nav is gated behind serve-outreach so it can be
   // dark-launched independently; the page route's FeatureFlagGuard is the
   // treatment surface.
@@ -477,9 +475,6 @@ export default function DashboardMenu({
   // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so
   // don't track exposure here.
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
-  // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
-  // treatment surface.
-  const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
   // Nav-only gate for the Constituent Outreach tab; the page's
   // FeatureFlagGuard is the treatment surface.
   const { enabled: serveOutreachEnabled } = useServeOutreachFlag(false)
@@ -501,7 +496,6 @@ export default function DashboardMenu({
         isElectedOfficeLoading,
         campaignStrategyExists,
         campaignStoryEnabled,
-        ordinancesEnabled,
         serveOutreachEnabled,
         {
           ecanvasserConnected: !!ecanvasser,
@@ -517,7 +511,6 @@ export default function DashboardMenu({
       isElectedOfficeLoading,
       campaignStrategyExists,
       campaignStoryEnabled,
-      ordinancesEnabled,
       serveOutreachEnabled,
       nativeDoorKnockingReady,
       nativeDoorKnockingEnabled,

@@ -5,7 +5,6 @@ const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
   campaignStoryEnabled = false,
-  ordinancesEnabled = false,
   serveOutreachEnabled = false,
   ecanvasserConnected = false,
   nativeEnabled = false,
@@ -19,7 +18,6 @@ const links = ({
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
   campaignStoryEnabled?: boolean
-  ordinancesEnabled?: boolean
   serveOutreachEnabled?: boolean
   ecanvasserConnected?: boolean
   nativeEnabled?: boolean
@@ -32,7 +30,6 @@ const links = ({
     isElectedOfficeLoading,
     false,
     campaignStoryEnabled,
-    ordinancesEnabled,
     serveOutreachEnabled,
     {
       ecanvasserConnected,
@@ -99,7 +96,6 @@ describe('getDashboardMenuItems: "Your story" sidebar item', () => {
       false, // isElectedOfficeLoading
       true, // campaignStrategyExists
       true, // campaignStoryEnabled
-      false, // ordinancesEnabled
       false, // serveOutreachEnabled
     )
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
@@ -117,7 +113,6 @@ describe('getDashboardMenuItems: "Your story" sidebar item', () => {
       false, // isElectedOfficeLoading
       true, // campaignStrategyExists
       false, // campaignStoryEnabled
-      false, // ordinancesEnabled
       false, // serveOutreachEnabled
     )
     expect(
@@ -141,7 +136,6 @@ describe('getDashboardMenuItems — Campaign Plan tab label', () => {
       false, // isElectedOfficeLoading
       true, // campaignStrategyExists
       false, // campaignStoryEnabled
-      false, // ordinancesEnabled
       false, // serveOutreachEnabled
     )
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
@@ -222,26 +216,16 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
 })
 
 describe('getDashboardMenuItems — Ordinances tab gating', () => {
-  it('shows the Ordinances item for an elected office when the flag is on', () => {
+  it('shows the Ordinances item for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      ordinancesEnabled: true,
     })
     expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(true)
   })
 
-  it('hides the Ordinances item when the flag is off', () => {
-    const items = links({
-      isElectedOffice: true,
-      ordinancesEnabled: false,
-    })
-    expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
-  })
-
-  it('hides the Ordinances item for a non-elected office even with the flag on', () => {
+  it('hides the Ordinances item for a non-elected office', () => {
     const items = links({
       isElectedOffice: false,
-      ordinancesEnabled: true,
     })
     expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
   })
