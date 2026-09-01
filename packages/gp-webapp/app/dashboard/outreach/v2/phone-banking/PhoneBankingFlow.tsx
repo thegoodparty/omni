@@ -7,9 +7,13 @@ import { FetchError } from 'ofetch'
 import {
   PHONE_BANKING_MAX_SHEET_COUNT,
   PHONE_BANKING_SHEET_SIZE,
+  type PhoneBankingCreate,
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
+  type ServePhoneBankingCreate,
+  type ServePhoneBankingPurpose,
+  type ServePhoneBankingScriptDraftRequest,
   type SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
@@ -23,7 +27,14 @@ import {
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
-import { phoneBankingPurposeNameSuggestion } from '../phoneBankingPurposes'
+import {
+  PHONE_BANKING_PURPOSES,
+  phoneBankingPurposeNameSuggestion,
+} from '../phoneBankingPurposes'
+import {
+  SERVE_PHONE_BANKING_PURPOSES,
+  servePhoneBankingPurposeNameSuggestion,
+} from '../servePhoneBankingPurposes'
 import { PurposeStep } from './PurposeStep'
 import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
@@ -58,7 +69,7 @@ const PRICE_PER_CONTACT =
 // "Recommended list" default, and the builder exposes every CRM filter
 // dimension (VoterFileStep) instead of the four PhoneBankingFiltersSchema
 // used to restrict it to.
-const PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
+const WIN_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   pickerTitle: 'Who are you calling?',
   pickerBody: 'We recommend reaching all voters to increase awareness.',
   filtersTitle: 'Build a voter list',
@@ -81,6 +92,20 @@ const PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   unitCostLabel: '',
 }
 
+// Serve's constituent-framed variant (ENG-10970) — same structure, same
+// ENG-10948/10957 intent, "voters"/"campaign" swapped for "constituents"/
+// "list". reachableOfTotalLine is voter-neutral ("contacts") already and is
+// shared as-is.
+const SERVE_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
+  ...WIN_PHONE_BANKING_AUDIENCE_COPY,
+  pickerBody: 'We recommend reaching all constituents to increase awareness.',
+  filtersTitle: 'Build a constituent list',
+  filtersBody: 'Pick filters to define who this list reaches.',
+  filtersHint:
+    'Phone banking calls whichever number a constituent has, cell first. The cell phone and landline filters are optional narrowing.',
+  reachNoun: 'constituents by phone banking',
+}
+
 // Count-only overlay on the in-flow builder count (same wiring as robocall's
 // { hasLandline: true }): the freeze keeps only people with a dialable
 // number (pickDialNumber), so the running total must count cell OR landline
@@ -88,10 +113,99 @@ const PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
 // overlay-free and reusable by other channels.
 const PHONE_BANKING_COUNT_OVERLAY = { hasAnyPhone: true }
 
+// The purpose union across every surface the flow can render — same
+// convention as SocialFlow's SocialFlowPurpose.
+type PhoneBankingFlowPurpose = PhoneBankingPurpose | ServePhoneBankingPurpose
+
+interface PhoneBankingFlowDraftInput {
+  purpose: PhoneBankingFlowPurpose
+  tone: SocialTone
+  currentDraft?: string
+  previousDraft?: string
+  instructions?: string
+}
+
+interface PhoneBankingFlowCreateInput {
+  name: string
+  script: string
+  sheetCount: number
+  purpose: PhoneBankingFlowPurpose
+  voterFileFilterId: number
+}
+
+// A caller-supplied surface parametrizes purpose cards, the name-suggestion
+// lookup, the audience-step copy, and which network the flow's two mutations
+// hit — everything else (steps, shell, tone/Improve, the audience picker's
+// reachabilityKey/countOverlay) is shared. Mirrors SocialFlowSurface.
+export interface PhoneBankingFlowSurface {
+  purposes: { id: PhoneBankingFlowPurpose; label: string }[]
+  nameSuggestion: (purpose: PhoneBankingFlowPurpose) => string
+  audienceCopy: OutreachAudienceCopy
+  endpoints: {
+    draft: (input: PhoneBankingFlowDraftInput) => Promise<string>
+    createList: (
+      input: PhoneBankingFlowCreateInput,
+    ) => Promise<PhoneBankingCreateResponse>
+  }
+}
+
+// The default surface — Win's campaign-scoped endpoints, unchanged from the
+// flow's pre-parametrization behavior. The cast on each call is safe because
+// this surface's `purposes` only ever contains PhoneBankingPurpose members,
+// and the flow only ever calls these endpoints with a purpose drawn from
+// them.
+const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
+  purposes: PHONE_BANKING_PURPOSES,
+  nameSuggestion: phoneBankingPurposeNameSuggestion,
+  audienceCopy: WIN_PHONE_BANKING_AUDIENCE_COPY,
+  endpoints: {
+    draft: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/phone-banking/draft',
+        input as PhoneBankingScriptDraftRequest,
+      )
+      return data.draft
+    },
+    createList: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/phone-banking/lists',
+        input as PhoneBankingCreate,
+      )
+      return data
+    },
+  },
+}
+
+// Serve's org-scoped endpoints (ENG-10970). Not yet mounted by any flow —
+// the wiring ticket passes this as PhoneBankingFlow's `surface` prop on the
+// serve phone-banking tile.
+export const SERVE_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
+  purposes: SERVE_PHONE_BANKING_PURPOSES,
+  nameSuggestion: servePhoneBankingPurposeNameSuggestion,
+  audienceCopy: SERVE_PHONE_BANKING_AUDIENCE_COPY,
+  endpoints: {
+    draft: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/serve/phone-banking/draft',
+        input as ServePhoneBankingScriptDraftRequest,
+      )
+      return data.draft
+    },
+    createList: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/phone-banking/serve/lists',
+        input as ServePhoneBankingCreate,
+      )
+      return data
+    },
+  },
+}
+
 interface PhoneBankingFlowProps {
   open: boolean
   onClose: () => void
   onSaved?: (outreachId: number, name: string) => void
+  surface?: PhoneBankingFlowSurface
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -102,10 +216,11 @@ export const PhoneBankingFlow = ({
   open,
   onClose,
   onSaved,
+  surface = WIN_PHONE_BANKING_SURFACE,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
-  const [purpose, setPurpose] = useState<PhoneBankingPurpose | null>(null)
+  const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
@@ -140,29 +255,23 @@ export const PhoneBankingFlow = ({
   const { reset: resetAudience } = audience
 
   const draftMutation = useMutation({
-    mutationFn: async (input: PhoneBankingScriptDraftRequest) => {
-      const { data } = await clientRequest(
-        'POST /v1/outreach/phone-banking/draft',
-        input,
-      )
-      return data.draft
-    },
+    mutationFn: (input: PhoneBankingFlowDraftInput) =>
+      surface.endpoints.draft(input),
   })
 
   const createMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: () => {
       const voterFileFilterId = audience.selectedListId
       if (voterFileFilterId === null) {
         throw new Error('No audience selected')
       }
-      const { data } = await clientRequest('POST /v1/phone-banking/lists', {
+      return surface.endpoints.createList({
         name: name.trim(),
         script: script.trim(),
         sheetCount,
-        purpose: purpose as PhoneBankingPurpose,
+        purpose: purpose as PhoneBankingFlowPurpose,
         voterFileFilterId,
       })
-      return data
     },
     onSuccess: (response) => {
       setCreateResponse(response)
@@ -250,7 +359,7 @@ export const PhoneBankingFlow = ({
   // instructions closure here would still send the value from before the
   // reset.
   const requestDraft = (
-    nextPurpose: PhoneBankingPurpose | null,
+    nextPurpose: PhoneBankingFlowPurpose | null,
     nextTone: SocialTone,
     currentDraft?: string,
     previousDraft?: string,
@@ -280,7 +389,7 @@ export const PhoneBankingFlow = ({
     )
   }
 
-  const handleSelectPurpose = (selected: PhoneBankingPurpose) => {
+  const handleSelectPurpose = (selected: PhoneBankingFlowPurpose) => {
     setPurpose(selected)
     // Reset tone/script/instructions state on every purpose pick (including
     // re-picks after Back), not just the first one — otherwise picking
@@ -328,8 +437,8 @@ export const PhoneBankingFlow = ({
     if (stepId !== 'script') return
     if (nameEdited) return
     if (!purpose || purpose === 'custom') return
-    setName(phoneBankingPurposeNameSuggestion(purpose))
-  }, [stepId, purpose, nameEdited])
+    setName(surface.nameSuggestion(purpose))
+  }, [stepId, purpose, nameEdited, surface])
 
   const handleCreateListContinue = async () => {
     try {
@@ -453,12 +562,16 @@ export const PhoneBankingFlow = ({
       dirty={dirty}
     >
       {stepId === 'purpose' ? (
-        <PurposeStep selected={purpose} onSelect={handleSelectPurpose} />
+        <PurposeStep
+          purposes={surface.purposes}
+          selected={purpose}
+          onSelect={handleSelectPurpose}
+        />
       ) : stepId === 'who' ? (
         <>
           <OutreachAudienceStep
             channel="phoneBanking"
-            copy={PHONE_BANKING_AUDIENCE_COPY}
+            copy={surface.audienceCopy}
             mode={audience.mode}
             lists={audience.lists}
             listsLoading={audience.listsLoading}
