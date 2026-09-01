@@ -41,7 +41,8 @@ The mechanism, in gp-api:
    _before_ any domain/website check. Nothing about a corrected `filing_url` changes
    the derived stage.
 2. `submitToPeerlyForAgent` refuses with 422 unless the derived stage is
-   `awaiting_pin`.
+   `ready_to_submit` (or `filing_review_hold`, which it lets through only so the
+   pre-submission gate can return the specific hold reasons).
 3. The agent reads the stage first (Step 1) and, on `tcr_rejected`, skips Steps 2-6
    and writes `stage: "failed"`.
 
@@ -154,8 +155,10 @@ than loosening the `WHERE`.
 
 `submitted` is the right target, not `pending`/`approved`: those derive
 `tcr_in_review`/`tcr_approved` and would make the agent skip submission entirely.
-`submitted` + registered domain + published live site derives `awaiting_pin`, which is
-exactly the precondition `submit-to-peerly` enforces.
+`submitted` + registered domain + published live site + no Peerly identity derives
+`ready_to_submit`, which is exactly the precondition `submit-to-peerly` enforces.
+(`awaiting_pin` is the same situation _after_ a Peerly identity exists — it is not a
+reset target.)
 
 Side effects of returning to `submitted`, all intended: the record re-enters
 the twice-daily CV status scan (so the PIN gets detected and `CompliancePinSent`
@@ -170,22 +173,26 @@ GET /v1/campaigns/tcr-compliance/admin/<campaignId>/compliance-state
 `AdminOrM2MGuard` — reachable from gp-admin's user page 10DLC widget, or directly
 with an `mt_*` M2M token. Expect:
 
-- `stage: "awaiting_pin"` — the reset worked; proceed.
+- `stage: "ready_to_submit"` — the reset worked; proceed.
+- `stage: "filing_review_hold"` — the reset landed, but the pre-submission check is
+  holding the record on its filing URL. Correct the filing data (or apply the admin
+  CV-validation override) before re-dispatching; a run now would fail at Step 6.
 - `stage: "tcr_rejected"` — the update didn't land (0 rows, or you're on the wrong
   environment). Re-check Step 2.
 - `stage: "pending_domain_purchase"` / `"pending_website_live"` — the rejection was
   masking a separate problem: the domain or the live site. The agent will now do that
   work itself on re-dispatch, which is fine, just expect a longer, pricier run.
 
-This read also fires a live Peerly `retrieve_cv` **once the stage is `awaiting_pin`**
-(and only then), so `peerlyCvStatus` in the response is the real current CV state.
-That is the cheapest confirmation available that the reset was legitimate: if it comes
-back `REJECTED`, the rejection is still live at Peerly and you are in the Step 0
-second case after all — revert the status and escalate instead of re-dispatching.
+`peerlyCvStatus` will read `null` here, and that is expected rather than
+informative: `resolvePeerlyCvState` fires a live Peerly `retrieve_cv` only at
+`awaiting_pin` — which by definition requires a Peerly identity, and the
+recoverable case in Step 0 is precisely the one with no identity. So there is no
+CV at Peerly to read, and a null is not evidence of anything either way. The same
+null appears at `tcr_rejected` for the same reason.
 
-Note that at stage `tcr_rejected` the same field always reads `null` — the nightly
-poll only covers `submitted`/`pending` and `resolvePeerlyCvState` only queries Peerly
-at `awaiting_pin`. A null there is not evidence of anything.
+If the record you are resetting **does** have a `peerly_identity_id`, you are in
+the Step 0 second case and should not be resetting it at all — escalate to Peerly
+instead of re-dispatching.
 
 ## Step 4 — re-dispatch the agent
 

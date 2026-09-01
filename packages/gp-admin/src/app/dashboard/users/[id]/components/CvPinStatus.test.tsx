@@ -154,6 +154,43 @@ describe('CvPinStatus', () => {
     ).not.toBeInTheDocument()
   })
 
+  // ENG-11018: these two stages used to collapse into `awaiting_pin`, so a
+  // record Peerly had never heard of rendered the amber "Awaiting PIN" badge
+  // — which is what sent CS chasing PINs that were never issued.
+  it('shows "Not yet submitted" for a record that never reached Peerly', async () => {
+    mockGetCampaignComplianceState.mockResolvedValue({
+      ...awaitingPinState,
+      stage: 'ready_to_submit',
+      peerlyVerificationId: null,
+      peerlyCvStatus: null,
+      pinDelivery: null,
+    })
+
+    renderWidget()
+
+    expect(
+      await screen.findByText('10DLC: Not yet submitted')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Awaiting PIN/)).not.toBeInTheDocument()
+  })
+
+  it('shows "Filing review hold" when the filing URL check is holding it', async () => {
+    mockGetCampaignComplianceState.mockResolvedValue({
+      ...awaitingPinState,
+      stage: 'filing_review_hold',
+      peerlyVerificationId: null,
+      peerlyCvStatus: null,
+      pinDelivery: null,
+    })
+
+    renderWidget()
+
+    expect(
+      await screen.findByText('10DLC: Filing review hold')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Awaiting PIN/)).not.toBeInTheDocument()
+  })
+
   it('shows the status badge when the CV has not issued a PIN yet', async () => {
     mockGetCampaignComplianceState.mockResolvedValue({
       ...awaitingPinState,

@@ -1273,16 +1273,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     // Stage gate: only proceed when the candidate's website is live + the
-    // domain is registered (derived stage = awaiting_pin with identity still
-    // null). Reject all earlier stages so an agent can't kick a Peerly brand
-    // submission for an unverified/unregistered domain.
+    // domain is registered. Reject all earlier stages so an agent can't kick a
+    // Peerly brand submission for an unverified/unregistered domain.
+    //
+    // The identity early-return above means this point is only ever reached
+    // with peerlyIdentityId null, so the site-live stage here is
+    // `ready_to_submit`, never `awaiting_pin` (which now requires an identity).
+    // `filing_review_hold` is accepted deliberately: it carries the same
+    // site-live precondition, and letting it through keeps the CV
+    // pre-submission gate below as the single owner of the hold's error, so
+    // the caller still gets the stored failure reasons instead of a generic
+    // stage rejection.
     const stageBeforeSubmit =
       await this.complianceStateService.getStageForCampaign(campaign.id)
-    if (stageBeforeSubmit !== ComplianceStage.awaiting_pin) {
+    if (
+      stageBeforeSubmit !== ComplianceStage.ready_to_submit &&
+      stageBeforeSubmit !== ComplianceStage.filing_review_hold
+    ) {
       throw new UnprocessableEntityException(
         `Cannot submit TCR registration to Peerly until the candidate's ` +
           `website is published and live. Current compliance stage: ` +
-          `${stageBeforeSubmit}. Wait for stage = awaiting_pin.`,
+          `${stageBeforeSubmit}. Wait for stage = ready_to_submit.`,
       )
     }
 

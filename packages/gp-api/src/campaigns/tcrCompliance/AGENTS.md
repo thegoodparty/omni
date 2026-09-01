@@ -20,7 +20,7 @@ calls; the wizard calls the same controller methods over HTTP.
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /campaigns/tcr-compliance/agentic`                                                | `createAgentic`                                                  | Wizard (filing-details step) | Persist EIN + committee + filing details, create the `TcrCompliance` row, and **conditionally** dispatch the agent. Address one-of: a Google-resolved `placeId`+`formattedAddress` pair (persisted onto the campaign) or a structured `manualAddress` (persisted onto the record's `filing_address_*` columns with a composed `postalAddress`; the campaign address is left untouched).                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `GET /campaigns/tcr-compliance/mine/compliance-state`                                   | `findStateForCampaign` (`@McpTool`)                              | Agent                        | Canonical pipeline state across Campaign/Website/Domain/TcrCompliance. Agent calls this first each run to decide which steps to skip.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `POST /campaigns/tcr-compliance/submit-to-peerly`                                       | `submitToPeerlyForAgent` (`@McpTool`)                            | Agent                        | Submit the registration to Peerly (Identity → Profile → 10DLC Brand → CV Request). Stage-gated on `awaiting_pin`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `POST /campaigns/tcr-compliance/submit-to-peerly`                                       | `submitToPeerlyForAgent` (`@McpTool`)                            | Agent                        | Submit the registration to Peerly (Identity → Profile → 10DLC Brand → CV Request). Stage-gated on `ready_to_submit`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `POST /campaigns/tcr-compliance`                                                        | `create`                                                         | Legacy non-agentic           | Synchronous full Peerly submission (older flow).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `POST /campaigns/tcr-compliance/:id/submit-cv-pin`                                      | —                                                                | Wizard / agent               | PIN entry → CV token → approve 10DLC brand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `GET /campaigns/tcr-compliance/admin/:campaignId/compliance-state`                      | `getComplianceStateForCampaign`                                  | gp-admin (M2M)               | Same payload as `mine/compliance-state` for any campaign (`AdminOrM2MGuard`). Backs the user-page 10DLC status/PIN widget.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -422,9 +422,15 @@ section removed their contribution to `stuckCount` along with it.
   to carry these fields and the handler trusted the agent's values, which is how
   `goodparty.org/candidate/...` filing URLs reached CampaignVerify. Don't reintroduce a
   request body that feeds these fields.
-- **Stage gate:** rejects with 422 unless the derived compliance stage is `awaiting_pin`
-  (domain registered + site published & verified live). The `@McpTool` description names
-  this precondition and the route enforces it — keep them in sync.
+- **Stage gate:** rejects with 422 unless the derived compliance stage is
+  `ready_to_submit` (domain registered + site published & verified live + nothing
+  submitted to Peerly yet). The `@McpTool` description names this precondition and the
+  route enforces it — keep them in sync. `filing_review_hold` is accepted through this
+  gate on purpose: it carries the same site-live precondition, and letting it through
+  keeps the pre-submission gate below the single owner of the hold's error, so the
+  caller gets the stored failure reasons (400) rather than a generic stage 422. The
+  identity early-return above means this gate is never reached with an identity
+  present, so `awaiting_pin` cannot appear here.
 - **Pre-Peerly claim** on `peerlySubmissionStartedAt` (TTL'd) serializes concurrent
   callers; rollback scoped to the exact claim timestamp.
 - **Idempotent:** a record that already has a `peerlyIdentityId` returns the existing
@@ -604,7 +610,7 @@ state, wrote `stage: "failed"`, and exited indistinguishably from a real failure
 
 **Correcting the data is not sufficient.** `deriveComplianceStage` maps both
 `rejected` and `error` to `tcr_rejected` _before_ any domain/website check, and
-`submitToPeerlyForAgent` gates on stage `awaiting_pin`. So a record with a fixed
+`submitToPeerlyForAgent` gates on stage `ready_to_submit`. So a record with a fixed
 `filingUrl` still derives `tcr_rejected` and still can't submit. The status has to
 move too.
 
@@ -626,9 +632,11 @@ FAILED run's blocker `detail`.
 **`peerlyCvStatus` reads null while `rejected`.** The CV status scan only
 covers `submitted`/`pending`, and `resolvePeerlyCvState` only fires `retrieve_cv` at
 `awaiting_pin` — so the compliance-state read shows `peerlyCvStatus: null` at
-`tcr_rejected` no matter what Peerly thinks. After the reset flips the stage to
-`awaiting_pin`, the same read _does_ hit Peerly: a live `REJECTED` coming back there
-means the reset was wrong and this is the second row above.
+`tcr_rejected` no matter what Peerly thinks. The reset flips a no-identity record to
+`ready_to_submit`, which does **not** fire the read either — correctly, since a record
+with no `peerlyIdentityId` has no CV at Peerly to read. Only the second row above (a
+record that kept its identity) reaches `awaiting_pin` and gets a live status back; a
+`REJECTED` there means the reset was wrong.
 
 Operator procedure, verification, and the exact SQL:
 `packages/runbooks/books/recover-rejected-10dlc-compliance.md`. There is **no admin
@@ -715,9 +723,11 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   `Authorization`. Grafana logs still get the full formatted error — that's fine,
   they're access-controlled; Slack is not.
 - **PIN screen is gated on the live Peerly CV status (ENG-10654):**
-  `deriveComplianceStage` still returns `awaiting_pin` from the DB `status` alone (a
-  `submitted` record with a live site) — that stage value is unchanged because
-  `submitToPeerlyForAgent`'s gate depends on it. What changed is that
+  `deriveComplianceStage` returns `awaiting_pin` for a `submitted` record with a live
+  site **that already has a `peerlyIdentityId`** (ENG-11018 split the pre-submission
+  half of that state out into `ready_to_submit`, so the stage no longer claims an
+  outstanding PIN for a record that never reached Peerly). What changed in ENG-10654 is
+  that
   `findStateForCampaign` now also resolves the _live_ CV status into
   `ComplianceStateOutput.peerlyCvStatus`, and only at the `awaiting_pin` stage (so the
   extra Peerly `retrieve_cv` read stays off the other stages the agent polls). Every FE

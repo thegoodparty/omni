@@ -60,6 +60,9 @@ const tcrWith = (status: TcrComplianceStatus): TcrCompliance => ({
   phone: '5551234567',
   email: 'jane@example.com',
   status,
+  // A record actually awaiting a PIN always carries a Peerly identity; the
+  // gate uses it to tell awaiting_pin from the pre-submission stages.
+  peerlyIdentityId: 'peerly-1',
   createdAt: new Date(),
   updatedAt: new Date(),
   campaignId: 1,

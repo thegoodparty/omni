@@ -1689,7 +1689,14 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         peerlyVerificationId: null,
         peerlyCvStatus: null,
       }),
-      getStageForCampaign: vi.fn().mockResolvedValue('awaiting_pin'),
+      // Mirrors the real sequence: the pre-submit gate reads
+      // `ready_to_submit` (no identity yet), and the response builder reads
+      // again after the identity is persisted, when the record has become
+      // `awaiting_pin`.
+      getStageForCampaign: vi
+        .fn()
+        .mockResolvedValueOnce('ready_to_submit')
+        .mockResolvedValue('awaiting_pin'),
     }
     mockTcrModel = {
       findUnique: vi.fn().mockResolvedValue(existingRecord),
@@ -1837,6 +1844,11 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   })
 
   it('is idempotent: returns existing record without calling Peerly when peerlyIdentityId is set', async () => {
+    // This path short-circuits straight to the response builder, so the only
+    // stage read is the post-submission one — an identity-bearing record
+    // derives `awaiting_pin`, never the pre-submission stage.
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign.mockResolvedValue('awaiting_pin')
     mockTcrModel.findUnique.mockResolvedValueOnce({
       ...existingRecord,
       peerlyIdentityId: 'peerly-already-set',
@@ -2195,8 +2207,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockTcrModel.update).not.toHaveBeenCalled()
   })
 
-  it('throws UnprocessableEntityException when compliance stage is not awaiting_pin (website not yet live)', async () => {
-    mockComplianceState.getStageForCampaign.mockResolvedValueOnce(
+  it('throws UnprocessableEntityException when compliance stage is not ready_to_submit (website not yet live)', async () => {
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign.mockResolvedValue(
       'pending_website_live',
     )
 
@@ -2209,6 +2222,43 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
     expect(mockTcrModel.updateMany).not.toHaveBeenCalled()
     expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+
+  // ENG-11018 split `awaiting_pin` into pre- and post-submission stages. The
+  // gate has to move with it: keying it on `awaiting_pin` after the split
+  // would reject every legitimate first submission, since the record has no
+  // Peerly identity at this point by definition.
+  it('admits a ready_to_submit record through the stage gate', async () => {
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign
+      .mockResolvedValueOnce('ready_to_submit')
+      .mockResolvedValue('awaiting_pin')
+
+    const result = await service.submitToPeerlyForAgent(user, campaign)
+
+    expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    expect(result.stage).toBe('awaiting_pin')
+  })
+
+  // A held record clears the stage gate on purpose so the CV pre-submission
+  // gate can answer with the stored reasons (a 400 the agent records as a
+  // permanent blocker) rather than a generic 422 that reads as "try later".
+  it('lets filing_review_hold reach the CV gate instead of a stage 422', async () => {
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign.mockResolvedValue(
+      'filing_review_hold',
+    )
+    mockTcrModel.findUnique.mockResolvedValue({
+      ...existingRecord,
+      cvValidationFailedAt: new Date(),
+      cvValidationFailureReasons: ['filing url is a search form'],
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign),
+    ).rejects.toThrow('filing url is a search form')
+
+    expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
   })
 
   it('refuses to submit when website content is generic', async () => {

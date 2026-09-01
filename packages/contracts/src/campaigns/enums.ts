@@ -73,11 +73,17 @@ export type OrganizationStatus = (typeof ORGANIZATION_STATUS_VALUES)[number]
 export const OrganizationStatusSchema = z.enum(ORGANIZATION_STATUS_VALUES)
 export const OrganizationStatus = toEnumObject(ORGANIZATION_STATUS_VALUES)
 
+// `ready_to_submit` and `awaiting_pin` are both "site live, TCR status
+// submitted" — they differ only by whether the record has reached Peerly.
+// Splitting them is what stops a record that never got a Peerly identity from
+// reporting that a PIN is outstanding (ENG-11018).
 export const COMPLIANCE_STAGE_VALUES = [
   'needs_profile',
   'needs_filing',
   'pending_domain_purchase',
   'pending_website_live',
+  'ready_to_submit',
+  'filing_review_hold',
   'awaiting_pin',
   'tcr_in_review',
   'tcr_approved',

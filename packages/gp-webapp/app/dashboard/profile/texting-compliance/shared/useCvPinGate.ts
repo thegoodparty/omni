@@ -45,8 +45,15 @@ export const useCvPinGate = (
   tcrCompliance: TcrCompliance | null | undefined,
   { isTcrPending = false }: UseCvPinGateOptions = {},
 ): CvPinGate => {
+  // `submitted` alone spans three derived stages — ready_to_submit,
+  // filing_review_hold and awaiting_pin. `peerlyIdentityId` is the same
+  // discriminator deriveComplianceStage uses (written only by a completed
+  // Peerly submission); without it the pre-submission stages would report
+  // VERIFICATION_IN_PROGRESS, telling a candidate CampaignVerify is reviewing
+  // a request that was never sent.
   const isAwaitingPin =
-    tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
+    tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED &&
+    Boolean(tcrCompliance?.peerlyIdentityId)
 
   // Only the awaiting-PIN state gates on the live Peerly CV status, so the
   // extra Peerly read stays off every other candidate's page load.
