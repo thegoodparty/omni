@@ -144,6 +144,15 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     )
     expect(systemPrompt).toContain('elected official')
     expect(systemPrompt).not.toMatch(/candidate/i)
+
+    // ENG-10990 blocker fix: custom's adapt-into-dialogue copy contradicts
+    // improveSystemPrompt's light-edit/same-length/format-already-there
+    // constraints, so custom improve borrows draftSystemPrompt instead.
+    expect(systemPrompt).toBe(SERVE_PHONE_BANKING_VOICE.draftSystemPrompt)
+    expect(systemPrompt).not.toContain('light edit')
+    expect(systemPrompt).not.toContain(
+      'Preserve the You:/Voter: alternating dialogue format.',
+    )
   })
 
   it('improves every serve purpose (polish mode) via currentDraft', async () => {

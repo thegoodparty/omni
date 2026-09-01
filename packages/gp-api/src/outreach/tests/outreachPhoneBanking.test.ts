@@ -5,6 +5,7 @@ import { useTestService } from '@/test-service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { Campaign } from '../../generated/prisma'
+import { WIN_PHONE_BANKING_VOICE } from '../services/outreachPhoneBankingGeneration.service'
 
 const service = useTestService()
 
@@ -473,6 +474,36 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       'Flag rather than silently alter or remove anything in the ' +
         'original message',
     )
+
+    // ENG-10990 blocker fix: custom's adapt-into-dialogue copy contradicts
+    // improveSystemPrompt's light-edit/same-length/format-already-there
+    // constraints, so custom improve borrows draftSystemPrompt instead.
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toBe(WIN_PHONE_BANKING_VOICE.draftSystemPrompt)
+    expect(systemPrompt).not.toContain('light edit')
+    expect(systemPrompt).not.toContain(
+      'Preserve the You:/Voter: alternating dialogue format.',
+    )
+  })
+
+  it('keeps the light-edit system prompt for a non-custom improve', async () => {
+    mockDraft('A polished version.')
+
+    const res = await postDraft({
+      purpose: 'introduce',
+      tone: 'warm',
+      currentDraft: 'You: hi. Voter: hi there.',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toBe(WIN_PHONE_BANKING_VOICE.improveSystemPrompt)
+    expect(systemPrompt).toContain('light edit')
   })
 
   it('rejects fresh generation for the custom purpose without calling the LLM', async () => {

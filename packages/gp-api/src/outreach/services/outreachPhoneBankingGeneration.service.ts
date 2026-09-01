@@ -550,9 +550,22 @@ export class OutreachPhoneBankingGenerationService {
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...extraContext,
     ]
+    // custom's improve path ADAPTS plain prose into You:/Voter: dialogue
+    // plus new scaffolding (opener, transitions, an example response) —
+    // the opposite of improveSystemPrompt's light-edit/same-length/
+    // format-already-there constraints. Borrow draftSystemPrompt instead:
+    // it defers to the purpose instructions below (which carry the adapt
+    // copy) and imposes no length or format-preservation rule to conflict
+    // with them.
+    const isCustomAdapt = input.purpose === 'custom' && !!input.currentDraft
     const messages: LlmMessage[] = input.currentDraft
       ? [
-          { role: 'system', content: voice.improveSystemPrompt },
+          {
+            role: 'system',
+            content: isCustomAdapt
+              ? voice.draftSystemPrompt
+              : voice.improveSystemPrompt,
+          },
           {
             role: 'user',
             content: [
