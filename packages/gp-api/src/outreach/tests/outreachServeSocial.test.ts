@@ -339,6 +339,40 @@ describe('Public Profile grounding (ENG-10982)', () => {
     expect(userPrompt).toContain('- Visible issue: Should appear')
   })
 
+  it('excludes a profile issue whose priority is archived', async () => {
+    mockDraftLlm()
+    const profile = await service.prisma.personProfile.create({
+      data: { personId: `person-${Date.now()}`, userId: service.user.id },
+    })
+    const archived = await createPriority('Archived issue', 'Should not appear')
+    await service.prisma.priority.update({
+      where: { id: archived.id },
+      data: { archivedAt: new Date() },
+    })
+    const active = await createPriority('Active issue', 'Should appear')
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: archived.id,
+        visible: true,
+        sortOrder: 0,
+      },
+    })
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: active.id,
+        visible: true,
+        sortOrder: 1,
+      },
+    })
+
+    const userPrompt = await draftUserPrompt()
+
+    expect(userPrompt).not.toContain('Archived issue')
+    expect(userPrompt).toContain('- Active issue: Should appear')
+  })
+
   it('degrades to the exact baseline prompt for an official with no PersonProfile row', async () => {
     mockDraftLlm()
 

@@ -33,7 +33,7 @@ export class OutreachServeComposeContextService extends createPrismaBase(
       where: { userId },
       include: {
         issues: {
-          where: { visible: true },
+          where: { visible: true, priority: { archivedAt: null } },
           orderBy: { sortOrder: Prisma.SortOrder.asc },
           include: { priority: true },
         },
