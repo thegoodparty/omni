@@ -4,7 +4,6 @@ import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   crmSheet,
-  enableCrmFlags,
   gotoCrmContacts,
   listCard,
 } from 'src/helpers/crm-contacts-e2e'
@@ -72,7 +71,6 @@ const assertCuratedCsv = (csv: string): void => {
 test.describe('Contacts CSV download', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   test('streams the curated gzipped CSV for the whole voter universe', async ({

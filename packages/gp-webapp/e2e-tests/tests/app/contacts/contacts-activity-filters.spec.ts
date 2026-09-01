@@ -7,7 +7,6 @@ import {
   closeCrmSheet,
   selectActivityPill,
   crmSheet,
-  enableCrmFlags,
   gotoCrmContacts,
   listCard,
   saveWizardList,
@@ -113,7 +112,6 @@ test.describe('Contacts activity filters', () => {
   }) => {
     test.setTimeout(TEST_TIMEOUT)
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
 
     await setupProCampaignUser(page)
 

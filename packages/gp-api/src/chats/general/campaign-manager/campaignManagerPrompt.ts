@@ -48,7 +48,7 @@ export interface CampaignManagerContext {
   // The full org row for the CRM contact tools (null when no organization
   // resolved). Bound into the tools so counts run in the campaign's context.
   organization: Organization | null
-  // True only when the win-crm flag is on AND the contacts service is
+  // True only when the organization resolved AND the contacts service is
   // injected, so the prompt block below and tool registration can't diverge.
   crmToolsEnabled: boolean
   // crmToolsEnabled AND the voter-file filter service is injected, so the

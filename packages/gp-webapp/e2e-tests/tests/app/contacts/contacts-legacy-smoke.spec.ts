@@ -8,12 +8,13 @@ import { disableCrmFlags } from 'src/helpers/crm-contacts-e2e'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 import { eventually } from 'tests/utils/eventually'
 
-// The ONE retained legacy (flag-off) smoke — the pre-CRM contacts page stays
-// covered during the win-crm/serve-crm ramp until [[...attr]]/components/ is
-// deleted (ENG-10756). The flags are pinned OFF via the override cookie so
-// this keeps driving the old surface deterministically even once the flags
-// ramp for real users. The rest of the old contacts suite was ported to the
-// CRM UI; delete this file with the legacy page.
+// The ONE retained legacy (flag-off) smoke, for Serve — the pre-CRM contacts
+// page stays covered during the serve-crm ramp until [[...attr]]/components/
+// is deleted (ENG-10756). Win CRM is unconditional now (win-crm hit 100% and
+// was removed, ENG-11009), so only serve-crm is pinned OFF via the override
+// cookie, keeping this on the old surface deterministically even once
+// serve-crm ramps for real users. The rest of the old contacts suite was
+// ported to the CRM UI; delete this file with the legacy page.
 test.describe('Contacts legacy page (flag-off smoke)', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)

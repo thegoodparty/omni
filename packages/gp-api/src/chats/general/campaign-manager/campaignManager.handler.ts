@@ -147,12 +147,6 @@ const EMPTY_STORY_STATE: StoryState = {
   missing: ['why', 'background', 'positions'],
 }
 
-// Win's CRM rollout flag (same key the webapp's contacts page reads). The
-// contact describe/count tools require it, mirroring the webapp's
-// useCrmEnabled gate, so the assistant capability ramps with exactly the
-// same cohorts as the UI.
-export const WIN_CRM_FLAG = 'win-crm'
-
 // details is a raw JSON blob with no schema at this call site, so a
 // human-patched or differently-formatted date parses to an Invalid Date and the
 // difference comes back NaN. NaN is not null, so it would slip past every
@@ -349,17 +343,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
 
     // The org row the CRM contact tools bind counts to. Folding the service
     // presence into crmToolsEnabled keeps prompt advertising and tool
-    // registration on one signal; only look up the org and hit Amplitude when
-    // the tools could otherwise register.
+    // registration on one signal; only look up the org when the tools could
+    // otherwise register.
     const organization = this.contacts
       ? await this.campaigns.client.organization.findFirst({
           where: { slug: organizationSlug },
         })
       : null
-    const crmToolsEnabled =
-      !!this.contacts &&
-      !!organization &&
-      (await this.isFlagOn(userId, WIN_CRM_FLAG))
+    const crmToolsEnabled = !!this.contacts && !!organization
     // The saved-filter write tool additionally needs VoterFileFilterService;
     // folding its presence in keeps prompt advertising and tool registration
     // on one signal, same as crmToolsEnabled itself.
@@ -471,10 +462,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // Aggregate-only CRM reads (describe dimensions + count), gated on the
-    // win-crm flag so the assistant capability ramps with the CRM UI. The
-    // org is bound from the resolved context; ContactsService enforces the
-    // pro gate and every other filter rule.
+    // Aggregate-only CRM reads (describe dimensions + count), unconditional
+    // for Win once contacts + the org resolve. The org is bound from the
+    // resolved context; ContactsService enforces the pro gate and every
+    // other filter rule.
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,

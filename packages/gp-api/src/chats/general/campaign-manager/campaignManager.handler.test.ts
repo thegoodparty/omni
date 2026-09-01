@@ -23,7 +23,6 @@ import type {
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import type { ElectionsService } from '@/elections/services/elections.service'
-import type { FeaturesService } from '@/features/services/features.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 
@@ -201,7 +200,7 @@ describe('buildStoryGreeting', () => {
   })
 })
 
-describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => {
+describe('CampaignManagerHandler — CRM contact tools gating', () => {
   const ORG = { slug: 'win-campaign' } as Organization
 
   const buildContacts = (): ContactsService =>
@@ -245,7 +244,7 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     )
   })
 
-  it('omits both when the win-crm flag is off', () => {
+  it('omits both when crmToolsEnabled is false', () => {
     const tools = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, crmToolsEnabled: false }),
     )
@@ -403,7 +402,9 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(Object.keys(tools)).not.toContain('get_ballot_requirements')
   })
 
-  const buildLoadContextHandler = (enabledFlags: string[]) => {
+  const buildLoadContextHandler = (
+    organization: Organization | null,
+  ): CampaignManagerHandler => {
     const store = {
       findFirst: vi.fn(() =>
         Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
@@ -417,38 +418,30 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
           ),
         },
         campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
-        organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+        organization: {
+          findFirst: vi.fn(() => Promise.resolve(organization)),
+        },
       },
     } as unknown as CampaignsService
-    const features = {
-      isFeatureEnabled: vi.fn(({ feature }: { feature: string }) =>
-        Promise.resolve(enabledFlags.includes(feature)),
-      ),
-    } as unknown as FeaturesService
-    const handler = new CampaignManagerHandler(
+    return new CampaignManagerHandler(
       store,
       campaigns,
       {} as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
       undefined,
       undefined,
-      features,
+      undefined,
       undefined,
       buildContacts(),
       buildVoterFileFilters(),
     )
-    return { handler, features }
   }
 
-  it('loadContext enables the tools when win-crm is on', async () => {
-    const { handler, features } = buildLoadContextHandler(['win-crm'])
+  it('loadContext enables the CRM tools when contacts and an organization are present', async () => {
+    const handler = buildLoadContextHandler(ORG)
 
     const ctx = await handler.loadContext('c1', 7)
 
-    expect(features.isFeatureEnabled).toHaveBeenCalledWith({
-      user: 7,
-      feature: 'win-crm',
-    })
     expect(ctx.organization).toEqual(ORG)
     expect(ctx.crmToolsEnabled).toBe(true)
     expect(ctx.savedFilterToolsEnabled).toBe(true)
@@ -457,8 +450,8 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(toolNames).toContain('crud_saved_filters')
   })
 
-  it('loadContext leaves the tools off when win-crm is off', async () => {
-    const { handler } = buildLoadContextHandler([])
+  it('loadContext leaves the CRM tools off without a resolved organization', async () => {
+    const handler = buildLoadContextHandler(null)
 
     const ctx = await handler.loadContext('c1', 7)
 
