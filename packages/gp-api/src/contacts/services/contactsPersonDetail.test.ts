@@ -91,12 +91,12 @@ describe('ContactsService.findPerson — supportStatus + party (ENG-10696)', () 
     expect(person.supportStatus).toBe('non_supporter')
   })
 
-  it('rolls unsure up to unknown', async () => {
+  it('rolls unsure up to undecided', async () => {
     await knock(new Date('2026-06-01T12:00:00.000Z'), SupportAnswer.unsure)
 
     const person = await contactsService.findPerson(PERSON_ID, eoOrg)
 
-    expect(person.supportStatus).toBe('unknown')
+    expect(person.supportStatus).toBe('undecided')
   })
 
   it('strips politicalParty from the same eo- org detail response', async () => {

@@ -98,9 +98,9 @@ describe('FILTER_DIMENSIONS catalog', () => {
   })
 
   // ENG-10837: the catalog advertises all five SupportStatusRollup values —
-  // SupportStatusService.personIdsByEffectiveStatus resolves undecided/
-  // refused (override-only, ENG-10833) alongside the three derivable ones,
-  // so the assistant/wizard can safely build a filter on any of them.
+  // SupportStatusService.personIdsByEffectiveStatus resolves refused
+  // (override-only, ENG-10833) alongside the four derivable ones, so the
+  // assistant/wizard can safely build a filter on any of them.
   it('sources supportStatus values from the full SupportStatusRollup vocabulary', () => {
     const supportStatus = FILTER_DIMENSIONS.find(
       (d) => d.key === 'supportStatus',
