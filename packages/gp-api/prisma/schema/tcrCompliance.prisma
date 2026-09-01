@@ -140,5 +140,14 @@ model TcrCompliance {
   cvValidationFailureReasons String[]  @default([]) @map("cv_validation_failure_reasons")
   cvValidationOverriddenAt   DateTime? @map("cv_validation_overridden_at")
 
+  // Consecutive transient (fetch/LLM) pre-submission validation outcomes
+  // (ENG-10998) — a deterministic 4xx holds immediately, but a run of
+  // transient blips never resolves on its own either, and used to retry
+  // forever through the agent's paid resume loop. Reset to 0 by a genuine
+  // 'passed' or 'failed' verdict; once it reaches the hold threshold,
+  // assertCvPreSubmissionValid converts it into the same hold a 'failed'
+  // verdict produces.
+  cvValidationTransientCount Int @default(0) @map("cv_validation_transient_count")
+
   @@map("tcr_compliance")
 }
