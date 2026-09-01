@@ -95,7 +95,9 @@ const WIN_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
 // Serve's constituent-framed variant (ENG-10970) — same structure, same
 // ENG-10948/10957 intent, "voters"/"campaign" swapped for "constituents"/
 // "list". reachableOfTotalLine is voter-neutral ("contacts") already and is
-// shared as-is.
+// shared as-is, and so is pickerTitle ("Who are you calling?" is channel
+// framing — a phone call on both surfaces — not voter framing; the ticket
+// pins the serve overrides to the five voter/campaign-framed strings).
 const SERVE_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   ...WIN_PHONE_BANKING_AUDIENCE_COPY,
   pickerBody: 'We recommend reaching all constituents to increase awareness.',
