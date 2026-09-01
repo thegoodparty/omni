@@ -4,6 +4,7 @@ import {
   MdOutlineSignalCellularAlt2Bar,
 } from 'react-icons/md'
 import type { AudienceFilterCamelKey } from 'app/dashboard/outreach/util/audienceFilterKeyMap'
+import type { OutreachType } from 'gpApi/types/outreach.types'
 
 interface ImpactLevels {
   low: 'low'
@@ -114,15 +115,52 @@ export const OUTREACH_TYPES: OutreachTypes = {
   robocall: 'robocall',
 }
 
-interface OutreachActionsTypes {
-  copyScript: 'copyScript'
-  downloadAudience: 'downloadAudience'
+interface OutreachOption {
+  title: string
+  impact: 'low' | 'medium' | 'high'
+  cost: number
+  type: OutreachType
+  requiresPro?: boolean
 }
 
-export const OUTREACH_ACTIONS_TYPES: OutreachActionsTypes = {
-  copyScript: 'copyScript',
-  downloadAudience: 'downloadAudience',
-}
+// Pricing/type source shared by the channel tiles and (formerly) the legacy
+// create cards.
+export const OUTREACH_OPTIONS: OutreachOption[] = [
+  {
+    title: 'Text message',
+    impact: IMPACTS_LEVELS.medium,
+    cost: 0.035,
+    type: OUTREACH_TYPES.text,
+    requiresPro: true,
+  },
+  {
+    title: 'Robocall',
+    impact: IMPACTS_LEVELS.medium,
+    cost: 0.045,
+    type: OUTREACH_TYPES.robocall,
+    requiresPro: true,
+  },
+  {
+    title: 'Door knocking',
+    impact: IMPACTS_LEVELS.high,
+    cost: 0,
+    type: OUTREACH_TYPES.doorKnocking,
+    requiresPro: true,
+  },
+  {
+    title: 'Phone banking',
+    impact: IMPACTS_LEVELS.medium,
+    cost: 0,
+    type: OUTREACH_TYPES.phoneBanking,
+    requiresPro: true,
+  },
+  {
+    title: 'Social post',
+    impact: IMPACTS_LEVELS.low,
+    cost: 0,
+    type: OUTREACH_TYPES.socialMedia,
+  },
+]
 
 interface FreeTextsOffer {
   COUNT: number

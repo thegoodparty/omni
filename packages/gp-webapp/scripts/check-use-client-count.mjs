@@ -300,7 +300,12 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-31: 615 -> 616 for outreach/v2/sms/SmsEditFlow.tsx — the
 // edit-before-send sheet (flow state, image object URLs, save mutation);
 // client-only like its sibling SmsFlow.
-const BASELINE = 616
+// 2026-09-01: 616 -> 609 (ENG-11007) — deleted the legacy outreach page and
+// its client-only support components (OutreachPage, OutreachHeader,
+// FreeTextsBanner, OutreachTable, OutreachCreateCards/Card, OutreachImpact,
+// OutreachActions/*ActionOption, OutreachActionWrapper) now that the v2 hub
+// is the unconditional outreach surface.
+const BASELINE = 609
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

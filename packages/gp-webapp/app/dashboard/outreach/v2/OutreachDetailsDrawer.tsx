@@ -50,8 +50,10 @@ import type { VoterFileFilters } from 'helpers/types'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
-import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+} from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'

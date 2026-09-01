@@ -35,15 +35,15 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 test.describe('outreach list handoff to door knocking', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    // One call, three flags: setFlagOverrides REPLACES the whole override
-    // cookie, so serve-crm and the two outreach/door-knocking flags cannot be
-    // set by separate helpers without the last one clobbering the rest.
-    // Before auth and navigation, because every one of these is resolved
-    // server-side into the first SSR render. win-crm is gone (Win CRM is
-    // unconditional, ENG-11009) — no override needed for this Win spec.
+    // One call, two flags: setFlagOverrides REPLACES the whole override
+    // cookie, so serve-crm and the door-knocking flag cannot be set by
+    // separate helpers without the last one clobbering the rest. Before auth
+    // and navigation, because every one of these is resolved server-side into
+    // the first SSR render. win-crm (Win CRM is unconditional, ENG-11009) and
+    // voter-outreach-v2 (the outreach hub is unconditional, ENG-11007) are
+    // both gone — no overrides needed for either on this Win spec.
     await setFlagOverrides(page, {
       'serve-crm': 'on',
-      'voter-outreach-v2': 'on',
       'native-door-knocking': 'on',
     })
   })

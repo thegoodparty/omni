@@ -48,9 +48,9 @@ export const OutreachComposeDeepLink = ({
   const composeType = COMPOSE_TYPES[searchParams?.get('compose') ?? '']
   const listIdParam = searchParams?.get('listId')
   // ENG-10762 (delegate follow-up): when compose and listId arrive together,
-  // this component opens its own TaskFlow directly (never routes through
-  // OutreachCreateCards/OutreachPage), so it must parse and carry the
-  // preselected list itself rather than relying on the server-threaded prop.
+  // this component opens its own TaskFlow directly (never routes through the
+  // hub's channel tiles), so it must parse and carry the preselected list
+  // itself rather than relying on the server-threaded prop.
   const preselectedListId = parsePositiveListId(listIdParam)
 
   // ENG-10762: the CRM "Send outreach" link carries ?listId=<id> so the

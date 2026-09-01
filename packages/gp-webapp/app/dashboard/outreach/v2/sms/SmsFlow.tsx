@@ -24,10 +24,10 @@ import {
 import { createOutreach } from 'helpers/createOutreach'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
+  OUTREACH_OPTIONS,
   OUTREACH_TYPES,
   FREE_TEXTS_OFFER,
 } from 'app/dashboard/outreach/constants'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'

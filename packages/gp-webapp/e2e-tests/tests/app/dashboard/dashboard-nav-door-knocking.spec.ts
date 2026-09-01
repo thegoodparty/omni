@@ -25,11 +25,9 @@ import { nativeShellHeading } from 'src/helpers/door-knocking-e2e'
 test.describe('door knocking is entered from Voter Outreach', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    // setFlagOverrides REPLACES the whole override cookie, so both flags go in
-    // one call. Before auth and navigation, because both are resolved
-    // server-side into the first SSR render.
+    // Before auth and navigation, because it is resolved server-side into the
+    // first SSR render.
     await setFlagOverrides(page, {
-      'voter-outreach-v2': 'on',
       'native-door-knocking': 'on',
     })
   })

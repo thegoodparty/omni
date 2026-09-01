@@ -49,19 +49,9 @@ vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => mockElectedOffice,
 }))
 
-const socialFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/voterOutreachV2SocialFlag', () => ({
-  useVoterOutreachV2SocialFlag: () => socialFlag,
-}))
-
 const robocallFlag = { ready: true, enabled: true }
 vi.mock('@shared/experiments/voterOutreachV2RobocallFlag', () => ({
   useVoterOutreachV2RobocallFlag: () => robocallFlag,
-}))
-
-const phoneBankingFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/voterOutreachV2PhoneBankingFlag', () => ({
-  useVoterOutreachV2PhoneBankingFlag: () => phoneBankingFlag,
 }))
 
 const smsFlag = { ready: true, enabled: false }
@@ -88,13 +78,8 @@ const renderGrid = (
     />,
   )
 
-describe('ChannelTileGrid — social tile swap flag', () => {
-  beforeEach(() => {
-    socialFlag.ready = true
-    socialFlag.enabled = true
-  })
-
-  it('opens the new social flow when the flag is on', async () => {
+describe('ChannelTileGrid — social tile', () => {
+  it('always opens the new social flow', async () => {
     const onCreateSocial = vi.fn()
     renderGrid({ onCreateSocial })
 
@@ -102,28 +87,6 @@ describe('ChannelTileGrid — social tile swap flag', () => {
 
     expect(onCreateSocial).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
-  })
-
-  it('launches the legacy socialMedia TaskFlow when the flag is off', async () => {
-    socialFlag.enabled = false
-    const onCreateSocial = vi.fn()
-    renderGrid({ onCreateSocial })
-
-    await userEvent.click(screen.getByText('Social media'))
-
-    expect(onCreateSocial).not.toHaveBeenCalled()
-    expect(screen.getByTestId('task-flow')).toHaveTextContent('socialMedia')
-  })
-
-  it('treats an unsettled flag as off (legacy launch, no flash)', async () => {
-    socialFlag.ready = false
-    const onCreateSocial = vi.fn()
-    renderGrid({ onCreateSocial })
-
-    await userEvent.click(screen.getByText('Social media'))
-
-    expect(onCreateSocial).not.toHaveBeenCalled()
-    expect(screen.getByTestId('task-flow')).toHaveTextContent('socialMedia')
   })
 })
 
@@ -166,18 +129,16 @@ describe('ChannelTileGrid — robocall tile swap flag', () => {
   })
 })
 
-// ENG-10920: tile handler matrix — (flag on/off) x (pro / non-pro /
-// electedOffice / pending) asserting open vs redirect vs legacy.
-describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () => {
+// ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
+// asserting open vs redirect.
+describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
   beforeEach(() => {
-    phoneBankingFlag.ready = true
-    phoneBankingFlag.enabled = true
     mockCampaign = { id: 9, isPro: true }
     mockElectedOffice = { data: null, isPending: false }
     mockRouterPush.mockClear()
   })
 
-  it('flag on + Pro campaign: opens the new PhoneBankingFlow', async () => {
+  it('Pro campaign: opens the new PhoneBankingFlow', async () => {
     mockCampaign = { id: 9, isPro: true }
     const onCreatePhoneBanking = vi.fn()
     renderGrid({ onCreatePhoneBanking })
@@ -189,7 +150,7 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
-  it('flag on + non-Pro campaign: redirects to pro-upgrade, no modal, no flow flash', async () => {
+  it('non-Pro campaign: redirects to pro-upgrade, no modal, no flow flash', async () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: null, isPending: false }
     const onCreatePhoneBanking = vi.fn()
@@ -202,7 +163,7 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
-  it('flag on + elected official (no Pro sub): opens the flow', async () => {
+  it('elected official (no Pro sub): opens the flow', async () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: { id: 1 }, isPending: false }
     const onCreatePhoneBanking = vi.fn()
@@ -214,7 +175,7 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     expect(mockRouterPush).not.toHaveBeenCalled()
   })
 
-  it('flag on + elected official (no Pro sub): tile is not visually locked', () => {
+  it('elected official (no Pro sub): tile is not visually locked', () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: { id: 1 }, isPending: false }
     renderGrid()
@@ -224,7 +185,7 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     ).not.toHaveAttribute('data-locked')
   })
 
-  it('flag on + non-Pro + pending elected-office state: tile is not visually locked', () => {
+  it('non-Pro + pending elected-office state: tile is not visually locked', () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: undefined, isPending: true }
     renderGrid()
@@ -234,7 +195,7 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     ).not.toHaveAttribute('data-locked')
   })
 
-  it('flag on + non-Pro, no elected office: tile is visually locked', () => {
+  it('non-Pro, no elected office: tile is visually locked', () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: null, isPending: false }
     renderGrid()
@@ -244,7 +205,7 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     )
   })
 
-  it('flag on + non-Pro + pending elected-office state: does not redirect', async () => {
+  it('non-Pro + pending elected-office state: does not redirect', async () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: undefined, isPending: true }
     const onCreatePhoneBanking = vi.fn()
@@ -254,56 +215,6 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
 
     expect(mockRouterPush).not.toHaveBeenCalled()
     expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
-  })
-
-  it('flag off: legacy TaskFlow + Pro modal behavior, unchanged', async () => {
-    phoneBankingFlag.enabled = false
-    mockCampaign = { id: 9, isPro: false }
-    const onCreatePhoneBanking = vi.fn()
-    renderGrid({ onCreatePhoneBanking })
-
-    await userEvent.click(screen.getByText('Phone banking'))
-
-    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
-    expect(mockRouterPush).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
-    expect(
-      await screen.findByText('Get Pro voter data and tools'),
-    ).toBeInTheDocument()
-  })
-
-  it('flag off + elected official + non-Pro: tile stays locked and click shows the legacy Pro modal (byte-identical legacy behavior)', async () => {
-    phoneBankingFlag.enabled = false
-    mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: { id: 1 }, isPending: false }
-    const onCreatePhoneBanking = vi.fn()
-    renderGrid({ onCreatePhoneBanking })
-
-    expect(screen.getByText('Phone banking').closest('button')).toHaveAttribute(
-      'data-locked',
-    )
-
-    await userEvent.click(screen.getByText('Phone banking'))
-
-    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
-    expect(mockRouterPush).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
-    expect(
-      await screen.findByText('Get Pro voter data and tools'),
-    ).toBeInTheDocument()
-  })
-
-  it('flag unsettled: legacy TaskFlow behavior, unchanged', async () => {
-    phoneBankingFlag.ready = false
-    mockCampaign = { id: 9, isPro: true }
-    const onCreatePhoneBanking = vi.fn()
-    renderGrid({ onCreatePhoneBanking })
-
-    await userEvent.click(screen.getByText('Phone banking'))
-
-    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
-    expect(mockRouterPush).not.toHaveBeenCalled()
-    expect(screen.getByTestId('task-flow')).toHaveTextContent('phoneBanking')
   })
 })
 

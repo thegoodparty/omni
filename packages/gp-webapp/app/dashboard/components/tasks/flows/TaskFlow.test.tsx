@@ -59,7 +59,10 @@ vi.mock('app/dashboard/purchase/components/CheckoutSessionProvider', () => ({
   CheckoutSessionProvider: ({ children }: { children: React.ReactNode }) =>
     children,
 }))
-vi.mock('app/dashboard/outreach/components/OutreachCreateCards', () => ({
+vi.mock('app/dashboard/outreach/constants', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('app/dashboard/outreach/constants')
+  >()),
   OUTREACH_OPTIONS: [],
 }))
 vi.mock('app/dashboard/outreach/hooks/OutreachContext', () => ({

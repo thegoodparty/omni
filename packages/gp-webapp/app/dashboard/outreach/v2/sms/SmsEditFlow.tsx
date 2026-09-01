@@ -14,8 +14,10 @@ import { clientRequest } from 'gpApi/typed-request'
 import { updateOutreach } from 'gpApi/outreach.api'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
-import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+} from 'app/dashboard/outreach/constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
