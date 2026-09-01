@@ -187,9 +187,10 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(table.getByText('In progress')).toBeInTheDocument()
   })
 
-  // Only the social card is wired (ENG-10970) — no other Serve channel
-  // produces a row yet, so a non-social row must not present as a dead
-  // clickable element (no role="button", no tabIndex, no pointer cursor).
+  // Social and phone banking are the wired cards (ENG-10970/ENG-10987) —
+  // door knocking has no row type yet, so a door-knocking row must not
+  // present as a dead clickable element (no role="button", no tabIndex, no
+  // pointer cursor).
   it('renders a non-social row as plain, non-interactive content', () => {
     const outreaches: HistoryRow[] = [
       {
