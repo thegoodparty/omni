@@ -286,31 +286,8 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         return null
       }
       const bound = await this.tryBindClerkId(existingByEmail.id, data.clerkId)
-      if (!bound || !data.avatarUrl) return bound
-      // Unlike the create path, this row may be an existing user who already
-      // uploaded their own picture via POST /v1/users/me/upload-image, and a
-      // Clerk-hosted image must never overwrite it. Test the STORED avatar,
-      // not bound.avatar: bound came back through the Clerk-enrichment read
-      // wrapper, whose avatar mirrors Clerk rather than Postgres.
-      const stored = await this.model.findUnique({
-        where: { id: bound.id },
-        select: { avatar: true },
-      })
-      if (stored?.avatar) return bound
-      const avatar = await this.userAvatar.ingestFromUrl(
-        bound.id,
-        data.avatarUrl,
-      )
-      if (avatar) {
-        // Filtering on "still empty" so a self-upload that landed between the
-        // read above and here still wins. Both NULL and '' mean no avatar.
-        const written = await this.model.updateMany({
-          where: { id: bound.id, OR: [{ avatar: null }, { avatar: '' }] },
-          data: { avatar },
-        })
-        if (written.count > 0) bound.avatar = avatar
-      }
-      return bound
+      if (!bound) return bound
+      return this.maybeIngestAvatar(bound, data.avatarUrl)
     }
 
     try {
@@ -324,24 +301,50 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         },
       })
       // Ingest after the insert, because the S3 key is scoped by user id.
-      const avatar = data.avatarUrl
-        ? await this.userAvatar.ingestFromUrl(user.id, data.avatarUrl)
-        : null
-      if (avatar) {
-        await this.model.update({ where: { id: user.id }, data: { avatar } })
-        user.avatar = avatar
-      }
+      const withAvatar = await this.maybeIngestAvatar(user, data.avatarUrl)
       this.logger.info(
         { userId: user.id, clerkId: data.clerkId },
         'Created new user from Clerk',
       )
-      return user
+      return withAvatar
     } catch (err) {
       if (isPrismaError(err, 'P2002')) {
         return this.resolveAfterP2002(data)
       }
       throw err
     }
+  }
+
+  // Every provisioning path funnels through here because they share one
+  // subtle invariant: the row may already hold a picture the user uploaded
+  // themselves via POST /v1/users/me/upload-image, and a Clerk-hosted image
+  // must never overwrite it. Two traps this centralises — test the STORED
+  // avatar, not user.avatar, because user came back through the
+  // Clerk-enrichment read wrapper whose avatar mirrors Clerk rather than
+  // Postgres; and treat '' as empty, which is what most legacy rows hold.
+  private async maybeIngestAvatar(
+    user: User,
+    avatarUrl: string | undefined,
+  ): Promise<User> {
+    if (!avatarUrl) return user
+
+    const stored = await this.model.findUnique({
+      where: { id: user.id },
+      select: { avatar: true },
+    })
+    if (stored?.avatar) return user
+
+    const avatar = await this.userAvatar.ingestFromUrl(user.id, avatarUrl)
+    if (!avatar) return user
+
+    // Filtered on "still empty" so a self-upload that landed between the read
+    // above and here still wins.
+    const written = await this.model.updateMany({
+      where: { id: user.id, OR: [{ avatar: null }, { avatar: '' }] },
+      data: { avatar },
+    })
+    if (written.count > 0) user.avatar = avatar
+    return user
   }
 
   private async tryBindClerkId(
@@ -371,6 +374,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   private async resolveAfterP2002(data: {
     clerkId: string
     email: string
+    avatarUrl?: string
   }): Promise<User | null> {
     this.logger.debug(
       { clerkId: data.clerkId },
@@ -379,7 +383,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const byClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
-    if (byClerkId) return byClerkId
+    if (byClerkId) return this.maybeIngestAvatar(byClerkId, data.avatarUrl)
 
     const byEmail = await this.findUserByEmail(data.email)
     if (!byEmail) {
@@ -401,9 +405,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       return null
     }
     if (!byEmail.clerkId) {
-      return this.tryBindClerkId(byEmail.id, data.clerkId)
+      const bound = await this.tryBindClerkId(byEmail.id, data.clerkId)
+      if (!bound) return bound
+      return this.maybeIngestAvatar(bound, data.avatarUrl)
     }
-    return byEmail
+    return this.maybeIngestAvatar(byEmail, data.avatarUrl)
   }
 
   async updateUser(where: Prisma.UserWhereUniqueInput, data: Partial<User>) {
