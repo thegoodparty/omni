@@ -10,6 +10,7 @@ import { RobocallPhonebookService } from '@/outreach/services/robocallPhonebook.
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { ZodError } from 'zod'
 import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -254,6 +255,26 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     expect(failSpy).toHaveBeenCalledWith(outreachId, 'staging')
     // The marker is persisted BEFORE failSend, so a failSend that could not
     // commit still lets the stale sweep fail (not re-stage) the row.
+    expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
+    expect((await readSatellite(outreachId)).settleState).not.toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('surfaces a ZodError from the create response as send_failed', async () => {
+    // A create-response shape mismatch (a ZodError parsing createVoiceBroadcast)
+    // is permanent — a retry can't fix a wrong response shape — and staging never
+    // dials, so failing the send is money-safe. It must NOT revert-and-retry
+    // forever the way a transient error does.
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    createVbSpy.mockRejectedValueOnce(new ZodError([]))
+
+    await staging.stageCampaign(outreachId)
+
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'staging')
     expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
     expect((await readSatellite(outreachId)).settleState).not.toBe(
       RobocallSettleState.authorized,
