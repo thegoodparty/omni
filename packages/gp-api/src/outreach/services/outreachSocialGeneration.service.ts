@@ -546,6 +546,7 @@ export class OutreachSocialGenerationService {
   async generateAssets<TPurpose extends string>(
     input: GenerateInput<TPurpose>,
     candidateName: string,
+    office: string,
     userId: string,
     campaignContext: string[],
     voice: SocialVoiceConfig<TPurpose>,
@@ -559,6 +560,7 @@ export class OutreachSocialGenerationService {
           input,
           platforms,
           candidateName,
+          office,
           campaignContext,
           voice,
         ),
@@ -611,6 +613,7 @@ const buildPrompt = <TPurpose extends string>(
   input: GenerateInput<TPurpose>,
   platforms: SocialAssetPlatform[],
   candidateName: string,
+  office: string,
   campaignContext: string[],
   voice: SocialVoiceConfig<TPurpose>,
 ): string => {
@@ -620,6 +623,7 @@ const buildPrompt = <TPurpose extends string>(
     input.purpose === 'custom' ? CUSTOM_PLATFORM_RULES : PLATFORM_RULES
   return [
     `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
+    `${voice.officeLabel}: ${office || 'local office'}.`,
     voice.purposePrompts[input.purpose],
     ...campaignContext,
     'Confirmed draft message:',

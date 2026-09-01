@@ -461,6 +461,48 @@ describe('POST /v1/outreach/serve/social/generate', () => {
     ])
   })
 
+  it('includes the office line in the generate prompt', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Join me for a town hall.',
+      purpose: 'event_invite',
+      platforms: ['facebook'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Office held: local office.')
+  })
+
+  it('uses the adapt-dont-rewrite platform guidance for the custom purpose', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'x', text: 'Trimmed post' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'My own words, unedited.',
+      purpose: 'custom',
+      platforms: ['x'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Trim/reformat to fit 280 characters, ideally 70-150, leaving ' +
+        'room for a URL appended alongside.',
+    )
+    expect(userPrompt).not.toContain('280-character hard limit')
+  })
+
   it('never sends candidate/voter framing in the shared X platform rule', async () => {
     jsonCompletion.mockResolvedValue(
       llmResult([{ platform: 'x', text: 'X adaptation' }]),

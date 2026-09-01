@@ -387,6 +387,25 @@ describe('POST /v1/outreach/social/generate', () => {
     })
   })
 
+  it('includes the office line in the generate prompt', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Vote for me on election day.',
+      purpose: 'election_day_turnout',
+      platforms: ['facebook'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Office sought: City Council.')
+  })
+
   it('carries the refreshed platform guidance for X and Instagram', async () => {
     jsonCompletion.mockResolvedValue(
       llmResult([
