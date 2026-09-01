@@ -76,6 +76,10 @@ export const ORGANIZATIONS_QUERY_KEY = ['organizations']
 // Eligibility is per-user, not per-org, so it must survive an org switch
 // untouched (see the invalidation predicate in setSelectedSlug).
 export const ELIGIBILITY_QUERY_KEY = ['eligibility']
+// The person-notes family (NotesSection, PhoneBankingNotes) — per-person-id
+// rows, excluded from the org-switch invalidation for the same reason as
+// outreach-detail (see setSelectedSlug).
+const CONTACT_NOTES_QUERY_PREFIX = 'contact-notes'
 
 export const OrganizationProvider = ({
   children,
@@ -137,12 +141,15 @@ export const OrganizationProvider = ({
       // row's detail endpoint under the NEW org's header, 404ing (ENG-10991).
       // Row ids never repeat across orgs, so the new org's own rows never
       // need this cache entry refreshed either — there's nothing to gain by
-      // invalidating it here.
+      // invalidating it here. contact-notes is the same shape (per-person-id,
+      // observed by PhoneBankingNotes while the caller panel is open), so it
+      // gets the same exclusion.
       void queryClient.invalidateQueries({
         predicate: (query) =>
           query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
           query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0] &&
-          query.queryKey[0] !== outreachDetailQueryPrefix[0],
+          query.queryKey[0] !== outreachDetailQueryPrefix[0] &&
+          query.queryKey[0] !== CONTACT_NOTES_QUERY_PREFIX,
       })
     },
     [queryClient],
