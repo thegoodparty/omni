@@ -1269,13 +1269,15 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
-  // Correctness of the DB-side pre-filter + bounded concurrency: with a mix of
-  // offices in a single run, exactly the dispatch-eligible office fires. This
-  // proves the pre-filter keeps every office that would have dispatched (A),
-  // drops only offices that never could (B: no schedule, C: already covered by
-  // a future briefing), and that an office which survives the pre-filter but is
-  // skipped by a per-office guard (D) still does not dispatch — all while the
-  // batch is processed concurrently.
+  // Correctness of the pre-filter (DB where clause + JS coverage filter) +
+  // bounded concurrency: with a mix of offices in a single run, exactly the
+  // dispatch-eligible office fires. This proves the pre-filter keeps every
+  // office that would have dispatched (A), drops offices that never could
+  // (B: no schedule — dropped by the where clause; C: already covered by a
+  // future briefing — dropped by the JS filter applied to the query result),
+  // and that an office which survives the pre-filter but is skipped by a
+  // per-office guard (D) still does not dispatch — all while the batch is
+  // processed concurrently.
   it('dispatches only the eligible office across a mixed population', async () => {
     const suffix = Date.now()
 
@@ -1381,16 +1383,17 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
 
-    // The cron issues exactly one electedOffice.findMany, and its where clause
-    // must carry BOTH pre-filter predicates. Deleting the coverage-dedupe
-    // predicate (C's exclusion) or the schedule predicate (B's exclusion) fails
-    // here, giving the DB-side optimization real coverage independent of the
-    // per-office guard.
+    // The cron issues exactly one electedOffice.findMany, and its where
+    // clause must carry the schedule predicate (deleting it fails here,
+    // giving the DB-side schedule optimization real coverage independent
+    // of the per-office guard). The coverage predicate can't live in this
+    // where clause — it compares MeetingBriefing.createdAt against
+    // Organization.officeIdentityChangedAt, two different relations off
+    // ElectedOffice — so it's applied to this query's result in JS instead
+    // (see the office-identity cutoff coverage dedupe describe block for
+    // that predicate's own dedicated regression coverage).
     expect(findManySpy).toHaveBeenCalledTimes(1)
     const cronQuery = findManySpy.mock.calls[0]?.[0]
-    expect(cronQuery?.where?.meetingBriefings).toEqual({
-      none: { meetingDate: { gte: expect.any(Date) as Date } },
-    })
     expect(cronQuery?.where?.organization).toEqual({
       experimentRuns: {
         some: {
@@ -1402,8 +1405,9 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       },
     })
 
-    // And the pre-filtered candidate set the query returned excludes B (no
-    // schedule) and C (future briefing) while keeping A and D.
+    // The query's raw result carries only the schedule predicate, so it
+    // still includes C (excluded downstream by the JS coverage filter, not
+    // this where clause) alongside A and D, while B (no schedule) is absent.
     const returned: unknown = await findManySpy.mock.results[0]?.value
     const candidateIds = new Set<string>()
     if (Array.isArray(returned)) {
@@ -1420,8 +1424,8 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     }
     expect(candidateIds.has(eoA.id)).toBe(true)
     expect(candidateIds.has(eoD.id)).toBe(true)
+    expect(candidateIds.has(eoC.id)).toBe(true)
     expect(candidateIds.has(eoB.id)).toBe(false)
-    expect(candidateIds.has(eoC.id)).toBe(false)
 
     // Only the eligible office (A) actually dispatches.
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
@@ -1655,6 +1659,71 @@ describe('MeetingBriefingsService — office-identity cutoff coverage dedupe', (
 
     expect(result.dispatched).toBe(true)
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  // Same scenario as above, but through the cron entry point rather than
+  // the on-demand one — dispatchDailyBriefings has its own DB-side
+  // pre-filter that must apply the identical cutoff-scoped coverage check,
+  // or a pre-cutoff briefing suppresses the office before
+  // dispatchBriefingIfNeeded's (already-fixed) per-office guard ever runs.
+  it('cron does not let a pre-cutoff briefing suppress dispatch for the new office', async () => {
+    const orgSlug = `eo-cutoff-cron-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: `br-pos-${orgSlug}` })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const staleBriefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: new Date('2099-12-31'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: staleBriefingRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'stale.json',
+        createdAt: subDays(new Date(), 2),
+      },
+    })
+    await service.prisma.organization.update({
+      where: { slug: orgSlug },
+      data: { officeIdentityChangedAt: subDays(new Date(), 1) },
+    })
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgSlug,
+      }),
+    )
   })
 })
 

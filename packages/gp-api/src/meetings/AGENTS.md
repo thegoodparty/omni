@@ -222,12 +222,13 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
   (by the `MeetingBriefing` row's `createdAt`, not its `meetingDate`) —
   otherwise a briefing written for the old office with a future meeting
   date would suppress briefing dispatch for the new one indefinitely.
-  The `dispatchDailyBriefings` cron's DB-side pre-filter is NOT
-  cutoff-scoped, though — it excludes an office with any future
-  `MeetingBriefing` row regardless of `createdAt`, so a pre-cutoff
-  briefing can still stop the cron from calling `dispatchBriefingIfNeeded`
-  at all for that office. The on-demand path (`dispatchBriefingIfDue`)
-  has no such pre-filter and is not affected.
+  `dispatchDailyBriefings`' DB-side pre-filter applies the same
+  cutoff-scoped coverage check, but can't express it as a `where` clause —
+  the comparison is between `MeetingBriefing.createdAt` and
+  `Organization.officeIdentityChangedAt`, two different relations off
+  `ElectedOffice`, and Prisma field references only compare fields on the
+  same model. It fetches each candidate's future briefings and its org's
+  cutoff, then filters in JS before the per-office loop.
 
 ## Pointer table
 

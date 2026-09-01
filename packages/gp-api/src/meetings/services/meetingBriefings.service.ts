@@ -923,18 +923,22 @@ export class MeetingBriefingsService extends createPrismaBase(
     //      which requires a COMPLETED meeting_schedule run with artifact
     //      pointers. No such run => resolveTargetMeeting returns null => skip.
     //   2. Coverage dedupe skips any office already covered by a future
-    //      briefing (meetingDate >= now).
+    //      briefing (meetingDate >= now) created at or after the org's
+    //      officeIdentityChangedAt cutoff — a pre-cutoff briefing describes
+    //      the old office and must not count.
     // The remaining gates (serve-ICP, activity, imminence window, in-flight
     // dedupe) depend on the election-api / the S3 schedule artifact / user
     // metadata and can't be expressed here, so they stay in the per-office
     // guard below.
-    // NOTE: predicate 2 above is not cutoff-scoped the way the per-office
-    // dedupe in dispatchBriefingIfNeeded is, so a pre-cutoff briefing (one
-    // created before an office-identity change, still with a future
-    // meetingDate) can pre-filter an office out here even though the
-    // per-office guard would now let it through. Known gap, not fixed by
-    // this pass — see src/meetings/AGENTS.md.
-    const offices = await this.client.electedOffice.findMany({
+    //
+    // Predicate 2's cutoff comparison is between two different relations
+    // (meetingBriefing.createdAt vs organization.officeIdentityChangedAt),
+    // which Prisma's query filters can't express in one `where` — field
+    // references only compare fields on the same model. So predicate 2 is
+    // applied in JS below instead of in the `where` clause: fetch each
+    // candidate's future briefings plus its org's cutoff, then filter out
+    // offices actually covered by a post-cutoff one.
+    const candidates = await this.client.electedOffice.findMany({
       where: {
         organization: {
           experimentRuns: {
@@ -946,10 +950,31 @@ export class MeetingBriefingsService extends createPrismaBase(
             },
           },
         },
-        meetingBriefings: { none: { meetingDate: { gte: now } } },
       },
-      select: { id: true, organizationSlug: true, userId: true },
+      select: {
+        id: true,
+        organizationSlug: true,
+        userId: true,
+        organization: { select: { officeIdentityChangedAt: true } },
+        meetingBriefings: {
+          where: { meetingDate: { gte: now } },
+          select: { createdAt: true },
+        },
+      },
     })
+    const offices = candidates
+      .filter((eo) => {
+        const cutoff = eo.organization?.officeIdentityChangedAt
+        const covered = eo.meetingBriefings.some(
+          (briefing) => !cutoff || briefing.createdAt >= cutoff,
+        )
+        return !covered
+      })
+      .map(({ id, organizationSlug, userId }) => ({
+        id,
+        organizationSlug,
+        userId,
+      }))
 
     // Bounded concurrency over the whole candidate set: each office's dispatch
     // work is independent (distinct org), so we fan out up to `concurrency` at
