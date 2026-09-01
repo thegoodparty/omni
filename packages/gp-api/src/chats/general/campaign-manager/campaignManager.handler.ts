@@ -14,7 +14,6 @@ import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
-import { FeaturesService } from '@/features/services/features.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
@@ -125,11 +124,6 @@ const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
     'tailor everything to your race.',
 ].join('\n\n')
 
-// Campaign Manager's own rollout flag for the constituent-data tool, distinct
-// from Chief of Staff's. Off until enabled per internal tester while the tool
-// runs against the shared (broad) Databricks credential.
-export const CM_CONSTITUENT_DATA_TOOL_FLAG = 'cm-constituent-data-tool'
-
 // Injection tokens for the aggregate-only Databricks provider and the in-code
 // table allowlist, provided by CampaignManagerModule.
 export const CM_CONSTITUENT_DATA_PROVIDER = 'CM_CONSTITUENT_DATA_PROVIDER'
@@ -212,8 +206,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly constituentProvider?: DatabricksProvider,
     @Optional()
     private readonly districtResolver?: DistrictResolverService,
-    @Optional()
-    private readonly features?: FeaturesService,
     @Optional()
     private readonly storyIntake?: CampaignStoryIntakeService,
     @Optional()
@@ -327,9 +319,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const ballotStatus = parseBallotStatus(campaign.ballotStatus)
 
     // Scope constituent queries to the campaign's district (from its org's
-    // position), same shape Chief of Staff uses. Resolving the flag only when
-    // the tool could otherwise register avoids an Amplitude call for candidates
-    // who can't use it anyway.
+    // position), same shape Chief of Staff uses. Folding districtFilters into
+    // constituentToolEnabled (rather than leaving it a separate buildTools
+    // check) keeps prompt advertising and tool registration on one signal,
+    // same as crmToolsEnabled/savedFilterToolsEnabled below.
     const resolved =
       await this.districtResolver?.resolveByOrgSlug(organizationSlug)
     const districtFilters =
@@ -339,7 +332,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const constituentToolEnabled =
       !!this.constituentProvider &&
       this.constituentTables.length > 0 &&
-      (await this.isFlagOn(userId, CM_CONSTITUENT_DATA_TOOL_FLAG))
+      districtFilters !== null
 
     // The org row the CRM contact tools bind counts to. Folding the service
     // presence into crmToolsEnabled keeps prompt advertising and tool
@@ -387,18 +380,6 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     }
   }
 
-  // FeaturesService.isFeatureEnabled throws if Amplitude fails to return a
-  // value. Resolving a flag is on the critical path of loadContext, so a
-  // flag-service outage must degrade to "tool off", never take down the chat.
-  private async isFlagOn(userId: number, feature: string): Promise<boolean> {
-    if (!this.features) return false
-    try {
-      return await this.features.isFeatureEnabled({ user: userId, feature })
-    } catch {
-      return false
-    }
-  }
-
   buildSystemPrompt(ctx: CampaignManagerContext): string {
     return buildCampaignManagerSystemPrompt(ctx)
   }
@@ -417,8 +398,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // Aggregate-only constituent data against the dedicated Win mart
     // (sp_win_agent credential + win_agent_voters allowlist + the shared SQL
     // validator + cell-size floor). Registers only when the provider is
-    // configured, the campaign's district resolved into server-bound filters,
-    // and the per-user rollout flag is on — otherwise it stays dark.
+    // configured and the campaign's district resolved into server-bound
+    // filters — otherwise it stays dark.
     if (
       this.constituentProvider &&
       ctx.districtFilters &&

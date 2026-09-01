@@ -12,13 +12,6 @@ import type { DatabricksProvider } from './queryDatabricks.tool'
 import { isRecord } from './util/isRecord.util'
 import { parseSingleSelect } from './util/sqlAst.util'
 
-// Amplitude feature flag gating the constituent-data tool. Slice 6a ships it
-// DISABLED: the flag does not exist in Amplitude, so isFeatureEnabled returns
-// false and the CoS scope handler must not register the tool. It is enabled
-// only in slice 6b, after the scoped Databricks credential is validated in
-// dev/qa. NEVER enable this before that credential exists.
-export const CONSTITUENT_DATA_TOOL_FLAG = 'cos-constituent-data-tool'
-
 // Aggregate functions the agent may use. Anything outside this set (including
 // scalar functions and window functions) is rejected so a SELECT item can only
 // ever be an aggregate or a GROUP BY dimension — never a row-level value.
