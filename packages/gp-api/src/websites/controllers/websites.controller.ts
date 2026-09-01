@@ -45,7 +45,6 @@ import { GetWebsiteViewsSchema } from '../schemas/GetWebsiteViews.schema'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
@@ -73,14 +72,12 @@ const LOGO_FIELDNAME = 'logoFile'
 const HERO_FIELDNAME = 'heroFile'
 // Public endpoints: do NOT select campaign.details — it carries the campaign's
 // EIN, filing, and subscription data, which must never reach an anonymous
-// caller. clerkId is selected only so the user can be enriched from Clerk; the
-// PublicWebsiteResponseSchema strips it from the serialized response.
+// caller.
 const WEBSITE_CONTENT_INCLUDES = {
   campaign: {
     select: {
       user: {
         select: {
-          clerkId: true,
           firstName: true,
           lastName: true,
         },
@@ -162,7 +159,6 @@ export class WebsitesController {
     private readonly s3: S3Service,
     private readonly siteViews: WebsiteViewsService,
     private readonly analytics: AnalyticsService,
-    private readonly clerkEnricher: ClerkUserEnricherService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(WebsitesController.name)
@@ -511,12 +507,6 @@ export class WebsitesController {
       throw new ForbiddenException()
     }
 
-    if (website.campaign?.user) {
-      website.campaign.user = await this.clerkEnricher.enrichUser(
-        website.campaign.user,
-      )
-    }
-
     return website
   }
 
@@ -563,11 +553,6 @@ export class WebsitesController {
     })
     if (!website || website.status !== WebsiteStatus.published) {
       throw new NotFoundException()
-    }
-    if (website.campaign?.user) {
-      website.campaign.user = await this.clerkEnricher.enrichUser(
-        website.campaign.user,
-      )
     }
     return website
   }

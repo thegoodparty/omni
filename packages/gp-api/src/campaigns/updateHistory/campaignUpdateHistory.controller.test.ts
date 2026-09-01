@@ -1,17 +1,9 @@
 import { useTestService } from '@/test-service'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
 describe('GET /v1/campaigns/mine/update-history', () => {
-  beforeEach(() => {
-    // User enrichment hits Clerk and is incidental to which campaign the
-    // endpoint resolves, so pass the rows through untouched.
-    const enricher = service.app.get(ClerkUserEnricherService)
-    vi.spyOn(enricher, 'enrichUsers').mockImplementation(async (users) => users)
-  })
-
   const seedCampaign = async (
     slug: string,
     details: { electionDate: string },

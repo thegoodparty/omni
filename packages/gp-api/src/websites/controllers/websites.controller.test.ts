@@ -21,9 +21,7 @@ import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { FileUpload } from 'src/files/files.types'
 import { WebsiteViewsService } from '../services/websiteViews.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { createMockClerkEnricher } from '@/shared/test-utils/mockClerkEnricher.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import {
   createMockUser,
   createMockCampaign,
@@ -86,7 +84,6 @@ describe('WebsitesController', () => {
     getWebsiteIdByDomain: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
   }
-  let mockClerkEnricher: ReturnType<typeof createMockClerkEnricher>
 
   beforeEach(async () => {
     mockAnalytics = {
@@ -124,13 +121,6 @@ describe('WebsitesController', () => {
         { provide: WebsiteViewsService, useValue: {} },
         { provide: CampaignsService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        {
-          provide: ClerkUserEnricherService,
-          useFactory: () => {
-            mockClerkEnricher = createMockClerkEnricher()
-            return mockClerkEnricher
-          },
-        },
         { provide: PinoLogger, useValue: createMockLogger() },
         WebsitesController,
       ],
@@ -979,7 +969,7 @@ describe('WebsitesController', () => {
       )
     })
 
-    it('returns published website and enriches user', async () => {
+    it('serves the published website user from Postgres', async () => {
       const user = { clerkId: 'clerk_1', firstName: 'Jane', lastName: 'Doe' }
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         id: 1,
@@ -991,7 +981,7 @@ describe('WebsitesController', () => {
       const result = await controller.viewWebsite(vanityPath)
 
       expect(result.id).toBe(1)
-      expect(mockClerkEnricher.enrichUser).toHaveBeenCalledWith(user)
+      expect(result.campaign.user).toEqual(user)
     })
   })
 
@@ -1023,7 +1013,7 @@ describe('WebsitesController', () => {
       )
     })
 
-    it('returns published website and enriches user', async () => {
+    it('serves the by-domain website user from Postgres', async () => {
       const mockDomainUser = {
         clerkId: 'clerk_123',
         firstName: 'Jane',
@@ -1039,10 +1029,10 @@ describe('WebsitesController', () => {
       const result = await controller.getWebsiteByDomain(domain)
 
       expect(result.id).toBe(websiteId)
-      expect(mockClerkEnricher.enrichUser).toHaveBeenCalledWith(mockDomainUser)
+      expect(result.campaign.user).toEqual(mockDomainUser)
     })
 
-    it('skips enrichment when no user', async () => {
+    it('returns the website when the campaign has no user', async () => {
       mockWebsitesService.findUnique.mockResolvedValue({
         id: websiteId,
         status: WebsiteStatus.published,
@@ -1053,7 +1043,7 @@ describe('WebsitesController', () => {
       const result = await controller.getWebsiteByDomain(domain)
 
       expect(result.id).toBe(websiteId)
-      expect(mockClerkEnricher.enrichUser).not.toHaveBeenCalled()
+      expect(result.campaign.user).toBeNull()
     })
 
     it('does not select campaign.details on the public query', async () => {
@@ -1310,7 +1300,6 @@ describe('WebsitesController MCP discoverability', () => {
       { provide: WebsiteViewsService, useValue: {} },
       { provide: CampaignsService, useValue: {} },
       { provide: AnalyticsService, useValue: { track: vi.fn() } },
-      { provide: ClerkUserEnricherService, useValue: {} },
       { provide: PinoLogger, useValue: createMockLogger() },
       {
         provide: HttpAdapterHost,

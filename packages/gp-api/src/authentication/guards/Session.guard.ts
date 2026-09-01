@@ -21,7 +21,6 @@ import { routeIsPublicAndNoRoles } from '@/authentication/util/routeIsPublicAndN
 import { TRANSCRIBE_STREAM_PATH } from '@/speech/ws/speechToText.gateway'
 import { UsersService } from '@/users/services/users.service'
 import { SessionsService } from '@/users/services/sessions.service'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 
 @Injectable()
 export class SessionGuard implements CanActivate {
@@ -30,7 +29,6 @@ export class SessionGuard implements CanActivate {
     private authProvider: AuthProvider,
     private usersService: UsersService,
     private sessions: SessionsService,
-    private readonly clerkEnricher: ClerkUserEnricherService,
     private readonly logger: PinoLogger,
     private readonly reflector: Reflector,
     private readonly agentMcpMarker: AgentMcpMarker,
@@ -141,29 +139,11 @@ export class SessionGuard implements CanActivate {
       return null
     }
 
-    const [rawUser, clerkFields] = await Promise.all([
-      this.usersService.model.findUnique({
-        where: { clerkId: externalUserId },
-      }),
-      this.clerkEnricher.fetchClerkFields(externalUserId),
-    ])
-
+    const rawUser = await this.usersService.model.findUnique({
+      where: { clerkId: externalUserId },
+    })
     if (rawUser) {
-      if (!clerkFields) {
-        // Clerk unreachable: keep DB identity fields but never serve a stale
-        // local avatar as if it were Clerk's (see ClerkUserEnricherService).
-        return { ...rawUser, avatar: null }
-      }
-      // Use `||` (not `??`) so empty strings from Clerk also fall back to the
-      // DB value, matching ClerkUserEnricherService.applyFields.
-      return {
-        ...rawUser,
-        email: clerkFields.email || rawUser.email,
-        firstName: clerkFields.firstName || rawUser.firstName,
-        lastName: clerkFields.lastName || rawUser.lastName,
-        name: clerkFields.name || rawUser.name,
-        avatar: clerkFields.avatar,
-      }
+      return rawUser
     }
 
     if (role === 'actor') {

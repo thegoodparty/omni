@@ -20,7 +20,6 @@ import {
   startTestPostgres,
   templateDbName,
 } from './test-postgres'
-import { ClerkUserEnricherService } from './vendors/clerk/services/clerk-user-enricher.service'
 import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
 import { ElectionsService } from './elections/services/elections.service'
 import { District } from './elections/types/elections.types'
@@ -77,14 +76,6 @@ const resetDatabase = async (
     },
   })
 }
-
-/**
- * What ClerkUserEnricherService resolves to when Clerk cannot be reached: the
- * DB identity fields stand, but a locally stored avatar is never served as if
- * it were Clerk's.
- */
-const dropClerkAvatar = <T extends object>(user: T): T =>
-  'avatar' in user ? { ...user, avatar: null } : user
 
 export type TestServiceContext = {
   /** A client targeting the test service. */
@@ -243,23 +234,6 @@ export const useTestService = (): TestServiceContext => {
     // ballotLevel) accordingly. Manufacturing one here would silently take that
     // fallback away. Suites that need a real position stub it themselves.
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
-
-    // SessionGuard enriches the request user through Clerk on every
-    // authenticated call, so unstubbed this is a live round trip to
-    // api.clerk.com per request. It can only ever 401, since .env.test carries
-    // a placeholder CLERK_SECRET_KEY. The guard and enrichUser/enrichUsers
-    // absorb that 401 by keeping the DB fields and dropping the avatar, so
-    // resolve to that outcome directly instead. The enricher's own behavior
-    // stays covered by clerk-user-enricher.service.test.ts, which mocks the
-    // Clerk client rather than the service.
-    const enricher = app.get(ClerkUserEnricherService)
-    vi.spyOn(enricher, 'fetchClerkFields').mockResolvedValue(null)
-    vi.spyOn(enricher, 'enrichUser').mockImplementation((user) =>
-      Promise.resolve(dropClerkAvatar(user)),
-    )
-    vi.spyOn(enricher, 'enrichUsers').mockImplementation((users) =>
-      Promise.resolve(users.map(dropClerkAvatar)),
-    )
 
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })

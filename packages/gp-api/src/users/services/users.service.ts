@@ -5,7 +5,6 @@ import {
   DEFAULT_SORT_ORDER,
 } from '@/shared/constants/paginationOptions.consts'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ClerkClient } from '@clerk/backend'
 import { type ListUsersPagination } from '@goodparty_org/contracts'
@@ -74,18 +73,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     private readonly crm: WrapperType<CrmUsersService>,
     @Inject(forwardRef(() => StripeService))
     private readonly stripeService: WrapperType<StripeService>,
-    @Inject(forwardRef(() => ClerkUserEnricherService))
-    private readonly clerkEnricher: WrapperType<ClerkUserEnricherService>,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
     private readonly userAvatar: UserAvatarService,
   ) {
     super()
-  }
-
-  override onModuleInit() {
-    super.onModuleInit()
-    this.wrapReadsWithEnrichment()
   }
 
   findUser(where: Prisma.UserWhereUniqueInput) {
@@ -320,10 +312,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   // Every provisioning path funnels through here because they share one
   // subtle invariant: the row may already hold a picture the user uploaded
   // themselves via POST /v1/users/me/upload-image, and a Clerk-hosted image
-  // must never overwrite it. Two traps this centralises — test the STORED
-  // avatar, not user.avatar, because user came back through the
-  // Clerk-enrichment read wrapper whose avatar mirrors Clerk rather than
-  // Postgres; and treat '' as empty, which is what most legacy rows hold.
+  // must never overwrite it. Two traps this centralises — read the STORED
+  // avatar rather than trusting user.avatar, which can predate a self-upload
+  // that landed after the caller loaded the row; and treat '' as empty, which
+  // is what most legacy rows hold.
   //
   // Safe to call from the every-sign-in fast path: Clerk reports no image for
   // the vast majority of users, so avatarUrl is undefined and this returns
@@ -932,7 +924,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     })
 
     return {
-      data: await this.clerkEnricher.enrichUsers(data),
+      data,
       meta: {
         total: await this.model.count({ where }),
         offset: skip,
@@ -1049,54 +1041,5 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     } catch (err) {
       this.logger.error({ err }, 'Failed to delete test users')
     }
-  }
-
-  private wrapReadsWithEnrichment() {
-    const enricher = this.clerkEnricher
-
-    Object.defineProperty(this, 'findUnique', {
-      value: async (args: Prisma.UserFindUniqueArgs) => {
-        const result = await this.model.findUnique(args)
-        return result ? enricher.enrichUser(result) : result
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findUniqueOrThrow', {
-      value: async (args: Prisma.UserFindUniqueOrThrowArgs) => {
-        const result = await this.model.findUniqueOrThrow(args)
-        return enricher.enrichUser(result)
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findFirst', {
-      value: async (args: Prisma.UserFindFirstArgs) => {
-        const result = await this.model.findFirst(args)
-        return result ? enricher.enrichUser(result) : result
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findFirstOrThrow', {
-      value: async (args: Prisma.UserFindFirstOrThrowArgs) => {
-        const result = await this.model.findFirstOrThrow(args)
-        return enricher.enrichUser(result)
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findMany', {
-      value: async (args: Prisma.UserFindManyArgs) => {
-        const results = await this.model.findMany(args)
-        return enricher.enrichUsers(results)
-      },
-      writable: true,
-      configurable: true,
-    })
   }
 }
