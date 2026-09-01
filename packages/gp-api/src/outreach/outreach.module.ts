@@ -24,6 +24,7 @@ import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
+import { OutreachServePhoneBankingController } from './outreachServePhoneBanking.controller'
 import { OutreachRobocallController } from './outreachRobocall.controller'
 import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
@@ -94,6 +95,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachSocialController,
     OutreachServeSocialController,
     OutreachPhoneBankingController,
+    OutreachServePhoneBankingController,
     OutreachSmsController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
