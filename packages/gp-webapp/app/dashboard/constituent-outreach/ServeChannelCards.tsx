@@ -52,7 +52,10 @@ const ServeChannelCards = ({
         Reach your constituents through these channels.
       </p>
     </div>
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+    {/* Two cards, so two columns; max-w-md keeps each tile at the same
+        ~220px width the old 5-column xl grid gave, instead of stretching
+        them across the max-w-7xl page container. */}
+    <div className="grid max-w-md grid-cols-2 gap-3">
       {SERVE_CHANNELS.map((channel) => (
         <ChannelCard
           key={channel.key}
