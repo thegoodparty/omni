@@ -208,7 +208,7 @@ describe('serve phone banking routes', () => {
       expect(await service.prisma.phoneBankingList.count()).toBe(0)
     })
 
-    it('400s an exhausted audience', async () => {
+    it('400s an empty audience', async () => {
       mockPeoplePage([])
       const res = await service.client.post(
         '/v1/phone-banking/serve/lists',
@@ -308,6 +308,68 @@ describe('serve phone banking routes', () => {
       const winList = await service.client.get('/v1/outreach', {
         headers: { 'x-organization-slug': winSlug },
       })
+      expect(winList.status).toBe(200)
+      expect(winList.data.map((row: { id: number }) => row.id)).toEqual([
+        winRow.id,
+      ])
+    })
+
+    it('keeps a dual-role org disjoint: ONE org holding both a Campaign and an ElectedOffice', async () => {
+      // The post-election transition (ENG-10976): the same org (and slug)
+      // gains an ElectedOffice while its Win row still carries that
+      // organizationSlug — only the campaignId: null pin keeps a serve
+      // create from being mistaken for a Win row, and vice versa.
+      const dualCampaign = await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `pb-campaign-dual-${Date.now()}`,
+          organizationSlug: eoSlug,
+          isPro: true,
+          details: {},
+          data: {},
+          aiContent: {},
+        },
+      })
+      const winRow = await service.prisma.outreach.create({
+        data: {
+          campaignId: dualCampaign.id,
+          organizationSlug: eoSlug,
+          outreachType: OutreachType.socialMedia,
+          status: OutreachStatus.completed,
+          name: 'Win row on the dual-role org',
+        },
+      })
+
+      mockPeoplePage([fakePerson({ cellPhone: '3075660006' })])
+      const build = await service.client.post(
+        '/v1/phone-banking/serve/lists',
+        buildBody(),
+        eoHeaders(),
+      )
+      expect(build.status).toBe(201)
+
+      const serveEnvelope = await service.prisma.outreach.findFirstOrThrow({
+        where: { phoneBankingListId: build.data.id },
+      })
+      expect(serveEnvelope.campaignId).toBeNull()
+      expect(serveEnvelope.organizationSlug).toBe(eoSlug)
+
+      const serveList = await service.client.get(
+        '/v1/outreach/serve',
+        eoHeaders(),
+      )
+      expect(serveList.status).toBe(200)
+      expect(serveList.data.map((row: { id: number }) => row.id)).toEqual([
+        build.data.outreachId,
+      ])
+
+      const winIdThroughServe = await service.client.get(
+        `/v1/outreach/serve/${winRow.id}`,
+        { ...eoHeaders(), validateStatus: () => true },
+      )
+      expect(winIdThroughServe.status).toBe(404)
+
+      const winList = await service.client.get('/v1/outreach', eoHeaders())
       expect(winList.status).toBe(200)
       expect(winList.data.map((row: { id: number }) => row.id)).toEqual([
         winRow.id,
