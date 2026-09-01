@@ -144,6 +144,23 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     )
     expect(systemPrompt).toContain('elected official')
     expect(systemPrompt).not.toMatch(/candidate/i)
+    // The user-message framing must also drop the polish framing — it
+    // would otherwise recreate the same light-edit contradiction the
+    // system-prompt swap fixes. Surface-neutral wording, never "official"/
+    // "candidate", since this framing is built in the shared generateDraft.
+    expect(userPrompt).toContain('The message to adapt, as written:')
+    expect(userPrompt).toContain('Adapt the message into a call script.')
+    expect(userPrompt).not.toContain('The existing call script to polish:')
+    expect(userPrompt).not.toContain('Polish the script.')
+
+    // ENG-10990 blocker fix: custom's adapt-into-dialogue copy contradicts
+    // improveSystemPrompt's light-edit/same-length/format-already-there
+    // constraints, so custom improve borrows draftSystemPrompt instead.
+    expect(systemPrompt).toBe(SERVE_PHONE_BANKING_VOICE.draftSystemPrompt)
+    expect(systemPrompt).not.toContain('light edit')
+    expect(systemPrompt).not.toContain(
+      'Preserve the You:/Voter: alternating dialogue format.',
+    )
   })
 
   it('improves every serve purpose (polish mode) via currentDraft', async () => {
