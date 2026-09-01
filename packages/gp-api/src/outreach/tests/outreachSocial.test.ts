@@ -119,12 +119,68 @@ describe('POST /v1/outreach/social/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).toContain('introduce the candidate to voters')
+    expect(userPrompt).toContain(
+      'Structure: an opening hook line, 2-3 sentences drawing from bio ' +
+        "and why-they're-running, one sentence naming a top priority, " +
+        'then a closing call to action to vote for them.',
+    )
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
     expect(userPrompt).toContain(
       'Where the candidate is running: Georgetown, TX.',
     )
+  })
+
+  it('carries the CSV prompt verbatim for every non-custom purpose', async () => {
+    // One representative sentence per purpose (not a full-string pin —
+    // brittle to whitespace); the source of truth is WIN_PURPOSE_PROMPTS.
+    const sentences: Record<string, string> = {
+      introduce_myself:
+        'Structure: an opening hook line, 2-3 ' +
+        "sentences drawing from bio and why-they're-running, one sentence " +
+        'naming a top priority, then a closing call to action to vote for them.',
+      persuade_voters:
+        'Structure: an opening line naming the stakes or a shared ' +
+        "concern, 2-3 sentences connecting the candidate's platform to " +
+        'that concern, then a closing call to action to vote for them.',
+      event_invite:
+        'Structure: an opening hook naming the event, 1-2 sentences on ' +
+        'why it matters or what to expect, then a closing call to ' +
+        'action to attend, including date/time/location.',
+      early_voting:
+        'Structure: an opening line encouraging early voting, 1-2 ' +
+        'sentences on why participating matters, practical information ' +
+        'on how/where to vote early if provided, then a closing ' +
+        'encouragement to vote.',
+      election_day_turnout:
+        'Structure: an opening line marking election day, 1-2 ' +
+        'sentences on the importance of voting, practical voting ' +
+        'information if provided, then a closing encouragement to vote.',
+      issue_update:
+        'Structure: name the issue, explain the update in 2-3 ' +
+        'sentences, then a closing line inviting continued engagement ' +
+        'or follow-up.',
+    }
+
+    for (const [purpose, sentence] of Object.entries(sentences)) {
+      jsonCompletion.mockClear()
+      jsonCompletion.mockResolvedValue({
+        object: { draft: 'A draft.' },
+        tokens: 50,
+        inputTokens: 25,
+        outputTokens: 25,
+        model: 'claude-test',
+      })
+
+      const res = await postDraft({ purpose, tone: 'warm' })
+      expect(res.status).toBe(HttpStatus.CREATED)
+
+      const call = jsonCompletion.mock.calls[0]?.[0]
+      const userPrompt = call.messages.find(
+        (m: { role: string }) => m.role === 'user',
+      )?.content
+      expect(userPrompt).toContain(sentence)
+    }
   })
 
   it('feeds campaign story, issues, and plan sections into the prompt', async () => {
@@ -235,6 +291,14 @@ describe('POST /v1/outreach/social/draft', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ draft: 'Polished custom words.' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    // WIN_PURPOSE_PROMPTS.custom describes the GENERATE (platform-adapt)
+    // step and must not leak into this improve/polish call.
+    expect(userPrompt).not.toContain('adapt it to fit the selected platform')
   })
 
   it('rejects an empty or oversized currentDraft without calling the LLM', async () => {
@@ -321,6 +385,79 @@ describe('POST /v1/outreach/social/generate', () => {
       social: 0,
       assets: 0,
     })
+  })
+
+  it('includes the office line in the generate prompt', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Vote for me on election day.',
+      purpose: 'election_day_turnout',
+      platforms: ['facebook'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Office sought: City Council.')
+  })
+
+  it('carries the refreshed platform guidance for X and Instagram', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([
+        { platform: 'x', text: 'Short X post' },
+        { platform: 'instagram', text: 'IG caption' },
+      ]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'Vote for me on election day.',
+      purpose: 'election_day_turnout',
+      platforms: ['x', 'instagram'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'A single post within the 280-character hard limit, leaving room ' +
+        'for a URL appended alongside; aim for 70-150 characters for ' +
+        'best engagement. 1-2 hashtags max, more measurably hurts ' +
+        'engagement.',
+    )
+    expect(userPrompt).toContain(
+      'Front-load the hook in the first 125-150 characters, since ' +
+        "that's what shows before 'more.' 3-5 relevant hashtags.",
+    )
+  })
+
+  it('uses the adapt-dont-rewrite platform guidance for the custom purpose', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'x', text: 'Trimmed post' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'My own words, unedited.',
+      purpose: 'custom',
+      platforms: ['x'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Trim/reformat to fit 280 characters, ideally 70-150, leaving ' +
+        'room for a URL appended alongside.',
+    )
+    expect(userPrompt).not.toContain('280-character hard limit')
   })
 
   it('dedupes repeated platforms before calling the LLM', async () => {

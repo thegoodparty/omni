@@ -130,11 +130,12 @@ export class OutreachServeSocialController {
     @Body(new ZodValidationPipe(ServeSocialGenerateRequestSchema))
     input: ServeSocialGenerateRequest,
   ): Promise<SocialGenerateResponse> {
-    const { context } = await this.buildServeContext(electedOffice)
+    const { office, context } = await this.buildServeContext(electedOffice)
     return {
       assets: await this.generationService.generateAssets(
         input,
         electedOfficialName(user),
+        office,
         String(user.id),
         context,
         SERVE_SOCIAL_VOICE,
