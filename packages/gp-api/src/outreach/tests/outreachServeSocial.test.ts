@@ -571,6 +571,50 @@ describe('POST /v1/outreach/serve/social/generate', () => {
       ].join('\n'),
     )
   })
+
+  // ENG-10989: Serve carries no vote ask, so every Serve purpose stays
+  // included on Nextdoor — the Win exclusion gate never fires here, even
+  // for the Serve counterparts of Win's excluded purposes (explain_decision
+  // ~ persuade_voters, community_input ~ early_voting, share_resource ~
+  // election_day_turnout).
+  it.each(['explain_decision', 'community_input', 'share_resource'])(
+    'succeeds for %s paired with Nextdoor (no Win-style exclusion on Serve)',
+    async (purpose) => {
+      jsonCompletion.mockResolvedValue(
+        llmResult([{ platform: 'nextdoor', text: 'Hi neighbors.' }]),
+      )
+
+      const res = await postGenerate({
+        draftMessage: 'An update for the neighborhood.',
+        purpose,
+        platforms: ['nextdoor'],
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+    },
+  )
+
+  it('carries the flag-dont-alter instruction for the custom purpose on Nextdoor', async () => {
+    jsonCompletion.mockResolvedValue(
+      llmResult([{ platform: 'nextdoor', text: 'Trimmed message' }]),
+    )
+
+    const res = await postGenerate({
+      draftMessage: 'My own words, unedited.',
+      purpose: 'custom',
+      platforms: ['nextdoor'],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Flag rather than silently alter or remove language that may not ' +
+        "comply with a platform's content policy",
+    )
+  })
 })
 
 describe('POST /v1/outreach/serve/social', () => {
@@ -627,6 +671,25 @@ describe('POST /v1/outreach/serve/social', () => {
       social: 0,
       assets: 0,
     })
+  })
+
+  // ENG-10989: Serve's exclusion matrix is empty, so the same explain_decision
+  // + Nextdoor pairing that 400s on Win's save must persist here.
+  it('accepts explain_decision paired with Nextdoor on save (no Win-style exclusion on Serve)', async () => {
+    const res = await postSave(
+      validSaveBody({
+        purpose: 'explain_decision',
+        assets: [
+          {
+            platform: SocialAssetPlatform.nextdoor,
+            kind: SocialAssetKind.post_copy,
+            text: 'An update for the neighborhood.',
+          },
+        ],
+      }),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
   })
 })
 

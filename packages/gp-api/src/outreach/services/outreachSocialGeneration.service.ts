@@ -30,6 +30,14 @@ import { TONE_STYLES } from '../util/messageTone.util'
 // request (the AC bans candidate/voter framing entirely).
 export interface SocialVoiceConfig<TPurpose extends string> {
   purposePrompts: Record<TPurpose, string>
+  // Per-purpose platform-rule overrides (ENG-10989), layered onto
+  // PLATFORM_RULES/CUSTOM_PLATFORM_RULES at prompt-assembly time rather than
+  // forking either record — today only Win's introduce_myself/nextdoor pair
+  // needs one (drop the vote CTA), but the shape is per-purpose so a future
+  // override never has to fork the shared rules record either.
+  platformOverrides?: Partial<
+    Record<TPurpose, Partial<Record<SocialAssetPlatform, string>>>
+  >
   nameLabel: string
   subjectFallback: string
   officeLabel: string
@@ -62,6 +70,17 @@ const NEXTDOOR_RULE =
   'Conversational, neighbor-to-neighbor tone. Open by addressing ' +
   'neighbors directly (for example "Hi neighbors,"). Hyper-local, never ' +
   'salesy. No hashtags.'
+
+// Win's introduce_myself/Nextdoor override (ENG-10989): Nextdoor bans
+// telling neighbors how to vote, so this purpose's usual closing "vote for
+// them" call to action is dropped for this one platform and replaced with a
+// close on bio/priorities, layered onto WIN_SOCIAL_VOICE.platformOverrides
+// rather than forking PLATFORM_RULES.
+const WIN_INTRO_NEXTDOOR_RULE =
+  NEXTDOOR_RULE +
+  ' Do not close with a call to action to vote for the candidate — ' +
+  "Nextdoor doesn't allow telling neighbors how to vote. Close on the " +
+  "candidate's bio or top priorities instead."
 
 // Canonical platform guidance (product/politics CSV
 // social-copy-prompts-and-platform-guidance, 2026-09-01) for every
@@ -277,6 +296,11 @@ const WIN_PURPOSE_PROMPTS: Record<SocialPurpose, string> = {
 
 export const WIN_SOCIAL_VOICE: SocialVoiceConfig<SocialPurpose> = {
   purposePrompts: WIN_PURPOSE_PROMPTS,
+  platformOverrides: {
+    introduce_myself: {
+      [SocialAssetPlatform.nextdoor]: WIN_INTRO_NEXTDOOR_RULE,
+    },
+  },
   nameLabel: 'Candidate name',
   subjectFallback: 'The candidate',
   officeLabel: 'Office sought',
@@ -621,6 +645,7 @@ const buildPrompt = <TPurpose extends string>(
   // rather than a fresh confirmed draft — trim/reformat, don't rewrite.
   const platformRules =
     input.purpose === 'custom' ? CUSTOM_PLATFORM_RULES : PLATFORM_RULES
+  const overridesForPurpose = voice.platformOverrides?.[input.purpose]
   return [
     `${voice.nameLabel}: ${candidateName || voice.subjectFallback}.`,
     `${voice.officeLabel}: ${office || 'local office'}.`,
@@ -631,7 +656,10 @@ const buildPrompt = <TPurpose extends string>(
     input.draftMessage,
     '"""',
     'Requested platforms and their rules:',
-    ...platforms.map((platform) => `- ${platform}: ${platformRules[platform]}`),
+    ...platforms.map((platform) => {
+      const rule = overridesForPurpose?.[platform] ?? platformRules[platform]
+      return `- ${platform}: ${rule}`
+    }),
     'Adapt the draft into one asset per requested platform.',
   ].join('\n')
 }
