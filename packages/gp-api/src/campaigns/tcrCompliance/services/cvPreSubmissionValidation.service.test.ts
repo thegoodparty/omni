@@ -162,6 +162,23 @@ describe('CvPreSubmissionValidationService', () => {
     )
   }
 
+  type MockLlmUserPart =
+    | { type: 'text'; text: string }
+    | { type: 'file'; data: Uint8Array; mediaType: string }
+
+  // Vision-path messages carry multi-part content (text + file), unlike the
+  // plain-string content the text path sends — this reads that shape back
+  // out of the mock call for assertions.
+  const getLlmVisionUserParts = (): MockLlmUserPart[] => {
+    const args = llm.jsonCompletion.mock.calls[0]?.[0] as
+      | { messages: { role: string; content: string | MockLlmUserPart[] }[] }
+      | undefined
+    const content = args?.messages.find(
+      (message) => message.role === 'user',
+    )?.content
+    return Array.isArray(content) ? content : []
+  }
+
   beforeEach(() => {
     llm = { jsonCompletion: vi.fn() }
     stubDnsLookup(publicAddress)
@@ -534,23 +551,6 @@ describe('CvPreSubmissionValidationService', () => {
     expect(content).not.toContain('%PDF')
   })
 
-  it('fails as unreadable when a PDF has no extractable text (scanned image), without calling the LLM', async () => {
-    mockedAxiosGet.mockResolvedValue({
-      status: 200,
-      data: Buffer.from('%PDF-1.4 scanned-image-only'),
-      headers: { 'content-type': 'application/pdf' },
-    })
-    buildPdfParseMock('')
-
-    const result = await service.validate(params)
-
-    expect(result).toEqual({
-      outcome: 'failed',
-      reasons: [UNREADABLE_PAGE_REASON],
-    })
-    expect(llm.jsonCompletion).not.toHaveBeenCalled()
-  })
-
   it('treats a near-empty fetched page body as unreadable (failed), not transient', async () => {
     mockedAxiosGet.mockResolvedValue({
       status: 200,
@@ -573,5 +573,107 @@ describe('CvPreSubmissionValidationService', () => {
     const result = await service.validate(params)
 
     expect(result).toEqual({ outcome: 'transient' })
+  })
+
+  // Phase 2 (ENG-... vision fallback): a scanned PDF's text layer is empty,
+  // but the pages themselves have real content a vision-capable model can
+  // read directly — real case: campaign 326653's notarized Affidavit of
+  // Candidacy, an image-only PDF.
+  describe('scanned PDF vision fallback', () => {
+    const scannedPdfBody = '%PDF-1.4 scanned-image-only'
+
+    const mockScannedPdfResponse = (body: string = scannedPdfBody) => {
+      mockedAxiosGet.mockResolvedValue({
+        status: 200,
+        data: Buffer.from(body),
+        headers: { 'content-type': 'application/pdf' },
+      })
+      buildPdfParseMock('')
+    }
+
+    it('runs the vision pass and passes when the LLM confirms all three checks', async () => {
+      mockScannedPdfResponse()
+      llm.jsonCompletion.mockResolvedValue({
+        object: {
+          urlAcceptable: true,
+          nameFound: true,
+          filingEvidenced: true,
+          reasons: [],
+        },
+      })
+
+      const result = await service.validate(params)
+
+      expect(result).toEqual({ outcome: 'passed' })
+      const parts = getLlmVisionUserParts()
+      const filePart = parts.find((part) => part.type === 'file')
+      const textPart = parts.find((part) => part.type === 'text')
+      if (!filePart || filePart.type !== 'file') {
+        throw new Error('expected a file part')
+      }
+      expect(filePart.mediaType).toBe('application/pdf')
+      expect(filePart.data).toEqual(new Uint8Array(Buffer.from(scannedPdfBody)))
+      expect(textPart?.type).toBe('text')
+      if (textPart?.type === 'text') {
+        expect(textPart.text).toContain('Jane Candidate')
+      }
+    })
+
+    it('fails with the LLM reasons when the vision verdict finds the name missing', async () => {
+      mockScannedPdfResponse()
+      llm.jsonCompletion.mockResolvedValue({
+        object: {
+          urlAcceptable: true,
+          nameFound: false,
+          filingEvidenced: true,
+          reasons: ['Candidate name does not appear on the scanned filing'],
+        },
+      })
+
+      const result = await service.validate(params)
+
+      expect(result).toEqual({
+        outcome: 'failed',
+        reasons: ['Candidate name does not appear on the scanned filing'],
+      })
+    })
+
+    it('falls back to the unreadable hold (not transient) when the vision call throws', async () => {
+      mockScannedPdfResponse()
+      llm.jsonCompletion.mockRejectedValue(
+        new Error('vision model unavailable'),
+      )
+
+      const result = await service.validate(params)
+
+      expect(result).toEqual({
+        outcome: 'failed',
+        reasons: [UNREADABLE_PAGE_REASON],
+      })
+    })
+
+    it('skips vision and holds as unreadable for an oversized scanned PDF, without calling the LLM', async () => {
+      const oversizedBody = Buffer.concat([
+        Buffer.from('%PDF-1.4 '),
+        Buffer.alloc(4 * 1024 * 1024 + 1),
+      ])
+      mockedAxiosGet.mockResolvedValue({
+        status: 200,
+        data: oversizedBody,
+        headers: { 'content-type': 'application/pdf' },
+      })
+      buildPdfParseMock('')
+
+      const result = await service.validate(params)
+
+      expect(result).toEqual({
+        outcome: 'failed',
+        reasons: [
+          'The filing PDF has no readable text and is too large ' +
+            '(over 4MB) for automated visual review; staff review needed',
+        ],
+      })
+      expect(llm.jsonCompletion).not.toHaveBeenCalled()
+    })
   })
 })
