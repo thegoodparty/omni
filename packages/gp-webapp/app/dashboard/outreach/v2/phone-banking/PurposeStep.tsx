@@ -1,19 +1,29 @@
 'use client'
 
-import type { PhoneBankingPurpose } from '@goodparty_org/contracts'
+import type {
+  PhoneBankingPurpose,
+  ServePhoneBankingPurpose,
+} from '@goodparty_org/contracts'
 import { Card, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
-import { PHONE_BANKING_PURPOSES } from '../phoneBankingPurposes'
 // Intro is a channel-generic v2 component that currently lives under
 // social/; reused read-only here (same precedent as RobocallPurposeStep).
 import { Intro } from '../social/Intro'
 
 interface PurposeStepProps {
-  selected: PhoneBankingPurpose | null
-  onSelect: (purpose: PhoneBankingPurpose) => void
+  purposes: {
+    id: PhoneBankingPurpose | ServePhoneBankingPurpose
+    label: string
+  }[]
+  selected: PhoneBankingPurpose | ServePhoneBankingPurpose | null
+  onSelect: (purpose: PhoneBankingPurpose | ServePhoneBankingPurpose) => void
 }
 
-export const PurposeStep = ({ selected, onSelect }: PurposeStepProps) => (
+export const PurposeStep = ({
+  purposes,
+  selected,
+  onSelect,
+}: PurposeStepProps) => (
   <div className="space-y-6">
     <Intro
       channel="phoneBanking"
@@ -21,7 +31,7 @@ export const PurposeStep = ({ selected, onSelect }: PurposeStepProps) => (
       body="This helps us tailor your script and who to call."
     />
     <div className="space-y-3">
-      {PHONE_BANKING_PURPOSES.map((purpose) => (
+      {purposes.map((purpose) => (
         <Card
           key={purpose.id}
           role="button"
