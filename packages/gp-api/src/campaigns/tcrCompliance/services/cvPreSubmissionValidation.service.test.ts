@@ -116,6 +116,24 @@ const buildLongPageWithSurnameCollisionsBeforeRealMatch = () => {
   return { html: `<html><body><p>${text}</p></body></html>` }
 }
 
+// The name appears both early (inside the always-included head) and near the
+// tail (the real filing record) — a window around the head occurrence would
+// duplicate content the LLM already sees and waste budget the tail window
+// needs.
+const buildLongPageWithNameInHeadAndTail = () => {
+  const headOccurrence = 'Jane Candidate appears in the page header.'
+  const tailOccurrence = 'Jane Candidate filed for office near the tail.'
+  const filler = (n: number) => 'x'.repeat(n)
+  const text =
+    `${headOccurrence} ${filler(8000)} ${filler(8000)} ` +
+    `${tailOccurrence} ${filler(500)}`
+  return {
+    html: `<html><body><p>${text}</p></body></html>`,
+    headOccurrence,
+    tailOccurrence,
+  }
+}
+
 // Raw HTML tag padding well past the 15k cap, with zero extracted text of
 // its own — proves the name is rescued by extracting-before-capping, not
 // lost to the old raw-body slice(0, 15000). The real sentence is padded past
@@ -460,6 +478,33 @@ describe('CvPreSubmissionValidationService', () => {
 
     expect(result).toEqual({ outcome: 'passed' })
     expect(getLlmUserContent()).toContain('Jane Lee filed for office')
+  })
+
+  it('does not re-append windows already inside the head, keeping budget for the tail match', async () => {
+    const { html, headOccurrence, tailOccurrence } =
+      buildLongPageWithNameInHeadAndTail()
+    mockedAxiosGet.mockResolvedValue({
+      status: 200,
+      data: Buffer.from(html),
+      headers: { 'content-type': 'text/html' },
+    })
+    llm.jsonCompletion.mockResolvedValue({
+      object: {
+        urlAcceptable: true,
+        nameFound: true,
+        filingEvidenced: true,
+        reasons: [],
+      },
+    })
+
+    const result = await service.validate(params)
+
+    expect(result).toEqual({ outcome: 'passed' })
+    const content = getLlmUserContent()
+    expect(content).toContain(tailOccurrence)
+    expect(content.indexOf(headOccurrence)).toBe(
+      content.lastIndexOf(headOccurrence),
+    )
   })
 
   it('extracts PDF text so the LLM sees text, not binary', async () => {

@@ -204,6 +204,9 @@ const buildLlmPageContent = (text: string, submissionName: string): string => {
   const head = text.slice(0, FILING_PAGE_HEAD_CHARS)
   let content = head
   for (const window of buildNameWindows(text, submissionName)) {
+    if (head.includes(window)) {
+      continue
+    }
     const candidate = content + CONTENT_SEPARATOR + window
     if (candidate.length <= FILING_PAGE_MAX_CONTENT_CHARS) {
       content = candidate

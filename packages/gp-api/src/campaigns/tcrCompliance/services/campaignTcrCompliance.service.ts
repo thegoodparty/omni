@@ -759,6 +759,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         cvValidationOverriddenAt: new Date(),
         cvValidationFailedAt: null,
         cvValidationFailureReasons: [],
+        cvValidationTransientCount: 0,
       },
     })
   }
@@ -1610,6 +1611,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             cvValidationFailedAt: null,
             cvValidationFailureReasons: [],
             cvValidationOverriddenAt: null,
+            cvValidationTransientCount: 0,
           },
         })
         return { record: updated, created: false }

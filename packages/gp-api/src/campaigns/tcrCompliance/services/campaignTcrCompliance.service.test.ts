@@ -934,6 +934,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
           cvValidationFailedAt: null,
           cvValidationFailureReasons: [],
           cvValidationOverriddenAt: null,
+          cvValidationTransientCount: 0,
         },
       })
       expect(mockModel.deleteMany).not.toHaveBeenCalled()
@@ -981,6 +982,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
           cvValidationFailedAt: null,
           cvValidationFailureReasons: [],
           cvValidationOverriddenAt: null,
+          cvValidationTransientCount: 0,
         },
       })
       expect(result).toEqual({
@@ -4183,6 +4185,7 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
         cvValidationOverriddenAt: expect.any(Date),
         cvValidationFailedAt: null,
         cvValidationFailureReasons: [],
+        cvValidationTransientCount: 0,
       },
     })
   })
@@ -4209,6 +4212,7 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
         cvValidationOverriddenAt: expect.any(Date),
         cvValidationFailedAt: null,
         cvValidationFailureReasons: [],
+        cvValidationTransientCount: 0,
       },
     })
   })
