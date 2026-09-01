@@ -17,21 +17,21 @@ const renderCards = () => {
 }
 
 describe('ServeChannelCards', () => {
-  it('renders exactly the three Serve channel cards', () => {
+  it('renders exactly the two Serve channel cards', () => {
     renderCards()
 
     expect(screen.getByText('Social media')).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
-    expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(screen.getAllByRole('button')).toHaveLength(3)
+    expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 
-  it('never renders SMS, Robocall, or pricing copy', () => {
+  it('never renders SMS, Robocall, Door knocking, or pricing copy', () => {
     renderCards()
 
     expect(screen.queryByText(/texting/i)).not.toBeInTheDocument()
     expect(screen.queryByText('SMS')).not.toBeInTheDocument()
     expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.queryByText('Door knocking')).not.toBeInTheDocument()
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
     expect(screen.queryByText(/free/i)).not.toBeInTheDocument()
   })
@@ -54,17 +54,10 @@ describe('ServeChannelCards', () => {
     expect(onSocialClick).not.toHaveBeenCalled()
   })
 
-  it('only Door knocking stays disabled and inert — Social media and Phone banking are enabled', async () => {
-    const { onSocialClick, onPhoneBankingClick } = renderCards()
+  it('both cards are enabled', () => {
+    renderCards()
 
     expect(screen.getByRole('button', { name: /Social media/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
-    const doorKnocking = screen.getByRole('button', { name: /Door knocking/ })
-    expect(doorKnocking).toBeDisabled()
-
-    await userEvent.click(doorKnocking)
-
-    expect(onSocialClick).not.toHaveBeenCalled()
-    expect(onPhoneBankingClick).not.toHaveBeenCalled()
   })
 })
