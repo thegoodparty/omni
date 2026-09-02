@@ -185,10 +185,9 @@ function LoadedEditor({
   const [saving, setSaving] = useState(false)
   const [savingIssues, setSavingIssues] = useState(false)
   const [togglingPublish, setTogglingPublish] = useState(false)
-  const [uploading, setUploading] = useState<'avatar' | 'cover' | null>(null)
+  const [uploading, setUploading] = useState<'avatar' | null>(null)
 
   const avatarInputRef = useRef<HTMLInputElement>(null)
-  const coverInputRef = useRef<HTMLInputElement>(null)
 
   const isPublished = Boolean(profile.publishedAt) && !profile.deletedAt
 
@@ -271,7 +270,7 @@ function LoadedEditor({
   }
 
   const handleUpload = async (
-    target: 'avatar' | 'cover',
+    target: 'avatar',
     file: File | undefined,
   ): Promise<void> => {
     if (!file) return
@@ -345,19 +344,10 @@ function LoadedEditor({
         <div className="flex flex-wrap items-center gap-6">
           <ImageUploader
             label="Profile photo"
-            shape="circle"
             url={profile.avatarUrl}
             busy={uploading === 'avatar'}
             inputRef={avatarInputRef}
             onFile={(f) => handleUpload('avatar', f)}
-          />
-          <ImageUploader
-            label="Cover image"
-            shape="wide"
-            url={profile.coverImageUrl}
-            busy={uploading === 'cover'}
-            inputRef={coverInputRef}
-            onFile={(f) => handleUpload('cover', f)}
           />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -514,26 +504,20 @@ function Field({
 
 function ImageUploader({
   label,
-  shape,
   url,
   busy,
   inputRef,
   onFile,
 }: {
   label: string
-  shape: 'circle' | 'wide'
   url: string | null
   busy: boolean
   inputRef: React.RefObject<HTMLInputElement | null>
   onFile: (file: File | undefined) => void
 }): JSX.Element {
-  const box =
-    shape === 'circle' ? 'h-20 w-20 rounded-full' : 'h-20 w-36 rounded-lg'
   return (
     <div className="flex flex-col items-center gap-2">
-      <div
-        className={`relative overflow-hidden border border-gray-200 bg-gray-50 ${box}`}
-      >
+      <div className="relative h-20 w-20 overflow-hidden rounded-full border border-gray-200 bg-gray-50">
         {url && (
           <Image
             src={url}
