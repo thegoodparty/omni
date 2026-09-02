@@ -8,6 +8,7 @@ import {
   checkSmsStandards,
   type ApproveSmsOutreachRequest,
   type DenySmsOutreachRequest,
+  type EditSmsOutreachRequest,
   type SmsAdminDetailResponse,
   type SmsAdminJobStats,
   type SmsApprovalQueueItem,
@@ -18,7 +19,8 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { EmailService } from 'src/email/email.service'
+import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
 
@@ -36,7 +38,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly analytics: AnalyticsService,
-    private readonly email: EmailService,
+    private readonly s3: S3Service,
     private readonly slack: SlackService,
   ) {
     super()
@@ -130,7 +132,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
     if (row.deniedAt) {
       throw new ConflictException(
-        'This campaign was denied — it re-queues when the candidate edits',
+        'This campaign was denied — edit the message to re-queue it',
       )
     }
     if (
@@ -225,7 +227,105 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     })
     const committeeNames = await this.committeeNamesByCampaign([updated])
     await this.tryNotifyDecision(updated, 'denied', input.deniedBy)
-    await this.tryEmailDenial(updated, input.reason)
+    return this.toQueueItem(
+      updated,
+      committeeNames.get(updated.campaignId ?? -1) ?? [],
+      null,
+    )
+  }
+
+  /**
+   * CAS's fix path: correct the message in place, then approve — the same
+   * thing the team does in Peerly's platform today. Vendor first, then DB,
+   * mirroring the candidate edit: an open canvass request is cleared BEFORE
+   * the job update (fail closed — the vendor allows one request per job and
+   * an edited message must never ride a stale approval), and the DB write
+   * wipes every decision stamp so the follow-up approve is a fresh call on
+   * the edited text. Name, date, image, and audience are untouched.
+   */
+  async editScript(
+    outreachId: number,
+    input: EditSmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, ...this.queueWhere() },
+      include: queueInclude,
+    })
+    if (!row || !row.projectId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    if (!row.identityId || row.campaignId === null) {
+      throw new BadRequestException(
+        'This campaign is missing its sending identity and cannot be edited',
+      )
+    }
+
+    // Peerly's template update is a destructive overwrite, so it always
+    // needs the image bytes — a script-only edit re-sends the stored one.
+    if (!row.imageUrl) {
+      throw new BadRequestException(
+        'This campaign has no stored image; it must be edited by the candidate',
+      )
+    }
+    const imageKey = decodeURIComponent(new URL(row.imageUrl).pathname.slice(1))
+    const image = await this.s3.getFileBytesWithContentType(
+      ASSET_DOMAIN,
+      imageKey,
+    )
+    if (!image) {
+      throw new BadRequestException(
+        'The stored image could not be read; the campaign cannot be edited',
+      )
+    }
+
+    if (row.canvassRequestedAt) {
+      await this.peerlyP2pJobService.clearCanvassers(row.projectId)
+    }
+
+    await this.peerlyP2pJobService.updatePeerlyP2pJob({
+      jobId: row.projectId,
+      campaignId: row.campaignId,
+      imageInfo: {
+        fileStream: image.bytes,
+        fileName: imageKey.split('/').pop() ?? 'outreach-image',
+        mimeType: image.contentType ?? 'image/jpeg',
+        title: row.title ?? undefined,
+      },
+      scriptText: input.script,
+      identityId: row.identityId,
+      name: row.name ?? undefined,
+    })
+
+    const edited = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending },
+      data: {
+        script: input.script,
+        message: input.script,
+        approvedAt: null,
+        approvedBy: null,
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        canvassRequestedAt: null,
+        adminEditedAt: new Date(),
+        adminEditedBy: input.editedBy,
+      },
+    })
+    if (edited.count === 0) {
+      this.logger.error(
+        `Outreach ${outreachId} advanced past pending during admin edit; ` +
+          'Peerly job has the new content but the row kept the old — ' +
+          'manual reconciliation required',
+      )
+      throw new ConflictException('This campaign is no longer editable')
+    }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const committeeNames = await this.committeeNamesByCampaign([updated])
+    await this.tryNotifyDecision(updated, 'edited', input.editedBy)
     return this.toQueueItem(
       updated,
       committeeNames.get(updated.campaignId ?? -1) ?? [],
@@ -320,6 +420,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       deniedBy: row.deniedBy,
       deniedReason: row.deniedReason,
       canvassRequestedAt: row.canvassRequestedAt,
+      adminEditedAt: row.adminEditedAt,
+      adminEditedBy: row.adminEditedBy,
       standards: row.script
         ? checkSmsStandards(row.script, { identityNames })
         : null,
@@ -347,7 +449,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   private async tryNotifyDecision(
     row: QueueRow,
-    decision: 'approved' | 'denied',
+    decision: 'approved' | 'denied' | 'edited',
     actor: string,
   ) {
     try {
@@ -366,26 +468,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         { err, outreachId: row.id },
         'CAS decision Slack notification failed',
       )
-    }
-  }
-
-  private async tryEmailDenial(row: QueueRow, reason: string) {
-    const user = row.campaign?.user
-    if (!user?.email) return
-    try {
-      await this.email.sendEmail({
-        to: user.email,
-        subject: 'Your text campaign needs changes before it can send',
-        message:
-          `Our team reviewed your scheduled text campaign` +
-          `${row.name ? ` "${row.name}"` : ''} and it needs a change ` +
-          `before it can go out:\n\n${reason}\n\n` +
-          `You can edit the campaign from your Voter Outreach page — ` +
-          `once you save changes it comes back to us for a quick ` +
-          `re-review, and your send date stays yours.`,
-      })
-    } catch (err) {
-      this.logger.error({ err, outreachId: row.id }, 'CAS denial email failed')
     }
   }
 

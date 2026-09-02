@@ -17,6 +17,7 @@ import { formatDate } from '@/lib/utils/date'
 import { getSmsDetail } from '../actions'
 import { STANDARDS_RULE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../types'
 import { ApproveDenyActions } from '../components/ApproveDenyActions'
+import { EditMessageAction } from '../components/EditMessageAction'
 
 export const metadata: Metadata = {
   title: 'SMS Campaign Review | GP Admin',
@@ -88,6 +89,17 @@ export default async function Page({ params }: PageProps) {
             <Text size="2" style={{ whiteSpace: 'pre-wrap' }}>
               {item.script ?? '—'}
             </Text>
+            {canDecide && item.script && (
+              <Box mt="3">
+                <EditMessageAction id={item.id} script={item.script} />
+              </Box>
+            )}
+            {item.adminEditedAt && (
+              <Text size="1" color="gray" mt="2" as="p">
+                Edited by {item.adminEditedBy} on{' '}
+                {formatDate(item.adminEditedAt)}
+              </Text>
+            )}
           </Card>
 
           <Card mt="4">

@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
-import { EmailService } from '@/email/email.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
@@ -16,7 +15,6 @@ const getJobsByIdentityId = vi.fn()
 const getJob = vi.fn()
 const getJobDetailedStats = vi.fn()
 const slackMessage = vi.fn()
-const sendEmail = vi.fn()
 const track = vi.fn()
 
 let campaignId: number
@@ -45,7 +43,6 @@ beforeEach(async () => {
     totalCost: 3.5,
   })
   slackMessage.mockReset().mockResolvedValue(undefined)
-  sendEmail.mockReset().mockResolvedValue(undefined)
   track.mockReset().mockResolvedValue(undefined)
 
   const peerly = service.app.get(PeerlyP2pJobService)
@@ -60,9 +57,6 @@ beforeEach(async () => {
   )
   vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
     slackMessage,
-  )
-  vi.spyOn(service.app.get(EmailService), 'sendEmail').mockImplementation(
-    sendEmail,
   )
   vi.spyOn(service.app.get(AnalyticsService), 'track').mockImplementation(track)
 
@@ -259,7 +253,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
   })
 
   describe('POST /v1/outreach/admin/sms/:id/deny', () => {
-    it('stamps the denial and emails the candidate the reason', async () => {
+    it('stamps the denial internally without contacting the candidate', async () => {
       const row = await seedOutreach()
 
       const res = await service.client.post(
@@ -270,11 +264,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(res.data.approvalStatus).toBe('denied')
       expect(res.data.deniedReason).toBe('Broken link in message')
-      expect(sendEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Broken link in message'),
-        }),
-      )
       expect(requestCanvassers).not.toHaveBeenCalled()
     })
 
@@ -285,6 +274,96 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         { deniedBy: 'cas@goodparty.org', reason: 'too late' },
       )
       expect(res.status).toBe(HttpStatus.CONFLICT)
+    })
+  })
+
+  describe('PATCH /v1/outreach/admin/sms/:id (staff edit)', () => {
+    const withImage = async (rowId: number) => {
+      await service.prisma.outreach.update({
+        where: { id: rowId },
+        data: {
+          imageUrl:
+            'https://assets.goodparty.org/scheduled-campaign/jane/p2p/i.png',
+        },
+      })
+      const s3 = service.app.get(S3Service)
+      vi.spyOn(s3, 'getFileBytesWithContentType').mockResolvedValue({
+        bytes: Buffer.from('img'),
+        contentType: 'image/png',
+      })
+      const peerly = service.app.get(PeerlyP2pJobService)
+      const updateJob = vi
+        .spyOn(peerly, 'updatePeerlyP2pJob')
+        .mockResolvedValue(undefined)
+      return updateJob
+    }
+
+    it('updates the message, stamps the editor, and wipes the decision', async () => {
+      const row = await seedOutreach({ deniedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { deniedBy: 'cas@goodparty.org', deniedReason: 'typo' },
+      })
+      const updateJob = await withImage(row.id)
+      const script =
+        'Hello {first_name}, this is Jane — fixed.\n\nReply STOP to opt out.'
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script, editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.approvalStatus).toBe('awaiting_review')
+      expect(updateJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId: 'peerly-job-1',
+          scriptText: script,
+        }),
+      )
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.script).toBe(script)
+      expect(updated.deniedAt).toBeNull()
+      expect(updated.deniedReason).toBeNull()
+      expect(updated.adminEditedBy).toBe('cas@goodparty.org')
+      expect(updated.adminEditedAt).not.toBeNull()
+      expect(slackMessage).toHaveBeenCalled()
+    })
+
+    it('clears an open canvass request fail-closed', async () => {
+      clearCanvassers.mockRejectedValue(new Error('peerly down'))
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: {
+          approvedBy: 'cas@goodparty.org',
+          canvassRequestedAt: new Date(),
+        },
+      })
+      await withImage(row.id)
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'edited', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBeGreaterThanOrEqual(500)
+      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(unchanged.approvedAt).not.toBeNull()
+      expect(unchanged.script).not.toBe('edited')
+    })
+
+    it('400s a campaign with no stored image', async () => {
+      const row = await seedOutreach()
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'edited', editedBy: 'cas@goodparty.org' },
+      )
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     })
   })
 

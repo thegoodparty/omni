@@ -8,9 +8,9 @@ import { P2P_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
 
 // Derived server-side from the spine's approval stamps + the live Peerly
 // job. `awaiting_review` is the actionable state; `denied` stays visible
-// until CAS resolves it with the candidate; `canvass_requested` means the
-// send is booked with the vendor; `peerly_approved` means the vendor's own
-// review confirmed it.
+// until an edit (usually CAS's own) re-queues it or the campaign is
+// canceled; `canvass_requested` means the send is booked with the vendor;
+// `peerly_approved` means the vendor's own review confirmed it.
 export const SMS_APPROVAL_STATUS_VALUES = [
   'awaiting_review',
   'denied',
@@ -95,6 +95,8 @@ export const SmsApprovalQueueItemSchema = z.object({
   deniedBy: z.string().nullable(),
   deniedReason: z.string().nullable(),
   canvassRequestedAt: zCoerceDate().nullable(),
+  adminEditedAt: zCoerceDate().nullable(),
+  adminEditedBy: z.string().nullable(),
   standards: SmsStandardsVerdictSchema.nullable(),
   // Live Peerly job readiness; null when the live read failed (the queue
   // must not 502 because one identity's vendor read did).
@@ -157,6 +159,17 @@ export const DenySmsOutreachRequestSchema = z.object({
 })
 export type DenySmsOutreachRequest = z.infer<
   typeof DenySmsOutreachRequestSchema
+>
+
+// CAS's fix path: staff correct the message in place, then approve. Any
+// prior decision (including a denial) is wiped so the approve is a fresh
+// call on the edited text.
+export const EditSmsOutreachRequestSchema = z.object({
+  script: z.string().min(1).max(P2P_SCRIPT_MAX_LENGTH),
+  editedBy: z.string().min(1).max(255),
+})
+export type EditSmsOutreachRequest = z.infer<
+  typeof EditSmsOutreachRequestSchema
 >
 
 export const SmsTestMessageRequestSchema = z.object({

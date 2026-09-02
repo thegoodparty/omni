@@ -87,6 +87,11 @@ model Outreach {
   deniedBy                          String?                            @map("denied_by")
   deniedReason                      String?                            @map("denied_reason")
   canvassRequestedAt                DateTime?                          @map("canvass_requested_at")
+  // CAS's own message correction (the common fix path — deny is the rare
+  // exception). Stamped for the audit trail; the message sends under the
+  // candidate's name.
+  adminEditedAt                     DateTime?                          @map("admin_edited_at")
+  adminEditedBy                     String?                            @map("admin_edited_by")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill. Invariant (DB-enforced by a CHECK, see migration
   // add_outreach_org_scope): every row needs exactly one scoping path —

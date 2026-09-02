@@ -1,6 +1,7 @@
 import type {
   ApproveSmsOutreachRequest,
   DenySmsOutreachRequest,
+  EditSmsOutreachRequest,
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
@@ -33,6 +34,15 @@ export class SmsOutreachAdminResource extends BaseResource {
   ): Promise<SmsApprovalQueueItem> =>
     this.postRequest<SmsApprovalQueueItem>(
       `${this.resourceBasePath}/${id}/deny`,
+      input,
+    )
+
+  edit = (
+    id: number,
+    input: EditSmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> =>
+    this.patchRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}`,
       input,
     )
 }

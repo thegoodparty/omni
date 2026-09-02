@@ -72,3 +72,19 @@ export const denySms = async (
   revalidatePath(`/dashboard/sms-outreach/${id}`)
   return item
 }
+
+// The usual fix path: staff correct the message, then approve. Editing is
+// as consequential as deciding (the text sends under the candidate's
+// name), so it carries the same org:admin gate.
+export const editSms = async (
+  id: number,
+  script: string
+): Promise<SmsApprovalQueueItem> => {
+  const { email } = await requireApprover()
+  const item = await gpAction(async (client) =>
+    client.smsOutreachAdmin.edit(id, { script, editedBy: email })
+  )
+  revalidatePath('/dashboard/sms-outreach')
+  revalidatePath(`/dashboard/sms-outreach/${id}`)
+  return item
+}

@@ -37,7 +37,7 @@ export function ApproveDenyActions({ id }: ApproveDenyActionsProps) {
     setBusy(true)
     try {
       await denySms(id, reason.trim())
-      showToast('Denied — the candidate has been emailed the reason')
+      showToast('Denied — edit the message to re-queue it')
       setDenyOpen(false)
       router.refresh()
     } catch (error) {
@@ -87,7 +87,9 @@ export function ApproveDenyActions({ id }: ApproveDenyActionsProps) {
         <Dialog.Content maxWidth="480px">
           <Dialog.Title>Deny this campaign</Dialog.Title>
           <Dialog.Description size="2" mb="3">
-            The candidate is emailed this reason. Editing their campaign
+            Deny is for the rare campaign that should not send as-is and
+            can&apos;t be fixed with a quick edit. The reason is recorded
+            internally; the candidate is not notified. Editing the message
             re-queues it for review.
           </Dialog.Description>
           <TextArea
@@ -107,7 +109,7 @@ export function ApproveDenyActions({ id }: ApproveDenyActionsProps) {
               onClick={handleDeny}
               disabled={busy || reason.trim().length === 0}
             >
-              {busy ? 'Denying…' : 'Deny & email candidate'}
+              {busy ? 'Denying…' : 'Deny'}
             </Button>
           </Flex>
         </Dialog.Content>

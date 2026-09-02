@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common'
@@ -11,11 +12,13 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import {
   ApproveSmsOutreachRequestSchema,
   DenySmsOutreachRequestSchema,
+  EditSmsOutreachRequestSchema,
   SmsAdminDetailResponseSchema,
   SmsApprovalQueueItemSchema,
   SmsApprovalQueueResponseSchema,
   type ApproveSmsOutreachRequest,
   type DenySmsOutreachRequest,
+  type EditSmsOutreachRequest,
 } from '@goodparty_org/contracts'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -60,5 +63,15 @@ export class OutreachSmsAdminController {
     input: DenySmsOutreachRequest,
   ) {
     return this.adminService.deny(id, input)
+  }
+
+  @Patch(':id')
+  @ResponseSchema(SmsApprovalQueueItemSchema)
+  edit(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(EditSmsOutreachRequestSchema))
+    input: EditSmsOutreachRequest,
+  ) {
+    return this.adminService.editScript(id, input)
   }
 }

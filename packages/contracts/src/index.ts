@@ -867,6 +867,8 @@ export {
   type ApproveSmsOutreachRequest,
   DenySmsOutreachRequestSchema,
   type DenySmsOutreachRequest,
+  EditSmsOutreachRequestSchema,
+  type EditSmsOutreachRequest,
   SmsTestMessageRequestSchema,
   type SmsTestMessageRequest,
 } from './outreach/SmsAdminConsole.schema'
