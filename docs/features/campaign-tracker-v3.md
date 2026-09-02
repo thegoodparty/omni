@@ -73,9 +73,7 @@ background / issues) as input:
 
 The bootstrap gate is **`campaign_story` existence (data)**, not a flag — a
 pre-existing campaign with no story row still generates a plan but never
-bootstraps the tracker, and keeps the legacy `campaign_task` list, the
-`community_events` JSON column, and the legacy weekly digest until it writes a
-story (or until the pending gp-api teardown, ENG-11015 — see Teardown below).
+bootstraps the tracker (see Legacy `campaign_task` remnant below).
 
 Because a plan can exist without a complete story (e.g. one generated before
 this rollout), the **campaign-plan router also gates the UI on story
@@ -101,8 +99,7 @@ completion / CTA / update-history machinery is reused against it.
 | `completed` | per-task completion; `updateHistoryId` links voter-contact logging |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
-claim (see Bootstrap below). The legacy `campaign_strategy.community_events`
-JSON column is dead but left in place.
+claim (see Bootstrap below).
 
 ### The append (generation) model
 
@@ -315,37 +312,31 @@ The table below is the cross-package file index:
 - **Weekly cron:** `CAMPAIGN_TRACKER_AUTOMATION_ENABLED=true` (env) turns on
   Thursday regeneration. Ships disabled.
 - **Bootstrap gate:** `campaign_story` existence gates the bootstrap — a
-  pre-existing campaign with no story row is a fully usable legacy fallback
-  (legacy dashboard tasks, legacy digest) until the gp-api teardown (below).
+  pre-existing campaign with no story row never bootstraps (see Legacy
+  `campaign_task` remnant below).
 - Cost is roughly $0.94 per candidate per run (validated on dev cohorts;
   approved by Bryan).
 - Preview envs have no agent-dispatch queue, so generation no-ops there.
 
-## Teardown (gp-api half remaining)
+## Legacy `campaign_task` remnant
 
-The gp-webapp UI no longer reads a flag at all (ENG-11013) — the story
-experience (onboarding steps, the "Your story" page, the tracker) is
-unconditional, and the legacy dashboard/onboarding-success UI is deleted.
-What's left below exists only to keep the legacy backend path working for a
-pre-existing campaign with no `campaign_story` row. This is the checklist for
-that cleanup PR (ENG-11015), which must soak behind ENG-11013.
+The webapp no longer reads a flag (ENG-11013) and gp-api's legacy digest,
+default-task generator, and community-events backend are torn down
+(ENG-11015). What's left is data-shaped, not code-shaped: a pre-existing
+campaign with no `campaign_story` row never bootstrapped the tracker, so it
+has no `campaign_tracker_tasks` rows. Its legacy `campaign_task` rows (if any
+were generated before the teardown) are still readable and completable via
+`CampaignTasksController` (`GET/complete/uncomplete /campaigns/tasks`), and
+`notifySlackOnProUpgrade` still has a legacy branch that posts the
+plan-summary Slack message for that cohort — nothing generates new
+`campaign_task` rows or emails a digest for them anymore.
 
-- **Digest:** delete `fetchLegacyDigestRows` and the
-  `NOT EXISTS (campaign_tracker_tasks)` guard in
-  `weeklyTasksDigestHandler.service.ts`; the handler collapses back to the
-  single tracker query (and its unit/integration tests for the legacy cohort).
-- **Legacy generator:** `campaignTasks.service.ts → generateDefaultTasks` and
-  the `@Sse('generate/stream')` controller route, once nothing calls them.
-- **Community events backend:** the `communityEvents` service / persister /
-  prompts / schema, the `POST /campaignStrategy/mine/community-events` route,
-  and the `campaign_strategy.community_events` JSON column (a migration).
-- **`campaign_task` table** itself, after confirming no remaining readers
-  (completion history, exports, analytics).
-- **Slack:** `notifySlackDefaultTasksCreated` / `notifySlackOnProUpgrade` /
-  `sendCampaignPlanSlackMessage` in `campaignTasks.service.ts`. See the known
-  gap below first.
+Dropping the `campaign_task` table itself needs a follow-up: those completion
+routes and the Slack legacy branch still query it directly, and gp-webapp's
+call sites for the routes should be confirmed gone (they already don't appear
+in the current codebase) before the table goes.
 
-### Slack notifications (all Pro-only, all to `casClickupTasks`)
+## Slack notifications (all Pro-only, all to `casClickupTasks`)
 
 Three triggers post the relevant week's tasks to the CAS channel for **Pro**
 candidates, all mirroring the legacy campaign-plan message format:

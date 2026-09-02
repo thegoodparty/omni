@@ -3,41 +3,28 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
-  OnModuleDestroy,
 } from '@nestjs/common'
 import {
   Campaign,
   CampaignStrategy,
   ExperimentRun,
   ExperimentRunStatus,
-  Prisma,
 } from '../../generated/prisma'
-import { format, isBefore, subMinutes } from 'date-fns'
+import { isBefore, subMinutes } from 'date-fns'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
-import { RacesService } from '@/elections/services/races.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isUniqueConstraintError } from 'src/prisma/util/prismaErrors.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import {
-  CommunityEventsResponse,
-  CommunityEventsResult,
-  CommunityEventsResultSchema,
-} from '@goodparty_org/contracts'
-import {
   parseOpponents,
   parseOpportunitiesAndChallenges,
   StrategicLandscapeResponse,
   StrategicLandscapeResult,
 } from '../schemas/strategicLandscape.schema'
-import { CommunityEventsPromptContext } from './communityEvents.prompts'
-import { CommunityEventsService } from './communityEvents.service'
-import {
-  ElectionApiRaceNotFoundError,
-  ElectionApiService,
-} from './electionApi.service'
+import { ElectionApiRaceNotFoundError } from './electionApi.service'
 import { StrategicLandscapeParamsService } from './strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -48,7 +35,6 @@ import { isTestCampaign } from '@/users/util/users.util'
 const OPPOSITION = 'opposition_research'
 const OPPORTUNITIES = 'opportunities_and_challenges'
 
-const EMPTY_COMMUNITY_EVENTS: CommunityEventsResult = { events: [] }
 const EMPTY_STRATEGIC_LANDSCAPE: StrategicLandscapeResult = {
   opportunities: [],
   challenges: [],
@@ -127,68 +113,15 @@ const resolveRaceId = (details: Campaign['details']): string => {
   return raceId
 }
 
-const resolveElectionDate = (details: Campaign['details']): string => {
-  const parsed = CampaignDetailsSchema.safeParse(details)
-  const electionDate = parsed.success
-    ? (parsed.data.electionDate ?? '').trim()
-    : ''
-  if (electionDate.length === 0) {
-    throw new BadRequestException(
-      'Campaign has no electionDate — finish onboarding before generating community events.',
-    )
-  }
-  return electionDate
-}
-
-// Max wall-clock time a single background generation is allowed to occupy
-// the inFlight slot. The community-events Gemini pipeline typically settles
-// in 30-90s; this is a generous cap that lets the slot clear if Gemini
-// wedges, so the next poll can re-kick instead of seeing 'generating'
-// forever.
-const GENERATION_WATCHDOG_MS = 5 * 60 * 1000
-
 @Injectable()
-export class CampaignStrategyService
-  extends createPrismaBase(MODELS.CampaignStrategy)
-  implements OnModuleDestroy
-{
-  // Per-pod in-flight tracker for community-events generation: keyed by
-  // campaign id, holds the background generation promise. Polls that arrive
-  // while a generation is in flight return { status: 'generating' } without
-  // re-kicking. The map clears on settle (success OR failure), so a failed
-  // run is auto-retried by the next poll. Cross-pod racing is handled at
-  // persist time by the existing @@unique constraint +
-  // isUniqueConstraintError fallback below.
-  private readonly inFlightEvents = new Map<number, Promise<void>>()
-
-  // Per-pod cache of campaigns whose race lookup against election-api
-  // returned 404, keyed by campaign id with the race hash that 404'd as
-  // the value. The next runEventsGeneration for the same campaign would
-  // just 404 again, and the next browser poll would re-kick the loop.
-  // Caching here short-circuits the loop so the polling endpoint returns
-  // `{ status: 'ready', data: <empty> }` and the webapp falls through to
-  // its existing empty-state UI.
-  //
-  // Storing the race (not just membership) makes stale entries inert: the
-  // short-circuit only fires when the entry matches the campaign's CURRENT
-  // race, so a 404 recorded for a race the campaign has since left can
-  // never silence the new race — regardless of how the write interleaves
-  // with a concurrent race-change reset.
-  //
-  // We don't persist this. The 404 is almost always a dev-env data gap
-  // that resolves on the next election-api dbt run; a pod restart is the
-  // natural "retry" point and that's an acceptable cadence for what's
-  // ultimately a transient data-import issue.
-  private readonly raceDataUnavailable = new Map<number, string>()
-
+export class CampaignStrategyService extends createPrismaBase(
+  MODELS.CampaignStrategy,
+) {
   constructor(
     private readonly params: StrategicLandscapeParamsService,
     private readonly experimentRuns: ExperimentRunsService,
     private readonly persister: StrategicLandscapePersister,
     private readonly s3: S3Service,
-    private readonly communityEvents: CommunityEventsService,
-    private readonly electionApi: ElectionApiService,
-    private readonly races: RacesService,
     private readonly analytics: AnalyticsService,
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
   ) {
@@ -540,236 +473,6 @@ export class CampaignStrategyService
       )
   }
 
-  async getOrGenerateCommunityEvents(
-    campaign: CampaignWith<'user'>,
-  ): Promise<CommunityEventsResponse> {
-    if (isTestCampaign(campaign)) {
-      return { status: 'ready', data: EMPTY_COMMUNITY_EVENTS }
-    }
-
-    // Resolve raceId + electionDate synchronously up front so a 400
-    // surfaces to THIS call rather than getting swallowed in the
-    // background, where it would leave the client stuck in a generating
-    // poll loop.
-    const brHashId = resolveRaceId(campaign.details)
-    const electionDate = resolveElectionDate(campaign.details)
-
-    // Align before consulting the 404 short-circuit: a race change clears
-    // the campaign's raceDataUnavailable entry, so the order matters.
-    const plan = await this.alignPlanWithRace(
-      await this.upsertForCampaign(campaign.id, brHashId),
-      brHashId,
-    )
-
-    // See raceDataUnavailable definition. Both pipelines (community
-    // events and strategic landscape) call electionApi.getRaceContext,
-    // so a 404 affects both — the cache is shared and either pipeline
-    // hitting the 404 short-circuits the other too. Value-compared so an
-    // entry recorded for a previous race never silences the current one.
-    if (this.raceDataUnavailable.get(campaign.id) === brHashId) {
-      return { status: 'ready', data: EMPTY_COMMUNITY_EVENTS }
-    }
-
-    const cached = await this.readCommunityEvents(plan.id)
-    if (cached) return { status: 'ready', data: cached }
-
-    if (!this.inFlightEvents.has(campaign.id)) {
-      const work = this.runEventsGeneration(
-        campaign,
-        plan.id,
-        brHashId,
-        electionDate,
-      ).catch(() => undefined)
-      this.inFlightEvents.set(campaign.id, work)
-      // Cleanup compares by reference: a race change frees the slot and a
-      // new job may claim it before this one settles — the old job's settle
-      // must not evict the new job's entry, or drainInFlight stops tracking
-      // it and a later poll double-kicks generation.
-      void work.finally(() => {
-        if (this.inFlightEvents.get(campaign.id) === work) {
-          this.inFlightEvents.delete(campaign.id)
-        }
-      })
-    }
-    return { status: 'generating' }
-  }
-
-  // Graceful-shutdown hook. NestJS calls onModuleDestroy on shutdown; we
-  // wait for any background generation to settle before the process exits
-  // so in-flight DB writes finish cleanly. Also useful in tests to wait
-  // for kicked-off work without polling.
-  async onModuleDestroy(): Promise<void> {
-    await this.drainInFlight()
-  }
-
-  async drainInFlight(): Promise<void> {
-    // allSettled (not all) so a rejecting promise — should never happen
-    // given the outer .catch on stored promises, but defense in depth —
-    // can't crash callers.
-    await Promise.allSettled([...this.inFlightEvents.values()])
-  }
-
-  private async runEventsGeneration(
-    campaign: CampaignWith<'user'>,
-    planId: number,
-    brHashId: string,
-    electionDate: string,
-  ): Promise<void> {
-    try {
-      await this.withWatchdog(
-        this.runEventsGenerationCore(campaign, planId, brHashId, electionDate),
-        GENERATION_WATCHDOG_MS,
-      )
-    } catch (error) {
-      if (error instanceof ElectionApiRaceNotFoundError) {
-        this.markRaceUnavailable(campaign.id, brHashId, 'community-events')
-        return
-      }
-      this.logger.error(
-        {
-          campaignId: campaign.id,
-          err: error instanceof Error ? error.message : String(error),
-        },
-        'Community events generation failed; next poll will retry',
-      )
-    }
-    // Slot cleanup lives at the call site (reference-compared) so a stale
-    // job can't evict a successor that claimed the slot after a race change.
-  }
-
-  // Add the campaign to the per-pod raceDataUnavailable cache so
-  // subsequent polls short-circuit to `{ status: 'ready', data: <empty> }`
-  // instead of re-kicking generation that will 404 again. Logged at
-  // warn (not error) because a missing Race row is usually a dev-env
-  // data gap, not an outage worth paging on.
-  private markRaceUnavailable(
-    campaignId: number,
-    brHashId: string,
-    pipeline: 'strategic-landscape' | 'community-events',
-  ): void {
-    // Recorded against the race that 404'd; the read side only honors a
-    // matching entry, so a stale job's 404 can never poison a race the
-    // campaign has since moved to.
-    this.raceDataUnavailable.set(campaignId, brHashId)
-    this.logger.warn(
-      { campaignId, raceId: brHashId, pipeline },
-      'election-api has no data for this race; marking campaign as race-data-unavailable so polling stops looping',
-    )
-  }
-
-  private async runEventsGenerationCore(
-    campaign: CampaignWith<'user'>,
-    planId: number,
-    brHashId: string,
-    electionDate: string,
-  ): Promise<void> {
-    const ctx = await this.buildEventsContext(campaign, brHashId, electionDate)
-    await this.communityEvents.generate(
-      planId,
-      campaign.id,
-      campaign.userId,
-      brHashId,
-      ctx,
-    )
-  }
-
-  // Build the community-events prompt context by combining election-api's
-  // race details (officialOfficeName, officeLevel, primaryElectionDate)
-  // with campaign.details (state, city) and a district zip resolved from
-  // the BR race ID via RacesService. The resolver returns every zip the
-  // race's position touches; we hand the full list to the LLM so it can
-  // ground events across the whole district (a city-council race may
-  // span 3-5 zips, a state-rep race 20-30). For statewide races where
-  // the resolver returns more than STATEWIDE_ZIP_THRESHOLD zips, we drop
-  // the zip entirely — listing them would add noise without precision,
-  // and the LLM can reason from officeName + state + city alone.
-  private async buildEventsContext(
-    campaign: CampaignWith<'user'>,
-    brHashId: string,
-    electionDate: string,
-  ): Promise<CommunityEventsPromptContext> {
-    const race = await this.electionApi.getRaceContext(brHashId)
-    const parsedDetails = CampaignDetailsSchema.safeParse(campaign.details)
-    const details = parsedDetails.success ? parsedDetails.data : {}
-
-    const detailZip = (details.zip ?? '').trim()
-    const userZip = (campaign.user?.zip ?? '').trim()
-    const zip = await this.resolveDistrictZip(brHashId, [detailZip, userZip])
-
-    return {
-      today: format(new Date(), 'yyyy-MM-dd'),
-      electionDate,
-      primaryElectionDate: race.primaryElectionDate ?? null,
-      state: details.state ?? race.state ?? null,
-      city: details.city ?? null,
-      zip,
-      officeName: race.officialOfficeName ?? race.candidateOffice ?? null,
-      officeLevel: race.officeLevel ?? null,
-    }
-  }
-
-  // Resolve a comma-joined district zip list from the BR race id via
-  // election-api's position → zip-codes endpoint, with three branches:
-  //
-  //   1. Resolver returned 1-STATEWIDE_ZIP_THRESHOLD zips →
-  //      return them comma-joined. The LLM gets the full district.
-  //   2. Resolver returned >STATEWIDE_ZIP_THRESHOLD zips →
-  //      return '' (statewide skip). We do NOT fall back to the
-  //      candidate's own zip because for statewide races the home zip
-  //      isn't representative of where the campaign actually operates.
-  //      The prompt's orNotAvailable() renders the absent zip as
-  //      "not available"; the LLM reasons from officeName + state + city.
-  //   3. Resolver returned 0 zips OR threw →
-  //      try the candidate's own zips (detail → user) so generation
-  //      still has *some* geographic signal when BR data is missing.
-  //
-  // Logs at info for the statewide branch and warn for the error branch
-  // so we can spot how often each fires in production.
-  private static readonly STATEWIDE_ZIP_THRESHOLD = 75
-  private async resolveDistrictZip(
-    brHashId: string,
-    candidateFallbacks: string[],
-  ): Promise<string> {
-    const fallback = (): string =>
-      candidateFallbacks.find((z) => z.length > 0) ?? ''
-    try {
-      const zips = await this.races.getZipCodesByRaceId(brHashId)
-      if (zips.length === 0) return fallback()
-      if (zips.length > CampaignStrategyService.STATEWIDE_ZIP_THRESHOLD) {
-        this.logger.info(
-          { raceId: brHashId, zipCount: zips.length },
-          'District zip resolver returned statewide-sized array; dropping zip from the prompt so the LLM reasons from office + state instead',
-        )
-        return ''
-      }
-      return zips.join(', ')
-    } catch (error) {
-      this.logger.warn(
-        {
-          raceId: brHashId,
-          err: error instanceof Error ? error.message : String(error),
-        },
-        'District zip resolver failed; falling back to campaign/user zip',
-      )
-      return fallback()
-    }
-  }
-
-  private async withWatchdog<T>(work: Promise<T>, ms: number): Promise<T> {
-    let timer: NodeJS.Timeout | undefined
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error(`generation watchdog tripped after ${ms}ms`)),
-        ms,
-      )
-    })
-    try {
-      return await Promise.race([work, timeout])
-    } finally {
-      if (timer) clearTimeout(timer)
-    }
-  }
-
   private runFor(runId: string | null): Promise<ExperimentRun | null> {
     if (!runId) return Promise.resolve(null)
     return this.experimentRuns.findUnique({ where: { runId } })
@@ -1046,8 +749,8 @@ export class CampaignStrategyService
   //   null     → legacy row from before the stamp existed; adopt the current
   //              race without resetting (the backfill blessed its content).
   //   mismatch → the office changed since generation. Every cached artifact
-  //              (CAP runs, persisted sections, community events) belongs to
-  //              the previous race, so wipe content in place and let the
+  //              (CAP runs, persisted sections) belongs to the previous
+  //              race, so wipe content in place and let the
   //              caller regenerate. The row itself survives so the dashboard
   //              gate (hasCampaignStrategy / the exists endpoint) stays open
   //              and the user sees skeletons instead of a vanished plan.
@@ -1070,14 +773,6 @@ export class CampaignStrategyService
     }
     const previousRaceId = plan.raceId
 
-    // The 404 short-circuit was observed for the previous race; the new
-    // race deserves a fresh lookup.
-    this.raceDataUnavailable.delete(plan.campaignId)
-    // Free the events slot so the next poll kicks generation for the new
-    // race instead of waiting out the old job. The old job can't land its
-    // result: the persister's write is guarded on the row's race stamp.
-    this.inFlightEvents.delete(plan.campaignId)
-
     // The claim goes FIRST: when it matches, it takes the plan row's lock
     // before touching children, and a persist transaction claims the same
     // row as its first statement, so winners serialize. When it matches
@@ -1097,7 +792,6 @@ export class CampaignStrategyService
           oppositionPersistedAt: null,
           opportunitiesPersistedAt: null,
           generationStartedAt: null,
-          communityEvents: Prisma.DbNull,
         },
       })
       if (count === 0) return false
@@ -1193,28 +887,5 @@ export class CampaignStrategyService
         incumbent: o.incumbent,
       })),
     }
-  }
-
-  // Defensive read of the JSON column — Prisma types the field as
-  // `Prisma.JsonValue`, so we revalidate with Zod before returning. A
-  // shape mismatch is treated as "no cache" so the next poll re-generates
-  // instead of serving stale/malformed data to the UI.
-  private async readCommunityEvents(
-    campaignStrategyId: number,
-  ): Promise<CommunityEventsResult | null> {
-    const plan = await this.client.campaignStrategy.findUnique({
-      where: { id: campaignStrategyId },
-      select: { communityEvents: true },
-    })
-    if (!plan?.communityEvents) return null
-    const parsed = CommunityEventsResultSchema.safeParse(plan.communityEvents)
-    if (!parsed.success) {
-      this.logger.warn(
-        { campaignStrategyId, issues: parsed.error.issues },
-        'community_events JSON failed schema validation; treating as no-cache',
-      )
-      return null
-    }
-    return parsed.data
   }
 }

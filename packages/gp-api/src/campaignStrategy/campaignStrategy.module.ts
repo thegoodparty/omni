@@ -8,8 +8,6 @@ import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { CampaignStrategyController } from './campaignStrategy.controller'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
-import { CommunityEventsPersister } from './services/communityEvents.persister'
-import { CommunityEventsService } from './services/communityEvents.service'
 import { ElectionApiService } from './services/electionApi.service'
 import { StrategicLandscapeParamsService } from './services/strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './services/strategicLandscape.persister'
@@ -28,8 +26,6 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
   providers: [
     CampaignStrategyService,
     StrategicLandscapePersister,
-    CommunityEventsService,
-    CommunityEventsPersister,
     ElectionApiService,
     StrategicLandscapeParamsService,
   ],

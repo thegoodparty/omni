@@ -14,7 +14,7 @@ This module is `@Global` — `CampaignsService` is available without re-importin
 | `services/campaignPlanVersions.service.ts` | Append-only history of campaign plan JSON snapshots             |
 | `services/crmCampaigns.service.ts`         | Sync staff-managed campaigns to/from HubSpot                    |
 | `ai/`                                      | LLM-driven plan/copy generation (`campaignsAi.module.ts`)       |
-| `tasks/`                                   | Weekly tasks digest, task generation, legacy task controllers   |
+| `tasks/`                                   | Weekly tasks digest; legacy `campaign_task` completion routes   |
 | `tcrCompliance/`                           | TCR brand/campaign registration for Peerly SMS sending + the agentic `compliance_setup` flow (see `tcrCompliance/CLAUDE.md`) |
 | `positions/`                               | Race positions a campaign is running for                        |
 | `updateHistory/`                           | User-facing `CampaignUpdateHistory` (per-field audit log)       |

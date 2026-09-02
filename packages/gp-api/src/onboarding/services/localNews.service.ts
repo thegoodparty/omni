@@ -15,9 +15,9 @@ import {
   LocalNewsJurisdiction,
 } from './localNewsCache.service'
 
-// Pinned to Gemini 3.5 Flash (stable) to mirror the community-events pipeline.
-// Overrides the GeminiService default (3 Flash preview) so we don't ride
-// preview-channel behavior shifts in production.
+// Pinned to Gemini 3.5 Flash (stable). Overrides the GeminiService default
+// (3 Flash preview) so we don't ride preview-channel behavior shifts in
+// production.
 const LOCAL_NEWS_MODEL = GEMINI_MODEL.FLASH_3_5
 
 const SEARCH_SPAN = 'gemini:search'
@@ -58,8 +58,7 @@ For each outlet, include email, phone, and address ONLY if the value appears in 
 
 // Prompt-injection defense: jurisdiction (city + state) and office are
 // candidate-supplied HTTP query parameters with no upstream sanitization
-// or length cap beyond `z.string().min(1)`. Mirror the community-events
-// pipeline:
+// or length cap beyond `z.string().min(1)`.
 //   1. htmlEscape strips angle brackets so the wrapping XML tags below
 //      can't be closed early from inside an injected value.
 //   2. The XML wrapping + meta-instruction below tells the model to treat

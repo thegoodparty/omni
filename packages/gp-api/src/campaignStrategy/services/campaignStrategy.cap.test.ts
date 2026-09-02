@@ -66,6 +66,7 @@ describe('CampaignStrategyService', () => {
       update: ReturnType<typeof vi.fn>
       updateMany: ReturnType<typeof vi.fn>
       findFirst: ReturnType<typeof vi.fn>
+      count: ReturnType<typeof vi.fn>
     }
     campaignStrategyOpportunity: { deleteMany: ReturnType<typeof vi.fn> }
     campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
@@ -112,6 +113,7 @@ describe('CampaignStrategyService', () => {
         update: vi.fn().mockResolvedValue(undefined),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findFirst: vi.fn().mockResolvedValue(planRow()),
+        count: vi.fn(),
       },
       campaignStrategyOpportunity: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -136,18 +138,11 @@ describe('CampaignStrategyService', () => {
         ) => (typeof arg === 'function' ? arg(prisma) : Promise.all(arg)),
       ),
     }
-    // The last three deps (communityEvents, electionApi, races) belong to the
-    // community-events pipeline and are never touched by the CAP strategic-
-    // landscape paths exercised here, so no-op mocks suffice. Community-events
-    // behavior is covered in campaignStrategy.service.test.ts.
     service = new CampaignStrategyService(
       params as never,
       experimentRuns as never,
       persister as never,
       s3 as never,
-      { generate: vi.fn() } as never,
-      { getRaceContext: vi.fn() } as never,
-      { getZipCodesByRaceId: vi.fn() } as never,
       analytics as never,
       trackerTasks as never,
     )
@@ -155,6 +150,20 @@ describe('CampaignStrategyService', () => {
     Object.assign(service, {
       findFirst: prisma.campaignStrategy.findFirst,
       logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    })
+  })
+
+  describe('existsForCampaign', () => {
+    it('returns true when a strategy row exists', async () => {
+      prisma.campaignStrategy.count.mockResolvedValue(1)
+
+      expect(await service.existsForCampaign(99)).toBe(true)
+    })
+
+    it('returns false when no strategy row exists', async () => {
+      prisma.campaignStrategy.count.mockResolvedValue(0)
+
+      expect(await service.existsForCampaign(99)).toBe(false)
     })
   })
 
@@ -194,12 +203,6 @@ describe('CampaignStrategyService', () => {
       status: 'ready',
       data: { opportunities: [], challenges: [], opponents: [] },
     })
-    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
-  })
-
-  it('returns ready-empty for test-user community events, no generate', async () => {
-    const res = await service.getOrGenerateCommunityEvents(testUserCampaign())
-    expect(res).toEqual({ status: 'ready', data: { events: [] } })
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
