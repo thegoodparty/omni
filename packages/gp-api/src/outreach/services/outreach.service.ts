@@ -834,6 +834,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     const rescheduleDate =
       dateOnly !== outreach.scheduledLocalDate ? dateOnly : undefined
 
+    // An edited message must never ride a stale approval: a CAS-approved
+    // send has an open canvass request at Peerly, and the vendor allows one
+    // request per job, so it is cleared BEFORE the job update. Fail closed —
+    // if the clear fails, the edit fails and the old, approved content keeps
+    // sending as reviewed.
+    if (outreach.canvassRequestedAt) {
+      await this.peerlyP2pJobService.clearCanvassers(outreach.projectId)
+    }
+
     await this.peerlyP2pJobService.updatePeerlyP2pJob({
       jobId: outreach.projectId,
       campaignId: campaign.id,
@@ -853,6 +862,14 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         date: new Date(input.date),
         scheduledLocalDate: dateOnly,
         ...(newImage && { imageUrl: newImage.url }),
+        // Re-queue for manual reapproval (CAS console): any edit resets the
+        // decision, including a denial the candidate just addressed.
+        approvedAt: null,
+        approvedBy: null,
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        canvassRequestedAt: null,
       },
     })
     if (updated.count === 0) {

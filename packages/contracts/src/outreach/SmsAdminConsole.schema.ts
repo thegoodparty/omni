@@ -1,0 +1,168 @@
+import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
+import { P2P_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
+
+// The CAS SMS console (gp-admin): approval queue, per-campaign monitor,
+// and the message-standards verdict. gp-admin consumes these through the
+// SDK, so every shape crossing that boundary lives here.
+
+// Derived server-side from the spine's approval stamps + the live Peerly
+// job. `awaiting_review` is the actionable state; `denied` stays visible
+// until CAS resolves it with the candidate; `canvass_requested` means the
+// send is booked with the vendor; `peerly_approved` means the vendor's own
+// review confirmed it.
+export const SMS_APPROVAL_STATUS_VALUES = [
+  'awaiting_review',
+  'denied',
+  'canvass_requested',
+  'peerly_approved',
+] as const
+export const SmsApprovalStatusSchema = z.enum(SMS_APPROVAL_STATUS_VALUES)
+export type SmsApprovalStatus = z.infer<typeof SmsApprovalStatusSchema>
+
+// Deterministic message-standards checks (the compliance half of the
+// brief's Proposal B). Rule ids are stable identifiers the UI maps to copy.
+export const SMS_STANDARDS_RULE_VALUES = [
+  'opt_out_line',
+  'first_name_token',
+  'identification',
+  'length',
+] as const
+export const SmsStandardsRuleSchema = z.enum(SMS_STANDARDS_RULE_VALUES)
+export type SmsStandardsRule = z.infer<typeof SmsStandardsRuleSchema>
+
+export const SmsStandardsVerdictSchema = z.object({
+  passed: z.boolean(),
+  failures: z.array(SmsStandardsRuleSchema),
+})
+export type SmsStandardsVerdict = z.infer<typeof SmsStandardsVerdictSchema>
+
+// Pure and shared (compose advisory, server-side verdict, queue chip). The
+// identification rule only runs when a name to match is supplied — a
+// campaign with no committee/candidate name recorded can't fail it — and
+// matches on name TOKENS ("Jane" satisfies "Jane Doe"), since real scripts
+// identify by first name while filings carry the full one. Advisory: the
+// human approval stays the gate.
+export const checkSmsStandards = (
+  script: string,
+  context: { identityNames?: string[] } = {},
+): SmsStandardsVerdict => {
+  const failures: SmsStandardsRule[] = []
+  const lower = script.toLowerCase()
+
+  if (!/reply\s+stop/i.test(script)) {
+    failures.push('opt_out_line')
+  }
+  if (!script.includes('{first_name}')) {
+    failures.push('first_name_token')
+  }
+  const nameTokens = (context.identityNames ?? [])
+    .flatMap((name) => name.split(/\s+/))
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length >= 3)
+  if (
+    nameTokens.length > 0 &&
+    !nameTokens.some((token) => lower.includes(token))
+  ) {
+    failures.push('identification')
+  }
+  if (script.length > P2P_SCRIPT_MAX_LENGTH) {
+    failures.push('length')
+  }
+
+  return { passed: failures.length === 0, failures }
+}
+
+export const SmsApprovalQueueItemSchema = z.object({
+  id: z.number(),
+  campaignId: z.number(),
+  campaignSlug: z.string(),
+  candidateName: z.string().nullable(),
+  name: z.string().nullable(),
+  createdAt: zCoerceDate(),
+  sendAt: zCoerceDate().nullable(),
+  scheduledLocalDate: z.string().nullable(),
+  script: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  textCount: z.number().nullable(),
+  billableTextCount: z.number().nullable(),
+  // A free-texts send never records a checkout session.
+  paid: z.boolean(),
+  approvalStatus: SmsApprovalStatusSchema,
+  approvedAt: zCoerceDate().nullable(),
+  approvedBy: z.string().nullable(),
+  deniedAt: zCoerceDate().nullable(),
+  deniedBy: z.string().nullable(),
+  deniedReason: z.string().nullable(),
+  canvassRequestedAt: zCoerceDate().nullable(),
+  standards: SmsStandardsVerdictSchema.nullable(),
+  // Live Peerly job readiness; null when the live read failed (the queue
+  // must not 502 because one identity's vendor read did).
+  job: z
+    .object({
+      status: z.string(),
+      deliverabilityCheckError: z.string().nullable(),
+      hasCanvassersScheduled: z.boolean(),
+      peerlyApproved: z.boolean().nullable(),
+      leadsRemaining: z.number().nullable(),
+    })
+    .nullable(),
+})
+export type SmsApprovalQueueItem = z.infer<typeof SmsApprovalQueueItemSchema>
+
+export const SmsApprovalQueueResponseSchema = z.object({
+  items: z.array(SmsApprovalQueueItemSchema),
+})
+export type SmsApprovalQueueResponse = z.infer<
+  typeof SmsApprovalQueueResponseSchema
+>
+
+// Per-job counters mapped from Peerly's detailedstats read. Null when the
+// vendor read failed — the monitor renders what it has.
+export const SmsAdminJobStatsSchema = z.object({
+  sentTotal: z.number(),
+  receivedTotal: z.number(),
+  delivered: z.number(),
+  deliveryFailed: z.number(),
+  deliveryUnconfirmed: z.number(),
+  totalCost: z.number(),
+})
+export type SmsAdminJobStats = z.infer<typeof SmsAdminJobStatsSchema>
+
+export const SmsAdminDetailResponseSchema = z.object({
+  item: SmsApprovalQueueItemSchema,
+  stats: SmsAdminJobStatsSchema.nullable(),
+})
+export type SmsAdminDetailResponse = z.infer<
+  typeof SmsAdminDetailResponseSchema
+>
+
+// The M2M token identifies gp-admin, not the human — the acting admin's
+// identity rides in the body. Initials feed Peerly's request_canvassers.
+export const ApproveSmsOutreachRequestSchema = z.object({
+  approvedBy: z.string().min(1).max(255),
+  initials: z
+    .string()
+    .min(2)
+    .max(4)
+    .regex(/^[A-Za-z]+$/, 'Initials must be letters only'),
+})
+export type ApproveSmsOutreachRequest = z.infer<
+  typeof ApproveSmsOutreachRequestSchema
+>
+
+export const DenySmsOutreachRequestSchema = z.object({
+  deniedBy: z.string().min(1).max(255),
+  reason: z.string().min(1).max(2000),
+})
+export type DenySmsOutreachRequest = z.infer<
+  typeof DenySmsOutreachRequestSchema
+>
+
+export const SmsTestMessageRequestSchema = z.object({
+  // E.164-ish: digits with optional leading +, 10-15 digits.
+  phone: z
+    .string()
+    .regex(/^\+?\d{10,15}$/, 'Use digits only, e.g. +15551234567'),
+})
+export type SmsTestMessageRequest = z.infer<typeof SmsTestMessageRequestSchema>

@@ -1,5 +1,6 @@
 import { HttpClient } from './http/HttpClient'
 import { AdminAgentRunsResource } from './resources/AdminAgentRunsResource'
+import { SmsOutreachAdminResource } from './resources/SmsOutreachAdminResource'
 import { AdminResource } from './resources/AdminResource'
 import { CampaignsResource } from './resources/CampaignsResource'
 import { CommunityIssuesResource } from './resources/CommunityIssuesResource'
@@ -20,6 +21,7 @@ export type GoodPartyClientConfig = {
 export class GoodPartyClient {
   readonly admin: AdminResource
   readonly adminAgentRuns: AdminAgentRunsResource
+  readonly smsOutreachAdmin: SmsOutreachAdminResource
   readonly users: UsersResource
   readonly campaigns: CampaignsResource
   readonly ecanvasser: EcanvasserResource
@@ -36,6 +38,7 @@ export class GoodPartyClient {
     const httpClient = new HttpClient(gpApiRootUrl, clerkService.getToken)
     this.admin = new AdminResource(httpClient)
     this.adminAgentRuns = new AdminAgentRunsResource(httpClient)
+    this.smsOutreachAdmin = new SmsOutreachAdminResource(httpClient)
     this.users = new UsersResource(httpClient)
     this.campaigns = new CampaignsResource(httpClient)
     this.ecanvasser = new EcanvasserResource(httpClient)

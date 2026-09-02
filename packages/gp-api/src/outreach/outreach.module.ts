@@ -20,6 +20,8 @@ import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
+import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
+import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
@@ -100,9 +102,11 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachSmsController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
+    OutreachSmsAdminController,
   ],
   providers: [
     OutreachService,
+    OutreachSmsAdminService,
     OutreachSocialService,
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,

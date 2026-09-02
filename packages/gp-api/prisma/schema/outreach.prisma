@@ -78,6 +78,15 @@ model Outreach {
   // finalize. Cancel-before-send resolves its payment intent for the
   // automatic refund; free-texts redemptions never set it.
   stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
+  // CAS approval gate (SMS console): a scheduled p2p send stays dormant at
+  // the vendor until an admin approval requests canvassers. All nullable —
+  // pre-console rows and non-SMS channels never carry them.
+  approvedAt                        DateTime?                          @map("approved_at")
+  approvedBy                        String?                            @map("approved_by")
+  deniedAt                          DateTime?                          @map("denied_at")
+  deniedBy                          String?                            @map("denied_by")
+  deniedReason                      String?                            @map("denied_reason")
+  canvassRequestedAt                DateTime?                          @map("canvass_requested_at")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill. Invariant (DB-enforced by a CHECK, see migration
   // add_outreach_org_scope): every row needs exactly one scoping path —
