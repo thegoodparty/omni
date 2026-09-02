@@ -80,7 +80,13 @@ RUN ARCH=$(uname -m) && \
 #
 # PINNED to the version that repo pins. A newer bun can resolve the lockfile
 # differently, which shows up as a diff nobody asked for.
-ENV BUN_INSTALL="/usr/local"
+#
+# NO `ENV BUN_INSTALL`: bun derives its package cache from it
+# ($BUN_INSTALL/install/cache), so setting it to /usr/local would point the
+# cache at a root-owned path the non-root `agent` user cannot write, and every
+# `bun install` would die on permissions. The binary is placed by hand below, so
+# the installer prefix is not needed. Unset, the cache lands in
+# $HOME/.bun/install/cache, under the home directory chowned to agent below.
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then BUN_ARCH="x64"; \
     elif [ "$ARCH" = "aarch64" ]; then BUN_ARCH="aarch64"; fi && \

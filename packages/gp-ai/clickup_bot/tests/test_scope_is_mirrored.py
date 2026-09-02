@@ -128,6 +128,23 @@ def test_a_repo_may_only_be_written_to_if_it_can_be_routed_to():
     assert handler.DEFAULT_IMPLEMENT_REPOS <= routable
 
 
+def test_the_two_ramp_switches_start_from_the_same_place():
+    """The third mirrored pair, and the one with the sharpest edge.
+
+    `GPBOT_IMPLEMENT_REPOS` (Lambda) and `GPBOT_ESCALATE_REPOS` (agent) live in
+    different Terraform modules and are only compared at runtime, by two
+    processes that never talk. A unit test cannot see what Terraform sets — but
+    it can see the DEFAULTS, and those are what every environment gets until
+    someone deliberately overrides them.
+
+    The harmful direction is escalation wider than implement: the analysis tags
+    a ticket the Lambda then refuses, which is a `gpbot-work` tag with no run
+    and no PR behind it. That combination read as a broken pipeline on
+    2026-09-01 and cost an investigation to explain.
+    """
+    assert handler.DEFAULT_IMPLEMENT_REPOS == frozenset(escalation.DEFAULT_ESCALATION_REPOS)
+
+
 def test_a_marketing_ticket_is_a_different_repo_not_a_refusal():
     # Growth-Bugs sat in OUT_OF_SCOPE_LIST_IDS until gp-marketing became a repo
     # the agent could be pointed at. Both copies have to have let go of it, or
