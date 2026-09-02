@@ -12,10 +12,17 @@ vi.mock('gpApi/typed-request', () => ({
   clientRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, data: {} }),
 }))
 
+// Stable across renders so a failed save's message can be asserted; a fresh
+// vi.fn() per render would be unreachable from the test body.
+const { errorSnackbar, successSnackbar } = vi.hoisted(() => ({
+  errorSnackbar: vi.fn(),
+  successSnackbar: vi.fn(),
+}))
+
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({
-    errorSnackbar: vi.fn(),
-    successSnackbar: vi.fn(),
+    errorSnackbar,
+    successSnackbar,
     infoSnackbar: vi.fn(),
   }),
 }))
@@ -59,12 +66,22 @@ const priority = (id: string, title: string): Priority =>
 
 beforeEach(() => {
   mockedRequest.mockReset()
+  errorSnackbar.mockReset()
+  successSnackbar.mockReset()
   mockedRequest.mockResolvedValue({
     ok: true,
     status: 200,
     data: profile(),
   } as never)
 })
+
+const save = async (): Promise<void> =>
+  userEvent.click(screen.getAllByRole('button', { name: /save changes/i })[0]!)
+
+const putPayload = (): Record<string, unknown> | undefined =>
+  mockedRequest.mock.calls.find(
+    ([endpoint]) => endpoint === 'PUT /v1/person-profiles/mine',
+  )?.[1] as Record<string, unknown> | undefined
 
 describe('PublicProfileEditor — pre-profile states', () => {
   it('shows the "setting up" copy (no CTA) when the person has no canonical id yet', () => {
@@ -144,6 +161,249 @@ describe('PublicProfileEditor — product framing (serve vs win)', () => {
     expect(
       screen.queryByRole('heading', { name: /top priorities/i }),
     ).not.toBeInTheDocument()
+  })
+})
+
+// The whole profile is one payload, so a malformed contact field used to reject
+// every other edit with a generic "try again" — advice that could never work,
+// because the value was the problem. These pin the field-level reporting.
+describe('PublicProfileEditor — contact validation', () => {
+  const renderEditor = (overrides: Partial<PersonProfile> = {}): void => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile(overrides)}
+        canCreate
+        priorities={[]}
+      />,
+    )
+  }
+
+  it('blocks the save and names the field when the email has no @', async () => {
+    renderEditor()
+    await userEvent.type(
+      screen.getByLabelText('Public email'),
+      'thomasquocthainguyen.com',
+    )
+    await save()
+
+    expect(putPayload()).toBeUndefined()
+    expect(screen.getByText(/enter a valid email address/i)).toBeInTheDocument()
+    expect(errorSnackbar).toHaveBeenCalledWith(
+      expect.stringContaining('Public email'),
+    )
+  })
+
+  it('leaves a blank email alone, since clearing a field is not an error', async () => {
+    renderEditor()
+    await userEvent.type(screen.getByLabelText("Why I'm running"), 'Parks')
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    // Untouched and blank, so it is simply not part of the patch.
+    expect('publicEmail' in putPayload()!).toBe(false)
+  })
+
+  it('adds the scheme a bare link omits rather than rejecting it', async () => {
+    renderEditor()
+    await userEvent.type(
+      screen.getByLabelText('Instagram'),
+      'instagram.com/thomasqtnguyen',
+    )
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    expect(putPayload()!.instagramUrl).toBe(
+      'https://instagram.com/thomasqtnguyen',
+    )
+  })
+
+  it('keeps an explicit http:// link as typed', async () => {
+    renderEditor()
+    await userEvent.type(
+      screen.getByLabelText('Personal website'),
+      'http://example.org',
+    )
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    expect(putPayload()!.websiteUrl).toBe('http://example.org')
+  })
+
+  it('clears the message once the field is corrected', async () => {
+    renderEditor()
+    const email = screen.getByLabelText('Public email')
+    await userEvent.type(email, 'nope')
+    await save()
+    expect(screen.getByText(/enter a valid email address/i)).toBeInTheDocument()
+
+    await userEvent.type(email, '@example.com')
+    expect(
+      screen.queryByText(/enter a valid email address/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('surfaces the field the server rejected instead of a generic message', async () => {
+    renderEditor()
+    mockedRequest.mockRejectedValue(
+      Object.assign(new Error('Bad Request'), {
+        status: 400,
+        data: {
+          statusCode: 400,
+          message: 'Validation failed',
+          errors: [
+            {
+              code: 'invalid_string',
+              path: ['publicEmail'],
+              message: 'Invalid email address',
+            },
+          ],
+        },
+      }),
+    )
+
+    await userEvent.type(screen.getByLabelText("Why I'm running"), 'Parks')
+    await save()
+
+    await waitFor(() =>
+      expect(screen.getByText('Invalid email address')).toBeInTheDocument(),
+    )
+    expect(errorSnackbar).toHaveBeenCalledWith(
+      expect.stringContaining('Public email'),
+    )
+  })
+
+  it('falls back to the generic message when the failure names no field', async () => {
+    renderEditor()
+    mockedRequest.mockRejectedValue(
+      Object.assign(new Error('Server Error'), { status: 500, data: {} }),
+    )
+
+    await userEvent.type(screen.getByLabelText("Why I'm running"), 'Parks')
+    await save()
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        "Couldn't save your profile. Please try again.",
+      ),
+    )
+  })
+})
+
+// Reported as "we saved the socials and the website disappeared". The editor
+// used to PUT all fourteen fields from a snapshot taken at mount, so any value
+// not in that snapshot was sent as null and destroyed.
+describe('PublicProfileEditor — partial saves', () => {
+  it('omits fields the user never touched, instead of nulling them', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({
+          websiteUrl: 'https://thomasnguyen.com',
+          publicEmail: 'thomas@example.com',
+        })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(
+      screen.getByLabelText('Instagram'),
+      'https://instagram.com/thomasqtnguyen',
+    )
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    const body = putPayload()!
+    expect(body.instagramUrl).toBe('https://instagram.com/thomasqtnguyen')
+    // The two it never touched must not appear at all — present-and-null is
+    // exactly the delete this test exists to prevent.
+    expect('websiteUrl' in body).toBe(false)
+    expect('publicEmail' in body).toBe(false)
+  })
+
+  it('still sends an explicit null when the user clears a field on purpose', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ websiteUrl: 'https://thomasnguyen.com' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.clear(screen.getByLabelText('Personal website'))
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    const body = putPayload()!
+    expect('websiteUrl' in body).toBe(true)
+    expect(body.websiteUrl).toBeNull()
+  })
+
+  // Why saving stayed broken after the bad email was corrected: the whole form
+  // was sent and validated, so one stored-invalid value rejected every edit.
+  // The columns have no DB constraint, so such values do exist.
+  it('saves an unrelated edit even when an untouched stored field is invalid', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ publicEmail: 'thomasquocthainguyen.com' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText("Why I'm running"), 'Parks')
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    expect(putPayload()!.whyRunning).toBe('Parks')
+    expect('publicEmail' in putPayload()!).toBe(false)
+  })
+
+  it('makes no request when nothing changed', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ websiteUrl: 'https://thomasnguyen.com' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await save()
+
+    expect(putPayload()).toBeUndefined()
+  })
+
+  it('rebases after a save, so a second edit does not resend the first', async () => {
+    const saved = profile({ whyRunning: 'Parks' })
+    mockedRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: saved,
+    } as never)
+
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText("Why I'm running"), 'Parks')
+    await save()
+    await waitFor(() => expect(putPayload()).toBeDefined())
+
+    mockedRequest.mockClear()
+    await userEvent.type(screen.getByLabelText('Instagram'), 'https://x.com/a')
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    expect('whyRunning' in putPayload()!).toBe(false)
   })
 })
 

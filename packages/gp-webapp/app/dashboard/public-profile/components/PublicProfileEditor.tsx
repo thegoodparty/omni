@@ -20,11 +20,23 @@ import { AccomplishmentsEditor, RecentExperienceEditor } from './ListEditors'
 import PrioritiesPublicationEditor, {
   type PriorityRow,
 } from './PrioritiesPublicationEditor'
+import {
+  fieldErrorsFromApiError,
+  normalizeUrl,
+  summarize,
+  URL_FIELDS,
+  validateContact,
+  type FieldErrors,
+} from './publicProfileValidation'
 
 const toNull = (value: string): string | null => {
   const trimmed = value.trim()
   return trimmed === '' ? null : trimmed
 }
+
+// Row order is meaningful to the reader, so a reorder counts as a change.
+const sameList = (a: unknown[], b: unknown[]): boolean =>
+  JSON.stringify(a) === JSON.stringify(b)
 
 // Local, all-string mirror of the editable overlay surface (nulls become '').
 interface FormState {
@@ -43,6 +55,23 @@ interface FormState {
   twitterUrl: string
   linkedinUrl: string
 }
+
+const FORM_KEYS = [
+  'displayName',
+  'roleTitleOverride',
+  'bioOverride',
+  'whyRunning',
+  'publicEmail',
+  'publicPhone',
+  'officePhone',
+  'websiteUrl',
+  'governmentWebsiteUrl',
+  'instagramUrl',
+  'tiktokUrl',
+  'facebookUrl',
+  'twitterUrl',
+  'linkedinUrl',
+] as const satisfies readonly (keyof FormState)[]
 
 const toForm = (p: PersonProfile): FormState => ({
   displayName: p.displayName ?? '',
@@ -173,6 +202,14 @@ function LoadedEditor({
 }): JSX.Element {
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [form, setForm] = useState<FormState>(() => toForm(profile))
+  // Last known server state. Saves send only what differs from this, so a field
+  // this editor never touched cannot be overwritten by a stale snapshot — the
+  // form is captured once at mount and is not otherwise reconciled.
+  const [baseline, setBaseline] = useState<FormState>(() => toForm(profile))
+  const [baselineLists, setBaselineLists] = useState(() => ({
+    recentExperience: profile.recentExperience ?? [],
+    accomplishments: profile.accomplishments ?? [],
+  }))
   const [experience, setExperience] = useState<
     PersonProfileRecentExperienceItem[]
   >(profile.recentExperience ?? [])
@@ -182,6 +219,7 @@ function LoadedEditor({
   const [priorityRows, setPriorityRows] = useState<PriorityRow[]>(() =>
     buildPriorityRows(priorities, profile),
   )
+  const [errors, setErrors] = useState<FieldErrors>({})
   const [saving, setSaving] = useState(false)
   const [savingIssues, setSavingIssues] = useState(false)
   const [togglingPublish, setTogglingPublish] = useState(false)
@@ -191,36 +229,87 @@ function LoadedEditor({
 
   const isPublished = Boolean(profile.publishedAt) && !profile.deletedAt
 
-  const setField = (key: keyof FormState, value: string): void =>
+  const setField = (key: keyof FormState, value: string): void => {
     setForm((prev) => ({ ...prev, [key]: value }))
+    // Clear as they type, so the message tracks the field's current contents
+    // rather than lingering from the last attempt.
+    setErrors((prev) => {
+      if (prev[key] === undefined) return prev
+      const { [key]: _fixed, ...rest } = prev
+      return rest
+    })
+  }
+
+  // On blur rather than at save time, so the `https://` that will actually be
+  // stored is visible while they are still looking at the field.
+  const normalizeUrlField = (key: keyof FormState): void =>
+    setForm((prev) => ({ ...prev, [key]: normalizeUrl(prev[key]) }))
 
   const handleSave = async (): Promise<void> => {
+    const normalized: FormState = { ...form }
+    for (const key of URL_FIELDS) {
+      normalized[key] = normalizeUrl(normalized[key])
+    }
+    setForm(normalized)
+
+    // Only what actually changed. Sending the whole form made every save a
+    // last-write-wins overwrite of a mount-time snapshot, so editing one
+    // section silently blanked anything set elsewhere since the page loaded.
+    const changed = FORM_KEYS.filter((key) => normalized[key] !== baseline[key])
+
+    // Validated per changed field rather than over the whole form: a bad value
+    // already in the record — an import wrote it, or it predates the rule — is
+    // not being sent, so it must not hold the rest of the form hostage. That
+    // trap is the reason saving stayed broken after the offending field was
+    // corrected. A malformed *edit* still withholds the request, since the
+    // server would reject the payload and retrying could never succeed.
+    const invalid = validateContact(
+      Object.fromEntries(changed.map((key) => [key, normalized[key]])),
+    )
+    const [firstInvalid] = Object.keys(invalid)
+    if (firstInvalid !== undefined) {
+      setErrors(invalid)
+      errorSnackbar(summarize(invalid))
+      document.getElementById(firstInvalid)?.focus()
+      return
+    }
+
+    const body: UpsertPersonProfileRequest = {}
+    for (const key of changed) body[key] = toNull(normalized[key])
+    const nextExperience = experience.filter((r) => r.title.trim() !== '')
+    if (!sameList(nextExperience, baselineLists.recentExperience)) {
+      body.recentExperience = nextExperience
+    }
+    const nextAccomplishments = accomplishments.filter(
+      (r) => r.title.trim() !== '',
+    )
+    if (!sameList(nextAccomplishments, baselineLists.accomplishments)) {
+      body.accomplishments = nextAccomplishments
+    }
+
+    if (Object.keys(body).length === 0) {
+      successSnackbar('No changes to save.')
+      return
+    }
+
+    setErrors({})
     setSaving(true)
     try {
-      const body: UpsertPersonProfileRequest = {
-        displayName: toNull(form.displayName),
-        roleTitleOverride: toNull(form.roleTitleOverride),
-        bioOverride: toNull(form.bioOverride),
-        whyRunning: toNull(form.whyRunning),
-        publicEmail: toNull(form.publicEmail),
-        publicPhone: toNull(form.publicPhone),
-        officePhone: toNull(form.officePhone),
-        websiteUrl: toNull(form.websiteUrl),
-        governmentWebsiteUrl: toNull(form.governmentWebsiteUrl),
-        instagramUrl: toNull(form.instagramUrl),
-        tiktokUrl: toNull(form.tiktokUrl),
-        facebookUrl: toNull(form.facebookUrl),
-        twitterUrl: toNull(form.twitterUrl),
-        linkedinUrl: toNull(form.linkedinUrl),
-        recentExperience: experience.filter((r) => r.title.trim() !== ''),
-        accomplishments: accomplishments.filter((r) => r.title.trim() !== ''),
-      }
       const { data } = await clientRequest('PUT /v1/person-profiles/mine', body)
       onProfile(data)
+      setBaseline(toForm(data))
+      setBaselineLists({
+        recentExperience: data.recentExperience ?? [],
+        accomplishments: data.accomplishments ?? [],
+      })
       successSnackbar('Profile saved.')
     } catch (err) {
       reportErrorToSentry(err, { context: 'PublicProfileEditor.save' })
-      errorSnackbar("Couldn't save your profile. Please try again.")
+      // The rejection body names the field it refused; showing that beats
+      // asking someone to retry a value the server will never accept.
+      const fieldErrors = fieldErrorsFromApiError(err)
+      setErrors(fieldErrors)
+      errorSnackbar(summarize(fieldErrors))
     } finally {
       setSaving(false)
     }
@@ -458,7 +547,13 @@ function LoadedEditor({
               label={label}
               value={form[key]}
               placeholder={placeholder}
+              error={errors[key]}
               onChange={(v) => setField(key, v)}
+              onBlur={
+                (URL_FIELDS as readonly string[]).includes(key)
+                  ? () => normalizeUrlField(key)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -479,14 +574,18 @@ function Field({
   value,
   placeholder,
   hint,
+  error,
   onChange,
+  onBlur,
 }: {
   id: string
   label: string
   value: string
   placeholder?: string
   hint?: string
+  error?: string
   onChange: (value: string) => void
+  onBlur?: () => void
 }): JSX.Element {
   return (
     <div className="flex flex-col gap-1.5">
@@ -495,9 +594,18 @@ function Field({
         id={id}
         value={value}
         placeholder={placeholder}
+        aria-invalid={error !== undefined}
+        aria-describedby={error !== undefined ? `${id}-error` : undefined}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
       />
-      {hint && <p className="text-xs text-gray-500">{hint}</p>}
+      {error !== undefined ? (
+        <p id={`${id}-error`} role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="text-xs text-gray-500">{hint}</p>
+      )}
     </div>
   )
 }
