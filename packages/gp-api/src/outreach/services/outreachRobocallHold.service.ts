@@ -526,6 +526,14 @@ export class OutreachRobocallHoldService extends createPrismaBase(
                   RobocallSettleState.dialing,
                 ],
         },
+        // expired_unstaged (stranded sweep) must match the exact SELECT
+        // invariant: authorized AND callhubCampaignPkStr IS NULL. If the
+        // staging sweep COMPLETED between that SELECT and here, the draft is
+        // back in `authorized` but now has a pk_str set and is about to dial —
+        // failing it would void a live hold and orphan a staged campaign.
+        ...(reason === 'expired_unstaged'
+          ? { callhubCampaignPkStr: null }
+          : {}),
       },
       data: { settleState: RobocallSettleState.send_failed },
     })

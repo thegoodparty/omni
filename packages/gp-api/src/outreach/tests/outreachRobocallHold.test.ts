@@ -307,6 +307,27 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(messageId).toBe(`${outreachId}:send_failed`)
   })
 
+  it('failSend expired_unstaged leaves an authorized draft the staging sweep just finished', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.authorized,
+      authorizationIntentId: 'pi_hold_9',
+      callhubCampaignPkStr: 'vb_staged',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'expired_unstaged')
+
+    // The staging sweep COMPLETED between the stranded SELECT and here: the
+    // draft is back in `authorized` but now carries a pk_str and is about to
+    // dial. The pk_str-null predicate keeps the CAS at 0 rows, so the live hold
+    // is not voided, no email is sent, and the staged campaign is left intact.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    expect(satellite.callhubCampaignPkStr).toBe('vb_staged')
+    expect(paymentIntentsCancel).not.toHaveBeenCalled()
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
   it('retries from hold_failed with a new card and authorizes', async () => {
     // A declined draft (payAttempt already 1) re-enters placement with a new
     // card — the CAS must accept hold_failed, and the retry uses a fresh key.
