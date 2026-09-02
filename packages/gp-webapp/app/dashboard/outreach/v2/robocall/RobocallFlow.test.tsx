@@ -1296,6 +1296,69 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
+  // Regression: a list BUILT in the flow is selected as the flow leaves the
+  // audience step, so gating the reachability fetch on the audience step left
+  // its count unresolved — the review step read a null (rendered 0) count while
+  // the server independently found the real landline total. The reachable count
+  // and its estimated cost must resolve for a built list, not fall back to 0.
+  it('resolves the reachable count on review for a list built in the flow', async () => {
+    mockSavedLists()
+    mockBuilderCount(50)
+    mockCreateList() // -> { id: 99, name: 'My landline list' }
+    mockListDetail(12) // the created list's landline reachability
+    mockDraft()
+
+    await gotoAudience()
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Create a new list'))
+    await userEvent.click(screen.getByText('mock-add-filter'))
+    await userEvent.click(
+      await screen.findByRole(
+        'button',
+        { name: /Continue \(50\)/ },
+        { timeout: 3000 },
+      ),
+    )
+    await userEvent.type(
+      screen.getByLabelText('mock list name'),
+      'My landline list',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Create list' }))
+
+    // Schedule: set a comfortably-future date + time and advance.
+    await screen.findByLabelText('Campaign name')
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByText('mock-pick-future'))
+    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await userEvent.click(
+      await screen.findByRole('option', { name: '10:00 AM' }),
+    )
+    const toCompose = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(toCompose).toBeEnabled())
+    await userEvent.click(toCompose)
+
+    // Compose: record + save (passes compliance via the beforeEach mock).
+    await screen.findByText(/Read the script below into your microphone/)
+    mockAudioUpload()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Start recording' }),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop recording' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    const toReview = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(toReview).toBeEnabled())
+    await userEvent.click(toReview)
+
+    // Review: the People row shows the resolved landline count (12), not 0, and
+    // the estimated cost is 12 * $0.045 = $0.54, not $0.00.
+    await screen.findByRole('button', { name: 'Continue to payment' })
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.getByText('$0.54')).toBeInTheDocument()
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument()
+  })
+
   it('advances from review to the pay step and shows the server estimate', async () => {
     await gotoReview()
     mockCreateDraft(560)

@@ -175,10 +175,23 @@ export const useOutreachAudience = ({
         total: detail.demographics.people,
       }
     },
-    // Gate on `active` (like the builder count): selectedListId persists onto
-    // later steps, so without it every window-focus on a post-audience step
-    // would refetch under staleTime:0 and burn a MAX_IN_FLIGHT list-detail slot.
-    enabled: open && active && selectedListId !== null,
+    // A list built in the flow is selected as we leave the audience step
+    // (createList -> the flow's goToSchedule in the same tick), so gating this
+    // on `active` meant the count never fetched for a built list and the
+    // review/pay steps read a null (rendered 0) reachable count. Fetch whenever
+    // a list is selected; the automatic refetches the `active` gate used to
+    // guard against are suppressed directly below.
+    enabled: open && selectedListId !== null,
+    // Both window-focus and reconnect refetches are disabled for the same
+    // reason: on a post-audience step (schedule/compose/review) a focus regain
+    // or a network reconnect (common on mobile) would, under staleTime:0, refire
+    // fetchListDetailThrottled and burn one of the global MAX_IN_FLIGHT (3)
+    // list-detail slots — with no UI benefit, since the count is already
+    // resolved by then. The initial fetch on selection still runs (the query
+    // observer mounts once at the flow root and persists across steps, so
+    // refetchOnMount is not a factor here).
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     // Refetch on every (re)selection so the isFetching-driven spinner below
     // actually fires: under the app's 5-min default staleTime a re-picked list
     // is still "fresh", no background refetch runs, isFetching stays false, and
