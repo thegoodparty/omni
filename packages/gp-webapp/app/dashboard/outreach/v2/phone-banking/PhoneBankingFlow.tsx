@@ -264,7 +264,7 @@ export const PhoneBankingFlow = ({
     reset: resetAudience,
     onSelect: selectAudienceList,
     lists: audienceLists,
-    listsLoading: audienceListsLoading,
+    listsFetching: audienceListsFetching,
   } = audience
 
   const draftMutation = useMutation({
@@ -345,7 +345,11 @@ export const PhoneBankingFlow = ({
       return
     }
     if (preselectSpentRef.current || preselectedListId === undefined) return
-    if (audienceListsLoading) return
+    // isFetching, not isLoading: a re-opened flow serves stale cached lists
+    // during its refetch (staleTime 0), and matching against that cache could
+    // select a list deleted since the last open — spent-ref means no
+    // recovery. Wait for settled fresh data.
+    if (audienceListsFetching) return
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
@@ -354,7 +358,7 @@ export const PhoneBankingFlow = ({
     open,
     preselectedListId,
     audienceLists,
-    audienceListsLoading,
+    audienceListsFetching,
     selectAudienceList,
   ])
 

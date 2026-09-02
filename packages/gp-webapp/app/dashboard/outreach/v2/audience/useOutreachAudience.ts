@@ -56,6 +56,13 @@ export interface OutreachAudience {
   selectedListId: number | null
   lists: SegmentResponse[]
   listsLoading: boolean
+  // isFetching, not isLoading: with staleTime 0 a re-opened flow serves the
+  // cached lists while a refetch is in flight, and isLoading reads false the
+  // moment any cache exists. A consumer acting once on the resolved lists
+  // (PhoneBankingFlow's deep-link preselect) must wait on this so it never
+  // matches against a stale cache — same distinction reachableLoading below
+  // already applies.
+  listsFetching: boolean
   selectedList: SegmentResponse | null
   reachableCount: number | null
   // The selected list's TOTAL people count (list-detail demographics), so a
@@ -285,6 +292,7 @@ export const useOutreachAudience = ({
     selectedListId,
     lists,
     listsLoading: listsQuery.isLoading,
+    listsFetching: listsQuery.isFetching,
     selectedList,
     reachableCount,
     selectedListTotal,
