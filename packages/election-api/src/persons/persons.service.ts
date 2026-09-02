@@ -310,20 +310,25 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     return ranked[0]?.Race?.Position?.districtId ?? null
   }
 
-  // Resolves the public /people/<base>-<id8> URL to a person, returning the same
-  // full spine shape as getPersonById (PII omitted). <id8> is the first 8 hex
-  // chars of the person's UUID `id`; the app appends it so a bare `first-last`
-  // (which is NOT unique — ~82 `jane-doe`s) still resolves to exactly one
-  // person. We resolve by that id prefix via an indexed range scan on the `id`
-  // PK — never a scan of the non-unique `slug` column. 8 hex is 32 bits, so a
-  // few dozen ids table-wide share a prefix; the base slug breaks that rare tie.
+  // Resolves the public /people/<slug> URL to a person, returning the same full
+  // spine shape as getPersonById (PII omitted). The person mart mints `slug`
+  // with a trailing <id8> — the first 8 hex of the person's UUID `id` — which is
+  // what makes the whole slug unique, since the `first-last` name part on its
+  // own is not (~82 `jane-doe`s).
+  //
+  // We resolve on that id prefix rather than on `slug` itself, even though slug
+  // is unique and indexed, because it lets a stale slug still resolve: people
+  // get renamed, the old URL stays linked, and marketing 301s it to the current
+  // one. Matching the whole slug would 404 those instead. The range scan is on
+  // the `id` PK. 8 hex is 32 bits, so a few dozen ids table-wide share a prefix;
+  // the whole slug breaks that rare tie. The name part is optional: a name that
+  // slugifies to nothing (non-Latin scripts strip to empty) leaves the id suffix
+  // as the entire slug.
   async getPersonBySlug(slug: string) {
-    const lastDash = slug.lastIndexOf('-')
-    const idPrefix = lastDash >= 0 ? slug.slice(lastDash + 1) : ''
-    const basePart = lastDash >= 0 ? slug.slice(0, lastDash) : slug
+    const idPrefix = /^(?:.*-)?([0-9a-f]{8})$/.exec(slug)?.[1]
 
     // Every minted slug ends in an 8-hex id suffix; anything else can't resolve.
-    if (!/^[0-9a-f]{8}$/.test(idPrefix)) {
+    if (!idPrefix) {
       throw new NotFoundException(`Person not found for slug=${slug}`)
     }
 
@@ -337,11 +342,14 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     })
 
     // Almost always 0-1 rows. Only when two ids share the same 8-hex prefix do
-    // we fall back to the base slug to pick the intended person.
+    // we fall back to the slug to pick the intended person. The stored slug
+    // carries the id suffix, so it is compared whole against the requested URL;
+    // a stale base on a shared prefix is unresolvable and 404s rather than
+    // guessing between two real people.
     const person =
       candidates.length === 1
         ? candidates[0]
-        : (candidates.find((p) => p.slug === basePart) ?? null)
+        : (candidates.find((p) => p.slug === slug) ?? null)
 
     if (!person) {
       throw new NotFoundException(`Person not found for slug=${slug}`)

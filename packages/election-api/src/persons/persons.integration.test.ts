@@ -8,8 +8,10 @@ const PERSON_ID = '11111111-1111-1111-1111-111111111111'
 const OTHER_PERSON_ID = '22222222-2222-2222-2222-222222222222'
 const MISSING_PERSON_ID = '99999999-9999-9999-9999-999999999999'
 
-const PERSON_SLUG = 'jane-doe'
-const OTHER_PERSON_SLUG = 'john-roe'
+// The person mart mints the 8-hex id suffix into `slug` itself, so the stored
+// value is the whole public slug and /people/<slug> is the URL verbatim.
+const PERSON_SLUG = 'jane-doe-11111111'
+const OTHER_PERSON_SLUG = 'john-roe-22222222'
 
 // PII that must NEVER appear on the public read endpoints.
 const PERSON_EMAIL = 'jane.doe.personal@example.com'
@@ -407,14 +409,8 @@ describe('GET /v1/persons/:personId (public profile)', () => {
 })
 
 describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
-  // Public slug is `<base>-<id8>`; PERSON_ID starts 11111111, OTHER 22222222.
-  const PERSON_PUBLIC_SLUG = `${PERSON_SLUG}-11111111`
-  const OTHER_PUBLIC_SLUG = `${OTHER_PERSON_SLUG}-22222222`
-
   it('resolves a person by the base slug + 8-hex id suffix, with relations and no PII', async () => {
-    const res = await service.client.get(
-      `/v1/persons/by-slug/${PERSON_PUBLIC_SLUG}`,
-    )
+    const res = await service.client.get(`/v1/persons/by-slug/${PERSON_SLUG}`)
 
     expect(res.status).toBe(200)
     expect(res.data.id).toBe(PERSON_ID)
@@ -436,7 +432,7 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
   it('does not capture the by-slug segment as an id', async () => {
     // Regression guard for route ordering: `by-slug` must not hit :personId.
     const res = await service.client.get(
-      `/v1/persons/by-slug/${OTHER_PUBLIC_SLUG}`,
+      `/v1/persons/by-slug/${OTHER_PERSON_SLUG}`,
     )
     expect(res.status).toBe(200)
     expect(res.data.id).toBe(OTHER_PERSON_ID)
@@ -460,6 +456,76 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
   it('404s for a slug with no 8-hex id suffix', async () => {
     const res = await service.client.get('/v1/persons/by-slug/nobody-here')
     expect(res.status).toBe(404)
+  })
+
+  describe('when two ids share the same 8-hex prefix', () => {
+    // Shares PERSON_ID's first 8 hex, so both come back from the range scan.
+    const COLLIDING_ID = '11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    const COLLIDING_SLUG = 'jim-poe-11111111'
+
+    beforeEach(async () => {
+      await service.prisma.person.create({
+        data: {
+          id: COLLIDING_ID,
+          slug: COLLIDING_SLUG,
+          firstName: 'Jim',
+          lastName: 'Poe',
+          fullName: 'Jim Poe',
+          state: 'TX',
+        },
+      })
+    })
+
+    it('serves each of the two the profile its own slug names', async () => {
+      const jane = await service.client.get(
+        `/v1/persons/by-slug/${PERSON_SLUG}`,
+      )
+      expect(jane.status).toBe(200)
+      expect(jane.data.id).toBe(PERSON_ID)
+
+      const jim = await service.client.get(
+        `/v1/persons/by-slug/${COLLIDING_SLUG}`,
+      )
+      expect(jim.status).toBe(200)
+      expect(jim.data.id).toBe(COLLIDING_ID)
+    })
+
+    it('404s a stale base rather than guessing between the two', async () => {
+      const res = await service.client.get(
+        '/v1/persons/by-slug/some-old-name-11111111',
+      )
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe('when the name slugifies to nothing', () => {
+    // Non-Latin scripts strip to empty, so the mart emits a bare 8-hex slug and
+    // the public URL has no base part at all.
+    const BARE_HEX_ID = 'b2c3d4e5-0000-0000-0000-000000000000'
+    const BARE_HEX_SLUG = 'b2c3d4e5'
+
+    beforeEach(async () => {
+      await service.prisma.person.create({
+        data: {
+          id: BARE_HEX_ID,
+          slug: BARE_HEX_SLUG,
+          // Persian for "sample name" — a stand-in, not a real person.
+          firstName: 'نمونه',
+          lastName: 'نام',
+          fullName: 'نمونه نام',
+          state: 'VA',
+        },
+      })
+    })
+
+    it('resolves a slug that is only the id suffix', async () => {
+      const res = await service.client.get(
+        `/v1/persons/by-slug/${BARE_HEX_SLUG}`,
+      )
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(BARE_HEX_ID)
+      expect(res.data.slug).toBe(BARE_HEX_SLUG)
+    })
   })
 
   it('400s for a slug with invalid characters', async () => {

@@ -226,7 +226,7 @@ describe('PersonsService', () => {
       findMany.mockResolvedValueOnce([
         {
           id: 'a1b2c3d4-0000-0000-0000-000000000000',
-          slug: 'jane-doe',
+          slug: 'jane-doe-a1b2c3d4',
           OfficeHolders: [
             officeHolder({
               level: 'CITY',
@@ -248,7 +248,7 @@ describe('PersonsService', () => {
   describe('getPersonBySlug', () => {
     it('resolves by the 8-hex id suffix via an indexed range scan (not the slug column)', async () => {
       findMany.mockResolvedValueOnce([
-        { id: 'a1b2c3d4-...', slug: 'jane-doe', OfficeHolders: [] },
+        { id: 'a1b2c3d4-...', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
       ])
 
       const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
@@ -264,14 +264,14 @@ describe('PersonsService', () => {
       expect(args.omit).toEqual({ email: true, phone: true, gpApiUserId: true })
       expect(result).toEqual({
         id: 'a1b2c3d4-...',
-        slug: 'jane-doe',
+        slug: 'jane-doe-a1b2c3d4',
         OfficeHolders: [],
       })
     })
 
     it('uses an inclusive max-UUID bound for the all-Fs prefix (no successor)', async () => {
       findMany.mockResolvedValueOnce([
-        { id: 'ffffffff-...', slug: 'zoe-zed', OfficeHolders: [] },
+        { id: 'ffffffff-...', slug: 'zoe-zed-ffffffff', OfficeHolders: [] },
       ])
 
       await service.getPersonBySlug('zoe-zed-ffffffff')
@@ -284,16 +284,53 @@ describe('PersonsService', () => {
       })
     })
 
-    it('breaks a shared-prefix tie by matching the base slug', async () => {
+    it('breaks a shared-prefix tie against the whole stored slug', async () => {
+      // The mart mints `slug` with the id suffix already on it, so the tie
+      // breaks on the full URL slug, not on a base with the suffix stripped.
       findMany.mockResolvedValueOnce([
-        { id: 'a1b2c3d4-1', slug: 'john-smith', OfficeHolders: [] },
-        { id: 'a1b2c3d4-2', slug: 'jane-doe', OfficeHolders: [] },
+        { id: 'a1b2c3d4-1', slug: 'john-smith-a1b2c3d4', OfficeHolders: [] },
+        { id: 'a1b2c3d4-2', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
       ])
 
       const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
       expect(result).toEqual({
         id: 'a1b2c3d4-2',
-        slug: 'jane-doe',
+        slug: 'jane-doe-a1b2c3d4',
+        OfficeHolders: [],
+      })
+    })
+
+    it('404s a shared-prefix tie the base slug cannot break', async () => {
+      // Both rows share the prefix and neither slug is the one asked for, so
+      // there is no way to tell which was meant — serving either is worse.
+      findMany.mockResolvedValueOnce([
+        { id: 'a1b2c3d4-1', slug: 'john-smith-a1b2c3d4', OfficeHolders: [] },
+        { id: 'a1b2c3d4-2', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
+      ])
+
+      await expect(
+        service.getPersonBySlug('some-old-name-a1b2c3d4'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('resolves a slug that is only the id suffix (name slugifies to empty)', async () => {
+      // Non-Latin names strip to nothing, so the mart emits a bare 8-hex slug
+      // and the public URL has no base part at all.
+      findMany.mockResolvedValueOnce([
+        { id: 'b2c3d4e5-...', slug: 'b2c3d4e5', OfficeHolders: [] },
+      ])
+
+      const result = await service.getPersonBySlug('b2c3d4e5')
+
+      expect(findMany.mock.calls[0]?.[0].where).toEqual({
+        id: {
+          gte: 'b2c3d4e5-0000-0000-0000-000000000000',
+          lt: 'b2c3d4e6-0000-0000-0000-000000000000',
+        },
+      })
+      expect(result).toEqual({
+        id: 'b2c3d4e5-...',
+        slug: 'b2c3d4e5',
         OfficeHolders: [],
       })
     })
