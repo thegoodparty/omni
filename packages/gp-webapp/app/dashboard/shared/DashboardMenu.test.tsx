@@ -4,19 +4,15 @@ import { getDashboardMenuItems } from './DashboardMenu'
 const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
-  campaignStoryEnabled = false,
   serveOutreachEnabled = false,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
-  campaignStoryEnabled?: boolean
   serveOutreachEnabled?: boolean
 } = {}) =>
   getDashboardMenuItems(
     isElectedOffice,
     isElectedOfficeLoading,
-    false,
-    campaignStoryEnabled,
     serveOutreachEnabled,
   )
 
@@ -67,56 +63,23 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 })
 
 describe('getDashboardMenuItems: "Your story" sidebar item', () => {
-  it('renders "Your story" just above the tracker when the story flag is on', () => {
-    const items = getDashboardMenuItems(
-      false, // isElectedOffice
-      false, // isElectedOfficeLoading
-      true, // campaignStrategyExists
-      true, // campaignStoryEnabled
-      false, // serveOutreachEnabled
-    )
+  it('always renders "Your story" just above the tracker', () => {
+    const items = links()
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
 
     expect(storyIdx).toBeGreaterThanOrEqual(0)
     expect(items[storyIdx]?.label).toBe('Your story')
-    // It sits directly above the Campaign Plan tab.
+    // It sits directly above the Campaign Tracker tab.
     expect(planIdx).toBe(storyIdx + 1)
-  })
-
-  it('omits "Your story" when the story flag is off', () => {
-    const items = getDashboardMenuItems(
-      false, // isElectedOffice
-      false, // isElectedOfficeLoading
-      true, // campaignStrategyExists
-      false, // campaignStoryEnabled
-      false, // serveOutreachEnabled
-    )
-    expect(
-      items.find((i) => i.id === 'campaign-story-dashboard'),
-    ).toBeUndefined()
   })
 })
 
-describe('getDashboardMenuItems — Campaign Plan tab label', () => {
-  it('labels the item "Campaign Plan" when campaignStoryEnabled is true', () => {
-    const items = links({ campaignStoryEnabled: true })
+describe('getDashboardMenuItems — Campaign Tracker tab label', () => {
+  it('always labels the item "Campaign Tracker"', () => {
+    const items = links()
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Plan')
-  })
-
-  it('labels the item "Campaign Plan" when campaignStoryEnabled is false', () => {
-    // Story off: the item only appears when a campaign strategy exists, so pass
-    // that flag (position 2) directly rather than via the `links` helper.
-    const items = getDashboardMenuItems(
-      false, // isElectedOffice
-      false, // isElectedOfficeLoading
-      true, // campaignStrategyExists
-      false, // campaignStoryEnabled
-      false, // serveOutreachEnabled
-    )
-    const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Plan')
+    expect(planItem?.label).toBe('Campaign Tracker')
   })
 })
 
@@ -181,10 +144,9 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('still renders Campaign Plan alongside Community Issues for an elected office', () => {
+  it('still renders Campaign Tracker alongside Community Issues for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      campaignStoryEnabled: true,
     })
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(true)
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')

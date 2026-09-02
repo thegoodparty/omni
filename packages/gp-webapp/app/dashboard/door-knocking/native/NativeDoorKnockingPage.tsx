@@ -571,8 +571,8 @@ export default function NativeDoorKnockingPage({
       // where that bar is `lg:hidden`: the map ended 64px short of the bottom
       // of the window on every desktop.
       //
-      // This is also what makes `DashboardLayout`'s own siblings behave. When
-      // the campaign-story flag is on, `DashboardCampaignManagerChat` renders
+      // This is also what makes `DashboardLayout`'s own siblings behave. On
+      // Win (campaign) orgs, `DashboardCampaignManagerChat` renders
       // an in-flow `h-24` spacer next to this page, reserving room for its
       // fixed footer bar. Against a child with a hard viewport height that
       // spacer was 96px of pure overflow and the page scrolled by exactly

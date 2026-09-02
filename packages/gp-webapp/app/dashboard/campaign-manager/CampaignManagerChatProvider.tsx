@@ -18,7 +18,6 @@ import {
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import { reportErrorToSentry } from '@shared/sentry'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
@@ -361,21 +360,16 @@ export function CampaignManagerChatProvider({
   )
 }
 
-// Mounts the dock for the campaign-story cohort only, and ONLY on Win
-// (campaign) orgs. The flag resolves per USER, so a flag-on user viewing a
-// Serve (elected-office) org would otherwise get the Campaign Manager dock on
-// Serve pages — painting over Chief of Staff's own footer chat and answering
-// as the wrong assistant. Every other cohort/org gets the children untouched
-// (no footer chat, no context — zero behavior change). trackExposure=false:
-// the dock is not the treatment surface (the manager home / story pages are),
-// so reading the flag here must not inflate the exposed population.
+// Mounts the dock only on Win (campaign) orgs. A Serve (elected-office) org
+// gets the children untouched (no footer chat, no context) — otherwise the
+// dock would paint over Chief of Staff's own footer chat and answer as the
+// wrong assistant.
 export function DashboardCampaignManagerChat({
   children,
 }: {
   children: ReactNode
 }): React.JSX.Element {
-  const { enabled } = useCampaignStoryFlag(false)
   const organization = useOrganization()
-  if (!enabled || organization?.electedOfficeId) return <>{children}</>
+  if (organization?.electedOfficeId) return <>{children}</>
   return <CampaignManagerChatProvider>{children}</CampaignManagerChatProvider>
 }

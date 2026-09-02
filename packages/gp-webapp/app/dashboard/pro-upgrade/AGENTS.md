@@ -98,19 +98,17 @@ closes that at three layers:
   (`app/dashboard/components/campaignManager/`, ENG-10858) prompts Pro
   candidates with no TCR record (or a retryable `error` record) and links to
   election-filing; post-start statuses keep their dedicated
-  `ProUpgrade3Compliance` surfaces. **`/dashboard` has TWO homes** —
-  `DashboardContent` branches on the campaign-story flag between the legacy
-  `CampaignManager` and `CampaignManagerHome` — and **every 10DLC surface
-  must render in both**: the banner (reads the server-fetched
-  `tcrCompliance` that `DashboardContent` passes down) AND
-  `ProUpgrade3ComplianceCard` (every post-start state, including PIN
-  entry). This is not theoretical: `CampaignManagerHome` shipped without
-  the card, and once the campaign-story flag hit 100% the banner — which
-  hides itself as soon as a TCR record exists — left every candidate
-  awaiting a PIN with no dashboard 10DLC surface at all (PR #1273).
-  `ProUpgrade3Compliance`'s "Set up texting compliance" fallthrough card and
-  the outreach ComplianceModal also land on election-filing (the double
-  surface with the banner is a deliberate product decision).
+  `ProUpgrade3Compliance` surfaces. `/dashboard` is `CampaignManagerHome`
+  (`DashboardContent` renders it unconditionally), and both the banner (reads
+  the server-fetched `tcrCompliance` that `DashboardContent` passes down) and
+  `ProUpgrade3ComplianceCard` (every post-start state, including PIN entry)
+  must render there. This is not theoretical: `CampaignManagerHome` once
+  shipped without the card, and the banner — which hides itself as soon as a
+  TCR record exists — left every candidate awaiting a PIN with no dashboard
+  10DLC surface at all (PR #1273). `ProUpgrade3Compliance`'s "Set up texting
+  compliance" fallthrough card and the outreach ComplianceModal also land on
+  election-filing (the double surface with the banner is a deliberate
+  product decision).
 - **Inline profile collection (ENG-10857).** When
   `isCandidateProfileComplete(website)` is false, `ElectionFiling` renders
   the shared `CandidateProfileFields` **inside** the registration form via

@@ -40,8 +40,7 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 export const NAV_LABELS = {
   campaignManager: 'Campaign Manager',
   campaignStory: 'Your story',
-  campaignTracker: 'Campaign Plan',
-  campaignPlan: 'Campaign Plan',
+  campaignTracker: 'Campaign Tracker',
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',
   voterOutreach: 'Voter Outreach',
