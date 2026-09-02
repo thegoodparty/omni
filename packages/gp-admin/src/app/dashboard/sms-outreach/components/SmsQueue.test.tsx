@@ -5,6 +5,14 @@ import { Theme } from '@radix-ui/themes'
 import type { SmsApprovalQueueItem } from '@goodparty_org/contracts'
 import { SmsQueue } from './SmsQueue'
 
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver =
+  ResizeObserverMock as unknown as typeof ResizeObserver
+
 const item = (
   overrides: Partial<SmsApprovalQueueItem>
 ): SmsApprovalQueueItem => ({
@@ -28,6 +36,8 @@ const item = (
   deniedBy: null,
   deniedReason: null,
   canvassRequestedAt: null,
+  adminEditedAt: null,
+  adminEditedBy: null,
   standards: { passed: true, failures: [] },
   job: {
     status: 'active',
@@ -115,5 +125,51 @@ describe('SmsQueue', () => {
       </Theme>
     )
     expect(screen.getByText('Nothing here right now.')).toBeInTheDocument()
+  })
+
+  it('searches by candidate and sorts by candidate name', async () => {
+    render(
+      <Theme>
+        <SmsQueue
+          items={[
+            item({
+              id: 51,
+              candidateName: 'Zoe Adams',
+              name: 'Zoe campaign',
+              sendAt: new Date('2026-09-08T15:00:00Z'),
+            }),
+            item({
+              id: 52,
+              candidateName: 'Amy Brown',
+              name: 'Amy campaign',
+              sendAt: new Date('2026-09-12T15:00:00Z'),
+            }),
+          ]}
+        />
+      </Theme>
+    )
+
+    // Default sort is send date ascending: Zoe (9/08) before Amy (9/12).
+    const beforeSort = screen.getAllByText(/campaign$/)
+    expect(beforeSort[0]).toHaveTextContent('Zoe campaign')
+
+    await userEvent.click(screen.getByRole('button', { name: /Candidate/ }))
+    const afterSort = screen.getAllByText(/campaign$/)
+    expect(afterSort[0]).toHaveTextContent('Amy campaign')
+
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Search by candidate' }),
+      'zoe'
+    )
+    expect(screen.getByText('Zoe campaign')).toBeInTheDocument()
+    expect(screen.queryByText('Amy campaign')).not.toBeInTheDocument()
+
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Search by candidate' }),
+      'zzz'
+    )
+    expect(
+      screen.getByText('No campaigns match that candidate.')
+    ).toBeInTheDocument()
   })
 })
