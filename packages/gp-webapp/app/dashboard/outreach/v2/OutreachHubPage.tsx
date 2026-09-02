@@ -55,6 +55,11 @@ const OutreachHubContent = ({
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
+  // The list id the tile click handed over (a ?listId= deep link the grid
+  // consumed on hand-off) — set per open, so a later open without one starts
+  // clean.
+  const [phoneBankingPreselectedListId, setPhoneBankingPreselectedListId] =
+    useState<number | undefined>(undefined)
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
   const [smsEditTarget, setSmsEditTarget] = useState<SmsEditTarget | null>(null)
   const seedOutreachDetail = useSeedOutreachDetail()
@@ -130,7 +135,10 @@ const OutreachHubContent = ({
         onCreateSocial={() => setSocialFlowOpen(true)}
         onCreateSms={() => setSmsFlowOpen(true)}
         onCreateRobocall={() => setRobocallFlowOpen(true)}
-        onCreatePhoneBanking={() => setPhoneBankingFlowOpen(true)}
+        onCreatePhoneBanking={(listId) => {
+          setPhoneBankingPreselectedListId(listId)
+          setPhoneBankingFlowOpen(true)
+        }}
       />
       <SocialFlow
         open={socialFlowOpen}
@@ -146,6 +154,7 @@ const OutreachHubContent = ({
         open={phoneBankingFlowOpen}
         onClose={() => setPhoneBankingFlowOpen(false)}
         onSaved={handlePhoneBankingSaved}
+        preselectedListId={phoneBankingPreselectedListId}
       />
       <SmsFlow
         open={smsFlowOpen}

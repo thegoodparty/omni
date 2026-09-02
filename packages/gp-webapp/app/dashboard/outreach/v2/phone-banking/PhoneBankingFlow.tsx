@@ -210,6 +210,9 @@ interface PhoneBankingFlowProps {
   onClose: () => void
   onSaved?: (outreachId: number, name: string) => void
   surface?: PhoneBankingFlowSurface
+  // A ?listId= deep link's saved list, handed over by the hub tile's click —
+  // applied to the who step's picker once the saved lists resolve.
+  preselectedListId?: number
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -221,6 +224,7 @@ export const PhoneBankingFlow = ({
   onClose,
   onSaved,
   surface = WIN_PHONE_BANKING_SURFACE,
+  preselectedListId,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -256,7 +260,12 @@ export const PhoneBankingFlow = ({
     reachabilityKey: 'phoneBanking',
     countOverlay: PHONE_BANKING_COUNT_OVERLAY,
   })
-  const { reset: resetAudience } = audience
+  const {
+    reset: resetAudience,
+    onSelect: selectAudienceList,
+    lists: audienceLists,
+    listsLoading: audienceListsLoading,
+  } = audience
 
   const draftMutation = useMutation({
     mutationFn: (input: PhoneBankingFlowDraftInput) =>
@@ -319,6 +328,35 @@ export const PhoneBankingFlow = ({
     resetCreateMutation()
     resetAudience()
   }, [open, resetDraftMutation, resetCreateMutation, resetAudience])
+
+  // Applies the handed-over preselected list to the who step's picker once
+  // the saved lists resolve — and only when the id matches a picker row, so
+  // a deleted/foreign/invented id is a missed preselection, never a broken
+  // step (the same rule door knocking's CreateListFlow applies on its end of
+  // the ?listId= handoff). Spent once per open, whether or not it matched:
+  // backing off the who step deliberately discards the selection, and
+  // re-applying it there would snap back a list the candidate just
+  // dismissed. Declared after the fresh-open reset above so its selection
+  // lands on top of the reset in the same commit.
+  const preselectSpentRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      preselectSpentRef.current = false
+      return
+    }
+    if (preselectSpentRef.current || preselectedListId === undefined) return
+    if (audienceListsLoading) return
+    preselectSpentRef.current = true
+    if (audienceLists.some((list) => list.id === preselectedListId)) {
+      selectAudienceList(preselectedListId)
+    }
+  }, [
+    open,
+    preselectedListId,
+    audienceLists,
+    audienceListsLoading,
+    selectAudienceList,
+  ])
 
   // Sizes the default sheet count to the audience once it resolves, instead
   // of leaving it at 1 (ENG-10941) — reachableCount counts PEOPLE while

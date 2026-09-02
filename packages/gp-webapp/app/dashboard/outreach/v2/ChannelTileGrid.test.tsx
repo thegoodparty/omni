@@ -64,7 +64,7 @@ const renderGrid = (
     onCreateSocial: () => void
     onCreateSms: () => void
     onCreateRobocall: () => void
-    onCreatePhoneBanking: () => void
+    onCreatePhoneBanking: (preselectedListId?: number) => void
     preselectedListId: number
   }> = {},
 ) =>
@@ -291,5 +291,60 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     expect(
       await screen.findByText('Get Pro voter data and tools'),
     ).toBeInTheDocument()
+  })
+})
+
+// ENG-11020: phone banking opens in the hub (not here), so the list travels
+// through the open callback — and is spent on hand-off, exactly like door
+// knocking spends it on the way out, so no later tile inherits it.
+describe('ChannelTileGrid — phone-banking tile carries the selected list', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+  })
+
+  it('hands the preselected list to the open callback', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
+  })
+
+  it('spends the list on hand-off, so a later tile opens clean', async () => {
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    // SMS is the tile that always launches the legacy TaskFlow, which is the
+    // one place a leftover id would show up as a real preselection.
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(screen.getByTestId('task-flow')).toHaveAttribute(
+      'data-preselected-list',
+      'undefined',
+    )
+  })
+
+  // The Pro redirect happens before the hand-off: the candidate never
+  // entered the flow, so the deep-linked list must survive for whichever
+  // tile they press after coming back.
+  it('does not spend the list on a non-Pro redirect', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(screen.getByTestId('task-flow')).toHaveAttribute(
+      'data-preselected-list',
+      '42',
+    )
   })
 })
