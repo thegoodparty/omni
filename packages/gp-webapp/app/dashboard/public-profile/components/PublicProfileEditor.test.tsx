@@ -341,9 +341,11 @@ describe('PublicProfileEditor — partial saves', () => {
     expect(body.websiteUrl).toBeNull()
   })
 
-  // Why saving stayed broken after the bad email was corrected: the whole form
-  // was sent and validated, so one stored-invalid value rejected every edit.
-  // The columns have no DB constraint, so such values do exist.
+  // The columns carry no DB constraint, so a value the write schema would
+  // reject can be stored by any path that skips it. Sending and validating the
+  // whole form let one such value reject every unrelated edit, with no way for
+  // the owner to clear it. Guarded rather than observed: an audit of prod found
+  // no profile currently in this state, and the point is that it stays that way.
   it('saves an unrelated edit even when an untouched stored field is invalid', async () => {
     render(
       <PublicProfileEditor

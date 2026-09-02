@@ -257,12 +257,13 @@ function LoadedEditor({
     // section silently blanked anything set elsewhere since the page loaded.
     const changed = FORM_KEYS.filter((key) => normalized[key] !== baseline[key])
 
-    // Validated per changed field rather than over the whole form: a bad value
-    // already in the record — an import wrote it, or it predates the rule — is
-    // not being sent, so it must not hold the rest of the form hostage. That
-    // trap is the reason saving stayed broken after the offending field was
-    // corrected. A malformed *edit* still withholds the request, since the
-    // server would reject the payload and retrying could never succeed.
+    // Validated per changed field rather than over the whole form. The columns
+    // carry no DB constraint, so a value the rule would reject can be stored by
+    // any path that skips the schema; validating the whole form would let such
+    // a value block edits to every other field, with no way for the owner to
+    // clear it. It is not being sent, so it is not our business here. A
+    // malformed *edit* still withholds the request, since the server would
+    // reject the payload and retrying could never succeed.
     const invalid = validateContact(
       Object.fromEntries(changed.map((key) => [key, normalized[key]])),
     )
