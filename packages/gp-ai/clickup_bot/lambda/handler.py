@@ -1321,18 +1321,36 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
         try:
             task = get_task(task_id)
         except Exception as e:
-            # FAIL OPEN, the same trade try_acquire_dedup_lock makes: one
-            # wasted agent run costs a few dollars and a closeable PR, while
-            # refusing every bug during a ClickUp blip is a silent outage.
             # Alarm-matching ("Failed to") on purpose — a persistent failure
             # here disables the data boundary without changing any behavior an
-            # operator would otherwise notice.
-            #
-            # Routing fails open the same way, onto omni, which is where every
-            # ticket went before routing existed.
-            print(f"Failed to fetch task {task_id} for scope check, proceeding: {e}")
+            # operator would otherwise notice. What happens NEXT depends on the
+            # label, and the two answers are deliberately different; see below.
+            print(f"Failed to fetch task {task_id} for scope and routing check: {e}")
 
     if config["label"] == IMPLEMENT_LABEL:
+        if task is None:
+            # FAIL CLOSED, reversing the trade this path used to make.
+            #
+            # Failing open was right while omni was the only repo: the worst
+            # case was one wasted run and a closeable PR, against the codebase
+            # the ticket was going to be about anyway. Routing changed the worst
+            # case. Without the task there is no list, without the list there is
+            # no repo, and the omni default is always in implement_repos() — so
+            # a marketing ticket would sail past the ramp and get an implement
+            # run against omni. That is a PR opened in the wrong codebase, which
+            # is not a wasted run, it is a wrong one.
+            #
+            # Refusing costs at most one implement during a ClickUp blip, and
+            # the documented retry ("remove and re-add the tag") still works.
+            # Sync vs async mirrors the comments-GET handler below: ClickUp
+            # redelivers a 500 it is still waiting on, so only the async path —
+            # where ClickUp already has its 200 — needs a comment to be visible.
+            if from_async_worker:
+                post_failure_comment(
+                    task_id, "could not read the ClickUp task to route this ticket (see CloudWatch logs)"
+                )
+            return {"statusCode": 500, "body": json.dumps({"error": "failed to fetch task for scope and routing"})}
+
         ticket_repo = target_repo(task)
         if ticket_repo not in implement_repos():
             # Quiet, like the scope guard below: this is the ramp working, not a
@@ -1340,13 +1358,13 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
             # writing is held back.
             print(f"Task {task_id} routes to {ticket_repo}, which is analyze-only; not launching {IMPLEMENT_LABEL}")
             return {"statusCode": 200, "body": json.dumps({"skipped": "repo is analyze-only"})}
-        if task is not None:
-            skip_reason = out_of_scope_reason(task)
-            if skip_reason:
-                # Quiet (no "ERROR"/"Failed to"): this is the guard working as
-                # designed, and it fires on every data ticket in the workspace.
-                print(f"Task {task_id} out of scope for {IMPLEMENT_LABEL}: {skip_reason}")
-                return {"statusCode": 200, "body": json.dumps({"skipped": "out of scope"})}
+
+        skip_reason = out_of_scope_reason(task)
+        if skip_reason:
+            # Quiet (no "ERROR"/"Failed to"): this is the guard working as
+            # designed, and it fires on every data ticket in the workspace.
+            print(f"Task {task_id} out of scope for {IMPLEMENT_LABEL}: {skip_reason}")
+            return {"statusCode": 200, "body": json.dumps({"skipped": "out of scope"})}
 
     try:
         comments = get_task_comments(task_id)

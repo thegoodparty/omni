@@ -26,6 +26,7 @@ import handler
 import pytest
 
 from engineer_agent.agent import escalation
+from engineer_agent.agent.repos import resolve_repo
 from shared.clickup_client import ClickUpTask
 
 
@@ -99,6 +100,32 @@ def test_the_lists_are_the_same_lists():
     assert escalation.OUT_OF_SCOPE_LIST_IDS == handler.OUT_OF_SCOPE_LIST_IDS
     assert escalation.OUT_OF_SCOPE_CUSTOM_ID_PREFIXES == handler.OUT_OF_SCOPE_CUSTOM_ID_PREFIXES
     assert escalation.OUT_OF_SCOPE_TAG_NAMES == handler.OUT_OF_SCOPE_TAG_NAMES
+
+
+def test_every_routed_repo_has_a_briefing():
+    """The other half of the two-table split, pinned at CI time.
+
+    handler.py says a routing entry with no matching profile "fails the run
+    loudly", and it does — on the first real ticket, in production. That is the
+    loud-but-late failure the mirror test above exists to prevent for the scope
+    rules, and routing deserves the same treatment: adding a list->repo mapping
+    and forgetting the briefing otherwise passes every test.
+    """
+    for list_id, repo_name in handler.REPO_BY_LIST_ID.items():
+        # Raises UnknownRepoError, which is the assertion.
+        assert resolve_repo(repo_name).full_name == repo_name, f"list {list_id} routes to an unbriefed repo"
+
+    # The default is reachable without a list entry, so it needs checking too.
+    assert resolve_repo(handler.DEFAULT_REPO).full_name == handler.DEFAULT_REPO
+
+
+def test_a_repo_may_only_be_written_to_if_it_can_be_routed_to():
+    # An implement allowlist naming a repo nothing routes to is dead config that
+    # reads like an enabled feature. Every writable repo is either the default
+    # or has a list pointing at it.
+    routable = set(handler.REPO_BY_LIST_ID.values()) | {handler.DEFAULT_REPO}
+
+    assert handler.DEFAULT_IMPLEMENT_REPOS <= routable
 
 
 def test_a_marketing_ticket_is_a_different_repo_not_a_refusal():

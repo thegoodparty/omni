@@ -2964,18 +2964,48 @@ def test_eng_bug_still_launches_with_the_guard_in_place(fake_clickup, fake_ecs, 
     assert len(fake_ecs.run_task_calls) == 1
 
 
-def test_scope_lookup_failure_fails_open_and_alarms(fake_clickup, fake_ecs, ecs_env, capsys):
-    # FAIL OPEN: one wasted run costs a few dollars and a closeable PR, while
-    # refusing every bug during a ClickUp blip is a silent outage. Alarming is
-    # the other half — a persistent failure here disables the data boundary
-    # without changing anything an operator would otherwise notice.
+def test_an_implement_run_fails_closed_when_the_task_cannot_be_read(fake_clickup, fake_ecs, ecs_env, capsys):
+    # THIS REVERSED when routing landed, and the reversal is the point.
+    #
+    # Failing open was right while omni was the only repo: the worst case was
+    # one wasted run against the codebase the ticket was going to be about
+    # anyway. Now, no task means no list, no list means no repo, and the omni
+    # default is always writable — so a marketing ticket would slip past the
+    # ramp and open a PR in the wrong codebase. A wasted run is cheap; a wrong
+    # one is not.
     fake_clickup.get_task_error = URLError("clickup unreachable")
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 
-    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
-    assert len(fake_ecs.run_task_calls) == 1
+    assert resp["statusCode"] == 500
+    assert fake_ecs.run_task_calls == []
     assert "Failed to fetch task" in assert_alarm_log_emitted(capsys)
+
+
+def test_an_analyze_run_still_proceeds_when_the_task_cannot_be_read(fake_clickup, fake_ecs, ecs_env, capsys):
+    # Analyze keeps failing open, and the asymmetry is deliberate: it writes
+    # nothing. The bad case is a run that reads omni for a marketing ticket,
+    # finds nothing and says so on the ticket — visible, recoverable, and much
+    # cheaper than stopping every analysis in the workspace during a blip.
+    fake_clickup.get_task_error = URLError("clickup unreachable")
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+    assert "Failed to fetch task" in assert_alarm_log_emitted(capsys)
+
+
+def test_a_refused_implement_leaves_the_tagger_a_way_back(fake_clickup, fake_ecs, ecs_env):
+    # On the async path ClickUp already has its 200, so a bare 500 goes nowhere
+    # and the ticket would show nothing at all. The failure comment carries the
+    # documented "remove and re-add the tag" retry.
+    fake_clickup.get_task_error = URLError("clickup unreachable")
+
+    handler.handler(async_worker_event(matched_tag="gpbot-work"), None)
+
+    assert fake_ecs.run_task_calls == []
+    assert len(fake_clickup.posted_comments) == 1
 
 
 def test_out_of_scope_task_never_writes_a_dedup_claim(fake_clickup, fake_ecs, fake_dynamodb, ecs_env, dedup_table_env):

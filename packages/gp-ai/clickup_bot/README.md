@@ -643,9 +643,21 @@ data ticket in the workspace. And it runs **before the dedup claim**, because a
 claim written for a task we then refuse would outlive the delivery and suppress
 a legitimate re-tag for the whole TTL.
 
-If the lookup itself fails the guard **fails open** and the run proceeds, with
-an alarm-matching log line. One wasted run costs a few dollars and a closeable
-PR; refusing every bug during a ClickUp blip is a silent outage.
+If the lookup itself fails, the two labels answer differently and the asymmetry
+is deliberate. Both log an alarm-matching line.
+
+**Analyze fails open** and the run proceeds. It writes nothing: the bad case is
+a run that reads omni for a marketing ticket, finds nothing and says so on the
+ticket — visible, recoverable, and far cheaper than stopping every analysis in
+the workspace during a ClickUp blip.
+
+**Implement fails closed** (500, and on the async path a failure comment
+carrying the "remove and re-add the tag" retry). This reversed when routing
+landed. Failing open was right while omni was the only repo — one wasted run
+against the codebase the ticket was going to be about anyway. Now no task means
+no list, no list means no repo, and the omni default is always writable, so a
+marketing ticket would slip past the ramp and open a PR in the wrong codebase.
+A wasted run is cheap; a wrong one is not.
 
 This rule is mirrored in `engineer_agent/agent/escalation.py`, which applies it
 before tagging so a refused ticket is never tagged in the first place. **This
