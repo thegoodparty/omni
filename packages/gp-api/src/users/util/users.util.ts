@@ -1,7 +1,11 @@
 import { randomUUID } from 'crypto'
 import { User, UserRole } from '../../generated/prisma'
 
-export const getUserFullName = (user: User) =>
+export const getUserFullName = (user: {
+  firstName: string | null
+  lastName: string | null
+  name: string | null
+}) =>
   !user
     ? ''
     : user.firstName

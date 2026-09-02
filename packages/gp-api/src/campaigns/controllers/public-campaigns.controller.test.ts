@@ -365,4 +365,40 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.status).toBe(200)
     expect(res.data.avatar).toBeNull()
   })
+
+  it('returns a null avatar when the stored photo is an empty string', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { avatar: '' },
+    })
+    await seedCampaign({
+      id: 9,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.avatar).toBeNull()
+  })
+
+  it('returns a null avatar when the stored photo is whitespace only', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { avatar: '   ' },
+    })
+    await seedCampaign({
+      id: 10,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.avatar).toBeNull()
+  })
 })
