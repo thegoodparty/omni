@@ -49,21 +49,49 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
   const statusCodeFilter = serverErrorsOnly ? serverErrorFilter : anyErrorFilter
   const routes = ROUTE_MAP[controller]
 
-  return routes.map((route) => {
-    const routeBase = `{service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | json | request_endpoint = "${route.endpoint}"`
-    const slug = route.endpoint.replace(/[/:]/g, '-').replace(' ', '-')
+  if (routes.length === 0) return []
 
-    return {
-      slug: `${slug}-error-count`,
-      name: `[${controller}] ${route.endpoint} - Errors detected`,
+  // One rule per controller rather than one per route, because Loki bills the
+  // bytes a query decompresses and only the stream selector and time range
+  // decide that — `|= "Request completed" | json | request_endpoint = ...`
+  // all run on data already read and paid for. So a per-route rule cost the
+  // same as reading the entire gp-api stream, every owned route re-read that
+  // same stream once a minute, and the pile of them is what took us past the
+  // 100:1 query-to-ingest allowance and onto a query overage bill. `sum by`
+  // reads that stream once and splits the result, and Grafana turns each
+  // returned series back into its own alert instance, so paging stays
+  // per-route. See docs/observability.md § Query cost.
+  //
+  // Anchored because an unanchored `GET /v1/contacts` would also swallow
+  // `GET /v1/contacts/:id`. A raw string carries the pattern so the escapes
+  // below reach Loki's regex engine rather than being eaten as LogQL string
+  // escapes; no endpoint contains a backtick to break out of it.
+  const endpointPattern = routes
+    .map(({ endpoint }) => endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')
+
+  const routeBase = [
+    `{service_name="gp-api", deployment_environment_name="$ENV"}`,
+    `|= "Request completed"`,
+    `| json`,
+    `| request_endpoint =~ \`^(?:${endpointPattern})$\``,
+  ].join(' ')
+
+  return [
+    {
+      slug: `${controller}-route-errors`,
+      name: `[${controller}] Route errors detected`,
       type: 'log' as const,
-      expr: `sum(count_over_time(${routeBase} | ${statusCodeFilter} [${LOOKBACK_RANGE}]))`,
+      expr: `sum by (request_endpoint) (count_over_time(${routeBase} | ${statusCodeFilter} [${LOOKBACK_RANGE}]))`,
       threshold: 0,
       for: '1m',
+      // Grafana renders annotations per alert instance, so this is what turns
+      // one rule back into a page that names the route that actually broke.
+      summaryDetail: '`{{ $labels.request_endpoint }}`',
       message: [
         serverErrorsOnly
-          ? `\`${route.endpoint}\` returned server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this controller — see SERVER_ERRORS_ONLY in alerts.ts.`
-          : `\`${route.endpoint}\` returned unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding 401/403/404/409/498, or null).`,
+          ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this controller — see SERVER_ERRORS_ONLY in alerts.ts.`
+          : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding 401/403/404/409/498, or null).`,
         'Click *View in Grafana* to find the failing requests, then examine their logs and stack traces to understand why errors are occurring and ship fixes.',
         'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout, not the handler.',
       ].join('\n\n'),
@@ -71,6 +99,6 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       notify: slackGroupName as SlackGroup,
       disabled: !slackGroupName,
-    } satisfies Alert
-  })
+    } satisfies Alert,
+  ]
 }

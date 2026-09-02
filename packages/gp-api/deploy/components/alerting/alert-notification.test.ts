@@ -38,6 +38,25 @@ describe('buildAlertSummary', () => {
   it('keeps the rule name that identifies the route', () => {
     expect(buildAlertSummary(alert, 'prod')).toContain(alert.name)
   })
+
+  // One rule now covers every route on a controller and fires once per route,
+  // so the rule name alone says only which controller is unhappy. The title is
+  // what someone scanning Slack reads before deciding whether to open it, so
+  // the route that actually broke has to survive into it.
+  it('appends the per-instance detail for a multi-series rule', () => {
+    const summary = buildAlertSummary(
+      { ...alert, summaryDetail: '`{{ $labels.request_endpoint }}`' },
+      'prod',
+    )
+
+    expect(summary).toContain('{{ $labels.request_endpoint }}')
+  })
+
+  it('leaves no dangling separator for a rule without detail', () => {
+    expect(buildAlertSummary(alert, 'prod').trimEnd()).toEqual(
+      buildAlertSummary(alert, 'prod'),
+    )
+  })
 })
 
 describe('buildAlertDescription', () => {

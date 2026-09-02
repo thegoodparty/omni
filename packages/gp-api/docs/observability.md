@@ -8,9 +8,11 @@ There are two categories of alerts:
 
 ### Controller Alerts (auto-generated)
 
-Every controller endpoint automatically gets one alert:
+Each controller gets one rule covering every endpoint on it:
 
 - **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) **or no status at all** within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
+
+The rule groups by `request_endpoint` and matches its controller's routes with an anchored alternation, so Grafana raises a separate alert instance per failing endpoint and the notification names the one that broke. Paging granularity is per endpoint; the _rule_ is per controller, because Loki bills the bytes a query decompresses and only the stream selector and time range decide that. A rule per endpoint re-read the whole gp-api stream once per endpoint per minute and cost the same as reading everything -- see [Query cost](#query-cost).
 
 These are generated automatically from the controllers in the codebase -- you don't write them by hand. **All controller alerts are disabled by default** and require explicit opt-in via the ownership mapping (see [Ownership](#ownership) below).
 
@@ -62,13 +64,13 @@ Controllers that aren't assigned to either group still get alerts generated, but
 
 All alerting configuration lives in `deploy/`:
 
-| File                                              | Purpose                                                   |
-| ------------------------------------------------- | --------------------------------------------------------- |
-| `deploy/components/alerts.ts`                     | Ownership mapping and global alerts                       |
-| `deploy/components/alerting/controller-alerts.ts` | Generates error count alerts for each controller endpoint |
-| `deploy/components/alerting/alerts.types.ts`      | Type definitions for `Alert` and `SlackGroup`             |
-| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention    |
-| `deploy/components/grafana.ts`                    | Converts alerts into Grafana rule groups via Pulumi       |
+| File                                               | Purpose                                               |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| `deploy/components/alerts.ts`                      | Ownership mapping and global alerts                   |
+| `deploy/components/alerting/controller-alerts.ts`  | Generates one error count alert per controller        |
+| `deploy/components/alerting/alerts.types.ts`       | Type definitions for `Alert` and `SlackGroup`         |
+| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention |
+| `deploy/components/grafana.ts`                     | Converts alerts into Grafana rule groups via Pulumi   |
 
 ## How to opt in a controller
 
@@ -86,7 +88,7 @@ would have paged continuously and been muted within a day, which is no better
 than the no-coverage state it was actually in.
 
 For a route like that, leave it out of `ALERT_OWNERSHIP` and hand-write a
-global alert expressing error *share* rather than error *count* -- see
+global alert expressing error _share_ rather than error _count_ -- see
 `public-campaigns-lookup-error-ratio` in `deploy/components/alerts.ts`. Two
 things are worth copying from it: pick a denominator that excludes statuses the
 route returns by design (there, the 404 that means "candidate hasn't claimed a
@@ -114,12 +116,12 @@ Per-route granularity, ownership, Slack routing, and the rest of the generated m
 
 ## No status is also a fault
 
-Both filters above carry an `or response_statusCode = ""` clause, and it is not a rounding error in the range. **A request the gateway kills in flight logs `statusCode: null`** -- gp-api never wrote one -- so it is neither 4xx nor 5xx and every status-range filter missed it. That made a route's worst failure mode, *no answer at all*, structurally invisible to its own alert: two `GET /v1/door-knocking/pack` timeouts in the seven days to 2026-08-25 paged nobody, and both were 120-second hangs a candidate sat through.
+Both filters above carry an `or response_statusCode = ""` clause, and it is not a rounding error in the range. **A request the gateway kills in flight logs `statusCode: null`** -- gp-api never wrote one -- so it is neither 4xx nor 5xx and every status-range filter missed it. That made a route's worst failure mode, _no answer at all_, structurally invisible to its own alert: two `GET /v1/door-knocking/pack` timeouts in the seven days to 2026-08-25 paged nobody, and both were 120-second hangs a candidate sat through.
 
 Two details:
 
 - **Empty string, not `null`.** Loki's `| json` drops a null field, and a label filter reads a missing label as empty, so the empty-string comparison matches whether the label is absent or present-and-blank. A numeric comparison can only ever miss it.
-- **It re-admits no 4xx.** A null status is the *absence* of one, so the clause cannot overlap with the 429 and 400 vocabulary `SERVER_ERRORS_ONLY` exists to suppress. It is safe on the default filter for the same reason.
+- **It re-admits no 4xx.** A null status is the _absence_ of one, so the clause cannot overlap with the 429 and 400 vocabulary `SERVER_ERRORS_ONLY` exists to suppress. It is safe on the default filter for the same reason.
 
 When one of these fires, check `responseTimeMs` on the matching lines: a cluster at ~120,000ms is the gateway's idle timeout rather than anything the handler did. The fix for that is to make the endpoint write bytes while it works -- see gp-api `docs/door-knocking.md` § The pack for a worked example.
 
@@ -153,3 +155,23 @@ Key things to know:
 - **A range vector wider than the fetch window is silently truncated.** The engine only pulls `timeRangeSeconds` of data per evaluation (600s by default), so a `[1h]` vector left at the default sees ten minutes, not an hour. Set `timeRangeSeconds` to at least the widest range vector in `expr`, and make sure any window your `message` quotes is the one that actually applies -- a message promising an hour sends whoever reads it looking through fifty minutes of logs the rule never queried.
 
 For more details on configuring alerts, see the [Grafana Alerting documentation](https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rule-evaluation/).
+
+## Query cost
+
+Loki bills the bytes a query **decompresses**, and only two things decide that: the stream selector inside `{...}` and the time range. Every stage after the `}` -- line filters, `| json`, label filters, structured-metadata filters -- runs on data that has already been read and paid for. They make a query faster and more precise. They do not make it cheaper.
+
+Two consequences worth internalising before you add a rule:
+
+- **Narrowing by a log field is free, not cheap.** `| request_endpoint = "GET /v1/contacts/:id"` costs the same as reading every gp-api log line in the window. The only way to genuinely read less is a narrower stream selector or a shorter window.
+- **A rule's cost is its window divided by its evaluation interval.** `grafana.ts` provisions every rule group at `intervalSeconds: 60`, so a rule with a 6h `timeRangeSeconds` re-reads the same six hours 1,440 times a day. Widening `timeRangeSeconds` is not free the way widening a range vector in an ad-hoc query is.
+
+So when several rules would differ only in a filter, write one rule that groups by that field instead. Grafana raises one alert instance per returned series, so per-dimension paging survives -- set `summaryDetail` to a `{{ $labels.<field> }}` template so the notification still names the dimension that fired. That is exactly what the generated controller alerts do with `request_endpoint`.
+
+The Grafana Cloud plan includes log queries up to **100x** what we ingest. Ingest is the denominator, so cutting log volume also cuts the free query budget -- reducing ingest is not a fix for a query overage. Current usage is in the `grafanacloud-usage` datasource (`grafanacloud_org_logs_query_usage` against `grafanacloud_org_logs_usage`), and per-rule attribution is in the `grafanacloud-usage-insights` Loki datasource:
+
+```logql
+topk(10, sum by (rule_name) (sum_over_time(
+  {instance_type="logs"} | logfmt | __error__="" | source="grafana-alert"
+  | unwrap total_bytes [24h]
+)))
+```

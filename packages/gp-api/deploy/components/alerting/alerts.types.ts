@@ -42,6 +42,21 @@ export type Alert = {
   /** A message to include in the Slack notification. */
   message: string
 
+  /**
+   * A Grafana annotation template appended to the notification summary, for a
+   * rule whose query returns one series per dimension rather than a single
+   * value. Grafana renders annotations once per alert instance, so this is
+   * what puts the dimension that fired into the title — e.g.
+   * '`{{ $labels.request_endpoint }}`' on the generated controller alerts,
+   * which return one series per route.
+   *
+   * Leave unset on a rule that returns one series. `$labels` on such a rule
+   * carries only the static labels grafana.ts attaches, so a template here
+   * would render either an empty string or something the reader already knows
+   * from the rule name.
+   */
+  summaryDetail?: string
+
   /** The Slack group to notify when the alert is triggered. */
   notify?: SlackGroup
 
