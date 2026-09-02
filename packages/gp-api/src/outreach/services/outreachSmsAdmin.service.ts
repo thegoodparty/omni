@@ -30,6 +30,11 @@ const queueInclude = {
 
 type QueueRow = Prisma.OutreachGetPayload<{ include: typeof queueInclude }>
 
+type RegistrationNames = {
+  candidateName: string | null
+  committeeName: string | null
+}
+
 // The CAS approval back office (gp-admin). Scope is deliberately the cancel
 // window: a p2p row at spine `pending` with a vendor job — the state where
 // the job exists at Peerly but nothing sends until canvassers are requested.
@@ -59,12 +64,12 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       orderBy: [{ date: Prisma.SortOrder.asc }],
     })
 
-    const committeeNames = await this.committeeNamesByCampaign(rows)
+    const registrations = await this.registrationsByCampaign(rows)
     const jobsByProjectId = await this.liveJobsFor(rows)
     return rows.map((row) =>
       this.toQueueItem(
         row,
-        committeeNames.get(row.campaignId ?? -1) ?? [],
+        registrations.get(row.campaignId ?? -1),
         row.projectId ? (jobsByProjectId.get(row.projectId) ?? null) : null,
       ),
     )
@@ -79,7 +84,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       throw new NotFoundException('Scheduled SMS campaign not found')
     }
 
-    const committeeNames = await this.committeeNamesByCampaign([row])
+    const registrations = await this.registrationsByCampaign([row])
 
     // Live reads are additive detail — either failing must not 404 the row.
     let job: PeerlyJob | null = null
@@ -102,11 +107,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return {
-      item: this.toQueueItem(
-        row,
-        committeeNames.get(row.campaignId ?? -1) ?? [],
-        job,
-      ),
+      item: this.toQueueItem(row, registrations.get(row.campaignId ?? -1), job),
       stats,
     }
   }
@@ -177,7 +178,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       include: queueInclude,
     })
 
-    const committeeNames = await this.committeeNamesByCampaign([updated])
+    const registrations = await this.registrationsByCampaign([updated])
     await this.tryNotifyDecision(updated, 'approved', input.approvedBy)
     if (updated.campaign?.user) {
       await this.tryTrack(
@@ -188,7 +189,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
     return this.toQueueItem(
       updated,
-      committeeNames.get(updated.campaignId ?? -1) ?? [],
+      registrations.get(updated.campaignId ?? -1),
       null,
     )
   }
@@ -225,11 +226,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       where: { id: outreachId },
       include: queueInclude,
     })
-    const committeeNames = await this.committeeNamesByCampaign([updated])
+    const registrations = await this.registrationsByCampaign([updated])
     await this.tryNotifyDecision(updated, 'denied', input.deniedBy)
     return this.toQueueItem(
       updated,
-      committeeNames.get(updated.campaignId ?? -1) ?? [],
+      registrations.get(updated.campaignId ?? -1),
       null,
     )
   }
@@ -324,18 +325,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       where: { id: outreachId },
       include: queueInclude,
     })
-    const committeeNames = await this.committeeNamesByCampaign([updated])
+    const registrations = await this.registrationsByCampaign([updated])
     await this.tryNotifyDecision(updated, 'edited', input.editedBy)
     return this.toQueueItem(
       updated,
-      committeeNames.get(updated.campaignId ?? -1) ?? [],
+      registrations.get(updated.campaignId ?? -1),
       null,
     )
   }
 
-  private async committeeNamesByCampaign(
+  private async registrationsByCampaign(
     rows: QueueRow[],
-  ): Promise<Map<number, string[]>> {
+  ): Promise<Map<number, RegistrationNames>> {
     const campaignIds = [
       ...new Set(
         rows
@@ -351,9 +352,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     return new Map(
       records.map((r) => [
         r.campaignId,
-        [r.committeeName, r.candidateName].filter(
-          (name): name is string => !!name,
-        ),
+        { candidateName: r.candidateName, committeeName: r.committeeName },
       ]),
     )
   }
@@ -388,7 +387,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   private toQueueItem(
     row: QueueRow,
-    registrationNames: string[],
+    registration: RegistrationNames | undefined,
     job: PeerlyJob | null,
   ): SmsApprovalQueueItem {
     const user = row.campaign?.user ?? null
@@ -396,7 +395,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       ? `${(user.firstName ?? '').trim()} ${(user.lastName ?? '').trim()}`.trim() ||
         null
       : null
-    const identityNames = [candidateName, ...registrationNames].filter(
+    const candidateNames = [candidateName, registration?.candidateName].filter(
       (name): name is string => !!name,
     )
     return {
@@ -423,7 +422,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       adminEditedAt: row.adminEditedAt,
       adminEditedBy: row.adminEditedBy,
       standards: row.script
-        ? checkSmsStandards(row.script, { identityNames })
+        ? checkSmsStandards(row.script, {
+            candidateNames,
+            committeeName: registration?.committeeName ?? null,
+          })
         : null,
       job: job
         ? {

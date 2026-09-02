@@ -94,6 +94,7 @@ beforeEach(async () => {
       websiteDomain: '',
       officeLevel: 'local',
       committeeName: 'Friends of Jane',
+      candidateName: 'Jane Doe',
       peerlyIdentityId: 'identity-1',
     },
   })
@@ -120,7 +121,7 @@ const seedOutreach = (
       identityId: 'identity-1',
       script:
         'Hello {first_name}, this is Jane, candidate for City Council. ' +
-        'Vote!\n\nReply STOP to opt out.',
+        'Vote!\n\nPaid for by Friends of Jane.\nReply STOP to opt out.',
       date: new Date('2026-09-10T15:00:00Z'),
       scheduledLocalDate: '2026-09-10',
       textCount: 1200,
@@ -164,7 +165,8 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         expect.arrayContaining([
           'opt_out_line',
           'first_name_token',
-          'identification',
+          'candidate_name',
+          'paid_for_by',
         ]),
       )
       expect(item.job).toBeNull()

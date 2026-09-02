@@ -21,11 +21,15 @@ export const SmsApprovalStatusSchema = z.enum(SMS_APPROVAL_STATUS_VALUES)
 export type SmsApprovalStatus = z.infer<typeof SmsApprovalStatusSchema>
 
 // Deterministic message-standards checks (the compliance half of the
-// brief's Proposal B). Rule ids are stable identifiers the UI maps to copy.
+// brief's Proposal B). The rule set is the CAS compliance list confirmed
+// 2026-09-02: opt-out text, recipient name, candidate name, and the
+// "Paid for by <committee>" disclaimer. Rule ids are stable identifiers
+// the UI maps to copy.
 export const SMS_STANDARDS_RULE_VALUES = [
   'opt_out_line',
   'first_name_token',
-  'identification',
+  'candidate_name',
+  'paid_for_by',
   'length',
 ] as const
 export const SmsStandardsRuleSchema = z.enum(SMS_STANDARDS_RULE_VALUES)
@@ -37,15 +41,24 @@ export const SmsStandardsVerdictSchema = z.object({
 })
 export type SmsStandardsVerdict = z.infer<typeof SmsStandardsVerdictSchema>
 
-// Pure and shared (compose advisory, server-side verdict, queue chip). The
-// identification rule only runs when a name to match is supplied — a
-// campaign with no committee/candidate name recorded can't fail it — and
-// matches on name TOKENS ("Jane" satisfies "Jane Doe"), since real scripts
-// identify by first name while filings carry the full one. Advisory: the
-// human approval stays the gate.
+// Pure and shared (compose advisory, server-side verdict, queue chip).
+// Name rules match on TOKENS ("Jane" satisfies "Jane Doe"), since real
+// scripts identify by first name while filings carry the full one. The
+// candidate_name rule only runs when a name to match is supplied; the
+// paid_for_by rule always requires the phrase, and additionally a
+// committee token when the committee name is known (every campaign that
+// can schedule an SMS has one, per the 10DLC requirement). Advisory in
+// the staff queue: the human approval stays the gate.
+const nameTokensOf = (names: (string | null | undefined)[]): string[] =>
+  names
+    .filter((name): name is string => !!name)
+    .flatMap((name) => name.split(/\s+/))
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length >= 3)
+
 export const checkSmsStandards = (
   script: string,
-  context: { identityNames?: string[] } = {},
+  context: { candidateNames?: string[]; committeeName?: string | null } = {},
 ): SmsStandardsVerdict => {
   const failures: SmsStandardsRule[] = []
   const lower = script.toLowerCase()
@@ -56,15 +69,20 @@ export const checkSmsStandards = (
   if (!script.includes('{first_name}')) {
     failures.push('first_name_token')
   }
-  const nameTokens = (context.identityNames ?? [])
-    .flatMap((name) => name.split(/\s+/))
-    .map((token) => token.trim().toLowerCase())
-    .filter((token) => token.length >= 3)
+  const candidateTokens = nameTokensOf(context.candidateNames ?? [])
   if (
-    nameTokens.length > 0 &&
-    !nameTokens.some((token) => lower.includes(token))
+    candidateTokens.length > 0 &&
+    !candidateTokens.some((token) => lower.includes(token))
   ) {
-    failures.push('identification')
+    failures.push('candidate_name')
+  }
+  const committeeTokens = nameTokensOf([context.committeeName])
+  const hasPaidForBy = /paid\s+for\s+by/i.test(script)
+  const hasCommitteeToken =
+    committeeTokens.length === 0 ||
+    committeeTokens.some((token) => lower.includes(token))
+  if (!hasPaidForBy || !hasCommitteeToken) {
+    failures.push('paid_for_by')
   }
   if (script.length > P2P_SCRIPT_MAX_LENGTH) {
     failures.push('length')

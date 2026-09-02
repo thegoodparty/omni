@@ -23,7 +23,8 @@ export const STATUS_COLORS: Record<
 export const STANDARDS_RULE_LABELS: Record<SmsStandardsRule, string> = {
   opt_out_line: 'Missing "Reply STOP" opt-out line',
   first_name_token: 'Missing {first_name} personalization',
-  identification: "Message doesn't identify the candidate or committee",
+  candidate_name: "Message doesn't include the candidate's name",
+  paid_for_by: 'Missing "Paid for by <committee>" disclaimer',
   length: 'Message exceeds the vendor length cap',
 }
 
