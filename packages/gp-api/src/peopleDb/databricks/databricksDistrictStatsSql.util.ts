@@ -1,4 +1,3 @@
-import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 import {
   buildScopeSql,
   col,
@@ -43,90 +42,13 @@ export const STATS_DIMENSION_KEYS = [
   'estimatedIncomeRange',
 ] as const satisfies readonly StatsDimensionKey[]
 
-const DISTRICT_STATS_TABLE = `${PEOPLE_DBX_CATALOG}.${PEOPLE_DBX_SCHEMA}.gp_api_district_stats`
-
-// Read the mirrored stats table rather than aggregating the voter rows. It
-// carries the same columns as Postgres's DistrictStats and is refreshed on the
-// same cadence, so the two stores answer from equivalent snapshots -- and a
-// district with no row is absent here too, which is the behavior the product
-// depends on. Struct fields are addressed case-insensitively by Spark, and each
-// dimension is serialized with to_json so the shape does not depend on how the
-// API renders a nested struct.
-export const buildDistrictStatsSql = (districtId: string): DbxStatement => {
-  const bag = createBag()
-  const dimensions = STATS_DIMENSION_KEYS.map(
-    (key) => `to_json(buckets.${key}) AS ${key}`,
-  ).join(', ')
-  const sql =
-    `SELECT total_constituents, total_constituents_with_cell_phone,` +
-    ` updated_at, ${dimensions}` +
-    ` FROM ${DISTRICT_STATS_TABLE}` +
-    ` WHERE district_id = ${bag.bind(districtId)}`
-  return { sql, params: bag.params }
-}
-
-type RawBucket = {
-  label?: string | null
-  count?: string | number | null
-  percent?: string | number | null
-}
-
-const parseBuckets = (
-  raw: string | null | undefined,
-): DistrictStatsBucket[] => {
-  if (!raw) return []
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  const parsed = JSON.parse(raw) as RawBucket[] | null
-  if (!Array.isArray(parsed)) return []
-  return parsed.map(({ label, count, percent }) => ({
-    label: String(label ?? ''),
-    count: Number(count ?? 0),
-    percent: Number(percent ?? 0),
-  }))
-}
-
-// No row means no stats, and that absence is load-bearing product behavior:
-// polls gate on it, fetchStatsByDistrictId throws VOTER_DATA_UNAVAILABLE on it,
-// and the webapp renders a dedicated "no constituent data for this office yet"
-// screen rather than a zero-filled one.
-export const mapDistrictStatsRow = (
-  districtId: string,
-  row: Array<string | null> | undefined,
-): ComputedDistrictStats | null => {
-  if (!row) return null
-  const [total, withCell, updatedAt, ...dimensions] = row
-  return {
-    districtId,
-    updatedAt: updatedAt ? new Date(updatedAt) : new Date(0),
-    totalConstituents: Number(total ?? 0),
-    totalConstituentsWithCellPhone: Number(withCell ?? 0),
-    buckets: {
-      age: parseBuckets(dimensions[0]),
-      education: parseBuckets(dimensions[1]),
-      homeowner: parseBuckets(dimensions[2]),
-      presenceOfChildren: parseBuckets(dimensions[3]),
-      estimatedIncomeRange: parseBuckets(dimensions[4]),
-    },
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Live calculation
-//
-// The same five dimensions computed from the voter rows instead of read from
-// the mirrored stats table. Runs as the comparison arm of a dual read while the
-// mirrored table stays authoritative -- the mirror is refreshed on a pipeline
-// cadence, so it can be weeks stale, and the point of the comparison is to find
-// out whether computing on demand agrees with it before anything switches over.
-// ---------------------------------------------------------------------------
-
 // Raw voter-file value -> the label the stats table publishes. Derived from
 // VALUE_MAPPERS rather than restated, so a change to the filter vocabulary
 // cannot leave a stats bucket labelled by the old one. VALUE_MAPPERS runs
 // label -> raw (and homeowner fans one label out to two raw values), so this
 // inverts it; the first label to claim a raw value wins, which is why the
 // arrays below list the canonical label before any legacy synonym.
-const LIVE_LABELS = {
+const STATS_LABELS = {
   education: [
     'None',
     'High School Diploma',
@@ -157,10 +79,10 @@ const invert = (
 }
 
 const RAW_TO_LABEL = {
-  education: invert(LIVE_LABELS.education, VALUE_MAPPERS.educationLevel),
-  homeowner: invert(LIVE_LABELS.homeowner, VALUE_MAPPERS.homeowner),
+  education: invert(STATS_LABELS.education, VALUE_MAPPERS.educationLevel),
+  homeowner: invert(STATS_LABELS.homeowner, VALUE_MAPPERS.homeowner),
   presenceOfChildren: invert(
-    LIVE_LABELS.presenceOfChildren,
+    STATS_LABELS.presenceOfChildren,
     VALUE_MAPPERS.presenceOfChildren,
   ),
 }
@@ -215,7 +137,7 @@ const INCOME_CASE =
   ).join(' ') +
   ` ELSE '250k+' END`
 
-const LIVE_DIMENSIONS: ReadonlyArray<[StatsDimensionKey, string]> = [
+const STATS_DIMENSIONS: ReadonlyArray<[StatsDimensionKey, string]> = [
   ['age', AGE_CASE],
   ['education', mappedCase('Education_Of_Person', RAW_TO_LABEL.education)],
   [
@@ -229,33 +151,31 @@ const LIVE_DIMENSIONS: ReadonlyArray<[StatsDimensionKey, string]> = [
   ['estimatedIncomeRange', INCOME_CASE],
 ]
 
-export const LIVE_TOTAL_DIMENSION = 'TOTAL'
+export const TOTAL_DIMENSION = 'TOTAL'
 
 // One statement, one scan. GROUPING SETS emits a row per bucket per dimension
 // plus a grand-total row from the empty set, which is where the two totals come
 // from -- so five distributions and both totals cost a single pass rather than
 // one aggregate per dimension.
-export const buildLiveDistrictStatsSql = (
-  district: DbxDistrict,
-): DbxStatement => {
+export const buildDistrictStatsSql = (district: DbxDistrict): DbxStatement => {
   const bag = createBag()
   const scope = buildScopeSql(bag, {
     district,
     filters: { filters: [], filterValues: {}, filterOperators: {} },
   })
-  const projections = LIVE_DIMENSIONS.map(
+  const projections = STATS_DIMENSIONS.map(
     ([key, expr]) => `${expr} AS ${key}`,
   ).join(', ')
-  const dimensionCase = LIVE_DIMENSIONS.map(
+  const dimensionCase = STATS_DIMENSIONS.map(
     ([key]) => `WHEN ${key} IS NOT NULL THEN ${quote(key)}`,
   ).join(' ')
-  const labelCoalesce = LIVE_DIMENSIONS.map(([key]) => key).join(', ')
-  const groupingSets = LIVE_DIMENSIONS.map(([key]) => `(${key})`).join(', ')
+  const labelCoalesce = STATS_DIMENSIONS.map(([key]) => key).join(', ')
+  const groupingSets = STATS_DIMENSIONS.map(([key]) => `(${key})`).join(', ')
   const sql =
     `WITH scoped AS (SELECT ${projections},` +
     ` ${col('VoterTelephones_CellPhoneFormatted')} AS cell` +
     ` FROM ${VOTER_TABLE} v ${scope})` +
-    ` SELECT CASE ${dimensionCase} ELSE ${quote(LIVE_TOTAL_DIMENSION)} END AS dimension,` +
+    ` SELECT CASE ${dimensionCase} ELSE ${quote(TOTAL_DIMENSION)} END AS dimension,` +
     ` coalesce(${labelCoalesce}, ${quote('all')}) AS label,` +
     ` COUNT(*) AS count, COUNT(cell) AS with_cell` +
     ` FROM scoped GROUP BY GROUPING SETS (${groupingSets}, ())`
@@ -273,7 +193,7 @@ const percentOf = (count: number, total: number): number =>
 // Absence still means "no stats", so a district whose scan returns no voters
 // maps to null exactly as a missing mirrored row does. Buckets are ordered by
 // descending count so a rendered list is stable across calls.
-export const mapLiveDistrictStatsRows = (
+export const mapDistrictStatsRows = (
   districtId: string,
   rows: Array<Array<string | null>>,
 ): ComputedDistrictStats | null => {
@@ -288,7 +208,7 @@ export const mapLiveDistrictStatsRows = (
   }
   const pending: Array<[StatsDimensionKey, string, number]> = []
   for (const [dimension, label, count, cell] of rows) {
-    if (dimension === LIVE_TOTAL_DIMENSION) {
+    if (dimension === TOTAL_DIMENSION) {
       total = Number(count ?? 0)
       withCell = Number(cell ?? 0)
       continue

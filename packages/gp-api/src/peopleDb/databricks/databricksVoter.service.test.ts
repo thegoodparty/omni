@@ -373,29 +373,29 @@ describe('DatabricksVoterService', () => {
   })
 
   describe('findStats', () => {
-    // No district resolution and no column probe: the stats table is keyed by
-    // district id, so findStats issues exactly one query.
-    it('returns null when the district has no stats row', async () => {
-      query.mockResolvedValueOnce({ columns: [], rows: [] })
+    beforeEach(() => {
+      stubDistrict('US_Congressional_District', '29')
+    })
+
+    // Resolve then aggregate: unlike a keyed read this scopes the voter rows,
+    // so it is one district lookup (not a warehouse query) plus one scan.
+    it('returns null when no voters are in scope', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [['TOTAL', 'all', '0', '0']],
+      })
 
       expect(await service.findStats(DISTRICT_ID)).toBeNull()
       expect(query).toHaveBeenCalledTimes(1)
     })
 
-    it('reads the mirrored stats row straight through', async () => {
+    it('aggregates the five dimensions from the voter rows', async () => {
       query.mockResolvedValueOnce({
         columns: [],
         rows: [
-          [
-            '100',
-            '40',
-            '2026-08-22T00:33:05.582Z',
-            JSON.stringify([{ label: '18-25', count: '100', percent: '100' }]),
-            '[]',
-            '[]',
-            '[]',
-            JSON.stringify([{ label: '250k+', count: '60', percent: '60' }]),
-          ],
+          ['TOTAL', 'all', '100', '40'],
+          ['age', '18-25', '100', null],
+          ['estimatedIncomeRange', '250k+', '60', null],
         ],
       })
 
@@ -403,7 +403,6 @@ describe('DatabricksVoterService', () => {
 
       expect(stats?.totalConstituents).toBe(100)
       expect(stats?.totalConstituentsWithCellPhone).toBe(40)
-      expect(stats?.updatedAt.toISOString()).toBe('2026-08-22T00:33:05.582Z')
       expect(stats?.buckets.age).toEqual([
         { label: '18-25', count: 100, percent: 100 },
       ])

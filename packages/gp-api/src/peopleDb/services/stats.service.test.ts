@@ -1,55 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { StatsService, STATS_DUAL_READ_MESSAGE } from './stats.service'
+import { StatsService } from './stats.service'
 
 const DISTRICT_ID = '0e5bafca-93a9-86a5-2522-f373979720df'
-
-const statsWith = (total: number, ageTop = 10) => ({
-  districtId: DISTRICT_ID,
-  updatedAt: new Date(0),
-  totalConstituents: total,
-  totalConstituentsWithCellPhone: Math.floor(total / 2),
-  buckets: {
-    age: [
-      { label: '51+', count: ageTop, percent: 1 },
-      { label: '18-25', count: 1, percent: 1 },
-    ],
-    education: [],
-    homeowner: [],
-    presenceOfChildren: [],
-    estimatedIncomeRange: [],
-  },
-})
-
-// The comparison arm is deliberately not awaited by findStats, so tests have to
-// let the microtask queue drain before asserting on the log line.
-const settle = async () => {
-  for (let i = 0; i < 5; i += 1) await Promise.resolve()
-}
 
 describe('StatsService', () => {
   let service: StatsService
   let findStats: ReturnType<typeof vi.fn>
-  let findStatsLive: ReturnType<typeof vi.fn>
   let measure: ReturnType<typeof vi.fn>
-  let info: ReturnType<typeof vi.fn>
-  let warn: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    findStats = vi.fn().mockResolvedValue(statsWith(42))
-    findStatsLive = vi.fn().mockResolvedValue(statsWith(42))
+    findStats = vi.fn().mockResolvedValue({
+      districtId: DISTRICT_ID,
+      totalConstituents: 42,
+    })
     // measure() runs the real read, so the assertions below cover both the
     // delegation and the op/districtId the read is logged under.
     measure = vi.fn((args: { read: () => unknown }) => args.read())
-    info = vi.fn()
-    warn = vi.fn()
-    service = new StatsService(
-      { findStats, findStatsLive } as never,
-      { measure } as never,
-      { setContext: vi.fn(), info, warn } as never,
-    )
+    service = new StatsService({ findStats } as never, { measure } as never)
   })
 
-  it('reads the district stats row under the stats op', async () => {
+  it('aggregates the district stats under the stats op', async () => {
     const stats = await service.findStats({ districtId: DISTRICT_ID } as never)
 
     expect(findStats).toHaveBeenCalledWith(DISTRICT_ID)
@@ -59,9 +29,10 @@ describe('StatsService', () => {
     expect(stats?.totalConstituents).toBe(42)
   })
 
-  it('returns null for a district with no stats row', async () => {
+  // Absence is load-bearing: a district with no constituents in scope has to
+  // read as "no stats" so the product can gate on it rather than render zeros.
+  it('returns null for a district with no constituents', async () => {
     findStats.mockResolvedValue(null)
-    findStatsLive.mockResolvedValue(null)
 
     await expect(
       service.findStats({ districtId: DISTRICT_ID } as never),
@@ -74,196 +45,5 @@ describe('StatsService', () => {
     await expect(
       service.findStats({ districtId: DISTRICT_ID } as never),
     ).rejects.toThrow('warehouse down')
-  })
-
-  it('serves the mirrored row and logs agreement with the live scan', async () => {
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(findStatsLive).toHaveBeenCalledWith(DISTRICT_ID)
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({ districtId: DISTRICT_ID, agrees: true }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  // The comparison is a JSON.stringify equality, which is key-order sensitive.
-  // The mirrored table returns buckets in arbitrary order and the live mapper
-  // sorts by descending count, so without canonical ordering this reported a
-  // disagreement on every multi-bucket dimension while the totals matched --
-  // which is exactly what it did in prod before this was fixed.
-  it('ignores bucket order', async () => {
-    const reordered = statsWith(42)
-    reordered.buckets.age = [...reordered.buckets.age].reverse()
-    findStatsLive.mockResolvedValue(reordered)
-
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({ agrees: true }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  it('still reports a real per-bucket difference under reordering', async () => {
-    const changed = statsWith(42)
-    changed.buckets.age = [
-      { label: '18-25', count: 1, percent: 1 },
-      { label: '51+', count: 99, percent: 1 },
-    ]
-    findStatsLive.mockResolvedValue(changed)
-
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({ agrees: false, mismatchedDimensions: ['age'] }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  it('names the dimensions that disagree', async () => {
-    findStatsLive.mockResolvedValue(statsWith(42, 99))
-
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agrees: false,
-        mismatchedDimensions: ['age'],
-      }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  it('reports a total mismatch even when every bucket matches', async () => {
-    findStatsLive.mockResolvedValue({ ...statsWith(42), totalConstituents: 41 })
-
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({ agrees: false, martTotal: 42, liveTotal: 41 }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  // Both latencies on one line, so the comparison is a paired per-request
-  // delta with identical n rather than two marginal distributions over
-  // whichever requests each line happened to cover.
-  it('reports both latencies and their delta on one line', async () => {
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    const [fields] = info.mock.calls[0] as [Record<string, unknown>]
-    expect(fields).toMatchObject({
-      districtId: DISTRICT_ID,
-      martMs: expect.any(Number),
-      liveMs: expect.any(Number),
-      deltaMs: expect.any(Number),
-      queuedMs: expect.any(Number),
-    })
-    expect(fields.deltaMs).toBe(
-      (fields.liveMs as number) - (fields.martMs as number),
-    )
-  })
-
-  it('keeps martMs on the line when the live scan fails', async () => {
-    findStatsLive.mockRejectedValue(new Error('scan blew up'))
-
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ martMs: expect.any(Number), agrees: null }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  // Slot wait is reported separately, not folded into liveMs: the mirrored read
-  // is uncapped, so charging the live arm for queueing would make the two
-  // incomparable, and omitting it would flatter the live arm.
-  it('reports slot wait separately from the scan', async () => {
-    findStatsLive.mockImplementation(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 30))
-      return statsWith(42)
-    })
-
-    await Promise.all(
-      Array.from({ length: 4 }, () =>
-        service.findStats({ districtId: DISTRICT_ID } as never),
-      ),
-    )
-    await new Promise((resolve) => setTimeout(resolve, 200))
-
-    const queued = info.mock.calls.map(
-      ([f]) => (f as { queuedMs: number }).queuedMs,
-    )
-    const live = info.mock.calls.map(([f]) => (f as { liveMs: number }).liveMs)
-    // The last through the cap waited on a slot; no scan absorbed that wait.
-    expect(Math.max(...queued)).toBeGreaterThan(0)
-    expect(Math.max(...live)).toBeLessThan(100)
-  })
-
-  it('counts absent-on-both as agreement', async () => {
-    findStats.mockResolvedValue(null)
-    findStatsLive.mockResolvedValue(null)
-
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({ agrees: true, martTotal: null }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  it('reports absent on one side only as disagreement', async () => {
-    findStatsLive.mockResolvedValue(null)
-
-    await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({ agrees: false, liveTotal: null }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  it('never lets the live scan affect the response', async () => {
-    findStatsLive.mockRejectedValue(new Error('scan blew up'))
-
-    const stats = await service.findStats({ districtId: DISTRICT_ID } as never)
-    await settle()
-
-    expect(stats?.totalConstituents).toBe(42)
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ agrees: null }),
-      STATS_DUAL_READ_MESSAGE,
-    )
-  })
-
-  it('caps concurrent live scans', async () => {
-    let inFlight = 0
-    let peak = 0
-    findStatsLive.mockImplementation(async () => {
-      inFlight += 1
-      peak = Math.max(peak, inFlight)
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      inFlight -= 1
-      return statsWith(42)
-    })
-
-    await Promise.all(
-      Array.from({ length: 8 }, () =>
-        service.findStats({ districtId: DISTRICT_ID } as never),
-      ),
-    )
-    await new Promise((resolve) => setTimeout(resolve, 120))
-
-    expect(findStatsLive).toHaveBeenCalledTimes(8)
-    expect(peak).toBeLessThanOrEqual(2)
   })
 })

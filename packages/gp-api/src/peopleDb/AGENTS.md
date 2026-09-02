@@ -25,10 +25,11 @@ comes out. The destination is election-db rather than `mart_gp_api`: the
 density rows join to `District`, and `District` lives in election-db. See
 `packages/election-api/docs/voter-density-election-db-handoff.md`.
 
-It shares the district-stats dual read's shape below — shadow arm never
-awaited, failures swallowed — but it is counted rather than logged, because
-this one has an end condition someone has to watch for (`only_legacy` reaching
-zero is the cutover gate) rather than a standing agreement to monitor.
+Its shadow arm is never awaited and its failures are swallowed, so it cannot
+slow or fail a request. Unlike a logged comparison it is counted rather than
+logged, because this one has an end condition someone has to watch for
+(`only_legacy` reaching zero is the cutover gate) rather than a standing
+agreement to monitor.
 
 ## Every voter read emits one log line
 
@@ -60,88 +61,41 @@ and dropping it would bias the measurement toward reads that were already
 fast. Voter data has one store, so a warehouse failure propagates rather than
 degrading to a second answer.
 
-## District stats runs a dual read
+## District stats is aggregated on demand, not read from a table
 
-`services/stats.service.ts` serves `stats` from the mirrored
-`gp_api_district_stats` table and, alongside it, aggregates the same five
-dimensions from the voter rows. The mirrored table stays **authoritative** -- it
-is what the response returns -- and the live scan only ever produces a log line
-at the stable message `district stats dual read`.
+`stats` computes all five dimensions from the voter rows in one statement rather
+than reading a precomputed table. `buildDistrictStatsSql` is one scan:
+`GROUPING SETS` emits a row per bucket per dimension plus a grand-total row from
+the empty set, which is where both totals come from. Cost is roughly flat in
+district size -- the scan is columnar with predicate pushdown, so fixed overhead
+dominates. Measured across districts from ~1k to 23.3M constituents.
 
-The mirror is refreshed on a pipeline cadence, so what it serves can be weeks
-old; the comparison is how we find out whether computing on demand agrees with
-it. Verified across district sizes from ~1k to 23.3M constituents: totals,
-cell-phone counts, and every bucket count match exactly.
-
-| field                   |                                                           |
-| ----------------------- | --------------------------------------------------------- |
-| `agrees`                | `true`/`false`, or `null` when the live scan failed       |
-| `martMs`                | wall-clock ms for the mirrored read that served the reply |
-| `liveMs`                | wall-clock ms for the live scan, slot wait excluded       |
-| `deltaMs`               | `liveMs - martMs`; positive means the scan was slower     |
-| `queuedMs`              | ms spent waiting for one of the two live-scan slots       |
-| `martTotal`/`liveTotal` | the two totals, so a gap is visible without re-running    |
-| `mismatchedDimensions`  | dimension names, only when they disagree                  |
-| `statementIds`          | the live scan's statement ids                             |
-
-**Both latencies are on this one line on purpose.** Split across two lines --
-`dbxMs` on the `people-db voter read` line and `liveMs` here -- they can only be
-compared as marginal distributions over whichever requests each line happened to
-cover, which gives mismatched n and no way to pair them. `deltaMs` is the paired
-per-request difference and is the number to aggregate; a difference of two
-independent p95s is not. `queuedMs` is reported rather than folded into `liveMs`
-because the mirrored read is uncapped, so charging the live arm for waiting on a
-slot would make the two incomparable, while omitting it silently would flatter
-the live arm.
-
-`liveMs` does include resolving the district through election-api, which the
-mirrored read does not need because its table is keyed by district id. That
-resolution is memoized per process, so it is ~0 after the first call, and it is
-a genuine cost of computing on demand rather than a measurement artifact.
-
-Three properties the implementation depends on. The live scan is **never
-awaited** on the response path and its failures are swallowed into the log line,
-so it cannot slow or fail a request. Concurrent live scans are **capped at two**,
-because a statewide district scans tens of millions of rows for a number nobody
-is waiting on. And buckets are compared as label -> count maps with
-their labels sorted, so bucket order is not reported as a disagreement -- the
-comparison is a `JSON.stringify` equality, which is key-order sensitive, and the
-mirrored table returns buckets in arbitrary order while the live mapper sorts by
-descending count.
-
-`buildLiveDistrictStatsSql` is one statement over one scan: `GROUPING SETS`
-emits a row per bucket per dimension plus a grand-total row from the empty set,
-which is where both totals come from. Cost is roughly flat in district size --
-the scan is columnar with predicate pushdown, so fixed overhead dominates.
+This replaced a mirrored `gp_api_district_stats` table that a pipeline refreshed
+on its own cadence; rows were observed 24 and 33 days stale, so the panel showed
+month-old demographics. Aggregating on demand costs latency in the tail -- a
+paired comparison over 293 prod requests put the scan ~40ms behind the keyed
+lookup at p50 and ~1s behind at p95 -- and that was accepted for always-current
+numbers and one less pipeline dependency.
 
 Bucket labels for education, homeowner and presenceOfChildren are **derived from
 `VALUE_MAPPERS`**, not restated, so a change to the filter vocabulary cannot
 leave a stats bucket labelled by the old one. Age and income are ranges rather
-than a vocabulary, so their boundaries live in the builder; income labels use an
-en dash, matching the mirrored table, and a hyphen there would read as a
-disagreement on every district.
+than a vocabulary, so their boundaries live in the builder. Income labels use an
+en dash, which is what the product renders.
 
-Two differences from the mirrored table are expected and not defects.
-`updatedAt` has no live equivalent -- the scan describes the rows as they are
-now, so it reports the current time. And a district whose scan finds no voters
-maps to `null`, the same as a missing mirrored row, because absence is
-load-bearing: the product gates on it rather than rendering zeros.
+An age below the ranges buckets as `Unknown`, not `51+`. The voter table's floor
+is 18 today, so that arm matches nothing -- but without it a pre-registrant or a
+bad age would fall through into the open-ended bucket and inflate `51+` silently,
+which is the one failure mode here a reader of the numbers could not spot.
 
-| `op`                                                                                            | served by                          | called from                    |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------ |
-| `list`, `voter-by-id`, `aggregates`, `list-detail-aggregates`, `overlap`, `sample`, `precincts` | `DatabricksVoterService`           | `voterQuery.service.ts`        |
-| `stats`                                                                                         | `DatabricksVoterService.findStats` | `stats.service.ts`             |
-| `dk-evaluate`, `dk-residents`                                                                   | `DatabricksVoterService`           | `voterDoorKnocking.service.ts` |
-| `dk-pack`                                                                                       | `DatabricksVoterPackService`       | `voterPack.service.ts`         |
+A district whose scan finds no voters maps to `null`. That absence is
+load-bearing: `fetchStatsByDistrictId` turns it into `VOTER_DATA_UNAVAILABLE`,
+polls gate on it, and the webapp renders a dedicated "no constituent data for
+this office yet" screen rather than a zero-filled one.
 
-The CSV download (`voterDownload.service.ts`) emits no line. An export is a
-stream measured in minutes and gigabytes, so a single elapsed number does not
-describe it, and the statement ids worth attributing are its chunk fetches
-rather than one submit.
-
-`list-detail-aggregates` answers everything `GET /v1/contacts/list-detail`
-needs in one statement: the demographics `COUNT`/`AVG`s with a `COUNT_IF` per
-reachability channel beside them.
+`updatedAt` is the time the aggregate ran. It described a snapshot date when the
+mirrored table served this, and nothing reads it, so it is a candidate for
+removal from the response.
 
 ## Connection: `PeopleDbUrlProvider` + `PEOPLE_DB_SSM_PARAM`
 
@@ -355,7 +309,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)        |
 | `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
-| `services/stats.service.ts`                     | District aggregate stats + the live-vs-mirror dual read             |
+| `services/stats.service.ts`                     | District aggregate stats, computed from the voter rows              |
 | `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                      |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |
