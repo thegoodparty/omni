@@ -27,7 +27,7 @@ const tag = (environment: string) => `[${environment.toUpperCase()}]`
  * remember.
  */
 export const buildAlertSummary = (alert: Alert, environment: string): string =>
-  `${tag(environment)} ${alert.name}`
+  [tag(environment), alert.name, alert.summaryDetail].filter(Boolean).join(' ')
 
 export const buildAlertDescription = (
   alert: Alert,

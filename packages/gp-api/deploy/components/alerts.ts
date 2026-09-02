@@ -229,6 +229,12 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The [6h] range vector needs a matching fetch window; the default 600s
     // would let the engine see only 10 minutes and never accumulate the sum.
     timeRangeSeconds: 21600,
+    // Reading 6h on the 60s default re-read the same six hours 1,440 times a
+    // day, which made this one of the two most expensive rules we run. A
+    // ceiling measured over 6h does not need minute resolution: at 5m the
+    // worst case is that a runaway is caught ~4 minutes later, against a
+    // Geoapify daily pool this threshold leaves most of intact anyway.
+    evaluationIntervalSeconds: 300,
     message: [
       'Door-knocking has burned more than 10,000 Geoapify Route Planner credits in the last 6 hours — two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
       'Click *View in Grafana* to see the DoorKnockingSpend lines, then group by organizationSlug (`sum by (organizationSlug) (sum_over_time(... | unwrap credits [24h]))`) to find which organizations are driving it. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
@@ -395,6 +401,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // would let the engine see only 10 minutes of logs and never accumulate
     // the 6h count this alert is built on.
     timeRangeSeconds: 21600,
+    // As above: 6h of logs re-read every 60s was one of our two costliest
+    // rules. `for` is 30m here, so a 5m interval still gives the rule six
+    // evaluations before it fires and barely moves detection latency.
+    evaluationIntervalSeconds: 300,
     message: [
       'More than 5 distinct campaigns hit a "no matched district" outcome in the last 6h — well above the ~0 baseline.',
       'This usually means the auto-district-matching pipeline broke *silently*: election-api is returning a position with no associated district (or a 404) rather than an error. Likely causes: a district-association / dbt mart regression, or an election-api data/deploy issue that stopped attaching districts. Note that upstream election-api errors (5xx) are excluded here — those page via the per-route error alerts instead.',

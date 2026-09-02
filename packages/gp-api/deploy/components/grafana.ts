@@ -234,12 +234,33 @@ export const createGrafanaResources = async ({
     ],
   })
 
-  new grafana.alerting.RuleGroup('global-rules', {
-    name: 'Global Rules',
-    folderUid: alertFolder.uid,
-    intervalSeconds: 60,
-    rules: GLOBAL_ALERTS.map(alertToRule),
-  })
+  // Grafana evaluates a rule group as a unit, so the interval is a property of
+  // the group and a rule that wants a slower cadence needs its own. Bucketing
+  // by `evaluationIntervalSeconds` is what lets the two 6h-window rules opt out
+  // of minute-resolution evaluation without slowing anything else down; the
+  // default bucket keeps the original resource and group names so Pulumi
+  // updates it in place rather than replacing every global rule.
+  const globalAlertsByInterval = new Map<number, Alert[]>()
+  for (const alert of GLOBAL_ALERTS) {
+    const interval = alert.evaluationIntervalSeconds ?? 60
+    globalAlertsByInterval.set(interval, [
+      ...(globalAlertsByInterval.get(interval) ?? []),
+      alert,
+    ])
+  }
+
+  for (const [intervalSeconds, alerts] of globalAlertsByInterval) {
+    const isDefault = intervalSeconds === 60
+    new grafana.alerting.RuleGroup(
+      isDefault ? 'global-rules' : `global-rules-${intervalSeconds}s`,
+      {
+        name: isDefault ? 'Global Rules' : `Global Rules (${intervalSeconds}s)`,
+        folderUid: alertFolder.uid,
+        intervalSeconds,
+        rules: alerts.map(alertToRule),
+      },
+    )
+  }
 
   for (const controller of CONTROLLER_NAMES) {
     const rules = controllerAlerts(controller).map(alertToRule)
