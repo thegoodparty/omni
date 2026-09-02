@@ -72,6 +72,35 @@ describe('GET /v1/campaigns/mine/update-history', () => {
     expect(result.status).toBe(404)
   })
 
+  it('names each entry author, not the requesting user', async () => {
+    const campaign = await seedCampaign(
+      'campaign-5',
+      { electionDate: '2099-11-03' },
+      null,
+    )
+    const coworker = await service.prisma.user.create({
+      data: {
+        email: 'coworker@goodparty.org',
+        firstName: 'Dana',
+        lastName: 'Okafor',
+      },
+    })
+    await service.prisma.campaignUpdateHistory.create({
+      data: {
+        campaignId: campaign.id,
+        userId: coworker.id,
+        type: 'calls',
+        quantity: 3,
+      },
+    })
+
+    const result = await service.client.get('/v1/campaigns/mine/update-history')
+
+    expect(result.status).toBe(200)
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0].user.name).toBe('Dana Okafor')
+  })
+
   it('nulls an empty-string avatar rather than passing it through', async () => {
     const campaign = await seedCampaign(
       'campaign-4',

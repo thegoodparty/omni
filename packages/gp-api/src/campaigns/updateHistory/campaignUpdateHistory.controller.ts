@@ -63,7 +63,7 @@ export class CampaignUpdateHistoryController {
     return updateHistory.map((update) => ({
       ...update,
       user: {
-        name: getUserFullName(user),
+        name: getUserFullName(update.user),
         avatar: update?.user?.avatar?.trim() || null,
       },
     }))
