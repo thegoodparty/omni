@@ -267,6 +267,46 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(trackSpy).not.toHaveBeenCalled()
   })
 
+  it('failSend expired_unstaged leaves a staging draft the staging sweep owns', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      authorizationIntentId: 'pi_hold_9',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'expired_unstaged')
+
+    // The stranded sweep raced staging and lost: the CAS matches 0 rows, so the
+    // hold is not voided, no email is sent, and staging finishes uninterrupted.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.staging)
+    expect(paymentIntentsCancel).not.toHaveBeenCalled()
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('failSend expired_unstaged fails an authorized draft that never staged', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.authorized,
+      authorizationIntentId: 'pi_hold_9',
+    })
+    paymentIntentsCancel.mockResolvedValue({
+      id: 'pi_hold_9',
+      status: 'canceled',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'expired_unstaged')
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.send_failed)
+    expect(paymentIntentsCancel).toHaveBeenCalled()
+    expect((await readSpine(outreachId)).status).toBe('failed')
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
+    expect(event).toBe(EVENTS.Robocall.SendFailed)
+    expect(messageId).toBe(`${outreachId}:send_failed`)
+  })
+
   it('retries from hold_failed with a new card and authorizes', async () => {
     // A declined draft (payAttempt already 1) re-enters placement with a new
     // card — the CAS must accept hold_failed, and the retry uses a fresh key.

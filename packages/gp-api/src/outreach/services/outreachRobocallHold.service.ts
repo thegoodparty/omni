@@ -512,12 +512,19 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     const claim = await this.model.updateMany({
       where: {
         outreachId,
+        // expired_unstaged must not terminate a draft the staging sweep has
+        // already claimed to `staging`: the two sweeps race on a draft whose
+        // send time falls inside the staging lead window, so the stranded
+        // sweep only ever fails a draft still sitting in `authorized`.
         settleState: {
-          in: [
-            RobocallSettleState.authorized,
-            RobocallSettleState.staging,
-            RobocallSettleState.dialing,
-          ],
+          in:
+            reason === 'expired_unstaged'
+              ? [RobocallSettleState.authorized]
+              : [
+                  RobocallSettleState.authorized,
+                  RobocallSettleState.staging,
+                  RobocallSettleState.dialing,
+                ],
         },
       },
       data: { settleState: RobocallSettleState.send_failed },
