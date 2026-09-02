@@ -21,7 +21,6 @@ import { CampaignStrategyModule } from 'src/campaignStrategy/campaignStrategy.mo
 import { RaceOpponentModule } from 'src/raceOpponent/raceOpponent.module'
 import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.module'
 import { OrdinancesModule } from 'src/ordinances/ordinances.module'
-import { RecommendedListsModule } from 'src/recommendedLists/recommendedLists.module'
 
 @Module({
   imports: [
@@ -52,7 +51,6 @@ import { RecommendedListsModule } from 'src/recommendedLists/recommendedLists.mo
     RaceOpponentModule,
     CommunityIssuesModule,
     OrdinancesModule,
-    RecommendedListsModule,
   ],
   providers: [QueueConsumerService],
 })
