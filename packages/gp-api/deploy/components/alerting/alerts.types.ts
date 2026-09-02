@@ -73,6 +73,25 @@ export type Alert = {
    */
   timeRangeSeconds?: number
 
+  /**
+   * How often the alerting engine evaluates this rule, in seconds. Defaults to
+   * 60.
+   *
+   * This is a cost lever as much as a latency one. Loki bills the bytes each
+   * evaluation decompresses, and `timeRangeSeconds` decides that, so a rule's
+   * daily read volume is its window divided by its interval: a 6h window on
+   * the 60s default re-reads the same six hours 1,440 times a day. A rule
+   * whose window is measured in hours does not need minute-resolution
+   * evaluation, and paying for it is how a handful of rules can dominate the
+   * Loki bill — see docs/observability.md § Query cost.
+   *
+   * Grafana evaluates a rule group as a unit, so grafana.ts buckets the global
+   * alerts into one group per distinct interval. Raising this also raises the
+   * worst-case firing latency: `for` is measured in whole evaluations, so a
+   * `for` of one interval can take up to two to fire.
+   */
+  evaluationIntervalSeconds?: number
+
   /** Whether the alert is disabled. */
   disabled?: boolean
 }

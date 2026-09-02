@@ -153,6 +153,7 @@ Key things to know:
 - The `for` field is a grace period -- the threshold must be continuously exceeded for that duration before the alert actually fires.
 - `threshold` is compared with `>`, so `threshold: 0` means "fire if the value is greater than 0".
 - **A range vector wider than the fetch window is silently truncated.** The engine only pulls `timeRangeSeconds` of data per evaluation (600s by default), so a `[1h]` vector left at the default sees ten minutes, not an hour. Set `timeRangeSeconds` to at least the widest range vector in `expr`, and make sure any window your `message` quotes is the one that actually applies -- a message promising an hour sends whoever reads it looking through fifty minutes of logs the rule never queried.
+- **Widening `timeRangeSeconds` means slowing `evaluationIntervalSeconds`.** Evaluation defaults to every 60s, and each evaluation is billed for its whole fetch window, so the two together set the rule's cost -- see [Query cost](#query-cost). Grafana evaluates a rule group as a unit, so `grafana.ts` buckets the global alerts into one group per distinct interval; setting the field is all you need to do. Keep `for` a whole multiple of the interval, since `for` is counted in whole evaluations and an interval that does not divide it evenly quietly pushes firing out to the next one.
 
 For more details on configuring alerts, see the [Grafana Alerting documentation](https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rule-evaluation/).
 
@@ -163,7 +164,7 @@ Loki bills the bytes a query **decompresses**, and only two things decide that: 
 Two consequences worth internalising before you add a rule:
 
 - **Narrowing by a log field is free, not cheap.** `| request_endpoint = "GET /v1/contacts/:id"` costs the same as reading every gp-api log line in the window. The only way to genuinely read less is a narrower stream selector or a shorter window.
-- **A rule's cost is its window divided by its evaluation interval.** `grafana.ts` provisions every rule group at `intervalSeconds: 60`, so a rule with a 6h `timeRangeSeconds` re-reads the same six hours 1,440 times a day. Widening `timeRangeSeconds` is not free the way widening a range vector in an ad-hoc query is.
+- **A rule's cost is its fetch window divided by its evaluation interval** -- the number of times a day it re-reads the same logs, and the only thing about a rule that its bill is proportional to. Evaluation defaults to every 60s, so a 6h `timeRangeSeconds` left on that default re-reads the same six hours 1,440 times a day. Widening `timeRangeSeconds` is not free the way widening a range vector in an ad-hoc query is; pair a wide window with a slower `evaluationIntervalSeconds`. A rule whose window is measured in hours does not need minute-resolution evaluation. `global-alerts.test.ts` caps this ratio, so a wide window paired with a fast interval fails the suite.
 
 So when several rules would differ only in a filter, write one rule that groups by that field instead. Grafana raises one alert instance per returned series, so per-dimension paging survives -- set `summaryDetail` to a `{{ $labels.<field> }}` template so the notification still names the dimension that fired. That is exactly what the generated controller alerts do with `request_endpoint`.
 
