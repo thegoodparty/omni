@@ -20,12 +20,13 @@ from .config import CAPABILITIES, AgentConfig, build_capability_prompt
 from .escalation import maybe_escalate
 from .github_auth import setup_github_auth
 from .metrics import format_metric_line
+from .repos import UnknownRepoError
 
 logger = get_logger(__name__)
 
 
-def build_system_prompt(instruction: str) -> str:
-    capability = build_capability_prompt()
+def build_system_prompt(instruction: str, target_repo: str | None = None) -> str:
+    capability = build_capability_prompt(target_repo)
     return capability + "\n" + instruction
 
 
@@ -125,8 +126,19 @@ async def run_agent(config: AgentConfig) -> dict:
         logger.error("No INSTRUCTION provided")
         return {"status": "error", "task_id": config.task_id, "error": "No INSTRUCTION provided"}
 
+    try:
+        system_prompt = build_system_prompt(config.instruction, config.target_repo)
+    except UnknownRepoError as e:
+        # Something routed this run at a repo the agent has no briefing for.
+        # Reported as a failed run rather than raised, for the same reason as
+        # the missing-instruction case above: a clean error result posts a
+        # comment on the ticket and records a metric line, where an uncaught
+        # exception is a bare Fargate task failure nobody is watching.
+        logger.error(f"Cannot run: {e}")
+        return {"status": "error", "task_id": config.task_id, "error": str(e)}
+
     options = ClaudeAgentOptions(
-        system_prompt=build_system_prompt(config.instruction),
+        system_prompt=system_prompt,
         allowed_tools=CAPABILITIES["sdk_tools"],
         permission_mode="bypassPermissions",
         cwd=config.workspace_dir,
@@ -193,7 +205,7 @@ async def main():
     # implementation run itself (see escalation.maybe_escalate). It reports its
     # outcome instead of raising, so a failure to escalate cannot turn a
     # successful analysis into a failed container.
-    outcome = maybe_escalate(result, config.label)
+    outcome = maybe_escalate(result, config.label, target_repo=config.target_repo)
     logger.info(f"Escalation: {outcome}")
 
     # LAST, so the line carries what the escalation decided as well as what the
@@ -201,7 +213,7 @@ async def main():
     # the weekly digest exists to surface. See agent/metrics.py for why the run
     # states its own outcome instead of leaving it to be scraped back out of the
     # prose above.
-    logger.info(format_metric_line(result, config.label, outcome, duration_s))
+    logger.info(format_metric_line(result, config.label, outcome, duration_s, config.target_repo))
 
     if result["status"] == "error":
         sys.exit(1)

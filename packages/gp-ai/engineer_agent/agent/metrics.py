@@ -74,7 +74,9 @@ def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def format_metric_line(result: Any, label: Any, escalation: Any, duration_s: Any = None) -> str:
+def format_metric_line(
+    result: Any, label: Any, escalation: Any, duration_s: Any = None, target_repo: Any = None
+) -> str:
     """The one line a run emits about itself.
 
     Every field is always present, `null` when it does not apply. Omitting a key
@@ -112,6 +114,15 @@ def format_metric_line(result: Any, label: Any, escalation: Any, duration_s: Any
         "cost_usd": _number(result.get("cost_usd"), COST_DECIMAL_PLACES),
         "duration_s": _number(duration_s, DURATION_DECIMAL_PLACES),
         "escalation": _text(escalation),
+        # Which repo the run was about. Null on runs launched before routing
+        # existed, which were all omni — but recorded as null rather than
+        # backfilled to "omni", because the digest should be able to tell a run
+        # that CHOSE omni from one that was never asked.
+        #
+        # Without this the weekly report silently sums two repos into one set of
+        # numbers, and the ramp question — is gp-marketing producing verdicts
+        # worth trusting with a PR? — cannot be answered from it at all.
+        "repo": _text(target_repo),
     }
 
     # One line, no indentation, prefix first. `filter-log-events` returns whole

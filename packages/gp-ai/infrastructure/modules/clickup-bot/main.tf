@@ -51,6 +51,28 @@ variable "enable_fargate_trigger" {
   default     = false
 }
 
+variable "implement_repos" {
+  description = <<-EOT
+    Which repos the bot may WRITE code in, as a comma-separated list of
+    `owner/name`. Analysis is unaffected: every routed repo is always readable.
+
+    This is the ENFORCEMENT half of a repo's analyze-only ramp. It is checked at
+    the launch point, so it holds against a hand-applied `gpbot-work` and not
+    only against an analysis escalating on its own — which matters, because a PR
+    opened in a repo with no PR triage and no CI drive is an unowned bot PR, the
+    failure those workflows exist to prevent.
+
+    Defaults to omni alone. A repo added to REPO_BY_LIST_ID in handler.py is
+    therefore readable immediately and writable only when named here.
+
+    Widen this together with escalation_repos on the engineer-agent module.
+    Widening this one alone works but is noisy in reverse: the analysis will
+    decline to tag tickets it is now allowed to implement.
+  EOT
+  type        = string
+  default     = "thegoodparty/omni"
+}
+
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda to subscribe to failure notifications (empty disables)"
   type        = string
@@ -305,6 +327,12 @@ resource "aws_lambda_function" "clickup_bot" {
         # missing would silently disable atomic dedup — the same failure shape
         # as the 2026-06-26 tfvars incident. Keep it in the unconditional map.
         DEDUP_TABLE_NAME = aws_dynamodb_table.dedup.name
+        # Unconditional for the same reason as DEDUP_TABLE_NAME: the handler
+        # treats an unset value as "the default" (omni only), so this going
+        # missing narrows the bot rather than breaking it — but it must not be
+        # gated behind the fargate flag, since it is exactly the flag that
+        # decides whether a marketing ticket may open a PR.
+        GPBOT_IMPLEMENT_REPOS = var.implement_repos
       },
       var.enable_fargate_trigger ? {
         # Transition compatibility — do NOT remove until the fail-loud handler

@@ -163,9 +163,23 @@ class TestTheContractWithTheDigest:
         # Absent and null mean different things to the reader: null is "this run
         # had none", a missing key is "this line came from a build that predates
         # the field". Only one of those is a reason to go and look at the code.
-        expected = {"task_id", "label", "verdict", "status", "cost_usd", "duration_s", "escalation"}
+        expected = {"task_id", "label", "verdict", "status", "cost_usd", "duration_s", "escalation", "repo"}
 
         assert set(parsed(format_metric_line(None, None, None)).keys()) == expected
+
+    def test_the_repo_is_recorded_so_the_digest_can_tell_them_apart(self):
+        # Without this the weekly report sums two repos into one set of numbers,
+        # and "are gp-marketing's verdicts good enough to trust with a PR?" —
+        # the question the ramp exists to answer — cannot be asked of it.
+        line = parsed(format_metric_line(ANALYZE_RESULT, "analyze", "escalated", 12.0, "thegoodparty/gp-marketing"))
+
+        assert line["repo"] == "thegoodparty/gp-marketing"
+
+    def test_a_run_that_was_never_routed_records_no_repo(self):
+        # Null rather than backfilled to omni: a run that CHOSE omni and a run
+        # that was never asked are different facts, and only the digest can
+        # decide whether it cares about the difference.
+        assert parsed(format_metric_line(ANALYZE_RESULT, "analyze", "escalated", 12.0, "")).get("repo") is None
 
     def test_the_line_is_a_single_greppable_line(self):
         # filter-log-events returns whole messages and the consumer splits on
@@ -205,7 +219,7 @@ class TestTheLineIsActuallyEmitted:
             return ANALYZE_RESULT
 
         monkeypatch.setattr(agent_main, "run_agent", completes)
-        monkeypatch.setattr(agent_main, "maybe_escalate", lambda result, label: "escalated")
+        monkeypatch.setattr(agent_main, "maybe_escalate", lambda result, label, target_repo="": "escalated")
 
         recorder = RecordingLogger()
         monkeypatch.setattr(agent_main, "logger", recorder)
@@ -223,7 +237,7 @@ class TestTheLineIsActuallyEmitted:
         # Ordering, not decoration: the escalation outcome is a field on the
         # line, so emitting before `maybe_escalate` ran would report every run
         # as un-escalated and make the most interesting failure invisible.
-        monkeypatch.setattr(agent_main, "maybe_escalate", lambda result, label: "disabled")
+        monkeypatch.setattr(agent_main, "maybe_escalate", lambda result, label, target_repo="": "disabled")
 
         await agent_main.main()
 

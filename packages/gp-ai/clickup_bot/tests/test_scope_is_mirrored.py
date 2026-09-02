@@ -57,11 +57,11 @@ CASES = [
         id="the Data Backlog list",
     ),
     pytest.param(
-        task_dump(list={"id": escalation.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"}),
-        id="the Growth-Bugs list",
+        task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"}),
+        id="the Growth-Bugs list, which is now routed rather than refused",
     ),
     pytest.param(
-        task_dump(list={"id": escalation.GROWTH_BUGS_LIST_ID}),
+        task_dump(list={"id": escalation.DATA_BACKLOG_LIST_ID}),
         id="an out-of-scope list with no name",
     ),
     pytest.param(
@@ -99,6 +99,17 @@ def test_the_lists_are_the_same_lists():
     assert escalation.OUT_OF_SCOPE_LIST_IDS == handler.OUT_OF_SCOPE_LIST_IDS
     assert escalation.OUT_OF_SCOPE_CUSTOM_ID_PREFIXES == handler.OUT_OF_SCOPE_CUSTOM_ID_PREFIXES
     assert escalation.OUT_OF_SCOPE_TAG_NAMES == handler.OUT_OF_SCOPE_TAG_NAMES
+
+
+def test_a_marketing_ticket_is_a_different_repo_not_a_refusal():
+    # Growth-Bugs sat in OUT_OF_SCOPE_LIST_IDS until gp-marketing became a repo
+    # the agent could be pointed at. Both copies have to have let go of it, or
+    # marketing tickets keep being refused by whichever copy still remembers.
+    marketing = task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"})
+
+    assert handler.out_of_scope_reason(marketing) is None
+    assert escalation.out_of_scope_reason(marketing) is None
+    assert handler.target_repo(marketing) == handler.MARKETING_REPO
 
 
 def test_the_mirror_is_never_the_only_thing_holding():

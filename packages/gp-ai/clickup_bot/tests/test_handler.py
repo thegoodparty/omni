@@ -591,17 +591,27 @@ def test_created_task_lookup_failure_never_comments_on_an_unrelated_ticket(fake_
     assert_alarm_log_emitted(capsys)
 
 
-def test_created_task_with_tag_in_the_delta_skips_the_lookup(fake_clickup, fake_ecs, ecs_env):
-    # If ClickUp does include the tag in the create payload, the free path must
-    # be taken: no GET /task for an analyze run. This is also what would let
-    # the lookup (and the secrets exposure it forces) be removed later.
+def test_a_tag_in_the_delta_still_costs_exactly_one_lookup(fake_clickup, fake_ecs, ecs_env):
+    # This used to assert ZERO lookups: the tag was in the create payload, so
+    # nothing had to be fetched to resolve it, and an analyze run went straight
+    # to launch.
+    #
+    # Routing changed that. Which repo a ticket belongs to is decided by its
+    # LIST, and the list is not in the delta, so an analyze run now pays for one
+    # GET /task it did not pay for before. The alternative is defaulting to omni
+    # whenever the fetch is inconvenient, which reads a marketing bug against
+    # the wrong codebase and reports it confidently.
+    #
+    # ONE is still the number that matters. The resolution path and the routing
+    # path share the fetch, as the scope guard already did; two would mean they
+    # had stopped sharing.
     event = make_event(created_body(history_items=[{"field": "tag", "after": [{"name": "gpbot-analyze"}]}]))
 
     resp = handler.handler(event, None)
 
     assert resp["statusCode"] == 200
     assert len(fake_ecs.run_task_calls) == 1
-    assert task_get_calls(fake_clickup) == []
+    assert len(task_get_calls(fake_clickup)) == 1
 
 
 def test_created_task_resolution_and_scope_guard_share_one_lookup(fake_clickup, fake_ecs, ecs_env):
@@ -2823,14 +2833,89 @@ def test_data_backlog_list_blocks_implement_without_a_custom_id(fake_clickup, fa
     assert_no_side_effects(fake_clickup, fake_ecs)
 
 
-def test_growth_bugs_list_blocks_implement(fake_clickup, fake_ecs, ecs_env):
-    # Growth-Bugs is marketing-site work that does not live in omni; the agent
-    # only knows omni, so a run there produces nothing.
-    fake_clickup.task_response = {
-        "custom_id": None,
-        "list": {"id": "901326170992", "name": "Growth-Bugs"},
+def growth_bugs_task(**overrides) -> dict:
+    task = {
+        "custom_id": "ENG-11100",
+        "list": {"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"},
         "tags": [],
     }
+    task.update(overrides)
+    return task
+
+
+def test_a_marketing_ticket_is_analyzed_against_the_marketing_repo(fake_clickup, fake_ecs, ecs_env):
+    # Growth-Bugs used to be refused outright, on the grounds that the agent
+    # only knew omni. It knows gp-marketing now, so the ticket is routed rather
+    # than refused — and routed is only useful if the launch actually carries
+    # the repo, which is what this asserts.
+    fake_clickup.task_response = growth_bugs_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert resp["statusCode"] == 200
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.MARKETING_REPO
+
+
+def test_an_ordinary_bug_is_still_analyzed_against_omni(fake_clickup, fake_ecs, ecs_env):
+    fake_clickup.task_response = {
+        "custom_id": "ENG-11101",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [],
+    }
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+
+
+def test_a_marketing_ticket_cannot_open_a_pr_while_that_repo_is_analyze_only(fake_clickup, fake_ecs, ecs_env):
+    # The ramp has to hold against a HAND-APPLIED gpbot-work, not just against
+    # the analysis escalating. gp-marketing has no PR triage and no CI drive
+    # watching it yet, so a PR opened there would be exactly the unowned bot PR
+    # the triage workflow exists to prevent.
+    fake_clickup.task_response = growth_bugs_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "repo is analyze-only"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_widening_the_implement_list_is_what_turns_marketing_prs_on(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # The flip, pinned: one variable, and the same ticket that was held back
+    # above now launches — against gp-marketing, not omni.
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, f"{handler.OMNI_REPO},{handler.MARKETING_REPO}")
+    fake_clickup.task_response = growth_bugs_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert resp["statusCode"] == 200
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.MARKETING_REPO
+
+
+def test_a_blank_implement_list_does_not_disable_the_bot(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # An empty variable means "not configured", never "no repo may be written
+    # to" — that reading would turn a Terraform typo into a silent outage of
+    # every implement run, which is the failure nobody notices for two weeks.
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, "   ")
+    fake_clickup.task_response = {
+        "custom_id": "ENG-11102",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [],
+    }
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert resp["statusCode"] == 200
+    assert len(fake_ecs.run_task_calls) == 1
+
+
+def test_a_data_ticket_in_the_marketing_list_is_still_refused(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # Routing decides WHICH repo; it does not decide WHETHER this is code work.
+    # The data guard has to survive a ticket being routable, or enabling a repo
+    # quietly widens the data boundary along with it.
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, f"{handler.OMNI_REPO},{handler.MARKETING_REPO}")
+    fake_clickup.task_response = growth_bugs_task(custom_id="DATA-2400")
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 

@@ -219,10 +219,11 @@ def get_dedup_window_seconds() -> float:
     return DEFAULT_DEDUP_COMMENT_WINDOW_SECONDS
 
 
-# Repo guidance (omni monorepo, archived standalone repos) deliberately does
-# NOT live here: it is baked into the agent's capability prompt
-# (engineer_agent/agent/config.py, pinned by engineer_agent/tests). These
-# instructions carry only the per-task contract.
+# Repo guidance deliberately does NOT live here: it is baked into the agent's
+# capability prompt (engineer_agent/agent/repos.py, selected per run by the
+# TARGET_REPO override this module sets). These instructions carry only the
+# per-task contract, which is why they name no repo and no branch — the same
+# text is used for an omni ticket and a gp-marketing one.
 ANALYZE_INSTRUCTION = """## YOUR TASK: Analyze and Report
 
 **Approach this ticket with healthy skepticism.** It may be out of date - the issue
@@ -231,7 +232,7 @@ or the reporter may have been incorrect.
 
 ## VERIFICATION (required)
 
-- Verify every claim against the live code in omni and cite `file:line`.
+- Verify every claim against the live code and cite `file:line`.
 - Attempt to reproduce the issue before concluding anything about it.
 - State explicitly when something could not be verified.
 
@@ -247,7 +248,7 @@ GPBOT-VERDICT: no-code-change
 GPBOT-VERDICT: needs-human
 ```
 
-- `fix` — a real defect in omni code, you found the root cause, and the change
+- `fix` — a real defect in the code, you found the root cause, and the change
   is small and bounded enough that a competent PR could be opened from what you
   already know. **This one automatically queues an implementation run, so only
   use it when you would be comfortable reviewing that PR yourself.**
@@ -302,7 +303,7 @@ your findings and recommend a human handle the implementation.
 
 Branch naming: `<custom_id>/gp-bot_<description-slug>` (use the task's custom_id like ENG-1234, not the internal ID)
 PR title format: `[GP-Bot] <custom_id> <description>`
-PRs target omni's `main` branch.
+Open the PR against the branch named in your repo briefing above.
 
 Post the PR link to ClickUp when done.
 """
@@ -310,6 +311,14 @@ Post the PR link to ClickUp when done.
 # CI DRIVE: what a run launched by .github/workflows/gpbot-ci-drive.yml is told
 # once a failing check on a [GP-Bot] PR has already survived a re-run (see
 # clickup_bot/ci_triage.py for the triage that decides a failure has earned this).
+#
+# STILL NAMES omni EXPLICITLY, unlike the analyze/implement instructions above,
+# and deliberately: the only thing that launches these runs is
+# .github/workflows/gpbot-ci-drive.yml, which lives in omni and is triggered by
+# omni's own workflow runs, so a PR reaching here is an omni PR by construction.
+# When the drive gains a copy in another repo, the repo has to cross the Lambda
+# boundary with the PR number and these templates take it as a parameter — with
+# the same allowlist validation the rest of that payload gets.
 #
 # ONLY THE PR NUMBER IS INTERPOLATED, and it is validated as an integer before it
 # gets here. Check names, step names and log text are all deliberately left out:
@@ -611,16 +620,84 @@ TASK_CREATED_EVENT = "taskCreated"
 # posts an investigation comment, it is used on data tickets constantly, and
 # it is trusted. Only opening a code PR against a data ticket is wrong.
 DATA_BACKLOG_LIST_ID = "901326391561"
-# Growth-Bugs is marketing-site work that does not live in omni at all, so the
-# agent would burn a full run and produce nothing.
-GROWTH_BUGS_LIST_ID = "901326170992"
 
-OUT_OF_SCOPE_LIST_IDS = frozenset({DATA_BACKLOG_LIST_ID, GROWTH_BUGS_LIST_ID})
+OUT_OF_SCOPE_LIST_IDS = frozenset({DATA_BACKLOG_LIST_ID})
 OUT_OF_SCOPE_CUSTOM_ID_PREFIXES = ("DATA-",)
 # The data team's own marker for district/voter-file problems. Catches data
 # work that was filed into (or triaged into) an ENG list, where neither the
 # custom_id nor the list id would flag it.
 OUT_OF_SCOPE_TAG_NAMES = frozenset({"bug: district-assignment"})
+
+
+# WHICH REPO A TICKET IS ABOUT.
+#
+# Growth-Bugs used to sit in OUT_OF_SCOPE_LIST_IDS above, on the grounds that
+# marketing-site work "does not live in omni at all". That was true and is still
+# true — what changed is that the agent can now be pointed at the repo it does
+# live in, so the right answer is to route the ticket rather than refuse it.
+#
+# The LIST is the routing key because it is the only signal that is already
+# reliable: it is set when the ticket is filed, a human never has to remember
+# it, and it is the same field the scope guard reads. Ticket text is not a
+# routing key — "the site is broken" appears in both.
+#
+# Anything not named here is omni. That default is the whole safety property of
+# this table: a new list, a moved ticket or a typo'd id lands on the repo the
+# bot has always used, never on a repo nobody chose.
+#
+# THE OTHER HALF OF A NEW REPO lives in engineer_agent/agent/repos.py, which
+# says how to work in it. Adding an entry here without one there fails the run
+# loudly (UnknownRepoError) rather than quietly working in the wrong codebase.
+OMNI_REPO = "thegoodparty/omni"
+MARKETING_REPO = "thegoodparty/gp-marketing"
+
+GROWTH_BUGS_LIST_ID = "901326170992"
+
+REPO_BY_LIST_ID = {GROWTH_BUGS_LIST_ID: MARKETING_REPO}
+DEFAULT_REPO = OMNI_REPO
+
+# WHICH REPOS THE BOT MAY WRITE CODE IN, as opposed to merely read.
+#
+# A repo the bot has just learned to read is not a repo it has earned the right
+# to open PRs in. omni ramped that way — verdicts were logged for weeks before
+# GPBOT_ESCALATE_TO_WORK was flipped — and a new repo should ramp the same way
+# rather than inherit the trust omni spent months earning.
+#
+# ENFORCED HERE rather than only in the agent's escalation gate, because
+# escalation is not the only route to an implement run: a human can apply
+# gpbot-work by hand, and that must not be able to put an unowned PR into a repo
+# that has no PR triage and no CI drive watching it yet.
+#
+# Widening this is half the flip. The other half is GPBOT_ESCALATE_REPOS on the
+# agent, which stops the analysis TAGGING a ticket this would then refuse — the
+# DATA-2393 lesson, where a refusal downstream of a tag read as a broken
+# pipeline. Both live in Terraform; widen them together.
+IMPLEMENT_REPOS_ENV = "GPBOT_IMPLEMENT_REPOS"
+DEFAULT_IMPLEMENT_REPOS = frozenset({OMNI_REPO})
+
+
+def implement_repos() -> frozenset:
+    raw = os.environ.get(IMPLEMENT_REPOS_ENV, "")
+    named = frozenset(part.strip() for part in raw.split(",") if part.strip())
+    # Unset means "not configured", which has to mean the default rather than
+    # "no repo may be written to": the latter turns a blank variable into a
+    # silent, total outage of the implement half of the bot.
+    return named or DEFAULT_IMPLEMENT_REPOS
+
+
+def target_repo(task: Any) -> str:
+    # Which repo this ticket's fix belongs in. Shape-defensive and defaulting to
+    # omni: an unreadable list is the same as an unrouted one, and omni is where
+    # every ticket went before this existed.
+    if not isinstance(task, dict):
+        return DEFAULT_REPO
+    task_list = task.get("list")
+    if not isinstance(task_list, dict):
+        return DEFAULT_REPO
+    list_id = task_list.get("id")
+    if not isinstance(list_id, str):
+        return DEFAULT_REPO
+    return REPO_BY_LIST_ID.get(list_id, DEFAULT_REPO)
 
 
 def clickup_request(method: str, endpoint: str, data: dict | None = None) -> dict:
@@ -769,14 +846,14 @@ def out_of_scope_reason(task: Any) -> str | None:
         normalized_custom_id = custom_id.upper()
         for prefix in OUT_OF_SCOPE_CUSTOM_ID_PREFIXES:
             if normalized_custom_id.startswith(prefix):
-                return f"custom_id {custom_id} is not omni code work"
+                return f"custom_id {custom_id} is not code work"
 
     task_list = task.get("list")
     if isinstance(task_list, dict):
         list_id = task_list.get("id")
         if isinstance(list_id, str) and list_id in OUT_OF_SCOPE_LIST_IDS:
             list_name = task_list.get("name")
-            return f"list {list_name if isinstance(list_name, str) else list_id} is not omni code work"
+            return f"list {list_name if isinstance(list_name, str) else list_id} is not code work"
 
     tags = task.get("tags")
     if isinstance(tags, list):
@@ -1233,18 +1310,36 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
     # comment. Rejecting here also keeps the entire out-of-scope path down to
     # one ClickUp call, which matters once a workspace-wide automation is
     # feeding it every data ticket in the workspace.
+    # The task is now needed for EVERY label, not just implement: the ticket's
+    # list decides which repo the run is about (see REPO_BY_LIST_ID), and an
+    # analyze run pointed at the wrong repo reads the wrong codebase. That costs
+    # analyze triggers one ClickUp call they did not previously make. The volume
+    # this runs at makes that a fair price — analyze fires on tagged bugs only,
+    # tens per quarter, not the workspace-wide flood the guard below was
+    # optimised against.
+    if task is None:
+        try:
+            task = get_task(task_id)
+        except Exception as e:
+            # FAIL OPEN, the same trade try_acquire_dedup_lock makes: one
+            # wasted agent run costs a few dollars and a closeable PR, while
+            # refusing every bug during a ClickUp blip is a silent outage.
+            # Alarm-matching ("Failed to") on purpose — a persistent failure
+            # here disables the data boundary without changing any behavior an
+            # operator would otherwise notice.
+            #
+            # Routing fails open the same way, onto omni, which is where every
+            # ticket went before routing existed.
+            print(f"Failed to fetch task {task_id} for scope check, proceeding: {e}")
+
     if config["label"] == IMPLEMENT_LABEL:
-        if task is None:
-            try:
-                task = get_task(task_id)
-            except Exception as e:
-                # FAIL OPEN, the same trade try_acquire_dedup_lock makes: one
-                # wasted agent run costs a few dollars and a closeable PR, while
-                # refusing every bug during a ClickUp blip is a silent outage.
-                # Alarm-matching ("Failed to") on purpose — a persistent failure
-                # here disables the data boundary without changing any behavior an
-                # operator would otherwise notice.
-                print(f"Failed to fetch task {task_id} for scope check, proceeding: {e}")
+        ticket_repo = target_repo(task)
+        if ticket_repo not in implement_repos():
+            # Quiet, like the scope guard below: this is the ramp working, not a
+            # fault. The analysis still runs and still posts; only the code
+            # writing is held back.
+            print(f"Task {task_id} routes to {ticket_repo}, which is analyze-only; not launching {IMPLEMENT_LABEL}")
+            return {"statusCode": 200, "body": json.dumps({"skipped": "repo is analyze-only"})}
         if task is not None:
             skip_reason = out_of_scope_reason(task)
             if skip_reason:
@@ -1299,7 +1394,12 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
         return {"statusCode": 200, "body": json.dumps({"skipped": "duplicate suppressed"})}
 
     result = trigger_fargate_task(
-        task_id, config["instruction"], config["label"], config["model"], retry_ack=from_async_worker
+        task_id,
+        config["instruction"],
+        config["label"],
+        config["model"],
+        retry_ack=from_async_worker,
+        repo=target_repo(task),
     )
     if result.get("statusCode") != 200:
         # Launch failed: release the claim so the documented retry contract
@@ -1740,7 +1840,12 @@ def handler(event: dict, context: Any) -> dict:
 
 
 def trigger_fargate_task(
-    task_id: str, instruction: str, label: str, model: str = "sonnet", retry_ack: bool = False
+    task_id: str,
+    instruction: str,
+    label: str,
+    model: str = "sonnet",
+    retry_ack: bool = False,
+    repo: str = DEFAULT_REPO,
 ) -> dict:
     # retry_ack: True ONLY from the async worker, where ClickUp already has
     # its 200. The synchronous fallback (the guaranteed initial prod state
@@ -1760,7 +1865,7 @@ def trigger_fargate_task(
         post_failure_comment(task_id, error_msg)
         return {"statusCode": 500, "body": json.dumps({"error": error_msg})}
 
-    print(f"Triggering Fargate task for {task_id} with model={model}, label={label}")
+    print(f"Triggering Fargate task for {task_id} with model={model}, label={label}, repo={repo}")
 
     try:
         response = ecs_client.run_task(
@@ -1790,6 +1895,14 @@ def trigger_fargate_task(
                             # make an unrelated prompt edit silently change
                             # whether a run can queue an implementation.
                             {"name": "AGENT_LABEL", "value": label},
+                            # WHICH REPO, for the same reason as the label: a
+                            # value the launcher decided, not something the
+                            # agent infers from the ticket text. The agent
+                            # refuses to start on a repo it has no briefing for
+                            # rather than guessing, so a bad value here fails
+                            # the run instead of producing an analysis of the
+                            # wrong codebase.
+                            {"name": "TARGET_REPO", "value": repo},
                         ],
                     }
                 ]

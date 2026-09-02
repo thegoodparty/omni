@@ -71,6 +71,26 @@ RUN ARCH=$(uname -m) && \
     mv gh_2.63.2_linux_${GH_ARCH}/bin/gh /usr/local/bin/ && \
     rm -rf gh_2.63.2_linux_${GH_ARCH}
 
+# Install Bun (multi-arch)
+#
+# For gp-marketing, which pins bun@1.2.23 in packageManager and installs with
+# --frozen-lockfile in CI. Reaching for npm there writes a different lockfile
+# and fails the build after the agent has already done the work, so the tool has
+# to be in the image rather than something the run installs for itself.
+#
+# PINNED to the version that repo pins. A newer bun can resolve the lockfile
+# differently, which shows up as a diff nobody asked for.
+ENV BUN_INSTALL="/usr/local"
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then BUN_ARCH="x64"; \
+    elif [ "$ARCH" = "aarch64" ]; then BUN_ARCH="aarch64"; fi && \
+    curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v1.2.23/bun-linux-${BUN_ARCH}.zip" -o bun.zip && \
+    unzip -q bun.zip && \
+    mv "bun-linux-${BUN_ARCH}/bun" /usr/local/bin/bun && \
+    chmod +x /usr/local/bin/bun && \
+    rm -rf bun.zip "bun-linux-${BUN_ARCH}" && \
+    bun --version
+
 # Copy virtual environment from builder
 COPY --from=builder /app/.venv /app/.venv
 
