@@ -104,6 +104,15 @@ class TestTheBriefingTheModelReads:
         # ai-rules/ is a submodule and CI runs a check out of it.
         assert "--recurse-submodules" in build_capability_prompt(MARKETING)
 
+    def test_reading_the_marketing_repo_does_not_wait_on_an_admin(self):
+        # The repo is public. If the GitHub App installation does not cover it
+        # yet, an authenticated clone is refused — and without this fallback the
+        # entire analyze ramp would be blocked behind a GitHub org admin doing
+        # something, for a repo anyone can already read.
+        prompt = build_capability_prompt(MARKETING)
+        assert "https://github.com/thegoodparty/gp-marketing.git" in prompt
+        assert "PUBLIC" in prompt
+
 
 def test_the_image_ships_the_bun_the_prompt_promises():
     """A tool the briefing names has to exist in the container.

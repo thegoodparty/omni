@@ -70,6 +70,15 @@ git clone --depth 1 --recurse-submodules https://x-access-token:$GITHUB_TOKEN@gi
 ```
 Clone WITH submodules: `ai-rules/` is a submodule and CI runs a check out of it.
 
+If that clone is refused (403, or "repository not found"), the GitHub App
+installation does not cover this repo yet. It is PUBLIC, so read it without
+credentials rather than giving up:
+```bash
+git clone --depth 1 --recurse-submodules https://github.com/thegoodparty/gp-marketing.git /workspace/gp-marketing
+```
+An analysis can be finished that way. Pushing a branch cannot — if you need to
+push and the authenticated clone was refused, say so on the ticket and stop.
+
 Single Next.js 15 App Router app (React 19, TypeScript, Tailwind 4) — NOT a
 monorepo, so there is one root `package.json` and no `packages/` directory.
 Read the root `AGENTS.md` first; `CLAUDE.md` is a symlink to the same file.
