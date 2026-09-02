@@ -156,7 +156,7 @@ test('new-office follow-on: office picker shown, new active org', async ({
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()
   const submit = page
-    .getByRole('button', { name: /meet your campaign manager/i })
+    .getByRole('button', { name: /agree.*create my plan/i })
     .first()
   await expect(submit).toBeVisible({ timeout: 15_000 })
   await expect(submit).toBeEnabled()
