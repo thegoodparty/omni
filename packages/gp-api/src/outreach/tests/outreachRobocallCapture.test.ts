@@ -135,7 +135,12 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
 
     // Receipt emitted once with the deterministic messageId for dedup.
     expect(trackSpy).toHaveBeenCalledTimes(1)
-    const [, , , , messageId] = trackSpy.mock.calls[0] ?? []
+    const [, , properties, , messageId] = trackSpy.mock.calls[0] ?? []
+    // Receipt carries dollars (HubSpot stores it as-is): 650c → $6.50.
+    expect(properties).toEqual({
+      outreachId,
+      capturedAmountInDollars: calcRobocallTotalInCents(100) / 100,
+    })
     expect(messageId).toBe(`${outreachId}:receipt`)
   })
 
