@@ -1351,20 +1351,27 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
                 )
             return {"statusCode": 500, "body": json.dumps({"error": "failed to fetch task for scope and routing"})}
 
-        ticket_repo = target_repo(task)
-        if ticket_repo not in implement_repos():
-            # Quiet, like the scope guard below: this is the ramp working, not a
-            # fault. The analysis still runs and still posts; only the code
-            # writing is held back.
-            print(f"Task {task_id} routes to {ticket_repo}, which is analyze-only; not launching {IMPLEMENT_LABEL}")
-            return {"statusCode": 200, "body": json.dumps({"skipped": "repo is analyze-only"})}
-
         skip_reason = out_of_scope_reason(task)
         if skip_reason:
             # Quiet (no "ERROR"/"Failed to"): this is the guard working as
             # designed, and it fires on every data ticket in the workspace.
             print(f"Task {task_id} out of scope for {IMPLEMENT_LABEL}: {skip_reason}")
             return {"statusCode": 200, "body": json.dumps({"skipped": "out of scope"})}
+
+        # AFTER the scope check, matching the same ordering and the same reason
+        # in escalation.maybe_escalate. The ramp's skip count is its own
+        # measurement — while a repo is analyze-only, counting these answers
+        # "how many PRs would this repo have opened if it were on?", and that is
+        # the number the flip decision rests on. A data ticket refused for being
+        # data work would never have become a PR either way, so letting it land
+        # in this bucket inflates the answer.
+        ticket_repo = target_repo(task)
+        if ticket_repo not in implement_repos():
+            # Quiet, like the scope guard above: this is the ramp working, not a
+            # fault. The analysis still runs and still posts; only the code
+            # writing is held back.
+            print(f"Task {task_id} routes to {ticket_repo}, which is analyze-only; not launching {IMPLEMENT_LABEL}")
+            return {"statusCode": 200, "body": json.dumps({"skipped": "repo is analyze-only"})}
 
     try:
         comments = get_task_comments(task_id)

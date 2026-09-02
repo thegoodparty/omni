@@ -739,11 +739,15 @@ It never means "no repo", which would turn a Terraform typo into a silent total
 outage of the implement half of the bot.
 
 While a repo is analyze-only, a `fix` verdict there records the outcome
-`analyze-only repo (<repo>)`. That check runs **after** the scope guard, so the
-count of those outcomes answers exactly one question — *how many PRs would this
-repo have opened if it were on?* — which is the number the flip decision rests
-on. A data ticket refused for being data work would never have become a PR, so
-it is kept out of that bucket.
+`analyze-only repo (<repo>)`, and the Lambda records `repo is analyze-only`.
+
+**Both run after their scope guard**, and in both places that ordering is about
+measurement rather than correctness — either check refuses the ticket, so only
+the recorded reason changes. The count answers exactly one question, *how many
+PRs would this repo have opened if it were on?*, and that is the number the flip
+decision rests on. A data ticket refused for being data work would never have
+become a PR either way, so putting it in this bucket would pad the answer. The
+cheaper check running second is deliberate.
 
 ### What the marketing briefing carries
 

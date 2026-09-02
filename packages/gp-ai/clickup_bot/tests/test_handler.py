@@ -2923,6 +2923,26 @@ def test_a_data_ticket_in_the_marketing_list_is_still_refused(fake_clickup, fake
     assert_no_side_effects(fake_clickup, fake_ecs)
 
 
+def test_data_work_is_refused_as_data_work_not_as_an_analyze_only_repo(fake_clickup, fake_ecs, ecs_env):
+    # ORDERING, and the reason is measurement rather than correctness — both
+    # checks refuse the ticket, so only the recorded reason differs.
+    #
+    # While a repo is analyze-only, its skip count answers "how many PRs would
+    # this repo have opened if it were on?", which is the number the flip
+    # decision rests on. A data ticket would never have become a PR either way,
+    # so if the ramp check ran first it would pad that number with tickets the
+    # data guard was always going to refuse.
+    #
+    # Deliberately does NOT widen IMPLEMENT_REPOS, unlike the test above: with
+    # gp-marketing analyze-only, both guards would fire and the answer says
+    # which one ran first.
+    fake_clickup.task_response = growth_bugs_task(custom_id="DATA-2400")
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "out of scope"
+
+
 def test_district_assignment_tag_blocks_implement_inside_an_eng_list(fake_clickup, fake_ecs, ecs_env):
     # Data work triaged into an ENG list: neither the custom_id nor the list
     # id flags it, so the data team's own marker is the only remaining signal.
