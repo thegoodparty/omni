@@ -26,6 +26,7 @@ import handler
 import pytest
 
 from engineer_agent.agent import escalation
+from engineer_agent.agent.repos import resolve_repo
 from shared.clickup_client import ClickUpTask
 
 
@@ -57,11 +58,11 @@ CASES = [
         id="the Data Backlog list",
     ),
     pytest.param(
-        task_dump(list={"id": escalation.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"}),
-        id="the Growth-Bugs list",
+        task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"}),
+        id="the Growth-Bugs list, which is now routed rather than refused",
     ),
     pytest.param(
-        task_dump(list={"id": escalation.GROWTH_BUGS_LIST_ID}),
+        task_dump(list={"id": escalation.DATA_BACKLOG_LIST_ID}),
         id="an out-of-scope list with no name",
     ),
     pytest.param(
@@ -99,6 +100,60 @@ def test_the_lists_are_the_same_lists():
     assert escalation.OUT_OF_SCOPE_LIST_IDS == handler.OUT_OF_SCOPE_LIST_IDS
     assert escalation.OUT_OF_SCOPE_CUSTOM_ID_PREFIXES == handler.OUT_OF_SCOPE_CUSTOM_ID_PREFIXES
     assert escalation.OUT_OF_SCOPE_TAG_NAMES == handler.OUT_OF_SCOPE_TAG_NAMES
+
+
+def test_every_routed_repo_has_a_briefing():
+    """The other half of the two-table split, pinned at CI time.
+
+    handler.py says a routing entry with no matching profile "fails the run
+    loudly", and it does — on the first real ticket, in production. That is the
+    loud-but-late failure the mirror test above exists to prevent for the scope
+    rules, and routing deserves the same treatment: adding a list->repo mapping
+    and forgetting the briefing otherwise passes every test.
+    """
+    for list_id, repo_name in handler.REPO_BY_LIST_ID.items():
+        # Raises UnknownRepoError, which is the assertion.
+        assert resolve_repo(repo_name).full_name == repo_name, f"list {list_id} routes to an unbriefed repo"
+
+    # The default is reachable without a list entry, so it needs checking too.
+    assert resolve_repo(handler.DEFAULT_REPO).full_name == handler.DEFAULT_REPO
+
+
+def test_a_repo_may_only_be_written_to_if_it_can_be_routed_to():
+    # An implement allowlist naming a repo nothing routes to is dead config that
+    # reads like an enabled feature. Every writable repo is either the default
+    # or has a list pointing at it.
+    routable = set(handler.REPO_BY_LIST_ID.values()) | {handler.DEFAULT_REPO}
+
+    assert handler.DEFAULT_IMPLEMENT_REPOS <= routable
+
+
+def test_the_two_ramp_switches_start_from_the_same_place():
+    """The third mirrored pair, and the one with the sharpest edge.
+
+    `GPBOT_IMPLEMENT_REPOS` (Lambda) and `GPBOT_ESCALATE_REPOS` (agent) live in
+    different Terraform modules and are only compared at runtime, by two
+    processes that never talk. A unit test cannot see what Terraform sets — but
+    it can see the DEFAULTS, and those are what every environment gets until
+    someone deliberately overrides them.
+
+    The harmful direction is escalation wider than implement: the analysis tags
+    a ticket the Lambda then refuses, which is a `gpbot-work` tag with no run
+    and no PR behind it. That combination read as a broken pipeline on
+    2026-09-01 and cost an investigation to explain.
+    """
+    assert handler.DEFAULT_IMPLEMENT_REPOS == frozenset(escalation.DEFAULT_ESCALATION_REPOS)
+
+
+def test_a_marketing_ticket_is_a_different_repo_not_a_refusal():
+    # Growth-Bugs sat in OUT_OF_SCOPE_LIST_IDS until gp-marketing became a repo
+    # the agent could be pointed at. Both copies have to have let go of it, or
+    # marketing tickets keep being refused by whichever copy still remembers.
+    marketing = task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"})
+
+    assert handler.out_of_scope_reason(marketing) is None
+    assert escalation.out_of_scope_reason(marketing) is None
+    assert handler.target_repo(marketing) == handler.MARKETING_REPO
 
 
 def test_the_mirror_is_never_the_only_thing_holding():

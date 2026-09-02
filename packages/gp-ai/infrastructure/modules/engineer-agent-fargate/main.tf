@@ -55,6 +55,34 @@ variable "escalate_analysis_to_work" {
   default     = false
 }
 
+variable "escalation_repos" {
+  description = <<-EOT
+    Which repos an analyze run may tag a ticket into an implementation run for,
+    as a comma-separated list of `owner/name`.
+
+    The switch above is the master one and remains the kill switch for
+    everything. This one narrows it per repo, so a repo the bot has only just
+    learned to READ can be analyzed for a while before it is allowed to open PRs
+    there — the ramp omni had, rather than a new repo inheriting the trust omni
+    spent months earning.
+
+    Defaults to omni alone, so adding a repo to REPO_BY_LIST_ID in the Lambda
+    starts it analyze-only with no second decision required.
+
+    THIS IS HALF THE FLIP. It stops an analysis TAGGING a ticket; it does not
+    stop an implement run. The enforcement lives in the clickup-bot module's
+    implement_repos, and the two must be widened together — a tag applied to a
+    ticket the Lambda then refuses is what read as a broken pipeline on
+    2026-09-01.
+
+    Before adding a repo: that repo needs its own copies of gpbot-pr-triage and
+    gpbot-ci-drive, or its bot PRs open with no reviewer and nothing driving
+    them to green.
+  EOT
+  type        = string
+  default     = "thegoodparty/omni"
+}
+
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda function"
   type        = string
@@ -301,6 +329,10 @@ resource "aws_ecs_task_definition" "agent" {
         {
           name  = "GPBOT_ESCALATE_TO_WORK"
           value = tostring(var.escalate_analysis_to_work)
+        },
+        {
+          name  = "GPBOT_ESCALATE_REPOS"
+          value = var.escalation_repos
         }
       ]
     }

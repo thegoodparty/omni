@@ -591,17 +591,27 @@ def test_created_task_lookup_failure_never_comments_on_an_unrelated_ticket(fake_
     assert_alarm_log_emitted(capsys)
 
 
-def test_created_task_with_tag_in_the_delta_skips_the_lookup(fake_clickup, fake_ecs, ecs_env):
-    # If ClickUp does include the tag in the create payload, the free path must
-    # be taken: no GET /task for an analyze run. This is also what would let
-    # the lookup (and the secrets exposure it forces) be removed later.
+def test_a_tag_in_the_delta_still_costs_exactly_one_lookup(fake_clickup, fake_ecs, ecs_env):
+    # This used to assert ZERO lookups: the tag was in the create payload, so
+    # nothing had to be fetched to resolve it, and an analyze run went straight
+    # to launch.
+    #
+    # Routing changed that. Which repo a ticket belongs to is decided by its
+    # LIST, and the list is not in the delta, so an analyze run now pays for one
+    # GET /task it did not pay for before. The alternative is defaulting to omni
+    # whenever the fetch is inconvenient, which reads a marketing bug against
+    # the wrong codebase and reports it confidently.
+    #
+    # ONE is still the number that matters. The resolution path and the routing
+    # path share the fetch, as the scope guard already did; two would mean they
+    # had stopped sharing.
     event = make_event(created_body(history_items=[{"field": "tag", "after": [{"name": "gpbot-analyze"}]}]))
 
     resp = handler.handler(event, None)
 
     assert resp["statusCode"] == 200
     assert len(fake_ecs.run_task_calls) == 1
-    assert task_get_calls(fake_clickup) == []
+    assert len(task_get_calls(fake_clickup)) == 1
 
 
 def test_created_task_resolution_and_scope_guard_share_one_lookup(fake_clickup, fake_ecs, ecs_env):
@@ -2823,19 +2833,114 @@ def test_data_backlog_list_blocks_implement_without_a_custom_id(fake_clickup, fa
     assert_no_side_effects(fake_clickup, fake_ecs)
 
 
-def test_growth_bugs_list_blocks_implement(fake_clickup, fake_ecs, ecs_env):
-    # Growth-Bugs is marketing-site work that does not live in omni; the agent
-    # only knows omni, so a run there produces nothing.
+def growth_bugs_task(**overrides) -> dict:
+    task = {
+        "custom_id": "ENG-11100",
+        "list": {"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"},
+        "tags": [],
+    }
+    task.update(overrides)
+    return task
+
+
+def test_a_marketing_ticket_is_analyzed_against_the_marketing_repo(fake_clickup, fake_ecs, ecs_env):
+    # Growth-Bugs used to be refused outright, on the grounds that the agent
+    # only knew omni. It knows gp-marketing now, so the ticket is routed rather
+    # than refused — and routed is only useful if the launch actually carries
+    # the repo, which is what this asserts.
+    fake_clickup.task_response = growth_bugs_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert resp["statusCode"] == 200
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.MARKETING_REPO
+
+
+def test_an_ordinary_bug_is_still_analyzed_against_omni(fake_clickup, fake_ecs, ecs_env):
     fake_clickup.task_response = {
-        "custom_id": None,
-        "list": {"id": "901326170992", "name": "Growth-Bugs"},
+        "custom_id": "ENG-11101",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [],
+    }
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+
+
+def test_a_marketing_ticket_cannot_open_a_pr_while_that_repo_is_analyze_only(fake_clickup, fake_ecs, ecs_env):
+    # The ramp has to hold against a HAND-APPLIED gpbot-work, not just against
+    # the analysis escalating. gp-marketing has no PR triage and no CI drive
+    # watching it yet, so a PR opened there would be exactly the unowned bot PR
+    # the triage workflow exists to prevent.
+    fake_clickup.task_response = growth_bugs_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "repo is analyze-only"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_widening_the_implement_list_is_what_turns_marketing_prs_on(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # The flip, pinned: one variable, and the same ticket that was held back
+    # above now launches — against gp-marketing, not omni.
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, f"{handler.OMNI_REPO},{handler.MARKETING_REPO}")
+    fake_clickup.task_response = growth_bugs_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert resp["statusCode"] == 200
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.MARKETING_REPO
+
+
+def test_a_blank_implement_list_does_not_disable_the_bot(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # An empty variable means "not configured", never "no repo may be written
+    # to" — that reading would turn a Terraform typo into a silent outage of
+    # every implement run, which is the failure nobody notices for two weeks.
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, "   ")
+    fake_clickup.task_response = {
+        "custom_id": "ENG-11102",
+        "list": {"id": "901321761872", "name": "Bugs"},
         "tags": [],
     }
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 
+    assert resp["statusCode"] == 200
+    assert len(fake_ecs.run_task_calls) == 1
+
+
+def test_a_data_ticket_in_the_marketing_list_is_still_refused(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # Routing decides WHICH repo; it does not decide WHETHER this is code work.
+    # The data guard has to survive a ticket being routable, or enabling a repo
+    # quietly widens the data boundary along with it.
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, f"{handler.OMNI_REPO},{handler.MARKETING_REPO}")
+    fake_clickup.task_response = growth_bugs_task(custom_id="DATA-2400")
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
     assert response_body(resp)["skipped"] == "out of scope"
     assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_data_work_is_refused_as_data_work_not_as_an_analyze_only_repo(fake_clickup, fake_ecs, ecs_env):
+    # ORDERING, and the reason is measurement rather than correctness — both
+    # checks refuse the ticket, so only the recorded reason differs.
+    #
+    # While a repo is analyze-only, its skip count answers "how many PRs would
+    # this repo have opened if it were on?", which is the number the flip
+    # decision rests on. A data ticket would never have become a PR either way,
+    # so if the ramp check ran first it would pad that number with tickets the
+    # data guard was always going to refuse.
+    #
+    # Deliberately does NOT widen IMPLEMENT_REPOS, unlike the test above: with
+    # gp-marketing analyze-only, both guards would fire and the answer says
+    # which one ran first.
+    fake_clickup.task_response = growth_bugs_task(custom_id="DATA-2400")
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "out of scope"
 
 
 def test_district_assignment_tag_blocks_implement_inside_an_eng_list(fake_clickup, fake_ecs, ecs_env):
@@ -2879,18 +2984,48 @@ def test_eng_bug_still_launches_with_the_guard_in_place(fake_clickup, fake_ecs, 
     assert len(fake_ecs.run_task_calls) == 1
 
 
-def test_scope_lookup_failure_fails_open_and_alarms(fake_clickup, fake_ecs, ecs_env, capsys):
-    # FAIL OPEN: one wasted run costs a few dollars and a closeable PR, while
-    # refusing every bug during a ClickUp blip is a silent outage. Alarming is
-    # the other half — a persistent failure here disables the data boundary
-    # without changing anything an operator would otherwise notice.
+def test_an_implement_run_fails_closed_when_the_task_cannot_be_read(fake_clickup, fake_ecs, ecs_env, capsys):
+    # THIS REVERSED when routing landed, and the reversal is the point.
+    #
+    # Failing open was right while omni was the only repo: the worst case was
+    # one wasted run against the codebase the ticket was going to be about
+    # anyway. Now, no task means no list, no list means no repo, and the omni
+    # default is always writable — so a marketing ticket would slip past the
+    # ramp and open a PR in the wrong codebase. A wasted run is cheap; a wrong
+    # one is not.
     fake_clickup.get_task_error = URLError("clickup unreachable")
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 
-    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
-    assert len(fake_ecs.run_task_calls) == 1
+    assert resp["statusCode"] == 500
+    assert fake_ecs.run_task_calls == []
     assert "Failed to fetch task" in assert_alarm_log_emitted(capsys)
+
+
+def test_an_analyze_run_still_proceeds_when_the_task_cannot_be_read(fake_clickup, fake_ecs, ecs_env, capsys):
+    # Analyze keeps failing open, and the asymmetry is deliberate: it writes
+    # nothing. The bad case is a run that reads omni for a marketing ticket,
+    # finds nothing and says so on the ticket — visible, recoverable, and much
+    # cheaper than stopping every analysis in the workspace during a blip.
+    fake_clickup.get_task_error = URLError("clickup unreachable")
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+    assert "Failed to fetch task" in assert_alarm_log_emitted(capsys)
+
+
+def test_a_refused_implement_leaves_the_tagger_a_way_back(fake_clickup, fake_ecs, ecs_env):
+    # On the async path ClickUp already has its 200, so a bare 500 goes nowhere
+    # and the ticket would show nothing at all. The failure comment carries the
+    # documented "remove and re-add the tag" retry.
+    fake_clickup.get_task_error = URLError("clickup unreachable")
+
+    handler.handler(async_worker_event(matched_tag="gpbot-work"), None)
+
+    assert fake_ecs.run_task_calls == []
+    assert len(fake_clickup.posted_comments) == 1
 
 
 def test_out_of_scope_task_never_writes_a_dedup_claim(fake_clickup, fake_ecs, fake_dynamodb, ecs_env, dedup_table_env):

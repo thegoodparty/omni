@@ -2,6 +2,8 @@ import math
 import os
 from dataclasses import dataclass
 
+from .repos import resolve_repo
+
 BOT_PREFIX = "[GP-Bot]"
 
 # Per-run ceilings. Until now a run had neither: max_turns=200 on Opus with no
@@ -55,6 +57,11 @@ class AgentConfig:
     # closed in that case rather than treating an unknown run as an analysis
     # allowed to queue implementation work.
     label: str = ""
+    # Which repo this run is about, set by the ClickUp bot's container override
+    # from the ticket's list. Empty means nobody routed — a local run, or a task
+    # definition from before multi-repo — and resolve_repo() reads that as omni,
+    # which is what every such run meant before this field existed.
+    target_repo: str = ""
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
@@ -67,6 +74,7 @@ class AgentConfig:
             max_budget_usd=_positive_float_from_env("AGENT_MAX_BUDGET_USD", DEFAULT_MAX_BUDGET_USD),
             deadline_seconds=_positive_float_from_env("AGENT_DEADLINE_SECONDS", DEFAULT_DEADLINE_SECONDS),
             label=os.environ.get("AGENT_LABEL", ""),
+            target_repo=os.environ.get("TARGET_REPO", ""),
         )
 
 
@@ -75,31 +83,28 @@ CAPABILITIES = {
 }
 
 
-def build_capability_prompt() -> str:
-    return """You are an expert software engineer.
+def build_capability_prompt(target_repo: str | None = None) -> str:
+    """The system prompt, briefed for the one repo this run is about.
+
+    Only the target repo's briefing is included. Handing the model every repo it
+    could theoretically touch and trusting it to pick invites exactly the mistake
+    that is most expensive here — working confidently in the wrong codebase.
+    """
+    profile = resolve_repo(target_repo)
+    return f"""You are an expert software engineer.
 
 ## TOOLS AVAILABLE
 
-**CLI**: git, gh, aws, python, node, npm (can install more via apt-get/pip)
+**CLI**: git, gh, aws, python, node, npm, bun (can install more via apt-get/pip)
 
 **GitHub org**: thegoodparty
 
-Product code lives in the **thegoodparty/omni** monorepo (default branch `main`):
-```bash
-git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/omni.git /workspace/omni
-```
-Packages live under `packages/`: gp-webapp, gp-api, election-api,
-gp-admin, candidate-sites, gp-sdk, contracts, gp-ai. Open PRs against omni's `main`.
+## THE REPO FOR THIS TASK
 
-Your own code (this agent, the ClickUp bot) lives in omni at `packages/gp-ai` —
-it is NOT a separate repo.
+This run is about **{profile.full_name}**. Work in that repo and no other, and
+open any PR against its `{profile.base_branch}` branch.
 
-The old standalone repos (gp-webapp, gp-api, people-api, election-api,
-gp-ai-projects) are **archived** (read-only) — never clone them and never open a
-PR against them. gp-data-platform remains a separate live repo:
-```bash
-git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/gp-data-platform.git /workspace/gp-data-platform
-```
+{profile.briefing}
 
 **Databricks** (read-only): `python -m engineer_agent.scripts.query_db --help`
 Default catalog: goodparty_data_catalog.dbt

@@ -309,23 +309,27 @@ def test_the_data_ticket_that_prompted_this_is_not_queued(log):
     assert any("fix" in line and TASK_ID in line for line in log.infos)
 
 
-def test_a_growth_bugs_ticket_is_caught_through_the_real_task_model():
+def test_a_ticket_caught_only_by_its_list_survives_the_real_task_model():
     # Deliberately built from ClickUpTask rather than a hand-written dict.
     # ClickUpTask aliases the API's `list` onto a field named `list_id`, so a
-    # plain model_dump() drops the `list` key entirely — and the list is the
-    # ONLY thing identifying this ticket, which carries an ENG custom_id and no
-    # data tag. A hand-made dict would pass while production silently widened.
+    # plain model_dump() drops the `list` key entirely. This ticket carries an
+    # ENG custom_id and no data tag, so the LIST is the only thing identifying
+    # it — a hand-made dict would pass while production silently widened.
+    #
+    # Growth-Bugs used to be this test's subject. It is a routed repo now rather
+    # than a refusal, so the case moved to a data ticket filed without the
+    # DATA- prefix, which is the remaining list-only signal.
     task = in_scope_task(
         custom_id="ENG-11020",
-        name="marketing site footer link 404s",
-        list={"id": escalation.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"},
+        name="voter file shows the wrong district",
+        list={"id": escalation.DATA_BACKLOG_LIST_ID, "name": "Data Backlog"},
     )
     client = FakeClickUpClient(task=task)
 
     outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client))
 
     assert outcome.startswith("out of scope")
-    assert "Growth-Bugs" in outcome
+    assert "Data Backlog" in outcome
     assert client.added_tags == []
 
 
@@ -391,6 +395,105 @@ def test_an_unreadable_ticket_is_left_to_the_lambda(task):
 
 def test_a_lowercase_data_prefix_is_still_data_work():
     assert escalation.out_of_scope_reason({"custom_id": "data-2393"}) is not None
+
+
+# ---------------------------------------------------------------------------
+# The per-repo ramp
+#
+# A repo the bot has just learned to READ has not earned the right to open PRs
+# in it. omni logged verdicts for weeks before its switch was flipped; a new
+# repo gets the same treatment rather than inheriting that trust.
+# ---------------------------------------------------------------------------
+
+
+def test_a_new_repo_is_analyze_only_until_someone_says_otherwise():
+    # The default, and the direction it is safe to be wrong in: the cost of
+    # this default is a missing PR, and the cost of the other one is an
+    # unrequested PR in a repo nobody agreed to.
+    client = FakeClickUpClient(task=in_scope_task())
+
+    outcome = maybe_escalate(
+        analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client), target_repo="thegoodparty/gp-marketing"
+    )
+
+    assert outcome.startswith("analyze-only repo")
+    assert "gp-marketing" in outcome
+    assert client.added_tags == []
+
+
+def test_the_verdict_is_still_logged_for_an_analyze_only_repo(log):
+    # The whole value of a ramp is being able to read what it WOULD have opened
+    # before widening it. A silent skip makes the ramp unreviewable.
+    client = FakeClickUpClient(task=in_scope_task())
+
+    maybe_escalate(
+        analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client), target_repo="thegoodparty/gp-marketing"
+    )
+
+    assert any("fix" in line and TASK_ID in line for line in log.infos)
+
+
+def test_naming_the_repo_is_what_turns_it_on(monkeypatch):
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, "thegoodparty/omni,thegoodparty/gp-marketing")
+    client = FakeClickUpClient(task=in_scope_task())
+
+    outcome = maybe_escalate(
+        analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client), target_repo="thegoodparty/gp-marketing"
+    )
+
+    assert outcome == "escalated"
+    assert client.added_tags == [(TASK_ID, IMPLEMENT_TAG)]
+
+
+def test_an_unrouted_run_is_treated_as_omni():
+    # Backward compatibility with every run launched before TARGET_REPO existed.
+    client = FakeClickUpClient(task=in_scope_task())
+
+    outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client), target_repo="")
+
+    assert outcome == "escalated"
+
+
+def test_a_blank_repo_list_does_not_silently_disable_escalation(monkeypatch):
+    # An empty variable means "not configured", never "no repo may escalate".
+    # The latter turns a Terraform typo into a total outage of the feature that
+    # looks exactly like the model having no opinions.
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, "  ,  ")
+    client = FakeClickUpClient(task=in_scope_task())
+
+    outcome = maybe_escalate(
+        analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client), target_repo="thegoodparty/omni"
+    )
+
+    assert outcome == "escalated"
+
+
+def test_the_master_switch_still_beats_the_repo_list(monkeypatch):
+    # The kill switch has to remain a kill switch: a repo on the allowlist must
+    # not escalate once the master switch is off.
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, "thegoodparty/omni")
+    monkeypatch.delenv(ESCALATION_ENABLED_ENV, raising=False)
+    client = FakeClickUpClient(task=in_scope_task())
+
+    outcome = maybe_escalate(
+        analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client), target_repo="thegoodparty/omni"
+    )
+
+    assert outcome == "disabled"
+    assert client.added_tags == []
+
+
+def test_scope_is_checked_before_the_repo_ramp():
+    # A data ticket routed to an analyze-only repo is refused for being data
+    # work, not for the ramp. The scope reason is the one a human needs, and it
+    # stays true after the ramp is widened.
+    client = FakeClickUpClient(task=in_scope_task(custom_id="DATA-2400"))
+
+    outcome = maybe_escalate(
+        analysis("GPBOT-VERDICT: fix"), "analyze", factory_for(client), target_repo="thegoodparty/gp-marketing"
+    )
+
+    assert outcome.startswith("out of scope")
 
 
 # ---------------------------------------------------------------------------

@@ -57,20 +57,24 @@ still works and skips straight to the PR.
      case since `taskCreated` fires for every task created in the workspace.
      The fetched task is reused by the scope guard below, so this path costs one
      `GET /task`, not two.
-   - Scope guard (`implement` only): `GET /task/{id}` and skip when the task is
-     not omni code work. See "Scope guard" below.
+   - `GET /task/{id}` — needed for EVERY label now, because the ticket's list
+     decides which repo the run is about. See "More than one repo" below.
+   - Scope guard (`implement` only): skip when the task is not code work, and
+     skip when it routes to a repo that is still analyze-only. See "Scope
+     guard" and "More than one repo" below.
    - Dedup check: does the task already have a **recent** `[GP-Bot] Processing
      started` comment **for the same label**? → Skip. Analyze and implement
      dedup independently. See "Dedup semantics" below.
    - Atomic dedup claim: conditional DynamoDB write on `{task_id}#{label}` —
      exactly one concurrent worker wins; losers skip quietly. See "Dedup
      semantics" below.
-   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, `AGENT_MODEL`
-     and `AGENT_LABEL` as container-override env vars (the instruction encodes
-     the analyze-vs-implement contract; there is no `OUTPUT_ACTION`).
-     `AGENT_LABEL` is what the agent gates escalation on — see "Analyze before
-     implement" — and is passed as a value so a prompt edit cannot silently
-     change whether a run may open a PR
+   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, `AGENT_MODEL`,
+     `AGENT_LABEL` and `TARGET_REPO` as container-override env vars (the
+     instruction encodes the analyze-vs-implement contract; there is no
+     `OUTPUT_ACTION`). `AGENT_LABEL` is what the agent gates escalation on — see
+     "Analyze before implement" — and both it and `TARGET_REPO` are passed as
+     values so a prompt edit cannot silently change whether a run may open a PR,
+     or which repo it opens one in
    - Posts the `[GP-Bot] Processing started (...)` comment — which also tells
      the user the re-tag cooldown — only after the Fargate task actually
      launched. In the async worker it is retried once on failure (this comment
@@ -293,7 +297,7 @@ as the guard working perfectly.
 
 So escalation now applies the same rule to the task it **already fetches** for the
 `gpbot-work` check, at no extra API call. An out-of-scope ticket is left untagged
-and the outcome reads `out of scope (custom_id DATA-2393 is not omni code work)`,
+and the outcome reads `out of scope (custom_id DATA-2393 is not code work)`,
 which is the sentence that would have answered the question in a minute.
 
 The rule exists twice because it has to. Terraform zips the Lambda as a single
@@ -622,10 +626,16 @@ An implement trigger is skipped (200, `{"skipped": "out of scope"}`) when any of
 
 | Signal | Value | Why |
 |---|---|---|
-| `custom_id` prefix | `DATA-` | Voter-file/district work, not an omni code change |
+| `custom_id` prefix | `DATA-` | Voter-file/district work, not a code change |
 | `list.id` | `901326391561` (Data Backlog) | Catches DATA-list tasks with no custom ID |
-| `list.id` | `901326170992` (Growth-Bugs) | Marketing-site work; does not live in omni |
 | tag | `bug: district-assignment` | The data team's marker, for data work sitting in an ENG list |
+
+Growth-Bugs (`901326170992`) was in this table until marketing tickets became
+routable. It was refused because "marketing-site work does not live in omni",
+which was true and still is — what changed is that the bot can now be pointed at
+the repo it *does* live in. See "More than one repo" below. Being routable does
+not make it exempt from the rest of the table: a `DATA-` ticket filed into
+Growth-Bugs is still data work and still refused.
 
 Two orderings are load-bearing. The guard runs **before the comments GET**, so a
 rejected task costs one ClickUp call rather than two — it now fires on every
@@ -633,9 +643,21 @@ data ticket in the workspace. And it runs **before the dedup claim**, because a
 claim written for a task we then refuse would outlive the delivery and suppress
 a legitimate re-tag for the whole TTL.
 
-If the lookup itself fails the guard **fails open** and the run proceeds, with
-an alarm-matching log line. One wasted run costs a few dollars and a closeable
-PR; refusing every bug during a ClickUp blip is a silent outage.
+If the lookup itself fails, the two labels answer differently and the asymmetry
+is deliberate. Both log an alarm-matching line.
+
+**Analyze fails open** and the run proceeds. It writes nothing: the bad case is
+a run that reads omni for a marketing ticket, finds nothing and says so on the
+ticket — visible, recoverable, and far cheaper than stopping every analysis in
+the workspace during a ClickUp blip.
+
+**Implement fails closed** (500, and on the async path a failure comment
+carrying the "remove and re-add the tag" retry). This reversed when routing
+landed. Failing open was right while omni was the only repo — one wasted run
+against the codebase the ticket was going to be about anyway. Now no task means
+no list, no list means no repo, and the omni default is always writable, so a
+marketing ticket would slip past the ramp and open a PR in the wrong codebase.
+A wasted run is cheap; a wrong one is not.
 
 This rule is mirrored in `engineer_agent/agent/escalation.py`, which applies it
 before tagging so a refused ticket is never tagged in the first place. **This
@@ -643,6 +665,127 @@ guard remains the authority** — it runs on the task it fetches itself, whateve
 the agent decided earlier. A change here needs the same change there, and
 `clickup_bot/tests/test_scope_is_mirrored.py` fails if it does not get one. See
 "Why escalation checks scope too" above.
+
+## More than one repo
+
+Bugs in the marketing website do not live in omni. They live in
+`thegoodparty/gp-marketing`, and until 2026-09-02 the bot refused them outright
+because it knew exactly one repo — as a paragraph of English in the agent's
+system prompt, not as configuration.
+
+### Who decides what
+
+Two questions, two places, and they do not overlap:
+
+| Question | Answered in | Keyed on |
+|---|---|---|
+| WHICH repo is this ticket about? | `REPO_BY_LIST_ID` in `lambda/handler.py` | the ticket's ClickUp list |
+| HOW do I work in that repo? | `REPO_PROFILES` in `engineer_agent/agent/repos.py` | the repo's full name |
+
+The Lambda resolves the repo and passes it as a `TARGET_REPO` container
+override, next to `AGENT_LABEL` and for the same reason: a value the launcher
+decided, never something the agent infers from ticket prose. The agent selects
+one briefing from it and puts **only that one** in the system prompt. Handing
+the model every repo and trusting it to choose is the single-repo prompt with
+extra steps.
+
+Nothing is duplicated between the two tables, so neither has to be kept in step
+with the other. A new repo needs one entry in each. An entry in the Lambda with
+no matching profile raises `UnknownRepoError` and **fails the run** rather than
+falling back to omni — a marketing bug analyzed against the monorepo produces a
+fluent, confident answer about a codebase the bug is not in, which is the
+failure mode hardest to spot because it looks like work.
+
+**The list is the routing key** because it is the only signal already reliable:
+set when the ticket is filed, never dependent on anyone remembering, and the
+same field the scope guard reads. Ticket text is not a routing key — "the site
+is broken" appears in both. Anything unrouted is omni, which is where every
+ticket went before this existed, so a new list or a typo'd id lands somewhere
+known rather than somewhere nobody chose.
+
+Routing costs the analyze path **one `GET /task` it did not previously pay**:
+the list is not in the webhook delta, and defaulting to omni whenever the fetch
+is inconvenient is the confident-wrong-codebase failure above. Analyze fires on
+tagged bugs only — tens per quarter — so the call is affordable at the volume
+this actually runs at.
+
+### A new repo is read-only first
+
+Learning to read a repo is not the same as earning the right to open PRs in it.
+omni logged verdicts for weeks before `GPBOT_ESCALATE_TO_WORK` was flipped, and
+a new repo ramps the same way instead of inheriting that trust.
+
+Two switches, and **both must be widened to turn a repo on**:
+
+| Switch | Where | Stops |
+|---|---|---|
+| `GPBOT_IMPLEMENT_REPOS` | the Lambda | launching an implement run at all |
+| `GPBOT_ESCALATE_REPOS` | the agent | an analysis *tagging* a ticket for one |
+
+Both default to omni alone, so a repo added to `REPO_BY_LIST_ID` starts
+analyze-only with no second decision required. The safe direction to be wrong
+in: the cost of this default is a missing PR, and the cost of the other is an
+unrequested PR in a repo nobody agreed to.
+
+The Lambda's is the **enforcement** — escalation is not the only route to an
+implement run, and a hand-applied `gpbot-work` must not be able to put an
+unowned PR into a repo with no PR triage and no CI drive watching it. The
+agent's exists so the analysis does not *tag* a ticket the Lambda would then
+refuse: that combination (tag applied, no run, no PR) is exactly what read as a
+broken pipeline on 2026-09-01 and cost an investigation to explain.
+
+An empty value for either means "not configured" and falls back to the default.
+It never means "no repo", which would turn a Terraform typo into a silent total
+outage of the implement half of the bot.
+
+While a repo is analyze-only, a `fix` verdict there records the outcome
+`analyze-only repo (<repo>)`, and the Lambda records `repo is analyze-only`.
+
+**Both run after their scope guard**, and in both places that ordering is about
+measurement rather than correctness — either check refuses the ticket, so only
+the recorded reason changes. The count answers exactly one question, *how many
+PRs would this repo have opened if it were on?*, and that is the number the flip
+decision rests on. A data ticket refused for being data work would never have
+become a PR either way, so putting it in this bucket would pad the answer. The
+cheaper check running second is deliberate.
+
+### What the marketing briefing carries
+
+Beyond the clone URL and the base branch (`develop`, not `main`), the
+`gp-marketing` profile warns about the things that repo does differently, and
+`engineer_agent/tests/test_repos.py` pins each of them:
+
+- **Bun, pinned to 1.2.23**, matching the repo's `packageManager`. Installed in
+  the agent image; a test fails if the briefing names a version the Dockerfile
+  does not ship.
+- **A green build proves little.** A broken block renders as nothing — unknown
+  block types render empty and an error boundary swallows render errors — so a
+  half-wired component passes every check and shows up only as a missing section
+  on the live site. The briefing tells the agent to name the page a human should
+  open in the Vercel preview rather than claim CI verified it.
+- **`next build` is not runnable** without Sanity and Vercel secrets, and it
+  type-checks route and layout types that `bun run typecheck` does not.
+- **The bug may not be code at all.** Copy, images and ordering are Sanity CMS
+  content; candidate data belongs to election-api. Writing code for those is the
+  most expensive wrong answer available, because the PR looks reasonable.
+- **Never read or regenerate `sanity.types.ts`** — a committed, generated 15 MB
+  file.
+
+### Still omni-only
+
+The CI-drive instruction templates in `handler.py` still name
+`thegoodparty/omni` explicitly. That is correct rather than an oversight: the
+only thing that launches those runs is `.github/workflows/gpbot-ci-drive.yml`,
+which lives in omni and is triggered by omni's own workflow runs, so a PR
+reaching them is an omni PR by construction. When that drive gains a copy in
+another repo, the repo has to cross the Lambda boundary alongside the PR number,
+with the same allowlist validation the rest of that payload gets.
+
+The same is true of `gpbot-pr-triage.yml`: it is an `on: pull_request` workflow
+in omni and can never see a PR in another repo. **Both need a copy in
+`gp-marketing` before `GPBOT_IMPLEMENT_REPOS` is widened**, or marketing bot PRs
+open with no reviewer, no Slack announcement and nothing driving them to green —
+the unowned-bot-PR failure that triage workflow was built to prevent.
 
 ## Dedup semantics
 
@@ -1008,7 +1151,7 @@ ever slips; it was ~100% across W31–W34.
 `engineer_agent/agent/metrics.py` logs one line at the end of every run:
 
 ```
-GPBOT_METRIC {"task_id","label","verdict","status","cost_usd","duration_s","escalation"}
+GPBOT_METRIC {"task_id","label","verdict","status","cost_usd","duration_s","escalation","repo"}
 ```
 
 Before it existed, the verdict and the cost had to be scraped out of prose
@@ -1030,6 +1173,11 @@ Three things about the line are load-bearing:
 - **An unknown number is `null`, never `0`.** The digest sums costs; one absent
   cost silently coerced to zero would understate the week with nothing anywhere
   to say so.
+- **`repo` is null on a run nobody routed**, rather than backfilled to omni. A
+  run that chose omni and a run that was never asked are different facts. This
+  field is what stops the Monday message summing two repos into one set of
+  numbers, and it is how the question a ramp exists to answer — are this repo's
+  verdicts good enough to trust with a PR? — gets asked at all.
 
 The field names are a contract with `clickup_bot/weekly_digest.py`. Adding a
 field is free; renaming or removing one drops a line from the Monday message and
@@ -1061,6 +1209,7 @@ Set by terraform (`infrastructure/environments/prod/clickup-bot/`), not by hand.
 | `DEDUP_COMMENT_WINDOW_SECONDS` | Optional (default 900): how long a `Processing started` comment blocks re-triggering — see "Dedup semantics" |
 | `DEDUP_TABLE_NAME` | DynamoDB table for atomic dedup claims (`clickup-bot-dedup-<env>`). Unset = quiet no-op, comment-based dedup only — see "Dedup semantics" |
 | `DEDUP_TTL_SECONDS` | Optional (default 900): lifetime of an atomic dedup claim — see "Dedup semantics" |
+| `GPBOT_IMPLEMENT_REPOS` | Optional (default `thegoodparty/omni`): comma-separated repos an implement run may launch against. The enforcement half of a repo's analyze-only ramp — see "More than one repo" |
 | `ENABLE_FARGATE` | Transition compatibility only: the current handler ignores it, but the previous handler silently no-ops without it. Remove from the module only after the fail-loud handler is confirmed live. |
 
 ## Adding New Tags

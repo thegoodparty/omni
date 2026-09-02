@@ -34,14 +34,16 @@
     "901321761872": "win-bugs",
     "901320540273": "win-bugs",
     "901318405462": "serve-bugs",
-    "901321495230": "win-bugs"
+    "901321495230": "win-bugs",
+    "901328720152": "serve-bugs"
   },
 
   "_listRoutingNames": {
     "901321761872": "Win > Bugs",
     "901320540273": "Platform > Bugs — OPEN DECISION, provisionally win-bugs because most of the list is Pro/Stripe work",
     "901318405462": "Serve > Backlog",
-    "901321495230": "Platform Backlog"
+    "901321495230": "Platform Backlog",
+    "901328720152": "Serve > Bugs"
   },
 
   "defaultGroup": "win-bugs"

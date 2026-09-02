@@ -52,12 +52,43 @@ KNOWN_VERDICTS = frozenset({VERDICT_FIX, VERDICT_NO_CODE_CHANGE, VERDICT_NEEDS_H
 # and the dev announcement are in place.
 ESCALATION_ENABLED_ENV = "GPBOT_ESCALATE_TO_WORK"
 
+# SECOND RAMP, PER REPO. The switch above is the master one and stays the kill
+# switch for everything. This one says which repos it applies to, so a repo the
+# bot has only just learned to read can be analyzed for a while before it is
+# allowed to open PRs there — the same ramp omni had, rather than inheriting
+# omni's earned trust on day one.
+#
+# Defaults to omni alone. A repo added to REPO_BY_LIST_ID in the Lambda
+# therefore starts analyze-only with no second decision required, which is the
+# safe direction to be wrong in: the cost is a missing PR, and the cost of the
+# other default is an unrequested PR in a repo nobody agreed to.
+ESCALATION_REPOS_ENV = "GPBOT_ESCALATE_REPOS"
+DEFAULT_ESCALATION_REPOS = ("thegoodparty/omni",)
+
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
 def escalation_enabled(env: dict[str, str] | None = None) -> bool:
     source = os.environ if env is None else env
     return source.get(ESCALATION_ENABLED_ENV, "").strip().lower() in _TRUTHY
+
+
+def escalation_repos(env: dict[str, str] | None = None) -> frozenset[str]:
+    source = os.environ if env is None else env
+    raw = source.get(ESCALATION_REPOS_ENV, "")
+    named = frozenset(part.strip() for part in raw.split(",") if part.strip())
+    # An unset or all-whitespace value means "not configured", which must mean
+    # the default rather than "no repos may escalate" — the latter would turn a
+    # blank environment variable into a silent, total outage of the feature.
+    return named or frozenset(DEFAULT_ESCALATION_REPOS)
+
+
+def escalation_enabled_for(repo: str, env: dict[str, str] | None = None) -> bool:
+    # Both gates. The master switch can turn everything off; the list can only
+    # narrow what it leaves on.
+    if not escalation_enabled(env):
+        return False
+    return (repo or "").strip() in escalation_repos(env)
 
 
 def parse_verdict(result_text: Any) -> str | None:
@@ -114,10 +145,13 @@ def already_queued(task: Any) -> bool:
 #
 # Drift is caught by clickup_bot/tests/test_scope_is_mirrored.py, which runs this
 # copy and the Lambda's against the same cases in one pytest session.
+#
+# Growth-Bugs was in this set until marketing tickets became routable to
+# gp-marketing. It is not out of scope any more, it is a different repo, and the
+# repo it belongs to is decided in the Lambda (REPO_BY_LIST_ID) rather than here.
 DATA_BACKLOG_LIST_ID = "901326391561"
-GROWTH_BUGS_LIST_ID = "901326170992"
 
-OUT_OF_SCOPE_LIST_IDS = frozenset({DATA_BACKLOG_LIST_ID, GROWTH_BUGS_LIST_ID})
+OUT_OF_SCOPE_LIST_IDS = frozenset({DATA_BACKLOG_LIST_ID})
 OUT_OF_SCOPE_CUSTOM_ID_PREFIXES = ("DATA-",)
 OUT_OF_SCOPE_TAG_NAMES = frozenset({"bug: district-assignment"})
 
@@ -140,14 +174,14 @@ def out_of_scope_reason(task: Any) -> str | None:
         normalized_custom_id = custom_id.upper()
         for prefix in OUT_OF_SCOPE_CUSTOM_ID_PREFIXES:
             if normalized_custom_id.startswith(prefix):
-                return f"custom_id {custom_id} is not omni code work"
+                return f"custom_id {custom_id} is not code work"
 
     task_list = task.get("list")
     if isinstance(task_list, dict):
         list_id = task_list.get("id")
         if isinstance(list_id, str) and list_id in OUT_OF_SCOPE_LIST_IDS:
             list_name = task_list.get("name")
-            return f"list {list_name if isinstance(list_name, str) else list_id} is not omni code work"
+            return f"list {list_name if isinstance(list_name, str) else list_id} is not code work"
 
     tags = task.get("tags")
     if isinstance(tags, list):
@@ -161,7 +195,7 @@ def out_of_scope_reason(task: Any) -> str | None:
     return None
 
 
-def maybe_escalate(result: dict, label: str, client_factory: Any = None) -> str:
+def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_repo: str = "") -> str:
     """Queue an implementation run if this analysis earned one.
 
     Returns a short reason string for the logs — the outcome is observable but
@@ -222,6 +256,23 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None) -> str:
             if out_of_scope:
                 logger.info(f"Verdict 'fix' for {task_id}, but {out_of_scope}; not queueing an implementation run")
                 return f"out of scope ({out_of_scope})"
+
+            # AFTER the scope check, deliberately, even though it is the cheaper
+            # test. This outcome is the ramp's own measurement — while a repo is
+            # analyze-only, counting these answers "how many PRs would this have
+            # opened if I turned it on?". A data ticket refused for being data
+            # work would never have become a PR, so letting it land in this
+            # bucket would inflate the number the flip decision rests on.
+            #
+            # Empty means nobody routed this run, which resolve_repo() reads as
+            # omni; read it the same way rather than failing a run that worked
+            # before the field existed.
+            repo = (target_repo or "").strip() or DEFAULT_ESCALATION_REPOS[0]
+            if not escalation_enabled_for(repo):
+                logger.info(
+                    f"Analysis verdict 'fix' for {task_id} in {repo}; that repo is analyze-only, not escalating"
+                )
+                return f"analyze-only repo ({repo})"
 
             if already_queued(task):
                 logger.info(f"Task {task_id} already carries {IMPLEMENT_TAG}; not re-tagging")
