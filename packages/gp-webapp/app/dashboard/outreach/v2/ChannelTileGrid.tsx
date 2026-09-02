@@ -25,7 +25,7 @@ interface ChannelTileGridProps {
   onCreateSocial: () => void
   onCreateSms: () => void
   onCreateRobocall: () => void
-  onCreatePhoneBanking: () => void
+  onCreatePhoneBanking: (preselectedListId?: number) => void
 }
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
@@ -130,7 +130,17 @@ export const ChannelTileGrid = ({
         router.push('/dashboard/pro-upgrade')
         return
       }
-      onCreatePhoneBanking()
+      // Consumed on hand-off, like door knocking: PhoneBankingFlow is
+      // mounted by the hub, not here, so the id travels through the open
+      // callback — and clearing it now is what keeps a later SMS/robocall
+      // tile click from inheriting a list chosen for phone banking. The
+      // Pro-redirect above deliberately does NOT spend it: the candidate
+      // never entered the flow, so the deep-linked list must survive for
+      // whichever tile they press after coming back.
+      const phoneBankingListId = pendingPreselectedListId
+      setPendingPreselectedListId(undefined)
+      lastSyncedPropListIdRef.current = undefined
+      onCreatePhoneBanking(phoneBankingListId)
       return
     }
 

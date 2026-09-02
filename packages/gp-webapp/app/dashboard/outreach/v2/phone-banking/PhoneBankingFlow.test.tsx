@@ -1076,6 +1076,64 @@ describe('PhoneBankingFlow', () => {
 
     expect(onSaved).not.toHaveBeenCalled()
   })
+
+  // ENG-11020: the ?listId= deep link's list, handed over by the hub tile,
+  // lands as the who step's selection.
+  it('preselects the deep-linked list in the who step', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 7, name: 'Supporters' }])
+    mockListDetail(5)
+    render(<PhoneBankingFlow open onClose={vi.fn()} preselectedListId={7} />)
+    await advanceToWho()
+
+    // The picker trigger reads the selected list's name instead of its
+    // "Choose a voter list" placeholder, and the reach count resolves for it.
+    expect(await screen.findByText('Supporters')).toBeInTheDocument()
+    expect(screen.queryByText('Choose a voter list')).not.toBeInTheDocument()
+    expect(
+      await screen.findByText(/Reach 5 voters by phone banking/),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: /Continue \(5\)/ }),
+    ).toBeEnabled()
+  })
+
+  it('ignores a preselected id that matches no saved list', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 7, name: 'Supporters' }])
+    render(<PhoneBankingFlow open onClose={vi.fn()} preselectedListId={999} />)
+    await advanceToWho()
+
+    // Prove the lists have resolved (the row renders in the picker) before
+    // asserting nothing got selected — otherwise the placeholder assertion
+    // passes vacuously while the fetch is still in flight.
+    await user.click(screen.getByText('Choose a voter list'))
+    expect(await screen.findByText('Supporters')).toBeInTheDocument()
+    expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('does not re-apply a preselected list the candidate backed out of', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 7, name: 'Supporters' }])
+    mockListDetail(5)
+    render(<PhoneBankingFlow open onClose={vi.fn()} preselectedListId={7} />)
+    await advanceToWho()
+    expect(
+      await screen.findByText(/Reach 5 voters by phone banking/),
+    ).toBeInTheDocument()
+
+    // Backing off the who step discards the selection by design; re-entering
+    // must not snap the dismissed list back.
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByText('Introduce myself to voters'))
+
+    expect(
+      (await screen.findAllByText('Who are you calling?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
 })
 
 // ENG-10986: the same flow, config-swapped to Serve's own purpose vocabulary
