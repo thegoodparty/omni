@@ -501,7 +501,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   // that connected. The claim CAS makes it single-owner and idempotent.
   async failSend(
     outreachId: number,
-    reason: 'staging' | 'send',
+    reason: 'staging' | 'send' | 'expired_unstaged',
   ): Promise<void> {
     const draft = await this.findFirst({
       where: { outreachId },
@@ -512,13 +512,28 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     const claim = await this.model.updateMany({
       where: {
         outreachId,
+        // expired_unstaged must not terminate a draft the staging sweep has
+        // already claimed to `staging`: the two sweeps race on a draft whose
+        // send time falls inside the staging lead window, so the stranded
+        // sweep only ever fails a draft still sitting in `authorized`.
         settleState: {
-          in: [
-            RobocallSettleState.authorized,
-            RobocallSettleState.staging,
-            RobocallSettleState.dialing,
-          ],
+          in:
+            reason === 'expired_unstaged'
+              ? [RobocallSettleState.authorized]
+              : [
+                  RobocallSettleState.authorized,
+                  RobocallSettleState.staging,
+                  RobocallSettleState.dialing,
+                ],
         },
+        // expired_unstaged (stranded sweep) must match the exact SELECT
+        // invariant: authorized AND callhubCampaignPkStr IS NULL. If the
+        // staging sweep COMPLETED between that SELECT and here, the draft is
+        // back in `authorized` but now has a pk_str set and is about to dial —
+        // failing it would void a live hold and orphan a staged campaign.
+        ...(reason === 'expired_unstaged'
+          ? { callhubCampaignPkStr: null }
+          : {}),
       },
       data: { settleState: RobocallSettleState.send_failed },
     })

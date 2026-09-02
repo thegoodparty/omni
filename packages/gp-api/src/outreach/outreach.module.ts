@@ -43,6 +43,7 @@ import { OutreachRobocallHoldRecoveryService } from './services/outreachRobocall
 import { RobocallOrphanedCampaignService } from './services/robocallOrphanedCampaign.service'
 import { OutreachRobocallCallhubCleanupService } from './services/outreachRobocallCallhubCleanup.service'
 import { OutreachRobocallDeferredHoldService } from './services/outreachRobocallDeferredHold.service'
+import { OutreachRobocallStrandedService } from './services/outreachRobocallStranded.service'
 import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
 import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
 import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
@@ -114,6 +115,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     RobocallOrphanedCampaignService,
     OutreachRobocallCallhubCleanupService,
     OutreachRobocallDeferredHoldService,
+    OutreachRobocallStrandedService,
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
     OutreachRobocallHoldFailureService,
