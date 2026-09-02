@@ -1,88 +1,182 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildDistrictStatsSql,
-  mapDistrictStatsRow,
-  STATS_DIMENSION_KEYS,
+  mapDistrictStatsRows,
 } from './databricksDistrictStatsSql.util'
+import { VALUE_MAPPERS } from '../utils/valueMappers.util'
 
-const DISTRICT_ID = '635757db-0000-0000-0000-000000000000'
+const DISTRICT = {
+  districtId: 'd-1',
+  state: 'WA',
+  districtType: 'Water_District',
+  districtName: 'EAST WENATCHEE WATER',
+  useVoterOnlyPath: false,
+}
 
-const bucketJson = (label: string, count: number, percent: number) =>
-  JSON.stringify([{ label, count: String(count), percent: String(percent) }])
-
-// [total, withCell, updatedAt, ...one JSON array per dimension, in key order]
-const row = (total: string): Array<string | null> => [
-  total,
-  '40',
-  '2026-08-22T00:33:05.582Z',
-  bucketJson('18-25', 100, 100),
-  bucketJson('College Degree', 90, 90),
-  bucketJson('Yes', 80, 80),
-  bucketJson('No', 70, 70),
-  bucketJson('250k+', 60, 60),
-]
+const sqlFor = (district = DISTRICT) => buildDistrictStatsSql(district).sql
 
 describe('buildDistrictStatsSql', () => {
-  it('looks the district up by key instead of scanning voters', () => {
-    const { sql, params } = buildDistrictStatsSql(DISTRICT_ID)
+  it('is one statement over one scan', () => {
+    const sql = sqlFor()
 
-    expect(sql).toContain('gp_api_district_stats')
-    expect(sql).toContain('WHERE district_id = :p0')
-    // The whole point of the mirrored table: no aggregate over voter rows.
-    expect(sql).not.toContain('count_if')
-    expect(sql).not.toContain('gp_api_voters')
-    expect(params).toEqual([{ name: 'p0', value: DISTRICT_ID, type: 'STRING' }])
+    expect(sql).toContain('GROUPING SETS')
+    expect(sql.match(/FROM goodparty_data_catalog/g)).toHaveLength(1)
+    expect(sql).not.toContain(';')
   })
 
-  it('asks for every dimension the product renders', () => {
-    const { sql } = buildDistrictStatsSql(DISTRICT_ID)
+  it('emits a grouping set per dimension plus the grand total', () => {
+    expect(sqlFor()).toContain(
+      'GROUPING SETS ((age), (education), (homeowner), ' +
+        '(presenceOfChildren), (estimatedIncomeRange), ())',
+    )
+  })
 
-    for (const key of STATS_DIMENSION_KEYS) {
-      expect(sql).toContain(`to_json(buckets.${key}) AS ${key}`)
+  it('scopes on state and the district type column, bound as parameters', () => {
+    const { sql, params } = buildDistrictStatsSql(DISTRICT)
+
+    expect(sql).toContain('v.`State` = :p0')
+    expect(sql).toContain('v.`Water_District` = :p1')
+    expect(params.map((p) => p.value)).toEqual(['WA', 'EAST WENATCHEE WATER'])
+  })
+
+  it('drops the district predicate for a state district', () => {
+    const sql = sqlFor({
+      ...DISTRICT,
+      districtType: 'State',
+      districtName: 'WA',
+      useVoterOnlyPath: true,
+    })
+
+    expect(sql).toContain('v.`State` = :p0')
+    expect(sql).not.toContain('v.`State` = :p1')
+  })
+
+  // The stats labels are derived from VALUE_MAPPERS rather than restated, so a
+  // change to the filter vocabulary cannot silently relabel a stats bucket.
+  // This asserts the direction of that derivation for every mapped dimension.
+  it.each([
+    ['educationLevel', 'College Degree'],
+    ['educationLevel', 'High School Diploma'],
+    ['educationLevel', 'Some College'],
+    ['educationLevel', 'Graduate Degree'],
+    ['educationLevel', 'Technical School'],
+    ['educationLevel', 'None'],
+    ['presenceOfChildren', 'Yes'],
+    ['presenceOfChildren', 'No'],
+    ['homeowner', 'No'],
+  ] as const)('maps %s label %s from VALUE_MAPPERS', (mapper, label) => {
+    const raw = VALUE_MAPPERS[mapper](label)
+    const values = Array.isArray(raw) ? raw : [raw]
+    for (const value of values) {
+      expect(sqlFor()).toContain(`WHEN '${value}' THEN '${label}'`)
     }
+  })
+
+  it("folds both homeowner raw values into 'Yes'", () => {
+    const sql = sqlFor()
+
+    expect(sql).toContain("WHEN 'Home Owner' THEN 'Yes'")
+    expect(sql).toContain("WHEN 'Probable Home Owner' THEN 'Yes'")
+  })
+
+  // The stats table publishes income labels with an en dash. A hyphen here
+  // would read as a disagreement on every district the dual read compares.
+  it('labels income bands with an en dash', () => {
+    const sql = sqlFor()
+
+    expect(sql).toContain("THEN '75k–100k'")
+    expect(sql).toContain("THEN '100k–125k'")
+    expect(sql).not.toContain("THEN '75k-100k'")
+  })
+
+  // An age below the ranges must not fall through into the open-ended top
+  // bucket: 51+ inflation is invisible in the output, unlike an Unknown count.
+  it('buckets an under-18 age as Unknown rather than 51+', () => {
+    const sql = sqlFor()
+
+    expect(sql).toContain("WHEN v.`Age_Int` < 18 THEN 'Unknown'")
+    expect(sql.indexOf('< 18')).toBeLessThan(sql.indexOf("ELSE '51+'"))
+  })
+
+  it('covers the income band the mirrored table publishes', () => {
+    const sql = sqlFor()
+
+    for (const ceiling of [
+      15000, 25000, 35000, 50000, 75000, 100000, 125000, 150000, 175000, 200000,
+      250000,
+    ]) {
+      expect(sql).toContain(`< ${ceiling} THEN`)
+    }
+    expect(sql).toContain("ELSE '250k+'")
   })
 })
 
-describe('mapDistrictStatsRow', () => {
-  // Absence is the product signal: a district with no row must stay null so the
-  // webapp shows "no constituent data" rather than a zero-filled page.
-  it('returns null when the district has no stats row', () => {
-    expect(mapDistrictStatsRow(DISTRICT_ID, undefined)).toBeNull()
+describe('mapDistrictStatsRows', () => {
+  const rows = [
+    ['TOTAL', 'all', '200', '80'],
+    ['age', '51+', '150', null],
+    ['age', '18-25', '50', null],
+    ['education', 'Unknown', '200', null],
+  ]
+
+  it('reads both totals from the grand-total row', () => {
+    const stats = mapDistrictStatsRows('d-1', rows)
+
+    expect(stats?.totalConstituents).toBe(200)
+    expect(stats?.totalConstituentsWithCellPhone).toBe(80)
   })
 
-  it('maps totals, timestamp, and every bucket dimension', () => {
-    const stats = mapDistrictStatsRow(DISTRICT_ID, row('100'))
+  it('derives percent from the total', () => {
+    const stats = mapDistrictStatsRows('d-1', rows)
 
-    expect(stats?.districtId).toBe(DISTRICT_ID)
-    expect(stats?.totalConstituents).toBe(100)
-    expect(stats?.totalConstituentsWithCellPhone).toBe(40)
-    expect(stats?.updatedAt.toISOString()).toBe('2026-08-22T00:33:05.582Z')
     expect(stats?.buckets.age).toEqual([
-      { label: '18-25', count: 100, percent: 100 },
-    ])
-    expect(stats?.buckets.education).toEqual([
-      { label: 'College Degree', count: 90, percent: 90 },
-    ])
-    expect(stats?.buckets.homeowner).toEqual([
-      { label: 'Yes', count: 80, percent: 80 },
-    ])
-    expect(stats?.buckets.presenceOfChildren).toEqual([
-      { label: 'No', count: 70, percent: 70 },
-    ])
-    expect(stats?.buckets.estimatedIncomeRange).toEqual([
-      { label: '250k+', count: 60, percent: 60 },
+      { label: '51+', count: 150, percent: 75 },
+      { label: '18-25', count: 50, percent: 25 },
     ])
   })
 
-  it('tolerates a dimension the table left empty', () => {
-    const sparse = row('100')
-    sparse[3] = null
-    sparse[4] = '[]'
+  it('rounds percent to two decimals', () => {
+    const stats = mapDistrictStatsRows('d-1', [
+      ['TOTAL', 'all', '22547', '11483'],
+      ['age', 'Unknown', '3', null],
+    ])
 
-    const stats = mapDistrictStatsRow(DISTRICT_ID, sparse)
+    expect(stats?.buckets.age[0]?.percent).toBe(0.01)
+  })
 
-    expect(stats?.buckets.age).toEqual([])
-    expect(stats?.buckets.education).toEqual([])
-    expect(stats?.buckets.homeowner).not.toEqual([])
+  it('orders buckets by descending count', () => {
+    const stats = mapDistrictStatsRows('d-1', [
+      ['TOTAL', 'all', '10', '0'],
+      ['age', '18-25', '2', null],
+      ['age', '51+', '8', null],
+    ])
+
+    expect(stats?.buckets.age.map((b) => b.label)).toEqual(['51+', '18-25'])
+  })
+
+  // Absence is load-bearing: a district with no constituents has to read as
+  // "no stats", the same as a missing mirrored row, because the product gates
+  // on that rather than rendering zeros.
+  it('returns null when the scan finds no voters', () => {
+    expect(mapDistrictStatsRows('d-1', [['TOTAL', 'all', '0', '0']])).toBeNull()
+  })
+
+  it('returns null for an empty result', () => {
+    expect(mapDistrictStatsRows('d-1', [])).toBeNull()
+  })
+
+  it('ignores a dimension it does not publish', () => {
+    const stats = mapDistrictStatsRows('d-1', [
+      ...rows,
+      ['somethingElse', 'x', '1', null],
+    ])
+
+    expect(Object.keys(stats?.buckets ?? {})).toEqual([
+      'age',
+      'education',
+      'homeowner',
+      'presenceOfChildren',
+      'estimatedIncomeRange',
+    ])
   })
 })
