@@ -388,11 +388,14 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
     outreachId: number,
     capturedAmountInCents: number,
   ): Promise<void> {
+    // HubSpot stores the value as-is with no currency conversion, so the receipt
+    // email must receive dollars, not cents.
+    const capturedAmountInDollars = Math.round(capturedAmountInCents) / 100
     try {
       await this.analytics.track(
         userId,
         EVENTS.Robocall.Receipt,
-        { outreachId, capturedAmountInCents },
+        { outreachId, capturedAmountInDollars },
         undefined,
         `${outreachId}:receipt`,
       )

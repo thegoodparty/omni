@@ -133,6 +133,12 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     expect(satellite.chargeIntentId).toBe('pi_charge_1')
     expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
     expect(trackSpy).toHaveBeenCalledTimes(1)
+    const [, , properties] = trackSpy.mock.calls[0] ?? []
+    // Receipt carries dollars (HubSpot stores it as-is): 650c → $6.50.
+    expect(properties).toEqual({
+      outreachId,
+      capturedAmountInDollars: calcRobocallTotalInCents(100) / 100,
+    })
   })
 
   it('INV-1: clamps an actual over the authorized amount to the authorized', async () => {
