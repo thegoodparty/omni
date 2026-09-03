@@ -312,22 +312,24 @@ Post the PR link to ClickUp when done.
 # once a failing check on a [GP-Bot] PR has already survived a re-run (see
 # clickup_bot/ci_triage.py for the triage that decides a failure has earned this).
 #
-# STILL NAMES omni EXPLICITLY, unlike the analyze/implement instructions above,
-# and deliberately: the only thing that launches these runs is
-# .github/workflows/gpbot-ci-drive.yml, which lives in omni and is triggered by
-# omni's own workflow runs, so a PR reaching here is an omni PR by construction.
-# When the drive gains a copy in another repo, the repo has to cross the Lambda
-# boundary with the PR number and these templates take it as a parameter — with
-# the same allowlist validation the rest of that payload gets.
+# THE REPO IS A PARAMETER because the drive now has a copy outside omni. It used
+# to name omni by hand, correctly: the only caller was omni's own gpbot-ci-drive,
+# triggered by omni's own workflow runs, so a PR reaching here was an omni PR by
+# construction. A second copy in a second repo ends that, and the repo it is
+# about has to cross the Lambda boundary rather than be assumed.
 #
-# ONLY THE PR NUMBER IS INTERPOLATED, and it is validated as an integer before it
-# gets here. Check names, step names and log text are all deliberately left out:
-# they originate in CI output, and pasting them into a system prompt would make
-# every failing build a prompt-injection surface. The agent has `gh` and fetches
-# its own evidence, which is also better evidence than a truncated excerpt.
+# ONLY THREE THINGS ARE INTERPOLATED, and each is checked before it gets here:
+# the PR number as an integer, and the repo and its base branch taken from a
+# fixed allowlist — never from the payload's own strings, so a caller cannot name
+# a repo the bot has no briefing for or bend the branch to something else.
+#
+# Check names, step names and log text remain deliberately absent: they originate
+# in CI output, and pasting them into a system prompt would make every failing
+# build a prompt-injection surface. The agent has `gh` and fetches its own
+# evidence, which is also better evidence than a truncated excerpt.
 CI_FIX_INSTRUCTION = """## YOUR TASK: Get CI green on an existing PR
 
-PR **#{pr_number}** in `thegoodparty/omni` was opened by you and has one or more
+PR **#{pr_number}** in `{repo}` was opened by you and has one or more
 failing checks. Drive it to green. Start with `gh pr checks {pr_number}` and
 `gh pr view {pr_number}`, and read the actual failing job logs
 (`gh run view --job <job-id> --log`) before forming any opinion.
@@ -342,13 +344,13 @@ statement timeout, a transient TLS error. Establish which one you are looking at
 
 - **Your diff caused it** (a contract change broke another package's types, the
   flow you changed now fails its spec) → fix it properly, at the root cause.
-- **Infrastructure, a flake, or already failing on `main`** → **change nothing.**
+- **Infrastructure, a flake, or already failing on `{base_branch}`** → **change nothing.**
   Post a comment on the PR saying what you found and why it is not the diff's
   fault, and stop. A pre-existing breakage is not this PR's problem. Do not
   "work around" it.
 
-Check `main` before concluding a failure is yours:
-`gh api repos/thegoodparty/omni/commits/main/check-runs`.
+Check `{base_branch}` before concluding a failure is yours:
+`gh api repos/{repo}/commits/{base_branch}/check-runs`.
 
 ## ABSOLUTE PROHIBITIONS
 
@@ -396,7 +398,7 @@ not work this out" is worth far more than a green check bought by a weakened tes
 # it as part of its own instructions.
 FINDINGS_FIX_INSTRUCTION = """## YOUR TASK: Answer the open review findings on a PR
 
-PR **#{pr_number}** in `thegoodparty/omni` was opened by you. CI is green, but
+PR **#{pr_number}** in `{repo}` was opened by you. CI is green, but
 Cursor Bugbot left review findings that nobody has answered. Settle each one.
 
 Read them with:
@@ -496,13 +498,13 @@ rejected, and why.
 # code out of this prompt.
 CONFLICTS_FIX_INSTRUCTION = """## YOUR TASK: Make an existing PR merge again
 
-PR **#{pr_number}** in `thegoodparty/omni` was opened by you and now conflicts
-with `main`. It cannot merge whatever its checks say. Resolve the conflict.
+PR **#{pr_number}** in `{repo}` was opened by you and now conflicts
+with `{base_branch}`. It cannot merge whatever its checks say. Resolve the conflict.
 
 ```
 gh pr checkout {pr_number}
-git fetch origin main
-git merge origin/main
+git fetch origin {base_branch}
+git merge origin/{base_branch}
 ```
 
 **Merge, do not rebase.** A rebase needs a force-push, which rewrites a branch
@@ -512,19 +514,19 @@ that has already been reviewed and makes every review thread on it outdated.
 
 Both sides of a conflict are somebody's intended change. The failure mode here
 is silent and expensive: keeping your side wholesale deletes work that is
-already on `main`, CI stays green because nothing tests for the deleted change,
+already on `{base_branch}`, CI stays green because nothing tests for the deleted change,
 and the loss is found weeks later.
 
 So for every conflicting hunk, read both sides and work out what each was for
-(`git log --oneline HEAD..origin/main -- <path>` shows what landed and why). The
+(`git log --oneline HEAD..origin/{base_branch} -- <path>` shows what landed and why). The
 resolution is whatever preserves BOTH intentions. It is often not either side
 verbatim.
 
 - `git checkout --ours` / `--theirs` on a whole file is almost never right.
   Never reach for it to make a conflict go away.
-- If a change on `main` has made your PR's change unnecessary, the honest
+- If a change on `{base_branch}` has made your PR's change unnecessary, the honest
   resolution is to drop your side and say so in the PR comment.
-- If a change on `main` contradicts what your PR does, **stop.** Do not guess at
+- If a change on `{base_branch}` contradicts what your PR does, **stop.** Do not guess at
   whose intent wins. `git merge --abort`, comment on the PR explaining the
   collision, and leave it to a human.
 
@@ -662,6 +664,21 @@ MARKETING_REPO = "thegoodparty/gp-marketing"
 MARKETING_SITE_BUGS_LIST_ID = "901328971692"
 
 REPO_BY_LIST_ID = {MARKETING_SITE_BUGS_LIST_ID: MARKETING_REPO}
+
+# What a PR in each repo is opened against. Needed here, and not only in the
+# agent's repo profiles, because the CI-fix instructions tell the agent which
+# branch to compare against and which to merge from — and gp-marketing's is
+# `develop`, so an assumed `main` would have it diffing against a branch that is
+# not the one its PR has to merge into.
+#
+# A SECOND COPY of engineer_agent/agent/repos.py's base_branch, for the same
+# reason the scope rules are duplicated: this Lambda imports nothing from the
+# repository, because it is packaged and deployed on its own.
+# clickup_bot/tests/test_scope_is_mirrored.py fails if the two drift.
+BASE_BRANCH_BY_REPO = {
+    OMNI_REPO: "main",
+    MARKETING_REPO: "develop",
+}
 DEFAULT_REPO = OMNI_REPO
 
 # WHICH REPOS THE BOT MAY WRITE CODE IN, as opposed to merely read.
@@ -1664,6 +1681,22 @@ def handle_ci_fix(event: dict) -> dict:
             return {"statusCode": 400, "body": json.dumps({"error": "invalid ci fix payload"})}
         instruction, run_label = CI_FIX_MODES[mode]
 
+        # Absent means omni, so omni's own drive keeps working unchanged while a
+        # second repo's copy learns to send this. Refused rather than defaulted
+        # when it is present but unrecognised: the whole value of naming the repo
+        # is lost if an unknown one quietly becomes omni, and a fix run in the
+        # wrong repo pushes commits to a branch nobody asked it to touch.
+        #
+        # The allowlist is what makes this safe to interpolate. `repo` arrives in
+        # a payload, and only ever selects a key here — the string itself never
+        # reaches the instruction, so it cannot name a repo that has no briefing
+        # or smuggle anything into a system prompt.
+        repo = event.get("repo", OMNI_REPO)
+        if repo not in BASE_BRANCH_BY_REPO:
+            print(f"ERROR: CI fix request refused: unknown repo {repo!r}")
+            return {"statusCode": 400, "body": json.dumps({"error": "invalid ci fix payload"})}
+        base_branch = BASE_BRANCH_BY_REPO[repo]
+
         # Bounds concurrent launches for one ticket the same way every other
         # trigger is bounded. Losing the race is the guard working, not a
         # failure: quiet log, no launch, 200.
@@ -1679,12 +1712,16 @@ def handle_ci_fix(event: dict) -> dict:
 
         result = trigger_fargate_task(
             task_id,
-            instruction.format(pr_number=pr_number),
+            instruction.format(pr_number=pr_number, repo=repo, base_branch=base_branch),
             run_label,
             "opus",
             # The caller is a workflow step waiting on the response, not ClickUp
             # counting a webhook timeout, so the ack retry is free here.
             retry_ack=True,
+            # The run must be briefed on the repo it is about, not just told its
+            # name in the instruction: without this it would clone omni and go
+            # looking for a PR that is not there.
+            repo=repo,
         )
         if result.get("statusCode") != 200:
             release_dedup_lock(task_id, CI_FIX_LABEL)
