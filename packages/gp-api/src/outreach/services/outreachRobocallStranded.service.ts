@@ -3,10 +3,7 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import {
-  isRobocallEstimateBillingEnabled,
-  ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES,
-} from '@/shared/util/robocallHold.util'
+import { ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES } from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallChargeService } from './outreachRobocallCharge.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
@@ -108,18 +105,23 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
   // drafts — so it would sit in `paid` forever with the estimate captured, zero
   // calls placed, and nothing surfaced. failStrandedEstimate moves it to
   // send_failed, logs CRITICAL for a MANUAL refund (this branch never
-  // auto-refunds), and emails the candidate. Gated ENTIRELY on the flag so it is
-  // inert when the contingency model is off; unlike the authorized sweep it voids
-  // no Stripe hold, so it is NOT prod-only — a strand can occur wherever the flag
-  // charged the estimate. @Cron (not @Interval) so the schedule survives deploys;
-  // failStrandedEstimate's single-owner CAS elects one winner per draft across
-  // replicas.
+  // auto-refunds), and emails the candidate. NOT flag-gated, deliberately: the
+  // flag is designed to be flipped back OFF after real charges have landed (the
+  // supported rollback), and captured money must still be surfaced — a
+  // flag-gated sweep would go inert and strand every already-`paid` run with the
+  // charge taken and no alert. Removing the gate never changes hold-model
+  // behavior: the sweep only ever matches `paid` rows, which exist only where
+  // the flag charged an estimate, so a never-flagged system has none and it
+  // no-ops. Prod-only, consistent with sweepStrandedAuthorized (failSend/email
+  // are stubbed on dev/preview). @Cron (not @Interval) so the schedule survives
+  // deploys; failStrandedEstimate's single-owner CAS elects one winner per draft
+  // across replicas.
   @Cron(ROBOCALL_STRANDED_SWEEP_CRON, {
     name: ROBOCALL_STRANDED_PAID_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStrandedPaid(): Promise<void> {
-    if (!isRobocallEstimateBillingEnabled()) return
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
     const now = new Date()
     const candidates = await this.model.findMany({
@@ -164,16 +166,30 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
   // key + SAME frozen amount (a captured charge replays the SAME PaymentIntent,
   // an un-landed one charges exactly once) and commits chargeIntentId so the
   // paid run becomes deliverable — so it selects orphans regardless of send date
-  // (a future orphan must be completed BEFORE its send, not only after). Gated
-  // ENTIRELY on the flag (inert when off), consistent with sweepStrandedPaid;
-  // resumeStrandedEstimateCharge owns the stale-guarded single-owner claim, so it
-  // is idempotent across replicas. @Cron (not @Interval) so it survives deploys.
+  // (a future orphan must be completed BEFORE its send, not only after).
+  //
+  // NOT flag-gated (prod-only, consistent with sweepStrandedPaid): captured money
+  // must be reconciled through the supported rollback (flag flipped back OFF), so
+  // this cannot go inert. Resuming COMPLETES the charge and lets the run dial —
+  // and that is correct even post-rollback: staging/send never consult the
+  // billing flag (they gate dialing on chargeIntentId + ROBOCALL_SEND_ENABLED),
+  // so a `paid` row is an already-PURCHASED run that dials exactly as it would
+  // have before the flag flipped; the operator's real dial control is
+  // ROBOCALL_SEND_ENABLED, not this flag. So resume never dead-ends: if send is
+  // enabled the run dials; if it is off and the send passes un-staged,
+  // sweepStrandedPaid catches it → send_failed + CRITICAL + email. No
+  // captured-money path ends without an alert. Like sweepStrandedPaid, removing
+  // the gate never changes hold-model behavior — orphans are `paid` rows, which
+  // exist only where the flag charged an estimate, so a never-flagged system has
+  // none and it no-ops. resumeStrandedEstimateCharge owns the stale-guarded
+  // single-owner claim, so it is idempotent across replicas. @Cron (not
+  // @Interval) so it survives deploys.
   @Cron(ROBOCALL_STRANDED_SWEEP_CRON, {
     name: ROBOCALL_STRANDED_ORPHAN_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepOrphanedEstimateClaims(): Promise<void> {
-    if (!isRobocallEstimateBillingEnabled()) return
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 
     const staleCutoff = subMinutes(
       new Date(),

@@ -902,4 +902,50 @@ describe('OutreachRobocallSendService.startCampaign — paid (upfront) model', (
     expect(satellite.settleState).toBe(RobocallSettleState.paid)
     expect(satellite.dialedAt).toBeNull()
   })
+
+  it('runs the REAL failSend terminal for a paid row: send_failed, NO Stripe void, spine failed, SendFailed emitted', async () => {
+    // Every other permanent-failure test spies/mocks failSend, so the paid-row
+    // terminal has never run unmocked. A paid row carries NO authorizationIntentId
+    // (no hold), so failSend's `if (draft.authorizationIntentId)` void branch must
+    // be SKIPPED. Drive the real permanent path (4xx launch reject + confirmed
+    // PAUSED = definitively never dialed) with failSend UNMOCKED and assert the
+    // final DB state plus that no Stripe void/cancel was attempted.
+    // Other permanent-failure tests spyOn(failSend).mockResolvedValue(); with
+    // clearMocks (and no restoreMocks) that stubbed no-op impl leaks between
+    // tests, so the REAL terminal would never run here. Restore the genuine
+    // failSend before driving it (a no-op if this test ran before any stub).
+    const hold = service.app.get(OutreachRobocallHoldService)
+    ;(hold.failSend as unknown as { mockRestore?: () => void }).mockRestore?.()
+
+    const outreachId = await paidDraft()
+    retrieveSpy.mockResolvedValue(piWith('succeeded'))
+    const voidSpy = vi
+      .spyOn(service.app.get(StripeService), 'voidHold')
+      .mockResolvedValue(undefined as never)
+    const cancelSpy = vi
+      .spyOn(service.app.get(StripeService), 'cancelHold')
+      .mockResolvedValue(undefined as never)
+    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.send_failed)
+    // A paid row has no hold to void — the Stripe void/cancel branch is skipped.
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect(cancelSpy).not.toHaveBeenCalled()
+    // The spine is flipped so history shows "Couldn't send".
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(spine.status).toBe('failed')
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Robocall.SendFailed,
+      { outreachId },
+      undefined,
+      `${outreachId}:send_failed`,
+    )
+  })
 })

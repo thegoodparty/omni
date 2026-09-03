@@ -227,10 +227,16 @@ const createPaidDraft = async ({
 
 describe('OutreachRobocallStrandedService.sweepStrandedPaid (estimate model)', () => {
   const originalFlag = process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED
+  const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
   let charge: OutreachRobocallChargeService
   let trackSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    // Prod-gated, NOT flag-gated: the flag drives whether the pay endpoint
+    // charged an estimate, but a stranded `paid` run must be surfaced regardless
+    // of flag state (the supported rollback flips it back OFF). Default the flag
+    // ON here; the rollback case flips it OFF and still expects recovery.
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
     process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED = 'true'
     charge = service.app.get(OutreachRobocallChargeService)
     trackSpy = vi
@@ -243,6 +249,8 @@ describe('OutreachRobocallStrandedService.sweepStrandedPaid (estimate model)', (
     } else {
       process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED = originalFlag
     }
+    if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+    else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
   const readSatellite = (outreachId: number) =>
@@ -303,8 +311,29 @@ describe('OutreachRobocallStrandedService.sweepStrandedPaid (estimate model)', (
     expect(trackSpy).not.toHaveBeenCalled()
   })
 
-  it('is inert when the estimate-billing flag is OFF', async () => {
+  it('still surfaces a stranded paid run after rollback (flag OFF on prod)', async () => {
+    // ROLLBACK SAFETY: the flag is flipped back OFF after real charges landed.
+    // The sweep must NOT go inert — a `paid` run whose money was captured still
+    // has to be surfaced for a manual refund, or it strands forever unalerted.
     delete process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED
+    const outreachId = await createPaidDraft({ sendInDays: -1 })
+
+    await stranded.sweepStrandedPaid()
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.send_failed,
+    )
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Robocall.SendFailed,
+      { outreachId },
+      undefined,
+      `${outreachId}:send_failed`,
+    )
+  })
+
+  it('no-ops off prod', async () => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     const outreachId = await createPaidDraft({ sendInDays: -1 })
 
     await stranded.sweepStrandedPaid()
@@ -377,12 +406,14 @@ const createOrphanDraft = async ({
 
 describe('OutreachRobocallStrandedService.sweepOrphanedEstimateClaims', () => {
   const originalFlag = process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED
+  const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
   let ensureCustomerSpy: ReturnType<typeof vi.spyOn>
   let retrievePmSpy: ReturnType<typeof vi.spyOn>
   let chargeSpy: ReturnType<typeof vi.spyOn>
   let trackSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
     process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED = 'true'
     const stripe = service.app.get(StripeService)
     ensureCustomerSpy = vi
@@ -408,6 +439,8 @@ describe('OutreachRobocallStrandedService.sweepOrphanedEstimateClaims', () => {
     } else {
       process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED = originalFlag
     }
+    if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+    else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
   const readSatellite = (outreachId: number) =>
@@ -483,8 +516,22 @@ describe('OutreachRobocallStrandedService.sweepOrphanedEstimateClaims', () => {
     expect(satellite.chargeIntentId).toBeNull()
   })
 
-  it('is inert when the estimate-billing flag is OFF', async () => {
+  it('still resumes an orphan after rollback (flag OFF on prod)', async () => {
+    // ROLLBACK SAFETY: post-rollback (flag OFF) a captured charge that never
+    // committed must still be reconciled. Resuming commits chargeIntentId; the
+    // run then dials via the normal send path (gated on ROBOCALL_SEND_ENABLED,
+    // never this flag), exactly as an already-purchased run should.
     delete process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED
+    const outreachId = await createOrphanDraft({ sendInDays: -1 })
+
+    await stranded.sweepOrphanedEstimateClaims()
+
+    expect(chargeSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(outreachId)).chargeIntentId).toBe('pi_charge_1')
+  })
+
+  it('no-ops off prod', async () => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     const outreachId = await createOrphanDraft({ sendInDays: -1 })
 
     await stranded.sweepOrphanedEstimateClaims()
