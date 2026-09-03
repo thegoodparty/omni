@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  SmsOutreachResults,
   OutreachReceipt,
   PhoneBankCallOutcome,
   SupportAnswer,
@@ -29,6 +30,7 @@ import {
 import {
   ArchiveIcon,
   CalendarIcon,
+  ChartColumnIcon,
   CheckCircleIcon,
   ClockIcon,
   DollarSignIcon,
@@ -239,6 +241,41 @@ export const OutreachDetailsDrawer = ({
     receiptQuery.data?.amount ??
     (row?.billableTextCount ?? row?.textCount ?? 0) * PRICE_PER_TEXT
   const isFreeSms = totalCost <= 0
+
+  // The Statistics card (design prototype): counts + share of contacts for
+  // a finished text campaign. Numbers refresh with the hourly report sweep.
+  const resultsQuery = useQuery({
+    queryKey: ['outreach-results', row?.id ?? -1],
+    queryFn: async (): Promise<SmsOutreachResults> => {
+      const { data } = await clientRequest('GET /v1/outreach/:id/results', {
+        id: String(row?.id),
+      })
+      return data
+    },
+    enabled: row !== null && isSms && isCompleted,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+  const results = resultsQuery.data ?? null
+  const statRows = results
+    ? [
+        { label: 'Responded', count: results.responded },
+        {
+          label: 'No response',
+          count: Math.max(
+            0,
+            results.contacts - results.responded - results.optedOut,
+          ),
+        },
+        { label: 'Opted out', count: results.optedOut },
+      ].map((stat) => ({
+        ...stat,
+        pct:
+          results.contacts > 0
+            ? Math.round((stat.count / results.contacts) * 100)
+            : 0,
+      }))
+    : null
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const cancelMutation = useMutation({
     mutationFn: (rowId: number) =>
@@ -656,6 +693,34 @@ export const OutreachDetailsDrawer = ({
                 </p>
               )}
             </DetailsSection>
+
+            {isSms && isCompleted && results && statRows && (
+              <DetailsSection title="Statistics">
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                    <ChartColumnIcon className="size-4" />
+                    Based on {results.contacts.toLocaleString()} SMS contact
+                    {results.contacts === 1 ? '' : 's'}
+                  </div>
+                  {statRows.map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="flex items-center justify-between border-t border-border px-3 py-2"
+                    >
+                      <span className="text-sm">{stat.label}</span>
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-sm font-semibold">
+                          {stat.count.toLocaleString()}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {stat.pct}%
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </DetailsSection>
+            )}
 
             {isPaidFlowSms && (
               <DetailsSection title="Payment details">

@@ -833,6 +833,10 @@ export {
   OutreachReceiptSchema,
   type OutreachReceipt,
 } from './outreach/OutreachReceipt.schema'
+export {
+  SmsOutreachResultsSchema,
+  type SmsOutreachResults,
+} from './outreach/OutreachResults.schema'
 
 export {
   SMS_PURPOSE_VALUES,

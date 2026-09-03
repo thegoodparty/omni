@@ -709,6 +709,52 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
   })
 })
 
+describe('OutreachDetailsDrawer — SMS statistics', () => {
+  it('renders the Statistics card for a completed text campaign', async () => {
+    const completedSmsRow: HistoryRow = {
+      id: 51,
+      createdAt: '2026-08-20T00:00:00Z',
+      outreachType: 'p2p',
+      name: 'Likely voters — SMS',
+      status: 'completed',
+      phoneListId: 9,
+    }
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 51,
+        outreachType: 'p2p' as const,
+        status: 'completed' as const,
+        phoneListId: 9,
+      },
+    })
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 1204, responded: 186, optedOut: 9 },
+    })
+
+    render(
+      <OutreachDetailsDrawer row={completedSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/Based on 1,204 SMS contacts/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Responded')).toBeInTheDocument()
+    expect(screen.getByText('186')).toBeInTheDocument()
+    expect(screen.getByText('15%')).toBeInTheDocument()
+    expect(screen.getByText('No response')).toBeInTheDocument()
+    expect(screen.getByText('1,009')).toBeInTheDocument()
+    expect(screen.getByText('Opted out')).toBeInTheDocument()
+    expect(screen.getByText('1%')).toBeInTheDocument()
+  })
+})
+
 describe('OutreachDetailsDrawer — cancel before send', () => {
   const scheduledSmsRow: HistoryRow = {
     id: 41,

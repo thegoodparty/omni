@@ -20,6 +20,7 @@ import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/servic
 import { isBefore } from 'date-fns'
 import {
   checkSmsStandards,
+  type SmsOutreachResults,
   type SmsStandardsRule,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -867,6 +868,43 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         ? new Date(charge.created * 1000).toISOString()
         : null,
     }
+  }
+
+  // Counts only (reply content never leaves the CRM). The per-recipient
+  // interaction rows are the source when they exist; a campaign that
+  // predates recipient capture falls back to the purchase-time count.
+  async getSmsResults(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<SmsOutreachResults> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (
+      outreach.outreachType !== OutreachType.p2p &&
+      outreach.outreachType !== OutreachType.text
+    ) {
+      throw new BadRequestException(
+        'Results are only available for text campaigns',
+      )
+    }
+    const [recipients, responded, optedOut] = await Promise.all([
+      this.client.contactInteractionText.count({ where: { outreachId } }),
+      this.client.contactInteractionText.count({
+        where: { outreachId, respondedAt: { not: null } },
+      }),
+      this.client.contactInteractionText.count({
+        where: { outreachId, optedOutAt: { not: null } },
+      }),
+    ])
+    const contacts =
+      recipients > 0
+        ? recipients
+        : (outreach.billableTextCount ?? outreach.textCount ?? 0)
+    return { contacts, responded, optedOut }
   }
 
   // Shared list query behind both scoped list readers below. Win rows carry
