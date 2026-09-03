@@ -370,20 +370,28 @@ export default function PersonSheet({
               </h2>
               {/* A block of flats: which door of it, under the building's
                   address. The canvas's `doors.length>1 && …door.label`.
-                  Conditioned on the unit rather than on having sibling doors,
+                  Conditioned on the door rather than on having sibling doors,
                   the same way the walk list's rows are — the heading above is
                   the building, so a lone apartment would otherwise be the one
-                  door whose number is nowhere on the panel opened at it. */}
-              {addressOfTarget?.unit && (
-                <p className="mt-0.5 flex items-center gap-1 truncate text-[13px] font-medium text-muted-foreground">
-                  <DoorClosedIcon
-                    size={14}
-                    aria-hidden="true"
-                    className="shrink-0"
-                  />
-                  {addressOfTarget.unit}
-                </p>
-              )}
+                  door whose number is nowhere on the panel opened at it.
+
+                  The address itself where there is no unit to name the door
+                  by but it still is not the stop: a stop is a coordinate, and
+                  two houses that geocode to one are two doors whose only
+                  distinguishing mark is the street line the heading cannot
+                  show for both. */}
+              {addressOfTarget &&
+                (addressOfTarget.unit ||
+                  addressOfTarget.address !== stop.displayAddress) && (
+                  <p className="mt-0.5 flex items-center gap-1 truncate text-[13px] font-medium text-muted-foreground">
+                    <DoorClosedIcon
+                      size={14}
+                      aria-hidden="true"
+                      className="shrink-0"
+                    />
+                    {addressOfTarget.unit || addressOfTarget.address}
+                  </p>
+                )}
             </div>
             <IconButton
               variant="ghost"

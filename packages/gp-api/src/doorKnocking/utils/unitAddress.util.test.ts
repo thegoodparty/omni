@@ -199,8 +199,6 @@ describe('streetLineOfStop', () => {
     ).toBe('205 Benton Dr')
   })
 
-  // Reduced over the doors, so the order they arrive in cannot change the
-  // answer: only the apartment that is actually on the line matches.
   it('does not depend on which door is checked first', () => {
     expect(
       streetLineOfStop('205 Benton Dr Apt 8309', [
@@ -208,6 +206,34 @@ describe('streetLineOfStop', () => {
         key('205 BENTON DR APT 13205', '13205'),
       ]),
     ).toBe('205 Benton Dr')
+  })
+
+  // A numbered road, where the road's own number is a bare trailing token that
+  // some neighbour's apartment will match. Folding the strips took "Apt 5" off
+  // and then fed "3400 County Road 12" to unit 12, which ate the road number —
+  // and since Prisma returns the targets unordered, which of the two answers a
+  // canvasser got varied between serves of an unchanged route.
+  it.each([
+    ['the unit door first', ['5', '12']],
+    ['the neighbour first', ['12', '5']],
+  ])('keeps a road number that a neighbour could match, %s', (_l, order) => {
+    expect(
+      streetLineOfStop(
+        '3400 County Road 12 Apt 5',
+        order.map((apartment) =>
+          key(`3400 COUNTY ROAD 12 APT ${apartment}`, apartment),
+        ),
+      ),
+    ).toBe('3400 County Road 12')
+  })
+
+  // One removal, because a frozen line carries one unit. Two doors whose units
+  // both appear on the line is not a real address, but it is the shape that
+  // proves the fold is gone.
+  it('takes off at most one unit', () => {
+    expect(
+      streetLineOfStop('12 Apt 5', [key('12 APT 5', '5'), key('12', '12')]),
+    ).toBe('12')
   })
 
   // Keeps the frozen line's casing, which is the whole reason the stop's line

@@ -55,20 +55,42 @@ const ONLY_A_DESIGNATOR = new RegExp(`^(?:#|${UNIT_DESIGNATORS})?\\.?$`, 'i')
 //
 // Returns the line untouched when the strip would leave nothing addressable,
 // which is a line that was never more than its own unit.
-export const stripUnitFromLine = (line: string, apartment: string): string => {
-  if (!apartment) return line
+export const stripUnitFromLine = (line: string, apartment: string): string =>
+  stripOnce(line, apartment, true) ?? stripOnce(line, apartment, false) ?? line
 
+// One attempt, reporting null rather than the unchanged line so a caller with
+// several apartments to try can tell a miss from a no-op.
+//
+// The designator is required or forbidden rather than optional because the two
+// cases are not equally trustworthy and must not compete on position. "Apt 5"
+// says a unit outright; a bare trailing "5" only might, and on a numbered road
+// — "3400 County Road 12 Apt 5" — the road number is exactly such a token.
+// Trying every designator-anchored match before any bare one is what stops the
+// road number being eaten by a neighbour whose apartment happens to be 12.
+const stripOnce = (
+  line: string,
+  apartment: string,
+  requireDesignator: boolean,
+): string | null => {
+  if (!apartment) return null
+
+  const unit = escapeRegExp(apartment)
   const stripped = line
     .replace(
       new RegExp(
-        `\\s+(?:(?:${UNIT_DESIGNATORS})\\s*)?#?\\s*${escapeRegExp(apartment)}\\.?$`,
+        requireDesignator
+          ? `\\s+(?:${UNIT_DESIGNATORS})\\s*#?\\s*${unit}\\.?$`
+          : `\\s+#?\\s*${unit}\\.?$`,
         'i',
       ),
       '',
     )
     .trim()
 
-  return ONLY_A_DESIGNATOR.test(stripped) ? line : stripped
+  if (stripped === line.trim()) return null
+  // What is left is not an address, so the line was never more than its own
+  // unit — report a miss and let another attempt, or the original, stand.
+  return ONLY_A_DESIGNATOR.test(stripped) ? null : stripped
 }
 
 // The two lines an envelope would carry: the street line, and the unit within
@@ -135,21 +157,40 @@ export const apartmentOf = (addressKey: string): string => {
 //
 // The frozen line belongs to whichever resident sorted first, so it may carry
 // any one of those units — or none, if the building has an unnumbered door.
-// Each apartment is tried in turn and only a trailing match is removed, so the
-// one that is actually there wins and the rest are no-ops.
+// Every apartment is offered the line and the first that matches takes its
+// unit off.
 //
-// Reduced over the stop's own doors rather than parsed out by shape because
+// Matched against the stop's own doors rather than parsed out by shape because
 // the alternative is guessing: "205 BENTON DR APT 8309" and a street genuinely
 // named "... Apt" are the same pattern, and a wrong guess quietly deletes part
 // of a real address.
+//
+// AT MOST ONE strip, which is the whole reason this is not a reduce. A frozen
+// line carries one unit, so one removal is all that can ever be right — and
+// folding the strips let the first expose a tail for the next to eat:
+// "3400 County Road 12 Apt 5" lost "Apt 5" to one door and then its road
+// number to a neighbour in unit 12. Prisma returns the targets unordered, so
+// that also made the stop's name depend on row order, and two serves of an
+// unchanged route could disagree.
 export const streetLineOfStop = (
   displayAddress: string,
   addressKeys: string[],
-): string =>
-  addressKeys.reduce(
-    (line, addressKey) => stripUnitFromLine(line, apartmentOf(addressKey)),
-    displayAddress,
-  )
+): string => {
+  const apartments = addressKeys
+    .map(apartmentOf)
+    .filter((apartment) => apartment.length > 0)
+
+  // Both passes run over every door before the next begins, so a confident
+  // match anywhere in the building beats a speculative one — see `stripOnce`.
+  for (const requireDesignator of [true, false]) {
+    for (const apartment of apartments) {
+      const stripped = stripOnce(displayAddress, apartment, requireDesignator)
+      if (stripped !== null) return stripped
+    }
+  }
+
+  return displayAddress
+}
 
 const normalizeLine = (line: string): string =>
   line.trim().replace(/\s+/g, ' ').toUpperCase()

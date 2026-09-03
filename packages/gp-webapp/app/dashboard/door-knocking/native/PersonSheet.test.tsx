@@ -269,6 +269,20 @@ describe('PersonSheet door address', () => {
 
     expect(within(contactCard()).getByText('105 Elm St')).toBeInTheDocument()
   })
+
+  // A stop is a coordinate, and two houses can geocode to one. Neither has a
+  // unit, so a subheading keyed on the unit alone would show nothing and the
+  // heading can only name one of the two — leaving a canvasser at the wrong
+  // door with nothing on the panel to say so. The door line falls back to the
+  // whole address, the same way the walk list's door rows do.
+  it('names a unitless door that is not the house the heading names', () => {
+    renderSheet([target()], { address: '102 Oak Ave', unit: '' })
+    const header = screen.getByRole('heading', {
+      name: '105 Elm St',
+    }).parentElement!
+
+    expect(within(header).getByText('102 Oak Ave')).toBeInTheDocument()
+  })
 })
 
 // The door sheet is the one surface used one-handed on a porch, so the two
