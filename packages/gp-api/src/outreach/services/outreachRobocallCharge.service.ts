@@ -4,11 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { addDays, isAfter, isFuture } from 'date-fns'
+import { addDays, isAfter, isFuture, subMinutes } from 'date-fns'
 import { RobocallChargeResponse } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 import {
+  ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES,
   ROBOCALL_MAX_SCHEDULE_DAYS,
   ROBOCALL_PER_RUN_CEILING_CENTS,
 } from '@/shared/util/robocallHold.util'
@@ -151,6 +152,13 @@ export class OutreachRobocallChargeService extends createPrismaBase(
       data: {
         settleState: RobocallSettleState.paid,
         authorizedAmountInCents: estimate,
+        // Persist the card AT CLAIM (not just at the success commit) so an
+        // orphaned claim — a crash after this write but before the commit —
+        // carries the payment method the recovery sweep needs to RESUME the
+        // charge under the stable key. Safe against the detach webhook: its
+        // NOT_YET_DIALED_STATES excludes `paid`, so a `paid` row with a card set
+        // is never selected for a detach-cancel.
+        paymentMethodId,
       },
     })
     if (claim.count === 0) {
@@ -222,11 +230,171 @@ export class OutreachRobocallChargeService extends createPrismaBase(
       throw err
     }
 
-    // SUCCESS COMMIT: record the charge on the `paid` row we own. Guarded on
-    // `paid` AND chargeIntentId null so it writes exactly once; capturedAmountIn-
-    // Cents is the charged total (the whole estimate — there is no capture-actual
-    // on this branch), matching the receipt convention. This is also the first
-    // moment the row satisfies the staging/send eligibility (chargeIntentId set).
+    // SUCCESS COMMIT (shared with the orphan-resume path): record the charge on
+    // the `paid` row we own.
+    return this.commitEstimateCharge(
+      user.id,
+      outreachId,
+      estimate,
+      paymentMethodId,
+      customerId,
+      charged.paymentIntentId,
+    )
+  }
+
+  // RECOVERY for an ORPHANED claim: a chargeEstimate that won the
+  // pending_payment -> paid claim (freezing authorizedAmountInCents + persisting
+  // paymentMethodId) but crashed AFTER the claim and BEFORE its commit / decline
+  // / revert — leaving the row `paid` with chargeIntentId STILL NULL. Nothing
+  // else recovers it: staging/send require chargeIntentId, sweepStrandedPaid
+  // requires chargeIntentId NOT null, the detach webhook excludes `paid`,
+  // revertClaim never ran. If the lost charge was one Stripe ACTUALLY captured,
+  // money was taken and never delivered. This RESUMES the charge under the SAME
+  // stable idempotency key + SAME frozen amount, so a captured charge replays the
+  // SAME PaymentIntent (never a second charge) and an un-landed one charges
+  // exactly once; on success it commits chargeIntentId so staging can finally
+  // dial the paid run. A genuine decline (Stripe never captured under the key)
+  // routes to the same charge_failed + email terminal the live path uses; a
+  // card-revalidation or transient charge failure LEAVES the row `paid`
+  // (chargeIntentId null) for the next sweep — never reverting a possibly-
+  // captured orphan.
+  async resumeStrandedEstimateCharge(outreachId: number): Promise<void> {
+    // Single-owner reclaim: a stale-guarded self-transition (writing `paid` bumps
+    // @updatedAt, so a concurrent replica finds updatedAt no longer < cutoff and
+    // loses) elects exactly one resumer, mirroring the hold_pending recovery.
+    const staleCutoff = subMinutes(
+      new Date(),
+      ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES,
+    )
+    const reclaim = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.paid,
+        chargeIntentId: null,
+        updatedAt: { lt: staleCutoff },
+      },
+      data: { settleState: RobocallSettleState.paid },
+    })
+    if (reclaim.count === 0) return
+
+    const draft = await this.findFirst({
+      where: { outreachId },
+      include: {
+        outreach: { include: { campaign: { include: { user: true } } } },
+      },
+    })
+    // Re-check the orphan invariant under the loaded row: only a `paid` row with
+    // no committed charge, a frozen amount, and a persisted card can be resumed.
+    if (
+      !draft ||
+      draft.authorizedAmountInCents == null ||
+      draft.paymentMethodId == null
+    ) {
+      this.logger.error(
+        { outreachId },
+        'CRITICAL robocall estimate resume: claimed orphan missing frozen ' +
+          'amount or card; cannot resume — reconcile by hand',
+      )
+      return
+    }
+    const user = draft.outreach.campaign?.user
+    const campaign = draft.outreach.campaign
+    if (!user || !campaign) {
+      this.logger.error(
+        { outreachId },
+        'CRITICAL robocall estimate resume: orphaned paid claim missing ' +
+          'user/campaign; cannot resume — reconcile by hand',
+      )
+      return
+    }
+
+    const estimate = draft.authorizedAmountInCents
+    const paymentMethodId = draft.paymentMethodId
+
+    // Re-derive the customer + re-validate the persisted card exactly as the live
+    // path does. A validation failure LEAVES the row `paid` (a charge may have
+    // been captured under the key) for the next sweep — never revert or fail.
+    let customerId: string
+    try {
+      customerId = await this.stripe.ensureCustomer(user)
+      const pm = await this.stripe.retrievePaymentMethod(paymentMethodId)
+      if (pm.customer !== customerId || pm.type !== 'card') {
+        throw new RobocallCardError('Persisted card is no longer chargeable')
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall estimate resume: card re-validation failed; leaving paid ' +
+          'for the next sweep',
+      )
+      return
+    }
+
+    // RESUME under the SAME stable key + SAME frozen amount: a prior capture
+    // replays the SAME PaymentIntent (no second charge), an un-landed one charges
+    // exactly once.
+    let charged: { paymentIntentId: string }
+    try {
+      charged = await this.stripe.createOffSessionCharge({
+        customerId,
+        paymentMethodId,
+        amountInCents: estimate,
+        robocallId: outreachId,
+        metadata: {
+          outreachId: String(outreachId),
+          campaignId: String(campaign.id),
+          userId: String(user.id),
+        },
+        idempotencyKey: `robocall-estimate-charge-${outreachId}`,
+        chargeKind: ROBOCALL_ESTIMATE_CHARGE_KIND,
+      })
+    } catch (err) {
+      if (err instanceof StripeChargeDeclinedError) {
+        // Under the stable key Stripe REPLAYS a prior success, so a decline here
+        // proves nothing was ever captured — route to the same terminal the live
+        // decline uses (charge_failed + one ChargeFailed email).
+        await this.transitionToChargeFailed(
+          user.id,
+          outreachId,
+          err.paymentIntentId,
+        )
+        return
+      }
+      // Transient infra: unknown whether the charge landed. LEAVE the row `paid`
+      // (chargeIntentId null) so this sweep re-picks it and replays the same key
+      // — never revert a possibly-captured orphan to pending_payment.
+      this.logger.error(
+        { err, outreachId },
+        'robocall estimate resume: transient charge failure; leaving paid ' +
+          'for the next sweep',
+      )
+      return
+    }
+
+    await this.commitEstimateCharge(
+      user.id,
+      outreachId,
+      estimate,
+      paymentMethodId,
+      customerId,
+      charged.paymentIntentId,
+    )
+  }
+
+  // The success commit for BOTH the live charge and the orphan resume: record the
+  // charge on the `paid` row we own. Guarded on `paid` AND chargeIntentId null so
+  // it writes exactly once; capturedAmountInCents is the charged total (the whole
+  // estimate — there is no capture-actual on this branch), matching the receipt
+  // convention. This is also the first moment the row satisfies the staging/send
+  // eligibility (chargeIntentId set), so it can finally dial.
+  private async commitEstimateCharge(
+    userId: number,
+    outreachId: number,
+    estimate: number,
+    paymentMethodId: string,
+    customerId: string,
+    paymentIntentId: string,
+  ): Promise<RobocallChargeResponse> {
     const commit = await this.model.updateMany({
       where: {
         outreachId,
@@ -234,7 +402,7 @@ export class OutreachRobocallChargeService extends createPrismaBase(
         chargeIntentId: null,
       },
       data: {
-        chargeIntentId: charged.paymentIntentId,
+        chargeIntentId: paymentIntentId,
         capturedAmountInCents: estimate,
         paymentMethodId,
         stripeCustomerId: customerId,
@@ -248,17 +416,17 @@ export class OutreachRobocallChargeService extends createPrismaBase(
       // replayed the SAME PI, so it is never a second charge. Surface it CRITICAL
       // for a human to reconcile rather than silently swallow moved money.
       this.logger.error(
-        { outreachId, chargeIntentId: charged.paymentIntentId, estimate },
+        { outreachId, chargeIntentId: paymentIntentId, estimate },
         'CRITICAL robocall estimate charged at Stripe but commit found no ' +
           'paid row; charge may be unrecorded — reconcile by hand',
       )
-      return this.currentStateResult(outreachId, draft.settleState)
+      return this.currentStateResult(outreachId, RobocallSettleState.paid)
     }
 
     // The charge committed, so this is a real scheduled send: make it visible in
     // the history list, then emit the receipt once.
     await this.markSpineScheduled(outreachId)
-    await this.emitReceipt(user.id, outreachId, estimate)
+    await this.emitReceipt(userId, outreachId, estimate)
     return {
       status: 'paid',
       settleState: RobocallSettleState.paid,

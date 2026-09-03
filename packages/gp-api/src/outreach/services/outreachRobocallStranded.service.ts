@@ -1,8 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { isRobocallEstimateBillingEnabled } from '@/shared/util/robocallHold.util'
+import {
+  isRobocallEstimateBillingEnabled,
+  ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES,
+} from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallChargeService } from './outreachRobocallCharge.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
@@ -22,6 +26,12 @@ const ROBOCALL_STRANDED_SWEEP_JOB = 'robocallStrandedAuthorizedSweep'
 // paid, never both — so running them on the same minute never doubles work, and
 // every non-herd minute slot is already claimed by another robocall cron.
 const ROBOCALL_STRANDED_PAID_SWEEP_JOB = 'robocallStrandedPaidSweep'
+
+// The orphaned-claim recovery shares the same cadence: its candidate set (`paid`
+// with chargeIntentId STILL NULL) is disjoint from both the authorized sweep
+// (`authorized`) and the paid sweep (`paid` + chargeIntentId NOT null), so all
+// three on the same minute only ever process their own rows.
+const ROBOCALL_STRANDED_ORPHAN_SWEEP_JOB = 'robocallStrandedOrphanSweep'
 
 // Recovers a robocall stranded in `authorized` that NEVER staged
 // (`callhubCampaignPkStr` still NULL) once its send passed: the staging sweep
@@ -138,6 +148,58 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
         this.logger.error(
           { err, outreachId },
           'robocall stranded-paid fail failed for a draft; continuing',
+        )
+      }
+    }
+  }
+
+  // The estimate-billing ORPHANED-CLAIM recovery: a chargeEstimate that won the
+  // pending_payment -> paid claim (freezing the amount + persisting the card) but
+  // crashed before its commit / decline / revert leaves the row `paid` with
+  // chargeIntentId STILL NULL. Nothing else recovers it — staging/send +
+  // sweepStrandedPaid all require chargeIntentId, the detach webhook excludes
+  // `paid`, revertClaim never ran — so a charge Stripe may have CAPTURED before
+  // the crash sits forever unrecorded, money taken and the candidate never
+  // dialed, unalerted. This resumes the charge under the SAME stable idempotency
+  // key + SAME frozen amount (a captured charge replays the SAME PaymentIntent,
+  // an un-landed one charges exactly once) and commits chargeIntentId so the
+  // paid run becomes deliverable — so it selects orphans regardless of send date
+  // (a future orphan must be completed BEFORE its send, not only after). Gated
+  // ENTIRELY on the flag (inert when off), consistent with sweepStrandedPaid;
+  // resumeStrandedEstimateCharge owns the stale-guarded single-owner claim, so it
+  // is idempotent across replicas. @Cron (not @Interval) so it survives deploys.
+  @Cron(ROBOCALL_STRANDED_SWEEP_CRON, {
+    name: ROBOCALL_STRANDED_ORPHAN_SWEEP_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepOrphanedEstimateClaims(): Promise<void> {
+    if (!isRobocallEstimateBillingEnabled()) return
+
+    const staleCutoff = subMinutes(
+      new Date(),
+      ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES,
+    )
+    const candidates = await this.model.findMany({
+      where: {
+        settleState: RobocallSettleState.paid,
+        // The orphan: claimed `paid` but the charge was never committed. A stale
+        // updatedAt (older than a healthy claim->commit round-trip) proves the
+        // crash, so a merely-slow in-flight charge is never reclaimed.
+        chargeIntentId: null,
+        updatedAt: { lt: staleCutoff },
+        outreach: { outreachType: OutreachType.robocall },
+      },
+      select: { outreachId: true },
+    })
+
+    for (const { outreachId } of candidates) {
+      try {
+        await this.charge.resumeStrandedEstimateCharge(outreachId)
+      } catch (err) {
+        // Per-record isolation: one draft's failure must not abort the sweep.
+        this.logger.error(
+          { err, outreachId },
+          'robocall orphaned-claim resume failed for a draft; continuing',
         )
       }
     }

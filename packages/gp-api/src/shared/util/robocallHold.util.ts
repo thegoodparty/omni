@@ -47,3 +47,15 @@ export const ROBOCALL_SETTLE_MARGIN_HOURS = 24
 // seconds) AND the recovery sweep interval, so a merely-slow placement is never
 // reclaimed underneath itself. Matches the capturing/dialing stale windows.
 export const ROBOCALL_HOLD_PENDING_STALE_MINUTES = 15
+
+// A draft stranded in `paid` with chargeIntentId STILL NULL past this window is
+// an orphaned estimate-charge claim (CONTINGENCY billing): chargeEstimate won
+// the pending_payment -> paid claim (freezing authorizedAmountInCents +
+// persisting the card) but crashed before its commit / decline / revert, so a
+// charge Stripe may have captured was never recorded and nothing else recovers
+// it (staging/send + sweepStrandedPaid all require chargeIntentId, the detach
+// webhook excludes `paid`). A healthy chargeEstimate holds this state only for
+// the seconds between the claim and the commit (ensureCustomer + a card retrieve
+// + the Stripe charge + commit), so a row older than this is definitely crashed,
+// never a merely-slow in-flight charge. Matches the other robocall stale windows.
+export const ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES = 15

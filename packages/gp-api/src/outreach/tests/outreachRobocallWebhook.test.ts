@@ -187,6 +187,32 @@ describe('OutreachRobocallWebhookService', () => {
       expect(paymentIntentsCancel).not.toHaveBeenCalled()
     })
 
+    it('never touches a paid estimate run on the same card', async () => {
+      // The estimate model persists paymentMethodId at CLAIM (so the orphan-claim
+      // recovery can resume the charge), but `paid` is excluded from the detach
+      // handler's NOT_YET_DIALED_STATES — a charged run must never be un-dialed,
+      // and an orphaned `paid` claim (chargeIntentId null) must stay recoverable,
+      // not be cancelled out from under the recovery sweep.
+      const paid = await createDraft({
+        settleState: RobocallSettleState.paid,
+        paymentMethodId: 'pm_gone',
+      })
+      const orphan = await createDraft({
+        settleState: RobocallSettleState.paid,
+        paymentMethodId: 'pm_gone',
+      })
+
+      await webhooks.cancelNotYetDialedForDetachedPaymentMethod('pm_gone')
+
+      expect((await readSatellite(paid)).settleState).toBe(
+        RobocallSettleState.paid,
+      )
+      expect((await readSatellite(orphan)).settleState).toBe(
+        RobocallSettleState.paid,
+      )
+      expect(paymentIntentsCancel).not.toHaveBeenCalled()
+    })
+
     it('is idempotent: a redelivered detached event is a no-op', async () => {
       const outreachId = await createDraft({
         settleState: RobocallSettleState.authorized,
