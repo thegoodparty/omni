@@ -26,10 +26,12 @@ counterpart to `Campaign.userId`; an org has one or the other, not both),
 `volunteer`, unique on `(organizationSlug, userId)`). Everything but
 `OrganizationMembership` exists today; verify current field names against
 `packages/gp-api/prisma/schema/*.prisma` before you run anything, since this file can
-drift. **`OrganizationMembership` does not exist yet** — it ships as part of epic
-ENG-10816 (Team accounts and roles). If it hasn't landed yet, skip the membership
-statements in Step 2 and know that the old owner has no soft-landing role: they
-simply lose access to the campaign until the table (and the invite/member-management
+drift. **`OrganizationMembership` does not exist yet in every environment** — it
+ships as part of epic ENG-10816 (Team accounts and roles), as a sibling PR to this
+runbook. Step 2 is split into two blocks for exactly this reason: Block A (org +
+campaign/elected-office) always runs; Block B (the membership rows) is gated on the
+table existing, and skipping it just means the old owner has no soft-landing role —
+they lose access to the campaign until the table (and the invite/member-management
 endpoints on top of it) ship.
 
 Owners never get a membership row. `UseOrganizationGuard` and `UseCampaign` resolve
@@ -37,8 +39,8 @@ org-level ownership as `WHERE slug = X AND owner_id = userId` — a plain column
 not a membership lookup — so their guard fallback covers the owner without one.
 `UseElectedOfficeGuard` checks that same org-ownership condition too, but does **not**
 stop there: it independently requires `elected_office.user_id = userId` on top of it
-(`if (org && eo) { ... }`), so a Serve org needs both columns flipped in Step 2, not
-just `Organization.ownerId`. That is also why the transaction deletes the new owner's
+(`if (org && eo) { ... }`), so a Serve org needs both columns flipped in Block A, not
+just `Organization.ownerId`. That is also why Block B deletes the new owner's
 membership row instead of promoting it: once they're the owner, a leftover membership
 row is just dead data.
 
@@ -120,13 +122,16 @@ here once they have a real `userId` on this organization.
 
 ## Step 2 — the ownership transaction
 
-One transaction over `Organization.ownerId`, whichever of `Campaign.userId` /
-`ElectedOffice.userId` applies to this org, and the membership rows. All of it or
-none — a partial write leaves a campaign whose org owner and campaign (or elected
-office) user disagree, and every guard that resolves ownership (`UseOrganizationGuard`,
-`UseCampaign`, `UseElectedOffice`, the CRM's `UseEngagementContext`,
-`CanDownloadVoterFile`) reads that disagreement differently. Never run these as
-separate statements outside a transaction.
+Two blocks, not one — deliberately, so this stays copy-paste-safe whether or not
+`OrganizationMembership` has shipped yet.
+
+**Block A is the transfer.** One transaction over `Organization.ownerId` and
+whichever of `Campaign.userId` / `ElectedOffice.userId` applies to this org. All of
+it or none — a partial write leaves a campaign whose org owner and campaign (or
+elected office) user disagree, and every guard that resolves ownership
+(`UseOrganizationGuard`, `UseCampaign`, `UseElectedOffice`, the CRM's
+`UseEngagementContext`, `CanDownloadVoterFile`) reads that disagreement differently.
+Always exists, always runs.
 
 **Serve orgs need the elected-office row too, not just the org.**
 `UseElectedOfficeGuard` does not fall back to org ownership the way the others do —
@@ -166,6 +171,43 @@ WHERE organization_slug = :'org_slug'
 -- WHERE organization_slug = :'org_slug'
 --   AND user_id = :old_owner_id;
 
+COMMIT;
+```
+
+Read the row count psql prints after each `UPDATE` before you type `COMMIT`. The
+`organization` update and whichever of `campaign` / `elected_office` applies must
+both say `UPDATE 1`. If either says `UPDATE 0`, stop and `ROLLBACK` — you are looking
+at a stale `old_owner_id` or the wrong `org_slug`, not a transient error. Don't
+loosen the `WHERE` clause to force a match, and don't run both 2a and 2b — an org
+has one or the other, per Step 1's read.
+
+**Block B is the old owner's soft landing, and only runs if the table exists.**
+`OrganizationMembership` ships as part of this same epic (ENG-10816) but as a
+sibling PR — it may not have landed in this environment yet. Unlike Block A, Block
+B is never load-bearing for a guard: no guard requires the old owner to have any
+particular membership state, so if this block doesn't run at all, the only
+consequence is the one already called out in Prerequisites — the old owner loses
+access outright instead of landing as `campaignAdmin`. That also makes Block B safe
+to treat as a separate transaction: if it fails after Block A has already
+committed, the ownership transfer itself still stands, and Block B is trivially
+re-runnable (or skippable) on its own, unlike Block A.
+
+Check the table exists before running Block B at all:
+
+```sql
+SELECT to_regclass('organization_membership');
+-- NULL → skip Block B entirely. The transfer is already complete from Block A;
+-- the old owner simply has no membership row until this table ships.
+-- non-NULL → the table exists, continue.
+```
+
+```sql
+\set org_slug 'example-org-slug'
+\set old_owner_id 1001
+\set new_owner_id 2002
+
+BEGIN;
+
 -- 3. The new owner never keeps a membership row — the guard fallback in
 -- UseOrganizationGuard covers owners without one. Remove theirs if the invite
 -- flow left one (0 rows here is fine and expected for a brand-new owner).
@@ -189,18 +231,6 @@ DO UPDATE SET role = 'campaignAdmin', updated_at = now();
 
 COMMIT;
 ```
-
-Read the row count psql prints after each `UPDATE` before you type `COMMIT`. The
-`organization` update and whichever of `campaign` / `elected_office` applies must
-both say `UPDATE 1`. If either says `UPDATE 0`, stop and `ROLLBACK` — you are looking
-at a stale `old_owner_id` or the wrong `org_slug`, not a transient error. Don't
-loosen the `WHERE` clause to force a match, and don't run both 2a and 2b — an org
-has one or the other, per Step 1's read.
-
-If `OrganizationMembership` hasn't shipped yet (see Prerequisites), drop statements 3
-and 4 entirely and only run statement 1 and whichever of 2a/2b applies. The old owner
-then has no fallback role — they lose access to the campaign outright until team
-accounts ships.
 
 ## Step 3 — what Stripe cannot do
 
