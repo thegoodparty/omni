@@ -114,6 +114,33 @@ describe('owner profile lifecycle', () => {
     expect(res.data.whyRunning).toBe('For the parks')
   })
 
+  // The profile saves as one payload, so these rejections take the whole form
+  // down with them — worth pinning the status the editor keys its field-level
+  // reporting off, and the null that clearing a field has to keep sending.
+  it('400s on a malformed public email', async () => {
+    const res = await service.client.put(MINE, {
+      publicEmail: 'thomasquocthainguyen.com',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('400s on a link with no scheme', async () => {
+    const res = await service.client.put(MINE, {
+      instagramUrl: 'instagram.com/jane',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts null for optional contact fields, so they can be cleared', async () => {
+    const res = await service.client.put(MINE, {
+      publicEmail: null,
+      instagramUrl: null,
+    })
+    expect(res.status).toBe(200)
+    expect(res.data.publicEmail).toBeNull()
+    expect(res.data.instagramUrl).toBeNull()
+  })
+
   it('round-trips the §4 contact + recent-experience fields', async () => {
     // The three fields added for the profile-editor overlay (office phone,
     // government website, structured recent experience) must survive a full
