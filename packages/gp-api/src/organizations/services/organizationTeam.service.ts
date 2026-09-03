@@ -142,11 +142,29 @@ export class OrganizationTeamService {
     const pending = await this.clerkInvitations.listPendingTeamInvitations(
       organization.slug,
     )
-    if (!pending.some((invite) => invite.id === invitationId)) {
+    const invitation = pending.find((invite) => invite.id === invitationId)
+    if (!invitation) {
       throw new NotFoundException('Invitation not found')
     }
 
     await this.clerkInvitations.revokeInvitation(invitationId)
+
+    // Best-effort: the invitation itself is already revoked at this point.
+    // An invitee who already signed up via the link carries the same
+    // publicMetadata on their own Clerk user — accept reads only that, so a
+    // revoke that only cancels the invitation object leaves a revoked
+    // invitee still able to accept. A failure here just means the metadata
+    // clear didn't happen; the revoke itself must not be undone by it.
+    try {
+      await this.clerkInvitations.clearTeamInviteMetadataByEmail(
+        invitation.emailAddress,
+      )
+    } catch (err) {
+      this.logger.warn(
+        { err, email: invitation.emailAddress },
+        'Failed to clear team invite metadata for a revoked invitee',
+      )
+    }
   }
 
   async acceptInvite(user: User): Promise<AcceptInviteResponse> {

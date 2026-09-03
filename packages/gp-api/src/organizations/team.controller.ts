@@ -7,6 +7,7 @@ import {
   HttpStatus,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   UseInterceptors,
@@ -106,13 +107,13 @@ export class TeamController {
   updateMemberRole(
     @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
-    @Param('userId') userId: string,
+    @Param('userId', ParseIntPipe) userId: number,
     @Body() input: UpdateMemberRoleDto,
   ) {
     return this.team.changeMemberRole({
       organization,
       actingUserId: user.id,
-      targetUserId: Number(userId),
+      targetUserId: userId,
       role: input.role,
     })
   }
@@ -124,12 +125,12 @@ export class TeamController {
   async removeMember(
     @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
-    @Param('userId') userId: string,
+    @Param('userId', ParseIntPipe) userId: number,
   ): Promise<void> {
     await this.team.removeMember({
       organization,
       actingUserId: user.id,
-      targetUserId: Number(userId),
+      targetUserId: userId,
     })
   }
 }

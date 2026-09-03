@@ -51,21 +51,35 @@ export class ClerkInvitationsService {
   async listPendingTeamInvitations(
     organizationSlug: string,
   ): Promise<Invitation[]> {
-    let invitations: Invitation[]
+    // `getInvitationList` has no server-side org filter — it returns pending
+    // invitations across every org in the Clerk instance, so a single
+    // (even max-size) page silently drops invitations once the instance-wide
+    // pending count exceeds it. Page with limit+offset until totalCount is
+    // exhausted, THEN filter to this org, so no team's invites can fall off
+    // the end of someone else's backlog.
+    const invitations: Invitation[] = []
     try {
-      ;({ data: invitations } = await clerkCall(
-        'invitations.getInvitationList',
-        { 'clerk.organization_slug': organizationSlug },
-        () =>
-          this.clerkClient.invitations.getInvitationList({
-            status: 'pending',
-            // Clerk defaults to a 10-item page; without an explicit limit a
-            // team past 10 pending invites would silently truncate here,
-            // making the rest invisible and un-revocable. 500 is Clerk's
-            // documented page-size ceiling.
-            limit: 500,
-          }),
-      ))
+      const PAGE_SIZE = 500 // Clerk's documented page-size ceiling
+      let offset = 0
+      let totalCount = Infinity
+      while (offset < totalCount) {
+        const page = await clerkCall(
+          'invitations.getInvitationList',
+          {
+            'clerk.organization_slug': organizationSlug,
+            'clerk.offset': offset,
+          },
+          () =>
+            this.clerkClient.invitations.getInvitationList({
+              status: 'pending',
+              limit: PAGE_SIZE,
+              offset,
+            }),
+        )
+        invitations.push(...page.data)
+        totalCount = page.totalCount
+        offset += PAGE_SIZE
+      }
     } catch (err) {
       this.logger.error({ err }, 'Failed to list Clerk team invitations')
       throw new BadGatewayException('Failed to list team invitations')
@@ -144,5 +158,37 @@ export class ClerkInvitationsService {
       this.logger.error({ err }, 'Failed to clear Clerk team invite metadata')
       throw new BadGatewayException('Failed to clear team invite metadata')
     }
+  }
+
+  // Revoking a Clerk invitation cancels the invitation object, but an
+  // invitee who already signed up via the invite link carries the same
+  // publicMetadata on their own Clerk user — and accept reads only that, not
+  // the invitation. So a revoke must also clear the invitee's user metadata
+  // if they exist, or a revoked invite can still be accepted. No matching
+  // user (never signed up) is a no-op, not an error.
+  async clearTeamInviteMetadataByEmail(email: string): Promise<void> {
+    let users
+    try {
+      ;({ data: users } = await clerkCall(
+        'users.getUserList',
+        { 'clerk.email': email },
+        () =>
+          this.clerkClient.users.getUserList({
+            emailAddress: [email],
+            limit: 1,
+          }),
+      ))
+    } catch (err) {
+      this.logger.error(
+        { err },
+        'Failed to look up Clerk user by email for invite revocation',
+      )
+      throw new BadGatewayException('Failed to look up Clerk user')
+    }
+
+    const user = users[0]
+    if (!user) return
+
+    await this.clearTeamInviteMetadata(user.id)
   }
 }

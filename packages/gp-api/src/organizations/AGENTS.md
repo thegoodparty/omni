@@ -58,7 +58,20 @@ invitation (`ClerkInvitationsService.createTeamInvitation`) carrying
 `TeamInviteMetadata` as `publicMetadata` — Clerk copies that onto the user
 at sign-up, which is the entire persistence mechanism for a pending invite
 (nothing is written to Postgres until accept). `GET team` merges Postgres
-membership rows with `listPendingTeamInvitations(slug)`.
+membership rows with `listPendingTeamInvitations(slug)`, which pages through
+Clerk's *entire instance-wide* pending-invitation list (it has no
+server-side org filter) before filtering to this org — a single page would
+silently drop this org's invites once the instance-wide pending count
+exceeds the page size.
+
+**Revoke clears the invitee's own metadata too, not just the invitation.**
+An invitee who already signed up via the invite link carries the same
+`publicMetadata` on their own Clerk user, and accept reads only that (never
+the invitation object) — so revoking the invitation alone would leave a
+signed-up-but-revoked invitee still able to accept. `revokeInvite` looks up
+any Clerk user by the invitation's email and clears their invite metadata
+too, best-effort (a failure there must not undo the revoke, which already
+succeeded).
 
 **Accept never trusts the request.** It reads `request.user` (never
 `effectiveUser` — that resolves to an impersonating admin under

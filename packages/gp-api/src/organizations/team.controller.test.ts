@@ -5,6 +5,7 @@ import { EmailService } from '@/email/email.service'
 import { ClerkInvitationsService } from '@/vendors/clerk/services/clerkInvitations.service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient, Invitation } from '@clerk/backend'
+import { TeamInviteMetadata } from '@goodparty_org/contracts'
 import jwt from 'jsonwebtoken'
 import { describe, expect, it, vi } from 'vitest'
 import { OrganizationRole } from '../generated/prisma'
@@ -465,6 +466,9 @@ describe('DELETE /v1/organizations/team/invites/:id', () => {
     const revoke = vi
       .spyOn(stubClerkInvitations(), 'revokeInvitation')
       .mockResolvedValue(mockInvitation({ id: 'inv_mine', revoked: true }))
+    const clearByEmail = vi
+      .spyOn(stubClerkInvitations(), 'clearTeamInviteMetadataByEmail')
+      .mockResolvedValue(undefined)
 
     const result = await service.client.delete(
       `${TEAM_PATH}/invites/inv_mine`,
@@ -473,6 +477,7 @@ describe('DELETE /v1/organizations/team/invites/:id', () => {
 
     expect(result.status).toBe(204)
     expect(revoke).toHaveBeenCalledWith('inv_mine')
+    expect(clearByEmail).toHaveBeenCalledWith('invitee@example.com')
   })
 
   it('404s revoking an id that belongs to another org', async () => {
@@ -488,6 +493,83 @@ describe('DELETE /v1/organizations/team/invites/:id', () => {
     )
 
     expect(result.status).toBe(404)
+  })
+
+  it('still revokes when clearing the signed-up invitee metadata fails', async () => {
+    await createOrg()
+    vi.spyOn(
+      stubClerkInvitations(),
+      'listPendingTeamInvitations',
+    ).mockResolvedValue([mockInvitation({ id: 'inv_mine' })])
+    const revoke = vi
+      .spyOn(stubClerkInvitations(), 'revokeInvitation')
+      .mockResolvedValue(mockInvitation({ id: 'inv_mine', revoked: true }))
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadataByEmail',
+    ).mockRejectedValue(new Error('down'))
+
+    const result = await service.client.delete(
+      `${TEAM_PATH}/invites/inv_mine`,
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(204)
+    expect(revoke).toHaveBeenCalledWith('inv_mine')
+  })
+
+  it('a revoked invite cannot be accepted by an invitee who already signed up', async () => {
+    await createOrg()
+    await service.prisma.user.create({
+      data: { email: 'signed-up@x.com', clerkId: 'user_signedup_1' },
+    })
+
+    // Stands in for Clerk's real publicMetadata store: the invitee already
+    // signed up, so their own Clerk user carries the invite metadata that
+    // accept reads. clearTeamInviteMetadataByEmail (called by revoke) is
+    // what must null it out — accept must not still see it afterward.
+    let liveMetadata: TeamInviteMetadata | null = {
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Signed Up',
+      invitedByUserId: service.user.id,
+    }
+    vi.spyOn(
+      stubClerkInvitations(),
+      'getTeamInviteMetadata',
+    ).mockImplementation(() => Promise.resolve(liveMetadata))
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadataByEmail',
+    ).mockImplementation(() => {
+      liveMetadata = null
+      return Promise.resolve()
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'listPendingTeamInvitations',
+    ).mockResolvedValue([
+      mockInvitation({
+        id: 'inv_signed_up',
+        emailAddress: 'signed-up@x.com',
+      }),
+    ])
+    vi.spyOn(stubClerkInvitations(), 'revokeInvitation').mockResolvedValue(
+      mockInvitation({ id: 'inv_signed_up', revoked: true }),
+    )
+
+    const revokeResult = await service.client.delete(
+      `${TEAM_PATH}/invites/inv_signed_up`,
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+    expect(revokeResult.status).toBe(204)
+
+    const acceptResult = await service.client.post(
+      `${TEAM_PATH}/invites/accept`,
+      {},
+      { headers: authHeaderFor('user_signedup_1') },
+    )
+    expect(acceptResult.status).toBe(404)
   })
 })
 
@@ -718,6 +800,18 @@ describe('PATCH /v1/organizations/team/members/:userId', () => {
 
     expect(result.status).toBe(404)
   })
+
+  it('400s on a non-numeric :userId instead of 500ing', async () => {
+    await createOrg()
+
+    const result = await service.client.patch(
+      `${TEAM_PATH}/members/abc`,
+      { role: 'campaignAdmin' },
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+  })
 })
 
 describe('DELETE /v1/organizations/team/members/:userId', () => {
@@ -802,6 +896,16 @@ describe('DELETE /v1/organizations/team/members/:userId', () => {
       `${TEAM_PATH}/members/${service.user.id}`,
       { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
     )
+
+    expect(result.status).toBe(400)
+  })
+
+  it('400s on a non-numeric :userId instead of 500ing', async () => {
+    await createOrg()
+
+    const result = await service.client.delete(`${TEAM_PATH}/members/abc`, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
 
     expect(result.status).toBe(400)
   })
