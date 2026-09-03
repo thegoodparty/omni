@@ -39,20 +39,21 @@ export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
 // residents cap). This is that key plus the one component that names the
 // knockable unit. Same normalization recipe.
 //
-// The AddressLine is load-bearing rather than a convenience. The obvious
-// alternative — compose the line from the file's parsed components, which is
-// what DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did — cannot carry a
-// cardinal direction, because `Residence_Addresses_PrefixDirection` and
-// `Residence_Addresses_SuffixDirection` are INTEGER columns in the people-db
-// mirror. The loader `try_cast`s them, so every 'N'/'S'/'E'/'W' in the source
-// file lands as NULL and no consumer of those two columns can ever see one.
-// AddressLine is TEXT and holds the whole line, directions included.
+// The AddressLine is a deliberate choice, not a convenience. Composing the line
+// from the file's parsed components instead, which is what
+// DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS below did, could not carry a cardinal
+// direction while `Residence_Addresses_PrefixDirection` and
+// `Residence_Addresses_SuffixDirection` were INTEGER in the people-db mirror
+// and NULL for every voter. DATA-2372 made them TEXT and they carry
+// 'N'/'S'/'E'/'W' now, but AddressLine stays the basis of this key: it is one
+// column holding the whole line, so no upstream retype can silently drop a
+// component out of it.
 //
-// That made this a de-duplication defect and not only a display one: with both
-// direction components permanently empty, `1234 S Main St` and `1234 N Main St`
-// in one ZIP produced byte-identical keys and were one door. Grid-addressed
-// cities are where it bites hardest — in Salt Lake City the directions carry
-// most of the address, and `1234 S 5678 W` keyed as `1234 5678`.
+// While both direction components were empty this was a de-duplication defect
+// and not only a display one: `1234 S Main St` and `1234 N Main St` in one ZIP
+// produced byte-identical keys and were one door. Grid-addressed cities were
+// where it bit hardest. In Salt Lake City the directions carry most of the
+// address, and `1234 S 5678 W` keyed as `1234 5678`.
 export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
   'Residence_Addresses_AddressLine',
   'Residence_Addresses_ApartmentNum',
@@ -60,12 +61,16 @@ export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
 ] as const
 
 // The component-composed key routes frozen before that fix still hold. Kept
-// buildable so `residents()` can look those routes' stored keys back up — a
+// buildable so `residents()` can look those routes' stored keys back up: a
 // canvasser mid-list must not lose live phone numbers and household context
 // because the key definition moved under them. Nothing new is ever keyed this
-// way, and it is not a fallback for the current key: a request carries one
+// way, and it is not a fallback for the current key. A request carries one
 // format or the other, never a mixture, because a route freezes all of its
 // keys at once.
+//
+// Both direction segments are empty in every stored key and a producer must
+// recompose them that way rather than reading the columns, which hold values
+// since DATA-2372.
 export const DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS = [
   'Residence_Addresses_HouseNumber',
   'Residence_Addresses_PrefixDirection',
