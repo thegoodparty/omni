@@ -69,8 +69,18 @@ export class CallfireRobocallVendor implements RobocallVendor {
   async rentNumber(input: RentNumberInput): Promise<RentedNumber> {
     const areaCode = input.areaCode ?? ''
     let rented = await this.numbers.rentNumber({ areaCode }).catch((err) => {
+      // Area-code search with no inventory falls back to a national rental
+      // below.
       if (areaCode && err instanceof NoInventoryError) {
         return null
+      }
+      // No area code was requested: the search above was already national, so
+      // a no-inventory result is terminal — surface a clean caller-facing
+      // error rather than leaking the internal NoInventoryError sentinel.
+      if (!areaCode && err instanceof NoInventoryError) {
+        throw new BadGatewayException(
+          'No CallFire national number available for rental',
+        )
       }
       throw err
     })

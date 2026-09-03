@@ -151,6 +151,21 @@ describe('CallfireRobocallVendor', () => {
 
       expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
     })
+
+    it('surfaces a national no-inventory result as a clean BadGatewayException', async () => {
+      // With no area code the first search is already national, so a
+      // NoInventoryError is terminal — it must convert to a caller-facing
+      // BadGatewayException rather than leak the internal sentinel or retry.
+      numbers.rentNumber.mockRejectedValue(
+        new NoInventoryError('No CallFire national number available'),
+      )
+
+      await expect(vendor.rentNumber({})).rejects.toBeInstanceOf(
+        BadGatewayException,
+      )
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
+      expect(numbers.rentNumber).toHaveBeenCalledWith({ areaCode: '' })
+    })
   })
 
   describe('uploadMedia', () => {
