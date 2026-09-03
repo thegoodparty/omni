@@ -16,6 +16,7 @@ import {
 } from '@/outreach/vendor/robocallVendor.types'
 import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { sleep } from '@/shared/util/sleep.util'
+import { NoInventoryError } from './noInventoryError'
 import { CallfireBroadcastService } from './services/callfireBroadcast.service'
 import {
   CallfireContactsService,
@@ -58,18 +59,17 @@ export class CallfireRobocallVendor implements RobocallVendor {
 
   // The port contract guarantees that a defined area code with no CallFire
   // inventory DEGRADES to a national (no-prefix) rental rather than failing the
-  // request. So attempt the area-code rental and, only on the no-inventory
-  // BadGatewayException, retry once nationally. A VendorPermanentError (a 4xx a
-  // national retry can't fix, and which may already have placed a real order)
-  // and any national-retry failure still propagate.
+  // request. So attempt the area-code rental and, ONLY on a NoInventoryError
+  // (the empty-search sentinel), retry once nationally. A transient
+  // BadGatewayException (429 / auth / timeout) and a VendorPermanentError (a 4xx
+  // a national retry can't fix, and which may already have placed a real order)
+  // both propagate — falling back on either would swallow a retryable error or
+  // trigger a wasted billable national purchase, so only a true no-inventory
+  // degrades.
   async rentNumber(input: RentNumberInput): Promise<RentedNumber> {
     const areaCode = input.areaCode ?? ''
     let rented = await this.numbers.rentNumber({ areaCode }).catch((err) => {
-      if (
-        areaCode &&
-        err instanceof BadGatewayException &&
-        !(err instanceof VendorPermanentError)
-      ) {
+      if (areaCode && err instanceof NoInventoryError) {
         return null
       }
       throw err
@@ -165,8 +165,9 @@ export class CallfireRobocallVendor implements RobocallVendor {
 
   // Polls the list's async validation to a terminal state. Returns the validated
   // row count once ACTIVE; throws on a terminal FAILED status or if validation
-  // never settles inside the poll window. A transient vendor error (mapped to a
-  // BadGatewayException) is retried; any other error is permanent and propagates.
+  // never settles inside the poll window. A transient vendor error (a plain
+  // BadGatewayException) is retried within the poll window; a VendorPermanentError
+  // (a permanent 4xx, e.g. list-not-found) or any other error propagates at once.
   private async waitForListReady(listId: string): Promise<number> {
     for (let attempt = 0; attempt < LIST_POLL_ATTEMPTS; attempt++) {
       await sleep(LIST_POLL_DELAY_MS)
@@ -174,7 +175,11 @@ export class CallfireRobocallVendor implements RobocallVendor {
       try {
         status = await this.contacts.getListStatus(listId)
       } catch (err) {
-        if (!(err instanceof BadGatewayException)) throw err
+        if (
+          !(err instanceof BadGatewayException) ||
+          err instanceof VendorPermanentError
+        )
+          throw err
         this.logger.warn(
           { listId, attempt, err },
           'Transient error polling CallFire list status; retrying',

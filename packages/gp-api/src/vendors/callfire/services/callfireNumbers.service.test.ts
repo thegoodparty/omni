@@ -8,6 +8,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
+import { NoInventoryError } from '../noInventoryError'
 import { CallfireErrorHandlingService } from './callfireErrorHandling.service'
 import { CallfireHttpService } from './callfireHttp.service'
 import { CallfireNumbersService } from './callfireNumbers.service'
@@ -106,6 +107,20 @@ describe('CallfireNumbersService', () => {
       await expect(
         service.searchLocalNumbers({ areaCode: '512' }),
       ).rejects.toBeInstanceOf(VendorPermanentError)
+    })
+  })
+
+  describe('rentNumber', () => {
+    it('throws NoInventoryError (not a plain 502) when the search is empty', async () => {
+      // Empty search result is the no-inventory sentinel; the distinct class is
+      // what lets the adapter degrade to a national rental without swallowing a
+      // transient error. NEVER purchases — it throws before the POST.
+      http.get.mockResolvedValue({ items: [], limit: 1, offset: 0 })
+
+      await expect(
+        service.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(NoInventoryError)
+      expect(http.post).not.toHaveBeenCalled()
     })
   })
 })

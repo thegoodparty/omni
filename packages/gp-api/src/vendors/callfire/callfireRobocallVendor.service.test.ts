@@ -4,6 +4,7 @@ import { ROBOCALL_BROADCAST_STATUS } from '@/outreach/vendor/robocallVendor.type
 import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CallfireRobocallVendor } from './callfireRobocallVendor'
+import { NoInventoryError } from './noInventoryError'
 import { CallfireBroadcastService } from './services/callfireBroadcast.service'
 import { CallfireContactsService } from './services/callfireContacts.service'
 import { CallfireDncService } from './services/callfireDnc.service'
@@ -88,7 +89,7 @@ describe('CallfireRobocallVendor', () => {
     it('falls back to a national number when the area code has no inventory', async () => {
       numbers.rentNumber
         .mockRejectedValueOnce(
-          new BadGatewayException('No CallFire local number available'),
+          new NoInventoryError('No CallFire local number available'),
         )
         .mockResolvedValueOnce({ phoneNumber: '+18885559999', region: 'CA' })
 
@@ -99,6 +100,21 @@ describe('CallfireRobocallVendor', () => {
       expect(numbers.rentNumber).toHaveBeenNthCalledWith(1, { areaCode: '512' })
       expect(numbers.rentNumber).toHaveBeenNthCalledWith(2, { areaCode: '' })
       expect(result).toEqual({ phoneNumber: '+18885559999', region: 'CA' })
+    })
+
+    it('propagates a transient error without a billable national retry', async () => {
+      // A 429 / auth / timeout is a plain BadGatewayException, NOT a
+      // NoInventoryError — it must propagate for an upstream retry rather than
+      // silently triggering a real national number purchase.
+      numbers.rentNumber.mockRejectedValue(
+        new BadGatewayException('CallFire throttled'),
+      )
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
+      expect(numbers.rentNumber).toHaveBeenCalledWith({ areaCode: '512' })
     })
 
     it('propagates a permanent 4xx failure without a national retry', async () => {
@@ -115,7 +131,7 @@ describe('CallfireRobocallVendor', () => {
     it('propagates a national-retry failure', async () => {
       numbers.rentNumber
         .mockRejectedValueOnce(
-          new BadGatewayException('No CallFire local number available'),
+          new NoInventoryError('No CallFire local number available'),
         )
         .mockRejectedValueOnce(new BadGatewayException('national exhausted'))
 
@@ -213,6 +229,23 @@ describe('CallfireRobocallVendor', () => {
       // The transient error is swallowed and the poll retries to ACTIVE.
       expect(contacts.getListStatus).toHaveBeenCalledTimes(2)
       expect(result).toEqual({ audienceRef: '77', loadedCount: 2 })
+    })
+
+    it('fails fast on a permanent status error without exhausting the poll window', async () => {
+      contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
+      contacts.getListStatus.mockRejectedValue(
+        new VendorPermanentError('CallFire list 77 not found'),
+      )
+
+      await expect(
+        vendor.loadAudience({
+          name: 'Robocall audience',
+          csvUrl: 'https://s3.example/audience.csv',
+          countryIso: 'US',
+        }),
+      ).rejects.toBeInstanceOf(VendorPermanentError)
+      // A permanent 4xx propagates on the first attempt — never retried 30x.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(1)
     })
 
     it('throws when validation never settles within the poll window', async () => {
