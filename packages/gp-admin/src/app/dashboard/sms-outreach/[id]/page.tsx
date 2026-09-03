@@ -134,6 +134,12 @@ export default async function Page({ params }: PageProps) {
             </Heading>
             <DataList.Root size="2">
               <DataList.Item>
+                <DataList.Label>Assigned to</DataList.Label>
+                <DataList.Value>
+                  {item.assignedPa ?? 'Unassigned'}
+                </DataList.Value>
+              </DataList.Item>
+              <DataList.Item>
                 <DataList.Label>Send date</DataList.Label>
                 <DataList.Value>
                   {item.sendAt ? formatDate(item.sendAt) : '—'}

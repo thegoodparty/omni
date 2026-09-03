@@ -284,9 +284,17 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     { initials, date }: { initials: string; date?: string },
   ): Promise<void> {
     try {
+      // The send window is a product requirement (2026-09-02): canvassers
+      // work 9am-9pm in each recipient's local timezone. Sent explicitly as
+      // a CUSTOM window rather than relying on the vendor's ANY_TIME
+      // default semantics.
       await this.peerlyHttpService.post(`/v2/p2p/${jobId}/request_canvassers`, {
         requested_initials: initials,
         ...(date && { requested_date: date }),
+        requested_timeframe: 'CUSTOM',
+        requested_start_time: '09:00:00',
+        requested_end_time: '21:00:00',
+        requested_timezone: 'LOCAL',
       })
     } catch (error) {
       // A 400 here is CAS-actionable (e.g. a request already open) — keep

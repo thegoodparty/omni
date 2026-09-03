@@ -96,6 +96,10 @@ export const SmsApprovalQueueItemSchema = z.object({
   campaignId: z.number(),
   campaignSlug: z.string(),
   candidateName: z.string().nullable(),
+  // The HubSpot company owner (the campaign's assigned success person),
+  // resolved best-effort at read time; null when unassigned or the CRM
+  // read failed.
+  assignedPa: z.string().nullable(),
   name: z.string().nullable(),
   createdAt: zCoerceDate(),
   sendAt: zCoerceDate().nullable(),

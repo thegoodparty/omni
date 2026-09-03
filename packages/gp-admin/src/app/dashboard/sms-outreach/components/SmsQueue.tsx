@@ -25,7 +25,7 @@ interface SmsQueueProps {
   items: SmsApprovalQueueItem[]
 }
 
-type SortKey = 'candidate' | 'sendDate'
+type SortKey = 'candidate' | 'sendDate' | 'assigned'
 type SortDir = 'asc' | 'desc'
 
 const tabLabel = (tab: QueueTab, count: number) =>
@@ -44,6 +44,13 @@ const compareItems = (
 ): number => {
   if (key === 'candidate') {
     return (a.candidateName ?? '').localeCompare(b.candidateName ?? '')
+  }
+  if (key === 'assigned') {
+    // Unassigned rows sort last so assigned work groups together.
+    if (!a.assignedPa || !b.assignedPa) {
+      return (a.assignedPa ? 0 : 1) - (b.assignedPa ? 0 : 1)
+    }
+    return a.assignedPa.localeCompare(b.assignedPa)
   }
   // Rows without a send date sort last regardless of direction.
   const aTime = a.sendAt ? new Date(a.sendAt).getTime() : Infinity
@@ -144,6 +151,23 @@ export function SmsQueue({ items }: SmsQueueProps) {
               <Table.ColumnHeaderCell>Campaign</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell
                 aria-sort={
+                  sortKey === 'assigned'
+                    ? sortDir === 'asc'
+                      ? 'ascending'
+                      : 'descending'
+                    : undefined
+                }
+              >
+                <Button
+                  variant="ghost"
+                  color="gray"
+                  onClick={() => toggleSort('assigned')}
+                >
+                  Assigned to{sortIndicator('assigned')}
+                </Button>
+              </Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell
+                aria-sort={
                   sortKey === 'sendDate'
                     ? sortDir === 'asc'
                       ? 'ascending'
@@ -183,6 +207,13 @@ export function SmsQueue({ items }: SmsQueueProps) {
                   >
                     {item.name ?? `Campaign ${item.id}`}
                   </Link>
+                </Table.Cell>
+                <Table.Cell>
+                  {item.assignedPa ?? (
+                    <Text size="2" color="gray">
+                      Unassigned
+                    </Text>
+                  )}
                 </Table.Cell>
                 <Table.Cell>
                   {item.sendAt ? formatDate(item.sendAt) : '—'}

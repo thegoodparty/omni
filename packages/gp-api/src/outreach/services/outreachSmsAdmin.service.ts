@@ -19,6 +19,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { AnalyticsService } from 'src/analytics/analytics.service'
+import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
@@ -43,6 +44,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly analytics: AnalyticsService,
+    private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
     private readonly slack: SlackService,
   ) {
@@ -65,12 +67,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     })
 
     const registrations = await this.registrationsByCampaign(rows)
+    const owners = await this.ownersByCampaign(rows)
     const jobsByProjectId = await this.liveJobsFor(rows)
     return rows.map((row) =>
       this.toQueueItem(
         row,
         registrations.get(row.campaignId ?? -1),
         row.projectId ? (jobsByProjectId.get(row.projectId) ?? null) : null,
+        owners.get(row.campaignId ?? -1) ?? null,
       ),
     )
   }
@@ -85,6 +89,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
 
     const registrations = await this.registrationsByCampaign([row])
+    const owners = await this.ownersByCampaign([row])
 
     // Live reads are additive detail — either failing must not 404 the row.
     let job: PeerlyJob | null = null
@@ -107,7 +112,12 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return {
-      item: this.toQueueItem(row, registrations.get(row.campaignId ?? -1), job),
+      item: this.toQueueItem(
+        row,
+        registrations.get(row.campaignId ?? -1),
+        job,
+        owners.get(row.campaignId ?? -1) ?? null,
+      ),
       stats,
     }
   }
@@ -236,13 +246,12 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
-   * CAS's fix path: correct the message in place, then approve — the same
-   * thing the team does in Peerly's platform today. Vendor first, then DB,
-   * mirroring the candidate edit: an open canvass request is cleared BEFORE
-   * the job update (fail closed — the vendor allows one request per job and
-   * an edited message must never ride a stale approval), and the DB write
-   * wipes every decision stamp so the follow-up approve is a fresh call on
-   * the edited text. Name, date, image, and audience are untouched.
+   * CAS's fix path: correct the message in place — the same thing the team
+   * does in Peerly's platform today. The editor IS the approver, so an
+   * existing canvasser booking and approval are KEPT (product decision
+   * 2026-09-02); only a denial is cleared, so a denied campaign becomes
+   * approvable again. Vendor first, then DB: a Peerly failure leaves the
+   * row untouched. Name, date, image, and audience are untouched.
    */
   async editScript(
     outreachId: number,
@@ -279,10 +288,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
-    if (row.canvassRequestedAt) {
-      await this.peerlyP2pJobService.clearCanvassers(row.projectId)
-    }
-
     await this.peerlyP2pJobService.updatePeerlyP2pJob({
       jobId: row.projectId,
       campaignId: row.campaignId,
@@ -302,12 +307,9 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       data: {
         script: input.script,
         message: input.script,
-        approvedAt: null,
-        approvedBy: null,
         deniedAt: null,
         deniedBy: null,
         deniedReason: null,
-        canvassRequestedAt: null,
         adminEditedAt: new Date(),
         adminEditedBy: input.editedBy,
       },
@@ -357,6 +359,39 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     )
   }
 
+  // The HubSpot company owner is the campaign's assigned success person.
+  // Live CRM reads, so strictly best-effort: any failure renders the row
+  // with assignedPa null rather than failing the queue.
+  private async ownersByCampaign(
+    rows: QueueRow[],
+  ): Promise<Map<number, string | null>> {
+    const byCampaign = new Map<number, string | null>()
+    const campaigns = new Map<number, QueueRow['campaign']>()
+    for (const row of rows) {
+      if (row.campaignId !== null && row.campaign) {
+        campaigns.set(row.campaignId, row.campaign)
+      }
+    }
+    for (const [campaignId, campaign] of campaigns) {
+      const hubspotId = campaign?.data?.hubspotId
+      if (!hubspotId) {
+        byCampaign.set(campaignId, null)
+        continue
+      }
+      try {
+        const name = await this.crmCampaigns.getCrmCompanyOwnerName(hubspotId)
+        byCampaign.set(campaignId, name?.trim() ? name.trim() : null)
+      } catch (err) {
+        this.logger.warn(
+          { err, campaignId },
+          'Admin queue: HubSpot owner read failed; rendering unassigned',
+        )
+        byCampaign.set(campaignId, null)
+      }
+    }
+    return byCampaign
+  }
+
   // One vendor list-read per identity, never per row; a failed identity
   // renders its rows with job: null rather than failing the queue.
   private async liveJobsFor(rows: QueueRow[]): Promise<Map<string, PeerlyJob>> {
@@ -389,6 +424,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     row: QueueRow,
     registration: RegistrationNames | undefined,
     job: PeerlyJob | null,
+    assignedPa: string | null = null,
   ): SmsApprovalQueueItem {
     const user = row.campaign?.user ?? null
     const candidateName = user
@@ -403,6 +439,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       campaignId: row.campaignId ?? -1,
       campaignSlug: row.campaign?.slug ?? '',
       candidateName,
+      assignedPa,
       name: row.name,
       createdAt: row.createdAt,
       sendAt: row.date,

@@ -51,8 +51,8 @@ export function EditMessageAction({ id, script }: EditMessageActionProps) {
       <Dialog.Content maxWidth="560px">
         <Dialog.Title>Edit the message</Dialog.Title>
         <Dialog.Description size="2" mb="3">
-          The corrected text sends under the candidate&apos;s name. Saving
-          resets any prior decision, so approve it again after.
+          The corrected text sends under the candidate&apos;s name. An existing
+          booking and approval are kept; saving clears a denial.
         </Dialog.Description>
         <TextArea
           value={draft}

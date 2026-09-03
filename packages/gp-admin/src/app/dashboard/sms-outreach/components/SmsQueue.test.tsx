@@ -38,6 +38,7 @@ const item = (
   canvassRequestedAt: null,
   adminEditedAt: null,
   adminEditedBy: null,
+  assignedPa: null,
   standards: { passed: true, failures: [] },
   job: {
     status: 'active',

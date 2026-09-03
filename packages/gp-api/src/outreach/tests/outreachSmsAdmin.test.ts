@@ -300,7 +300,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       return updateJob
     }
 
-    it('updates the message, stamps the editor, and wipes the decision', async () => {
+    it('updates the message, stamps the editor, and clears a denial', async () => {
       const row = await seedOutreach({ deniedAt: new Date() })
       await service.prisma.outreach.update({
         where: { id: row.id },
@@ -334,8 +334,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(slackMessage).toHaveBeenCalled()
     })
 
-    it('clears an open canvass request fail-closed', async () => {
-      clearCanvassers.mockRejectedValue(new Error('peerly down'))
+    it('keeps an existing booking and approval intact', async () => {
       const row = await seedOutreach({ approvedAt: new Date() })
       await service.prisma.outreach.update({
         where: { id: row.id },
@@ -351,12 +350,15 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         { script: 'edited', editedBy: 'cas@goodparty.org' },
       )
 
-      expect(res.status).toBeGreaterThanOrEqual(500)
-      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(clearCanvassers).not.toHaveBeenCalled()
+      const updated = await service.prisma.outreach.findFirstOrThrow({
         where: { id: row.id },
       })
-      expect(unchanged.approvedAt).not.toBeNull()
-      expect(unchanged.script).not.toBe('edited')
+      expect(updated.script).toBe('edited')
+      expect(updated.approvedAt).not.toBeNull()
+      expect(updated.canvassRequestedAt).not.toBeNull()
+      expect(updated.adminEditedBy).toBe('cas@goodparty.org')
     })
 
     it('400s a campaign with no stored image', async () => {
