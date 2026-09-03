@@ -803,21 +803,39 @@ Beyond the clone URL and the base branch (`develop`, not `main`), the
 - **Never read or regenerate `sanity.types.ts`** — a committed, generated 15 MB
   file.
 
-### Still omni-only
+### Driving a PR in another repo
 
-The CI-drive instruction templates in `handler.py` still name
-`thegoodparty/omni` explicitly. That is correct rather than an oversight: the
-only thing that launches those runs is `.github/workflows/gpbot-ci-drive.yml`,
-which lives in omni and is triggered by omni's own workflow runs, so a PR
-reaching them is an omni PR by construction. When that drive gains a copy in
-another repo, the repo has to cross the Lambda boundary alongside the PR number,
-with the same allowlist validation the rest of that payload gets.
+The CI-fix instructions used to name `thegoodparty/omni` by hand, and that was
+right at the time: their only caller was omni's own `gpbot-ci-drive.yml`,
+triggered by omni's own workflow runs, so a PR reaching them was an omni PR by
+construction. A copy of that drive in a second repo ends the argument, so the
+repo now crosses the Lambda boundary in the `gpbot_ci_fix` payload.
 
-The same is true of `gpbot-pr-triage.yml`: it is an `on: pull_request` workflow
-in omni and can never see a PR in another repo. **Both need a copy in
-`gp-marketing` before `GPBOT_IMPLEMENT_REPOS` is widened**, or marketing bot PRs
-open with no reviewer, no Slack announcement and nothing driving them to green —
-the unowned-bot-PR failure that triage workflow was built to prevent.
+Three things are interpolated into those templates, and each is checked first:
+the PR number as an integer, and the **repo and its base branch taken from a
+fixed allowlist**. `repo` only ever selects a key in `BASE_BRANCH_BY_REPO` — the
+payload's own string never reaches the instruction, so a caller cannot name a
+repo with no briefing or smuggle text into a system prompt. That is the same
+boundary that keeps check names, step names and log text out: they come from CI
+output or from another model. An unrecognised repo is **refused, not defaulted**
+to omni, because these runs push commits and the wrong default pushes them to a
+branch nobody asked the bot to touch. An absent repo still means omni, so omni's
+drive keeps working without being changed.
+
+The base branch is needed because gp-marketing merges into `develop`. An assumed
+`main` would have a fix run comparing its PR against a branch the PR does not
+merge into, and then "fixing" the difference. `BASE_BRANCH_BY_REPO` is a second
+copy of `repos.py`'s `base_branch` — this Lambda imports nothing from the
+repository, being packaged and deployed alone — and
+`clickup_bot/tests/test_scope_is_mirrored.py` fails if the two drift.
+
+**Both workflows still need a copy in `gp-marketing` before
+`GPBOT_IMPLEMENT_REPOS` is widened.** `gpbot-pr-triage.yml` is an
+`on: pull_request` workflow and can never see a PR in another repo; the drive
+needs a copy for the same reason. Without them, marketing bot PRs open with no
+reviewer, no Slack announcement and nothing driving them to green — the
+unowned-bot-PR failure the triage workflow was built to prevent. The Lambda side
+is ready for them; the workflows are not written yet.
 
 ## Dedup semantics
 
