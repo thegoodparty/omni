@@ -1,3 +1,14 @@
+// CONTINGENCY billing switch (robocall-estimate-billing branch, NEVER main).
+// Default OFF: the robocall pay endpoint keeps the hold-then-capture-actual model
+// unchanged. When set to 'true', the pay endpoint instead CHARGES the estimate in
+// full up front (no manual-capture hold, no capture-actual) and the draft settles
+// to `paid`. One env var toggles between the two billing models; nothing is
+// deleted, and flipping it back OFF restores the exact hold behavior. Only the pay
+// endpoint reads this flag — the staging/send sweeps accept BOTH `authorized` and
+// `paid` so dialing works under either model without consulting it.
+export const isRobocallEstimateBillingEnabled = (): boolean =>
+  process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED === 'true'
+
 // Per-run money ceiling for a robocall authorization hold, in cents ($500).
 // TESTING safeguard while real runs are validated — no single robocall we place
 // a hold for should exceed this. Raise or remove once real runs have validated
@@ -36,3 +47,15 @@ export const ROBOCALL_SETTLE_MARGIN_HOURS = 24
 // seconds) AND the recovery sweep interval, so a merely-slow placement is never
 // reclaimed underneath itself. Matches the capturing/dialing stale windows.
 export const ROBOCALL_HOLD_PENDING_STALE_MINUTES = 15
+
+// A draft stranded in `paid` with chargeIntentId STILL NULL past this window is
+// an orphaned estimate-charge claim (CONTINGENCY billing): chargeEstimate won
+// the pending_payment -> paid claim (freezing authorizedAmountInCents +
+// persisting the card) but crashed before its commit / decline / revert, so a
+// charge Stripe may have captured was never recorded and nothing else recovers
+// it (staging/send + sweepStrandedPaid all require chargeIntentId, the detach
+// webhook excludes `paid`). A healthy chargeEstimate holds this state only for
+// the seconds between the claim and the commit (ensureCustomer + a card retrieve
+// + the Stripe charge + commit), so a row older than this is definitely crashed,
+// never a merely-slow in-flight charge. Matches the other robocall stale windows.
+export const ROBOCALL_ESTIMATE_CLAIM_STALE_MINUTES = 15

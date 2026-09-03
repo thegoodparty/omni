@@ -68,9 +68,11 @@ beforeEach(async () => {
 const createDraft = async ({
   settleState = RobocallSettleState.dialed,
   staged = true,
+  estimateBilled = false,
 }: {
   settleState?: RobocallSettleState
   staged?: boolean
+  estimateBilled?: boolean
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -90,11 +92,18 @@ const createDraft = async ({
       billableCount: 100,
       amountInCents: 450,
       settleState,
-      // Hold fields set so the tests can prove the completion slice never
-      // touches them — it records a count and advances state, no money op.
-      authorizationIntentId: 'pi_1',
-      authorizedAmountInCents: 450,
-      captureBefore: addDays(new Date(), 5),
+      // An upfront-charge (CONTINGENCY) run has NO authorization hold — its
+      // estimate was captured in full up front, so it carries a chargeIntentId
+      // and no authorizationIntentId. The completion sweep must skip it (a
+      // settlement would double-charge). A hold run sets the hold fields so the
+      // tests can prove the completion slice records a count without a money op.
+      ...(estimateBilled
+        ? { chargeIntentId: 'pi_charge_1', capturedAmountInCents: 650 }
+        : {
+            authorizationIntentId: 'pi_1',
+            authorizedAmountInCents: 450,
+            captureBefore: addDays(new Date(), 5),
+          }),
       ...(staged ? { callhubCampaignPkStr: 'vb_1' } : {}),
     },
   })
@@ -396,6 +405,22 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
     expect(statusSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
+    )
+  })
+
+  it('NEVER settles an upfront-charge (estimate-billed) dialed run', async () => {
+    // The run was fully charged up front (a chargeIntentId, no authorization
+    // hold). Settlement captures a hold, so pulling it into settling would find
+    // no hold → uncollectable → a fresh charge = a SECOND charge. The sweep must
+    // leave it `dialed` and never poll it.
+    const outreachId = await createDraft({ estimateBilled: true })
+
+    await completion.sweepRobocallCompletion()
+    await completion.sweepRobocallCompletion()
+
+    expect(statusSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
     )
   })
 

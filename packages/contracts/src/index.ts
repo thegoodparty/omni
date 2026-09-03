@@ -828,6 +828,16 @@ export {
   type RobocallAuthorizeResponse,
 } from './outreach/RobocallHold.schema'
 export {
+  RobocallChargeRequestSchema,
+  type RobocallChargeRequest,
+  RobocallChargeStatusSchema,
+  type RobocallChargeStatus,
+  RobocallChargeResponseSchema,
+  type RobocallChargeResponse,
+  RobocallPayResponseSchema,
+  type RobocallPayResponse,
+} from './outreach/RobocallCharge.schema'
+export {
   OutreachArchiveRequestSchema,
   type OutreachArchiveRequest,
   OutreachArchiveResponseSchema,

@@ -182,9 +182,18 @@ export const EVENTS = {
     // failure): the hold was voided and no charge was made. Emitted once from
     // the winning send_failed transition, messageId `<outreachId>:send_failed`.
     SendFailed: 'Robocall - Send Failed',
-    // The capture receipt: emitted once from the winning capturing → captured
-    // transition after the actual completed-call count is charged off the hold,
-    // messageId `<outreachId>:receipt` so a replay dedups to one email.
+    // CONTINGENCY upfront-charge billing (robocall-estimate-billing branch): the
+    // candidate's card was declined when charging the estimate up front. Emitted
+    // once from the winning paid → charge_failed transition, messageId
+    // `<outreachId>:charge_failed` so a replay dedups to one email. Mirrors the
+    // HoldFailed "update your card" pattern; the hold model's HoldFailed does not
+    // fire on this branch (no hold is placed).
+    ChargeFailed: 'Robocall - Charge Failed',
+    // The receipt: on the hold model, emitted once from the winning capturing →
+    // captured transition after the actual completed-call count is charged off the
+    // hold. On the CONTINGENCY upfront-charge branch, emitted once from the
+    // winning pending_payment → paid charge. Either way messageId
+    // `<outreachId>:receipt` so a replay dedups to one email.
     Receipt: 'Robocall - Receipt',
   },
 }

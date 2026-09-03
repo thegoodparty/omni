@@ -545,7 +545,12 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // robocall` line (deploy/components/alerts.ts).
     this.logger.error(
       { outreachId, reason },
-      'CRITICAL robocall send_failed: permanent CallHub failure; hold voided',
+      draft.authorizationIntentId
+        ? 'CRITICAL robocall send_failed: permanent CallHub failure; ' +
+            'hold voided'
+        : 'CRITICAL robocall send_failed: permanent CallHub failure; ' +
+            'estimate charged up front and NO auto-refund — reconcile a ' +
+            'manual refund by hand',
     )
 
     // No calls were placed, so release the hold. Best-effort + recorded so the

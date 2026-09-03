@@ -52,6 +52,15 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
       where: {
         settleState: RobocallSettleState.dialed,
         callhubCampaignPkStr: { not: null },
+        // SETTLEMENT IS HOLD-MODEL ONLY. Completion feeds settling → capturing,
+        // which captures a manual-capture HOLD (authorizationIntentId). An
+        // upfront-charge (CONTINGENCY) `dialed` row has no hold — its estimate was
+        // already captured in full — and carries a chargeIntentId, not an
+        // authorizationIntentId. Left ungated it would be pulled into settling and
+        // the capture would find no hold → uncollectable → a fresh charge = a
+        // SECOND charge. Requiring a hold here keeps estimate-billed runs out of
+        // the whole capture path so they never settle, capture, or re-charge.
+        authorizationIntentId: { not: null },
       },
       select: { outreachId: true, callhubCampaignPkStr: true },
     })

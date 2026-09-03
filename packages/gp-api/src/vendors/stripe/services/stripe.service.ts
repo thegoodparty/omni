@@ -50,6 +50,13 @@ export class StripeChargeDeclinedError extends Error {
 // the crash-recovery search finds only the fresh charge.
 const ROBOCALL_FRESH_CHARGE_KIND = 'robocall_fresh_charge'
 
+// Metadata marker on a CONTINGENCY upfront-estimate charge PI (the
+// robocall-estimate-billing branch). Distinct from the fresh-charge kind so the
+// two off-session charges never collide in a metadata search and are legible
+// apart in Stripe. An outreach is billed by exactly one model, so the same
+// outreachId never carries both.
+export const ROBOCALL_ESTIMATE_CHARGE_KIND = 'robocall_estimate_charge'
+
 const STRIPE_SECRET_KEY = requireEnv('STRIPE_SECRET_KEY')
 const WEBAPP_ROOT_URL = requireEnv('WEBAPP_ROOT_URL')
 const STRIPE_WEBSOCKET_SECRET = requireEnv('STRIPE_WEBSOCKET_SECRET')
@@ -339,12 +346,20 @@ export class StripeService {
     amountInCents,
     robocallId,
     metadata,
+    // Default to the fresh-charge key/kind so the existing hold-model recovery
+    // path is byte-for-byte unchanged. The CONTINGENCY upfront-estimate charge
+    // overrides both with its own stable key (`robocall-estimate-charge-<id>`)
+    // and kind, so the two off-session charges never share an idempotency key.
+    idempotencyKey = `robocall-fresh-charge-${robocallId}`,
+    chargeKind = ROBOCALL_FRESH_CHARGE_KIND,
   }: {
     customerId: string
     paymentMethodId: string
     amountInCents: number
     robocallId: number
     metadata: Record<string, string>
+    idempotencyKey?: string
+    chargeKind?: string
   }): Promise<{ paymentIntentId: string }> {
     let intent: Stripe.PaymentIntent
     try {
@@ -360,9 +375,9 @@ export class StripeService {
           // Stamp the kind so a crash-recovery search can find a landed charge
           // by metadata and reconcile it WITHOUT charging again — the hold PI
           // carries the same outreachId, so kind is what distinguishes them.
-          metadata: { ...metadata, kind: ROBOCALL_FRESH_CHARGE_KIND },
+          metadata: { ...metadata, kind: chargeKind },
         },
-        { idempotencyKey: `robocall-fresh-charge-${robocallId}` },
+        { idempotencyKey },
       )
     } catch (err) {
       if (err instanceof Stripe.errors.StripeCardError) {

@@ -100,9 +100,16 @@ export class OutreachRobocallSendService extends createPrismaBase(
     if (!isRobocallSendEnabled()) return
 
     const now = new Date()
+    // Both billing models are dialable: `authorized` (a live hold, default model)
+    // and `paid` (the estimate charged up front, the CONTINGENCY model gated by
+    // ROBOCALL_ESTIMATE_BILLING_ENABLED at pay time). A staged draft
+    // (callhubCampaignPkStr set) in either state is ready to dial; a draft is in
+    // exactly one of the two, so the sweep dials either without reading the flag.
     const arrived = await this.model.findMany({
       where: {
-        settleState: RobocallSettleState.authorized,
+        settleState: {
+          in: [RobocallSettleState.authorized, RobocallSettleState.paid],
+        },
         callhubCampaignPkStr: { not: null },
         outreach: {
           outreachType: OutreachType.robocall,
@@ -155,14 +162,18 @@ export class OutreachRobocallSendService extends createPrismaBase(
 
   async startCampaign(outreachId: number): Promise<void> {
     // DIAL CLAIM (never dial twice): elect exactly one dialer. Only a staged,
-    // paid draft (authorized AND a CallHub campaign already created) can
-    // transition to `dialing`; a row already dialing/dialed, or one not yet
-    // staged (pk_str null), or in any other state fails the predicate and yields
-    // count 0 → not ours, return without dialing.
+    // paid draft — `authorized` (a live hold) OR `paid` (the estimate charged up
+    // front), AND a CallHub campaign already created — can transition to
+    // `dialing`; a row already dialing/dialed, or one not yet staged (pk_str
+    // null), or in any other state fails the predicate and yields count 0 → not
+    // ours, return without dialing. The money re-check below re-verifies the
+    // model-appropriate payment before the launch.
     const claim = await this.model.updateMany({
       where: {
         outreachId,
-        settleState: RobocallSettleState.authorized,
+        settleState: {
+          in: [RobocallSettleState.authorized, RobocallSettleState.paid],
+        },
         callhubCampaignPkStr: { not: null },
       },
       data: { settleState: RobocallSettleState.dialing },
@@ -186,28 +197,56 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // campaign-scoped (only social outreach can be org-only, outreach.prisma).
     const userId = draft.outreach.campaign!.userId
 
-    // MONEY RE-CHECK (never dial unpaid — THE critical gate). Re-read the hold
-    // from Stripe AFTER winning the claim and BEFORE the launch; the persisted
-    // settleState is not trusted. Only a manual-capture PaymentIntent still in
-    // `requires_capture` (the hold live and uncaptured) may dial.
-    const intentId = draft.authorizationIntentId
-    if (!intentId) {
-      await this.markHoldNotLive(outreachId, userId, null)
-      return
-    }
-    let intent: Stripe.PaymentIntent
-    try {
-      intent = await this.stripe.retrievePaymentIntent(intentId)
-    } catch (err) {
-      // A Stripe read failure BEFORE the launch is infra, not a dead hold, and
-      // nothing has dialed — release the claim so a later sweep retries rather
-      // than stranding `dialing`, and rethrow so the sweep logs it per-record.
-      await this.revertClaim(outreachId)
-      throw err
-    }
-    if (intent.status !== 'requires_capture') {
-      await this.markHoldNotLive(outreachId, userId, intent.status)
-      return
+    // MONEY RE-CHECK (never dial unpaid — THE critical gate). Two billing models
+    // coexist and the row tells us which: an upfront-charge (CONTINGENCY) draft
+    // carries a chargeIntentId (the estimate already CAPTURED); a hold draft
+    // carries an authorizationIntentId (a live manual-capture hold). Re-read the
+    // relevant PaymentIntent AFTER winning the claim and BEFORE the launch; the
+    // persisted settleState is not trusted.
+    if (draft.chargeIntentId) {
+      // UPFRONT-CHARGE: the estimate was captured up front (the row only reaches a
+      // staged `paid` after the charge committed), and a captured charge cannot
+      // lapse the way a hold can. Re-read it fresh as belt-and-suspenders and
+      // require `succeeded`; a non-succeeded/absent charge is an anomaly — do NOT
+      // dial, release the claim (back to `paid`), and alert. No hold_failed here:
+      // there is no hold, and the money is already collected.
+      let intent: Stripe.PaymentIntent
+      try {
+        intent = await this.stripe.retrievePaymentIntent(draft.chargeIntentId)
+      } catch (err) {
+        await this.revertClaim(outreachId)
+        throw err
+      }
+      if (intent.status !== 'succeeded') {
+        await this.revertClaim(outreachId)
+        this.logger.error(
+          { outreachId, chargeStatus: intent.status },
+          'CRITICAL robocall paid row charge not succeeded at dial; not dialing',
+        )
+        return
+      }
+    } else {
+      // HOLD model (default): only a manual-capture PaymentIntent still in
+      // `requires_capture` (the hold live and uncaptured) may dial.
+      const intentId = draft.authorizationIntentId
+      if (!intentId) {
+        await this.markHoldNotLive(outreachId, userId, null)
+        return
+      }
+      let intent: Stripe.PaymentIntent
+      try {
+        intent = await this.stripe.retrievePaymentIntent(intentId)
+      } catch (err) {
+        // A Stripe read failure BEFORE the launch is infra, not a dead hold, and
+        // nothing has dialed — release the claim so a later sweep retries rather
+        // than stranding `dialing`, and rethrow so the sweep logs it per-record.
+        await this.revertClaim(outreachId)
+        throw err
+      }
+      if (intent.status !== 'requires_capture') {
+        await this.markHoldNotLive(outreachId, userId, intent.status)
+        return
+      }
     }
 
     // COMPLIANCE GATE (never dial non-compliant — ANDed with the live-hold
@@ -493,13 +532,23 @@ export class OutreachRobocallSendService extends createPrismaBase(
     }
   }
 
-  // Releases the dialing claim back to authorized so a retry (or a later sweep)
-  // can dial the still-PAUSED campaign — the money-safe rollback when CallHub
-  // confirms (PAUSED) or infra confirms (pre-launch) that no dial happened.
+  // Releases the dialing claim back to the row's original paid-state — `paid` for
+  // an upfront-charge draft (chargeIntentId set), `authorized` for a hold draft —
+  // so a retry (or a later sweep) can dial the still-PAUSED campaign. The
+  // money-safe rollback when CallHub confirms (PAUSED) or infra confirms
+  // (pre-launch) that no dial happened. chargeIntentId is never mutated while
+  // dialing, so this read can't flip under us.
   private async revertClaim(outreachId: number): Promise<void> {
+    const row = await this.model.findUnique({
+      where: { outreachId },
+      select: { chargeIntentId: true },
+    })
+    const to = row?.chargeIntentId
+      ? RobocallSettleState.paid
+      : RobocallSettleState.authorized
     await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.dialing },
-      data: { settleState: RobocallSettleState.authorized },
+      data: { settleState: to },
     })
   }
 

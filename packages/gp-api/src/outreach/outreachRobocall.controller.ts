@@ -10,8 +10,8 @@ import {
 import {
   RobocallAuthorizeRequest,
   RobocallAuthorizeRequestSchema,
-  RobocallAuthorizeResponse,
-  RobocallAuthorizeResponseSchema,
+  RobocallPayResponse,
+  RobocallPayResponseSchema,
   RobocallComplianceRequest,
   RobocallComplianceRequestSchema,
   RobocallComplianceVerdict,
@@ -44,10 +44,12 @@ import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { isRobocallEstimateBillingEnabled } from '@/shared/util/robocallHold.util'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
+import { OutreachRobocallChargeService } from './services/outreachRobocallCharge.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
@@ -72,6 +74,7 @@ export class OutreachRobocallController {
     private readonly generationService: OutreachRobocallGenerationService,
     private readonly robocallService: OutreachRobocallService,
     private readonly holdService: OutreachRobocallHoldService,
+    private readonly chargeService: OutreachRobocallChargeService,
     private readonly compliance: RobocallComplianceService,
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly composeContext: OutreachComposeContextService,
@@ -213,14 +216,21 @@ export class OutreachRobocallController {
     return this.robocallService.createDraft(campaign, organization, input)
   }
 
-  // Places the pay-time authorization hold (RESERVES REAL MONEY): a
-  // manual-capture Stripe hold on the vaulted card for the server-re-derived
-  // estimate of this scheduled draft. Pro-gated and campaign-scoped like the
-  // siblings. The draft is loaded scoped to the paying campaign inside the
-  // service; the hold, its idempotency, the ceiling, and the capture-window fit
-  // are enforced there.
+  // The pay-time endpoint (RESERVES REAL MONEY). It BRANCHES on the CONTINGENCY
+  // switch ROBOCALL_ESTIMATE_BILLING_ENABLED, so ONE endpoint drives whichever
+  // billing model is active and the client never reads the flag:
+  //   - default (OFF): the hold model — a manual-capture Stripe hold on the
+  //     vaulted card for the server-re-derived estimate (→ `authorized`). This is
+  //     the existing behavior, completely unchanged.
+  //   - ON: the upfront-charge model — CHARGES the estimate in full immediately
+  //     (no hold, no capture-actual) (→ `paid`).
+  // Pro-gated and campaign-scoped like the siblings. The draft is loaded scoped to
+  // the paying campaign inside each service, where the single-owner CAS, the
+  // ceiling, the idempotency, and (hold only) the capture-window fit are enforced.
+  // The two responses are unambiguous (authorizedAmountInCents vs
+  // chargedAmountInCents), so RobocallPayResponseSchema is their union.
   @Post('robocall/:outreachId/authorize')
-  @ResponseSchema(RobocallAuthorizeResponseSchema)
+  @ResponseSchema(RobocallPayResponseSchema)
   async authorize(
     @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
@@ -228,8 +238,18 @@ export class OutreachRobocallController {
     @Param('outreachId', ParseIntPipe) outreachId: number,
     @Body(new ZodValidationPipe(RobocallAuthorizeRequestSchema))
     input: RobocallAuthorizeRequest,
-  ): Promise<RobocallAuthorizeResponse> {
+  ): Promise<RobocallPayResponse> {
     await this.contacts.assertProAccess(organization)
+
+    if (isRobocallEstimateBillingEnabled()) {
+      return this.chargeService.chargeEstimate(
+        user,
+        campaign,
+        organization,
+        outreachId,
+        input.paymentMethodId,
+      )
+    }
 
     return this.holdService.authorizeHold(
       user,
