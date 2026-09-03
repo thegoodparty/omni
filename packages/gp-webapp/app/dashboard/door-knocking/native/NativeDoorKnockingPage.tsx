@@ -19,6 +19,7 @@ import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
+  DISTRICT_UNAVAILABLE_MESSAGE,
   PACK_ERROR_MESSAGE,
   PACK_LOADING_DURATION,
   PACK_LOADING_TITLE,
@@ -629,9 +630,7 @@ export default function NativeDoorKnockingPage({
                 otherwise spin forever. */}
               {isUnresolvable && (
                 <p className="p-4 text-sm text-muted-foreground">
-                  Voter data is not available for this office yet, so there is
-                  no map to draw turfs on. Contact support at help@goodparty.org
-                  and our team can set this up for you.
+                  {DISTRICT_UNAVAILABLE_MESSAGE}
                 </p>
               )}
               {/* Titled, because an untitled "Loading... Something awesome."
@@ -755,8 +754,15 @@ export default function NativeDoorKnockingPage({
                 // the whole of a download the sheet is drawn over. These two
                 // are what let the flow say so instead of printing that 0 as
                 // an answer.
-                districtHouseholdsPending={packQuery.isPending}
+                // Same `!isUnresolvable` guard the map region carries: a
+                // district-gated query never leaves pending, so without it the
+                // sheet promises a download that was never requested, over a
+                // Continue that will never enable.
+                districtHouseholdsPending={
+                  !isUnresolvable && packQuery.isPending
+                }
                 districtHouseholdsFailed={packQuery.isError}
+                districtUnavailable={isUnresolvable}
                 ring={ring}
                 turfStats={turfStats}
                 drawPointCount={draw.pointCount}

@@ -113,6 +113,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     districtHouseholds={0}
     districtHouseholdsPending={false}
     districtHouseholdsFailed={false}
+    districtUnavailable={false}
     ring={ringA}
     turfStats={null}
     drawFullScreen={false}

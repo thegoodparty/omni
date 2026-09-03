@@ -31,6 +31,7 @@ import {
 } from './voterFilterPreview'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import {
+  DISTRICT_UNAVAILABLE_MESSAGE,
   PACK_ERROR_MESSAGE,
   PACK_LOADING_DURATION,
   PACK_LOADING_TITLE,
@@ -102,6 +103,10 @@ interface CreateListFlowProps {
   // have said so.
   districtHouseholdsPending: boolean
   districtHouseholdsFailed: boolean
+  // Distinct from failed: there is no request to wait on and no retry to
+  // offer, so the step says what is actually wrong instead of asking for a
+  // refresh that changes nothing.
+  districtUnavailable: boolean
   // The who step's list picker, with the parenthesised district counts the
   // canvas puts beside each row. Empty until the saved lists resolve; the step
   // still offers All Contacts, which is the default anyway.
@@ -228,6 +233,7 @@ export default function CreateListFlow({
   districtHouseholds,
   districtHouseholdsPending,
   districtHouseholdsFailed,
+  districtUnavailable,
   savedLists,
   allContactsHouseholds,
   ring,
@@ -769,12 +775,15 @@ export default function CreateListFlow({
                 // at all, so it is bare for the same reason; what went wrong is
                 // said in the body, where there is room to say it.
                 label:
-                  districtHouseholdsPending || districtHouseholdsFailed
+                  districtHouseholdsPending ||
+                  districtHouseholdsFailed ||
+                  districtUnavailable
                     ? 'Continue'
                     : `Continue (${districtHouseholds.toLocaleString()})`,
                 disabled:
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
+                  districtUnavailable ||
                   districtHouseholds === 0,
                 loading: districtHouseholdsPending,
                 // Always the draw step. Building a new list is a way of
@@ -855,6 +864,15 @@ export default function CreateListFlow({
             {districtHouseholdsFailed && (
               <p role="alert" className="text-sm text-destructive">
                 {PACK_ERROR_MESSAGE}
+              </p>
+            )}
+            {/* And the case that is neither: no request was made, so there is
+                nothing to wait for and nothing a refresh would fix. Left to
+                the two above it, this step was a disabled Continue under a
+                promise of a download that was never going to arrive. */}
+            {districtUnavailable && (
+              <p role="alert" className="text-sm text-muted-foreground">
+                {DISTRICT_UNAVAILABLE_MESSAGE}
               </p>
             )}
             {/* The count in the CTA is the pack's, and the pack cannot shade

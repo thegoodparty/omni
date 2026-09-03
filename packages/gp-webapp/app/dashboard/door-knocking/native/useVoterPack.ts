@@ -26,6 +26,14 @@ export const PACK_LOADING_DURATION =
 export const PACK_ERROR_MESSAGE =
   'The voter map could not load. Refresh to try again.'
 
+// A district this org cannot resolve is not a slow pack or a failed one: there
+// is no request to wait on and refreshing changes nothing, so it needs its own
+// sentence on both surfaces rather than borrowing either of the two above.
+export const DISTRICT_UNAVAILABLE_MESSAGE =
+  'Voter data is not available for this office yet, so there is no map to ' +
+  'draw turfs on. Contact support at help@goodparty.org and our team can ' +
+  'set this up for you.'
+
 // Raw fetch, not clientRequest: the pack is a binary ArrayBuffer and
 // clientRequest is JSON-only. The /api/v1 middleware rewrite attaches the
 // org-slug header from the cookie, same as every other client call.

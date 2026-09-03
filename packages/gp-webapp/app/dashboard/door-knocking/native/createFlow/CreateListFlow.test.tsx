@@ -38,6 +38,7 @@ const baseProps = {
   districtHouseholds: 1500,
   districtHouseholdsPending: false,
   districtHouseholdsFailed: false,
+  districtUnavailable: false,
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,
@@ -649,6 +650,21 @@ describe('CreateListFlow', () => {
     expect(
       screen.getByText('The voter map could not load. Refresh to try again.'),
     ).toBeInTheDocument()
+  })
+
+  // The third way the count can be absent, and the one the other two get
+  // wrong: no pack was ever requested, so it is neither arriving nor failed.
+  // Told it was pending, this step promises a download that will never happen;
+  // told it failed, it asks for a refresh that cannot help.
+  it('says the office has no voter data rather than promising a download', () => {
+    renderAtWho({ districtHouseholds: 0, districtUnavailable: true })
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(
+      screen.getByText(/Voter data is not available for this office yet/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Loading your voter map/)).toBeNull()
+    expect(screen.queryByText(/could not load/)).toBeNull()
   })
 
   // CHANGED DELIBERATELY: the flow no longer opens on the filters. `filters`

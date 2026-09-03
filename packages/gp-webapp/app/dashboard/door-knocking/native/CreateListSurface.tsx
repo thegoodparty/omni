@@ -134,6 +134,9 @@ export interface CreateListSurfaceProps {
   // down here.
   districtHouseholdsPending: boolean
   districtHouseholdsFailed: boolean
+  // The third case, which is neither of the two above: this org's district
+  // does not resolve, so no pack was ever requested.
+  districtUnavailable: boolean
   // The shape currently on the canvas. Reference identity is load-bearing: the
   // canvas emits a fresh array per change, and comparing it against the ring a
   // preview was asked about is what makes an answer belong to a boundary.
@@ -194,6 +197,7 @@ export default function CreateListSurface({
   districtHouseholds,
   districtHouseholdsPending,
   districtHouseholdsFailed,
+  districtUnavailable,
   ring,
   turfStats,
   drawPointCount,
@@ -308,6 +312,7 @@ export default function CreateListSurface({
       districtHouseholds={districtHouseholds}
       districtHouseholdsPending={districtHouseholdsPending}
       districtHouseholdsFailed={districtHouseholdsFailed}
+      districtUnavailable={districtUnavailable}
       savedLists={audience.lists}
       allContactsHouseholds={audience.allContactsHouseholds}
       ring={ring}

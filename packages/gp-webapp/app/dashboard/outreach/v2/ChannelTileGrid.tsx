@@ -14,6 +14,7 @@ import {
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useVoterOutreachV2RobocallFlag } from '@shared/experiments/voterOutreachV2RobocallFlag'
 import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
+import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
@@ -63,6 +64,9 @@ export const ChannelTileGrid = ({
   // (or unsettled) falls through to the legacy robocall TaskFlow — checked
   // after the Pro gate since robocall is Pro-locked.
   const robocallV2 = useVoterOutreachV2RobocallFlag()
+  // Read only to decide whether the district download below is worth starting.
+  // The door-knocking page gate is the treatment surface, so no exposure here.
+  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
   // Own equivalent of ContactsTableProvider's canUseProFeatures — not
   // imported from there (contacts-scoped, would force an organization
   // provider onto every tile-grid test). A pending elected-office query must
@@ -195,7 +199,15 @@ export const ChannelTileGrid = ({
       // Prefetch and not fetch: a district this org cannot resolve answers 400
       // and the page's own `isUnresolvable` branch already speaks for that
       // case, so a rejection here must not surface as anything.
-      void queryClient.prefetchQuery(voterPackQueryOptions)
+      //
+      // Only for the arm that lands on the native page. A control-arm campaign
+      // gets the eCanvasser dashboard, which has no pack in it, and tens of
+      // megabytes of district for a map they will never be shown is a worse
+      // deal than the dead Continue this exists to avoid. The flag is read
+      // without exposure here — pressing a tile is not the treatment.
+      if (nativeDoorKnocking.enabled) {
+        void queryClient.prefetchQuery(voterPackQueryOptions)
+      }
       router.push(
         listId === undefined
           ? '/dashboard/door-knocking?create=1'

@@ -100,13 +100,19 @@ const dotKey = (lng: number, lat: number): string =>
 // dot — so a dot the pack already answered for keeps what it had, and a
 // coordinate with no dot behind it is dropped rather than guessed at.
 //
-// Where it over-reports is a coordinate holding more than one door: the pack
-// groups households at `AddressLine` while a route stop carries the apartment
-// (ADR 0010), so a knock at Apt 1 colours the whole block. The exact answer is
-// only knowable from the per-person statuses, which live on the server side of
-// the pack build — and asking for them means the same tens-of-seconds district
-// download this exists to avoid, on the one gesture whose next frame is a
-// navigation away from the map.
+// Where it over-reports is any coordinate whose residents are not all on the
+// turf, because the two sides roll up over different populations: the stop over
+// the turf's filtered targets, the dot over everyone the pack put at that
+// coordinate. A block of flats is the loud version of it (the pack groups
+// households at `AddressLine` while a stop carries the apartment — ADR 0010),
+// but the common one is smaller and worth naming: a party-filtered turf that
+// took one half of a mixed-party couple colours the house for both of them.
+//
+// The exact answer is only knowable from the per-person statuses, which live on
+// the server side of the pack build — and asking for them means the same
+// tens-of-seconds district download this exists to avoid, on the one gesture
+// whose next frame is a navigation away from the map. It errs toward "already
+// knocked", which costs a second look at a door rather than a missed one.
 export const applyLoggedKnocks = (
   pack: DecodedPack,
   result: FilterResult,
