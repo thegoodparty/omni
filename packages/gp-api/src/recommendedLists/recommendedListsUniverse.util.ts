@@ -1,17 +1,16 @@
-import type { z } from 'zod'
 import type {
   IdeologyBucket,
   RecommendedListChannel,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
-import { voterFilterBaseSchema } from '../shared/schemas/voterFilterBase.schema'
+import type { VoterFilterBase } from '../shared/schemas/voterFilterBase.schema'
 import {
   IDEOLOGY_COLUMN_VALUE,
   RECOMMENDED_LISTS_REGISTRY,
   VOTER_STATUS_BANDS,
 } from './recommendedLists.registry'
 
-type VoterFilterShape = z.infer<typeof voterFilterBaseSchema>
+type VoterFilterShape = VoterFilterBase
 
 // The inclusion-list expression of "not a known opponent supporter" — used
 // on both event variants that carry the support exclusion.
