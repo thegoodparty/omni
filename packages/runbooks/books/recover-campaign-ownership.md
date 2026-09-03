@@ -1,10 +1,11 @@
-Manually move ownership of a team campaign from one user to another — a candidate
-who lost access, a manager who created the account and now has to hand it to the
-candidate, an owner who left the campaign. Team accounts (epic ENG-10816) make this
-more likely: for the first time a campaign has more than one person who could
-plausibly be the owner. There is no in-product transfer flow. This is the fallback,
-and it is a production database write — read the whole thing before touching
-anything.
+Manually move ownership of a team organization from one user to another — a
+candidate who lost access, a manager who created the account and now has to hand it
+to the candidate, an owner who left. Applies to both products: a Win campaign or a
+Serve elected office, whichever the organization is. Team accounts (epic ENG-10816)
+make this more likely: for the first time an organization has more than one person
+who could plausibly be the owner. There is no in-product transfer flow. This is the
+fallback, and it is a production database write — read the whole thing before
+touching anything.
 
 ## Prerequisites
 
@@ -16,23 +17,30 @@ hand.
 
 **Model this runbook assumes**: `Organization.ownerId` (→ `User.id`),
 `Campaign.userId` (→ `User.id`, one campaign per organization via
-`Campaign.organizationSlug`), `User.metaData.customerId` (Stripe customer, JSONB),
-`Campaign.details.subscriptionId` (Stripe subscription, JSONB), and
-`OrganizationMembership` (`organizationSlug`, `userId`, `role` — enum
-`OrganizationRole` = `owner` / `campaignAdmin` / `volunteer`, unique on
-`(organizationSlug, userId)`). The first four exist today; verify current field names
-against `packages/gp-api/prisma/schema/*.prisma` before you run anything, since this
-file can drift. **`OrganizationMembership` does not exist yet** — it ships as part of
-epic ENG-10816 (Team accounts and roles). If it hasn't landed yet, skip the membership
+`Campaign.organizationSlug`), `ElectedOffice.userId` (→ `User.id`, one elected
+office per organization via `ElectedOffice.organizationSlug` — the Serve-product
+counterpart to `Campaign.userId`; an org has one or the other, not both),
+`User.metaData.customerId` (Stripe customer, JSONB), `Campaign.details.subscriptionId`
+(Stripe subscription, JSONB), and `OrganizationMembership` (`organizationSlug`,
+`userId`, `role` — enum `OrganizationRole` = `owner` / `campaignAdmin` /
+`volunteer`, unique on `(organizationSlug, userId)`). Everything but
+`OrganizationMembership` exists today; verify current field names against
+`packages/gp-api/prisma/schema/*.prisma` before you run anything, since this file can
+drift. **`OrganizationMembership` does not exist yet** — it ships as part of epic
+ENG-10816 (Team accounts and roles). If it hasn't landed yet, skip the membership
 statements in Step 2 and know that the old owner has no soft-landing role: they
 simply lose access to the campaign until the table (and the invite/member-management
 endpoints on top of it) ship.
 
-Owners never get a membership row. `UseOrganizationGuard` (and its campaign/elected-
-office siblings) resolve ownership as `WHERE slug = X AND owner_id = userId` — a plain
-column match, not a membership lookup — so the guard fallback covers the owner without
-one. That is why the transaction in Step 2 deletes the new owner's row instead of
-promoting it: once they're the owner, a leftover membership row is just dead data.
+Owners never get a membership row. `UseOrganizationGuard` and `UseCampaign` resolve
+org-level ownership as `WHERE slug = X AND owner_id = userId` — a plain column match,
+not a membership lookup — so their guard fallback covers the owner without one.
+`UseElectedOfficeGuard` checks that same org-ownership condition too, but does **not**
+stop there: it independently requires `elected_office.user_id = userId` on top of it
+(`if (org && eo) { ... }`), so a Serve org needs both columns flipped in Step 2, not
+just `Organization.ownerId`. That is also why the transaction deletes the new owner's
+membership row instead of promoting it: once they're the owner, a leftover membership
+row is just dead data.
 
 ## When to escalate instead of running this
 
@@ -66,13 +74,17 @@ Read-only — no write access needed for this step.
 ```sql
 \set org_slug 'example-org-slug'
 
--- Today's owner and the campaign under this org.
+-- Today's owner, and whichever product this org is: a Win campaign, a Serve
+-- elected office, or (rarely) neither yet. You need to know which, because
+-- Step 2's transaction updates whichever one exists.
 SELECT o.slug AS organization_slug, o.owner_id AS current_owner_user_id,
        ou.email AS current_owner_email, ou.first_name, ou.last_name,
-       c.id AS campaign_id, c.slug AS campaign_slug, c.user_id AS campaign_user_id
+       c.id AS campaign_id, c.slug AS campaign_slug, c.user_id AS campaign_user_id,
+       eo.id AS elected_office_id, eo.user_id AS elected_office_user_id
 FROM organization o
 JOIN "user" ou ON ou.id = o.owner_id
 LEFT JOIN campaign c ON c.organization_slug = o.slug
+LEFT JOIN elected_office eo ON eo.organization_slug = o.slug
 WHERE o.slug = :'org_slug';
 
 -- Everyone else with a role on this org. Once OrganizationMembership exists:
@@ -108,12 +120,20 @@ here once they have a real `userId` on this organization.
 
 ## Step 2 — the ownership transaction
 
-One transaction over exactly three things: `Organization.ownerId`, `Campaign.userId`,
-and the membership rows. All three or none — a partial write leaves a campaign whose
-org owner and campaign user disagree, and every guard that resolves ownership
-(`UseOrganizationGuard`, `UseCampaign`, `UseElectedOffice`, the CRM's
-`UseEngagementContext`, `CanDownloadVoterFile`) reads that disagreement differently.
-Never run these as separate statements outside a transaction.
+One transaction over `Organization.ownerId`, whichever of `Campaign.userId` /
+`ElectedOffice.userId` applies to this org, and the membership rows. All of it or
+none — a partial write leaves a campaign whose org owner and campaign (or elected
+office) user disagree, and every guard that resolves ownership (`UseOrganizationGuard`,
+`UseCampaign`, `UseElectedOffice`, the CRM's `UseEngagementContext`,
+`CanDownloadVoterFile`) reads that disagreement differently. Never run these as
+separate statements outside a transaction.
+
+**Serve orgs need the elected-office row too, not just the org.**
+`UseElectedOfficeGuard` does not fall back to org ownership the way the others do —
+it independently requires `elected_office.user_id = callerId` on top of
+`organization.owner_id = callerId` (`if (org && eo) { ... }`; either alone 404s). If
+you skip that update on a Serve org, the new owner passes `UseOrganizationGuard` but
+404s on every elected-official/serve-hub endpoint gated by `UseElectedOffice`.
 
 ```sql
 \set org_slug 'example-org-slug'
@@ -124,16 +144,27 @@ BEGIN;
 
 -- 1. Flip the org owner. Must affect exactly one row — 0 means old_owner_id is
 -- stale (re-check Step 1); more than 1 is impossible given the PK on slug.
+-- Set updated_at explicitly: @updatedAt is Prisma-client-only, a raw SQL write
+-- doesn't bump it on its own, and Step 3 depends on this row looking "current".
 UPDATE organization
-SET owner_id = :new_owner_id
+SET owner_id = :new_owner_id, updated_at = now()
 WHERE slug = :'org_slug'
   AND owner_id = :old_owner_id;
 
--- 2. Flip the campaign user. Must also affect exactly one row.
+-- 2a. Win org: flip the campaign user. Run this OR 2b, whichever Step 1 showed
+-- this org has — not both. Must affect exactly one row.
 UPDATE campaign
-SET user_id = :new_owner_id
+SET user_id = :new_owner_id, updated_at = now()
 WHERE organization_slug = :'org_slug'
   AND user_id = :old_owner_id;
+
+-- 2b. Serve org: flip the elected office's user instead. UseElectedOfficeGuard
+-- checks this column independently of organization.owner_id (see above) — skip
+-- it and the new owner is locked out of serve-hub endpoints despite owning the org.
+-- UPDATE elected_office
+-- SET user_id = :new_owner_id, updated_at = now()
+-- WHERE organization_slug = :'org_slug'
+--   AND user_id = :old_owner_id;
 
 -- 3. The new owner never keeps a membership row — the guard fallback in
 -- UseOrganizationGuard covers owners without one. Remove theirs if the invite
@@ -159,14 +190,17 @@ DO UPDATE SET role = 'campaignAdmin', updated_at = now();
 COMMIT;
 ```
 
-Read the row count psql prints after each `UPDATE` before you type `COMMIT`. Both
-`UPDATE`s must say `UPDATE 1`. If either says `UPDATE 0`, stop and `ROLLBACK` — you
-are looking at a stale `old_owner_id` or the wrong `org_slug`, not a transient error.
-Don't loosen the `WHERE` clause to force a match.
+Read the row count psql prints after each `UPDATE` before you type `COMMIT`. The
+`organization` update and whichever of `campaign` / `elected_office` applies must
+both say `UPDATE 1`. If either says `UPDATE 0`, stop and `ROLLBACK` — you are looking
+at a stale `old_owner_id` or the wrong `org_slug`, not a transient error. Don't
+loosen the `WHERE` clause to force a match, and don't run both 2a and 2b — an org
+has one or the other, per Step 1's read.
 
 If `OrganizationMembership` hasn't shipped yet (see Prerequisites), drop statements 3
-and 4 entirely and only run the two `UPDATE`s. The old owner then has no fallback role
-— they lose access to the campaign outright until team accounts ships.
+and 4 entirely and only run statement 1 and whichever of 2a/2b applies. The old owner
+then has no fallback role — they lose access to the campaign outright until team
+accounts ships.
 
 ## Step 3 — what Stripe cannot do
 
@@ -194,12 +228,40 @@ backfills that customer id onto the **new owner's** `User.metaData.customerId` b
 opening the portal. So their first "Manage Subscription" click does land them on the
 right Stripe customer, where they can swap the payment method.
 
-**This only works if the new owner has never had a `customerId` of their own.** If
-they previously ran their own paid campaign, `user.metaData.customerId` is already
-set to a different (their own) Stripe customer, the `??` fallback never runs, and
-Manage Subscription opens the wrong customer — one with no relationship to this
-campaign's subscription. If that's the case here, don't paste the message above;
-escalate to someone with direct Stripe access to move the payment method by hand.
+This recovery has two silent-failure paths — both leave the new owner's
+`customerId` pointed at the wrong Stripe customer with no error anywhere:
+
+1. **The new owner already has their own `customerId`.** If they previously ran
+   their own paid campaign, `user.metaData.customerId` is already set, the `??`
+   fallback never runs, and Manage Subscription opens their own unrelated customer.
+2. **The new owner owns more than one campaign with a subscription.**
+   `recoverCustomerIdFromSubscription` doesn't look up the campaign that was just
+   transferred specifically — it loads *every* campaign owned by `userId`, sorted
+   `updatedAt` desc, and takes the first one with a `details.subscriptionId`. If the
+   new owner owns another campaign (their own, from before this transfer) that also
+   carries a `subscriptionId` and was touched more recently, that other campaign's
+   subscription — and its Stripe customer — wins the lookup instead of the one you
+   just transferred. The backfill still "succeeds": it writes *a* customerId, just
+   not the right one.
+
+Either way, verify rather than assume: after Step 2, check `user.metaData.customerId`
+for the new owner.
+
+```sql
+\set new_owner_id 2002
+SELECT id, email, meta_data->>'customerId' AS customer_id FROM "user"
+WHERE id = :new_owner_id;
+```
+
+- **`customer_id` is `null` and the new owner owns no other subscribed campaign** —
+  the common case. Paste the message above; their first Manage Subscription click
+  will resolve correctly.
+- **`customer_id` is already set, or the new owner owns another campaign with its
+  own `subscriptionId`** — don't paste the message above. The automatic recovery
+  will point at the wrong Stripe customer (theirs, or another campaign's) rather
+  than the one for the campaign you just transferred. Escalate to someone with
+  direct Stripe access to set the payment method deliberately instead of letting
+  the recovery guess.
 
 ## Step 4 — the HubSpot correction
 
@@ -233,10 +295,17 @@ SELECT slug, owner_id FROM organization
 WHERE slug = :'org_slug' AND owner_id = :new_owner_id;
 -- expect 1 row.
 
--- 2. Campaign agrees with the org.
+-- 2. Campaign (Win) or elected office (Serve) agrees with the org — run
+-- whichever matches this org's product, per Step 1.
 SELECT id, slug, user_id FROM campaign
 WHERE organization_slug = :'org_slug' AND user_id = :new_owner_id;
 -- expect 1 row, same campaign as before the transfer.
+
+SELECT id, user_id FROM elected_office
+WHERE organization_slug = :'org_slug' AND user_id = :new_owner_id;
+-- expect 1 row for a Serve org. A 0-row result here on a Serve org means
+-- UseElectedOfficeGuard will 404 the new owner on every serve-hub endpoint
+-- even though they now own the org — re-check Step 2's 2b.
 
 -- 3. New owner carries no leftover membership row.
 SELECT user_id, role FROM organization_membership
@@ -278,9 +347,12 @@ without owner-only actions (billing, member removal, role changes — see the
 ## Related
 
 - `packages/gp-api/prisma/schema/organization.prisma`, `campaign.prisma`,
-  `user.prisma` — source of truth for the field names this runbook depends on.
-- `packages/gp-api/src/organizations/guards/UseOrganization.guard.ts` — the
-  owner-fallback resolution the transaction in Step 2 has to keep consistent.
+  `electedOffice.prisma`, `user.prisma` — source of truth for the field names this
+  runbook depends on.
+- `packages/gp-api/src/organizations/guards/UseOrganization.guard.ts` and
+  `packages/gp-api/src/electedOffice/guards/UseElectedOffice.guard.ts` — the
+  owner-fallback (and, for Serve, the independent `elected_office.user_id` check)
+  the transaction in Step 2 has to keep consistent.
 - `packages/gp-api/src/payments/purchase.controller.ts` — `createPortalSession` and
   `recoverCustomerIdFromSubscription`, referenced in Step 3.
 - `.claude/skills/transfer-candidate-domain/SKILL.md` — the identity-verification
