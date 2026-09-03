@@ -15,6 +15,7 @@ import {
 } from '../utils/packEncoder.utils'
 import { buildPackSql, PACK_CSV_COLUMNS } from './databricksVoterSql.util'
 import { DatabricksVoterService } from './databricksVoter.service'
+import { readCsvChunkBody } from './csvChunkBody.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxTimeoutError,
@@ -28,26 +29,6 @@ const SCAN_TIMEOUT_MESSAGE =
 const UNAVAILABLE_MESSAGE =
   'Voter data is temporarily unavailable, so the voter map could not be ' +
   'built. This is a connection problem, not an empty district.'
-
-// A district is drained in many chunks and the whole build dies with any one
-// of them, so the odds of losing a pack are the per-chunk failure rate
-// multiplied by the chunk count — a transient blip that would be invisible on
-// a single request is close to routine across a 698,649-row scan. Three
-// attempts rather than more because the failure this exists for is a stale
-// pooled socket, which the immediate retry already resolves; anything still
-// failing on the third go is not transient, and the user is waiting.
-const CHUNK_FETCH_ATTEMPTS = 3
-
-// Linear, and short. The client holds the whole build open while this waits,
-// under a heartbeat that keeps the gateway from hanging up, so the budget here
-// is a fraction of the drain rather than the usual exponential ladder.
-const CHUNK_RETRY_BACKOFF_MS = 250
-
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms))
-
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err)
 
 const NUMERIC_COLUMNS = new Set<string>([
   'Age_Int',
@@ -121,7 +102,7 @@ export class DatabricksVoterPackService {
       // 22.6s of drain against 736ms of query -- of which ~6.5s was link round
       // trips waiting on nothing. Two chunks in memory rather than one.
       let chunk: PeopleDbxCsvChunk | null = firstChunk
-      let body = this.readChunk(chunk)
+      let body = readCsvChunkBody(chunk.externalLink, this.logger)
       let ahead: Promise<PeopleDbxCsvChunk> | null = null
       try {
         while (chunk && !signal?.aborted) {
@@ -132,7 +113,7 @@ export class DatabricksVoterPackService {
           chunk = ahead ? await ahead : null
           ahead = null
           body = chunk
-            ? this.readChunk(chunk)
+            ? readCsvChunkBody(chunk.externalLink, this.logger)
             : Promise.resolve(Buffer.alloc(0))
         }
       } finally {
@@ -155,49 +136,6 @@ export class DatabricksVoterPackService {
     }
 
     return encoder.toBuffer(new Date().toISOString())
-  }
-
-  private async readChunk(chunk: PeopleDbxCsvChunk): Promise<Buffer> {
-    let lastError: unknown
-
-    for (let attempt = 0; attempt < CHUNK_FETCH_ATTEMPTS; attempt++) {
-      if (attempt > 0) await delay(CHUNK_RETRY_BACKOFF_MS * attempt)
-
-      let response: Response
-      try {
-        response = await fetch(chunk.externalLink)
-      } catch (err) {
-        // A rejected fetch is a transport failure, not an answer: the socket
-        // closed, DNS blipped, the TLS handshake died. Retried rather than
-        // raised because the overwhelmingly common one here is a keep-alive
-        // race — chunks are downloaded with a CSV parse in between, so a
-        // pooled connection sits idle long enough for the storage host to
-        // close it while undici still believes it is open, and the next
-        // request onto that socket fails as "other side closed".
-        lastError = err
-        continue
-      }
-
-      if (response.ok) return Buffer.from(await response.arrayBuffer())
-
-      // A 5xx is the storage host having a moment and is worth asking again.
-      // A 4xx is an answer — most often the ~15 minute presigned expiry, which
-      // no number of retries will talk round, and a long multi-chunk build can
-      // genuinely reach.
-      lastError = new PeopleDbxUnavailableError(
-        `CSV chunk fetch failed with ${response.status}`,
-      )
-      if (response.status < 500) break
-    }
-
-    // Classified, not bare, whichever way it failed. A plain Error escapes
-    // build()'s catch unlogged and lands as a 500, which reads as a bug in the
-    // pack rather than the upstream fetch failure it is.
-    throw lastError instanceof PeopleDbxUnavailableError
-      ? lastError
-      : new PeopleDbxUnavailableError(
-          `CSV chunk fetch failed: ${errorMessage(lastError)}`,
-        )
   }
 
   private async parseChunk(body: Buffer, encoder: PackEncoder): Promise<void> {

@@ -199,67 +199,66 @@ describe('DatabricksVoterPackService', () => {
   // of them, so a blip that would be unnoticeable on a single request is close
   // to routine across a full scan. This is what took the voter map down in
   // prod: three builds in one 32-second window, each losing one chunk.
+  //
+  // Which failures are retried is csvChunkBody.util's own business and is
+  // covered there. What matters here is that the retry survives the read-ahead
+  // pipeline: two chunk reads are in flight at once and a rejection that goes
+  // unhandled takes the process down rather than the request.
   describe('a chunk that fails in transit', () => {
     const socketClosed = () =>
       Object.assign(new TypeError('fetch failed'), {
         cause: new Error('other side closed'),
       })
 
-    const okOnce = (body: string) => ({
-      ok: true,
-      status: 200,
-      arrayBuffer: () => Promise.resolve(Buffer.from(body)),
+    beforeEach(() => {
+      vi.useFakeTimers()
     })
 
-    // The prod failure exactly: undici rejects rather than answering, because
-    // the storage host closed a pooled connection that had gone idle during
-    // the previous chunk's CSV parse.
-    it('retries a rejected fetch and still builds the pack', async () => {
-      client.startCsvExport.mockResolvedValue({
-        firstChunk: { externalLink: 'c0', nextChunkLink: null },
-      })
-      const body = [HEADER, csvRow('a')].join('\n')
-      const fetchMock = vi
-        .fn()
-        .mockRejectedValueOnce(socketClosed())
-        .mockResolvedValue(okOnce(body))
-      vi.stubGlobal('fetch', fetchMock)
-
-      const pack = await service.build(request as never)
-
-      expect(fetchMock).toHaveBeenCalledTimes(2)
-      expect(manifestOf(pack).counts.people).toBe(1)
+    afterEach(() => {
+      vi.useRealTimers()
     })
 
-    it('retries a 5xx, which is the host having a moment', async () => {
+    const buildThrough = async () => {
+      const pending = service.build(request as never)
+      // Settled-but-unobserved while the timers run counts as unhandled, and
+      // the failure cases here reject before the await below can reach them.
+      void pending.catch(() => undefined)
+      await vi.runAllTimersAsync()
+      return pending
+    }
+
+    it('retries a lost chunk and still builds the whole pack', async () => {
       client.startCsvExport.mockResolvedValue({
-        firstChunk: { externalLink: 'c0', nextChunkLink: null },
+        firstChunk: { externalLink: 'c0', nextChunkLink: 'link-1' },
       })
-      const body = [HEADER, csvRow('a')].join('\n')
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce({ ok: false, status: 503 })
-        .mockResolvedValue(okOnce(body))
-      vi.stubGlobal('fetch', fetchMock)
-
-      await service.build(request as never)
-
-      expect(fetchMock).toHaveBeenCalledTimes(2)
-    })
-
-    // The presigned expiry is an answer, not a blip. Retrying it only makes
-    // the user wait longer for the same 403.
-    it('does not retry a 4xx', async () => {
-      client.startCsvExport.mockResolvedValue({
-        firstChunk: { externalLink: 'missing', nextChunkLink: null },
+      client.fetchCsvChunk.mockResolvedValue({
+        externalLink: 'c1',
+        nextChunkLink: null,
       })
-      const fetchMock = vi.fn(() => Promise.resolve({ ok: false, status: 403 }))
-      vi.stubGlobal('fetch', fetchMock)
-
-      await expect(service.build(request as never)).rejects.toThrow(
-        BadGatewayException,
+      // The second chunk is the one lost, so the retry has to survive the
+      // read-ahead: it is in flight while the first chunk is still parsing.
+      const fetchMock = vi.fn((url: string) =>
+        url === 'c1' && fetchMock.mock.calls.length === 2
+          ? Promise.reject(socketClosed())
+          : Promise.resolve({
+              ok: true,
+              status: 200,
+              arrayBuffer: () =>
+                Promise.resolve(
+                  Buffer.from(
+                    url === 'c0'
+                      ? [HEADER, csvRow('a')].join('\n')
+                      : csvRow('b'),
+                  ),
+                ),
+            }),
       )
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      vi.stubGlobal('fetch', fetchMock)
+
+      const pack = await buildThrough()
+
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(manifestOf(pack).counts.people).toBe(2)
     })
 
     // Bounded: something failing this persistently is not transient, and the
@@ -271,9 +270,7 @@ describe('DatabricksVoterPackService', () => {
       const fetchMock = vi.fn().mockRejectedValue(socketClosed())
       vi.stubGlobal('fetch', fetchMock)
 
-      await expect(service.build(request as never)).rejects.toThrow(
-        BadGatewayException,
-      )
+      await expect(buildThrough()).rejects.toThrow(BadGatewayException)
       expect(fetchMock).toHaveBeenCalledTimes(3)
     })
   })
