@@ -45,4 +45,5 @@ export const NAV_LABELS = {
   publicProfile: 'Public Profile',
   voterOutreach: 'Voter Outreach',
   constituentOutreach: 'Constituent Outreach',
+  team: 'Team',
 } as const

@@ -2,6 +2,7 @@ import { kebabCase } from 'es-toolkit'
 import { segmentTrackEvent } from './segmentHelper'
 import cookie from 'js-cookie'
 import type { Analytics } from '@segment/analytics-next'
+import type { OrganizationRole } from '@goodparty_org/contracts'
 
 let isImpersonating = false
 export const setImpersonating = (value: boolean): void => {
@@ -11,6 +12,27 @@ export const setImpersonating = (value: boolean): void => {
 let userEmail: string | undefined
 export const setUserEmail = (value: string | undefined): void => {
   userEmail = value
+}
+
+// Actor identity for the server-side join (ENG-10829/gp-api PR #1674): every
+// trackEvent call carries actorUserId + actorRole so a client event can be
+// joined to the server-side actor who caused it. Kept as module state (same
+// pattern as userEmail/isImpersonating above) and set from SegmentIdentify,
+// which already sits inside both UserProvider and OrganizationProvider.
+let actorUserId: number | undefined
+export const setActorUserId = (value: number | undefined): void => {
+  actorUserId = value
+}
+
+// null (not undefined) once resolved-but-absent — a signed-in user with no
+// selected org still needs a set() call to distinguish "resolved, no org"
+// from "never resolved" (undefined stays undefined pre-hydration too, but
+// trackEvent below normalizes both to null on the wire).
+let actorRole: OrganizationRole | null | undefined
+export const setActorRole = (
+  value: OrganizationRole | null | undefined,
+): void => {
+  actorRole = value
 }
 
 const UTM_KEYS = [
@@ -197,6 +219,17 @@ export const EVENTS = {
   OrgSwitcher: {
     RunForOfficeClicked: 'Org Switcher - Run For Office Clicked',
     OrganizationSwitched: 'Org Switcher - Organization Switched',
+  },
+
+  // Team accounts (ENG-10816). CampaignSwitched has no properties: it exists
+  // purely to measure whether a member with more than one campaign uses the
+  // picker to move between them, as distinct from the always-present
+  // OrgSwitcher.OrganizationSwitched (which fires for every switch,
+  // including a solo owner's).
+  Team: {
+    CampaignSwitched: 'Team - Campaign Switched',
+    InviteModalOpened: 'Team - Invite Modal Opened',
+    InviteSubmitted: 'Team - Invite Submitted',
   },
 
   Dashboard: {
@@ -933,6 +966,8 @@ export const trackEvent = (
       ...(userEmail ? { email: userEmail } : {}),
       ...properties,
       impersonation: isImpersonating,
+      actorUserId: actorUserId ?? null,
+      actorRole: actorRole ?? null,
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.

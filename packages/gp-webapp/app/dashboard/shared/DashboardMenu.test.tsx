@@ -4,10 +4,13 @@ import { getDashboardMenuItems } from './DashboardMenu'
 const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
+  showTeamItem = false,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
-} = {}) => getDashboardMenuItems(isElectedOffice, isElectedOfficeLoading)
+  showTeamItem?: boolean
+} = {}) =>
+  getDashboardMenuItems(isElectedOffice, isElectedOfficeLoading, showTeamItem)
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -190,6 +193,28 @@ describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
     expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
       false,
     )
+  })
+})
+
+describe('getDashboardMenuItems — Team nav item (win-team-accounts)', () => {
+  it('is absent by default (flag off)', () => {
+    const items = links()
+    expect(items.some((i) => i.id === 'team-dashboard')).toBe(false)
+  })
+
+  it('shows the Team item for a Win campaign when the flag is on', () => {
+    const items = links({ isElectedOffice: false, showTeamItem: true })
+    const team = items.find((i) => i.id === 'team-dashboard')
+    expect(team).toBeDefined()
+    expect(team?.link).toBe('/dashboard/team')
+    expect(team?.v2Category).toBe('campaign')
+  })
+
+  it('shows the Team item for a Serve org when the flag is on', () => {
+    const items = links({ isElectedOffice: true, showTeamItem: true })
+    const team = items.find((i) => i.id === 'team-dashboard')
+    expect(team).toBeDefined()
+    expect(team?.v2Category).toBe('elected-office')
   })
 })
 

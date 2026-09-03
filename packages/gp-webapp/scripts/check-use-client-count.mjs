@@ -321,7 +321,12 @@ import { dirname, join, relative } from 'node:path'
 // the naming step that the single five-step flow no longer has. The addition
 // is native/doorKnockingSurface.tsx, which owns the Win/Serve context and the
 // turf query hook — a context provider cannot render on the server.
-const BASELINE = 594
+// 2026-09-03: 594 -> 596 for the team accounts page (ENG-10816/10827).
+// TeamPage.tsx and InviteMemberDialog.tsx both hold interactive state
+// (mutations, dialog open/close, form fields) and can't be server components;
+// the route itself (app/dashboard/team/page.tsx) stays a server component and
+// renders no directive.
+const BASELINE = 596
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

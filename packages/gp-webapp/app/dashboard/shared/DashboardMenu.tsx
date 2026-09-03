@@ -66,7 +66,9 @@ import {
 import {
   OrganizationPicker,
   useOrganization,
+  useOrganizationRole,
 } from '@shared/organization-picker'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 interface MenuItem {
   id: string
@@ -266,6 +268,18 @@ const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
+// win-team-accounts (ENG-10816/10827). v2Category is set per-render (below)
+// to match the current org type, the same way PUBLIC_PROFILE_MENU_ITEM is
+// pushed twice for the two org types — Team is available to both.
+const TEAM_MENU_ITEM: Omit<MenuItem, 'v2Category'> = {
+  id: 'team-dashboard',
+  label: NAV_LABELS.team,
+  link: '/dashboard/team',
+  icon: <MdPeople />,
+  v2Icon: UsersRound,
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignTeam),
+}
+
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
   label: NAV_LABELS.knowYourOpponent,
@@ -278,6 +292,7 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
+  showTeamItem = false,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -352,6 +367,13 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
+  if (showTeamItem) {
+    menuItems.push({
+      ...TEAM_MENU_ITEM,
+      v2Category: isElectedOffice ? 'elected-office' : 'campaign',
+    })
+  }
+
   return menuItems
 }
 
@@ -362,10 +384,18 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
+  // trackExposure=false: this is a render-decision read, not the experiment's
+  // treatment surface (the team page itself tracks exposure).
+  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
 
   const menuItems = useMemo(
-    () => getDashboardMenuItems(!!electedOffice, isElectedOfficeLoading),
-    [electedOffice, isElectedOfficeLoading],
+    () =>
+      getDashboardMenuItems(
+        !!electedOffice,
+        isElectedOfficeLoading,
+        teamAccountsEnabled,
+      ),
+    [electedOffice, isElectedOfficeLoading, teamAccountsEnabled],
   )
 
   useEffect(() => {
@@ -403,6 +433,11 @@ const NewNavMenu = ({
     (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
 
   const organization = useOrganization()
+  const organizationRole = useOrganizationRole()
+  // ENG-10829: a manager (campaignAdmin) never sees billing/account-settings.
+  // Owner (including every current solo user, since role is undefined until
+  // teams exist) sees today's menu exactly.
+  const isManager = organizationRole === 'campaignAdmin'
 
   const handleMenuItemClick = (item: MenuItem) => {
     item?.onClick?.()
@@ -533,7 +568,8 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
-                  {sidebarItem(accountManagementMenuItems.account)}
+                  {!isManager &&
+                    sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.logout)}
                   <SidebarSeparator />
@@ -574,7 +610,8 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
-                  {dropDownItem(accountManagementMenuItems.account)}
+                  {!isManager &&
+                    dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.community)}
                   <DropdownMenuSeparator />

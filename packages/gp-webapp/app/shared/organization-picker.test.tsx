@@ -508,6 +508,39 @@ describe('OrganizationPicker', () => {
     })
   })
 
+  it('does not fire Team - Campaign Switched for a solo owner (no membership role anywhere)', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OrgSwitcher.OrganizationSwitched,
+        expect.any(Object),
+      )
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+  })
+
+  it('fires Team - Campaign Switched when the viewer has a non-owner role in any org', async () => {
+    const user = userEvent.setup()
+    renderPicker(
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('campaignAdmin' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+    })
+  })
+
   it('does not track a switch when re-selecting the already-active org', async () => {
     const user = userEvent.setup()
     renderPicker()
