@@ -6,6 +6,7 @@ import {
 } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkAuthService } from '@/vendors/clerk/services/clerk-auth.service'
 import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
+import { ClerkInvitationsService } from '@/vendors/clerk/services/clerkInvitations.service'
 
 @Module({
   providers: [
@@ -15,11 +16,13 @@ import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiTok
       useClass: ClerkAuthService,
     },
     ElectionApiTokenService,
+    ClerkInvitationsService,
   ],
   exports: [
     AUTH_PROVIDER_TOKEN,
     CLERK_CLIENT_PROVIDER_TOKEN,
     ElectionApiTokenService,
+    ClerkInvitationsService,
   ],
 })
 export class ClerkModule {}
