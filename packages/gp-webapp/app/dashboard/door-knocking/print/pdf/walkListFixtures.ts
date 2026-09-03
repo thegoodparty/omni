@@ -38,17 +38,17 @@ export const target = (
   name: 'Dorian Fen',
   age: 31,
   politicalParty: 'Independent',
-  // Carried deliberately: the sheet and the PDF both omit phone numbers, and
-  // a fixture with none would let the omission pass by accident.
+  // The design template's Phone column reads this, cell before landline. It is
+  // the one field on this fixture both paper surfaces are meant to print; every
+  // other screen-side block below is here to fail an omission test.
   cellPhone: '(312) 555-0101',
   landline: null,
-  // Carried for the same reason, and it matters more here. The eleven-attribute
-  // demographic profile rides the route payload for `PersonSheet` and is
-  // deliberately absent from both paper surfaces — paper leaves the building
-  // and stops being access-controlled when it does, which is the argument that
-  // already keeps phone numbers off these pages and applies with more force to
-  // a profile of a named voter. Every value below is distinctive enough that a
-  // renderer leaking it fails a test rather than passing quietly.
+  // The eleven-attribute demographic profile rides the route payload for
+  // `PersonSheet` and is deliberately absent from both paper surfaces — paper
+  // leaves the building and stops being access-controlled when it does, and a
+  // profile of a named voter is a far larger disclosure than the number above
+  // is. Every value below is distinctive enough that a renderer leaking it fails
+  // a test rather than passing quietly.
   registeredVoter: true,
   turnoutLikelihood: 'Super',
   maritalStatus: 'Likely Married',
@@ -63,11 +63,11 @@ export const target = (
   knockStatus: 'unknown',
   mayHaveMoved: false,
   doNotKnock: false,
-  // ADR 0011, and carried for the same reason as the two blocks above. Saved
-  // contact notes ride the route payload for `PersonSheet`'s Notes section and
-  // are absent from both paper surfaces with more force again than the profile
-  // is: a page of free text a named person typed about a named voter is the
-  // largest disclosure on this payload, on the one surface that stops being
+  // ADR 0011, and carried for the same reason as the block above. Saved contact
+  // notes ride the route payload for `PersonSheet`'s Notes section and are
+  // absent from both paper surfaces with more force again than the profile is: a
+  // page of free text a named person typed about a named voter is the largest
+  // disclosure on this payload, on the one surface that stops being
   // access-controlled the moment it is printed. The body below is distinctive
   // enough that a renderer leaking it fails a test rather than passing quietly.
   notes: {

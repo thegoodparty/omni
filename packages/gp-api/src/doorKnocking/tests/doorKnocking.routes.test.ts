@@ -23,7 +23,7 @@ import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
-import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
+import { DoorKnockingCreateService } from '../services/doorKnockingCreate.service'
 import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
 import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
@@ -147,6 +147,10 @@ const stubVendors = (
   overrides: {
     people?: Array<ReturnType<typeof person>>
     geoapify?: (body: PostBody) => unknown
+    // The path-geometry call, overridable on its own: it is the second billed
+    // call of a create and the only one a route can survive losing, so the
+    // two have to be able to fail independently.
+    routing?: () => Promise<Response>
     residents?: { addresses: Array<Record<string, unknown>> }
   } = {},
 ) => {
@@ -159,6 +163,7 @@ const stubVendors = (
   )
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     if (String(url).includes('/v1/routing')) {
+      if (overrides.routing) return overrides.routing()
       return new Response(
         JSON.stringify({
           features: [
@@ -230,32 +235,83 @@ describe('door-knocking routes', () => {
 
   const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 
-  const createTurf = async (name = 'Elm St turf') => {
-    const res = await service.client.post(
+  // Creating a list buys its route, so every create needs both vendors
+  // standing. Tests that care what the vendor did call `stubVendors` again
+  // with their own responses; note that re-spying an already-spied `fetch`
+  // hands back the SAME mock, calls included, so a test counting vendor
+  // traffic after a create has to clear it rather than assume a fresh spy.
+  beforeEach(() => {
+    stubVendors()
+  })
+
+  // The whole write, in one request: turf, route, stops, targets and the
+  // Outreach envelope. `mode` and `loop` are part of it now, which is what
+  // retired the separate knock endpoint.
+  const postTurf = (body: Record<string, unknown> = {}) =>
+    service.client.post(
       '/v1/door-knocking/turfs',
       {
         voterFileFilterId: filter.id,
-        name,
+        name: 'Elm St turf',
         color: '#22aa55',
         geoPoly: GEO_POLY,
+        mode: 'walk',
+        loop: false,
+        ...body,
       },
-      orgHeaders(),
-    )
-    expect(res.status).toBe(201)
-    return res.data as { id: number; locked: boolean }
-  }
-
-  const knock = (turfId: number, body: Record<string, unknown> = {}) =>
-    service.client.post(
-      `/v1/door-knocking/turfs/${turfId}/knock`,
-      { mode: 'walk', loop: false, ...body },
       { ...orgHeaders(), validateStatus: () => true },
     )
+
+  const createTurf = async (name = 'Elm St turf') => {
+    const res = await postTurf({ name })
+    expect(res.status).toBe(201)
+    return res.data as { id: number; doorCount: number }
+  }
+
+  // The 1:1:1 chain read back from the database, which is also how these
+  // tests reach the envelope: the response is a turf, and the envelope is two
+  // hops behind it.
+  const routeIdFor = async (turfId: number) =>
+    (
+      await service.prisma.doorKnockingRoute.findFirstOrThrow({
+        where: { doorKnockingTurfId: turfId },
+      })
+    ).id
+
+  const routedTurf = async (name = 'Elm St turf') => {
+    const turf = await createTurf(name)
+    return { turf, routeId: await routeIdFor(turf.id) }
+  }
+
+  // A Serve org: an organization with an ElectedOffice and no Campaign. The
+  // office row is the entitlement `@UseElectedOffice()` resolves, and it is
+  // also what stands in for `isPro` — an elected official has no campaign to
+  // carry the flag.
+  const serveOrg = async (label: string) => {
+    const slug = `eo-dk-${label}-${Date.now()}`
+    await service.prisma.organization.create({
+      data: {
+        slug,
+        ownerId: service.user.id,
+        overrideDistrictId: DISTRICT_ID,
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: slug },
+    })
+    const eoFilter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: `Serve DK audience ${label}` },
+    })
+    return {
+      slug,
+      filterId: eoFilter.id,
+      headers: { headers: { 'x-organization-slug': slug } },
+    }
+  }
 
   describe('turf CRUD', () => {
     it('creates, lists, updates, and deletes a turf', async () => {
       const turf = await createTurf()
-      expect(turf.locked).toBe(false)
 
       const list = await service.client.get(
         '/v1/door-knocking/turfs',
@@ -277,6 +333,31 @@ describe('door-knocking routes', () => {
       expect(del.status).toBe(204)
     })
 
+    // The polygon is what the route was computed from, so it is not editable
+    // by anyone — which is the whole reason `assertNotLocked` could come off
+    // update without a routed list becoming re-drawable. Name and colour stay
+    // editable for the list's whole life, which is what the guard used to cost.
+    it('refuses to redraw a turf, while still renaming it', async () => {
+      const turf = await createTurf()
+
+      const redrawn = await service.client.put(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        { name: 'Renamed anyway', geoPoly: GEO_POLY },
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(redrawn.status).toBe(400)
+
+      const renamed = await service.client.put(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        { name: 'Renamed anyway', color: '#3355ff' },
+        orgHeaders(),
+      )
+      expect(renamed.data).toMatchObject({
+        name: 'Renamed anyway',
+        color: '#3355ff',
+      })
+    })
+
     it('rejects a turf on a filter owned by another organization', async () => {
       await service.prisma.organization.create({
         data: { slug: 'someone-else', ownerId: service.user.id },
@@ -284,40 +365,77 @@ describe('door-knocking routes', () => {
       const foreign = await service.prisma.voterFileFilter.create({
         data: { organizationSlug: 'someone-else', name: 'not yours' },
       })
-      const res = await service.client.post(
-        '/v1/door-knocking/turfs',
+      const res = await postTurf({
+        voterFileFilterId: foreign.id,
+        name: 'Nope',
+      })
+      expect(res.status).toBe(404)
+      // Nothing partial survives a refusal, which is the point of doing the
+      // whole thing in one transaction.
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+    })
+
+    // The isolation the 1:1:1 invariant bought. A turf carries no campaign —
+    // only an org, through its filter — so before 3.0 an org holding both a
+    // Campaign and an ElectedOffice had one rail that both surfaces drew, the
+    // ENG-10976 leak in the one channel that could not express the scope.
+    // Every turf now has an envelope, the envelope carries `campaignId`, and
+    // the rail filters through the route on it.
+    it('keeps the Win and Serve rails off each other on a dual-role org', async () => {
+      // The suite's own org, which already holds a Campaign, given the office
+      // as well: the post-election transition, the only shape where this can
+      // go wrong.
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+
+      const win = await createTurf('Win turf')
+      const serveRes = await service.client.post(
+        '/v1/door-knocking/serve/turfs',
         {
-          voterFileFilterId: foreign.id,
-          name: 'Nope',
-          color: '#22aa55',
+          voterFileFilterId: filter.id,
+          name: 'Serve turf',
+          color: '#3355ff',
           geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
         },
         { ...orgHeaders(), validateStatus: () => true },
       )
-      expect(res.status).toBe(404)
+      expect(serveRes.status).toBe(201)
+
+      const winRail = await service.client.get(
+        '/v1/door-knocking/turfs',
+        orgHeaders(),
+      )
+      const serveRail = await service.client.get(
+        '/v1/door-knocking/serve/turfs',
+        orgHeaders(),
+      )
+
+      expect(winRail.data.map((row: { id: number }) => row.id)).toEqual([
+        win.id,
+      ])
+      expect(serveRail.data.map((row: { id: number }) => row.id)).toEqual([
+        serveRes.data.id,
+      ])
     })
 
     it('rejects a malformed polygon (unclosed ring)', async () => {
-      const res = await service.client.post(
-        '/v1/door-knocking/turfs',
-        {
-          voterFileFilterId: filter.id,
-          name: 'Bad poly',
-          color: '#22aa55',
-          geoPoly: {
-            type: 'Polygon',
-            coordinates: [
-              [
-                [-87.66, 41.89],
-                [-87.64, 41.89],
-                [-87.64, 41.91],
-                [-87.66, 41.91],
-              ],
+      const res = await postTurf({
+        name: 'Bad poly',
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-87.66, 41.89],
+              [-87.64, 41.89],
+              [-87.64, 41.91],
+              [-87.66, 41.91],
             ],
-          },
+          ],
         },
-        { ...orgHeaders(), validateStatus: () => true },
-      )
+      })
       expect(res.status).toBe(400)
     })
   })
@@ -340,28 +458,22 @@ describe('door-knocking routes', () => {
         { ...orgHeaders(), validateStatus: () => true },
       )
 
-    const knockedTurf = async (name = 'Elm St turf') => {
-      const turf = await createTurf(name)
-      stubVendors()
-      const res = await knock(turf.id)
-      expect(res.status).toBe(201)
-      return { turf, routeId: res.data.route.id as number }
-    }
-
-    it('completing a walk stamps the turf and closes its outreach envelope', async () => {
-      const { turf, routeId } = await knockedTurf()
+    // The two lifecycle routes take a TURF id and write the ENVELOPE it hangs
+    // off, which is the one place 3.0's addressing and its storage differ. So
+    // every assertion below reads the envelope back through the route rather
+    // than trusting the response, and the turf's own columns are gone.
+    it('completing a walk closes its outreach envelope', async () => {
+      const { turf, routeId } = await routedTurf()
 
       const res = await complete(turf.id)
       expect(res.status).toBe(201)
-      expect(res.data.completedAt).not.toBeNull()
+      expect(res.data.completed).toBe(true)
       // The response still carries counts. It is assembled from the row read
       // inside the write transaction plus a counts read after it, rather than
       // by re-fetching the turf — so this is what catches that split coming
       // apart and silently answering nulls.
       expect(res.data.doorCount).toEqual(expect.any(Number))
 
-      // The envelope is the Win outreach history's copy of the same fact. It
-      // is a mirror, not the source — hence asserting both moved together.
       const envelope = await service.prisma.outreach.findFirst({
         where: { doorKnockingRouteId: routeId },
       })
@@ -369,22 +481,18 @@ describe('door-knocking routes', () => {
     })
 
     // The card renders the completion date, so a stray second tap must not
-    // move it — that would misreport when the walk actually finished.
+    // move it — that would misreport when the walk actually finished. The
+    // guard survived 3.0 even though the mirror it used to be ordered against
+    // did not: it is about the timestamp, not about a second row.
     it('completing twice keeps the original timestamp', async () => {
-      const { turf } = await knockedTurf()
+      const { turf, routeId } = await routedTurf()
 
-      const first = await complete(turf.id)
+      await complete(turf.id)
+      const stamped = (await envelopeFor(routeId)).updatedAt
       const second = await complete(turf.id)
 
       expect(second.status).toBe(201)
-      expect(second.data.completedAt).toBe(first.data.completedAt)
-    })
-
-    it('refuses to complete a list nobody has knocked', async () => {
-      const turf = await createTurf()
-
-      const res = await complete(turf.id)
-      expect(res.status).toBe(409)
+      expect((await envelopeFor(routeId)).updatedAt).toEqual(stamped)
     })
 
     const envelopeFor = (routeId: number) =>
@@ -395,13 +503,8 @@ describe('door-knocking routes', () => {
     // Archived is a shelf the client renders differently, not a hidden state:
     // the row keeps coming back so there is something to restore, and so the
     // print path can still resolve the list's name.
-    //
-    // Both directions mirror onto the envelope, in the same transaction as the
-    // turf. Restore is the half that is easy to forget: an archive that mirrors
-    // and a restore that does not leaves the two rows disagreeing again, one
-    // press later.
-    it('archives and restores, moving the outreach envelope with the list', async () => {
-      const { turf, routeId } = await knockedTurf()
+    it('archives and restores on the outreach envelope', async () => {
+      const { turf, routeId } = await routedTurf()
 
       const archived = await setArchived(turf.id, true)
       expect(archived.status).toBe(201)
@@ -422,110 +525,59 @@ describe('door-knocking routes', () => {
       expect((await envelopeFor(routeId)).archivedAt).toBeNull()
     })
 
-    // Same reasoning as completing twice: the card renders "archived since".
-    // The envelope is held to it too — the mirror runs on every call, so it
-    // writes the turf's existing stamp rather than a fresh `now`.
-    it('archiving twice keeps the original timestamp on both rows', async () => {
-      const { turf, routeId } = await knockedTurf()
+    // Same reasoning as completing twice: the card renders "archived since",
+    // so a double tap must not walk it forward.
+    it('archiving twice keeps the original timestamp', async () => {
+      const { turf, routeId } = await routedTurf()
 
       const first = await setArchived(turf.id, true)
-      const mirrored = (await envelopeFor(routeId)).archivedAt
       const second = await setArchived(turf.id, true)
 
       expect(second.data.archivedAt).toBe(first.data.archivedAt)
-      expect((await envelopeFor(routeId)).archivedAt).toEqual(mirrored)
+      expect((await envelopeFor(routeId)).archivedAt?.toISOString()).toBe(
+        first.data.archivedAt,
+      )
     })
 
-    // The drift this mirror exists to end, in the state prod is already in:
-    // lists archived before the mirror shipped have an envelope that never
-    // followed. Pressing Archive again is the only repair a candidate has, so
-    // the mirror runs ahead of the idempotence guard rather than behind it.
-    it('mirrors a list archived before the envelope was ever joined to it', async () => {
-      const { turf, routeId } = await knockedTurf()
-      const archivedAt = new Date('2026-08-01T00:00:00.000Z')
-      await service.prisma.doorKnockingTurf.update({
-        where: { id: turf.id },
-        data: { archivedAt },
-      })
-
-      const res = await setArchived(turf.id, true)
-
-      expect(res.status).toBe(201)
-      // The repair must not cost the original date on the way through.
-      expect(res.data.archivedAt).toBe(archivedAt.toISOString())
-      expect((await envelopeFor(routeId)).archivedAt).toEqual(archivedAt)
-    })
-
-    // A Serve org knocks without a campaign, so the knock transaction never
-    // creates an envelope. Nothing to mirror is the normal outcome there, not
-    // an error — hence updateMany rather than update.
-    it('archives a list for an organization that has no outreach envelope', async () => {
-      const suffix = Date.now()
-      const eoSlug = `eo-dk-archive-${suffix}`
-      await service.prisma.organization.create({
-        data: {
-          slug: eoSlug,
-          ownerId: service.user.id,
-          overrideDistrictId: DISTRICT_ID,
-        },
-      })
-      const eoFilter = await service.prisma.voterFileFilter.create({
-        data: { organizationSlug: eoSlug, name: 'EO archive audience' },
-      })
-      const eoHeaders = { headers: { 'x-organization-slug': eoSlug } }
+    // A Serve org used to knock without an envelope at all, which is exactly
+    // why the lifecycle lived on the turf. It has one now — scoped by
+    // organization with `campaignId: null` — so the same write reaches the
+    // same place on both surfaces.
+    it('archives a Serve list through the envelope its create wrote', async () => {
+      const { headers, filterId } = await serveOrg('archive')
       const created = await service.client.post(
-        '/v1/door-knocking/turfs',
+        '/v1/door-knocking/serve/turfs',
         {
-          voterFileFilterId: eoFilter.id,
+          voterFileFilterId: filterId,
           name: 'EO archive turf',
           color: '#3355ff',
           geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
         },
-        eoHeaders,
+        headers,
       )
-      stubVendors()
-      const knocked = await service.client.post(
-        `/v1/door-knocking/turfs/${created.data.id}/knock`,
-        { mode: 'walk', loop: false },
-        eoHeaders,
-      )
-      expect(
-        await service.prisma.outreach.count({
-          where: { doorKnockingRouteId: knocked.data.route.id },
-        }),
-      ).toBe(0)
+      expect(created.status).toBe(201)
+      const routeId = await routeIdFor(created.data.id as number)
+      expect((await envelopeFor(routeId)).campaignId).toBeNull()
 
       const res = await service.client.post(
         `/v1/door-knocking/turfs/${created.data.id}/archive`,
         { archived: true },
-        { ...eoHeaders, validateStatus: () => true },
+        { ...headers, validateStatus: () => true },
       )
 
       expect(res.status).toBe(201)
       expect(res.data.archivedAt).not.toBeNull()
+      expect((await envelopeFor(routeId)).archivedAt).not.toBeNull()
     })
 
-    it('hard-deletes an unknocked list, because there is nothing to keep', async () => {
-      const turf = await createTurf()
-
-      const res = await service.client.delete(
-        `/v1/door-knocking/turfs/${turf.id}`,
-        orgHeaders(),
-      )
-      expect(res.status).toBe(204)
-
-      const row = await service.prisma.doorKnockingTurf.findUnique({
-        where: { id: turf.id },
-      })
-      expect(row).toBeNull()
-    })
-
-    // The reason soft delete exists. A hard delete here would cascade the
-    // route someone was billed for, its frozen addresses, and the outreach
-    // envelope — so this asserts each of those survives while the list itself
-    // becomes unreachable.
-    it('tombstones a knocked list instead of cascading its paid route away', async () => {
-      const { turf, routeId } = await knockedTurf()
+    // The reason soft delete exists, and now the only case: every list was
+    // billed for, so a hard delete would always cascade a paid route, its
+    // frozen addresses and the outreach envelope. The unrouted drawing that
+    // used to be hard-deleted has no state left to exist in.
+    it('tombstones a list instead of cascading its paid route away', async () => {
+      const { turf, routeId } = await routedTurf()
 
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
@@ -570,7 +622,7 @@ describe('door-knocking routes', () => {
     })
 
     it('treats a tombstoned list as gone from every read and write path', async () => {
-      const { turf } = await knockedTurf()
+      const { turf } = await routedTurf()
       await service.client.delete(
         `/v1/door-knocking/turfs/${turf.id}`,
         orgHeaders(),
@@ -595,9 +647,28 @@ describe('door-knocking routes', () => {
           )
         ).status,
       ).toBe(404)
-      // The one that would be silent: re-knocking a deleted list would bill a
-      // second route against a list the candidate believes is gone.
-      expect((await knock(turf.id)).status).toBe(404)
+      // The write paths that remain. Re-buying a route against a deleted list
+      // is no longer expressible at all — there is no endpoint that takes a
+      // turf id and spends money — so what is left to pin is that its
+      // lifecycle cannot be moved either.
+      expect(
+        (
+          await service.client.post(
+            `/v1/door-knocking/turfs/${turf.id}/complete`,
+            {},
+            opts,
+          )
+        ).status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.put(
+            `/v1/door-knocking/turfs/${turf.id}`,
+            { name: 'Zombie' },
+            opts,
+          )
+        ).status,
+      ).toBe(404)
     })
 
     // The deliberate exception to the line above, pinned because it reads like
@@ -606,7 +677,7 @@ describe('door-knocking routes', () => {
     // throw away work they actually did. These rows hang off the organization
     // rather than the turf, so they outlive the list by design.
     it('still accepts a knock synced against a tombstoned list', async () => {
-      const { turf, routeId } = await knockedTurf()
+      const { turf, routeId } = await routedTurf()
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
           where: { stop: { doorKnockingRouteId: routeId } },
@@ -631,30 +702,35 @@ describe('door-knocking routes', () => {
     })
   })
 
-  describe('knock', () => {
-    it('freezes the route atomically: stops in vendor order, targets, envelope, filter lock', async () => {
-      const turf = await createTurf()
+  // Creating a list IS the purchase. One request, one transaction: turf,
+  // route, stops, targets and the Outreach envelope, or none of them. That is
+  // what removed the saved-but-unrouted turf, and with it the whole re-knock
+  // question — there is no second request that can buy a route for a turf that
+  // already has one, because there is no turf without one.
+  describe('create (the money path)', () => {
+    it('writes the whole chain atomically: stops in vendor order, targets, envelope, filter lock', async () => {
       const spy = stubVendors()
 
-      const res = await knock(turf.id)
+      const res = await postTurf()
 
       expect(res.status).toBe(201)
-      expect(res.data.created).toBe(true)
-      expect(res.data.route.stopCount).toBe(3)
+      expect(res.data.doorCount).toBe(3)
+      expect(res.data.completed).toBe(false)
+      expect(res.data.archivedAt).toBeNull()
 
-      const frozen = await service.prisma.doorKnockingRoute.findFirstOrThrow({
-        where: { doorKnockingTurfId: turf.id },
+      const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+        where: { doorKnockingTurfId: res.data.id },
       })
-      expect(frozen.pathGeometry).toMatchObject({ type: 'MultiLineString' })
-      expect(res.data.route.totalSeconds).toBe(900)
-
-      const route = await service.prisma.doorKnockingRoute.findUniqueOrThrow({
-        where: { id: res.data.route.id },
-      })
-      expect(route.credits).toBe(30)
+      expect(route.pathGeometry).toMatchObject({ type: 'MultiLineString' })
+      expect(route.totalSeconds).toBe(900)
+      // Three stops and an end anchor is four billed Route Planner locations,
+      // under the crossover so squared rather than multiplied (16), plus two
+      // credits for the three-waypoint Routing call behind the geometry.
+      expect(route.credits).toBe(18)
+      expect(res.data.routeSeconds).toBe(900)
 
       const stops = await service.prisma.doorKnockingStop.findMany({
-        where: { doorKnockingRouteId: res.data.route.id },
+        where: { doorKnockingRouteId: route.id },
         orderBy: { seq: 'asc' },
         include: { targets: true },
       })
@@ -673,10 +749,11 @@ describe('door-knocking routes', () => {
       expect(allTargets).toHaveLength(4)
 
       const envelope = await service.prisma.outreach.findFirst({
-        where: { doorKnockingRouteId: res.data.route.id },
+        where: { doorKnockingRouteId: route.id },
       })
       expect(envelope).toMatchObject({
         campaignId: campaign.id,
+        organizationSlug: orgSlug,
         outreachType: OutreachType.nativeDoorKnocking,
         status: OutreachStatus.in_progress,
       })
@@ -686,88 +763,34 @@ describe('door-knocking routes', () => {
       })
       expect(lockedFilter?.firstUsedForOutreachAt).not.toBeNull()
 
-      const turfAfter = await service.client.get(
-        `/v1/door-knocking/turfs/${turf.id}`,
-        orgHeaders(),
-      )
-      expect(turfAfter.data.locked).toBe(true)
-
-      const editAfter = await service.client.put(
-        `/v1/door-knocking/turfs/${turf.id}`,
-        { name: 'Too late' },
-        { ...orgHeaders(), validateStatus: () => true },
-      )
-      expect(editAfter.status).toBe(409)
-
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(1)
     })
 
-    it('two concurrent knocks make exactly one vendor call; the loser gets created:false', async () => {
-      const turf = await createTurf()
-      const spy = stubVendors()
-
-      const [first, second] = await Promise.all([
-        knock(turf.id),
-        knock(turf.id),
-      ])
-
-      expect(first.status).toBe(201)
-      expect(second.status).toBe(201)
-      const created = [first.data.created, second.data.created]
-      expect(created.filter(Boolean)).toHaveLength(1)
-      expect(first.data.route.id).toBe(second.data.route.id)
-
-      const geoapifyCalls = spy.mock.calls.filter(([url]) =>
-        String(url).includes('routeplanner'),
-      )
-      expect(geoapifyCalls).toHaveLength(1)
-      expect(await service.prisma.doorKnockingRoute.count()).toBe(1)
-    })
-
-    it('a vendor failure mid-knock leaves zero rows and the next knock succeeds', async () => {
-      const turf = await createTurf()
+    // A vendor outage is the failure mode the flow is built to absorb: nothing
+    // is persisted, and the polygon, filters, name and mode are all still
+    // client state, so the retry is the same request again.
+    it('a vendor failure leaves zero rows and the retry succeeds', async () => {
       vi.spyOn(
         service.app.get(DoorKnockingPeopleApiService),
         'evaluate',
       ).mockResolvedValue({ people: insidePeople } as never)
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('vendor down'))
 
-      const failed = await knock(turf.id)
+      const failed = await postTurf()
       expect(failed.status).toBe(502)
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
       expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
       expect(await service.prisma.doorKnockingStop.count()).toBe(0)
       expect(await service.prisma.outreach.count()).toBe(0)
 
       stubVendors()
-      const retried = await knock(turf.id)
+      const retried = await postTurf()
       expect(retried.status).toBe(201)
-      expect(retried.data.created).toBe(true)
     })
 
-    it('re-knocking returns the frozen route without touching the vendor', async () => {
-      const turf = await createTurf()
-      stubVendors()
-      const first = await knock(turf.id)
-      expect(first.data.created).toBe(true)
-
-      const spy = stubVendors()
-      spy.mockClear()
-      const again = await knock(turf.id, { mode: 'drive', loop: true })
-      expect(again.status).toBe(201)
-      expect(again.data.created).toBe(false)
-      expect(again.data.route.id).toBe(first.data.route.id)
-      // The frozen route keeps its original settings — the new mode/loop are
-      // ignored, not applied.
-      expect(again.data.route.mode).toBe('walk')
-      expect(
-        spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
-      ).toHaveLength(0)
-    })
-
-    it('loop knock anchors start=end and legs align from the anchor', async () => {
-      const turf = await createTurf()
+    it('loop routes anchor start=end and legs align from the anchor', async () => {
       let agentSent: Record<string, unknown> | undefined
       stubVendors({
         geoapify: (body) => {
@@ -815,14 +838,18 @@ describe('door-knocking routes', () => {
         },
       })
 
-      const res = await knock(turf.id, { loop: true })
+      const res = await postTurf({ loop: true })
 
       expect(res.status).toBe(201)
-      expect(res.data.route.loop).toBe(true)
       expect(agentSent?.start_location).toEqual(agentSent?.end_location)
 
+      const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+        where: { doorKnockingTurfId: res.data.id },
+      })
+      expect(route.loop).toBe(true)
+
       const stops = await service.prisma.doorKnockingStop.findMany({
-        where: { doorKnockingRouteId: res.data.route.id },
+        where: { doorKnockingRouteId: route.id },
         orderBy: { seq: 'asc' },
       })
       // With a start anchor, every stop (including the first) has an
@@ -831,28 +858,31 @@ describe('door-knocking routes', () => {
       expect(stops[1]?.legSeconds).toBe(61)
     })
 
+    // The draw step's preview reports this same limit and blocks Build route on
+    // it, so reaching the server means the data moved under a shape drawn
+    // earlier. Pinned here because the preview is advisory and this is the
+    // write — and because it must refuse before the vendor is paid.
     it('rejects a turf over the 150-stop cap before calling the vendor', async () => {
-      const turf = await createTurf()
       const manyPeople = Array.from({ length: 151 }, (_, i) =>
         person(i + 100, 41.9, -87.65 + i * 0.000001),
       )
       const spy = stubVendors({ people: manyPeople })
 
-      const res = await knock(turf.id)
+      const res = await postTurf()
 
       expect(res.status).toBe(400)
       expect(res.data.message).toContain('150')
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(0)
-      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
     })
 
     // The turf's audience is the saved list, and a saved list is more than its
     // demographic pills: activity conditions, support status, contacts-made
     // and voter-likelihood overrides all resolve through separate engines that
-    // the knock path used to skip entirely, so a list previewed in Contacts
-    // knocked a different set of people than it displayed.
+    // this path used to skip entirely, so a list previewed in Contacts froze a
+    // different set of people than it displayed.
     it("resolves the list's support-status filter, excluding prior contacts", async () => {
       const priorContact = '000000aa-1111-1111-1111-111111111111'
       await service.prisma.voterFileFilter.update({
@@ -868,11 +898,10 @@ describe('door-knocking routes', () => {
           supportAnswer: 'supporter',
         },
       })
-      const turf = await createTurf()
       stubVendors()
       const peopleApi = service.app.get(DoorKnockingPeopleApiService)
 
-      const res = await knock(turf.id)
+      const res = await postTurf()
 
       expect(res.status).toBe(201)
       // 'unknown' is the one rollup that can't be enumerated (a person with no
@@ -884,10 +913,11 @@ describe('door-knocking routes', () => {
     })
 
     // supportStatus is a column on the filter row; activityConditions is a
-    // relation, so it only reaches resolution if the knock's turf read
-    // explicitly includes it. Loading the filter without that include still
-    // type-checks and still resolves — as a list with no conditions at all —
-    // so this asserts the outgoing id set, not merely that a knock succeeded.
+    // relation, so it only reaches resolution if the create transaction's
+    // filter read explicitly includes it. Loading the filter without that
+    // include still type-checks and still resolves — as a list with no
+    // conditions at all — so this asserts the outgoing id set, not merely that
+    // the create succeeded.
     it("resolves the list's activity conditions, which live on a relation", async () => {
       const responded = '000000bb-1111-1111-1111-111111111111'
       const noResponse = '000000cc-1111-1111-1111-111111111111'
@@ -927,26 +957,24 @@ describe('door-knocking routes', () => {
           },
         },
       })
-      const turf = await createTurf()
       stubVendors()
       const peopleApi = service.app.get(DoorKnockingPeopleApiService)
 
-      const res = await knock(turf.id)
+      const res = await postTurf()
 
       expect(res.status).toBe(201)
       const lastCall = vi.mocked(peopleApi.evaluate).mock.calls.at(-1)
       expect(lastCall?.[0].filters?.id).toEqual({ in: [responded] })
     })
 
-    it('rejects a knock whose list resolves to nobody without calling the vendor', async () => {
+    it('rejects a list that resolves to nobody without calling the vendor', async () => {
       await service.prisma.voterFileFilter.update({
         where: { id: filter.id },
         data: { supportStatus: ['supporter'] },
       })
-      const turf = await createTurf()
       const spy = stubVendors()
 
-      const res = await knock(turf.id)
+      const res = await postTurf()
 
       // No interaction rows exist, so nobody derives to 'supporter' and the
       // list is empty before the polygon is even considered.
@@ -955,141 +983,31 @@ describe('door-knocking routes', () => {
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(0)
-      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
     })
 
-    describe('daily waypoint budget', () => {
-      // Spend accrues in the ledger, which is what the quota reads — one row
-      // per vendor call, exactly as the knock path writes it. Seeded per
-      // organization rather than per route: the ledger has no route foreign key
-      // on purpose, so spend outlives the turf that caused it.
-      const spendWaypoints = async (
-        total: number,
-        options: { organizationSlug?: string; occurredAt?: Date } = {},
-      ) => {
-        let remaining = total
-        // The vendor is never asked for more than the 150-stop cap in one
-        // call, so a large allowance arrives as several rows — which is also
-        // how it accrues in the field.
-        while (remaining > 0) {
-          const size = Math.min(remaining, 150)
-          await service.prisma.doorKnockingRoutePlannerSpend.create({
-            data: {
-              organizationSlug: options.organizationSlug ?? orgSlug,
-              waypoints: size,
-              credits: size * 10,
-              ...(options.occurredAt ? { occurredAt: options.occurredAt } : {}),
-            },
-          })
-          remaining -= size
-        }
-      }
-
-      // The standard stub yields 3 stops, so 498 already spent puts this
-      // knock one over the 500 limit.
-      it('rejects a knock that would exceed the budget, before calling the vendor', async () => {
-        const turf = await createTurf()
-        await spendWaypoints(498)
-        const spy = stubVendors()
-
-        const res = await knock(turf.id)
-
-        expect(res.status).toBe(429)
-        expect(res.data.message).toContain('2 of your 500 daily stops')
-        expect(
-          spy.mock.calls.filter(([url]) =>
-            String(url).includes('routeplanner'),
-          ),
-        ).toHaveLength(0)
-        const frozen = await service.prisma.doorKnockingRoute.findUnique({
-          where: { doorKnockingTurfId: turf.id },
+    // The limit these rows used to enforce is gone; the rows are not. Nothing
+    // sums Geoapify spend across organizations except this ledger, and the
+    // account-wide total is what the tiered budget alerts read — so the write
+    // has to survive a rolled-back create, name the org that caused it, and
+    // bill every vendor call that actually happened.
+    describe('Geoapify spend ledger', () => {
+      // The reason the ledger exists: the vendor call sits inside the create
+      // transaction, so a later failure rolls the turf and route back. Spend
+      // recorded on that same transaction would vanish with it and the budget
+      // would hand the allowance out twice.
+      it('keeps the spend when the create rolls back after the vendor call', async () => {
+        // people-api hands back the same person twice at one coordinate. The
+        // two rows dedupe into one stop carrying the person twice, and the
+        // targets insert then hits `@@unique([doorKnockingStopId, personId])`
+        // — a failure strictly AFTER the vendor has answered and been billed,
+        // which is the only shape of failure this test is about.
+        const duplicated = person(1, 41.9, -87.65, PIPED_KEY)
+        const spy = stubVendors({
+          people: [duplicated, duplicated, person(3, 41.901, -87.651)],
         })
-        expect(frozen).toBeNull()
-      })
 
-      // One stop lower: the limit is a ceiling the last route may reach, not
-      // one it has to stay under. Without this the rejection above would also
-      // pass if the budget were off by a stop in either direction.
-      it('allows a knock that lands exactly on the budget', async () => {
-        const turf = await createTurf()
-        await spendWaypoints(497)
-        stubVendors()
-
-        const res = await knock(turf.id)
-
-        expect(res.status).toBe(201)
-        expect(res.data.route.stopCount).toBe(3)
-      })
-
-      it('ignores spend that has aged out of the rolling window', async () => {
-        const turf = await createTurf()
-        await spendWaypoints(498, {
-          occurredAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
-        })
-        stubVendors()
-
-        const res = await knock(turf.id)
-
-        expect(res.status).toBe(201)
-      })
-
-      it("ignores another organization's spend", async () => {
-        const turf = await createTurf()
-        await spendWaypoints(498, {
-          organizationSlug: `campaign-budget-${Date.now()}`,
-        })
-        stubVendors()
-
-        const res = await knock(turf.id)
-
-        expect(res.status).toBe(201)
-      })
-
-      // The reason the ledger exists: the vendor call sits inside the knock
-      // transaction, so a later failure rolls the route back. Spend recorded on
-      // that same transaction would vanish with it and the budget would hand
-      // the allowance out twice.
-      it('keeps the spend when the knock rolls back after the vendor call', async () => {
-        const turf = await createTurf()
-        vi.spyOn(
-          service.app.get(DoorKnockingPeopleApiService),
-          'evaluate',
-        ).mockResolvedValue({ people: insidePeople } as never)
-
-        // The routeplanner answers normally — and bills — but a route for this
-        // turf appears from another connection while the call is in flight,
-        // after the in-transaction probe has already found none. The freeze then
-        // hits doorKnockingTurfId's unique constraint and the whole transaction
-        // unwinds: a paid call with no route to show for it. The advisory lock
-        // serializes knocks, not arbitrary writers, so this is reachable.
-        let competed = false
-        const spy = vi
-          .spyOn(globalThis, 'fetch')
-          .mockImplementation(async (url, init) => {
-            if (!String(url).includes('routeplanner')) {
-              return realFetch(url as Parameters<typeof fetch>[0], init)
-            }
-            if (!competed) {
-              competed = true
-              await service.prisma.doorKnockingRoute.create({
-                data: {
-                  doorKnockingTurfId: turf.id,
-                  mode: 'walk',
-                  loop: false,
-                  totalSeconds: 0,
-                  totalMeters: 0,
-                  credits: 0,
-                },
-              })
-            }
-            const body = JSON.parse(String(init?.body)) as PostBody
-            return new Response(JSON.stringify(geoapifyPlan(body)), {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            })
-          })
-
-        const res = await knock(turf.id)
+        const res = await postTurf()
 
         expect(res.status).toBeGreaterThanOrEqual(400)
         expect(
@@ -1097,9 +1015,9 @@ describe('door-knocking routes', () => {
             String(url).includes('routeplanner'),
           ),
         ).toHaveLength(1)
-        // The knock's own route never landed — only the competing row exists,
-        // and it carries no stops.
-        expect(await service.prisma.doorKnockingStop.count()).toBe(0)
+        // Nothing landed: not the turf, not the route it was bought for.
+        expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+        expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
         // The spend survived anyway, which is the entire reason it lives in its
         // own table written on its own connection.
         const spend =
@@ -1107,7 +1025,7 @@ describe('door-knocking routes', () => {
             where: { organizationSlug: orgSlug },
             _sum: { waypoints: true },
           })
-        expect(spend._sum.waypoints).toBe(3)
+        expect(spend._sum.waypoints).toBe(2)
       })
 
       // The DoorKnockingSpend line is the only global view of Geoapify spend:
@@ -1116,27 +1034,289 @@ describe('door-knocking routes', () => {
       // docs/door-knocking.md group by its `organizationSlug`. Renaming the
       // event or dropping a field silently blinds both.
       it('logs the spend with the org and credits the ceiling alert reads', async () => {
-        const turf = await createTurf()
         stubVendors()
         const logSpy = vi.spyOn(
-          service.app.get(DoorKnockingKnockService).logger,
+          service.app.get(DoorKnockingCreateService).logger,
           'info',
         )
 
-        const res = await knock(turf.id)
+        const res = await postTurf()
 
         expect(res.status).toBe(201)
         expect(logSpy).toHaveBeenCalledWith({
           event: 'DoorKnockingSpend',
           organizationSlug: orgSlug,
-          turfId: turf.id,
+          turfId: res.data.id,
           waypoints: 3,
-          credits: 30,
+          credits: 18,
+        })
+      })
+
+      // A create is billed at two APIs with two unrelated rates, and the
+      // ledger's `credits` is the only place the second one is totalled
+      // against the first. The pair below pins both halves: three stops plus
+      // an end anchor is four Route Planner locations, squared because that
+      // is under the crossover, and the geometry call adds one credit per
+      // pair of the plan's three waypoints.
+      it('bills both vendor calls to the ledger', async () => {
+        stubVendors()
+
+        const res = await postTurf()
+
+        expect(res.status).toBe(201)
+        const spend =
+          await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
+            where: { organizationSlug: orgSlug },
+          })
+        expect(spend.credits).toBe(18)
+        // Stops, not credits: this is the column the daily quota sums, and it
+        // must not move when the pricing beside it does.
+        expect(spend.waypoints).toBe(3)
+      })
+
+      // The geometry fetch is best-effort and the route ships without a path,
+      // so the only thing that changes is the bill. Charging for it anyway
+      // would be an over-count, and inferring the charge from the stored
+      // geometry would be an under-count on every response Geoapify billed us
+      // for and we then found unusable.
+      it('drops the geometry call from the bill when it never completed', async () => {
+        stubVendors({
+          routing: () => Promise.reject(new Error('routing down')),
+        })
+
+        const res = await postTurf()
+
+        expect(res.status).toBe(201)
+        const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+          where: { doorKnockingTurfId: res.data.id },
+        })
+        expect(route.pathGeometry).toBeNull()
+        expect(route.credits).toBe(16)
+        const spend =
+          await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
+            where: { organizationSlug: orgSlug },
+          })
+        expect(spend.credits).toBe(16)
+        expect(spend.waypoints).toBe(3)
+      })
+    })
+
+    // The second daily gate, and a different quantity from the first: the
+    // waypoint budget caps how many doors an organization routes in a rolling
+    // day, this caps how many separate turfs it cuts. Five two-stop turfs and
+    // one ten-stop turf spend the same stop allowance, and only one of them
+    // is a candidate carving the map into lists nobody has walked.
+    describe('daily campaign budget', () => {
+      const CAMPAIGN_LIMIT_MESSAGE =
+        "You've created 5 door knocking campaigns today. Go knock the doors " +
+        "you've already mapped, and build more lists tomorrow."
+
+      const readQuota = () =>
+        service.client.get('/v1/door-knocking/quota', orgHeaders())
+
+      const fillTheDay = async () => {
+        for (const name of ['One', 'Two', 'Three', 'Four', 'Five']) {
+          await createTurf(name)
+        }
+      }
+
+      it('reports the whole allowance before anything is built', async () => {
+        const res = await readQuota()
+
+        expect(res.status).toBe(200)
+        expect(res.data).toEqual({
+          campaignsRemaining: 5,
+          campaignLimit: 5,
+        })
+      })
+
+      it('counts each list built against the allowance', async () => {
+        await createTurf('First')
+        await createTurf('Second')
+
+        const res = await readQuota()
+
+        expect(res.status).toBe(200)
+        expect(res.data.campaignsRemaining).toBe(3)
+      })
+
+      // The limit is a ceiling the fifth list may reach, not one it has to
+      // stay under. Worth its own assertion because the create transaction
+      // inserts its turf before the gate runs — a gate written against the
+      // remaining count rather than the created count refuses here, and an
+      // organization silently gets four.
+      it('allows the fifth list of the window', async () => {
+        await createTurf('One')
+        await createTurf('Two')
+        await createTurf('Three')
+        await createTurf('Four')
+
+        const res = await postTurf({ name: 'Five' })
+
+        expect(res.status).toBe(201)
+        expect((await readQuota()).data.campaignsRemaining).toBe(0)
+      })
+
+      it('refuses the sixth, before calling the vendor', async () => {
+        await fillTheDay()
+        // Re-spying hands back the same mock with the five creates above
+        // still on it, so the count below has to start from a cleared one to
+        // be about the sixth press at all.
+        const spy = stubVendors()
+        spy.mockClear()
+
+        const res = await postTurf({ name: 'Six' })
+
+        expect(res.status).toBe(429)
+        expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
+        expect(
+          spy.mock.calls.filter(([url]) =>
+            String(url).includes('routeplanner'),
+          ),
+        ).toHaveLength(0)
+        // The refused create's own turf rolled back with the transaction, so
+        // a rejected press does not spend the allowance it was refused for.
+        expect(await service.prisma.doorKnockingTurf.count()).toBe(5)
+      })
+
+      // Delete is a tombstone over a route that was billed once and is never
+      // re-bought, so the spend stands whether or not the list was shelved.
+      // Excluding tombstones would also make Delete the way to buy unlimited
+      // routes: create, delete, repeat.
+      it('counts a list the organization has deleted', async () => {
+        await fillTheDay()
+        const turfs = await service.prisma.doorKnockingTurf.findMany({
+          orderBy: { id: 'asc' },
+        })
+        const del = await service.client.delete(
+          `/v1/door-knocking/turfs/${turfs[0]!.id}`,
+          orgHeaders(),
+        )
+        expect(del.status).toBe(204)
+
+        expect((await readQuota()).data.campaignsRemaining).toBe(0)
+        const res = await postTurf({ name: 'Six' })
+        expect(res.status).toBe(429)
+        expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
+      })
+
+      it('ignores lists that have aged out of the rolling window', async () => {
+        await fillTheDay()
+        await service.prisma.doorKnockingTurf.updateMany({
+          where: { voterFileFilter: { organizationSlug: orgSlug } },
+          data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+        })
+
+        expect((await readQuota()).data.campaignsRemaining).toBe(5)
+        expect((await postTurf({ name: 'Six' })).status).toBe(201)
+      })
+
+      it("ignores another organization's lists", async () => {
+        const other = await serveOrg('campaign-budget')
+        for (const name of ['One', 'Two', 'Three', 'Four', 'Five']) {
+          const res = await service.client.post(
+            '/v1/door-knocking/serve/turfs',
+            {
+              voterFileFilterId: other.filterId,
+              name,
+              color: '#3355ff',
+              geoPoly: GEO_POLY,
+              mode: 'walk',
+              loop: false,
+            },
+            { ...other.headers, validateStatus: () => true },
+          )
+          expect(res.status).toBe(201)
+        }
+
+        expect((await readQuota()).data.campaignsRemaining).toBe(5)
+        expect((await postTurf({ name: 'Mine' })).status).toBe(201)
+      })
+
+      // An admin can raise one organization above the default through
+      // `PATCH /v1/organizations/admin/:slug`. The number moves in three
+      // places at once — what the gate allows, what the refusal quotes, and
+      // what the create flow is told it has left — and they are asserted
+      // separately because a single resolution point is the only thing
+      // keeping them from drifting apart.
+      describe('an organization with a raised limit', () => {
+        const raiseCampaignLimit = (limit: number, slug = orgSlug) =>
+          service.prisma.organization.update({
+            where: { slug },
+            data: { overrideDoorKnockingCampaignLimit: limit },
+          })
+
+        it('allows a create the default would refuse', async () => {
+          await raiseCampaignLimit(8)
+          await fillTheDay()
+          stubVendors()
+
+          const res = await postTurf({ name: 'Six' })
+
+          expect(res.status).toBe(201)
+          expect(res.data.doorCount).toBe(3)
+        })
+
+        it('reports the raised allowance on the quota read', async () => {
+          await raiseCampaignLimit(8)
+          await fillTheDay()
+
+          expect((await readQuota()).data).toEqual({
+            campaignsRemaining: 3,
+            campaignLimit: 8,
+          })
+        })
+
+        it('quotes the raised limit in the refusal, not the default', async () => {
+          await raiseCampaignLimit(6)
+          await fillTheDay()
+          stubVendors()
+          expect((await postTurf({ name: 'Six' })).status).toBe(201)
+
+          const res = await postTurf({ name: 'Seven' })
+
+          expect(res.status).toBe(429)
+          expect(res.data.message).toBe(
+            "You've created 6 door knocking campaigns today. Go knock the " +
+              "doors you've already mapped, and build more lists tomorrow.",
+          )
+        })
+
+        // The override lives on one org row, so it can only ever move that
+        // org. Worth asserting rather than assuming: the allowance used to be
+        // a module constant, and a resolution that read it from anywhere
+        // shared would raise the ceiling for every organization at once.
+        it('leaves another organization on the default', async () => {
+          await raiseCampaignLimit(20)
+          const { slug, filterId, headers } = await serveOrg('quota')
+          stubVendors()
+          const postServeTurf = (name: string) =>
+            service.client.post(
+              '/v1/door-knocking/serve/turfs',
+              {
+                voterFileFilterId: filterId,
+                name,
+                color: '#3355ff',
+                geoPoly: GEO_POLY,
+                mode: 'walk',
+                loop: false,
+              },
+              { ...headers, validateStatus: () => true },
+            )
+          expect(slug).not.toBe(orgSlug)
+          for (const name of ['One', 'Two', 'Three', 'Four', 'Five']) {
+            expect((await postServeTurf(name)).status).toBe(201)
+          }
+
+          const res = await postServeTurf('Six')
+
+          expect(res.status).toBe(429)
+          expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
         })
       })
     })
 
-    it('rejects a knock when the organization has no resolvable district', async () => {
+    it('rejects a create when the organization has no resolvable district', async () => {
       const suffix = Date.now()
       const noDistrictSlug = `no-district-dk-${suffix}`
       await service.prisma.organization.create({
@@ -1155,21 +1335,17 @@ describe('door-knocking routes', () => {
       const ndFilter = await service.prisma.voterFileFilter.create({
         data: { organizationSlug: noDistrictSlug, name: 'ND audience' },
       })
-      const turfRes = await service.client.post(
+
+      const res = await service.client.post(
         '/v1/door-knocking/turfs',
         {
           voterFileFilterId: ndFilter.id,
           name: 'ND turf',
           color: '#ff0000',
           geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
         },
-        { headers: { 'x-organization-slug': noDistrictSlug } },
-      )
-      expect(turfRes.status).toBe(201)
-
-      const res = await service.client.post(
-        `/v1/door-knocking/turfs/${turfRes.data.id}/knock`,
-        { mode: 'walk', loop: false },
         {
           headers: { 'x-organization-slug': noDistrictSlug },
           validateStatus: () => true,
@@ -1177,43 +1353,42 @@ describe('door-knocking routes', () => {
       )
 
       expect(res.status).toBe(400)
-      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
     })
 
-    it('an organization without a campaign gets a route but no envelope', async () => {
-      const suffix = Date.now()
-      const eoSlug = `eo-dk-${suffix}`
-      await service.prisma.organization.create({
-        data: {
-          slug: eoSlug,
-          ownerId: service.user.id,
-          overrideDistrictId: DISTRICT_ID,
-        },
-      })
-      const eoFilter = await service.prisma.voterFileFilter.create({
-        data: { organizationSlug: eoSlug, name: 'EO audience' },
-      })
-      const turfRes = await service.client.post(
-        '/v1/door-knocking/turfs',
+    // A Serve org has no campaign, and used to get no envelope at all as a
+    // result — the `if (campaign)` guard that forced the lifecycle onto the
+    // turf. It now gets one scoped by organization alone, and `campaignId:
+    // null` is the value that makes it a Serve row rather than a missing one.
+    it('writes a Serve envelope with campaignId null on its own endpoint', async () => {
+      const { slug, filterId, headers } = await serveOrg('create')
+
+      const res = await service.client.post(
+        '/v1/door-knocking/serve/turfs',
         {
-          voterFileFilterId: eoFilter.id,
+          voterFileFilterId: filterId,
           name: 'EO turf',
           color: '#3355ff',
           geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
         },
-        { headers: { 'x-organization-slug': eoSlug } },
-      )
-      stubVendors()
-
-      const res = await service.client.post(
-        `/v1/door-knocking/turfs/${turfRes.data.id}/knock`,
-        { mode: 'walk', loop: false },
-        { headers: { 'x-organization-slug': eoSlug } },
+        { ...headers, validateStatus: () => true },
       )
 
       expect(res.status).toBe(201)
-      expect(res.data.created).toBe(true)
-      expect(await service.prisma.outreach.count()).toBe(0)
+      const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+        where: { doorKnockingTurfId: res.data.id },
+      })
+      const envelope = await service.prisma.outreach.findFirstOrThrow({
+        where: { doorKnockingRouteId: route.id },
+      })
+      expect(envelope).toMatchObject({
+        campaignId: null,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+      })
     })
   })
   describe('serve', () => {
@@ -1287,10 +1462,8 @@ describe('door-knocking routes', () => {
     }
 
     const knockAndServe = async () => {
-      const turf = await createTurf()
       stubVendors({ residents: liveResidents })
-      const knocked = await knock(turf.id)
-      expect(knocked.status).toBe(201)
+      const turf = await createTurf()
       const res = await service.client.get(
         `/v1/door-knocking/turfs/${turf.id}/route`,
         { ...orgHeaders(), validateStatus: () => true },
@@ -1339,7 +1512,6 @@ describe('door-knocking routes', () => {
     // between a specific corner of Salt Lake City and the unfindable "1234
     // 5678". The apartment still has to survive alongside it.
     it('keeps the cardinal directions in a served address', async () => {
-      const turf = await createTurf()
       stubVendors({
         people: [
           person(1, 41.9, -87.65, GRID_KEY),
@@ -1348,7 +1520,7 @@ describe('door-knocking routes', () => {
         ],
         residents: { addresses: [] },
       })
-      expect((await knock(turf.id)).status).toBe(201)
+      const turf = await createTurf()
 
       const res = await service.client.get(
         `/v1/door-knocking/turfs/${turf.id}/route`,
@@ -1570,31 +1742,22 @@ describe('door-knocking routes', () => {
       expect(key3?.targets[0]?.knockStatus).toBe('unknown')
     })
 
+    // Every route is born with targets, so this state is reached by losing
+    // them: the people it froze were later deleted from the people db, or the
+    // org's own suppression emptied the stop. The serve still has stops to
+    // draw and nobody to look up, and it must not ask the people db anyway.
     it('serves a targetless route without calling people-api', async () => {
-      const turf = await createTurf()
-      await service.prisma.doorKnockingRoute.create({
-        data: {
-          doorKnockingTurfId: turf.id,
-          mode: 'walk',
-          loop: false,
-          totalSeconds: 0,
-          totalMeters: 0,
-          credits: 0,
-          stops: {
-            create: [
-              {
-                seq: 1,
-                lat: 41.9,
-                lng: -87.65,
-                displayAddress: '1 W Elm St',
-                legSeconds: 0,
-                legMeters: 0,
-              },
-            ],
-          },
-        },
-      })
       const spy = stubVendors()
+      const turf = await createTurf()
+      await service.prisma.doorKnockingStopTarget.deleteMany({
+        where: { stop: { route: { doorKnockingTurfId: turf.id } } },
+      })
+      // The create bought a route, so the counters below start from what the
+      // serve alone does rather than from zero.
+      spy.mockClear()
+      vi.mocked(
+        service.app.get(DoorKnockingPeopleApiService).residents,
+      ).mockClear()
 
       const res = await service.client.get(
         `/v1/door-knocking/turfs/${turf.id}/route`,
@@ -2065,10 +2228,12 @@ describe('door-knocking routes', () => {
       })
     })
 
-    it('404s for a turf that has not been knocked', async () => {
-      const turf = await createTurf()
+    // The routeless turf this used to guard against no longer exists — a turf
+    // is born with its route — so the only 404 left on this path is an id that
+    // names nothing.
+    it('404s for a turf that does not exist', async () => {
       const res = await service.client.get(
-        `/v1/door-knocking/turfs/${turf.id}/route`,
+        '/v1/door-knocking/turfs/999999/route',
         { ...orgHeaders(), validateStatus: () => true },
       )
       expect(res.status).toBe(404)
@@ -2231,8 +2396,6 @@ describe('door-knocking routes', () => {
     it('reports counts the details sheet derives identically for the same list', async () => {
       await messyFixture()
       const turf = await createTurf()
-      stubVendors()
-      expect((await knock(turf.id)).status).toBe(201)
 
       const stops = await serveRoute(turf.id)
       const [row] = await listTurfs()
@@ -2246,7 +2409,6 @@ describe('door-knocking routes', () => {
       // four targets; the two flags drop two of them; one of the two
       // survivors has an answer written down.
       expect(row).toMatchObject({
-        locked: true,
         doorCount: 3,
         peopleCount: 2,
         loggedCount: 1,
@@ -2257,9 +2419,7 @@ describe('door-knocking routes', () => {
     // rather than a constant: the frozen route really does hold four targets.
     it('drops do-not-knock and not-a-voter residents from people, but not their doors', async () => {
       await messyFixture()
-      const turf = await createTurf()
-      stubVendors()
-      await knock(turf.id)
+      await createTurf()
 
       const frozenTargets = await service.prisma.doorKnockingStopTarget.count()
       const [row] = await listTurfs()
@@ -2275,22 +2435,21 @@ describe('door-knocking routes', () => {
       expect(row?.loggedCount).toBe(1)
     })
 
-    it('carries no counts on an unlocked list, and no zeroes either', async () => {
-      const turf = await createTurf()
+    // Counts are non-nullable in 3.0, and this is what that costs if it is
+    // ever wrong. They used to be null on an unrouted list — nothing frozen,
+    // nothing to count, and a zero would have claimed a walked list that came
+    // back empty. Every list is routed from birth now, so a zero here means a
+    // real miscount rather than a list that has not been bought yet.
+    it('carries real counts from the moment the list exists', async () => {
+      await createTurf()
 
-      const [before] = await listTurfs()
-      expect(before).toMatchObject({
-        locked: false,
-        doorCount: null,
-        peopleCount: null,
-        loggedCount: null,
+      const [row] = await listTurfs()
+      expect(row).toMatchObject({
+        doorCount: 3,
+        peopleCount: 4,
+        knockedDoorCount: 0,
+        loggedCount: 0,
       })
-
-      stubVendors()
-      await knock(turf.id)
-
-      const [after] = await listTurfs()
-      expect(after).toMatchObject({ locked: true, doorCount: 3 })
     })
 
     // The cost rule. `serve` is the feature's heaviest read — a nested route
@@ -2298,15 +2457,17 @@ describe('door-knocking routes', () => {
     // never reach for it, and the aggregate behind the counts must not grow a
     // round trip per list.
     it('answers every list from one batched aggregate, never a serve per list', async () => {
+      for (const name of ['Ash St', 'Birch Ave', 'Cedar Ln']) {
+        await createTurf(name)
+      }
+
+      // Spied after the creates, which each read their own new list back
+      // through the same aggregate. Those are one call for one route and not
+      // what this is measuring.
       const countsService = service.app.get(DoorKnockingTurfCountsService)
       const serveService = service.app.get(DoorKnockingServeService)
       const forRoutes = vi.spyOn(countsService, 'forRoutes')
       const serve = vi.spyOn(serveService, 'serve')
-
-      stubVendors()
-      for (const name of ['Ash St', 'Birch Ave', 'Cedar Ln']) {
-        await knock((await createTurf(name)).id)
-      }
 
       const rows = await listTurfs()
 
@@ -2322,10 +2483,7 @@ describe('door-knocking routes', () => {
     const CLIENT_KEY = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 
     const knockAndGetTarget = async () => {
-      const turf = await createTurf()
-      stubVendors()
-      const knocked = await knock(turf.id)
-      expect(knocked.status).toBe(201)
+      await createTurf()
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
           orderBy: { id: 'asc' },
@@ -2530,13 +2688,8 @@ describe('door-knocking routes', () => {
     })
 
     it('the recorded status shows up on the next serve', async () => {
+      stubVendors({ residents: { addresses: [] } })
       const turf = await createTurf()
-      stubVendors({
-        residents: {
-          addresses: [],
-        },
-      })
-      await knock(turf.id)
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
           orderBy: { id: 'asc' },
@@ -2572,9 +2725,8 @@ describe('door-knocking routes', () => {
     // refetch; this is the other half — a re-serve agrees with what the phone
     // already showed, so leaving and re-entering the walk doesn't drop it.
     it("the recorded knock shows up in that resident's feed on the next serve", async () => {
-      const turf = await createTurf()
       stubVendors({ residents: { addresses: [] } })
-      await knock(turf.id)
+      const turf = await createTurf()
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
           orderBy: { id: 'asc' },
@@ -2720,33 +2872,18 @@ describe('door-knocking routes', () => {
       })
 
       it('does not write a voter_likelihood event for an eo- (Serve) organization', async () => {
-        const suffix = Date.now()
-        const eoSlug = `eo-dk-willvote-${suffix}`
-        await service.prisma.organization.create({
-          data: {
-            slug: eoSlug,
-            ownerId: service.user.id,
-            overrideDistrictId: DISTRICT_ID,
-          },
-        })
-        const eoFilter = await service.prisma.voterFileFilter.create({
-          data: { organizationSlug: eoSlug, name: 'EO willVote audience' },
-        })
-        const turfRes = await service.client.post(
-          '/v1/door-knocking/turfs',
+        const { slug: eoSlug, filterId, headers } = await serveOrg('willvote')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
           {
-            voterFileFilterId: eoFilter.id,
+            voterFileFilterId: filterId,
             name: 'EO willVote turf',
             color: '#3355ff',
             geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
           },
-          { headers: { 'x-organization-slug': eoSlug } },
-        )
-        stubVendors()
-        await service.client.post(
-          `/v1/door-knocking/turfs/${turfRes.data.id}/knock`,
-          { mode: 'walk', loop: false },
-          { headers: { 'x-organization-slug': eoSlug } },
+          headers,
         )
         const eoTarget =
           await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
@@ -2782,8 +2919,6 @@ describe('door-knocking routes', () => {
       // assertion needs it back.
       const knockAndGetTurfAndTarget = async () => {
         const turf = await createTurf()
-        stubVendors()
-        expect((await knock(turf.id)).status).toBe(201)
         const target =
           await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
             orderBy: { id: 'asc' },
@@ -2969,8 +3104,7 @@ describe('door-knocking routes', () => {
         const target = await knockAndGetTarget()
         await setDoNotKnock({ stopTargetId: target.id, value: 'active' })
 
-        const secondTurf = await createTurf('Second turf')
-        expect((await knock(secondTurf.id)).status).toBe(201)
+        await createTurf('Second turf')
 
         expect(lastEvaluateArg()).toMatchObject({
           excludePersonIds: [target.personId],
@@ -2997,8 +3131,6 @@ describe('door-knocking routes', () => {
 
       const knockAndGetTurfAndTargets = async () => {
         const turf = await createTurf()
-        stubVendors()
-        expect((await knock(turf.id)).status).toBe(201)
         const targets = await service.prisma.doorKnockingStopTarget.findMany({
           orderBy: { id: 'asc' },
         })
@@ -3245,8 +3377,7 @@ describe('door-knocking routes', () => {
           value: 'active',
         })
 
-        const secondTurf = await createTurf('Second turf')
-        expect((await knock(secondTurf.id)).status).toBe(201)
+        await createTurf('Second turf')
 
         const evaluateArg = lastEvaluateArg()
         // The saved list is bare, so nothing rides the filter-borne slots —
@@ -3272,8 +3403,7 @@ describe('door-knocking routes', () => {
         await setNotAVoter({ stopTargetId: target.id, value: 'moved' })
         await setNotAVoter({ stopTargetId: target.id, value: 'cleared' })
 
-        const secondTurf = await createTurf('Reinstated turf')
-        expect((await knock(secondTurf.id)).status).toBe(201)
+        await createTurf('Reinstated turf')
 
         expect(lastEvaluateArg()?.excludePersonIds).toEqual([])
       })
@@ -3587,8 +3717,8 @@ describe('door-knocking routes', () => {
     })
 
     // A shape drawn over nothing is an ordinary moment in drawing, not a
-    // failure — the knock 400s here because it is committing a turf.
-    it('answers an empty shape with zeros instead of the knock 400', async () => {
+    // failure — the create 400s here because it is committing a turf.
+    it('answers an empty shape with zeros instead of the create 400', async () => {
       stubVendors({ people: [] })
 
       const res = await preview()
@@ -3603,9 +3733,7 @@ describe('door-knocking routes', () => {
     })
 
     it('asks evaluation to drop the org suppressed people (ADR 0007/0008)', async () => {
-      const turf = await createTurf()
-      stubVendors()
-      expect((await knock(turf.id)).status).toBe(201)
+      await createTurf()
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
           orderBy: { id: 'asc' },
@@ -3628,10 +3756,10 @@ describe('door-knocking routes', () => {
       })
     })
 
-    // The saved list is resolved through the identical three steps the knock
-    // runs, so a draft carrying activity conditions previews the audience it
-    // will knock rather than the one convertVoterFileFilterToFilters alone
-    // would produce.
+    // The saved list is resolved through the identical three steps the create
+    // transaction runs, so a draft carrying activity conditions previews the
+    // audience it will freeze rather than the one
+    // convertVoterFileFilterToFilters alone would produce.
     it('resolves the draft filters and bounds the scan by the ring bbox', async () => {
       stubVendors()
 
@@ -3710,6 +3838,8 @@ describe('door-knocking routes', () => {
             name: 'Gated turf',
             color: '#22aa55',
             geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
           },
         ],
         ['get', '/v1/door-knocking/turfs', undefined],
@@ -3717,6 +3847,10 @@ describe('door-knocking routes', () => {
         ['put', `/v1/door-knocking/turfs/${turfId}`, { name: 'Renamed' }],
         ['get', `/v1/door-knocking/turfs/${turfId}/route`, undefined],
         ['get', '/v1/door-knocking/pack', undefined],
+        // No voter data on it at all, and gated anyway: it answers how much
+        // routing the org may still buy, which is a number about the
+        // entitlement rather than one the unentitled need.
+        ['get', '/v1/door-knocking/quota', undefined],
         // ADR 0010: a read of voter data, so it is gated with the rest.
         [
           'post',
@@ -3732,17 +3866,10 @@ describe('door-knocking routes', () => {
             outcome: 'answered',
           },
         ],
-        [
-          'post',
-          `/v1/door-knocking/turfs/${turfId}/knock`,
-          { mode: 'walk', loop: false },
-        ],
-        // After the knock above, so both find a route and exercise their real
-        // path rather than the not-yet-knocked 409. `complete` takes no body
-        // but still needs `{}`: the loop below only passes headers as the
-        // third argument, and axios reads a POST's second argument as data —
-        // so `undefined` would send the headers as the payload and lose the
-        // org, 404ing before the gate it is here to test.
+        // `complete` takes no body but still needs `{}`: the loop below only
+        // passes headers as the third argument, and axios reads a POST's second
+        // argument as data — so `undefined` would send the headers as the
+        // payload and lose the org, 404ing before the gate it is here to test.
         ['post', `/v1/door-knocking/turfs/${turfId}/complete`, {}],
         [
           'post',
@@ -3776,7 +3903,6 @@ describe('door-knocking routes', () => {
 
     it('keeps every gated route open for a Pro organization', async () => {
       const turf = await createTurf()
-      stubVendors()
 
       const list = await service.client.get('/v1/door-knocking/turfs', opts())
       expect(list.status).toBe(200)
@@ -3788,11 +3914,10 @@ describe('door-knocking routes', () => {
 
       // Then the whole list, asserted by the absence of the gate's own message
       // rather than by status. Run against a live Pro org most of these answer
-      // 2xx, but a couple legitimately fail on their own terms — POST
-      // /interactions carries a synthetic stopTargetId (404), and PUT meets
-      // assertNotLocked once the knock above it has run (409). A status
-      // assertion would be testing those reasons; this asserts exactly the one
-      // thing the gate could get wrong, which is refusing an entitled org.
+      // 2xx, but one legitimately fails on its own terms: POST /interactions
+      // carries a synthetic stopTargetId (404). A status assertion would be
+      // testing that reason; this asserts exactly the one thing the gate could
+      // get wrong, which is refusing an entitled org.
       for (const [method, path, body] of gatedRoutes(turf.id)) {
         const res =
           body === undefined
@@ -3809,8 +3934,6 @@ describe('door-knocking routes', () => {
     // a door that asked not to be revisited can still record that.
     it('still accepts both suppression writes after a downgrade', async () => {
       const turf = await createTurf()
-      stubVendors()
-      expect((await knock(turf.id)).status).toBe(201)
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
           orderBy: { id: 'asc' },

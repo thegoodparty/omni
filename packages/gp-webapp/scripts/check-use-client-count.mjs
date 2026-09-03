@@ -305,7 +305,23 @@ import { dirname, join, relative } from 'node:path'
 // FreeTextsBanner, OutreachTable, OutreachCreateCards/Card, OutreachImpact,
 // OutreachActions/*ActionOption, OutreachActionWrapper) now that the v2 hub
 // is the unconditional outreach surface.
-const BASELINE = 609
+// 2026-09-02: 609 -> 594 for door knocking 3.0. Only a handful of that is door
+// knocking's own — six client components deleted against one added — and the
+// rest is slack that had accumulated in the baseline, measured and locked in
+// here rather than left as headroom nobody meant to grant. Of the deletions:
+// KnockTurfDialog goes because buying the route moved into list creation,
+// so the dialog that used to buy it for an already-saved turf has nothing left
+// to ask, and its mode/loop form is now createFlow/RouteStep.tsx — no
+// directive, since it holds no state and inherits the boundary from
+// CreateListFlow (the turfLifecycle.ts rule). TurfDetailsDrawer goes too: its
+// whole job was deriving pre-route counts from the voter pack for a turf that
+// had been drawn but not bought, a state that no longer exists, so the page
+// renders TurfDetailsSheet directly. DoorKnockingManageView, TurfList and
+// TurfLegend go with the saved-lists rail the design cut, and NameStep with
+// the naming step that the single five-step flow no longer has. The addition
+// is native/doorKnockingSurface.tsx, which owns the Win/Serve context and the
+// turf query hook — a context provider cannot render on the server.
+const BASELINE = 594
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

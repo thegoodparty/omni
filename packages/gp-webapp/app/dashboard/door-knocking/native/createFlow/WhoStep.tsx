@@ -1,9 +1,17 @@
+import { useEffect, useRef } from 'react'
 import {
-  RadioCardItem,
-  RadioGroup,
+  Button,
+  Card,
+  Eyebrow,
   ToggleGroup,
   ToggleGroupItem,
+  cn,
 } from '@styleguide'
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  PlusIcon,
+} from '@styleguide/components/ui/icons'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { PILL_TOGGLE_ITEM_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -23,27 +31,55 @@ interface WhoStepProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   savedLists: SavedListOption[]
   allContactsHouseholds: number | null
-  // Null is "the whole contact universe" — the state that makes a filtered
-  // draft worth offering to save as a reusable list (the conditional name
-  // step). Picking a list is the alternative to that offer, not a filter.
+  // Null is "the whole contact universe". Picking a list is the alternative
+  // to cutting one by hand, not a filter.
   selectedListId: number | null
   onSelectList: (listId: number | null) => void
   isElectedOfficial: boolean
+  // Which of the step's two faces is on screen: the list picker, or the
+  // filter pills behind "Create a new list". Lifted so it survives a step back
+  // from the draw step, which remounts this component.
+  building: boolean
+  onBuildingChange: (building: boolean) => void
+  // The picker is a listbox rather than a `Select` because the design's rows
+  // are two lines — a name over a door count — and it opens with a "Create a
+  // new list" action above the options that is not itself an option.
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
-// The count the canvas puts beside every list. Parenthesised rather than
-// spelled out because it sits inside the row's accessible name, and the unit
-// is carried once by the group's own label above it.
-const withCount = (name: string, households: number | null) =>
-  households === null ? name : `${name} (${households.toLocaleString()})`
+// The unit the rows are counted in, spelled out rather than parenthesised:
+// each row is two lines, and the count line carries its own noun.
+const doorCount = (households: number | null) =>
+  households === null ? '' : `${households.toLocaleString()} doors`
 
-// Step 2. Door knocking keeps its OWN filter UI — every group visible by
-// scrolling, decided explicitly on the 2026-08-20 call — rather than the SMS
-// and phone-banking recommended-list picker, whose popover and filter-builder
-// sub-steps hide most of the dimensions behind two taps. A candidate cutting
-// walking turf is choosing among sixteen dimensions at once, and the map
-// underneath recolors live as the pills toggle, so hiding them costs the
-// feedback the step exists for.
+// The design's group heading: 12px semibold uppercase in muted, with its own
+// tracking. Not `FILTER_GROUP_LABEL_CLASSNAME` — that is the CRM wizard's
+// sentence-case near-black label, and this step is the door-knocking design.
+const GROUP_LABEL_CLASSNAME =
+  'text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground'
+
+const ROW_CLASSNAME =
+  'flex w-full items-center justify-between gap-3 border-b border-border p-4 text-left last:border-b-0 hover:bg-muted/60'
+
+// Step 2, and it has two faces.
+//
+// The FIRST is a list picker, and it is the one the step opens on: a single
+// control naming the audience and its door count, over a panel of every list
+// the org has. Door knocking is picked from a list far more often than it is
+// cut from scratch, and the earlier build had that backwards — sixteen filter
+// groups on arrival, with the saved lists collapsed into a one-line select
+// above them.
+//
+// The SECOND is those filter groups, reached by "Create a new list" and
+// returned from by "Back to lists". Every group is visible by scrolling
+// (decided on the 2026-08-20 call) rather than hidden behind the SMS and
+// phone-banking filter-builder sub-steps: a candidate cutting walking turf is
+// choosing among sixteen dimensions at once.
+//
+// Building a new list is NOT a way out of the flow. It picks the audience and
+// nothing more — the Continue button under it goes to the draw step like every
+// other audience does.
 export const WhoStep = ({
   filters,
   onFiltersChange,
@@ -52,7 +88,32 @@ export const WhoStep = ({
   selectedListId,
   onSelectList,
   isElectedOfficial,
+  building,
+  onBuildingChange,
+  open,
+  onOpenChange,
 }: WhoStepProps) => {
+  const pickerRef = useRef<HTMLDivElement>(null)
+
+  // A panel that overlays the rest of the step has to close on the two
+  // gestures every menu closes on, or it traps the step underneath it.
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node))
+        onOpenChange(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onOpenChange(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open, onOpenChange])
+
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,
   ): string[] =>
@@ -70,77 +131,173 @@ export const WhoStep = ({
     onFiltersChange(next)
   }
 
-  return (
-    <>
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-          Start from
-        </span>
-        <RadioGroup
-          aria-label="Start from"
-          value={
-            selectedListId === null
-              ? ALL_CONTACTS_VALUE
-              : String(selectedListId)
-          }
-          onValueChange={(value) =>
-            onSelectList(value === ALL_CONTACTS_VALUE ? null : Number(value))
-          }
-        >
-          <RadioCardItem
-            value={ALL_CONTACTS_VALUE}
-            id="create-list-audience-all"
-            title={withCount('All contacts', allContactsHouseholds)}
-            description="Everyone in your district, narrowed by the filters below."
-          />
-          {savedLists.map((list) => (
-            <RadioCardItem
-              key={list.id}
-              value={String(list.id)}
-              id={`create-list-audience-${list.id}`}
-              title={withCount(list.name, list.households)}
-              description="A voter list you already saved."
-            />
-          ))}
-        </RadioGroup>
-      </div>
+  if (building) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <Eyebrow>Filters</Eyebrow>
+          <Button
+            variant="ghost"
+            size="small"
+            className="text-primary"
+            onClick={() => onBuildingChange(false)}
+          >
+            Back to lists
+          </Button>
+        </div>
 
-      {/* Every group, in the config's own order, with no "Add condition"
-          button in front of them: the pills ARE the conditions, and a button
-          that reveals what is already on screen only adds a tap. */}
-      {filterSections.map((section) =>
-        section.fields
-          .filter(
-            (field) =>
-              !isElectedOfficial || field.key !== CONTACTS_MADE_FIELD_KEY,
-          )
-          .map((field) => (
-            <div key={field.key} className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                {field.label}
+        {/* Every group, in the config's own order, with no "Add condition"
+            button in front of them: the pills ARE the conditions, and a button
+            that reveals what is already on screen only adds a tap. */}
+        {filterSections.map((section) =>
+          section.fields
+            .filter(
+              (field) =>
+                !isElectedOfficial || field.key !== CONTACTS_MADE_FIELD_KEY,
+            )
+            .map((field) => (
+              <div key={field.key} className="flex flex-col gap-2">
+                <span className={GROUP_LABEL_CLASSNAME}>{field.label}</span>
+                <ToggleGroup
+                  type="multiple"
+                  value={toggleGroupValues(field.options)}
+                  onValueChange={(values) =>
+                    setGroupValues(field.options, values)
+                  }
+                  aria-label={field.label}
+                  className="flex flex-wrap justify-start gap-2"
+                >
+                  {field.options.map((option) => (
+                    <ToggleGroupItem
+                      key={option.key}
+                      value={option.key}
+                      className={PILL_TOGGLE_ITEM_CLASSNAME}
+                    >
+                      {option.label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+            )),
+        )}
+      </div>
+    )
+  }
+
+  const options = [
+    {
+      id: ALL_CONTACTS_VALUE,
+      listId: null,
+      name: 'All contacts',
+      sub: doorCount(allContactsHouseholds),
+    },
+    ...savedLists.map((list) => ({
+      id: String(list.id),
+      listId: list.id,
+      name: list.name,
+      sub: doorCount(list.households),
+    })),
+  ]
+  const activeId =
+    selectedListId === null ? ALL_CONTACTS_VALUE : String(selectedListId)
+  const active = options.find((option) => option.id === activeId) ?? options[0]
+
+  return (
+    <div ref={pickerRef} className="relative flex flex-col gap-2">
+      <Eyebrow id="create-list-audience-label">All lists</Eyebrow>
+
+      <Card
+        role="combobox"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-labelledby="create-list-audience-label"
+        onClick={() => onOpenChange(!open)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onOpenChange(!open)
+          }
+        }}
+        className="cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4"
+      >
+        <span className="min-w-0">
+          <span className="block truncate font-medium">
+            {active ? active.name : 'Select a list'}
+          </span>
+          <span className="block text-sm text-muted-foreground">
+            {active ? active.sub : ''}
+          </span>
+        </span>
+        <ChevronDownIcon
+          className={cn(
+            'size-5 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-180',
+          )}
+        />
+      </Card>
+
+      {open && (
+        // The panel is one card but not one listbox. "Create a new list" is an
+        // ACTION and not an audience — it opens the filter pills rather than
+        // choosing anything — so it sits outside the listbox: a listbox's
+        // children have to be options, and a stray button among them is
+        // skipped by some screen readers. That would strand the only route to
+        // the filter face for anyone not using the pointer.
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 overflow-hidden rounded-md border border-border bg-card shadow-md">
+          <button
+            type="button"
+            onClick={() => {
+              onBuildingChange(true)
+              onOpenChange(false)
+            }}
+            className="flex w-full items-center gap-3 border-b border-border p-4 text-left hover:bg-muted/60"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <PlusIcon className="size-4 text-primary" />
+            </span>
+            <span>
+              <span className="block font-medium text-primary">
+                Create a new list
               </span>
-              <ToggleGroup
-                type="multiple"
-                value={toggleGroupValues(field.options)}
-                onValueChange={(values) =>
-                  setGroupValues(field.options, values)
-                }
-                aria-label={field.label}
-                className="flex flex-wrap justify-start gap-2"
-              >
-                {field.options.map((option) => (
-                  <ToggleGroupItem
-                    key={option.key}
-                    value={option.key}
-                    className={PILL_TOGGLE_ITEM_CLASSNAME}
-                  >
-                    {option.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-          )),
+              <span className="block text-sm text-muted-foreground">
+                Build a custom audience
+              </span>
+            </span>
+          </button>
+
+          <div role="listbox" aria-labelledby="create-list-audience-label">
+            {options.map((option) => {
+              const selected = option.id === activeId
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onSelectList(option.listId)
+                    onOpenChange(false)
+                  }}
+                  className={cn(ROW_CLASSNAME, selected && 'bg-muted')}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">
+                      {option.name}
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      {option.sub}
+                    </span>
+                  </span>
+                  {selected && (
+                    <CheckIcon className="size-5 shrink-0 text-primary" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
       )}
-    </>
+    </div>
   )
 }

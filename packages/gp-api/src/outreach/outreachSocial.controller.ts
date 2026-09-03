@@ -20,6 +20,8 @@ import {
   OutreachDetailSchema,
   OutreachReceipt,
   OutreachReceiptSchema,
+  SmsOutreachResultsSchema,
+  type SmsOutreachResults,
   SocialAssetPlatform,
   SocialDraftRequest,
   SocialDraftRequestSchema,
@@ -210,6 +212,19 @@ export class OutreachSocialController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<OutreachReceipt> {
     return this.outreachService.getOutreachReceipt(id, campaign.id)
+  }
+
+  // Candidate-facing per-campaign text results (the details sheet's
+  // Statistics card). Counts only, computed from the per-recipient
+  // interaction rows the hourly sweep maintains; reply content never
+  // leaves the CRM.
+  @Get(':id/results')
+  @ResponseSchema(SmsOutreachResultsSchema)
+  results(
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<SmsOutreachResults> {
+    return this.outreachService.getSmsResults(id, campaign.id)
   }
 
   // Org-scoped, like the phone-banking list's own DELETE — an outreach row

@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { MAX_DAILY_CAMPAIGN_LIMIT } from '@/doorKnocking/utils/campaignQuota.util'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -651,6 +652,26 @@ describe('GET /v1/organizations/:slug', () => {
     })
   })
 
+  // The candidate's own org read answers "what is my org?", and a control over
+  // Geoapify spend is not part of that answer — it belongs to the admin detail
+  // shape, which is also the only place it can be written. Asserting the key's
+  // absence rather than its value is the point: it catches a future edit that
+  // widens the shared base schema instead of the admin one.
+  it('omits the door knocking campaign override entirely', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-101',
+        ownerId: service.user.id,
+        overrideDoorKnockingCampaignLimit: 12,
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations/campaign-101')
+
+    expect(result.status).toBe(200)
+    expect(result.data).not.toHaveProperty('overrideDoorKnockingCampaignLimit')
+  })
+
   it('returns 404 for a non-existent slug', async () => {
     const result = await service.client.get('/v1/organizations/does-not-exist')
 
@@ -818,6 +839,44 @@ describe('PATCH /v1/organizations/:slug', () => {
       where: { slug: 'campaign-204' },
     })
     expect(updated?.overrideDistrictId).toBeNull()
+    expect(updated?.customPositionName).toBe('Legit Name')
+  })
+
+  // Same shape of guard as overrideDistrictId above, for a different harm:
+  // the campaign limit is spending authority against a Geoapify pool shared
+  // by every organization, so a candidate must not be able to grant it to
+  // themselves by naming the field on their own org.
+  it('ignores overrideDoorKnockingCampaignLimit from a self-service caller', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-214',
+        ownerId: service.user.id,
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'test-campaign-214',
+        details: {},
+        organizationSlug: 'campaign-214',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/campaign-214',
+      {
+        overrideDoorKnockingCampaignLimit: 15,
+        customPositionName: 'Legit Name',
+      },
+    )
+
+    expect(result.status).toBe(200)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-214' },
+    })
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBeNull()
     expect(updated?.customPositionName).toBe('Legit Name')
   })
 
@@ -1327,6 +1386,57 @@ describe('GET /v1/organizations/admin/:slug', () => {
     })
   })
 
+  it('returns the door knocking campaign override when the org has one', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-campaign-limit-read@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-403',
+        ownerId: otherUser.id,
+        overrideDoorKnockingCampaignLimit: 10,
+      },
+    })
+
+    const result = await service.client.get(
+      '/v1/organizations/admin/campaign-403',
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBe(10)
+  })
+
+  it('returns a null campaign override for an org on the default', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-campaign-limit-default@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-404',
+        ownerId: otherUser.id,
+      },
+    })
+
+    const result = await service.client.get(
+      '/v1/organizations/admin/campaign-404',
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBeNull()
+  })
+
   it('returns 404 for a non-existent slug when caller is admin', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
@@ -1606,6 +1716,151 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
       where: { slug: 'campaign-505' },
     })
     expect(updated?.overrideDistrictId).toBeNull()
+  })
+
+  it('sets overrideDoorKnockingCampaignLimit when caller is admin', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-campaign-limit-target@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-507',
+        ownerId: otherUser.id,
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: otherUser.id,
+        slug: 'admin-campaign-limit-campaign',
+        details: {},
+        organizationSlug: 'campaign-507',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-507',
+      { overrideDoorKnockingCampaignLimit: 8 },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBe(8)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-507' },
+    })
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBe(8)
+  })
+
+  // An explicit null is how an admin puts an organization back on the default
+  // allowance, and it has to be distinguishable from the field being absent
+  // (the test below) — the two reach Prisma as null and undefined, and only one
+  // of them is supposed to write.
+  it('clears overrideDoorKnockingCampaignLimit when an admin sends null', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-campaign-limit-clear@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-509',
+        ownerId: otherUser.id,
+        overrideDoorKnockingCampaignLimit: 8,
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-509',
+      { overrideDoorKnockingCampaignLimit: null },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBeNull()
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-509' },
+    })
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBeNull()
+  })
+
+  // Spending authority must not be revoked as a side effect of an unrelated
+  // admin edit. The patch names one field and the override is not it, so the
+  // org keeps the allowance it was granted.
+  it('leaves an existing campaign override alone when the patch omits it', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-campaign-limit-untouched@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-510',
+        ownerId: otherUser.id,
+        overrideDoorKnockingCampaignLimit: 10,
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-510',
+      { customPositionName: 'Water Commissioner' },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBe(10)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-510' },
+    })
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBe(10)
+    expect(updated?.customPositionName).toBe('Water Commissioner')
+  })
+
+  // The ceiling is the whole account's assumed daily pool, so a larger number
+  // is unspendable for anyone rather than merely generous to this org — which
+  // is why it is refused here instead of at the vendor.
+  it('rejects an overrideDoorKnockingCampaignLimit above the account pool', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-campaign-limit-too-high@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-508',
+        ownerId: otherUser.id,
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-508',
+      { overrideDoorKnockingCampaignLimit: MAX_DAILY_CAMPAIGN_LIMIT + 1 },
+    )
+
+    expect(result.status).toBe(400)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-508' },
+    })
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBeNull()
   })
 
   it('returns 404 for a non-existent slug when caller is admin', async () => {

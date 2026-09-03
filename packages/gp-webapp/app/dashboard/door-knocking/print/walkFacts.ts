@@ -5,7 +5,14 @@ import type {
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { formatDistance } from '../native/routeFormat'
-import { OUTCOME_OPTIONS } from '../native/knockQuestions'
+import {
+  ANSWER_OPTIONS,
+  ENGAGEMENT_OPTIONS,
+  OUTCOME_OPTIONS,
+  OUTCOME_QUESTION,
+  SUPPORT_OPTIONS,
+  SUPPORT_QUESTION,
+} from '../native/knockQuestions'
 import { countDoors, knockableTargets } from '../routeCounts'
 
 export const formatDuration = (seconds: number): string => {
@@ -14,32 +21,100 @@ export const formatDuration = (seconds: number): string => {
   return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
 }
 
-// The walk sheet's columns, in the order both paper surfaces rule them. Widths
-// are each surface's own — one is CSS percentages of a printed page and the
-// other is points in a fixed-width grid — but the wording is a fact both must
-// agree on, because a canvasser filling in one and a volunteer filling in the
-// other are handing the same answers to the same transcriber. Quoted twice, per
-// this directory's rule; putting it in `walkListRows` would reach the PDF only.
-export const WALK_COLUMNS = {
-  seq: '#',
-  name: 'Name',
-  age: 'Age',
-  address: 'Address',
-  answered: 'Answered',
-  support: 'Support',
-  willVote: 'Will vote',
-  notes: 'Notes',
-} as const
+// The walk sheet's grid: the columns in order, the heading each carries, and the
+// share of the content width each gets. One table rather than two, which is a
+// change — the two surfaces used to size themselves independently and justify
+// every departure, and the design template rules one set of percentages that
+// both can hold. A percentage is unit-free, so the printable page hands it
+// straight to `<col>` and the PDF resolves it against its own content width.
+//
+// The headings are the app's own questions where the column asks one, so the
+// sheet and the form a canvasser transcribes it back into read the same. Widths
+// are quoted from the template's `<th style="width:…">` and sum to 99%, which is
+// the template's own arithmetic: the point-based grid gets a point of slack
+// rather than a row that overflows by a rounding error.
+//
+// `Notes` is charged last on both surfaces, because it is the column someone
+// writes in.
+export const WALK_COLUMNS = [
+  { key: 'seq', label: '#', width: 2 },
+  { key: 'name', label: 'Name', width: 15 },
+  { key: 'age', label: 'Age', width: 4 },
+  { key: 'address', label: 'Address', width: 13 },
+  { key: 'phone', label: 'Phone', width: 10 },
+  { key: 'answered', label: OUTCOME_QUESTION, width: 17 },
+  { key: 'support', label: SUPPORT_QUESTION, width: 25 },
+  { key: 'notes', label: 'Notes', width: 13 },
+] as const satisfies ReadonlyArray<{
+  key: string
+  label: string
+  width: number
+}>
 
-// The two sentences above the grid, in the order they are read. The first is how
-// to fill the sheet in; the second is the one thing a canvasser loses a day's
-// work by assuming. Both surfaces printed a version of the second already, in
-// two different wordings — one route's paper saying the same thing two ways is
-// exactly what this file exists to stop.
+export type WalkColumnKey = (typeof WALK_COLUMNS)[number]['key']
+
+// The three answer columns a blank form fills, in order. What a skip
+// instruction or an already-logged answer spans, on both surfaces.
+export const ANSWER_COLUMN_KEYS = [
+  'answered',
+  'support',
+  'notes',
+] as const satisfies ReadonlyArray<WalkColumnKey>
+
+// One option out of the form's own list, by value. The point is that a box on
+// paper is never a label typed into a renderer: paper is transcribed back into
+// `RecordKnockForm`, so an option the form has no value for is an answer the
+// canvasser cannot file. Throws rather than falling back, because a value that
+// left the form's list while this file still asks for it is exactly the drift
+// the indirection exists to catch, and a silently missing box is a question the
+// sheet stops asking without anyone noticing.
+const option = <T extends string>(
+  options: ReadonlyArray<readonly [T, string]>,
+  value: T,
+): readonly [T, string] => {
+  const found = options.find(([key]) => key === value)
+  if (found === undefined) throw new Error(`no knock option for ${value}`)
+  return found
+}
+
+// The boxes under "Did they answer?" — the app's first question, unchanged and
+// in its order.
+export const ANSWERED_BOXES: ReadonlyArray<readonly [string, string]> =
+  ANSWER_OPTIONS
+
+// The boxes under "Do they support you?". Four, because paper cannot branch the
+// way the app does: on screen a door that answered is asked whether it engaged
+// before it is asked about support, and `Refused` is the one answer to that
+// question a canvasser still has to be able to write down. So the two questions
+// share a column, with `Refused` first — the ending — and the three real support
+// answers after it.
+//
+// Both halves come from the form's own constants (`ENGAGEMENT_OPTIONS` and
+// `SUPPORT_OPTIONS`), never from a list written out here.
+export const SUPPORT_BOXES: ReadonlyArray<readonly [string, string]> = [
+  option(ENGAGEMENT_OPTIONS, 'refused_to_engage'),
+  ...SUPPORT_OPTIONS,
+]
+
+// The one sentence above the grid: how to fill the sheet in.
 export const MARK_INSTRUCTION =
   'Mark each door by hand. Circle or tick a box, write short notes in the last column.'
+
+// Screen only, and deliberately no longer on either printed surface. The
+// template rules a single legend line and a two-item footer, so the notice that
+// used to ride beside the legend now lives in the printable page's own
+// `print:hidden` preamble — the block that tells someone to press Ctrl+P, which
+// paper has no equivalent of and the template therefore has no opinion about.
+// The fact it states is still true and still load-bearing: nothing written on a
+// sheet reaches gp-api until a person re-keys it.
 export const RECORDS_NOTICE =
   'Answers already logged in the app are printed below. Log these doors in the app when you’re back online — nothing written here reaches your voter records on its own.'
+
+// The tagline both sheets are signed with, from the design template's footer.
+// Quoted rather than typed twice, like every other string both surfaces state:
+// the printable page and the PDF are two formats of one artifact and cannot be
+// signed differently. Sentence case as the template writes it.
+export const FOOTER_TAGLINE = 'empowering Independents'
 
 // How long it takes to get from the previous stop to this one, or null for the
 // first stop of a route and for any leg the route reports as zero.
@@ -60,6 +135,26 @@ export const RECORDS_NOTICE =
 // it is time spent getting there rather than time spent at the door.
 export const legTravelLine = (stop: RoutePayloadStop): string | null =>
   stop.legSeconds > 0 ? `${formatDuration(stop.legSeconds)} from last` : null
+
+// The number to try when the door doesn't answer, in the Phone column both
+// surfaces now rule. Cell first and landline as the fallback, which is the
+// order `PersonSheet` lists them in and the order a canvasser would try them;
+// one column has room for one number, so the sheet picks rather than truncates.
+//
+// This reverses a decision, and the reversal is the design's rather than a
+// drift: paper stops being access-controlled the moment it leaves the building,
+// which is why phone numbers were kept off both sheets and why the demographic
+// profile and the saved contact notes still are. The walk sheet template rules a
+// Phone column, and a door that doesn't answer is the case it exists for. The
+// narrower rule stands for everything else on the payload — the eleven
+// demographic attributes and ADR 0011's notes are still screen-only, and the
+// tests that assert their omission are unchanged.
+//
+// Null on a `mayHaveMoved` target, and not by a check here: phones are live-only
+// on the payload, so a target with no live row carries neither number rather
+// than one belonging to whoever lives there now.
+export const targetPhone = (target: RoutePayloadTarget): string | null =>
+  target.cellPhone ?? target.landline
 
 // Party, and whether the address is stale. Age used to lead this line and now
 // has a column of its own on both surfaces, so repeating it here would print a
@@ -116,7 +211,8 @@ const contactDescription = (activity: RouteTargetActivity): string | null => {
 // One line, and only the two facts a doorstep needs: when, and what happened.
 // **Never the note** — free text about a named voter, on the surface that leaves
 // the building and stops being access-controlled the moment it does. Same rule
-// that keeps phone numbers off these two pages.
+// that keeps the demographic profile and ADR 0011's saved notes off these two
+// pages; the Phone column is a deliberate exception to it and the only one.
 //
 // Read by `WalkSheet` and by `walkListRows`, because the printable page builds
 // its own blocks and the PDF reads a row model: one function is what stops the

@@ -28,7 +28,6 @@ const target = (
   ...overrides,
 })
 
-const setButton = () => screen.getByRole('button', { name: /don.t knock/i })
 const undoButton = () => screen.getByRole('button', { name: 'Undo' })
 
 beforeEach(() => {
@@ -37,34 +36,14 @@ beforeEach(() => {
 })
 
 describe('DoNotKnockControl', () => {
-  it('flags the person and reports the persisted state, not the tap', async () => {
-    const onChanged = vi.fn()
-    api.mock('POST /v1/door-knocking/do-not-knock', {
-      status: 200,
-      data: { personId: 'person-1', doNotKnock: true },
-    })
-    render(<DoNotKnockControl target={target()} onChanged={onChanged} />)
-
-    fireEvent.click(setButton())
-
-    await waitFor(() =>
-      expect(onChanged).toHaveBeenCalledWith('person-1', true),
-    )
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoNotKnockSet)
-  })
-
-  it('sends the stop target, letting the server resolve the person', async () => {
-    const sent: unknown[] = []
-    api.mock('POST /v1/door-knocking/do-not-knock', ({ body }) => {
-      sent.push(body)
-      return { status: 200, data: { personId: 'person-1', doNotKnock: true } }
-    })
+  // The design's door carries no "Don't knock again", so this control no
+  // longer sets the flag — it explains a door that is already flagged, and a
+  // resident who isn't has nothing here to read.
+  it('draws nothing for a resident who is not flagged', () => {
     render(<DoNotKnockControl target={target()} onChanged={vi.fn()} />)
 
-    fireEvent.click(setButton())
-
-    await waitFor(() => expect(sent).toHaveLength(1))
-    expect(sent[0]).toEqual({ stopTargetId: 21, value: 'active' })
+    expect(screen.queryByText('Do not knock')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   // A mis-press on a phone in the rain is foreseeable, and the alternative is
@@ -118,9 +97,14 @@ describe('DoNotKnockControl', () => {
       status: 500,
       data: { message: 'nope' },
     })
-    render(<DoNotKnockControl target={target()} onChanged={onChanged} />)
+    render(
+      <DoNotKnockControl
+        target={target({ doNotKnock: true })}
+        onChanged={onChanged}
+      />,
+    )
 
-    fireEvent.click(setButton())
+    fireEvent.click(undoButton())
 
     await waitFor(() =>
       expect(screen.getByText(/didn.t save/i)).toBeInTheDocument(),

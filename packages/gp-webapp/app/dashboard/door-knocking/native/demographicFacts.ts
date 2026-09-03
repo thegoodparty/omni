@@ -117,6 +117,7 @@ export const voterDemographicFacts = (
 export const demographicFacts = (
   target: Pick<
     RoutePayloadTarget,
+    | 'age'
     | 'maritalStatus'
     | 'hasChildrenUnder18'
     | 'veteranStatus'
@@ -129,6 +130,14 @@ export const demographicFacts = (
   >,
 ): DemographicFact[] =>
   withFallback([
+    // First, as the canvas orders it. It used to be the sheet's header
+    // subtitle; the header now names the DOOR, so the age came down here to
+    // the card that holds the rest of the voter file rather than out of the
+    // sheet altogether.
+    {
+      label: 'Age',
+      value: target.age === null ? null : `${target.age} years old`,
+    },
     { label: 'Marital status', value: target.maritalStatus },
     { label: 'Has children under 18', value: target.hasChildrenUnder18 },
     // Presence-only. `veteranStatus` is 'Yes' or null and there is no third

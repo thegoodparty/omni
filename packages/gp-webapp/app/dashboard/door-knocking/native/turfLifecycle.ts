@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { turfsQueryOptions } from './turfQueries'
+import { TURFS_QUERY_KEY } from './turfQueries'
 
 // The three states a saved list can be in, as one value rather than two
 // timestamps every caller re-derives. Archived wins over done because the shelf
@@ -11,7 +11,7 @@ import { turfsQueryOptions } from './turfQueries'
 export type TurfLifecycleStage = 'active' | 'done' | 'archived'
 
 export const turfStage = (turf: DoorKnockingTurf): TurfLifecycleStage =>
-  turf.archivedAt ? 'archived' : turf.completedAt ? 'done' : 'active'
+  turf.archivedAt ? 'archived' : turf.completed ? 'done' : 'active'
 
 // The canvas's own status indicator for a saved list, in the vocabulary the
 // outreach history drawer already renders through `HistoryStatusText`: the two
@@ -19,11 +19,11 @@ export const turfStage = (turf: DoorKnockingTurf): TurfLifecycleStage =>
 // must not be "In progress" in one and unlabelled in the other.
 //
 // `renderDkDetails` derives it as
-// `list.completed?'done':(knocked>0?'in-progress':'scheduled')`, which is
-// lockedness here — a turf is locked iff its frozen route exists, and a route
-// exists iff someone started knocking it. Archived is ours: the canvas has no
-// shelf, and 'Done' would be a lie about a list the rail has taken off the
-// active section.
+// `list.completed?'done':(knocked>0?'in-progress':'scheduled')`, and now that
+// a list is born with its route, that middle test is readable literally: doors
+// knocked, not lockedness. Archived is ours: the canvas has no shelf, and
+// 'Done' would be a lie about a list the rail has taken off the active
+// section.
 //
 // The unknocked state reads **"Not started" and not the canvas's "Scheduled"**,
 // which is the one place this map departs from `renderDkDetails` on purpose. The
@@ -41,28 +41,40 @@ export const turfStage = (turf: DoorKnockingTurf): TurfLifecycleStage =>
 // It cannot collide with the sending channels' "Scheduled", which stays exactly
 // as it was for a paid text or robocall: this label never reaches those rows,
 // and no door-knocking row ever reaches theirs. Nor can the two details drawers
-// disagree about one list — the `Outreach` envelope that would let the history
-// table describe a walk is written by the knock transaction, so a list in this
-// state has no envelope and appears in no history at all. Once it does, the
-// envelope reads `in_progress` and both surfaces say "In progress".
+// disagree about one list: every list has an `Outreach` envelope from creation
+// now, and the envelope's `in_progress` covers both positions this label splits
+// — the history table says "In progress" from the first door, this rail says it
+// from the first knock, and they are the same list either way.
 export const turfStatusLabel = (turf: DoorKnockingTurf): string => {
   const stage = turfStage(turf)
   if (stage === 'archived') return 'Archived'
   if (stage === 'done') return 'Done'
-  return turf.locked ? 'In progress' : 'Not started'
+  return turf.knockedDoorCount > 0 ? 'In progress' : 'Not started'
 }
 
-export type TurfLifecycleAction = 'complete' | 'archive' | 'restore'
+export type TurfLifecycleAction =
+  | 'complete'
+  | 'archive'
+  | 'restore'
+  // The walk view's one bottom button. The design labels it `Move to archive`
+  // and its own handler marks the list *completed*, toasting "List completed" —
+  // one gesture standing for both halves of a thing this product has always
+  // kept apart, because the canvas has no shelf and so no reason to. Splitting
+  // it back into two buttons would be inventing a control the design does not
+  // have; dropping the completion would leave a walked-out list on the shelf
+  // still reading "In progress" in the history table, which is the fact the
+  // `complete` endpoint exists to write. So the label ships as designed and
+  // both writes happen behind it, in that order.
+  | 'completeAndArchive'
 
-// gp-api applies all three transitions only to a KNOCKED list — a turf with no
-// route 409s, because there is no walk to end or shelve. The rail therefore
-// offers them off `locked` rather than off the timestamps, so a control is
-// never rendered for a call that can only fail.
+// Both transitions used to also test `locked`, because a routeless turf 409s —
+// there is no walk to end or shelve. Every list is routed from creation now, so
+// that half is always true and only the stage is left.
 export const canCompleteTurf = (turf: DoorKnockingTurf) =>
-  turf.locked && turfStage(turf) === 'active'
+  turfStage(turf) === 'active'
 
 export const canArchiveTurf = (turf: DoorKnockingTurf) =>
-  turf.locked && turfStage(turf) !== 'archived'
+  turfStage(turf) !== 'archived'
 
 /**
  * The list lifecycle as three one-shot mutations against one turf.
@@ -74,13 +86,11 @@ export const canArchiveTurf = (turf: DoorKnockingTurf) =>
  * between sections, so a snackbar arriving ahead of the refetch would announce
  * a change the screen has not made yet.
  *
- * Each action is ONE request. Shelving a list moves two rows — the turf the
- * candidate acts on and the `Outreach` envelope the campaign-reporting history
- * filters on — but both moves happen inside gp-api's `setArchived` transaction,
- * the way `complete` has always mirrored `status` onto the same envelope. This
- * hook briefly did that second write itself, best effort, while gp-api was
- * frozen; that is gone, so there is no half-applied archive left to report and
- * no non-webapp caller that can skip the mirror by not being this code.
+ * Each action is ONE request against ONE row. The lifecycle lives on the
+ * `Outreach` envelope alone now — these endpoints take a turf id and write the
+ * envelope it hangs off — so there is no second copy to mirror onto and
+ * nothing that can be half-applied. Both the rail here and the outreach
+ * history table are reading the same field.
  *
  * Nothing here is optimistic. `complete` and `archive` are idempotent server
  * side (a second call returns the row untouched rather than moving its
@@ -91,19 +101,32 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
 
+  const complete = () =>
+    clientRequest('POST /v1/door-knocking/turfs/:id/complete', {
+      id: String(turf.id),
+    })
+  const setArchived = (archived: boolean) =>
+    clientRequest('POST /v1/door-knocking/turfs/:id/archive', {
+      id: String(turf.id),
+      archived,
+    })
+
   const mutation = useMutation({
-    mutationFn: (action: TurfLifecycleAction) =>
-      action === 'complete'
-        ? clientRequest('POST /v1/door-knocking/turfs/:id/complete', {
-            id: String(turf.id),
-          })
-        : clientRequest('POST /v1/door-knocking/turfs/:id/archive', {
-            id: String(turf.id),
-            archived: action === 'archive',
-          }),
+    mutationFn: async (action: TurfLifecycleAction) => {
+      if (action === 'complete') return complete()
+      if (action === 'restore') return setArchived(false)
+      if (action === 'archive') return setArchived(true)
+      // Sequential and not concurrent: both write the same envelope row, so
+      // the two racing is a lost update. Completion first also means a failure
+      // part-way leaves the list finished but not shelved — visible on the
+      // rail with `Move to archive` still offered — rather than shelved while
+      // its history still says the walk is running.
+      await complete()
+      return setArchived(true)
+    },
     onSuccess: async (_data, action) => {
       await queryClient.invalidateQueries({
-        queryKey: turfsQueryOptions.queryKey,
+        queryKey: TURFS_QUERY_KEY,
       })
       successSnackbar(SUCCESS_MESSAGE[action])
     },
@@ -116,6 +139,14 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
     markDone: () => mutation.mutate('complete'),
     moveToArchive: () => mutation.mutate('archive'),
     restore: () => mutation.mutate('restore'),
+    finishAndArchive: (options?: { onSettled?: () => void }) =>
+      mutation.mutate('completeAndArchive', {
+        // The walk closes on either outcome. A failed archive has already told
+        // the canvasser so, and holding them inside a route they have walked
+        // out of until a retry succeeds is worse than putting them back on the
+        // rail where the card still offers the shelf.
+        onSettled: options?.onSettled,
+      }),
     // Which one is in flight, so a card can disable the control that is running
     // without freezing the two beside it.
     pendingAction: mutation.isPending
@@ -128,6 +159,7 @@ const SUCCESS_MESSAGE: Record<TurfLifecycleAction, string> = {
   complete: 'List marked done',
   archive: 'Moved to archive',
   restore: 'Restored from archive',
+  completeAndArchive: 'Moved to archive',
 }
 
 // Named for the action rather than a single "Something went wrong", because
@@ -137,4 +169,5 @@ const FAILURE_MESSAGE: Record<TurfLifecycleAction, string> = {
   complete: 'This list could not be marked done. Try again.',
   archive: 'This list could not be archived. Try again.',
   restore: 'This list could not be restored. Try again.',
+  completeAndArchive: 'This list could not be archived. Try again.',
 }

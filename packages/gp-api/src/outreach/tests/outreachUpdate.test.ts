@@ -88,6 +88,18 @@ const patchUpdate = (
   )
 
 describe('PATCH /v1/outreach/:id', () => {
+  it('rejects every edit once the compliance launch switch is on', async () => {
+    vi.stubEnv('SMS_COMPLIANCE_V2_ENABLED', 'true')
+    const row = await seedOutreach()
+    const res = await patchUpdate(row.id, { name: 'Edited name' })
+    expect(res.status).toBe(400)
+    const unchanged = await service.prisma.outreach.findFirstOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.name).not.toBe('Edited name')
+    vi.unstubAllEnvs()
+  })
+
   it('updates the vendor job and the row, rescheduling on a date change', async () => {
     const row = await seedOutreach()
 

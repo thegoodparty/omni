@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  SmsOutreachResults,
   OutreachReceipt,
   PhoneBankCallOutcome,
   SupportAnswer,
@@ -29,6 +30,8 @@ import {
 import {
   ArchiveIcon,
   CalendarIcon,
+  ChartColumnIcon,
+  PencilIcon,
   CheckCircleIcon,
   ClockIcon,
   DollarSignIcon,
@@ -39,13 +42,14 @@ import {
   PhoneIcon,
   RadioIcon,
   CircleSlashIcon,
-  PencilIcon,
   ReceiptIcon,
   Trash2Icon,
   UserMinusIcon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
+import type { SmsEditTarget } from './sms/SmsEditFlow'
 import type { VoterFileFilters } from 'helpers/types'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
@@ -55,9 +59,9 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
+import { ExportWalkSheetButton } from 'app/dashboard/door-knocking/native/ExportWalkSheetButton'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
-import type { SmsEditTarget } from './sms/SmsEditFlow'
 import { shortOutreachDate } from './outreachDate.util'
 import {
   fetchOutreachDetail,
@@ -138,13 +142,14 @@ const lifecycleOf = (
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
-  // Cancel-window SMS rows offer Edit campaign; the hub opens SmsEditFlow
   // with the drawer's already-fetched detail.
-  onEdit?: (target: SmsEditTarget) => void
   // Detail fetch for this row. Defaults to Win's campaign-scoped read; the
   // Serve caller threads its org-scoped sibling the same bound-function way
   // SocialFlow's `surface` does, so this drawer never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // Pre-launch only: cancel-window SMS rows offer Edit campaign; the hub
+  // opens SmsEditFlow with this. Unused once the compliance flag is on.
+  onEdit?: (target: SmsEditTarget) => void
 }
 
 interface DetailRow extends HistoryRow {
@@ -156,8 +161,8 @@ interface DetailRow extends HistoryRow {
 export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
-  onEdit,
   detailFetcher = fetchOutreachDetail,
+  onEdit,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -180,6 +185,9 @@ export const OutreachDetailsDrawer = ({
   // Only rows created through the paid P2P flow carry a phone list — the
   // set that has payment details (and possibly a receipt) to show.
   const isPaidFlowSms = isSms && row?.phoneListId != null
+  // Launch switch: on, candidate editing is gone and the Statistics card
+  // appears; off is exactly the pre-launch drawer.
+  const { enabled: complianceV2 } = useVoterOutreachV2SmsFlag(false)
 
   const [outreaches, setOutreaches] = useOutreach()
   const queryClient = useQueryClient()
@@ -244,6 +252,41 @@ export const OutreachDetailsDrawer = ({
     receiptQuery.data?.amount ??
     (row?.billableTextCount ?? row?.textCount ?? 0) * PRICE_PER_TEXT
   const isFreeSms = totalCost <= 0
+
+  // The Statistics card (design prototype): counts + share of contacts for
+  // a finished text campaign. Numbers refresh with the hourly report sweep.
+  const resultsQuery = useQuery({
+    queryKey: ['outreach-results', row?.id ?? -1],
+    queryFn: async (): Promise<SmsOutreachResults> => {
+      const { data } = await clientRequest('GET /v1/outreach/:id/results', {
+        id: String(row?.id),
+      })
+      return data
+    },
+    enabled: row !== null && isSms && isCompleted && complianceV2,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+  const results = resultsQuery.data ?? null
+  const statRows = results
+    ? [
+        { label: 'Responded', count: results.responded },
+        {
+          label: 'No response',
+          count: Math.max(
+            0,
+            results.contacts - results.responded - results.optedOut,
+          ),
+        },
+        { label: 'Opted out', count: results.optedOut },
+      ].map((stat) => ({
+        ...stat,
+        pct:
+          results.contacts > 0
+            ? Math.round((stat.count / results.contacts) * 100)
+            : 0,
+      }))
+    : null
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const cancelMutation = useMutation({
     mutationFn: (rowId: number) =>
@@ -269,13 +312,11 @@ export const OutreachDetailsDrawer = ({
       errorSnackbar("Couldn't cancel this campaign. Please try again."),
   })
 
-  // The envelope's flag for every channel that owns its own archive, and the
-  // TURF's for a walk. They are one act with two rows, and the turf is the
-  // source the envelope is mirrored off — so a list archived before that
-  // mirror shipped has an envelope still reading active, and trusting the
-  // projection here would draw "Move to archive" on a list already on the
-  // shelf. The repair is pressing the button, which is why reading the source
-  // and writing through the turf go together.
+  // Both of these are the same envelope's `archivedAt` for a walk: the block
+  // restates it, and the history row carries it directly. Read off the block
+  // anyway, because it arrives with the detail rather than with the table —
+  // a row this drawer was opened from through a deep link has no cached copy
+  // to be right or wrong about.
   const isArchived = Boolean(
     isDoorKnocking ? doorKnocking?.archivedAt : row?.archivedAt,
   )
@@ -284,11 +325,11 @@ export const OutreachDetailsDrawer = ({
       const rowId = row?.id
       if (!rowId) return Promise.reject(new Error('row unavailable'))
       // Door knocking archives through the TURF's endpoint, never this row's.
-      // `DoorKnockingTurfService.setArchived` moves both rows in one
-      // transaction; `OutreachService.setArchived` can only reach the
-      // envelope, and a second writer that reaches one of two flags is exactly
-      // how they drift apart. So this drawer gained the button by gaining the
-      // turf id, not by gaining a write of its own.
+      // Both write the same envelope column, but the turf's route is the one
+      // the door-knocking rail invalidates against and the one whose response
+      // is a turf — so routing the write through it keeps one act with one
+      // writer, and this drawer gained the button by gaining the turf id
+      // rather than a write of its own.
       if (isDoorKnocking) {
         const turfId = doorKnocking?.turfId
         if (!turfId) return Promise.reject(new Error('turfId unavailable'))
@@ -361,43 +402,55 @@ export const OutreachDetailsDrawer = ({
     ? phoneBanking
       ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
       : null
-    : // The walk is resumed from the door-knocking surface, which opens on the
-      // rail of saved lists. The turf id is now on the detail, so the blocker
-      // is no longer identifying the list — it is that the door-knocking page
-      // reads no such param, so a deeper link would land on the rail anyway.
-      '/dashboard/door-knocking'
+    : // Straight into the walk, not onto the rail: every door-knocking row has
+      // a routed turf now, so "Continue knocking" has exactly one list it can
+      // mean. `outreachId` is the return leg — closing the walk reopens this
+      // drawer through the hub's own consume-once deep link, so a candidate
+      // who went to knock a list comes back to the row they were reading
+      // rather than to a map.
+      //
+      // Null until the detail lands, which is phone banking's rule for the
+      // same reason: the turf id rides the detail, so a link built without it
+      // could only go to the bare map. Holding the slot disabled for a moment
+      // beats a press that silently lands somewhere else — and a walk whose
+      // list has since been deleted keeps the slot disabled for good, which is
+      // the truth about a walk with nothing left to knock.
+      doorKnocking
+      ? `/dashboard/door-knocking?walkTurfId=${doorKnocking.turfId}&outreachId=${row?.id}`
+      : null
 
-  // The SMS lifecycle actions this branch added have no mode in the canvas's
-  // footer vocabulary (its `automatic` predates cancel/delete existing for a
-  // paid send), so these rows render their own footer node in the shared
-  // footer's container anatomy.
-  const detail = detailQuery.data
+  const editDetail = detailQuery.data
   const canEditSms =
+    !complianceV2 &&
     isCancelableSms &&
     onEdit !== undefined &&
-    detail !== undefined &&
-    detail.script !== null &&
-    detail.date !== null
+    editDetail !== undefined &&
+    editDetail.script !== null &&
+    editDetail.date !== null
   const handleEdit = () => {
-    if (!canEditSms || !detail) return
+    if (!canEditSms || !editDetail) return
     onEdit({
-      id: detail.id,
-      name: detail.name ?? row?.name ?? '',
-      date: new Date(detail.date as Date),
-      script: detail.script as string,
-      imageUrl: detail.imageUrl,
-      contactCount: detail.textCount ?? detail.billableTextCount ?? 0,
+      id: editDetail.id,
+      name: editDetail.name ?? row?.name ?? '',
+      date: new Date(editDetail.date as Date),
+      script: editDetail.script as string,
+      imageUrl: editDetail.imageUrl,
+      contactCount: editDetail.textCount ?? editDetail.billableTextCount ?? 0,
       audienceName: voterFileFilter?.name ?? null,
     })
     onOpenChange(false)
   }
 
+  // The SMS lifecycle actions this branch added have no mode in the canvas's
+  // footer vocabulary (its `automatic` predates cancel/delete existing for a
+  // paid send), so these rows render their own footer node in the shared
+  // footer's container anatomy.
   const smsFooter = isCancelableSms ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        {/* Design edit-mode pair: Cancel is the compact ghost destructive
-            action (like the done-footer Delete), Edit takes the width. With
-            no edit handler, Cancel keeps the full-width outline treatment. */}
+        {/* Launch switch on: editing is gone (the campaign success team
+            fixes messages) and Cancel keeps the full-width treatment. Off:
+            the pre-launch Cancel + Edit pair. */}
         <Button
           variant={canEditSms ? 'ghost' : 'outline'}
           className={
@@ -509,22 +562,28 @@ export const OutreachDetailsDrawer = ({
                           <PhoneIcon className="size-4" />
                         ),
                       }
-                    : // Phone banking's href is the list id, which rides the
-                      // detail rather than the history row, so it is unknown
-                      // for as long as that query is in flight. Holding the
-                      // slot disabled beats letting the whole footer appear a
-                      // beat after the drawer — the body is already showing
-                      // "Loading call progress…", and a CTA that materializes
-                      // under a thumb already moving is worse than one that
-                      // was visibly not ready yet. Only while loading: once
-                      // the detail has failed the body says so and offers the
-                      // recovery, and a button that can never enable is not a
-                      // state to render.
+                    : // Both channels' hrefs are ids that ride the detail —
+                      // phone banking's list, door knocking's turf — so
+                      // neither is known for as long as that query is in
+                      // flight. Holding the slot disabled beats letting the
+                      // whole footer appear a beat after the drawer: the body
+                      // is already showing its own loading line, and a CTA
+                      // that materializes under a thumb already moving is
+                      // worse than one that was visibly not ready yet. Only
+                      // while loading: once the detail has failed the body
+                      // says so and offers the recovery, and a button that can
+                      // never enable is not a state to render.
                       detailQuery.isLoading
                       ? {
                           kind: 'disabled',
-                          label: CONTINUE_LABELS.phoneBanking,
-                          icon: <PhoneIcon className="size-4" />,
+                          label: isDoorKnocking
+                            ? CONTINUE_LABELS.doorKnocking
+                            : CONTINUE_LABELS.phoneBanking,
+                          icon: isDoorKnocking ? (
+                            <DoorOpenIcon className="size-4" />
+                          ) : (
+                            <PhoneIcon className="size-4" />
+                          ),
                         }
                       : null
               }
@@ -568,6 +627,16 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
+            {/* First in the body, where the design puts it: the walk sheet is
+                the one thing a candidate opens this row to take away, and
+                everything below it is a report on a walk that has already
+                happened. Gated on the detail having landed rather than on the
+                channel alone, because the turf id is what the print route
+                needs and it arrives with the detail. */}
+            {isDoorKnocking && doorKnocking && (
+              <ExportWalkSheetButton turfId={doorKnocking.turfId} />
+            )}
+
             {(audienceName || audienceLabels.length > 0) && (
               <DetailsSection title="Applied filters">
                 {audienceName && (
@@ -692,6 +761,34 @@ export const OutreachDetailsDrawer = ({
                 </p>
               )}
             </DetailsSection>
+
+            {complianceV2 && isSms && isCompleted && results && statRows && (
+              <DetailsSection title="Statistics">
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                    <ChartColumnIcon className="size-4" />
+                    Based on {results.contacts.toLocaleString()} SMS contact
+                    {results.contacts === 1 ? '' : 's'}
+                  </div>
+                  {statRows.map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="flex items-center justify-between border-t border-border px-3 py-2"
+                    >
+                      <span className="text-sm">{stat.label}</span>
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-sm font-semibold">
+                          {stat.count.toLocaleString()}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {stat.pct}%
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </DetailsSection>
+            )}
 
             {isPaidFlowSms && (
               <DetailsSection title="Payment details">

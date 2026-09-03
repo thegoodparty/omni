@@ -8,9 +8,11 @@ import {
   RoutePayloadTarget,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
+import { noop } from '@shared/utils/noop'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useSnackbar } from 'helpers/useSnackbar'
 import WalkView, { stopNumeralColor } from './WalkView'
 import type { LiveLocation } from './useLiveLocation'
 import {
@@ -21,33 +23,47 @@ import {
   STATUS_RGB,
 } from './statusPresentation'
 
+// The walk sheet's PDF export acknowledges the press with a toast, and the
+// provider that would carry it belongs to the app shell rather than to this
+// view.
+vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+vi.mocked(useSnackbar).mockReturnValue({
+  successSnackbar: vi.fn(),
+  errorSnackbar: vi.fn(),
+} as unknown as ReturnType<typeof useSnackbar>)
+
 // The marked stop now lives on the page, because the map rings the same stop
 // the list marks and the canvas can only be handed a prop. This is the
 // orchestrator's half of that — `useWalkMapSession` in production — so the
 // suite can go on asserting the list's own behaviour: the view still decides
 // where the mark goes and reports it, and reads back what it reported.
-// The live-location half of the same orchestrator. The watch belongs to the
-// page (the map draws the dot and outlives the walk), so the harness plays it:
-// off until the pill is pressed, then whatever `liveLocation` says. Defaulting
-// to `off` rather than making every test supply one keeps the suite about the
-// list, and lets the few tests that are about the pill hand it a reading.
+//
+// The live-location READING is the same orchestrator's too. The switch is the
+// map cluster's third button now, so nothing here can turn it on; what crosses
+// into the view is a status, and `off` is the one that renders the screen the
+// design draws. The archive write belongs to the page for the same reason it
+// does in production — it outlives the walk it shelves — so the harness
+// swallows it unless a test asks for it.
 const WalkHarness = ({
   onSelectStop,
   liveLocation,
+  onMoveToArchive = noop,
+  archivePending = false,
   ...props
 }: Omit<
   ComponentProps<typeof WalkView>,
   | 'selectedStopId'
   | 'onSelectStop'
   | 'liveLocation'
-  | 'liveLocationEnabled'
-  | 'onToggleLiveLocation'
+  | 'onMoveToArchive'
+  | 'archivePending'
 > & {
   onSelectStop?: (stopId: number) => void
   liveLocation?: LiveLocation
+  onMoveToArchive?: () => void
+  archivePending?: boolean
 }) => {
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null)
-  const [liveLocationEnabled, setLiveLocationEnabled] = useState(false)
   return (
     <WalkView
       {...props}
@@ -57,13 +73,10 @@ const WalkHarness = ({
         onSelectStop?.(stopId)
       }}
       liveLocation={
-        liveLocation ??
-        (liveLocationEnabled
-          ? { status: 'locating', fix: null, approximate: false }
-          : { status: 'off', fix: null, approximate: false })
+        liveLocation ?? { status: 'off', fix: null, approximate: false }
       }
-      liveLocationEnabled={liveLocationEnabled}
-      onToggleLiveLocation={setLiveLocationEnabled}
+      onMoveToArchive={onMoveToArchive}
+      archivePending={archivePending}
     />
   )
 }
@@ -151,13 +164,48 @@ const routePayload: DoorKnockingRoutePayload = {
   ],
 }
 
-// Every fixture stop has one resident, so clicking the stop row opens the
-// person sheet directly (multi-resident stops expand instead).
-const openPersonSheet = async (address: string) => {
-  await waitFor(() => expect(screen.getByText(address)).toBeInTheDocument())
-  fireEvent.click(screen.getByText(address))
+// A stop row is an address now, and it expands rather than opening a door — so
+// every door is two taps, on the stop and then on the resident behind it. The
+// stop that is already open is the case worth spelling out: the expansion
+// outlives the sheet, so walking back to a resident must not tap the row shut
+// on the way.
+const stopListItem = (address: string): HTMLElement =>
+  screen
+    .getAllByRole('listitem')
+    .find((item) => item.textContent?.includes(address)) as HTMLElement
+
+const expandStop = (address: string): HTMLElement => {
+  const item = stopListItem(address)
+  const row = item.querySelector('button') as HTMLElement
+  if (row.getAttribute('aria-expanded') !== 'true') fireEvent.click(row)
+  return item
+}
+
+// The first resident behind a stop, which is the only one every single-resident
+// fixture below has.
+const openResident = async (address: string) => {
   await waitFor(() =>
-    expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    expect(screen.getAllByText(address).length).toBeGreaterThan(0),
+  )
+  const item = expandStop(address)
+  fireEvent.click(item.querySelectorAll('button')[1] as HTMLElement)
+}
+
+const openPersonSheet = async (address: string) => {
+  await openResident(address)
+  await waitFor(() =>
+    expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
+  )
+}
+
+// A named housemate, for the stops that have more than one.
+const openHouseholdMember = async (address: string, name: string) => {
+  await waitFor(() =>
+    expect(screen.getAllByText(address).length).toBeGreaterThan(0),
+  )
+  fireEvent.click(within(expandStop(address)).getByText(name))
+  await waitFor(() =>
+    expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
   )
 }
 
@@ -191,8 +239,29 @@ const closePersonSheet = async () => {
   fireEvent.click(
     screen.getAllByRole('button', { name: 'Close person details' }).pop()!,
   )
-  await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+  await waitFor(() => expect(screen.queryByText('Did they answer?')).toBeNull())
 }
+
+// The sheet is headed by the DOOR rather than by whoever is behind it, so
+// "which house is the canvasser being offered?" is asked of the address. That
+// is the question every advance between stops is really about — the fixtures
+// those tests use put one resident behind each door for exactly that reason.
+const expectSheetAtDoor = (address: string) =>
+  waitFor(() =>
+    expect(
+      screen.getByRole('heading', { name: address, level: 2 }),
+    ).toBeInTheDocument(),
+  )
+
+// Moving between the people behind ONE door leaves that heading alone, so the
+// resident switcher is the only thing that says who the sheet is offering: the
+// pressed chip is the person whose script, facts and form are on screen.
+const expectSheetOnResident = (name: string) =>
+  waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: new RegExp(name), pressed: true }),
+    ).toBeInTheDocument(),
+  )
 
 // A second resident behind the first stop's door, so the collapsed row has a
 // household to count rather than a single person to name.
@@ -221,12 +290,87 @@ const withHousehold = (
   ),
 })
 
+// A second door at the first stop, which is what makes it a block of flats
+// rather than a house — the one shape that expands twice, and the one the
+// building glyph is for.
+const withSecondDoor = (
+  payload: DoorKnockingRoutePayload,
+): DoorKnockingRoutePayload => ({
+  ...payload,
+  stops: payload.stops.map((stop) =>
+    stop.id === 11
+      ? {
+          ...stop,
+          addresses: [
+            ...stop.addresses,
+            {
+              addressKey: '105|elm|st|apt|2',
+              address: '105 Elm St Apt 2',
+              otherResidents: [],
+              targets: [
+                {
+                  ...(stop.addresses[0]!.targets[0] as RoutePayloadTarget),
+                  stopTargetId: 23,
+                  personId: 'person-3',
+                  name: 'Winnie Fen',
+                },
+              ],
+            },
+          ],
+        }
+      : stop,
+  ),
+})
+
 // The stop rows are the only list items on this surface, and their button is
 // what carries `aria-current` — the row saying it is the stop the walk is on.
 const stopRow = (index: number): HTMLElement =>
   (screen.getAllByRole('listitem')[index] as HTMLElement).querySelector(
     'button',
   ) as HTMLElement
+
+// Dorian, already flagged when the route arrives. Seeding the payload is now
+// the only way a flagged resident gets on screen in a test, because the door
+// no longer carries a control that SETS the flag — the design draws none, so
+// it is set in the CRM and this walk only reads it (and can take it back).
+const withFlaggedDoor = (
+  payload: DoorKnockingRoutePayload,
+): DoorKnockingRoutePayload => ({
+  ...payload,
+  stops: payload.stops.map((stop) =>
+    stop.id === 11
+      ? {
+          ...stop,
+          addresses: stop.addresses.map((address) => ({
+            ...address,
+            targets: address.targets.map((target) => ({
+              ...target,
+              doNotKnock: true,
+            })),
+          })),
+        }
+      : stop,
+  ),
+})
+
+// The legend under the progress bar, as the pairs it states: a label and the
+// count beside it. Read as a pair rather than off the entry's own text, which
+// runs the two together — the count is a span of its own with nothing between
+// it and the word before it.
+const legendEntries = (): Array<[string, string]> =>
+  within(screen.getByRole('group', { name: 'Outcomes so far' }))
+    .getAllByText(/\w/, { selector: 'span.inline-flex' })
+    .map((entry) => [
+      Array.from(entry.childNodes)
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent)
+        .join('')
+        .trim(),
+      entry.lastElementChild?.textContent ?? '',
+    ])
+
+const legendCount = (label: string): string | undefined =>
+  legendEntries().find(([name]) => name === label)?.[1]
 
 describe('WalkView', () => {
   beforeEach(() => {
@@ -238,24 +382,25 @@ describe('WalkView', () => {
     })
   })
 
-  it('renders stops in seq order with totals and the logged counter', async () => {
+  it('renders stops in seq order with totals and the reached counter', async () => {
     render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
-    // Distance comes from the same route payload as the duration; 2400m.
-    // "travel" and not the bare duration: Geoapify times the movement between
-    // stops and nothing at them, so unqualified it read as the cost of the
-    // outing. The details sheet labels the same number the same way.
-    expect(
-      screen.getByText(/2 doors · 31m travel · 1.5 mi/),
-    ).toBeInTheDocument()
-    expect(screen.getByText('1/2 logged')).toBeInTheDocument()
+    // Two facts and no more, as the design draws them. The distance came out,
+    // and the duration is the whole outing rather than Geoapify's travel figure
+    // — 31m of walking plus two doors at 45 an hour — because this header has
+    // no room to qualify a number and bare travel time is what undersold an
+    // evening by more than half.
+    expect(screen.getByText(/2 doors · 34m/)).toBeInTheDocument()
+    expect(screen.getByText('1/2 reached')).toBeInTheDocument()
+    // The address leads the row, so the list reads as the addresses a canvasser
+    // is walking between; the names are one tap in.
     const items = screen.getAllByRole('listitem')
-    expect(within(items[0] as HTMLElement).getByText('Dorian Fen')).toBeTruthy()
+    expect(within(items[0] as HTMLElement).getByText('105 Elm St')).toBeTruthy()
     expect(
-      within(items[1] as HTMLElement).getByText('Marisol Vega'),
+      within(items[1] as HTMLElement).getByText('210 Cedar Row'),
     ).toBeTruthy()
   })
 
@@ -269,7 +414,7 @@ describe('WalkView', () => {
     render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
-      expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
+      expect(screen.getByText('1/2 reached')).toBeInTheDocument(),
     )
 
     const segments = Array.from(
@@ -283,14 +428,9 @@ describe('WalkView', () => {
 
     // The words under the bar run the same way the segments do, with the one
     // status that has no segment in the canvas's place among them.
-    const legend = within(
-      screen.getByRole('group', { name: 'Outcomes so far' }),
-    ).getAllByText(/\w/, { selector: 'span.inline-flex' })
-    expect(
-      legend.map((entry) =>
-        entry.textContent?.split(' ').slice(0, -1).join(' '),
-      ),
-    ).toEqual(PROGRESS_LEGEND_ORDER.map((status) => STATUS_LABELS[status]))
+    expect(legendEntries().map(([label]) => label)).toEqual(
+      PROGRESS_LEGEND_ORDER.map((status) => STATUS_LABELS[status]),
+    )
 
     // Marisol is the one logged door of two, and she is a supporter.
     const supporter = segments.find((s) => s.dataset.status === 'supporter')!
@@ -306,18 +446,21 @@ describe('WalkView', () => {
     ).toBe(true)
   })
 
-  // The canvas's bubble is `secondary-light` on `secondary-dark`. Ours had
-  // drifted to the near-black `tertiary-dark`, which reads as a filled control
-  // rather than as a count. The WORD is a separate, still-correct decision:
-  // "logged" and never the canvas's "reached", because not-home, inaccessible
-  // and refused all satisfy this predicate.
-  it('keeps our word for the counter and the canvas’s colour', async () => {
+  // The design's bubble, in the design's colours: `secondary-light` on
+  // `secondary-dark`, which had drifted to the near-black `tertiary-dark` and
+  // read as a filled control rather than as a count. The WORD is the design's
+  // too, and it is the one place this product says "reached" — the predicate
+  // behind it counts not-home, inaccessible and refused, so this surface said
+  // "logged" until the design review put the design's wording back. The
+  // eyebrow beside it is what the figure is a count of.
+  it('states the count in the design’s words and the design’s colour', async () => {
     render(<WalkHarness turfId={3} />)
 
-    const bubble = await screen.findByText('1/2 logged')
+    const bubble = await screen.findByText('1/2 reached')
     expect(bubble.className).toContain('bg-secondary-light')
     expect(bubble.className).toContain('text-secondary-dark')
     expect(bubble.className).not.toContain('tertiary')
+    expect(screen.getByText('In this list')).toBeInTheDocument()
   })
 
   // The Aug 14 walkthrough took these numerals out; the 2026-08-20 product call
@@ -335,21 +478,24 @@ describe('WalkView', () => {
     )
     const rows = screen.getAllByRole('listitem')
 
-    const elmDot = (rows[0] as HTMLElement).querySelector('span.h-7')
+    const elmDot = (rows[0] as HTMLElement).querySelector('span.h-6')
     expect(elmDot).toHaveTextContent('Stop 1')
     expect(elmDot).toHaveStyle({ backgroundColor: STATUS_DOT_COLORS.unknown })
-    const cedarDot = (rows[1] as HTMLElement).querySelector('span.h-7')
+    const cedarDot = (rows[1] as HTMLElement).querySelector('span.h-6')
     expect(cedarDot).toHaveTextContent('Stop 2')
     expect(cedarDot).toHaveStyle({
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
   })
 
-  // The stop's numeral and its people count sit one gap apart on the row, so a
-  // bare "1" beside "Stop 1" named neither quantity — the canvas puts a person
-  // glyph in front of the count AND the noun after it for exactly this reason,
-  // and a screen reader gets none of that layout at all.
-  it('says what the people count on a stop row counts', async () => {
+  // The stop's numeral and its two counts sit a gap apart on one row, so a bare
+  // "1 · 2" named none of the three quantities — the design puts a glyph in
+  // front of each count AND the noun after it for exactly this reason, and a
+  // screen reader gets none of that layout at all. The house and the people are
+  // two different facts about a stop and the row has to say which is which:
+  // "2" at a block of flats is a very different evening depending on whether
+  // it counts doors or the people behind one of them.
+  it('says what each count on a stop row counts', async () => {
     api.mock('GET /v1/door-knocking/turfs/:id/route', {
       status: 200,
       data: withHousehold(routePayload),
@@ -360,8 +506,58 @@ describe('WalkView', () => {
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
 
-    expect(within(stopRow(0)).getByText(/2 people/)).toBeInTheDocument()
-    expect(within(stopRow(0)).getByText(/to knock/)).toBeInTheDocument()
+    expect(within(stopRow(0)).getByText('1 door')).toBeInTheDocument()
+    expect(within(stopRow(0)).getByText('2 people')).toBeInTheDocument()
+    expect(stopRow(0).querySelector('svg.lucide-house')).toBeTruthy()
+    expect(stopRow(0).querySelector('svg.lucide-users')).toBeTruthy()
+  })
+
+  // The design's own swap at more than one door: a block of flats is one stop
+  // and many doors, and the glyph is what says which of those two a row is
+  // before the numbers beside it are read.
+  it('draws a stop with several doors as a building rather than a house', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: withSecondDoor(routePayload),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+
+    expect(within(stopRow(0)).getByText('2 doors')).toBeInTheDocument()
+    expect(stopRow(0).querySelector('svg.lucide-building-2')).toBeTruthy()
+    expect(stopRow(0).querySelector('svg.lucide-house')).toBeNull()
+  })
+
+  // A block of flats is one stop, several doors and a household behind each, so
+  // the design puts a level in between: the stop opens to its doors and a door
+  // opens to the people behind it. The unit is what a canvasser is standing at,
+  // and a flat list of every resident in the building would name none of them.
+  it('opens a stop with several doors one door at a time', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: withSecondDoor(routePayload),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    const item = expandStop('105 Elm St')
+
+    // Both doors, and neither resident: the people are a level further in.
+    expect(within(item).getByText('105 Elm St · 1 person')).toBeInTheDocument()
+    expect(
+      within(item).getByText('105 Elm St Apt 2 · 1 person'),
+    ).toBeInTheDocument()
+    expect(within(item).queryByText('Dorian Fen')).toBeNull()
+
+    fireEvent.click(within(item).getByText('105 Elm St Apt 2 · 1 person'))
+
+    expect(within(item).getByText('Winnie Fen')).toBeInTheDocument()
+    expect(within(item).queryByText('Dorian Fen')).toBeNull()
   })
 
   // The canvas's expanded door: a tinted well under the stop, one row per
@@ -382,19 +578,21 @@ describe('WalkView', () => {
     )
     fireEvent.click(screen.getByText('105 Elm St'))
 
-    // The row expands rather than opening a sheet: the canvasser picks.
+    // The row expands rather than opening a sheet: the canvasser picks. A house
+    // has one door, so it expands straight to its people — the door in between
+    // would be a row that only said the address again.
     await waitFor(() =>
-      expect(screen.getAllByText('Dorian Fen')).toHaveLength(2),
+      expect(screen.getByText('Dorian Fen')).toBeInTheDocument(),
     )
-    expect(screen.queryByText('Log this door')).toBeNull()
+    expect(screen.getByText('Winnie Fen')).toBeInTheDocument()
+    expect(screen.queryByText('Did they answer?')).toBeNull()
 
     const residentRow = screen
-      .getAllByText('Winnie Fen')
-      .pop()!
+      .getByText('Winnie Fen')
       .closest('button') as HTMLElement
     // The glyph starts where the stop's name does, so the residents read as
     // belonging to the address above them rather than as more stops.
-    expect(residentRow.className).toContain('pl-14')
+    expect(residentRow.className).toContain('pl-[52px]')
     expect(residentRow.querySelector('svg.lucide-user')).toBeTruthy()
     // A rule between every row, so four residents are four rows.
     expect(residentRow.className).toContain('border-t')
@@ -422,25 +620,6 @@ describe('WalkView', () => {
     )
     const row = screen.getAllByRole('listitem')[0] as HTMLElement
     expect(row.className.split(/\s+/)).toContain('block')
-  })
-
-  // A one-resident stop opens its sheet instead of expanding, so it is the one
-  // stop whose status never gets labelled anywhere else. It used to close on a
-  // bare coloured dot, leaving a canvasser to match a 6px circle against a
-  // legend two cards up — the canvas spells this row's status out, and so does
-  // ours now.
-  it('names the outcome in words on a stop with a single resident', async () => {
-    render(<WalkHarness turfId={3} />)
-
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-
-    // Dorian is unreached; Marisol is already a supporter.
-    expect(within(stopRow(0)).getByText('Support unknown')).toBeInTheDocument()
-    expect(within(stopRow(1)).getByText('Supporter')).toBeInTheDocument()
-    // And no head count at all: "1 person" is a quantity nobody asked for.
-    expect(within(stopRow(0)).queryByText(/person/)).toBeNull()
   })
 
   // A row tap and a pin tap set one selection, so the numbered row and the
@@ -474,92 +653,101 @@ describe('WalkView', () => {
     expect(screen.queryByRole('link', { name: 'PDF' })).toBeNull()
   })
 
-  // The canvas's walk control row, in the canvas's order: the live-location
-  // switch first, then the facts about the route being walked. The mode and
-  // loop chips are read-only on purpose — a route is bought for one mode and
-  // cannot be re-bought from inside itself — so the row has exactly one button.
-  it('leads the control row with the live-location switch', async () => {
+  // The control row is gone with the live-location switch — the design reads
+  // the travel mode off the legs instead, which name it on every one of them.
+  // From the second stop on, because the first has nothing before it to walk
+  // from. Read-only, like the row it replaced: a route is bought for one mode
+  // and cannot be re-bought from inside itself.
+  it('states the walk to every stop after the first, and names the mode', async () => {
     render(<WalkHarness turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
 
-    const pill = screen.getByRole('button', { name: 'My live location' })
-    expect(pill).toHaveAttribute('aria-pressed', 'false')
-
-    fireEvent.click(pill)
-
-    expect(
-      screen.getByRole('button', { name: 'My live location' }),
-    ).toHaveAttribute('aria-pressed', 'true')
-    // The route facts beside it stay facts.
-    expect(screen.getByText('Walking').tagName).toBe('SPAN')
-    expect(screen.getByText('Loop').tagName).toBe('SPAN')
+    // 300s to Cedar Row, rounded up and never carried into hours: a leg between
+    // two doors on one street is a couple of minutes.
+    const leg = within(stopRow(1)).getByText(/5m walk/)
+    expect(leg.tagName).toBe('SPAN')
+    expect(leg.querySelector('svg.lucide-footprints')).toBeTruthy()
+    expect(within(stopRow(0)).queryByText(/walk/)).toBeNull()
   })
 
-  // ADR 0007. The marker has to survive walking on to the next stop, so it
-  // patches the route cache the way a recorded knock does.
+  // ADR 0007. A flagged door has nothing to say and nothing to log, so the
+  // footer swaps the script and the form for the flag's own banner — and the
+  // marker reaches the collapsed stop row too, so a canvasser reads it before
+  // walking up rather than only on the resident one tap in.
   it('marks a flagged door in the list and withholds the log form', async () => {
-    api.mock('POST /v1/door-knocking/do-not-knock', {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
       status: 200,
-      data: { personId: 'person-1', doNotKnock: true },
+      data: withFlaggedDoor(routePayload),
     })
 
     render(<WalkHarness turfId={3} />)
-    await openPersonSheet('105 Elm St')
+    await openResident('105 Elm St')
 
-    fireEvent.click(screen.getByRole('button', { name: /don.t knock/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Did they answer?')).toBeNull()
 
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
-
-    // Closing the sheet leaves the marker on the stop row itself. A
-    // single-resident stop never expands, so this is the only place a
-    // canvasser sees it before walking up.
     fireEvent.click(
       screen.getAllByRole('button', { name: 'Close person details' }).pop()!,
     )
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull(),
     )
-    const elmRow = screen.getAllByRole('listitem')[0] as HTMLElement
-    expect(within(elmRow).getByText('Do not knock')).toBeInTheDocument()
+    expect(within(stopRow(0)).getByText('Do not knock')).toBeInTheDocument()
   })
 
   // ADR 0007. A flagged door keeps `knockStatus: 'unknown'`, so counting it
   // would strand a canvasser who correctly skipped it below 100% and leave it
   // sitting under the "Support unknown" chip as work still to do.
   it('drops a flagged door out of the progress counts', async () => {
-    api.mock('POST /v1/door-knocking/do-not-knock', {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
       status: 200,
-      data: { personId: 'person-1', doNotKnock: true },
+      data: withFlaggedDoor(routePayload),
     })
 
-    // Scoped to the legend by name: the same seven words also label a
-    // one-resident stop row now, and an unscoped lookup would find both.
-    const unknownChip = () =>
-      within(screen.getByRole('group', { name: 'Outcomes so far' })).getByText(
-        /Support unknown/,
-        { selector: 'span' },
-      )
+    render(<WalkHarness turfId={3} />)
+
+    // Marisol is the other door and is already a supporter, so with Dorian
+    // flagged out the walk is finished rather than one door short.
+    await waitFor(() =>
+      expect(screen.getByText('1/1 reached')).toBeInTheDocument(),
+    )
+    expect(legendCount('Support unknown')).toBe('0')
+  })
+
+  // Undo is the one thing the door can still do to the flag, and it has to
+  // survive walking on to the next stop — so it patches the route cache the
+  // way a recorded knock does, which is also what puts the door back into the
+  // counts it was excluded from.
+  it('takes the flag back from the door and returns it to the counts', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: withFlaggedDoor(routePayload),
+    })
+    api.mock('POST /v1/door-knocking/do-not-knock', {
+      status: 200,
+      data: { personId: 'person-1', doNotKnock: false },
+    })
 
     render(<WalkHarness turfId={3} />)
-    // Dorian is the unreached door of the two; Marisol is already a supporter.
-    await waitFor(() =>
-      expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
-    )
-    expect(unknownChip()).toHaveTextContent('Support unknown 1')
+    await openResident('105 Elm St')
 
-    await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: /don.t knock/i }))
-    // Undo appearing is the flag landing; asserting the counts before the
-    // mutation settles would read the pre-patch cache.
-    await screen.findByRole('button', { name: 'Undo' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+
+    // The log form arriving is the flag clearing: the footer only offers it to
+    // a door that is knockable again.
+    await waitFor(() =>
+      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
+    )
     await closePersonSheet()
 
-    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
-    expect(unknownChip()).toHaveTextContent('Support unknown 0')
+    expect(screen.getByText('1/2 reached')).toBeInTheDocument()
+    expect(legendCount('Support unknown')).toBe('1')
+    expect(within(stopRow(0)).queryByText('Do not knock')).toBeNull()
   })
 
   // `unknown` outranks every other status in the rollup, so before flagged
@@ -608,13 +796,15 @@ describe('WalkView', () => {
     const row = screen.getAllByRole('listitem')[0] as HTMLElement
     // The stop's own circle, the one the rollup colors and the one its number
     // is printed on — as against the per-resident dots asserted below.
-    expect(row.querySelector('span.h-7')).toHaveStyle({
+    expect(row.querySelector('span.h-6')).toHaveStyle({
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
 
     // ADR 0007. The flagged resident gets no per-person dot either — a status
     // dot beside the "Do not knock" label would say the opposite of the label.
-    const personDots = Array.from(row.querySelectorAll('span.h-1\\.5'))
+    // One level in, where the residents now live.
+    expandStop('210 Cedar Row')
+    const personDots = Array.from(row.querySelectorAll('span.h-2'))
     expect(personDots).toHaveLength(1)
     expect(personDots[0]).toHaveStyle({
       backgroundColor: STATUS_DOT_COLORS.supporter,
@@ -654,9 +844,11 @@ describe('WalkView', () => {
       /[0-9a-f-]{36}/,
     )
 
-    // Sheet closes and the logged counter reflects the new status.
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
-    expect(screen.getByText('2/2 logged')).toBeInTheDocument()
+    // Sheet closes and the counter reflects the new status.
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
+    expect(screen.getByText('2/2 reached')).toBeInTheDocument()
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
       outcome: 'answered',
@@ -679,9 +871,12 @@ describe('WalkView', () => {
     render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     answerQuestion('Did they answer?', 'Not home')
-    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
-      target: { value: 'Dog in the yard, come back Saturday' },
-    })
+    fireEvent.change(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+      {
+        target: { value: 'Dog in the yard, come back Saturday' },
+      },
+    )
     saveKnock()
 
     await waitFor(() =>
@@ -709,7 +904,7 @@ describe('WalkView', () => {
     )
     expect(trackEvent).not.toHaveBeenCalled()
     // A failed door must not advance past itself.
-    expect(screen.getByText('Log this door')).toBeInTheDocument()
+    expect(screen.getByText('Did they answer?')).toBeInTheDocument()
   })
 
   it('replays the same clientKey when the sheet is closed and reopened', async () => {
@@ -755,7 +950,9 @@ describe('WalkView', () => {
     await openPersonSheet('105 Elm St')
     knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(1))
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
 
     await openPersonSheet('105 Elm St')
     knockNotHome()
@@ -941,9 +1138,7 @@ describe('WalkView not-a-voter reason', () => {
         screen.getByText('Not a voter — what happened?'),
       ).toBeInTheDocument(),
     )
-    expect(
-      screen.getByRole('heading', { name: 'Dorian Fen' }),
-    ).toBeInTheDocument()
+    await expectSheetAtDoor('105 Elm St')
   })
 
   it('marks the resident and withholds the form once a reason is given', async () => {
@@ -956,14 +1151,17 @@ describe('WalkView not-a-voter reason', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Deceased' }))
 
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
     expect(screen.getByText(/do not ask for them by name/)).toBeInTheDocument()
 
     // The marker has to survive walking on, so it patches the route cache the
-    // way a recorded knock does.
+    // way a recorded knock does. On the collapsed row, which is where a
+    // canvasser reads it before walking up — the resident row one level in
+    // carries its own copy.
     await closePersonSheet()
-    const elmRow = screen.getAllByRole('listitem')[0] as HTMLElement
-    expect(within(elmRow).getByText('Deceased')).toBeInTheDocument()
+    expect(within(stopRow(0)).getByText('Deceased')).toBeInTheDocument()
   })
 
   // A flagged resident is not a conversation anyone can have, so they leave the
@@ -974,7 +1172,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkHarness turfId={3} />)
     await waitFor(() =>
-      expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
+      expect(screen.getByText('1/2 reached')).toBeInTheDocument(),
     )
 
     await openPersonSheet('105 Elm St')
@@ -984,10 +1182,8 @@ describe('WalkView not-a-voter reason', () => {
     await screen.findByRole('button', { name: 'Undo' })
     await closePersonSheet()
 
-    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
-    expect(
-      screen.getByText(/Not a voter/, { selector: 'span' }),
-    ).toHaveTextContent('Not a voter 0')
+    expect(screen.getByText('1/1 reached')).toBeInTheDocument()
+    expect(legendCount('Not a voter')).toBe('0')
   })
 
   it('lifts the flag on undo, reflecting the cleared echo', async () => {
@@ -1021,18 +1217,18 @@ describe('WalkView not-a-voter reason', () => {
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
     // Only Marisol is knockable while Dorian is flagged.
-    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
+    expect(screen.getByText('1/1 reached')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('105 Elm St'))
+    await openResident('105 Elm St')
     await screen.findByRole('button', { name: 'Undo' })
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
 
     // The form comes back only because the server said the flag is gone.
     await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
     )
     await closePersonSheet()
-    expect(screen.getByText('1/2 logged')).toBeInTheDocument()
+    expect(screen.getByText('1/2 reached')).toBeInTheDocument()
   })
 
   // The stop rolls up from an empty list of knockable residents, which is the
@@ -1080,15 +1276,9 @@ describe('WalkView not-a-voter reason', () => {
     // be one thing to read.
     expect(within(row).getByText('Deceased')).toBeInTheDocument()
     expect(within(row).getByText('Moved away')).toBeInTheDocument()
-    // No per-person dots, and no work left in the totals.
-    expect(row.querySelectorAll('span.h-1\\.5')).toHaveLength(0)
-    expect(screen.getByText('0/0 logged')).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('group', { name: 'Outcomes so far' })).getByText(
-        /Support unknown/,
-        { selector: 'span' },
-      ),
-    ).toHaveTextContent('Support unknown 0')
+    // And no work left in the totals.
+    expect(screen.getByText('0/0 reached')).toBeInTheDocument()
+    expect(legendCount('Support unknown')).toBe('0')
   })
 
   // ADR 0009 left exactly one resident on a stale feed: this one, because their
@@ -1184,7 +1374,7 @@ describe('WalkView not-a-voter reason', () => {
     await waitFor(() => expect(serves()).toBe(2))
     // The knock the serve was asked for is on the resident's feed on reopen,
     // with no second serve needed to put it there.
-    fireEvent.click(screen.getByText('105 Elm St'))
+    await openResident('105 Elm St')
     await waitFor(() =>
       expect(screen.getByText(/Door Knock:/)).toBeInTheDocument(),
     )
@@ -1209,9 +1399,11 @@ describe('WalkView not-a-voter reason', () => {
     knockNotHome()
     // Nothing unlogged ahead, so this closes the sheet without going through
     // the close handler; reopening and closing by hand exercises that path.
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
 
-    fireEvent.click(screen.getByText('105 Elm St'))
+    await openResident('105 Elm St')
     await waitFor(() => expect(serves).toBe(2))
     await closePersonSheet()
 
@@ -1299,28 +1491,6 @@ describe('WalkView auto-advance', () => {
     vi.mocked(trackEvent).mockClear()
   })
 
-  // An apartment complex arrives as one stop with every unit's resident on it,
-  // and each dot is `shrink-0`, so an uncapped row pushed through the card and
-  // put a horizontal scrollbar on the whole page.
-  it('caps the summary dots at a big stop and still names the real count', async () => {
-    const residents = Array.from({ length: 40 }, (_, i) =>
-      target(100 + i, `Resident ${i}`),
-    )
-    mockRoute([stop(11, 1, '375 Adriatic Pkwy Apt 1102', residents)])
-
-    render(<WalkHarness turfId={3} />)
-    await waitFor(() =>
-      expect(
-        screen.getByText('375 Adriatic Pkwy Apt 1102'),
-      ).toBeInTheDocument(),
-    )
-
-    expect(stopRow(0).querySelectorAll('span.h-1\\.5')).toHaveLength(10)
-    // The dots are decorative once a stop expands; this is the figure that is
-    // not allowed to be a sample of anything.
-    expect(stopRow(0)).toHaveTextContent('40 people')
-  })
-
   it('opens the next unlogged door without a trip back to the list', async () => {
     mockRoute([
       stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
@@ -1333,12 +1503,8 @@ describe('WalkView auto-advance', () => {
     knockNotHome()
 
     // The sheet stays open on the next person rather than closing.
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
-    expect(screen.getByText('Log this door')).toBeInTheDocument()
+    await expectSheetAtDoor('210 Cedar Row')
+    expect(screen.getByText('Did they answer?')).toBeInTheDocument()
   })
 
   // The list's mark is the door the sheet is offering, not a history of taps —
@@ -1378,11 +1544,7 @@ describe('WalkView auto-advance', () => {
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Ruben Cole' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('318 Birch Ave')
   })
 
   // ADR 0007. A flagged door has nothing to log, so advancing onto it would
@@ -1401,11 +1563,7 @@ describe('WalkView auto-advance', () => {
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Ruben Cole' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('318 Birch Ave')
   })
 
   // ADR 0008. Same dead end as a do-not-knock door: advancing onto a resident
@@ -1424,11 +1582,7 @@ describe('WalkView auto-advance', () => {
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Ruben Cole' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('318 Birch Ave')
   })
 
   // A household is several doors' worth of logging at one address, so the
@@ -1444,29 +1598,13 @@ describe('WalkView auto-advance', () => {
     logNotHome('person-21')
 
     render(<WalkHarness turfId={3} />)
-    // A multi-resident stop expands instead of opening, so the resident is
-    // picked from the expansion.
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByText('105 Elm St'))
-    // The name also labels the collapsed row, so the expansion's copy is the
-    // later of the two.
-    await waitFor(() =>
-      expect(screen.getAllByText('Dorian Fen')).toHaveLength(2),
-    )
-    fireEvent.click(screen.getAllByText('Dorian Fen').pop()!)
-    await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
-    )
+    // The row is an address, so the resident is picked from the expansion under
+    // it rather than named on the row itself.
+    await openHouseholdMember('105 Elm St', 'Dorian Fen')
 
     knockNotHome()
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Winnie Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetOnResident('Winnie Fen')
   })
 
   // Aug 14 walkthrough: one household, one status per person — the canvasser
@@ -1493,25 +1631,11 @@ describe('WalkView auto-advance', () => {
     })
 
     render(<WalkHarness turfId={3} />)
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByText('105 Elm St'))
-    await waitFor(() =>
-      expect(screen.getAllByText('Dorian Fen')).toHaveLength(2),
-    )
-    fireEvent.click(screen.getAllByText('Dorian Fen').pop()!)
-    await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
-    )
+    await openHouseholdMember('105 Elm St', 'Dorian Fen')
 
     knockNotHome()
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Winnie Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetOnResident('Winnie Fen')
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
     expect(
       within(
@@ -1545,7 +1669,9 @@ describe('WalkView auto-advance', () => {
     await openPersonSheet('105 Elm St')
     knockNotHome()
 
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
   })
 
   // Each door needs its own replay key, so advancing has to mint for the
@@ -1599,10 +1725,12 @@ describe('WalkView auto-advance', () => {
 
     knockNotHome()
     // Nothing ahead, so the sheet closes on the logged door.
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
     expect(serves).toBe(1)
 
-    fireEvent.click(screen.getByText('105 Elm St'))
+    await openResident('105 Elm St')
     await waitFor(() =>
       expect(screen.getByText(/Door Knock:/)).toBeInTheDocument(),
     )
@@ -1629,11 +1757,7 @@ describe('WalkView auto-advance', () => {
     render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('210 Cedar Row')
 
     expect(serves).toBe(1)
   })
@@ -1657,10 +1781,12 @@ describe('WalkView auto-advance', () => {
     render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
-    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
+    expect(screen.getByText('1/1 reached')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('105 Elm St'))
+    await openResident('105 Elm St')
     // The serve count is ofetch's business (it retries a 500 on its own), so
     // the settled query state is what says the refresh really did fail.
     await waitFor(() =>
@@ -1671,7 +1797,7 @@ describe('WalkView auto-advance', () => {
 
     // No alarm, and the door stays logged on the payload already in hand.
     expect(screen.queryByText(/The route could not load/)).toBeNull()
-    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
+    expect(screen.getByText('1/1 reached')).toBeInTheDocument()
     expect(
       screen.getByText('No previous outreach to this resident.'),
     ).toBeInTheDocument()
@@ -1710,29 +1836,22 @@ describe('WalkView auto-advance', () => {
     render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('210 Cedar Row')
 
     // Back to the logged resident: that reopen starts the serve, which is
     // held open while the second door is logged.
     await closePersonSheet()
-    fireEvent.click(screen.getByText('105 Elm St'))
+    await openResident('105 Elm St')
     await waitFor(() => expect(serves).toBe(2))
     await closePersonSheet()
 
-    fireEvent.click(screen.getByText('210 Cedar Row'))
-    await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
-    )
+    await openPersonSheet('210 Cedar Row')
     knockNotHome()
-    await waitFor(() => expect(screen.getByText('2/2 logged')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('2/2 reached')).toBeTruthy())
 
     // The held serve carries neither knock; arriving now it must be discarded.
     releaseSecondServe!()
-    await waitFor(() => expect(screen.getByText('2/2 logged')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('2/2 reached')).toBeTruthy())
   })
 
   // The replay keys live in component state and the refreshed payload keys the
@@ -1774,25 +1893,11 @@ describe('WalkView auto-advance', () => {
     })
 
     render(<WalkHarness turfId={3} />)
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByText('105 Elm St'))
-    await waitFor(() =>
-      expect(screen.getAllByText('Dorian Fen')).toHaveLength(2),
-    )
-    fireEvent.click(screen.getAllByText('Dorian Fen').pop()!)
-    await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
-    )
+    await openHouseholdMember('105 Elm St', 'Dorian Fen')
 
     knockNotHome()
     // Advances to the housemate, whose knock then fails.
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Winnie Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetOnResident('Winnie Fen')
     knockNotHome()
     await waitFor(() => expect(screen.getByText(/Saving failed/)).toBeTruthy())
 
@@ -1802,7 +1907,7 @@ describe('WalkView auto-advance', () => {
     await waitFor(() => expect(serves).toBe(2))
     fireEvent.click(screen.getByRole('button', { name: 'Winnie Fen' }))
     await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
     )
     knockNotHome()
 
@@ -1827,11 +1932,7 @@ describe('WalkView auto-advance', () => {
     render(<WalkHarness turfId={3} />)
     await openPersonSheet('105 Elm St')
     knockNotHome()
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('210 Cedar Row')
 
     knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(2))
@@ -1971,12 +2072,8 @@ describe('WalkView map pin taps', () => {
       { stopId: 12, token: 1 },
     )
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
-    expect(screen.getByText('Log this door')).toBeInTheDocument()
+    await expectSheetAtDoor('210 Cedar Row')
+    expect(screen.getByText('Did they answer?')).toBeInTheDocument()
   })
 
   // The other half of the map's selection: the list follows the pin. The map
@@ -2018,12 +2115,8 @@ describe('WalkView map pin taps', () => {
       { stopId: 11, token: 1 },
     )
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Winnie Fen' }),
-      ).toBeInTheDocument(),
-    )
-    expect(screen.getByText('Log this door')).toBeInTheDocument()
+    await expectSheetOnResident('Winnie Fen')
+    expect(screen.getByText('Did they answer?')).toBeInTheDocument()
   })
 
   // A hollow pin has nobody left to knock. Opening it anyway is the point: the
@@ -2041,12 +2134,8 @@ describe('WalkView map pin taps', () => {
       { stopId: 11, token: 1 },
     )
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Dorian Fen' }),
-      ).toBeInTheDocument(),
-    )
-    expect(screen.queryByText('Log this door')).toBeNull()
+    await expectSheetAtDoor('105 Elm St')
+    expect(screen.queryByText('Did they answer?')).toBeNull()
     expect(
       screen.getByText(/asked not to be visited again/),
     ).toBeInTheDocument()
@@ -2062,7 +2151,7 @@ describe('WalkView map pin taps', () => {
       { stopId: 11, token: 1 },
     )
     await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
     )
     await closePersonSheet()
 
@@ -2071,7 +2160,7 @@ describe('WalkView map pin taps', () => {
     )
 
     await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
     )
   })
 
@@ -2088,15 +2177,17 @@ describe('WalkView map pin taps', () => {
       token: 1,
     })
     await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
     )
 
     // Nothing left ahead, so logging this door closes the sheet — and it has
     // to stay closed.
     knockNotHome()
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
 
-    expect(screen.queryByText('Log this door')).toBeNull()
+    expect(screen.queryByText('Did they answer?')).toBeNull()
   })
 
   // The canvas's panel header navigates the route door by door
@@ -2112,29 +2203,17 @@ describe('WalkView map pin taps', () => {
       ],
       { stopId: 11, token: 1 },
     )
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Dorian Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('105 Elm St')
 
     fireEvent.click(screen.getByRole('button', { name: 'Next door' }))
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('210 Cedar Row')
     // The mark moved with it: the sheet and the list are showing one door.
     expect(stopRow(1)).toHaveAttribute('aria-current', 'true')
 
     fireEvent.click(screen.getByRole('button', { name: 'Previous door' }))
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Dorian Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('105 Elm St')
     expect(stopRow(0)).toHaveAttribute('aria-current', 'true')
   })
 
@@ -2149,11 +2228,7 @@ describe('WalkView map pin taps', () => {
       ],
       { stopId: 11, token: 1 },
     )
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Dorian Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('105 Elm St')
 
     expect(screen.getByRole('button', { name: 'Previous door' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Next door' })).not.toBeDisabled()
@@ -2179,11 +2254,7 @@ describe('WalkView map pin taps', () => {
       ],
       { stopId: 11, token: 1 },
     )
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Dorian Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('105 Elm St')
 
     for (const name of ['Previous door', 'Next door', 'Close person details']) {
       const control = screen.getAllByRole('button', { name }).pop()!
@@ -2207,11 +2278,7 @@ describe('WalkView map pin taps', () => {
       { stopId: 12, token: 1 },
     )
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('210 Cedar Row')
     // Every numbered badge on the page, read the way a screen reader gets it:
     // the sr-only "Stop " prefix plus the numeral beside it. Two rows and then
     // the sheet, which is the one under test — and the numbers are what a
@@ -2234,11 +2301,7 @@ describe('WalkView map pin taps', () => {
       ],
       { stopId: 11, token: 1 },
     )
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Dorian Fen' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('105 Elm St')
     // The card headers are inside the scrolling body, so this finds it without
     // reaching for a class name.
     const body = screen
@@ -2248,11 +2311,7 @@ describe('WalkView map pin taps', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Next door' }))
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Marisol Vega' }),
-      ).toBeInTheDocument(),
-    )
+    await expectSheetAtDoor('210 Cedar Row')
     expect(
       (
         screen
@@ -2391,10 +2450,7 @@ describe('WalkView notes', () => {
     await writeNote('Come back Saturday')
 
     await closePersonSheet()
-    fireEvent.click(screen.getByText('105 Elm St'))
-    await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
-    )
+    await openPersonSheet('105 Elm St')
 
     expect(screen.getByText('Come back Saturday')).toBeInTheDocument()
   })
@@ -2436,10 +2492,7 @@ describe('WalkView notes', () => {
     await waitFor(() => expect(screen.queryByText('Works nights')).toBeNull())
 
     await closePersonSheet()
-    fireEvent.click(screen.getByText('105 Elm St'))
-    await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
-    )
+    await openPersonSheet('105 Elm St')
 
     expect(screen.queryByText('Works nights')).toBeNull()
     expect(
@@ -2498,10 +2551,7 @@ describe('WalkView notes', () => {
     )
 
     await closePersonSheet()
-    fireEvent.click(screen.getByText('105 Elm St'))
-    await waitFor(() =>
-      expect(screen.getByText('Log this door')).toBeInTheDocument(),
-    )
+    await openPersonSheet('105 Elm St')
 
     const bodies = within(notesCard())
       .getAllByRole('listitem')
@@ -2569,8 +2619,10 @@ describe('WalkView notes', () => {
     knockNotHome()
     // Nothing ahead, so the door closes on itself; reopening a resident logged
     // this session is what asks for the serve that is then held open.
-    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
-    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.queryByText('Did they answer?')).toBeNull(),
+    )
+    await openResident('105 Elm St')
     await waitFor(() => expect(serves).toBe(2))
 
     await writeNote('Come back Saturday')

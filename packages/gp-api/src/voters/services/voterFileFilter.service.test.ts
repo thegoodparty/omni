@@ -201,11 +201,42 @@ describe('findOutreachesByVoterFileFilterId', () => {
         date: null,
       },
     })
+    // A nativeDoorKnocking envelope cannot exist without its route — the
+    // 1:1:1 chain is a CHECK constraint — so the turf and route come first.
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: filter.id,
+        name: 'Elm St walk',
+        color: '#2563eb',
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-104.83, 41.13],
+              [-104.81, 41.13],
+              [-104.82, 41.15],
+              [-104.83, 41.13],
+            ],
+          ],
+        },
+      },
+    })
+    const route = await service.prisma.doorKnockingRoute.create({
+      data: {
+        doorKnockingTurfId: turf.id,
+        mode: 'walk',
+        loop: false,
+        totalSeconds: 900,
+        totalMeters: 1200,
+        credits: 10,
+      },
+    })
     const nativeDoorKnockRow = await service.prisma.outreach.create({
       data: {
         campaignId: campaign.id,
         voterFileFilterId: filter.id,
         outreachType: OutreachType.nativeDoorKnocking,
+        doorKnockingRouteId: route.id,
         date: new Date('2026-06-01T00:00:00.000Z'),
       },
     })

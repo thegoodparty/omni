@@ -134,45 +134,6 @@ const dotsInRing = (
   return insideDot
 }
 
-// Per-status person counts for the scope a rail heading names: the whole pack
-// when `ring` is null, otherwise only the people whose dot falls inside a
-// turf's polygon. The landing legend was reading the raw canvassStatus plane,
-// so selecting a turf renamed the heading and left seven district-wide numbers
-// underneath it describing a different audience.
-//
-// `selections` is the scope's own filters, deliberately NOT the legend's own
-// chip narrowing: a legend that zeroed every status but the pressed one would
-// leave no count to press back.
-export const canvassStatusCounts = (
-  pack: DecodedPack,
-  selections: DimSelections,
-  ring: Array<[number, number]> | null,
-): number[] => {
-  const { personToHousehold, householdToDot, dimPlanes, manifest } = pack
-  const dim = manifest.dims.find((entry) => entry.key === 'canvassStatus')
-  const plane = dimPlanes.get('canvassStatus')
-  const counts = new Array<number>(dim?.values.length ?? 0).fill(0)
-  if (!dim || !plane) return counts
-
-  const insideDot = ring ? dotsInRing(pack, ring) : null
-  const active = activeDimMasks(pack, selections)
-
-  outer: for (let i = 0; i < personToHousehold.length; i++) {
-    for (let a = 0; a < active.length; a++) {
-      const entry = active[a]
-      if (entry && !entry.mask[entry.plane[i] ?? 0]) continue outer
-    }
-    if (insideDot) {
-      const dot = householdToDot[personToHousehold[i] ?? 0] ?? 0
-      if (!insideDot[dot]) continue
-    }
-    const status = plane[i] ?? 0
-    if (status < counts.length) counts[status] = (counts[status] ?? 0) + 1
-  }
-
-  return counts
-}
-
 // Everything the draw step reports about the shape being drawn, all on the
 // one denominator that matters there: what is INSIDE the ring. A district-wide
 // number next to an in-polygon one is how the footer previously managed to

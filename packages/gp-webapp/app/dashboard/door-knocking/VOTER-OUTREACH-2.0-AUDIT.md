@@ -183,12 +183,12 @@ had drifted for no reason are back to the canvas's words ("Veteran status",
 Voter demographics card, which is where the canvas has it; our header now reads
 "47 years old" alone, as the canvas's does.
 
-Two smaller things the same comparison turned up, both left alone and both
-recorded in AGENTS.md rather than fixed here: the canvas draws talking points as
-the first card in the body where we pin the script in the footer (a real
-judgement call, and ours has an argument), and the canvas's footer begins
-directly with "Did they answer?" where ours adds a "Log this door" heading
-(ours, redundant, and removable only as a rename across two other test suites).
+Two smaller things the same comparison turned up were left alone here and both
+were **closed by the 2026-09-01 design-adherence pass**: talking points are now
+the first card in the scrolling body where the canvas draws them, and the
+footer begins directly with "Did they answer?" — the "Log this door" heading is
+gone, and the two test suites that used it as their sheet-open sentinel assert
+on the first question instead.
 
 ### 7. Two small copy items
 

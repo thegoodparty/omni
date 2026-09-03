@@ -56,7 +56,11 @@ model Outreach {
   voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")
   // nativeDoorKnocking envelopes only: the list row carries its destination
-  // (the per-channel pointer idiom, like phoneListId/projectId).
+  // (the per-channel pointer idiom, like phoneListId/projectId). Nullable for
+  // every other outreachType, but NOT NULL for this one — a CHECK enforces it
+  // (see migration door_knocking_one_to_one), which is what makes
+  // outreach -> turf -> route a real 1:1:1 chain rather than a convention.
+  // The turf is one hop further on, through the route's unique turf id.
   doorKnockingRoute                 DoorKnockingRoute?                 @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
   doorKnockingRouteId               Int?                               @unique @map("door_knocking_route_id")
   // nativePhoneBanking envelopes only: same per-channel pointer idiom as
@@ -78,6 +82,20 @@ model Outreach {
   // finalize. Cancel-before-send resolves its payment intent for the
   // automatic refund; free-texts redemptions never set it.
   stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
+  // CAS approval gate (SMS console): a scheduled p2p send stays dormant at
+  // the vendor until an admin approval requests canvassers. All nullable —
+  // pre-console rows and non-SMS channels never carry them.
+  approvedAt                        DateTime?                          @map("approved_at")
+  approvedBy                        String?                            @map("approved_by")
+  deniedAt                          DateTime?                          @map("denied_at")
+  deniedBy                          String?                            @map("denied_by")
+  deniedReason                      String?                            @map("denied_reason")
+  canvassRequestedAt                DateTime?                          @map("canvass_requested_at")
+  // CAS's own message correction (the common fix path — deny is the rare
+  // exception). Stamped for the audit trail; the message sends under the
+  // candidate's name.
+  adminEditedAt                     DateTime?                          @map("admin_edited_at")
+  adminEditedBy                     String?                            @map("admin_edited_by")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill. Invariant (DB-enforced by a CHECK, see migration
   // add_outreach_org_scope): every row needs exactly one scoping path —

@@ -344,8 +344,9 @@ export const SmsEditFlow = ({
           tone={tone}
           onToneChange={setTone}
           audienceName={target?.audienceName ?? ''}
-          missingIdentification={missingIdentification}
+          standardsFailures={missingIdentification ? ['candidate_name'] : []}
           identificationExample={identificationExample}
+          committeeName={null}
           body={body}
           onBodyChange={(value) => {
             setBody(value)

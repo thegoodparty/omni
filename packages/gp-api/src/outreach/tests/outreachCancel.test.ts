@@ -56,6 +56,7 @@ const seedOutreach = (
     outreachType: OutreachType
     projectId: string | null
     stripeCheckoutSessionId: string | null
+    date: Date
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -117,6 +118,20 @@ describe('POST /v1/outreach/:id/cancel', () => {
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(deleteJob).not.toHaveBeenCalled()
+  })
+
+  it('rejects a cancel at or past the scheduled send time (launch switch on)', async () => {
+    vi.stubEnv('SMS_COMPLIANCE_V2_ENABLED', 'true')
+    const row = await seedOutreach({
+      date: new Date(Date.now() - 60_000),
+    })
+    const res = await postCancel(row.id)
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const unchanged = await service.prisma.outreach.findFirstOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.pending)
+    vi.unstubAllEnvs()
   })
 
   it('rejects canceling a robocall (lifecycle runs off the satellite)', async () => {

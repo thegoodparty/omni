@@ -15,7 +15,7 @@ import { voterPackQueryOptions } from './useVoterPack'
 import { savedListUnshadeableCriteria } from './savedListFilters'
 import CreateListFlow from './createFlow/CreateListFlow'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
-import { CONFIRM_PEEK_TOP_PCT } from './createFlow/createFlowSteps'
+import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PolygonRing } from './VoterMapCanvas'
 import type { PolygonStats } from './filterEngine'
@@ -36,14 +36,20 @@ import type { PolygonStats } from './filterEngine'
 // Kept beside the panel because both halves are one surface's contract: an
 // agent changing what the draw step asks of the map changes this file, and the
 // orchestrator only ever spreads the result onto `VoterMapCanvas`.
-export const useCreateListDraw = (step: CreateFlowStep | null) => {
+export const useCreateListDraw = () => {
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [frameDrawToken, setFrameDrawToken] = useState(0)
   const [pointCount, setPointCount] = useState(0)
-  const [hintDismissed, setHintDismissed] = useState(false)
   const [drawColor, setDrawColor] = useState<string>(TURF_COLORS[0])
+  // Whether the map is uncovered and being drawn on. It belongs here rather
+  // than inside the flow for the reason everything else in this hook does: it
+  // is a fact about what the CANVAS is doing. The draw step's shielded preview
+  // window and the full-screen drawing surface are the same map in two states,
+  // and the map outlives the panel that switches between them — the page also
+  // reads it to decide whether maplibre's own controls are reachable.
+  const [fullScreen, setFullScreen] = useState(false)
 
   return {
     startDrawToken,
@@ -52,79 +58,36 @@ export const useCreateListDraw = (step: CreateFlowStep | null) => {
     frameDrawToken,
     pointCount,
     onPointCount: setPointCount,
-    // The colour the confirm step is picking, drawn on the ring it is picking it
-    // for. Also handed back down to the flow, which renders the swatches.
+    // The colour a new list is drawn in. Auto-assigned rather than picked —
+    // the canvas's confirm step is a single name field — but still the map's
+    // to know, because it tints the ring while it is being cut.
     drawColor,
-    onDrawColorChange: setDrawColor,
-    // What the confirm sheet covers, since the peek is stated as the fraction it
-    // leaves uncovered. Read off the sheet's own constant so its height and the
-    // camera's padding cannot come to describe different bands.
-    frameDrawBottomPct: 100 - CONFIRM_PEEK_TOP_PCT,
-    // Entering a step that covers part of the map: put the shape in what is
-    // left. Not fired by the ring changing — the canvasser is the one framing it
-    // while they draw.
-    frameDrawing: () => setFrameDrawToken((token) => token + 1),
-    // A first-run coach mark, so it is gone the moment a point exists.
-    hintVisible: step === 'draw' && !hintDismissed && pointCount === 0,
-    dismissHint: () => setHintDismissed(true),
-    // Entering the draw step: a fresh drawing session, and a canvasser who has
-    // not seen the gesture yet.
-    startDrawing: () => {
-      setStartDrawToken((token) => token + 1)
-      setHintDismissed(false)
+    // Nothing covers the map on the drawing surface, so the ring is fitted
+    // into the whole of it.
+    frameDrawBottomPct: 0,
+    fullScreen,
+    // Uncovering the map: put the shape back in view. Coming back to the
+    // drawing surface from the confirm step is the case that needs it — the
+    // camera has not moved, but a candidate who has been reading a form for a
+    // minute has no idea where their boundary is. Not fired by the ring
+    // changing: while they draw, the canvasser is the one aiming the camera.
+    setFullScreen: (full: boolean) => {
+      setFullScreen(full)
+      if (full) setFrameDrawToken((token) => token + 1)
     },
-    // Clear reuses the start token, because a restarted drawing session (empty
-    // ring, still in draw mode) is exactly the state Clear returns to; bumping
-    // the clear token too would run deleteAll AFTER draw_polygon is entered and
-    // kill the fresh session. The instruction card stays dismissed on purpose —
-    // someone who just cleared has already learned the gesture.
-    clearPoints: () => setStartDrawToken((token) => token + 1),
+    // Entering the draw step: a fresh drawing session.
+    startDrawing: () => setStartDrawToken((token) => token + 1),
     undoPoint: () => setUndoDrawToken((token) => token + 1),
     // Leaving the flow entirely: empty the shape rather than restart a session.
-    // The colour resets with it, which the confirm step used to get for free by
-    // being unmounted — this hook outlives the flow, so what the unmount did has
-    // to be said out loud. Same asymmetry `hiddenTurfIds` records on the page.
+    // The colour and the drawing surface reset with it, which a component that
+    // was unmounted would get for free — this hook outlives the flow, so what
+    // the unmount did has to be said out loud.
     clearDrawing: () => {
       setClearDrawToken((token) => token + 1)
       setDrawColor(TURF_COLORS[0])
+      setFullScreen(false)
     },
   }
-}
-
-// The draw step's coach mark, rendered over the map band rather than inside the
-// flow's own chrome — it names the gesture the canvas exists for. A full-inset
-// button so the dismissing tap can't also drop a stray vertex.
-export const DrawHintOverlay = ({
-  visible,
-  onDismiss,
-}: {
-  visible: boolean
-  onDismiss: () => void
-}) => {
-  if (!visible) return null
-  return (
-    <button
-      type="button"
-      aria-label="Dismiss map instructions"
-      className="absolute inset-0 z-10 flex cursor-default items-center justify-center"
-      onClick={onDismiss}
-    >
-      <div className="mx-4 max-w-sm rounded-xl border border-border bg-background p-5 text-center shadow-lg">
-        <p className="font-semibold">Draw your knocking boundaries.</p>
-        {/* Both facts a tester hunting for a Done button needs: three points
-            is the minimum, and the shape closes itself. The Continue button
-            carries them too, for whoever dismissed this card on their first
-            tap. */}
-        <p className="mt-1 text-sm text-muted-foreground">
-          Tap three or more points around the doors you want to knock — the
-          shape closes itself. Drag any point to adjust it.
-        </p>
-        <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-info">
-          Tap the map to get started
-        </p>
-      </div>
-    </button>
-  )
 }
 
 // SEAM — the create-list flow (Wave 1B).
@@ -137,13 +100,18 @@ export const DrawHintOverlay = ({
 // district counts beside it, for the same reason: nothing outside this flow
 // asks that question either.
 //
-// The wizard is now purpose → who → draw → confirm plus a conditional name
-// step, and it grew those WITHOUT the orchestrator learning about them:
-// `CreateFlowStep` still has its three frozen values, and the three pre-draw
-// stages live inside `filters`. See `createFlow/createFlowSteps.ts` — the page
-// starts a drawing session on exactly the `filters` → `draw` transition, so
-// that pair has to stay the boundary between deciding an audience and cutting
-// a shape however many stages the deciding takes.
+// The wizard is purpose → who → draw → confirm → route, with a `name` step
+// that branches off the who step and ends the flow by saving a reusable
+// audience. The three pre-draw stages live inside the page's single `filters`
+// step, so that phase grew without the orchestrator learning about them. See
+// `createFlow/createFlowSteps.ts` — the page starts a drawing session on
+// exactly the `filters` → `draw` transition, so that pair has to stay the
+// boundary between deciding an audience and cutting a shape however many
+// stages the deciding takes.
+//
+// The route step is a page step rather than a fourth hidden stage because it
+// is on the far side of `confirm`, and the page reads `step` to decide what
+// covers the map.
 //
 // The orchestrator owns: the map, and therefore everything the map also reads.
 // `filters` shades dots while the flow is open and `ring` comes back off the
@@ -169,16 +137,29 @@ export interface CreateListSurfaceProps {
   // from three points, so this is the only thing that knows there is a one- or
   // two-point shape to undo.
   drawPointCount: number
-  // Undo / Clear are requests to the canvas, which owns the in-progress ring.
+  // Undo is a request to the canvas, which owns the in-progress ring. There is
+  // no Clear beside it: the canvas's drawing surface offers one control, and
+  // repeated Undo is what empties a shape.
   onUndoPoint: () => void
-  onClearPoints: () => void
-  // The colour the confirm step's picker is on. Up on the page for the same
-  // reason the ring is: the canvas tints the boundary with it, and a candidate
-  // choosing the colour their list will be drawn in with the map hidden is the
-  // defect this closes. The flow still draws the swatches and reports the pick.
+  // Whether the map is uncovered and live. Owned by `useCreateListDraw` above
+  // — it is a fact about the canvas, which outlives this surface.
+  drawFullScreen: boolean
+  onDrawFullScreenChange: (full: boolean) => void
+  // Discarding the drawn boundary. Bumps `startDrawToken` rather than
+  // `clearDrawToken`: the canvas keeps a live drawing session behind the draw
+  // step's shield, and clearing would end it and leave a map nothing can be
+  // drawn on. Up on the page with the other draw tokens for the usual reason —
+  // the map outlives this surface.
+  onRestartDrawing: () => void
+  // The colour the new list will be drawn in. Auto-assigned, not picked: the
+  // canvas's confirm step is a single name field, and a list's colour stays
+  // editable in `EditTurfDialog`. Up on the page because the canvas tints the
+  // boundary with it while the shape is being cut.
   color: string
-  onColorChange: (color: string) => void
-  onSaved: (drawAnother: boolean) => void
+  // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
+  // suggestion. From the pack, which is the orchestrator's.
+  drawnStops: Array<[number, number]> | null
+  onListCreated: (turf: DoorKnockingTurf) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
@@ -207,10 +188,12 @@ export default function CreateListSurface({
   turfStats,
   drawPointCount,
   onUndoPoint,
-  onClearPoints,
+  drawFullScreen,
+  onDrawFullScreenChange,
+  onRestartDrawing,
   color,
-  onColorChange,
-  onSaved,
+  drawnStops,
+  onListCreated,
   isElectedOfficial,
   unpreviewableKeys,
   preselectedListId,
@@ -332,15 +315,12 @@ export default function CreateListSurface({
       onRetryAddresses={() => void previewQuery.refetch()}
       drawPointCount={drawPointCount}
       onUndoPoint={onUndoPoint}
-      onClearPoints={onClearPoints}
+      drawFullScreen={drawFullScreen}
+      onDrawFullScreenChange={onDrawFullScreenChange}
+      onRestartDrawing={onRestartDrawing}
       color={color}
-      onColorChange={onColorChange}
-      onSaved={(drawAnother) => {
-        // A saved list is finished business, so the next shape is asked about
-        // from scratch — same rule as backing out to the filters.
-        if (drawAnother) setPreviewRing(null)
-        onSaved(drawAnother)
-      }}
+      drawnStops={drawnStops}
+      onListCreated={onListCreated}
       isElectedOfficial={isElectedOfficial}
       unpreviewableKeys={unpreviewableKeys}
       preselectedListId={preselectedListId}

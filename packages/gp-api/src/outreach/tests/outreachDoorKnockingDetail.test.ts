@@ -65,17 +65,20 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
     })
   })
 
-  // The frozen chain the knock transaction writes, built directly rather than
-  // through the knock endpoint: this suite is about the READ, and going
-  // through the knock would put a stubbed Geoapify plan between the fixture
-  // and the assertion.
+  // The frozen chain the create transaction writes, built directly rather than
+  // through the endpoint: this suite is about the READ, and going through the
+  // create would put a stubbed Geoapify plan between the fixture and the
+  // assertion.
+  //
+  // `completed` and `archivedAt` land on the ENVELOPE, which is where the
+  // lifecycle lives — the turf has no columns for them any more.
   const knockedTurf = async ({
-    completedAt = null,
+    completed = false,
     archivedAt = null,
     deletedAt = null,
     name = 'Elm St walk',
   }: {
-    completedAt?: Date | null
+    completed?: boolean
     archivedAt?: Date | null
     deletedAt?: Date | null
     name?: string
@@ -86,8 +89,6 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
         name,
         color: '#22aa55',
         geoPoly: GEO_POLY,
-        completedAt,
-        archivedAt,
         deletedAt,
       },
     })
@@ -145,11 +146,14 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
         campaignId: campaign.id,
         organizationSlug: orgSlug,
         outreachType: OutreachType.nativeDoorKnocking,
-        status: OutreachStatus.in_progress,
+        status: completed
+          ? OutreachStatus.completed
+          : OutreachStatus.in_progress,
         name,
         voterFileFilterId: filter.id,
         doorKnockingRouteId: route.id,
         date: new Date(),
+        archivedAt,
       },
     })
     return { turf, route, outreach }
@@ -233,20 +237,21 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
     })
   })
 
-  // The whole reason for the reverse edge: these live on the turf, and the
-  // envelope's own columns are mirrors written off them.
-  it('carries the turf lifecycle rather than the envelope mirror', async () => {
-    const completedAt = new Date('2026-08-01T12:00:00.000Z')
+  // The block restates the envelope's own lifecycle so a caller holding it
+  // does not have to reach back out for two fields. It used to restate the
+  // TURF's, specifically because the envelope carried only a mirror that could
+  // fall behind — there is one row now, so the block and the row it decorates
+  // cannot disagree, and this asserts they don't.
+  it('carries the lifecycle off the envelope it decorates', async () => {
     const archivedAt = new Date('2026-08-02T12:00:00.000Z')
-    const { outreach } = await knockedTurf({ completedAt, archivedAt })
+    const { outreach } = await knockedTurf({ completed: true, archivedAt })
 
     const data = await detail(outreach.id)
 
-    expect(data.doorKnocking?.completedAt).toEqual(completedAt.toISOString())
+    expect(data.doorKnocking?.completed).toBe(true)
     expect(data.doorKnocking?.archivedAt).toEqual(archivedAt.toISOString())
-    // The envelope itself was never mirrored in this fixture, which is the
-    // pre-mirror drift the drawer must read past rather than reproduce.
-    expect(data.archivedAt).toBeNull()
+    expect(data.status).toBe(OutreachStatus.completed)
+    expect(data.archivedAt).toEqual(archivedAt.toISOString())
   })
 
   // A hard delete would cascade the paid route and the envelope away; a

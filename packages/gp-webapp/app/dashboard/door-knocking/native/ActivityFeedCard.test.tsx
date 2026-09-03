@@ -24,8 +24,9 @@ const doorKnock = (
   },
 })
 
+// `panelCard('Activity Feed','trending-up', …)` — the canvas's capital F.
 const card = () =>
-  screen.getByRole('heading', { name: 'Activity feed' }).parentElement!
+  screen.getByRole('heading', { name: 'Activity Feed' }).parentElement!
 
 describe('ActivityFeedCard', () => {
   // "We have never been here" is a thing the card has to say out loud. An

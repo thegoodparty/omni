@@ -359,8 +359,12 @@ document.getElementById('optimize').addEventListener('click', async () => {
   feats.push({ type: 'Feature',
     geometry: { type: 'LineString', coordinates: pathCoords }, properties: {} });
   map.getSource('route').setData({ type: 'FeatureCollection', features: feats });
+  // Stops plus the end anchor, priced the way Geoapify prices locations:
+  // squared under ten of them, ten each from there up.
+  const locations = seq + 1;
+  const credits = locations < 10 ? locations * locations : locations * 10;
   document.getElementById('order-stats').innerHTML =
-    `order for ${seq} stops in ${ms}s (${(seq + 1) * 10} credits)<br>` +
+    `order for ${seq} stops in ${ms}s (${credits} credits)<br>` +
     `walk: ${(p.distance / 1000).toFixed(1)}km, ${(p.time / 3600).toFixed(1)}h + door time`;
 });
 """

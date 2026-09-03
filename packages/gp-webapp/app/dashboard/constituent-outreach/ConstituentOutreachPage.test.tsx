@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import type {
   ServePhoneBankingCreate,
   ServePhoneBankingScriptDraftRequest,
@@ -180,11 +181,10 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(table.getByText('In progress')).toBeInTheDocument()
   })
 
-  // Social and phone banking are the wired cards (ENG-10970/ENG-10987) —
-  // door knocking has no row type yet, so a door-knocking row must not
-  // present as a dead clickable element (no role="button", no tabIndex, no
-  // pointer cursor).
-  it('renders a non-social row as plain, non-interactive content', () => {
+  // A walk opens the same drawer its Win counterpart does, because 3.0 gives
+  // every turf an `Outreach` envelope — including a Serve org's, which the old
+  // `if (campaign)` skipped — so a Serve row finally has a detail to show.
+  it('opens a door-knocking row like every other wired channel', () => {
     const outreaches: HistoryRow[] = [
       {
         id: 1,
@@ -199,6 +199,27 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
 
     const row = within(desktopTable())
       .getByText('Elm & Cedar walk')
+      .closest('tr')
+    expect(row).toHaveAttribute('role', 'button')
+  })
+
+  // The channels that stay out are the paid ones, and a row for either is
+  // still a dead end rather than a dead clickable element.
+  it('renders an unwired row as plain, non-interactive content', () => {
+    const outreaches: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-08-20',
+        outreachType: 'text',
+        name: 'Budget update blast',
+        status: 'completed',
+      },
+    ]
+
+    render(<ConstituentOutreachPage outreaches={outreaches} />)
+
+    const row = within(desktopTable())
+      .getByText('Budget update blast')
       .closest('tr')
     expect(row).not.toHaveAttribute('role', 'button')
     expect(row).not.toHaveAttribute('tabindex')
@@ -218,13 +239,11 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('opens the social flow (serve surface) when the Social media card is clicked, with no Door knocking card', async () => {
+  it('opens the social flow (serve surface) when the Social media card is clicked', async () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
     expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
-    expect(
-      screen.queryByRole('button', { name: /Door knocking/ }),
-    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Door knocking/ })).toBeEnabled()
 
     await user.click(screen.getByText('Social media'))
 
@@ -233,6 +252,22 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(
       await screen.findByText('Explain a recent decision'),
     ).toBeInTheDocument()
+  })
+
+  // Door knocking is the one Serve channel that leaves this page rather than
+  // opening a flow on it: its surface is the map, which decides Win-or-Serve
+  // for itself from the same predicate its page gate uses to grant access.
+  it('navigates to the map when the Door knocking card is clicked', async () => {
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    await user.click(screen.getByText('Door knocking'))
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1',
+    )
+    expect(
+      screen.queryByText('Explain a recent decision'),
+    ).not.toBeInTheDocument()
   })
 
   it('opens the phone banking flow (serve surface) when the Phone banking card is clicked', async () => {
