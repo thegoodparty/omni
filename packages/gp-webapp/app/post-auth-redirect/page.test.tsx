@@ -153,6 +153,73 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/login'))
   })
 
+  it('routes to /team-invite ahead of an otherwise-active candidate status when Clerk publicMetadata carries a valid pending invite', async () => {
+    const clerkMod = await import('@clerk/nextjs')
+    vi.mocked(clerkMod.useUser).mockReturnValueOnce({
+      isSignedIn: true,
+      isLoaded: true,
+      user: {
+        primaryEmailAddress: { emailAddress: 'invitee@example.com' },
+        publicMetadata: {
+          organizationSlug: 'org-one',
+          role: 'campaignAdmin',
+          name: 'Invitee Name',
+          invitedByUserId: 7,
+        },
+      },
+    } as any)
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: 'candidate', slug: 'org-one' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/team-invite'))
+  })
+
+  it('ignores malformed Clerk publicMetadata and falls through to the normal candidate routing', async () => {
+    const clerkMod = await import('@clerk/nextjs')
+    vi.mocked(clerkMod.useUser).mockReturnValueOnce({
+      isSignedIn: true,
+      isLoaded: true,
+      user: {
+        primaryEmailAddress: { emailAddress: 'user@example.com' },
+        // Missing required fields (role, name, invitedByUserId) — must never
+        // be treated as a pending invite.
+        publicMetadata: { organizationSlug: 'org-one' },
+      },
+    } as any)
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: 'candidate', slug: 'org-one' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+  })
+
   it('signup source + fresh createdAt: fires trackRegistrationCompleted and submits the CRM registration with the hubspotutk', async () => {
     setLocation('?source=signup')
     mockGetCookie.mockImplementation((name) =>

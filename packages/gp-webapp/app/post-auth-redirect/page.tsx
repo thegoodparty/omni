@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useUser as useClerkUser } from '@clerk/nextjs'
+import { TeamInviteMetadataSchema } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import {
@@ -192,11 +193,20 @@ const PostAuthRedirectPage = () => {
           }
         }
 
+        // Nothing client-side is trusted for the accept itself — gp-api
+        // re-reads Clerk at accept time — but a successful schema parse is
+        // enough to justify a routing detour, so a malformed/absent
+        // publicMetadata value can never hijack sign-in routing.
+        const hasPendingTeamInvite = TeamInviteMetadataSchema.safeParse(
+          clerkUser?.publicMetadata,
+        ).success
+
         const resolvedPath = resolvePostAuthRedirectPath(
           user,
           campaignStatus,
           hasElectedOffice,
           electedOfficeOnboardingComplete,
+          hasPendingTeamInvite,
         )
         // Honor the explicit deep-link destination now that the org slug cookie
         // is set and the session is established. Re-derive a same-origin
