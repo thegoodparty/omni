@@ -14,7 +14,7 @@ import {
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
 } from '@goodparty_org/contracts'
-import { addDays, format } from 'date-fns'
+import { addDays, format, subDays } from 'date-fns'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
@@ -42,8 +42,11 @@ type RegistrationNames = {
 // timeboxed so a stalling vendor can never hold the queue or review page.
 const VENDOR_READ_TIMEOUT_MS = 10_000
 
-const timeboxed = <T>(read: Promise<T>): Promise<T> =>
-  Promise.race([
+const timeboxed = <T>(read: Promise<T>): Promise<T> => {
+  // A read that loses the race is abandoned, not cancelled — hold its
+  // eventual rejection so it can't surface as an unhandled rejection.
+  void read.catch(() => undefined)
+  return Promise.race([
     read,
     new Promise<never>((_, reject) => {
       const timer = setTimeout(
@@ -53,6 +56,9 @@ const timeboxed = <T>(read: Promise<T>): Promise<T> =>
       timer.unref?.()
     }),
   ])
+}
+
+const DATE_FMT = 'yyyy-MM-dd'
 
 // The CAS approval back office (gp-admin). Scope is deliberately the cancel
 // window: a p2p row at spine `pending` with a vendor job — the state where
@@ -125,10 +131,13 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       timeboxed(
         // Scoped to the row's lifetime: Peerly scans the requested span
         // server-side, and the default THIS_YEAR over a busy account is
-        // what stalled this read for minutes.
+        // what stalled this read for minutes. Window mirrors the inbound
+        // sweep's convention — padded a day each side (Peerly evaluates
+        // the range in its account timezone) and anchored on the send
+        // date (a backdated row's events can predate createdAt).
         this.peerlyP2pJobService.getJobDetailedStats(row.projectId, {
-          startDate: format(row.createdAt, 'yyyy-MM-dd'),
-          endDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+          startDate: format(subDays(row.date ?? row.createdAt, 1), DATE_FMT),
+          endDate: format(addDays(new Date(), 1), DATE_FMT),
         }),
       ).catch((err: Error): SmsAdminJobStats | null => {
         this.logger.warn(

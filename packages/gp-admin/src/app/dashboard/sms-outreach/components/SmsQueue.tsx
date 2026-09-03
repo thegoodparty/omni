@@ -196,9 +196,12 @@ export function SmsQueue({ items }: SmsQueueProps) {
               <Table.Row
                 key={item.id}
                 className="cursor-pointer hover:bg-[var(--gray-a2)]"
-                onClick={() =>
+                onClick={(event) => {
+                  // Leave modified clicks alone — the campaign link is the
+                  // open-in-new-tab affordance; the row must not hijack.
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) return
                   router.push(`/dashboard/sms-outreach/${item.id}`)
-                }
+                }}
               >
                 <Table.Cell>
                   <Flex direction="column">
@@ -212,6 +215,7 @@ export function SmsQueue({ items }: SmsQueueProps) {
                   <Link
                     href={`/dashboard/sms-outreach/${item.id}`}
                     className="text-[var(--accent-11)] hover:underline"
+                    onClick={(event) => event.stopPropagation()}
                   >
                     {item.name ?? `Campaign ${item.id}`}
                   </Link>

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Theme } from '@radix-ui/themes'
 import type { SmsApprovalQueueItem } from '@goodparty_org/contracts'
@@ -19,6 +19,23 @@ vi.mock('next/navigation', () => ({
     push: mockPush,
   }),
 }))
+// Plain anchor so clicking the campaign link in jsdom exercises our
+// bubbling behavior instead of Next's router internals.
+vi.mock('next/link', () => ({
+  default: ({
+    href,
+    children,
+    ...props
+  }: React.ComponentProps<'a'> & { href: string }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}))
+
+beforeEach(() => {
+  mockPush.mockReset()
+})
 
 const item = (
   overrides: Partial<SmsApprovalQueueItem>
@@ -98,6 +115,28 @@ describe('SmsQueue', () => {
     // The whole row is clickable, not just the campaign link.
     await userEvent.click(screen.getByText('Jane Doe'))
     expect(mockPush).toHaveBeenCalledWith('/dashboard/sms-outreach/43')
+  })
+
+  it('does not double-navigate or hijack modified clicks', async () => {
+    render(
+      <Theme>
+        <SmsQueue items={[item({ id: 41 })]} />
+      </Theme>
+    )
+
+    // The campaign link owns its own navigation — the row handler must
+    // not push a second history entry on top of it.
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Likely voters — SMS' })
+    )
+    expect(mockPush).not.toHaveBeenCalled()
+
+    // Cmd/ctrl-click stays with the browser (open in new tab).
+    fireEvent.click(screen.getByText('Jane Doe'), { metaKey: true })
+    expect(mockPush).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByText('Jane Doe'))
+    expect(mockPush).toHaveBeenCalledTimes(1)
   })
 
   it('flags standards failures and vendor readiness problems', () => {
