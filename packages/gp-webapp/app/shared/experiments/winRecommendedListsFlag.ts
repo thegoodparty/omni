@@ -12,8 +12,11 @@ interface UseWinRecommendedListsFlagResult {
 // translation, SQL), so a list saved while the flag was on keeps resolving
 // after it flips off — this decides visibility, never behavior.
 //
-// Pass trackExposure=false on surfaces that read the flag but aren't the
-// treatment; the wizard's filter step is the treatment surface.
+// The treatment surface is the wizard's voter-file filter step, which is the
+// only place the groups render. CreateListWizard reads this with
+// trackExposure=false — its read only computes a prop, and the component
+// stays mounted for the whole contacts page — and fires the exposure itself
+// once that step is on screen.
 export const useWinRecommendedListsFlag = (
   trackExposure = true,
 ): UseWinRecommendedListsFlagResult => {
