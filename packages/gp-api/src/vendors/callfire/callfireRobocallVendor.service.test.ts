@@ -146,6 +146,40 @@ describe('CallfireRobocallVendor', () => {
       ).rejects.toBeInstanceOf(BadGatewayException)
     })
 
+    it('tolerates a transient BadGatewayException on one poll attempt and retries', async () => {
+      contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
+      contacts.getListStatus
+        .mockRejectedValueOnce(new BadGatewayException('gateway timeout'))
+        .mockResolvedValueOnce(listStatus({ size: 2 }))
+
+      const result = await vendor.loadAudience({
+        name: 'Robocall audience',
+        csvUrl: 'https://s3.example/audience.csv',
+        countryIso: 'US',
+      })
+
+      // The transient error is swallowed and the poll retries to ACTIVE.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({ audienceRef: '77', loadedCount: 2 })
+    })
+
+    it('throws when validation never settles within the poll window', async () => {
+      contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
+      contacts.getListStatus.mockResolvedValue(
+        listStatus({ isReady: false, status: 'VALIDATING' }),
+      )
+
+      await expect(
+        vendor.loadAudience({
+          name: 'Robocall audience',
+          csvUrl: 'https://s3.example/audience.csv',
+          countryIso: 'US',
+        }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      // Exhausts the full poll window (LIST_POLL_ATTEMPTS) before failing loudly.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(30)
+    })
+
     it('throws when the CSV download fails', async () => {
       vi.stubGlobal(
         'fetch',
