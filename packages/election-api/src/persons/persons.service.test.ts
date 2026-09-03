@@ -245,6 +245,49 @@ describe('PersonsService', () => {
     })
   })
 
+  // The one read here that serves a PII column, and the reason it can: it
+  // returns the address alone, so there is no wider payload for it to ride into
+  // a public page inside.
+  describe('getContactEmail', () => {
+    it('selects the email and nothing else', async () => {
+      findUnique.mockResolvedValue({ email: 'mayor@example.gov' })
+
+      const result = await service.getContactEmail(
+        '11111111-1111-1111-1111-111111111111',
+      )
+
+      expect(findUnique).toHaveBeenCalledWith({
+        where: { id: '11111111-1111-1111-1111-111111111111' },
+        select: { email: true },
+      })
+      expect(result).toEqual({
+        personId: '11111111-1111-1111-1111-111111111111',
+        email: 'mayor@example.gov',
+      })
+    })
+
+    it('reports a person with no address on file as null, not as an error', async () => {
+      // Ordinary: the person feed only carries an address where a source had
+      // one. The caller sends no CRM event rather than treating it as a fault.
+      findUnique.mockResolvedValue({ email: null })
+
+      await expect(
+        service.getContactEmail('11111111-1111-1111-1111-111111111111'),
+      ).resolves.toEqual({
+        personId: '11111111-1111-1111-1111-111111111111',
+        email: null,
+      })
+    })
+
+    it('throws NotFound when the person is unknown', async () => {
+      findUnique.mockResolvedValue(null)
+
+      await expect(
+        service.getContactEmail('11111111-1111-1111-1111-111111111111'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+  })
+
   describe('getPersonBySlug', () => {
     it('resolves by the 8-hex id suffix via an indexed range scan (not the slug column)', async () => {
       findMany.mockResolvedValueOnce([

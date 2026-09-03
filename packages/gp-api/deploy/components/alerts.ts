@@ -304,6 +304,63 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'people-completion-request-event-failing',
+    name: '[People] Profile completion nudge events failing',
+    type: 'metric',
+    // person_profile.completion_request_event.count{result="failed"} — the
+    // Segment event a HubSpot workflow sends the "complete your profile" email
+    // off. A lost event is a lost email, and nothing retries it: the emit is a
+    // detached side-effect of a claim request that has already been committed
+    // and answered, so the visitor's ask survives while the nudge silently does
+    // not. Volume here is low enough that any sustained failure is worth a look
+    // rather than needing a ratio.
+    expr: 'sum(rate(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    threshold: 0,
+    for: '15m',
+    message: [
+      'gp-api has been failing to emit profile completion-request events for 15 minutes.',
+      'Visitors are successfully asking unclaimed people to complete their profiles, but the Segment event that triggers the nudge email is not landing, and nothing retries it. Those asks are stored in `profile_claim_request` and can be replayed once the cause is fixed.',
+      'Click *View in Grafana* to see the failures, then check the log line "Profile completion request event failed" for the underlying error — a Segment outage or a bad SEGMENT_WRITE_KEY are the two shapes to expect. `result="no_email"` on the same metric is NOT a failure and does not fire this.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'people-completion-request-no-email-ratio',
+    name: '[People] Profile completion nudges undeliverable',
+    type: 'metric',
+    // `no_email` is normally a large, stable share: the person feed only carries
+    // an address where a source had one, and notify exists for the people we
+    // hold the least data on. So this does NOT alert on the level — it alerts on
+    // the level going almost total, which is the shape of a regression rather
+    // than of data coverage (election-api's contact-email route answering
+    // `{email: null}` for everyone, the M2M credential failing open to null, or
+    // the person feed dropping the column). That failure emits no `failed`
+    // samples at all, so the alert above cannot see it.
+    //
+    // 24h window because the volume is small; the `and` clause is a floor,
+    // since a ratio over a handful of submissions is noise. Under the floor the
+    // query returns no data, which grafana.ts maps to OK, not Alerting.
+    expr: [
+      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="no_email"}[24h]))',
+      '/',
+      'sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) )',
+      'and',
+      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) > 20 )',
+    ].join(' '),
+    threshold: 0.95,
+    for: '0m',
+    // The [24h] vector is only fully visible if the fetch window matches it.
+    timeRangeSeconds: 86400,
+    // A day-long window does not need minute resolution, and re-reading 24h
+    // every 60s for no added signal is the cost mistake documented on this
+    // field.
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'Over 95% of profile completion requests in the last 24 hours found no email address for the subject, across at least 20 submissions.',
+      'Some share here is normal — the civics person feed only holds an address where a source had one — but near-total means the lookup itself is likely broken rather than the data being thin. This fails silently: no address means no event, which is a deliberate skip, so no error is raised anywhere.',
+      'Click *View in Grafana*, then verify GET /v1/persons/:personId/contact-email on election-api returns an address for a person you know has one, and check the log line "Person contact email lookup failed" for M2M auth failures.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',

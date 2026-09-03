@@ -93,6 +93,33 @@ The cron enqueues the window in the SQS message itself, so manual triggering jus
 
 3. The consumer will query all campaigns, fire Segment events, and refresh the HubSpot contact fields. HubSpot's 5-day staleness check applies to whether the digest email sends — a manual recovery within ~5 days of the intended run should still trigger emails.
 
+## Public Profile Completion Requests
+
+When a visitor on a public `/people/*` page asks an unclaimed person to complete their profile, gp-api fires `Person Profile - Completion Requested`. A HubSpot workflow sends the nudge email off it.
+
+| Event Name                              | Resolves the contact by                                               | Fired From                                                                                                         |
+| --------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `Person Profile - Completion Requested` | `context.traits.email` — the **subject's** address, not the visitor's | `CrmPersonProfilesService.emitCompletionRequested` (detached from `POST /v1/public-person-profiles/claim-request`) |
+
+Why email and not `personId`: `gp_person_id` is not a unique property in HubSpot, so there is no 1:1 contact to resolve an event to. Email is unique there, which makes the address the only usable join key. The address comes from election-api's `Person.email` (populated by the data platform's person feed) via `GET /v1/persons/:personId/contact-email`, an M2M route that returns the address alone.
+
+The event is emitted server-side for that reason. gp-marketing already fires a browser-side `Person Profile Notify Submitted` for the same submission, but that one measures the funnel and must never carry the address — putting a candidate's email in a public page's network traffic is exactly what election-api's `PERSON_PII_COLUMNS` exists to prevent. The two events are not duplicates and should not be deduplicated against each other.
+
+Rules:
+
+- Only `notify` submissions (a visitor nudging someone else) fire it — an owner claiming their own page does not.
+- No address on file means no event: HubSpot cannot route it to anyone, so sending it would only orphan a record. Watch `person_profile_completion_request_event_count_total{result="no_email"}` — that share is the ceiling on deliverable nudges, and it moves with data coverage rather than with this code.
+- The claim request's id is the Segment `messageId`, which collapses a replay onto one email within Segment's deduplication window (~24h). That covers any retry; it is not a permanent guarantee.
+
+### This creates HubSpot contacts, and that costs attribution
+
+The people these forms appear on are unclaimed by definition, so most have no HubSpot contact. `CrmPersonProfilesService.syncClaimRequestCount` refuses to create one — a visitor nudging someone should not mint a CRM record for them — but the event half cannot honor that and still work: the nudge is only deliverable if a contact exists, so for exactly that population the cloud-mode destination creates it.
+
+Per "Signup Attribution: Forms API with hutk" below, a contact the Segment destination creates is attributed to **offline sources**, and original source is immutable after creation. So a candidate who gets nudged and later signs up through paid or organic search is permanently credited to the nudge instead. This is an accepted trade — an undeliverable nudge is worth less than the attribution — but two things follow from it:
+
+- Acquisition reporting on candidates who have a public profile is affected by this feature. Do not read offline-source growth there as a channel shift.
+- `person_profile_completion_request_contact_gap_count_total{result="new_contact"}` counts the contacts created this way, versus `existing_contact` for events that landed on a record that already existed. Check it before widening the feature; if `new_contact` dominates, the attribution cost is larger than the nudge volume suggests.
+
 ## Event Definitions
 
 File: `src/vendors/segment/segment.types.ts`
@@ -105,6 +132,7 @@ EVENTS.Outreach.CompliancePinSubmitted // 'Voter Outreach - 10DLC Compliance PIN
 EVENTS.Outreach.ComplianceCompleted // 'Voter Outreach - 10DLC Compliance Completed'
 EVENTS.Outreach.PeerlyIdentityIdCreated // 'Peerly Identity ID Created'
 EVENTS.CampaignPlan.WeeklyTasksDigest // 'Campaign Plan - Weekly Tasks Digest'
+EVENTS.PersonProfiles.CompletionRequested // 'Person Profile - Completion Requested'
 ```
 
 ## Segment Configuration

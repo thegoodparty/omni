@@ -42,8 +42,13 @@ export interface PersonIdentity {
 }
 
 /**
- * Resolves the public `/people/...` URL an operator was handed into the
- * personId the takedown endpoints are keyed by.
+ * Reads about a canonical person from election-api, over the M2M credential.
+ *
+ * Two jobs, both keyed off the civics person spine: resolving the public
+ * `/people/...` URL an operator was handed into the personId the takedown
+ * endpoints use, and resolving a personId to the contact email the CRM needs.
+ *
+ * The URL resolution, in detail:
  *
  * A privacy request arrives as "take down goodparty.org/people/jordan-reyes",
  * never as a UUID, and a mis-keyed UUID silently removes the wrong person's
@@ -104,6 +109,61 @@ export class PersonLookupService {
       fullName: this.displayName(person),
       state: person.state ?? null,
       office: this.currentOffice(person.OfficeHolders),
+    }
+  }
+
+  /**
+   * The person's contact email, for resolving their HubSpot contact.
+   *
+   * `Person.email` is PII that election-api refuses to put in any response a
+   * public page is rendered from, so it has a route of its own that returns the
+   * address and nothing else (`GET /v1/persons/:id/contact-email`, M2M). Do not
+   * widen this into a general person read — the narrowness is the safeguard.
+   *
+   * Null, never a throw, for every "we can't tell you" case: no such person, no
+   * address on file, election-api unreachable, base URL unset. The only caller
+   * is a detached CRM side-effect of a public form submission, so a failure
+   * here must cost the CRM signal and nothing else — and the alternative to an
+   * address is not an error, it is simply not sending an event we cannot route.
+   */
+  async resolveContactEmail(personId: string): Promise<string | null> {
+    if (!ELECTION_API_URL) {
+      this.logger.warn(
+        'ELECTION_API_URL is unset; cannot resolve person contact email',
+      )
+      return null
+    }
+
+    try {
+      const headers = await this.tokenService.authHeader()
+      const response = await lastValueFrom(
+        this.httpService.get<{ email: string | null }>(
+          `${ELECTION_API_URL}/v1/persons/${encodeURIComponent(personId)}/contact-email`,
+          { headers },
+        ),
+      )
+      return response.data?.email?.trim() || null
+    } catch (error) {
+      // A 404 is "no such person", which is a normal outcome here rather than
+      // an incident: the marketing page can outlive a person the spine has
+      // since re-keyed. Everything else is worth a line in the log.
+      if (isAxiosError(error) && error.response?.status === 404) {
+        return null
+      }
+      // Message and status only, deliberately NOT the error object: an axios
+      // error carries `response.data`, and this route's success body is the
+      // address itself. A 5xx body would not contain it and a 404 returns
+      // above, so logging the object is only a latent way to put a candidate's
+      // email in the logs.
+      this.logger.error(
+        {
+          personId,
+          status: isAxiosError(error) ? error.response?.status : undefined,
+          reason: error instanceof Error ? error.message : String(error),
+        },
+        'Person contact email lookup failed',
+      )
+      return null
     }
   }
 
