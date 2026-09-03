@@ -29,6 +29,17 @@ Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suff
 - **`PurchaseType` is the typed extension point.** Adding a new purchase kind: add to the enum, add a metadata type, register a `PurchaseHandler<Metadata>` (`validatePurchase` / `calculateAmount` / optional `getProductName` / `getProductDescription`) in `PurchaseService`. Don't add ad-hoc payment paths outside this module.
 - **External calls are wrapped in try/catch and throw `BadGatewayException`** (`.cursor/rules/rules.mdc` Rule 3). DB writes are not wrapped — let `PrismaExceptionFilter` handle them.
 - `forwardRef(() => CampaignsModule)` because purchase fulfillment touches campaign state.
+- **The owner line (ENG-10819): subscription billing is personally scoped,
+  one-time purchases are manager-allowed.** `checkout-session` and
+  `portal-session` carry no `@UseOrganization`/`@UseCampaign` — they resolve
+  the campaign/customer off the caller's own `userId`/`metaData`, so a
+  `campaignAdmin` member can never reach another user's subscription or
+  billing portal through them, regardless of the `X-Organization-Slug`
+  header. `create-checkout-session` and `complete-free-purchase` DO carry
+  that scoping, so `OrganizationRoleGuard`'s default (owner or
+  `campaignAdmin`) applies — a manager paying for a one-time purchase
+  (texts, domains, polls) with their own card is intentional (product
+  decision, 2026-07-28), not a gap. Neither route carries `@OwnerOnly()`.
 
 ## Pro subscription lifecycle
 

@@ -44,6 +44,19 @@ Auth state is enforced globally via three guards registered in order. Most route
   404ing every org-scoped route for admins mid-impersonation — `RolesGuard`/
   `AdminOrM2MGuard` use `effectiveUser` deliberately because they check the
   acting human's *global* roles, a different question from org membership.
+- **The team-role line is `OrganizationRoleGuard`
+  (`src/organizations/guards/OrganizationRole.guard.ts`)**, appended to
+  `UseOrganization`'s and `UseCampaign`'s own `UseGuards(...)` list so it
+  always runs after the scoping guard has attached
+  `request.organizationRole`. Default (no decorator): owner or
+  `campaignAdmin`. `@OwnerOnly()` narrows to owner. `@AllowVolunteer()`
+  admits any resolved member — currently unreachable in practice, since the
+  scoping guards above still fail closed on a volunteer membership before
+  this guard ever runs; Phase 1.5 opens specific surfaces by loosening those.
+  Deny is `ForbiddenException` (403), not 404 — the caller already proved
+  membership, so org existence isn't a secret from them. When
+  `request.organizationRole` is unset (no scoping guard ran, or it ran with
+  `continueIfNotFound` and found nothing), this guard passes through.
 
 ## Gotchas
 
