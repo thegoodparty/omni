@@ -1,17 +1,13 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
+import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 
 // Robocall script-draft purpose slugs, on the wire for
 // POST /v1/outreach/robocall/draft. The webapp's robocallPurposes.ts maps
 // these to the design's card copy. No "issue update" purpose (product call).
-export const ROBOCALL_PURPOSE_VALUES = [
-  'introduce_myself',
-  'persuade_voters',
-  'event_invite',
-  'early_voting',
-  'election_day_turnout',
-  'custom',
-] as const
+// Shares the canonical vocabulary (OutreachPurpose.schema.ts) with every
+// other outreach channel.
+export const ROBOCALL_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
 export const RobocallPurposeSchema = z.enum(ROBOCALL_PURPOSE_VALUES)
 export type RobocallPurpose = z.infer<typeof RobocallPurposeSchema>
 

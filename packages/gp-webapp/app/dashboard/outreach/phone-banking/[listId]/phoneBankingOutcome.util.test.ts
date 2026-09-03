@@ -52,7 +52,7 @@ const makeList = (entries: PhoneBankingListEntry[]): PhoneBankingList => ({
   name: 'Test list',
   script: 'Hi, this is...',
   sheetCount: 1,
-  purpose: 'introduce',
+  purpose: 'introduce_myself',
   createdAt: new Date('2026-01-01'),
   isServe: false,
   entries,

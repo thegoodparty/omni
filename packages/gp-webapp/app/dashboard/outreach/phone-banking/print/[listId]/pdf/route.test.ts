@@ -54,7 +54,7 @@ const buildList = (
   name: 'Elm & Cedar',
   script: 'Hi, this is a volunteer calling about the election.',
   sheetCount: 1,
-  purpose: 'introduce',
+  purpose: 'introduce_myself',
   createdAt: new Date('2026-07-21T00:00:00Z'),
   entries,
   ...overrides,

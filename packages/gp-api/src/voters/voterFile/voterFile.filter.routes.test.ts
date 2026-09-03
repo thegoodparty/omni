@@ -114,7 +114,7 @@ const seedCompletedNativePhoneBankingOutreach = async (
       name: 'PB seed list',
       script: 'Hi, this is a volunteer calling about the election.',
       sheetCount: 1,
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
     },
   })
   return service.prisma.outreach.create({

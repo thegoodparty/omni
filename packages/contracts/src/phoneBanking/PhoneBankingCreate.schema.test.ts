@@ -10,7 +10,7 @@ const base = {
   script: 'Hi, this is a volunteer calling on behalf of...',
   sheetCount: 1,
   voterFileFilterId: 42,
-  purpose: 'introduce' as const,
+  purpose: 'introduce_myself' as const,
 }
 
 describe('PhoneBankingCreateSchema', () => {
@@ -50,13 +50,13 @@ describe('PhoneBankingCreateSchema', () => {
   })
 
   it('rejects a serve-only purpose slug', () => {
-    const request = { ...base, purpose: 'explain-decision' }
+    const request = { ...base, purpose: 'explain_decision' }
     expect(() => PhoneBankingCreateSchema.parse(request)).toThrow()
   })
 })
 
 describe('ServePhoneBankingCreateSchema', () => {
-  const serveBase = { ...base, purpose: 'introduce' as const }
+  const serveBase = { ...base, purpose: 'introduce_myself' as const }
 
   it('accepts a saved-filter create request', () => {
     expect(() => ServePhoneBankingCreateSchema.parse(serveBase)).not.toThrow()
@@ -71,7 +71,7 @@ describe('ServePhoneBankingCreateSchema', () => {
     },
   )
 
-  it.each(['persuade', 'vote-early', 'election-day'])(
+  it.each(['persuade_voters', 'early_voting', 'election_day_turnout'])(
     'rejects the Win-only purpose slug %s',
     (purpose) => {
       expect(() =>

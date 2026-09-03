@@ -91,7 +91,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
   it('carries the opener-token floor rule (literal [your name] and voter-name tokens) in the system prompt', async () => {
     mockDraft('You: Hi. Voter: Hello.')
 
-    const res = await postDraft({ purpose: 'event', tone: 'warm' })
+    const res = await postDraft({ purpose: 'event_invite', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const { systemPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
@@ -101,7 +101,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
   })
 
   it('rejects a Win-only purpose slug without calling the LLM', async () => {
-    const res = await postDraft({ purpose: 'persuade', tone: 'warm' })
+    const res = await postDraft({ purpose: 'persuade_voters', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(jsonCompletion).not.toHaveBeenCalled()
   })
@@ -112,7 +112,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     })
 
     const res = await postDraft(
-      { purpose: 'event', tone: 'warm' },
+      { purpose: 'event_invite', tone: 'warm' },
       eoHeaders(bareOrg.slug),
     )
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
@@ -167,7 +167,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     mockDraft('You: A polished version. Voter: Great, thanks.')
 
     const res = await postDraft({
-      purpose: 'share-resource',
+      purpose: 'share_resource',
       tone: 'friendly',
       currentDraft: 'You: hi there. Voter: hi.',
     })
@@ -187,7 +187,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
 
     mockDraft('You: Hi. Voter: Hello.')
 
-    const res = await postDraft({ purpose: 'community-input', tone: 'direct' })
+    const res = await postDraft({ purpose: 'community_input', tone: 'direct' })
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(fetchSpy).not.toHaveBeenCalled()
 
@@ -198,7 +198,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
   it('maps an LLM failure to 502', async () => {
     jsonCompletion.mockRejectedValue(new Error('model unavailable'))
 
-    const res = await postDraft({ purpose: 'explain-decision', tone: 'urgent' })
+    const res = await postDraft({ purpose: 'explain_decision', tone: 'urgent' })
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 })
@@ -215,7 +215,7 @@ describe('Public Profile grounding (ENG-10982)', () => {
       },
     })
 
-    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
@@ -240,7 +240,7 @@ describe('Public Profile grounding (ENG-10982)', () => {
   it('degrades to the exact baseline prompt for an official with no PersonProfile row', async () => {
     mockDraft('You: Hi. Voter: Hello.')
 
-    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
@@ -248,7 +248,7 @@ describe('Public Profile grounding (ENG-10982)', () => {
       [
         `${SERVE_PHONE_BANKING_VOICE.nameLabel}: Johnny Goodparty.`,
         `${SERVE_PHONE_BANKING_VOICE.officeLabel}: local office.`,
-        SERVE_PHONE_BANKING_VOICE.purposePrompts.introduce,
+        SERVE_PHONE_BANKING_VOICE.purposePrompts.introduce_myself,
         `Tone: ${TONE_STYLES.warm}`,
         'Write the call script.',
       ].join('\n'),

@@ -98,7 +98,7 @@ describe('serve phone banking routes', () => {
     script: 'Hi, this is a call from the office.',
     sheetCount: 1,
     voterFileFilterId: filter.id,
-    purpose: 'introduce',
+    purpose: 'introduce_myself',
     ...overrides,
   })
 
@@ -148,7 +148,7 @@ describe('serve phone banking routes', () => {
       mockPeoplePage([fakePerson()])
       const res = await service.client.post(
         '/v1/phone-banking/serve/lists',
-        buildBody({ purpose: 'persuade' }),
+        buildBody({ purpose: 'persuade_voters' }),
         { ...eoHeaders(), validateStatus: () => true },
       )
       expect(res.status).toBe(400)
@@ -181,7 +181,7 @@ describe('serve phone banking routes', () => {
       const res = await service.client.post(
         '/v1/phone-banking/lists',
         buildBody({
-          purpose: 'explain-decision',
+          purpose: 'explain_decision',
           voterFileFilterId: winFilter.id,
         }),
         {

@@ -11,17 +11,17 @@ import {
 describe('SERVE_PHONE_BANKING_PURPOSES', () => {
   it('matches the canvas cards, in order', () => {
     expect(SERVE_PHONE_BANKING_PURPOSES).toEqual([
-      { id: 'introduce', label: 'Introduce myself to constituents' },
-      { id: 'explain-decision', label: 'Explain a recent decision' },
-      { id: 'event', label: 'Invite constituents to a local event' },
-      { id: 'community-input', label: 'Ask for community input' },
-      { id: 'share-resource', label: 'Share a resource or service' },
+      { id: 'introduce_myself', label: 'Introduce myself to constituents' },
+      { id: 'explain_decision', label: 'Explain a recent decision' },
+      { id: 'event_invite', label: 'Invite constituents to a local event' },
+      { id: 'community_input', label: 'Ask for community input' },
+      { id: 'share_resource', label: 'Share a resource or service' },
       { id: 'custom', label: 'Write my own script' },
     ])
   })
 
   it('falls back for a slug it does not know', () => {
-    expect(servePhoneBankingPurposeLabel('introduce')).toBe(
+    expect(servePhoneBankingPurposeLabel('introduce_myself')).toBe(
       'Introduce myself to constituents',
     )
     expect(servePhoneBankingPurposeLabel('not-a-purpose')).toBe(
@@ -32,10 +32,10 @@ describe('SERVE_PHONE_BANKING_PURPOSES', () => {
 
 describe('SERVE_PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS', () => {
   it('suggests a short campaign name, not the card copy', () => {
-    expect(servePhoneBankingPurposeNameSuggestion('explain-decision')).toBe(
+    expect(servePhoneBankingPurposeNameSuggestion('explain_decision')).toBe(
       'Decision update calls',
     )
-    expect(servePhoneBankingPurposeNameSuggestion('introduce')).toBe(
+    expect(servePhoneBankingPurposeNameSuggestion('introduce_myself')).toBe(
       'Introduction calls',
     )
     expect(servePhoneBankingPurposeNameSuggestion('not-a-purpose')).toBe(
