@@ -100,6 +100,11 @@ export const stop = (
     {
       addressKey: '105|elm|st',
       address: '105 Elm St',
+      // A single-family house, which is what carries no unit — the stop's
+      // `displayAddress` above and this whole address are the same street line,
+      // and there is no door number to tell anything apart. The multi-unit
+      // shapes are built per test, where the units are the point.
+      unit: '',
       targets: [target()],
       otherResidents: [],
     },

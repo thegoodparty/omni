@@ -234,7 +234,24 @@ export const RoutePayloadAddressSchema = z.object({
   addressKey: z.string(),
   // Frozen at the lock (the addressKey's address line) — never re-derived
   // from live data, so the walk view matches what was routed.
+  //
+  // The WHOLE address, street line included, because the surfaces without a
+  // stop heading above them need one: the printed walk sheet and the PDF put
+  // one row per door on paper, and "Apt 8309" on its own names no house.
   address: z.string(),
+  // Just the unit — "Apt 8309" — and empty for a single-family house.
+  //
+  // Its own field rather than something the client slices off `address`,
+  // because only the key knows where the street line ends: `AddressLine`
+  // arrives with the unit already in it, so the split is a subtraction the
+  // server does against `ApartmentNum` and cannot be redone downstream
+  // without shipping the apartment too.
+  //
+  // The walk view's door rows render this alone, since the stop above them
+  // already carries the street. Empty is the signal that a door needs no row
+  // at all: with one unnamed door under a stop there is nothing to tell apart,
+  // so the list goes straight to its residents.
+  unit: z.string(),
   targets: z.array(RoutePayloadTargetSchema),
   // Live household context, deliberately name-only — the demographic profile
   // above is for targets alone.
@@ -248,6 +265,18 @@ export const RoutePayloadStopSchema = z.object({
   seq: z.number().int(),
   lat: z.number(),
   lng: z.number(),
+  // The street line alone — "205 Benton Dr", never "205 Benton Dr Apt 8309".
+  //
+  // A stop is a coordinate and an apartment building is one coordinate with
+  // many doors, so naming the stop after a single unit picked whichever
+  // resident happened to sort first and then labelled the whole building with
+  // their apartment. The units live on `addresses[].unit` below, where a
+  // canvasser can read them as the list of doors they actually are.
+  //
+  // Derived at serve time rather than read straight from the frozen column,
+  // which still holds the unit: routes created before this was a distinction
+  // would otherwise keep announcing one door's apartment as the building's
+  // name for as long as they exist.
   displayAddress: z.string(),
   legSeconds: z.number().int(),
   legMeters: z.number().int(),

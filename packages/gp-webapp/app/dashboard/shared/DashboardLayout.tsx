@@ -43,6 +43,17 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
+  // Drops the campaign-manager chat dock for a route that owns the bottom of
+  // the viewport itself. Door knocking's walk is one: its person sheet ends in
+  // the knock-log footer — the "Did they answer?" ladder and the not-a-voter
+  // control — and the dock's fixed bar paints over exactly that strip, leaving
+  // a canvasser standing at a door with no control to record what happened.
+  // Same class of conflict as the Serve orgs DashboardCampaignManagerChat
+  // already skips. Separate from `hideMenu` on purpose: website/create,
+  // website/domain, website/editor and purchase all hide the menu and are
+  // entitled to the manager, so one flag for both would take the dock off four
+  // routes that never asked.
+  hideChatDock?: boolean
   navHeader?: DashboardNavHeaderConfig
 }
 
@@ -52,6 +63,7 @@ const DashboardLayout = ({
   campaign,
   wrapperClassName = '',
   hideMenu = false,
+  hideChatDock = false,
   navHeader,
 }: DashboardLayoutProps): React.JSX.Element | null => {
   const [user] = useUser()
@@ -118,6 +130,18 @@ const DashboardLayout = ({
     }
   }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
 
+  const pageBody = (
+    <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
+      <ProUpgradePrompt
+        campaign={activeCampaign}
+        user={user}
+        pathname={currentPath || undefined}
+        isElectedOffice={!!organization?.electedOfficeId}
+      />
+      {children}
+    </div>
+  )
+
   return (
     <EcanvasserProvider>
       <SidebarProvider>
@@ -140,17 +164,13 @@ const DashboardLayout = ({
             />
           )}
           <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
-            <DashboardCampaignManagerChat>
-              <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
-                <ProUpgradePrompt
-                  campaign={activeCampaign}
-                  user={user}
-                  pathname={currentPath || undefined}
-                  isElectedOffice={!!organization?.electedOfficeId}
-                />
-                {children}
-              </div>
-            </DashboardCampaignManagerChat>
+            {hideChatDock ? (
+              pageBody
+            ) : (
+              <DashboardCampaignManagerChat>
+                {pageBody}
+              </DashboardCampaignManagerChat>
+            )}
           </NavHeaderActionSlotContext.Provider>
         </SidebarInset>
       </SidebarProvider>

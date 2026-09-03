@@ -369,15 +369,19 @@ export default function PersonSheet({
                 {stop.displayAddress}
               </h2>
               {/* A block of flats: which door of it, under the building's
-                  address. The canvas's `doors.length>1 && …door.label`. */}
-              {stop.addresses.length > 1 && addressOfTarget && (
+                  address. The canvas's `doors.length>1 && …door.label`.
+                  Conditioned on the unit rather than on having sibling doors,
+                  the same way the walk list's rows are — the heading above is
+                  the building, so a lone apartment would otherwise be the one
+                  door whose number is nowhere on the panel opened at it. */}
+              {addressOfTarget?.unit && (
                 <p className="mt-0.5 flex items-center gap-1 truncate text-[13px] font-medium text-muted-foreground">
                   <DoorClosedIcon
                     size={14}
                     aria-hidden="true"
                     className="shrink-0"
                   />
-                  {addressOfTarget.address}
+                  {addressOfTarget.unit}
                 </p>
               )}
             </div>
@@ -488,7 +492,15 @@ export default function PersonSheet({
             <div className="flex flex-col gap-4 p-4 text-sm">
               <div>
                 <p className="text-sm text-muted-foreground">Address</p>
-                <p className="text-sm font-medium">{stop.displayAddress}</p>
+                {/* This resident's whole address, unit included, and the one
+                    place on the panel that spells it out. The heading is the
+                    building and the line under it is the unit, which is the
+                    right split for reading a list at a doorstep and the wrong
+                    one for the field a canvasser copies into a CRM note or
+                    reads down a phone. */}
+                <p className="text-sm font-medium">
+                  {addressOfTarget?.address ?? stop.displayAddress}
+                </p>
               </div>
               {/* Second, immediately under the address, where the canvas puts
                   it — the address and the way to get there are one thought.

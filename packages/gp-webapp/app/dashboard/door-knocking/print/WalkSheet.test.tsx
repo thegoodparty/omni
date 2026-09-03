@@ -19,6 +19,12 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
     {
       addressKey: '105|elm|st',
       address: '105 Elm St',
+      // A house: the stop's `displayAddress` is the street line, this address is
+      // the same street line, and there is no unit between them. Every fixture
+      // below that overrides `addresses` keeps that agreement — the multi-unit
+      // ones put the units on the doors and leave the building on the stop,
+      // which is the split this page has to print whole on every row.
+      unit: '',
       targets: [
         {
           stopTargetId: 21,
@@ -166,6 +172,7 @@ describe('WalkSheet', () => {
         {
           addressKey: '105|elm|st|1a',
           address: '105 Elm St Apt 1A',
+          unit: 'Apt 1A',
           targets: [
             {
               stopTargetId: 31,
@@ -197,6 +204,7 @@ describe('WalkSheet', () => {
         {
           addressKey: '105|elm|st|1b',
           address: '105 Elm St Apt 1B',
+          unit: 'Apt 1B',
           targets: [
             {
               stopTargetId: 33,
@@ -226,7 +234,23 @@ describe('WalkSheet', () => {
   // Paper is walked in order, and the payload isn't guaranteed to arrive in it.
   it('prints stops in seq order', () => {
     renderSheet([
-      stop({ id: 12, seq: 2, displayAddress: '210 Cedar Row' }),
+      stop({
+        id: 12,
+        seq: 2,
+        displayAddress: '210 Cedar Row',
+        // The door moves with the stop's line. Every row prints the door's own
+        // whole address now rather than falling back to the stop's, so a stop
+        // renamed without its addresses prints Elm St under a stop called Cedar
+        // Row — and this test would then be asserting the order of one address
+        // against itself.
+        addresses: [
+          {
+            ...stop().addresses[0]!,
+            addressKey: '210|cedar|row',
+            address: '210 Cedar Row',
+          },
+        ],
+      }),
       stop({ id: 11, seq: 1, displayAddress: '105 Elm St' }),
     ])
 
@@ -247,6 +271,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               {
                 stopTargetId: 21,
@@ -379,6 +404,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               {
                 ...resident,
@@ -480,6 +506,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               {
                 stopTargetId: 21,
@@ -519,6 +546,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               {
                 stopTargetId: 21,
@@ -570,6 +598,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               { ...resident, stopTargetId: 21, doNotKnock: false },
               {
@@ -611,6 +640,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               {
                 ...resident,
@@ -657,6 +687,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '400|birch|apt1',
             address: '400 Birch Ln Apt 1',
+            unit: 'Apt 1',
             targets: [
               {
                 stopTargetId: 31,
@@ -676,6 +707,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '400|birch|apt2',
             address: '400 Birch Ln Apt 2',
+            unit: 'Apt 2',
             targets: [
               {
                 stopTargetId: 32,
@@ -718,6 +750,50 @@ describe('WalkSheet', () => {
     expect(screen.getAllByText('3 min from last')).toHaveLength(1)
   })
 
+  // The same building with one targeted door, and the case the address cell got
+  // wrong: it fell back to the stop's line whenever a stop held a single
+  // address, which was harmless while the stop still carried a unit and became
+  // a lobby with no door number the moment it stopped. Paper has no expansion
+  // to nest a unit under, so a row says the whole address whether its stop
+  // holds one door or twelve.
+  it('prints the whole address for the one door a stop holds', () => {
+    renderSheet([
+      stop({
+        displayAddress: '205 Benton Dr',
+        addresses: [
+          {
+            addressKey: '205|benton|dr|8309',
+            address: '205 Benton Dr Apt 8309',
+            unit: 'Apt 8309',
+            targets: [
+              {
+                stopTargetId: 41,
+                personId: 'person-c',
+                name: 'Nadia Sorel',
+                age: 37,
+                politicalParty: null,
+                cellPhone: null,
+                landline: null,
+                knockStatus: 'unknown',
+                mayHaveMoved: false,
+                doNotKnock: false,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const row = rowFor('Nadia Sorel')
+    // The address cell, read whole: the unit is in it once, and the building on
+    // its own — which is what the fallback printed — is nowhere on the page.
+    expect(row.querySelectorAll('td')[3]?.textContent).toBe(
+      '205 Benton Dr Apt 8309',
+    )
+    expect(screen.queryByText('205 Benton Dr')).toBeNull()
+  })
+
   it('flags a person who may have moved', () => {
     renderSheet([
       stop({
@@ -725,6 +801,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               {
                 stopTargetId: 21,
@@ -861,6 +938,7 @@ describe('WalkSheet', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             targets: [
               { ...resident, stopTargetId: 21 },
               {

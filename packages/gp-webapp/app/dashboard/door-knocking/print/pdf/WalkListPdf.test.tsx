@@ -71,6 +71,10 @@ const household = (
 ) => ({
   addressKey: address.toLowerCase().replace(/\s+/g, '|'),
   address,
+  // Every address in this file is a house on a street, so none of them has a
+  // unit. What the grid does with one is asserted on the row model
+  // (`walkListRows.test.ts`), where it costs no PDF render.
+  unit: '',
   targets,
   otherResidents,
 })
