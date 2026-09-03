@@ -280,6 +280,8 @@ describe('buildVoterFiltersSql', () => {
       estimatedIncomeAmountInt: { gte: 50000 },
       ageInt: { gte: 30 },
       precinct: { in: ['ORANGE|711'] },
+      ideology: { in: ['Conservative'] },
+      independentAffinity: { in: ['Yes'] },
     }
 
     expect(Object.keys(sample).sort()).toEqual(
@@ -328,6 +330,80 @@ describe('buildVoterFiltersSql', () => {
 
     expect(sql).toBe('(v.`Gender` IN (:p0) OR v.`Gender` IS NULL)')
     expect(bag.params).toEqual([{ name: 'p0', value: 'F', type: 'STRING' }])
+  })
+
+  it('maps the ideology vocabulary straight onto hf_ideology_general', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ ideology: { in: ['Conservative', 'Liberal'] } }),
+    )
+
+    expect(sql).toBe('v.`hf_ideology_general` IN (:p0, :p1)')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Conservative', type: 'STRING' },
+      { name: 'p1', value: 'Liberal', type: 'STRING' },
+    ])
+  })
+
+  // The column is 40% NULL, so Unknown is a large real segment. Dropping it
+  // would silently return the complement of what was asked for.
+  it('resolves an ideology Unknown selection to IS NULL', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ ideology: { in: ['Unknown'] } }),
+    )
+
+    expect(sql).toBe('v.`hf_ideology_general` IS NULL')
+    expect(bag.params).toEqual([])
+  })
+
+  it('ORs the ideology null branch when Unknown is mixed in', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ ideology: { in: ['Moderate', 'Unknown'] } }),
+    )
+
+    expect(sql).toBe(
+      '(v.`hf_ideology_general` IN (:p0)' +
+        ' OR v.`hf_ideology_general` IS NULL)',
+    )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Moderate', type: 'STRING' },
+    ])
+  })
+
+  // A non-nullable BOOLEAN column: a presence check would match the whole
+  // file, so this has to compile to a boolean comparison instead.
+  it('compares independentAffinity against a boolean literal', () => {
+    const yesBag = createBag()
+    expect(
+      buildVoterFiltersSql(
+        yesBag,
+        parseFilters({ independentAffinity: { eq: 'Yes' } }),
+      ),
+    ).toBe('v.`Voter_Independent_Affinity` = TRUE')
+    expect(yesBag.params).toEqual([])
+
+    const noBag = createBag()
+    expect(
+      buildVoterFiltersSql(
+        noBag,
+        parseFilters({ independentAffinity: { eq: 'No' } }),
+      ),
+    ).toBe('v.`Voter_Independent_Affinity` = FALSE')
+    expect(noBag.params).toEqual([])
+  })
+
+  it('emits no independentAffinity clause when both values are selected', () => {
+    expect(
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ independentAffinity: { in: ['Yes', 'No'] } }),
+      ),
+    ).toBeNull()
   })
 
   it('builds the political-party Other predicate with an explicit null', () => {

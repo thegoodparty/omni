@@ -618,3 +618,123 @@ describe('VoterFileStep — per-group Select all', () => {
     expect(onSupportStatusChange).toHaveBeenCalledWith([])
   })
 })
+// The recommended-lists groundwork dimensions. Gated on
+// win-recommended-lists (resolved by CreateListWizard and passed in as a
+// prop), so the default-off path is what every other caller of this step —
+// the outreach v2 builders — keeps rendering.
+describe('VoterFileStep — recommended-list filter groups', () => {
+  const renderStep = (
+    props: Partial<{
+      filters: Record<string, boolean>
+      onFiltersChange: (filters: Record<string, boolean>) => void
+      isElectedOfficial: boolean
+      showRecommendedListFilters: boolean
+    }> = {},
+  ) =>
+    render(
+      <VoterFileStep
+        filters={props.filters ?? {}}
+        onFiltersChange={props.onFiltersChange ?? vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={props.isElectedOfficial ?? false}
+        showRecommendedListFilters={props.showRecommendedListFilters ?? false}
+      />,
+    )
+
+  const headings = () =>
+    screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+
+  it('hides all three groups when the flag is off', () => {
+    renderStep()
+
+    expect(headings()).not.toContain('Independent affinity')
+    expect(headings()).not.toContain('Ideology')
+    expect(screen.queryByText('Has Any Phone')).not.toBeInTheDocument()
+  })
+
+  it('renders all three groups when the flag is on', () => {
+    renderStep({ showRecommendedListFilters: true })
+
+    expect(headings()).toContain('Independent affinity')
+    expect(headings()).toContain('Ideology')
+    expect(screen.getByText('Open to Independents')).toBeInTheDocument()
+    expect(screen.getByText('Has Any Phone')).toBeInTheDocument()
+  })
+
+  // The mart column says Liberal; house copy says Progressive. The pill
+  // shows the copy and the persisted key follows the data.
+  it('labels the Liberal bucket Progressive and offers Unknown', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+    renderStep({ showRecommendedListFilters: true, onFiltersChange })
+
+    expect(screen.queryByText('Liberal')).not.toBeInTheDocument()
+    await user.click(screen.getByText('Progressive'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({ ideologyLiberal: true }),
+    )
+
+    const ideologyGroup = screen.getByLabelText('Ideology')
+    expect(within(ideologyGroup).getByText('Unknown')).toBeInTheDocument()
+  })
+
+  // Win-only for the same reason political party is: gp-api 400s both an
+  // affinity and an ideology filter for an eo- org. Any-phone survives —
+  // plain contactability, and Serve runs phone banking and robocall.
+  it('hides affinity and ideology for a Serve organization', () => {
+    renderStep({ showRecommendedListFilters: true, isElectedOfficial: true })
+
+    expect(headings()).not.toContain('Independent affinity')
+    expect(headings()).not.toContain('Ideology')
+    expect(screen.getByText('Has Any Phone')).toBeInTheDocument()
+  })
+
+  it('clears the cell/landline picks when Has Any Phone is selected', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+    renderStep({
+      showRecommendedListFilters: true,
+      filters: { hasCellPhone: true, hasLandline: true },
+      onFiltersChange,
+    })
+
+    await user.click(screen.getByText('Has Any Phone'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hasAnyPhone: true,
+        hasCellPhone: false,
+        hasLandline: false,
+      }),
+    )
+  })
+
+  it('clears Has Any Phone when a specific phone type is selected', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+    renderStep({
+      showRecommendedListFilters: true,
+      filters: { hasAnyPhone: true },
+      onFiltersChange,
+    })
+
+    await user.click(screen.getByText('Has Cell Phone'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({ hasAnyPhone: false, hasCellPhone: true }),
+    )
+  })
+})

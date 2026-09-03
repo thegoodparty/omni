@@ -779,7 +779,15 @@ export default function WalkView({
                         the stop. A block of flats opens to its doors and each
                         door opens to the people behind it; a house opens
                         straight to its residents, because the one door in
-                        between would be a row that only said the address again.
+                        between would be a row with nothing to put in it — a
+                        house has no unit, and the stop above already carries
+                        the street.
+
+                        Keyed on having a unit rather than on having siblings.
+                        A lone apartment is one door under its stop and still
+                        needs its row: the stop is named for the building now,
+                        so skipping it would drop the only mention of which
+                        door in that building this is.
 
                         A plain container and not a nested list: the stop rows
                         are the only list on this surface, and an expansion that
@@ -788,7 +796,7 @@ export default function WalkView({
                         what happened to be open. */}
                     {expanded && (
                       <div className="flex flex-col bg-muted/40">
-                        {doors.length > 1
+                        {doors.length > 1 || doors[0]?.unit
                           ? doors.map((door) => {
                               const doorOpen = openDoorKey === door.addressKey
                               const doorPeople =
@@ -811,7 +819,15 @@ export default function WalkView({
                                       className="shrink-0 text-muted-foreground"
                                     />
                                     <span className="min-w-0 flex-1 truncate">
-                                      {door.address} ·{' '}
+                                      {/* The unit alone — the stop directly
+                                          above already says the street, and
+                                          repeating it here is what made every
+                                          row of a block of flats read as its
+                                          own house. `address` is the fallback
+                                          for the door that has no unit to be
+                                          named by, which only reaches this
+                                          branch alongside a sibling. */}
+                                      {door.unit || door.address} ·{' '}
                                       {doorPeople.length === 1
                                         ? '1 person'
                                         : `${doorPeople.length} people`}

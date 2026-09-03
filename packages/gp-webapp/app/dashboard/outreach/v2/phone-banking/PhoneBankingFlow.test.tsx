@@ -895,7 +895,11 @@ describe('PhoneBankingFlow', () => {
     await screen.findAllByText('Write your call script')
 
     expect(createListCalls[0]).toMatchObject({ partyDemocrat: true })
-    expect(createListCalls[0]).not.toHaveProperty('hasAnyPhone')
+    // hasAnyPhone is a persisted filter column now, so the create payload
+    // carries it explicitly like every other filter key. What must not leak
+    // is the overlay's `true` — a saved list narrowed to people with a phone
+    // would stop being reusable by other channels.
+    expect(createListCalls[0]).toMatchObject({ hasAnyPhone: false })
   })
 
   it("shows how many of the list's contacts have a phone number when some don't", async () => {

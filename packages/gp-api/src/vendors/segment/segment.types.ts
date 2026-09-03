@@ -187,6 +187,16 @@ export const EVENTS = {
     // messageId `<outreachId>:receipt` so a replay dedups to one email.
     Receipt: 'Robocall - Receipt',
   },
+  // A visitor on a public /people page asking an unclaimed person to complete
+  // their profile. Distinct from gp-marketing's browser-side 'Person Profile
+  // Notify Submitted', which counts the same submission for product analytics:
+  // this is the CRM signal, and it is server-side precisely so it can carry the
+  // subject's email address without publishing it to the page.
+  PersonProfiles: {
+    //  ⚠️  DO NOT MODIFY - Resolves the HubSpot contact that the
+    //  "complete your profile" nudge email is sent to
+    CompletionRequested: 'Person Profile - Completion Requested',
+  },
 }
 
 export type UserContext = {

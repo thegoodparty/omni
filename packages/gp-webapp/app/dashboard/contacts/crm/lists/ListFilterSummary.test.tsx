@@ -262,3 +262,40 @@ describe('buildFilterSummary — precinct clause', () => {
     expect(summary).not.toContain('precinct')
   })
 })
+
+// Read side is deliberately UNGATED by win-recommended-lists: a list saved
+// while the flag was on has to keep describing itself if the flag flips off,
+// or the person who saved it can no longer tell what it holds.
+describe('buildFilterSummary — recommended-list dimensions', () => {
+  it('names the affinity and any-phone selections', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ independentAffinity: true, hasAnyPhone: true }),
+      false,
+    )
+    expect(summary).toBe(
+      'Independent affinity Open to Independents and Phone Has Any Phone.',
+    )
+  })
+
+  it('labels the Liberal key Progressive and keeps Unknown reportable', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ ideologyLiberal: true, ideologyUnknown: true }),
+      false,
+    )
+    expect(summary).toBe('Ideology Progressive or Unknown.')
+  })
+
+  // Both are Win-only, so a Serve list describes itself with neither — even
+  // one saved before the exclusion, or written by the AI assistant.
+  it('excludes affinity and ideology for an elected official', () => {
+    const summary = buildFilterSummary(
+      baseSegment({
+        independentAffinity: true,
+        ideologyModerate: true,
+        hasAnyPhone: true,
+      }),
+      true,
+    )
+    expect(summary).toBe('Phone Has Any Phone.')
+  })
+})

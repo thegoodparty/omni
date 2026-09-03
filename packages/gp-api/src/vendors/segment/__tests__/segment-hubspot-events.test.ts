@@ -57,4 +57,12 @@ describe('Segment → HubSpot Event Names', () => {
       )
     })
   })
+
+  describe('Person Profile Events', () => {
+    it('should have the correct CompletionRequested event name for HubSpot', () => {
+      expect(EVENTS.PersonProfiles.CompletionRequested).toBe(
+        'Person Profile - Completion Requested',
+      )
+    })
+  })
 })

@@ -12,6 +12,8 @@ import { z } from 'zod'
  *   "hasCellPhone": true,                          // Boolean filter (true = IS NOT NULL)
  *   "hasAnyPhone": true,                           // Boolean filter (cell OR landline non-null)
  *   "hasAddress": true,                            // Boolean filter (true = IS NOT NULL)
+ *   "independentAffinity": { "eq": "Yes" },        // Enum filter over a BOOLEAN column
+ *   "ideology": { "in": ["Conservative", "Unknown"] }, // Enum filter with 'in' operator
  *   "id": { "in": ["<uuid>"] },                    // Id filter with 'in' operator
  *   "id": { "notIn": ["<uuid>"] },                 // Id filter with 'notIn' operator
  *   "voterStatus": { "in": ["Super", "Likely"] }, // Enum filter with 'in' operator
@@ -32,7 +34,8 @@ import { z } from 'zod'
  * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress (true = IS NOT NULL, false = IS NULL)
  * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
  * - Enum filters: voterStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
- *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language
+ *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
+ *   independentAffinity
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
  * - Numeric filters: ageInt, estimatedIncomeAmountInt
  *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
@@ -94,6 +97,11 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   homeowner: ['Yes', 'Likely', 'No', 'Unknown'] as const,
   gender: ['M', 'F', 'Unknown'] as const,
   language: ['English', 'Spanish', 'Other'] as const,
+  ideology: ['Conservative', 'Liberal', 'Moderate', 'Unknown'] as const,
+  // An enum vocabulary rather than a boolean wire filter because the backing
+  // column (`Voter_Independent_Affinity`) is a non-nullable BOOLEAN: a
+  // presence check would match every row, silently un-filtering the request.
+  independentAffinity: ['Yes', 'No'] as const,
 } as const
 
 export const createEnumFilterSchema = <T extends readonly string[]>(
@@ -270,6 +278,12 @@ export const PeopleFiltersSchema = z.object({
   ).optional(),
   language: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.language,
+  ).optional(),
+  ideology: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.ideology,
+  ).optional(),
+  independentAffinity: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.independentAffinity,
   ).optional(),
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),

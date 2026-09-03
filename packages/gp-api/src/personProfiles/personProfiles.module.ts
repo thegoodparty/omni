@@ -6,6 +6,7 @@ import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ElectionsModule } from '@/elections/elections.module'
+import { SegmentModule } from '@/vendors/segment/segment.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -37,10 +38,11 @@ const civicsDatabricksProviderFactory = (): DatabricksProvider | null => {
 
 // ElectionsModule provides the S2S client that reads person.gp_api_user_id;
 // CronModule provides the daily-run lock for the reconcile backstop; CrmModule
-// provides the HubSpot client for the claim-request counter; ClerkModule
-// provides ElectionApiTokenService so VoterDensityProxyService can authenticate its
-// election-api reads. UsersService is global, so no explicit UsersModule import is
-// needed for the User write.
+// provides the HubSpot client for the claim-request counter; SegmentModule
+// provides the track() that carries a claim request to the CRM as an event;
+// ClerkModule provides ElectionApiTokenService so VoterDensityProxyService and
+// PersonLookupService can authenticate their election-api reads. UsersService is
+// global, so no explicit UsersModule import is needed for the User write.
 @Module({
   imports: [
     HttpModule,
@@ -50,6 +52,7 @@ const civicsDatabricksProviderFactory = (): DatabricksProvider | null => {
     CrmModule,
     ElectionsModule,
     ClerkModule,
+    SegmentModule,
   ],
   controllers: [PublicPersonProfilesController, PersonProfilesController],
   providers: [

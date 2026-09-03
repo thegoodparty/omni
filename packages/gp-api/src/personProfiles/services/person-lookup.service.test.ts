@@ -43,13 +43,17 @@ const axiosStatus = (status: number) => {
 describe('PersonLookupService', () => {
   let httpService: { get: ReturnType<typeof vi.fn> }
   let service: PersonLookupService
+  let logSpy: {
+    error: ReturnType<typeof vi.fn>
+    warn: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
     httpService = { get: vi.fn().mockReturnValue(of({ data: person() })) }
+    logSpy = { error: vi.fn(), warn: vi.fn() }
     const logger = {
       setContext: vi.fn(),
-      error: vi.fn(),
-      warn: vi.fn(),
+      ...logSpy,
     } as unknown as PinoLogger
     const tokenService = {
       authHeader: vi.fn().mockResolvedValue({ Authorization: 'Bearer t' }),
@@ -202,6 +206,52 @@ describe('PersonLookupService', () => {
     it('makes no call for an empty list', async () => {
       expect(await service.resolveIdentities([])).toEqual(new Map())
       expect(httpService.get).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('resolveContactEmail', () => {
+    it('reads the dedicated PII route, not a general person read', async () => {
+      httpService.get.mockReturnValue(of({ data: { email: 'mayor@city.gov' } }))
+
+      expect(await service.resolveContactEmail(PERSON_ID)).toBe(
+        'mayor@city.gov',
+      )
+      expect(requestedUrl()).toBe(
+        `${process.env.ELECTION_API_URL}/v1/persons/${PERSON_ID}/contact-email`,
+      )
+      expect(httpService.get.mock.calls[0]?.[1]).toEqual({
+        headers: { Authorization: 'Bearer t' },
+      })
+    })
+
+    // Every "we can't tell you" case collapses to null: the caller is a
+    // detached CRM side-effect of a public form submission, so its only correct
+    // response to any of these is to skip the event.
+    it.each([
+      ['no address on file', of({ data: { email: null } })],
+      ['a blank address', of({ data: { email: '   ' } })],
+      ['an unknown person', throwError(() => axiosStatus(404))],
+      ['an election-api outage', throwError(() => axiosStatus(500))],
+    ])('returns null for %s', async (_case, response) => {
+      httpService.get.mockReturnValue(response)
+
+      await expect(service.resolveContactEmail(PERSON_ID)).resolves.toBeNull()
+    })
+
+    it('keeps the address out of the log when the request fails', async () => {
+      // This route's success body IS the address, so logging an axios error
+      // object — which carries response.data — would put a candidate's email in
+      // the logs. Only the message and status may be logged.
+      const error = axiosStatus(500)
+      error.response!.data = { personId: PERSON_ID, email: 'mayor@city.gov' }
+      httpService.get.mockReturnValue(throwError(() => error))
+
+      await expect(service.resolveContactEmail(PERSON_ID)).resolves.toBeNull()
+
+      expect(logSpy.error).toHaveBeenCalledOnce()
+      expect(JSON.stringify(logSpy.error.mock.calls[0])).not.toContain(
+        'mayor@city.gov',
+      )
     })
   })
 })

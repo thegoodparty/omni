@@ -46,6 +46,7 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
     {
       addressKey: '105|elm|st',
       address: '105 Elm St',
+      unit: '',
       targets,
       otherResidents: [],
     },

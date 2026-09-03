@@ -106,6 +106,22 @@ export const PRO_FILTERING_REQUIRED_MESSAGE =
 // SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
 
+// The recommended-list dimensions a Serve org may not filter on. Keep in
+// step with the `modes: 'win'` marks in filterDimensions.catalog.ts — the
+// catalog hides them from the assistant, this rejects them at the routes.
+const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
+  'independentAffinity',
+  'ideology',
+] as const
+
+const RECOMMENDED_FILTER_LABELS: Record<
+  (typeof WIN_ONLY_RECOMMENDED_FILTER_KEYS)[number],
+  string
+> = {
+  independentAffinity: 'Independent affinity',
+  ideology: 'Ideology',
+}
+
 // people-api's Voter_Status vocabulary and the editable voter-likelihood
 // vocabulary (ENG-10833) are one-to-one.
 const VOTER_LIKELIHOOD_SEED_MAP: Record<
@@ -290,6 +306,30 @@ export class ContactsService {
     }
   }
 
+  // The recommended-list dimensions are a Win product surface: affinity and
+  // ideology both describe how someone votes in a contested election, which
+  // has no meaning for an office holder who serves everyone in the district.
+  // Gated the same way party is — both keys reach the converted
+  // FilterObject, so the key check mirrors the party one exactly. This is a
+  // permanent PRODUCT rule, not the `win-recommended-lists` flag's doing:
+  // the flag only decides whether the wizard renders the groups, and this
+  // holds whatever the flag says. hasAnyPhone is deliberately NOT here —
+  // plain contactability, and Serve runs phone banking and robocall too.
+  private assertNoRecommendedListFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (!this.hasElectedOfficeAccess(organization)) return
+    const blocked = WIN_ONLY_RECOMMENDED_FILTER_KEYS.find(
+      (key) => key in filters,
+    )
+    if (blocked) {
+      throw new BadRequestException(
+        `${RECOMMENDED_FILTER_LABELS[blocked]} filtering is not available for this organization`,
+      )
+    }
+  }
+
   // Win-only (ENG-10839), same shape as the party gate above but checked on
   // the raw pre-conversion input: contactsMade* booleans never reach the
   // converted FilterObject (see extractContactsMadeSelection's doc comment),
@@ -401,6 +441,10 @@ export class ContactsService {
   ): Promise<{ filters: FilterObject; idOverrides?: IdOverrides }> {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    this.assertNoRecommendedListFilterForElectedOffice(
+      organization,
+      baseFilters,
+    )
     this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
     return this.resolveVoterLikelihoodFilter(organization, baseFilters)
   }
@@ -662,6 +706,7 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
     // request itself carries no live search, re-apply the saved list's stored
@@ -1340,6 +1385,7 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
@@ -1402,6 +1448,7 @@ export class ContactsService {
   ): Promise<number> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(
       organization,
@@ -1428,6 +1475,7 @@ export class ContactsService {
   ): Promise<void> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(organization, (params) =>
       this.streamPeopleDownload(

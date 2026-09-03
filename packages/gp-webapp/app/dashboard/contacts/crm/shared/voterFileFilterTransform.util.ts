@@ -1,4 +1,9 @@
 import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import {
+  ANY_PHONE_FIELD,
+  RECOMMENDED_LIST_FILTER_FIELDS,
+  RECOMMENDED_LIST_FILTER_OPTION_KEYS,
+} from './recommendedListFilters.config'
 import type { SupportStatusRollup } from './contacts-types'
 
 // Single source of truth for the voter-file filter → backend field mapping
@@ -39,11 +44,22 @@ const INCOME_KEYS = new Set([
   'incomeUnknown',
 ])
 
-const ALL_FILTER_OPTION_KEYS = filterSections.flatMap((section) =>
-  section.fields.flatMap((field) => field.options.map((opt) => opt.key)),
-)
+// The recommended-lists keys are merged in UNGATED, unlike their rendering:
+// the transform emits an explicit boolean per key, which is what lets an
+// edit clear a filter, so a payload that omits them would leave a saved
+// list's stale value in place the moment the flag flips off.
+const ALL_FILTER_OPTION_KEYS = [
+  ...filterSections.flatMap((section) =>
+    section.fields.flatMap((field) => field.options.map((opt) => opt.key)),
+  ),
+  ...RECOMMENDED_LIST_FILTER_OPTION_KEYS,
+]
 
-const ALL_FILTER_FIELDS = filterSections.flatMap((section) => section.fields)
+const ALL_FILTER_FIELDS = [
+  ...filterSections.flatMap((section) => section.fields),
+  ...RECOMMENDED_LIST_FILTER_FIELDS,
+  ANY_PHONE_FIELD,
+]
 const PARTY_FIELD = ALL_FILTER_FIELDS.find(
   (field) => field.key === 'political_party',
 )

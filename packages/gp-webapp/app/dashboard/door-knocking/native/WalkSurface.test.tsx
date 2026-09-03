@@ -88,6 +88,7 @@ const routePayload = {
         {
           addressKey: '105|elm|st',
           address: '105 Elm St',
+          unit: '',
           otherResidents: [],
           targets: [
             {
@@ -118,6 +119,7 @@ const routePayload = {
         {
           addressKey: '107|elm|st',
           address: '107 Elm St',
+          unit: '',
           otherResidents: [],
           targets: [
             {

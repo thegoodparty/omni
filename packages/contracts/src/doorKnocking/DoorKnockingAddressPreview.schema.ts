@@ -10,8 +10,11 @@ import { z } from 'zod'
 // have committed to anything.
 export const DoorKnockingPreviewDoorSchema = z.object({
   // Rendered from the unit key exactly as the frozen route renders it
-  // (renderUnitAddress), so the address previewed here and the address
-  // walked later are the same string rather than two formats of one place.
+  // (renderDoorAddress), so the address previewed here and the address walked
+  // later are the same string rather than two formats of one place.
+  //
+  // The WHOLE address, unlike the walk view's door rows, which show the unit
+  // alone. There is no stop heading above this list to carry the street.
   address: z.string(),
   people: z.number().int().nonnegative(),
 })
