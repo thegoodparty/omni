@@ -703,6 +703,29 @@ is broken" appears in both. Anything unrouted is omni, which is where every
 ticket went before this existed, so a new list or a typo'd id lands somewhere
 known rather than somewhere nobody chose.
 
+### The list is a guess, and it is sometimes wrong
+
+Growth-Bugs held exactly one real ticket the day routing shipped: *"Marketing
+Emails Have Bad Formatting and Incorrect Dates"* — a weekly digest email, which
+is gp-api code, in omni. One ticket, one mis-route. The list is where a human
+filed the ticket, not where the code is, and Growth-Bugs collects growth bugs
+rather than gp-marketing bugs specifically.
+
+Refining the key does not help: no field on the ticket knows which repo the code
+is in. So the guess is allowed to fail out loud instead. Every repo briefing
+tells the agent that if the behaviour is produced by code somewhere else, it
+must return `needs-human`, name the repo it believes the bug belongs to, and
+stop — explicitly rather than hunting for something local to change.
+
+`needs-human` rather than a new verdict token, deliberately: `parse_verdict`
+drops anything outside `KNOWN_VERDICTS`, so an invented one reads as no verdict
+at all — silence, at exactly the moment the agent was trying to raise a hand.
+`needs-human` also blocks escalation, so a mis-routed ticket cannot become a PR
+in the wrong codebase.
+
+This is worth watching during the ramp. A repo whose verdicts are mostly "this
+belongs somewhere else" has an intake problem, not a bot problem.
+
 Routing costs the analyze path **one `GET /task` it did not previously pay**:
 the list is not in the webhook delta, and defaulting to omni whenever the fetch
 is inconvenient is the confident-wrong-codebase failure above. Analyze fires on

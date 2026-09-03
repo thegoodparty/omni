@@ -114,6 +114,35 @@ class TestTheBriefingTheModelReads:
         assert "PUBLIC" in prompt
 
 
+class TestBeingPointedAtTheWrongRepo:
+    """Routing is a guess made from the ClickUp list, and the list can be wrong.
+
+    Growth-Bugs, which routes to gp-marketing, held exactly one real ticket when
+    routing shipped: a weekly-digest EMAIL with bad formatting and wrong dates.
+    That is gp-api code, in omni. One for one, the routing key mis-routed.
+
+    So the guess has to be able to fail loudly. Every briefing must tell the
+    model to stop and hand back rather than hunt for something local to change,
+    because a fluent fix in the wrong codebase is the failure that costs most:
+    it survives review by looking like work.
+    """
+
+    @pytest.mark.parametrize("repo", sorted(REPO_PROFILES))
+    def test_every_repo_is_told_it_might_be_the_wrong_one(self, repo):
+        prompt = build_capability_prompt(repo)
+
+        assert "not in this repo" in prompt
+
+    @pytest.mark.parametrize("repo", sorted(REPO_PROFILES))
+    def test_the_way_out_is_a_verdict_the_pipeline_already_understands(self, repo):
+        # needs-human, not a new token: parse_verdict drops anything outside
+        # KNOWN_VERDICTS, so an invented verdict would read as no verdict at
+        # all — silence, exactly where the model was trying to raise a hand.
+        prompt = build_capability_prompt(repo)
+
+        assert "needs-human" in prompt
+
+
 def test_the_image_ships_the_bun_the_prompt_promises():
     """A tool the briefing names has to exist in the container.
 
