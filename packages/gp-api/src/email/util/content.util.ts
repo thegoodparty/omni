@@ -52,6 +52,68 @@ export function getRecoverPasswordEmailContent(name: string, link: string) {
             `
 }
 
+// Existing-account "you've been added" notification. Clerk can only invite
+// an email with no Clerk account, so a person who already has one is added
+// to the campaign directly and told about it here instead. Role label is
+// always "Campaign Manager" — never "Admin" — the only role this branch
+// grants in Phase 1.
+export function getTeamMemberAddedEmailContent(
+  name: string,
+  campaignName: string,
+  link: string,
+) {
+  return `<table border="0" cellpadding="0" cellspacing="0" height="100%" width="100%">
+              <tbody>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 16px;
+                        font-family: Arial, sans-serif;
+                        margin-top: 0;
+                        margin-bottom: 5px;
+                      "
+                    >
+                    Hi ${name}!<br/> <br>
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 16px;
+                        font-family: Arial, sans-serif;
+                        margin-top: 0;
+                        margin-bottom: 5px;
+                      "
+                    >
+                    You've been added to ${campaignName} as Campaign Manager.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <br /><br /><a
+                      href="${link}"
+                      style="
+                        padding: 16px 32px;
+                        background: black;
+                        color: #fff;
+                        font-size: 16px;
+                        border-radius: 8px;
+                        text-decoration: none;
+                      "
+                    >
+                      Go to Dashboard
+                    </a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            `
+}
+
 export function getBasicEmailContent(msg = '', subject = '') {
   return `
 <style type="text/css">
