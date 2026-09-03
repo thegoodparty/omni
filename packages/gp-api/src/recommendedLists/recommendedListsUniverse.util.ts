@@ -4,7 +4,7 @@ import type {
   RecommendedListChannel,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
-import type { voterFilterBaseSchema } from '../shared/schemas/voterFilterBase.schema'
+import { voterFilterBaseSchema } from '../shared/schemas/voterFilterBase.schema'
 import {
   IDEOLOGY_COLUMN_VALUE,
   RECOMMENDED_LISTS_REGISTRY,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import {
   RECOMMENDED_LISTS_REGISTRY,
+  fillCopy,
   intentForPurpose,
   variantsForIntent,
 } from './recommendedLists.registry'
@@ -83,5 +84,32 @@ describe('RECOMMENDED_LISTS_REGISTRY copy', () => {
         'persuadeIdeology',
       ].sort(),
     )
+  })
+})
+
+describe('fillCopy', () => {
+  it('fills a {bucket} token with the supplied value', () => {
+    const copy = fillCopy('persuadeIdeology', { bucket: 'progressive' })
+    expect(copy).toEqual({
+      title: 'Voters who may lean progressive',
+      criteriaSummary:
+        'Moderate to high propensity voters whose behavior suggests a ' +
+        'progressive lean — a hypothesis worth testing with your message.',
+    })
+  })
+
+  it('leaves the token literal when no value is supplied', () => {
+    const copy = fillCopy('persuadeIdeology')
+    expect(copy.title).toBe('Voters who may lean {bucket}')
+  })
+
+  it('leaves the token literal when tokens omit that key', () => {
+    const copy = fillCopy('persuadeIdeology', { other: 'ignored' })
+    expect(copy.title).toBe('Voters who may lean {bucket}')
+  })
+
+  it('passes through copy with no tokens unchanged', () => {
+    const copy = fillCopy('introNeverIded')
+    expect(copy).toEqual(RECOMMENDED_LISTS_REGISTRY.introNeverIded.copy)
   })
 })

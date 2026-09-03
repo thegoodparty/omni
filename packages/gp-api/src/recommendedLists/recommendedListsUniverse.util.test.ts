@@ -77,4 +77,74 @@ describe('buildVariantFilter', () => {
     expect(filter?.hasCellPhone).toBeUndefined()
     expect(filter?.hasLandline).toBeUndefined()
   })
+
+  it('builds the exact persuade-undecided shape, no extra keys', () => {
+    const filter = buildVariantFilter('persuadeUndecided', 'sms', null)
+    expect(filter).toEqual({
+      voterStatus: ['Super', 'Likely'],
+      supportStatus: ['undecided'],
+      hasCellPhone: true,
+    })
+  })
+
+  it('returns null for eventIdeology with no target bucket', () => {
+    expect(buildVariantFilter('eventIdeology', 'sms', null)).toBeNull()
+  })
+
+  it('builds the exact event-ideology shape, no extra keys', () => {
+    const filter = buildVariantFilter('eventIdeology', 'sms', 'progressive')
+    expect(filter).toEqual({
+      voterStatus: ['Super'],
+      supportStatus: ['supporter', 'undecided', 'unknown', 'refused'],
+      ideologyLiberal: true,
+      hasCellPhone: true,
+    })
+  })
+
+  it('builds the exact early-vote-supporters shape, no extra keys', () => {
+    const filter = buildVariantFilter('earlyVoteSupporters', 'sms', null)
+    expect(filter).toEqual({
+      supportStatus: ['supporter'],
+      hasCellPhone: true,
+    })
+  })
+
+  it('builds the exact early-vote-affinity shape, no extra keys', () => {
+    const filter = buildVariantFilter('earlyVoteAffinity', 'sms', null)
+    expect(filter).toEqual({
+      voterStatus: ['Super', 'Likely'],
+      independentAffinity: true,
+      hasCellPhone: true,
+    })
+  })
+
+  it('returns null for earlyVoteIdeology with no target bucket', () => {
+    expect(buildVariantFilter('earlyVoteIdeology', 'sms', null)).toBeNull()
+  })
+
+  it('builds the exact early-vote-ideology shape, no extra keys', () => {
+    const filter = buildVariantFilter(
+      'earlyVoteIdeology',
+      'sms',
+      'conservative',
+    )
+    expect(filter).toEqual({
+      voterStatus: ['Super', 'Likely'],
+      ideologyConservative: true,
+      hasCellPhone: true,
+    })
+  })
+
+  it('returns null for electionDayIdeology with no target bucket', () => {
+    expect(buildVariantFilter('electionDayIdeology', 'sms', null)).toBeNull()
+  })
+
+  it('builds the exact election-day-ideology shape, no extra keys', () => {
+    const filter = buildVariantFilter('electionDayIdeology', 'sms', 'moderate')
+    expect(filter).toEqual({
+      voterStatus: ['Likely', 'Unreliable'],
+      ideologyModerate: true,
+      hasCellPhone: true,
+    })
+  })
 })

@@ -91,7 +91,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Voters still on the fence',
       criteriaSummary:
-        'Moderate to high propensity voters marked undecided from past outreach.',
+        'Moderate to high propensity voters marked undecided from past ' +
+        'outreach.',
     },
   },
   eventSupporters: {
@@ -101,7 +102,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Invite your supporters',
       criteriaSummary:
-        'Voters who have told you they support you, regardless of turnout history.',
+        'Voters who have told you they support you, regardless of ' +
+        'turnout history.',
     },
   },
   eventAffinity: {
@@ -134,7 +136,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Get your supporters voting early',
       criteriaSummary:
-        'Voters who have told you they support you, regardless of turnout history.',
+        'Voters who have told you they support you, regardless of ' +
+        'turnout history.',
     },
   },
   earlyVoteAffinity: {
