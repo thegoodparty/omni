@@ -302,6 +302,48 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     )
   })
 
+  it('leaves the row in dialing (not reverted) when a lost launch reads PENDING', async () => {
+    const outreachId = await createDraft()
+    const errorSpy = loggerErrorSpy()
+    // The launch POST reached the vendor and was ACCEPTED, but the response was
+    // lost (502). The vendor is mid-accept, so the status read maps to PENDING
+    // (CallFire's START_PENDING / VALIDATING_START / SCHEDULED all collapse to
+    // PENDING) — a POST-ACCEPT transitional state, NOT proof the launch never
+    // took. Reverting to `authorized` would let the next sweep issue a SECOND
+    // start and re-dial the whole audience, so a transient PENDING read must be
+    // left `dialing` for the stale-dialing sweep, exactly like an UNKNOWN read.
+    launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PENDING)
+
+    await send.startCampaign(outreachId)
+
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialing)
+    expect(satellite.dialedAt).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ dialingCampaignPkStr: 'vb_1' }),
+      expect.stringContaining('unresolved'),
+    )
+  })
+
+  it('fails a PERMANENT launch even when the vendor reads PENDING (a 4xx never dialed)', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    // A 4xx reject guarantees the campaign never dialed, so an unresolved PENDING
+    // read introduces no uncertainty — fail the send now rather than leaving the
+    // row `dialing`.
+    launchSpy.mockRejectedValueOnce(new VendorPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PENDING)
+
+    await send.startCampaign(outreachId)
+
+    expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
+    expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
+  })
+
   it('NEVER dials unpaid: a non-requires_capture hold fails the draft and clears the intent, no launch', async () => {
     const outreachId = await createDraft({
       authorizedAmountInCents: 450,

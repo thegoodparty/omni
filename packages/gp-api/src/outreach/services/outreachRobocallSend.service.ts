@@ -44,8 +44,8 @@ const isRobocallSendEnabled = (): boolean =>
   process.env.ROBOCALL_SEND_ENABLED === 'true'
 
 // Why a launch attempt did not cleanly commit `dialed`, which decides how a
-// reconcile treats a not-dialing (paused/pending) / unresolved status read (see
-// `reconcileDialing`):
+// reconcile treats a not-dialing (paused) / unresolved (pending/unknown) status
+// read (see `reconcileDialing`):
 //   - `permanent`: a definitive 4xx reject — the launch was refused, so the
 //     campaign is guaranteed never dialed whatever the status read says. Safe to
 //     fail on ANY read.
@@ -339,17 +339,21 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // Resolves a `dialing` row against the vendor's actual campaign status — the
   // ONLY safe way to conclude a launch whose response was lost, garbage, or
   // rejected. A dialing/completed/aborted read means the dial DID happen →
-  // commit `dialed` idempotently (no re-dial), regardless of `outcome`. What a
-  // not-dialing (paused/pending) or unresolved read does depends on WHY the
-  // launch didn't cleanly succeed (`outcome`, see the type above):
+  // commit `dialed` idempotently (no re-dial), regardless of `outcome`. Only a
+  // PAUSED read is not-dialing (proof the launch never took); PENDING is a
+  // post-accept transitional state (validating/scheduling toward RUNNING) and so
+  // is treated as UNRESOLVED alongside UNKNOWN, never as no-dial — reverting +
+  // relaunching a PENDING run could re-dial the whole audience. What a
+  // not-dialing (paused) or unresolved (pending/unknown) read does depends on WHY
+  // the launch didn't cleanly succeed (`outcome`, see the type above):
   //   - `permanent` (a 4xx reject): fail the send on BOTH a not-dialing read AND
   //     an unresolved read — a 4xx never dialed whatever the read says.
   //   - `shape` (an unparseable launch body, dial state UNKNOWN): fail ONLY on a
-  //     confirmed not-dialing read; on an unresolved read leave it `dialing`,
-  //     because the run MIGHT have dialed and we must never void a live run on a
-  //     guess.
-  //   - `transient` (lost/5xx): revert on a not-dialing read to relaunch; leave
-  //     `dialing` on an unresolved read.
+  //     confirmed not-dialing (paused) read; on an unresolved read leave it
+  //     `dialing`, because the run MIGHT have dialed and we must never void a live
+  //     run on a guess.
+  //   - `transient` (lost/5xx): revert on a not-dialing (paused) read to
+  //     relaunch; leave `dialing` on an unresolved read.
   // Invariants throughout: never relaunch without a not-dialing read, never mark
   // dialed without a dialing/completed/aborted read, and never fail on an
   // unresolved read unless the launch was a definitive 4xx.
@@ -362,8 +366,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // DIALING = still placing calls; COMPLETED/ABORTED = the campaign already
     // left its non-dialing state and dialed (a small list can finish, or be
     // stopped, before we read it), so all three resolve to dialed — we never
-    // un-dial. Only PAUSED/PENDING (never dialed) or UNKNOWN (a failed read /
-    // unmapped code) are handled below.
+    // un-dial. Only PAUSED proves the launch never took (a genuinely halted,
+    // never-dialed campaign). PENDING and UNKNOWN are UNRESOLVED, not proof of
+    // no-dial, and are handled together below.
     if (
       status === ROBOCALL_BROADCAST_STATUS.DIALING ||
       status === ROBOCALL_BROADCAST_STATUS.COMPLETED ||
@@ -372,10 +377,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
       await this.commitDialed(outreachId, pkStr)
       return
     }
-    if (
-      status === ROBOCALL_BROADCAST_STATUS.PAUSED ||
-      status === ROBOCALL_BROADCAST_STATUS.PENDING
-    ) {
+    if (status === ROBOCALL_BROADCAST_STATUS.PAUSED) {
       // Confirmed the launch never took effect (no calls dialed). A launch that
       // can't be retried into success — a 4xx reject (`permanent`) OR an
       // unreadable response body (`shape`) — is failed here: the not-dialing read
@@ -389,14 +391,20 @@ export class OutreachRobocallSendService extends createPrismaBase(
       await this.revertClaim(outreachId)
       return
     }
-    // UNKNOWN status (a failed/garbage status read, or an unmapped code). ONLY a
-    // definitive 4xx (`permanent`) is failed here: a 4xx guarantees the campaign
-    // never dialed, so an unresolved read introduces no uncertainty — it did not
-    // dial. Fail via the marker-persisting path so a failSend that can't commit
-    // still leaves the stale sweep able to fail it (rather than reverting +
+    // PENDING or UNKNOWN — an UNRESOLVED read, NOT proof of no-dial, so it must
+    // NEVER revert-and-relaunch. PENDING is a POST-ACCEPT transitional vendor
+    // state (the launch POST was accepted and the broadcast is
+    // validating/scheduling toward RUNNING — CallFire's START_PENDING /
+    // VALIDATING_START / SCHEDULED all map here); reverting it to `authorized`
+    // would let the next sweep issue a SECOND start and re-dial the whole
+    // audience. UNKNOWN is a failed/garbage read or an unmapped code. Either way
+    // ONLY a definitive 4xx (`permanent`) is failed here: a 4xx guarantees the
+    // campaign never dialed, so an unresolved read introduces no uncertainty — it
+    // did not dial. Fail via the marker-persisting path so a failSend that can't
+    // commit still leaves the stale sweep able to fail it (rather than reverting +
     // relaunching into the same 4xx). A `shape` or `transient` failure with an
-    // unresolved read leaves the dial state UNKNOWN — the run may have dialed —
-    // so it stays `dialing` for the stale sweep, never failed on a guess.
+    // unresolved read leaves the dial state UNKNOWN — the run may have dialed — so
+    // it stays `dialing` for the stale sweep, never failed on a guess.
     if (outcome === 'permanent') {
       await this.failPermanentSend(outreachId)
       return
