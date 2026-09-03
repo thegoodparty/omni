@@ -104,6 +104,15 @@ def build_capability_prompt(target_repo: str | None = None) -> str:
 This run is about **{profile.full_name}**. Work in that repo and no other, and
 open any PR against its `{profile.base_branch}` branch.
 
+**If the bug is not in this repo, say so and stop.** You were pointed here by
+the ClickUp list the ticket was filed in. That is a good guess, not a fact: the
+same list collects bugs whose code lives elsewhere — an email template, an API,
+a data pipeline. If the behaviour described is produced by code in another repo,
+give the verdict `needs-human`, name the repo you believe it belongs in, and say
+what evidence pointed you there. Do not go looking for something in this repo to
+change instead. A confident fix in the wrong codebase is the most expensive
+thing you can produce here, because it looks exactly like work.
+
 {profile.briefing}
 
 **Databricks** (read-only): `python -m engineer_agent.scripts.query_db --help`
