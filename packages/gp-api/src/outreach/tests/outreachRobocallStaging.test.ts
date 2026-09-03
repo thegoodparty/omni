@@ -14,6 +14,9 @@ import { ZodError } from 'zod'
 import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
@@ -679,5 +682,67 @@ describe('OutreachRobocallStagingService.stageCampaign — paid (upfront) model'
     const satellite = await readSatellite(outreachId)
     expect(satellite.callhubCampaignPkStr).toBeNull()
     expect(satellite.settleState).toBe(RobocallSettleState.paid)
+  })
+
+  it('runs the REAL failSend terminal for a paid row: send_failed, NO Stripe void, spine failed, SendFailed emitted, manual-refund alert', async () => {
+    // The staging permanent path (a 4xx createVoiceBroadcast reject) is the only
+    // STAGING route a paid row takes through the shared failSend terminal, and it
+    // has never run unmocked here. A paid row carries NO authorizationIntentId (no
+    // hold), so failSend's `if (draft.authorizationIntentId)` void branch must be
+    // SKIPPED and the CRITICAL line must page ops for a MANUAL refund (the
+    // estimate was captured up front), never say "hold voided".
+    // Other permanent-failure tests spyOn(failSend).mockResolvedValue(); with
+    // clearMocks (and no restoreMocks) that stubbed no-op leaks between tests, so
+    // restore the genuine failSend before driving it (a no-op if this test ran
+    // before any stub).
+    const hold = service.app.get(OutreachRobocallHoldService)
+    ;(hold.failSend as unknown as { mockRestore?: () => void }).mockRestore?.()
+    const holdErrorSpy = vi.spyOn(
+      (hold as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+    const voidSpy = vi
+      .spyOn(service.app.get(StripeService), 'voidHold')
+      .mockResolvedValue(undefined as never)
+
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.paid,
+      chargeIntentId: 'pi_charge_1',
+    })
+    createVbSpy.mockRejectedValueOnce(
+      new CallhubPermanentError('bad caller id'),
+    )
+
+    await staging.stageCampaign(outreachId)
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.send_failed)
+    // A paid row has no hold to void — the Stripe void branch is skipped.
+    expect(voidSpy).not.toHaveBeenCalled()
+    // The spine is flipped so history shows "Couldn't send".
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(spine.status).toBe('failed')
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Robocall.SendFailed,
+      { outreachId },
+      undefined,
+      `${outreachId}:send_failed`,
+    )
+    // Regression lock for the paid-model CRITICAL branch: ops must be told the
+    // estimate was charged and a manual refund is needed, not "hold voided".
+    expect(holdErrorSpy).toHaveBeenCalledWith(
+      { outreachId, reason: 'staging' },
+      expect.stringContaining('estimate charged up front and NO auto-refund'),
+    )
+    expect(holdErrorSpy).not.toHaveBeenCalledWith(
+      { outreachId, reason: 'staging' },
+      expect.stringContaining('hold voided'),
+    )
   })
 })
