@@ -231,6 +231,46 @@ describe('ContactEngagement routes', () => {
       })
     })
 
+    it('resolves a door-knock actor; a legacy null-actor row renders authorless without 500ing (ENG-10824)', async () => {
+      const personId = 'person-win-door-knock-actor'
+
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          actorUserId: service.user.id,
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          outcome: DoorKnockOutcome.not_home,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': campaignOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      const [withActor, legacy] = result.data.results
+      expect(withActor.data).toMatchObject({
+        outcome: DoorKnockOutcome.answered,
+        actorName: `${service.user.firstName} ${service.user.lastName}`,
+        actorUserId: service.user.id,
+      })
+      expect(legacy.data).toMatchObject({
+        outcome: DoorKnockOutcome.not_home,
+        actorName: null,
+        actorUserId: null,
+      })
+    })
+
     it('omits legacy outreach rows when lalVoterId is not given, without erroring', async () => {
       const personId = 'person-win-2'
 

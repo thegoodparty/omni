@@ -39,6 +39,11 @@ const PHONE_BANKING_ACTOR_INCLUDE = {
   actor: { select: { firstName: true, lastName: true } },
 } satisfies Prisma.ContactInteractionPhoneBankingInclude
 
+// Same actor include, door-knock side (ENG-10824).
+const DOOR_KNOCK_ACTOR_INCLUDE = {
+  actor: { select: { firstName: true, lastName: true } },
+} satisfies Prisma.ContactInteractionDoorKnockInclude
+
 // Every union variant carries a per-type id under a different field name.
 // This is the tiebreak for same-timestamp rows (e.g. two Win outreach
 // attributions from a date-only picker land on the exact same midnight
@@ -148,12 +153,14 @@ export class ContactEngagementService {
             },
             orderBy,
             take: windowTake,
+            include: DOOR_KNOCK_ACTOR_INCLUDE,
           }),
         cursorDate
           ? () =>
               this.contactInteractionDoorKnock.findMany({
                 where: { organizationSlug, personId, occurredAt: cursorDate },
                 orderBy,
+                include: DOOR_KNOCK_ACTOR_INCLUDE,
               })
           : null,
       ),
@@ -288,6 +295,12 @@ export class ContactEngagementService {
           supportAnswer: activity.supportAnswer,
           note: activity.note,
           manual: activity.manual,
+          actorName: activity.actor
+            ? [activity.actor.firstName, activity.actor.lastName]
+                .filter(Boolean)
+                .join(' ') || null
+            : null,
+          actorUserId: activity.actorUserId,
         },
       }),
     )

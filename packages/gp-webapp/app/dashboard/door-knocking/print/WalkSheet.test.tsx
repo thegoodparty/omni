@@ -784,6 +784,8 @@ describe('WalkSheet', () => {
             // Free text about a named voter never travels onto paper.
             note: 'Dog in the yard, come back Saturday',
             manual: false,
+            actorName: null,
+            actorUserId: null,
           },
         },
       ],

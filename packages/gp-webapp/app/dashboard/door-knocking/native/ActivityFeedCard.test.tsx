@@ -18,6 +18,8 @@ const doorKnock = (
     supportAnswer: 'supporter',
     note: null,
     manual: false,
+    actorName: null,
+    actorUserId: null,
     ...overrides,
   },
 })

@@ -210,11 +210,12 @@ export class DoorKnockingController {
   @ResponseSchema(RecordDoorKnockInteractionResponseSchema)
   async recordInteraction(
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
     @Body(new ZodValidationPipe(RecordDoorKnockInteractionSchema))
     input: RecordDoorKnockInteraction,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.interactionService.record(organization, input)
+    return this.interactionService.record(organization, user.id, input)
   }
 
   // ADR 0007, and the first of the two deliberate holes in the Pro gate above.

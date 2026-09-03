@@ -43,6 +43,7 @@ model User {
   contactStatusEvents   ContactStatusEvent[]
   phoneBankingCalls     ContactInteractionPhoneBanking[]
   contactNotes          ContactNote[]
+  doorKnockInteractions ContactInteractionDoorKnock[]
 
   @@index([firstName])
   @@index([lastName])
