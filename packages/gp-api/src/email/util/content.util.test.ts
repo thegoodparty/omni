@@ -15,4 +15,17 @@ describe('getTeamMemberAddedEmailContent', () => {
     expect(html).not.toContain('Admin')
     expect(html).toContain('https://app.goodparty.org/dashboard')
   })
+
+  it('escapes HTML in the invitee name and campaign name', () => {
+    const html = getTeamMemberAddedEmailContent(
+      '<script>alert(1)</script>',
+      '<b>Fake Login</b>',
+      'https://app.goodparty.org/dashboard',
+    )
+
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('<b>Fake Login</b>')
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('&lt;b&gt;Fake Login&lt;/b&gt;')
+  })
 })

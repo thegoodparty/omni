@@ -1,3 +1,15 @@
+// Escapes the 5 characters that matter for HTML text/attribute contexts.
+// Named entities (not numeric) so the encoded text still reads in a spam
+// filter's plaintext preview.
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 export function getRecoverPasswordEmailContent(name: string, link: string) {
   return `<table border="0" cellpadding="0" cellspacing="0" height="100%" width="100%">
               <tbody>
@@ -62,6 +74,11 @@ export function getTeamMemberAddedEmailContent(
   campaignName: string,
   link: string,
 ) {
+  // name and campaignName are both set by other users (the inviter's own
+  // campaign name, and — for name — whatever value that flow captured), so
+  // this is untrusted content rendered in the recipient's email client.
+  const safeName = escapeHtml(name)
+  const safeCampaignName = escapeHtml(campaignName)
   return `<table border="0" cellpadding="0" cellspacing="0" height="100%" width="100%">
               <tbody>
                 <tr>
@@ -74,7 +91,7 @@ export function getTeamMemberAddedEmailContent(
                         margin-bottom: 5px;
                       "
                     >
-                    Hi ${name}!<br/> <br>
+                    Hi ${safeName}!<br/> <br>
                     </p>
                   </td>
                 </tr>
@@ -88,7 +105,7 @@ export function getTeamMemberAddedEmailContent(
                         margin-bottom: 5px;
                       "
                     >
-                    You've been added to ${campaignName} as Campaign Manager.
+                    You've been added to ${safeCampaignName} as Campaign Manager.
                     </p>
                   </td>
                 </tr>
