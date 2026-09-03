@@ -154,7 +154,7 @@ export const SuccessScreen = ({
       </div>
       <div className="space-y-2">
         <h2 className="text-2xl font-semibold text-foreground">
-          Payment successful!
+          {paid ? 'Payment successful!' : 'Scheduled!'}
         </h2>
         <p className="text-muted-foreground">
           Your sms campaign will reach {contactCount.toLocaleString()}{' '}
@@ -729,11 +729,23 @@ export const SmsFlow = ({
                 }
               : null
 
+  // Mirrors the review step's isFree: a free send reads "Review and send" /
+  // "Schedule campaign" instead of the pay vocabulary (design prototype).
+  const isFreeSend =
+    Boolean(campaign?.hasFreeTextsOffer) &&
+    (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
+
   return (
     <OutreachFlowShell
       open={open}
       onClose={onClose}
-      title={scheduled ? 'Done' : STEP_TITLES[stepId]}
+      title={
+        scheduled
+          ? 'Done'
+          : stepId === 'review' && isFreeSend
+            ? 'Review and send'
+            : STEP_TITLES[stepId]
+      }
       currentStep={stepIndex + 1}
       totalSteps={scheduled ? 0 : STEP_ORDER.length}
       onBack={!scheduled && stepIndex > 0 ? handleBack : undefined}

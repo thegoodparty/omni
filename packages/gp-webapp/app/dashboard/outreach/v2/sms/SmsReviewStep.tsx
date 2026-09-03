@@ -301,7 +301,7 @@ export const SmsReviewStep = ({
           disabled={isRedeeming}
           loading={isRedeeming}
         >
-          Pay $0.00
+          Schedule campaign
         </Button>
       ) : (
         <>
