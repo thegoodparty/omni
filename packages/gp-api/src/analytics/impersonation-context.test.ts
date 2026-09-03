@@ -26,13 +26,26 @@ describe('impersonation-context', () => {
       })
     })
 
-    it('carries null actorUserId/actorRole for non-org-scoped requests', () => {
+    it('carries actorUserId with null actorRole for non-org-scoped requests', () => {
       runWithActorContext(
         { isImpersonating: false, actorUserId: 7, actorRole: null },
         () => {
           expect(getActorContext()).toEqual({
             isImpersonating: false,
             actorUserId: 7,
+            actorRole: null,
+          })
+        },
+      )
+    })
+
+    it('carries null actorUserId for unauthenticated request contexts', () => {
+      runWithActorContext(
+        { isImpersonating: false, actorUserId: null, actorRole: null },
+        () => {
+          expect(getActorContext()).toEqual({
+            isImpersonating: false,
+            actorUserId: null,
             actorRole: null,
           })
         },
