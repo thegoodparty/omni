@@ -155,10 +155,28 @@ describe('geoapify daily budget tiers', () => {
   // The escalation only means anything if the thresholds are the stated
   // fractions of the pool. A tier whose number drifted off its own percentage
   // would page under a name that misdescribes it.
+  //
+  // Rounds on the expected side too, as the implementation does. 50,000
+  // divides evenly by all four percentages so the two agree today, but the
+  // pool is a hand-maintained constant that exists to be corrected — a plan
+  // upgrade landing on a figure that does not divide evenly would otherwise
+  // fail this against a fractional expectation the implementation is right
+  // not to produce.
   it('sets each threshold to its percentage of the daily pool', () => {
     expect(tiers.map((a) => a.threshold)).toEqual(
-      [60, 80, 90, 95].map((p) => (GEOAPIFY_DAILY_CREDIT_POOL * p) / 100),
+      [60, 80, 90, 95].map((p) =>
+        Math.round((GEOAPIFY_DAILY_CREDIT_POOL * p) / 100),
+      ),
     )
+  })
+
+  // Stated separately from the arithmetic above so that rounding cannot be
+  // dropped from the implementation to satisfy it. A fractional threshold is
+  // a credit count that cannot exist, and it reaches Grafana as one.
+  it('gives the alerting engine whole credits', () => {
+    for (const alert of tiers) {
+      expect(Number.isInteger(alert.threshold)).toBe(true)
+    }
   })
 
   // Identical text is what lets Loki's result cache serve tiers 2-4 from the
