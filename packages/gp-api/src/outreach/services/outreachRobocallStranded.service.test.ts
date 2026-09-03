@@ -535,4 +535,59 @@ describe('OutreachRobocallStrandedService.sweepOrphanedEstimateClaims', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.paid)
     expect(satellite.chargeIntentId).toBeNull()
   })
+
+  it('pages CRITICAL and leaves the orphan paid when the persisted card is permanently unusable', async () => {
+    const outreachId = await createOrphanDraft({ sendInDays: -1 })
+    // A detached/foreign card: re-validation throws RobocallCardError, which no
+    // later sweep can ever revalidate.
+    retrievePmSpy.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_other',
+      type: 'card',
+    } as never)
+    const charge = service.app.get(OutreachRobocallChargeService)
+    const errorSpy = vi.spyOn(
+      (charge as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await stranded.sweepOrphanedEstimateClaims()
+
+    // No second charge is attempted for an un-revalidatable card.
+    expect(chargeSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    // Stays paid (never charge_failed) — a capture may have landed under the
+    // stable key, so we must not imply no money moved.
+    expect(satellite.settleState).toBe(RobocallSettleState.paid)
+    expect(satellite.chargeIntentId).toBeNull()
+    // Ops is paged to reconcile a possible manual refund by hand.
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('CRITICAL'),
+    )
+  })
+
+  it('leaves the orphan paid QUIETLY (no CRITICAL) on a transient card re-validation failure', async () => {
+    const outreachId = await createOrphanDraft({ sendInDays: -1 })
+    // A lost Stripe read is transient infra, not a permanent card problem.
+    retrievePmSpy.mockRejectedValue(new Error('stripe down'))
+    const charge = service.app.get(OutreachRobocallChargeService)
+    const errorSpy = vi.spyOn(
+      (charge as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await stranded.sweepOrphanedEstimateClaims()
+
+    expect(chargeSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.paid)
+    expect(satellite.chargeIntentId).toBeNull()
+    // The transient branch logs, but never pages — no CRITICAL line.
+    expect(errorSpy).toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('CRITICAL'),
+    )
+  })
 })

@@ -322,6 +322,22 @@ export class OutreachRobocallChargeService extends createPrismaBase(
         throw new RobocallCardError('Persisted card is no longer chargeable')
       }
     } catch (err) {
+      if (err instanceof RobocallCardError) {
+        // A permanently-unusable card (detached / foreign / non-card) can
+        // never be revalidated, so this orphan would loop through the sweep
+        // forever unseen. A capture may already have landed under the stable
+        // key, so page ops to reconcile a possible manual refund and leave the
+        // row `paid` — never charge_failed, which would imply no money moved.
+        this.logger.error(
+          { err, outreachId },
+          'CRITICAL robocall estimate resume: orphaned paid claim card is ' +
+            'permanently unusable; a capture may have landed under the ' +
+            'idempotency key — reconcile a possible manual refund by hand',
+        )
+        return
+      }
+      // Transient infra (a lost Stripe read): leave the row `paid` quietly for
+      // the next sweep — no paging, no state change.
       this.logger.error(
         { err, outreachId },
         'robocall estimate resume: card re-validation failed; leaving paid ' +
