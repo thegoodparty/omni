@@ -329,7 +329,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.deniedReason).toBeNull()
       expect(updated.adminEditedBy).toBe('cas@goodparty.org')
       expect(updated.adminEditedAt).not.toBeNull()
-      expect(slackMessage).toHaveBeenCalled()
+      expect(slackMessage).not.toHaveBeenCalled()
     })
 
     it('keeps an existing booking and approval intact', async () => {

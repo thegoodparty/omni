@@ -75,7 +75,9 @@ export function SmsQueue({ items }: SmsQueueProps) {
       (item) =>
         TAB_STATUSES[tab].includes(item.approvalStatus) &&
         (query.length === 0 ||
-          (item.candidateName ?? '').toLowerCase().includes(query))
+          [item.candidateName, item.name, item.campaignSlug].some((field) =>
+            (field ?? '').toLowerCase().includes(query)
+          ))
     )
     const sorted = [...filtered].sort((a, b) => compareItems(a, b, sortKey))
     return sortDir === 'asc' ? sorted : sorted.reverse()
@@ -115,10 +117,10 @@ export function SmsQueue({ items }: SmsQueueProps) {
           </Tabs.List>
         </Tabs.Root>
         <TextField.Root
-          placeholder="Search by candidate…"
+          placeholder="Search candidate, campaign, or slug…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          aria-label="Search by candidate"
+          aria-label="Search campaigns"
           style={{ minWidth: 220 }}
         />
       </Flex>
@@ -126,7 +128,7 @@ export function SmsQueue({ items }: SmsQueueProps) {
       {visible.length === 0 ? (
         <Text color="gray" size="3" mt="4" as="p">
           {search.trim().length > 0
-            ? 'No campaigns match that candidate.'
+            ? 'No campaigns match your search.'
             : 'Nothing here right now.'}
         </Text>
       ) : (

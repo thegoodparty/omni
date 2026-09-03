@@ -193,6 +193,7 @@ describe('SmsQueue', () => {
               id: 52,
               candidateName: 'Amy Brown',
               name: 'Amy campaign',
+              campaignSlug: 'amy-brown-2026',
               sendAt: new Date('2026-09-12T15:00:00Z'),
             }),
           ]}
@@ -209,18 +210,29 @@ describe('SmsQueue', () => {
     expect(afterSort[0]).toHaveTextContent('Amy campaign')
 
     await userEvent.type(
-      screen.getByRole('textbox', { name: 'Search by candidate' }),
+      screen.getByRole('textbox', { name: 'Search campaigns' }),
       'zoe'
     )
     expect(screen.getByText('Zoe campaign')).toBeInTheDocument()
     expect(screen.queryByText('Amy campaign')).not.toBeInTheDocument()
 
     await userEvent.type(
-      screen.getByRole('textbox', { name: 'Search by candidate' }),
+      screen.getByRole('textbox', { name: 'Search campaigns' }),
       'zzz'
     )
     expect(
-      screen.getByText('No campaigns match that candidate.')
+      screen.getByText('No campaigns match your search.')
     ).toBeInTheDocument()
+
+    // Slug and campaign-name fields match too, not just the candidate.
+    await userEvent.clear(
+      screen.getByRole('textbox', { name: 'Search campaigns' })
+    )
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Search campaigns' }),
+      'amy-brown-2026'
+    )
+    expect(screen.getByText('Amy campaign')).toBeInTheDocument()
+    expect(screen.queryByText('Zoe campaign')).not.toBeInTheDocument()
   })
 })

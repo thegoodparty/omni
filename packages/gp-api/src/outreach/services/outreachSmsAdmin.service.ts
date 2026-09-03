@@ -364,7 +364,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       include: queueInclude,
     })
     const registrations = await this.registrationsByCampaign([updated])
-    await this.tryNotifyDecision(updated, 'edited', input.editedBy)
     return this.toQueueItem(
       updated,
       registrations.get(updated.campaignId ?? -1),
@@ -523,9 +522,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     return 'awaiting_review'
   }
 
+  // Approve/deny only — staff edits are routine fixes and deliberately
+  // don't post (product decision 2026-09-03).
   private async tryNotifyDecision(
     row: QueueRow,
-    decision: 'approved' | 'denied' | 'edited',
+    decision: 'approved' | 'denied',
     actor: string,
   ) {
     try {
