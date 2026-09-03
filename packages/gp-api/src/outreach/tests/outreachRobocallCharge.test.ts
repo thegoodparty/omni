@@ -312,6 +312,93 @@ describe('POST /authorize with ROBOCALL_ESTIMATE_BILLING_ENABLED=true', () => {
       RobocallSettleState.paid,
     )
   })
+
+  it('a retry after a transient failure replays the FROZEN estimate + key', async () => {
+    const outreachId = await createDraft({ sendInDays: 2 })
+    mockCardOnFile()
+    // First attempt derives 100, freezes that estimate, then the charge fails
+    // transiently (infra 502) → revert to pending_payment with the estimate
+    // frozen on the row.
+    deriveSpy.mockResolvedValueOnce(100)
+    paymentIntentsCreate.mockRejectedValueOnce(new Error('stripe down'))
+    const first = await postAuthorize(outreachId)
+    expect(first.status).toBe(HttpStatus.BAD_GATEWAY)
+
+    // The billable count SHIFTS before the retry — a re-derive would now price
+    // 200. The retry must NOT re-derive; it reuses the frozen 100.
+    deriveSpy.mockResolvedValue(200)
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_charge_1',
+      status: 'succeeded',
+    })
+    const second = await postAuthorize(outreachId)
+
+    expect(second.data.status).toBe('paid')
+    // Deriving happened exactly once (the first attempt); the retry reused the
+    // frozen value instead of re-deriving.
+    expect(deriveSpy).toHaveBeenCalledTimes(1)
+    // Both charge attempts carry the SAME frozen amount under the SAME
+    // idempotency key — never a divergent amount Stripe would reject as
+    // keys-must-match.
+    expect(paymentIntentsCreate.mock.calls[0]?.[0]?.amount).toBe(
+      calcRobocallTotalInCents(100),
+    )
+    expect(paymentIntentsCreate.mock.calls[1]?.[0]?.amount).toBe(
+      calcRobocallTotalInCents(100),
+    )
+    expect(paymentIntentsCreate.mock.calls[1]?.[1]?.idempotencyKey).toBe(
+      `robocall-estimate-charge-${outreachId}`,
+    )
+    // The commit records the FROZEN estimate as captured, not a re-derived one.
+    expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(
+      calcRobocallTotalInCents(100),
+    )
+  })
+
+  it('freezes the estimate at claim and commits capturedAmountInCents from it', async () => {
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    mockCardOnFile()
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_charge_1',
+      status: 'succeeded',
+    })
+
+    await postAuthorize(outreachId)
+
+    const satellite = await readSatellite(outreachId)
+    // The estimate is pinned to the frozen-estimate column at claim, and the
+    // commit records capturedAmountInCents from that same frozen value.
+    expect(satellite.authorizedAmountInCents).toBe(
+      calcRobocallTotalInCents(100),
+    )
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
+  })
+
+  it('two concurrent claims freeze the same amount and charge once', async () => {
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    mockCardOnFile()
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_charge_1',
+      status: 'succeeded',
+    })
+
+    const [a, b] = await Promise.all([
+      postAuthorize(outreachId),
+      postAuthorize(outreachId),
+    ])
+
+    expect(paymentIntentsCreate).toHaveBeenCalledTimes(1)
+    expect([a.data.status, b.data.status].sort()).toEqual(['paid', 'paid'])
+    // Deterministic derivation + the single-owner claim mean both requests would
+    // freeze the SAME amount; only one charges.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.authorizedAmountInCents).toBe(
+      calcRobocallTotalInCents(100),
+    )
+    expect(satellite.capturedAmountInCents).toBe(calcRobocallTotalInCents(100))
+  })
 })
 
 describe('POST /authorize with the flag OFF still runs the hold model', () => {

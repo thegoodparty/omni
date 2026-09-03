@@ -100,30 +100,20 @@ export class OutreachRobocallChargeService extends createPrismaBase(
       )
     }
 
-    // CHARGE CLAIM (charge once): elect exactly one charger. Only a
-    // pending_payment draft with no charge intent yet can transition to `paid`; a
-    // concurrent winner or an already-advanced draft makes count 0 → return the
-    // current state, no charge. charge_failed is a terminal (the candidate was
-    // emailed), NOT re-claimed here — a new-card retry is a later slice.
-    const claim = await this.model.updateMany({
-      where: {
-        outreachId,
-        settleState: RobocallSettleState.pending_payment,
-        chargeIntentId: null,
-      },
-      data: { settleState: RobocallSettleState.paid },
-    })
-    if (claim.count === 0) {
-      return this.currentStateResult(outreachId, draft.settleState)
-    }
-
-    // We own the `paid` claim but the charge is NOT placed yet (chargeIntentId is
-    // still null, so no sweep can stage/dial this row). Every failure BEFORE the
-    // charge lands must release the claim back to pending_payment — no money
-    // moved, so no idempotency key was consumed and a retry re-charges cleanly.
-    let estimate: number
-    let customerId: string
-    try {
+    // FREEZE THE ESTIMATE AT CLAIM. Re-deriving the estimate on every call —
+    // including the retry after a transient/lost-response charge that reverted the
+    // row to pending_payment — is the money-safety bug: if the first charge
+    // actually landed at Stripe (response lost) AND the billable count shifted
+    // inside Stripe's 24h idempotency window, the retry would send the SAME
+    // idempotency key with a DIFFERENT amount, which Stripe rejects as
+    // keys-must-match (an ERROR, not a decline) → treated as infra → revert → an
+    // endless loop with money already captured. So derive ONCE and pin the value
+    // onto the row; a reverted row keeps it and every later path (the retry, the
+    // committed capturedAmountInCents, the idempotent replay amount) REUSES it.
+    // authorizedAmountInCents is the schema's frozen-estimate column, unused by
+    // this charge path otherwise (the hold model freezes into it the same way).
+    let estimate = draft.authorizedAmountInCents
+    if (estimate == null) {
       const billableCount = await this.robocallService.deriveBillableCount(
         organization,
         voterFileFilterId,
@@ -132,19 +122,48 @@ export class OutreachRobocallChargeService extends createPrismaBase(
       // Total = per-call cost + the flat number-rental fee (charged in full up
       // front on this branch — there is no zero-connect release).
       estimate = calcRobocallTotalInCents(billableCount)
+    }
 
-      // INV-2: the TESTING ceiling. An estimate over it is a human-alert anomaly,
-      // not something to silently charge.
-      if (estimate > ROBOCALL_PER_RUN_CEILING_CENTS) {
-        this.logger.error(
-          { outreachId, estimate, ceiling: ROBOCALL_PER_RUN_CEILING_CENTS },
-          'robocall estimate over per-run ceiling',
-        )
-        throw new ConflictException(
-          'Robocall estimate exceeds the per-run limit',
-        )
-      }
+    // INV-2: the TESTING ceiling, checked against the FROZEN value BEFORE any
+    // charge. An estimate over it is a human-alert anomaly, not something to
+    // silently charge.
+    if (estimate > ROBOCALL_PER_RUN_CEILING_CENTS) {
+      this.logger.error(
+        { outreachId, estimate, ceiling: ROBOCALL_PER_RUN_CEILING_CENTS },
+        'robocall estimate over per-run ceiling',
+      )
+      throw new ConflictException('Robocall estimate exceeds the per-run limit')
+    }
 
+    // CHARGE CLAIM (charge once) + FREEZE in one write: elect exactly one charger
+    // AND pin the estimate atomically, so two concurrent first-claims cannot pin
+    // divergent amounts and a retry cannot re-derive one. Only a pending_payment
+    // draft with no charge intent yet can transition to `paid`; a concurrent
+    // winner or an already-advanced draft makes count 0 → return the current
+    // state, no charge. charge_failed is a terminal (the candidate was emailed),
+    // NOT re-claimed here — a new-card retry is a later slice.
+    const claim = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.pending_payment,
+        chargeIntentId: null,
+      },
+      data: {
+        settleState: RobocallSettleState.paid,
+        authorizedAmountInCents: estimate,
+      },
+    })
+    if (claim.count === 0) {
+      return this.currentStateResult(outreachId, draft.settleState)
+    }
+
+    // We own the `paid` claim but the charge is NOT placed yet (chargeIntentId is
+    // still null, so no sweep can stage/dial this row). Every failure BEFORE the
+    // charge lands must release the claim back to pending_payment — no money
+    // moved, so no idempotency key was consumed and a retry re-charges cleanly
+    // under the SAME frozen amount + key.
+    let customerId: string
+    try {
       customerId = await this.stripe.ensureCustomer(user)
       const pm = await this.stripe.retrievePaymentMethod(paymentMethodId)
       if (pm.customer !== customerId) {
@@ -247,6 +266,58 @@ export class OutreachRobocallChargeService extends createPrismaBase(
     }
   }
 
+  // The estimate-billing analogue of the hold model's failSend, for a run that
+  // CHARGED its estimate up front (`paid`) but whose send passed while still
+  // UN-staged (`callhubCampaignPkStr` NULL) — a strand no staging/send sweep
+  // catches, so it would sit in `paid` forever with money captured, zero calls
+  // placed, and nothing surfaced. There is deliberately NO auto-refund on this
+  // contingency branch, so this: (1) moves the row to the `send_failed` terminal
+  // no sweep re-picks, (2) logs `CRITICAL robocall` so ops is paged for a MANUAL
+  // refund decision, and (3) emails the candidate the run did not go out. The CAS
+  // matches ONLY `paid` + `chargeIntentId IS NOT NULL` + `callhubCampaignPkStr`
+  // NULL, so it can never race an in-flight staging/send that has already claimed
+  // the row (it moves to `staging`/`dialing` or sets a pk_str) — mirroring the
+  // reason-conditional discipline the stranded-authorized sweep uses.
+  async failStrandedEstimate(outreachId: number): Promise<void> {
+    const draft = await this.findFirst({
+      where: { outreachId },
+      include: { outreach: { include: { campaign: true } } },
+    })
+    if (!draft) return
+
+    const claim = await this.model.updateMany({
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.paid,
+        chargeIntentId: { not: null },
+        callhubCampaignPkStr: null,
+      },
+      data: { settleState: RobocallSettleState.send_failed },
+    })
+    // count 0: a staging/send run claimed it, or another runner already failed it
+    // — do not double-terminate or double-email.
+    if (claim.count === 0) return
+
+    // The `win-robocall-critical` alert pages win-bugs on this `CRITICAL robocall`
+    // line (deploy/components/alerts.ts). The estimate was captured up front and
+    // the run never dialed, so a human must decide the refund — this branch never
+    // auto-refunds.
+    this.logger.error(
+      { outreachId },
+      'CRITICAL robocall send_failed: estimate charged up front but the run ' +
+        'never staged before its send; NO calls placed and NO auto-refund — ' +
+        'reconcile a manual refund by hand',
+    )
+
+    await this.markSpineFailed(outreachId)
+    // Outreach.campaign is nullable (campaign-less Serve orgs), but a robocall is
+    // always campaign-scoped; guard defensively and only email a resolvable user.
+    const userId = draft.outreach.campaign?.userId
+    if (userId != null) {
+      await this.emitSendFailed(userId, outreachId)
+    }
+  }
+
   // Releases the `paid` claim back to pending_payment when the charge did not
   // land (a pre-charge validation error, or a transient infra failure). CAS'd on
   // `paid` + chargeIntentId null so a committed row is never reverted.
@@ -302,6 +373,51 @@ export class OutreachRobocallChargeService extends createPrismaBase(
       this.logger.error(
         { err, outreachId },
         'robocall: failed to advance spine to pending for history',
+      )
+    }
+  }
+
+  // Flips the spine to `failed` so the history shows "Couldn't send" for a
+  // stranded charged run. Guarded on the pre-terminal visible states (never
+  // overrides canceled/completed). Best-effort, like markSpineScheduled.
+  private async markSpineFailed(outreachId: number): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: {
+          id: outreachId,
+          status: {
+            in: [OutreachStatus.pending, OutreachStatus.pending_payment],
+          },
+        },
+        data: { status: OutreachStatus.failed },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to flip spine to failed',
+      )
+    }
+  }
+
+  // Emits the SendFailed "we couldn't send" milestone once, deterministic
+  // messageId, best-effort — mirrors the hold service's send_failed emit so the
+  // candidate is told the charged run did not go out.
+  private async emitSendFailed(
+    userId: number,
+    outreachId: number,
+  ): Promise<void> {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Robocall.SendFailed,
+        { outreachId },
+        undefined,
+        `${outreachId}:send_failed`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, event: EVENTS.Robocall.SendFailed },
+        'robocall send_failed milestone emit failed',
       )
     }
   }

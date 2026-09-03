@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { addDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PinoLogger } from 'nestjs-pino'
 import { useTestService } from '@/test-service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachRobocallChargeService } from '@/outreach/services/outreachRobocallCharge.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
@@ -175,5 +179,147 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
     await stranded.sweepStrandedAuthorized()
 
     expect(failSendSpy).not.toHaveBeenCalled()
+  })
+})
+
+// A robocall whose ESTIMATE was charged up front (CONTINGENCY billing): `paid`
+// with a committed chargeIntentId, no hold. Distinct from the hold-model draft
+// createDraft builds above (authorized + authorizationIntentId).
+const createPaidDraft = async ({
+  sendInDays = -1,
+  callhubCampaignPkStr,
+  chargeIntentId = 'pi_charge_1',
+}: {
+  sendInDays?: number
+  callhubCampaignPkStr?: string
+  chargeIntentId?: string | null
+} = {}): Promise<number> => {
+  const spine = await service.prisma.outreach.create({
+    data: {
+      campaignId: campaign.id,
+      organizationSlug: orgSlug,
+      outreachType: 'robocall',
+      status: 'pending',
+      date: addDays(new Date(), sendInDays),
+      voterFileFilterId: filterId,
+    },
+  })
+  await service.prisma.outreachRobocall.create({
+    data: {
+      outreachId: spine.id,
+      audioKey: `robocall/994/${randomUUID()}.webm`,
+      callbackNumber: '+15125550123',
+      billableCount: 100,
+      amountInCents: 450,
+      settleState: RobocallSettleState.paid,
+      authorizedAmountInCents: 450,
+      capturedAmountInCents: 450,
+      ...(chargeIntentId ? { chargeIntentId } : {}),
+      ...(callhubCampaignPkStr ? { callhubCampaignPkStr } : {}),
+    },
+  })
+  return spine.id
+}
+
+describe('OutreachRobocallStrandedService.sweepStrandedPaid (estimate model)', () => {
+  const originalFlag = process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED
+  let charge: OutreachRobocallChargeService
+  let trackSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED = 'true'
+    charge = service.app.get(OutreachRobocallChargeService)
+    trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+  })
+  afterEach(() => {
+    if (originalFlag === undefined) {
+      delete process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED
+    } else {
+      process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED = originalFlag
+    }
+  })
+
+  const readSatellite = (outreachId: number) =>
+    service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
+
+  it('fails a past-due paid unstaged run → send_failed + spine failed + CRITICAL + SendFailed', async () => {
+    const outreachId = await createPaidDraft({ sendInDays: -1 })
+    const errorSpy = vi.spyOn(
+      (charge as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await stranded.sweepStrandedPaid()
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.send_failed,
+    )
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(spine.status).toBe('failed')
+    // The CRITICAL line pages ops for a manual refund (no auto-refund here).
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('CRITICAL'),
+    )
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Robocall.SendFailed,
+      { outreachId },
+      undefined,
+      `${outreachId}:send_failed`,
+    )
+  })
+
+  it('does not touch a paid run that is already staged (pk_str set)', async () => {
+    const outreachId = await createPaidDraft({
+      sendInDays: -1,
+      callhubCampaignPkStr: 'vb_staged',
+    })
+
+    await stranded.sweepStrandedPaid()
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.paid,
+    )
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not touch a future-dated paid run', async () => {
+    const outreachId = await createPaidDraft({ sendInDays: 2 })
+
+    await stranded.sweepStrandedPaid()
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.paid,
+    )
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('is inert when the estimate-billing flag is OFF', async () => {
+    delete process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED
+    const outreachId = await createPaidDraft({ sendInDays: -1 })
+
+    await stranded.sweepStrandedPaid()
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.paid,
+    )
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('leaves a hold-model authorized draft to the stranded-authorized sweep', async () => {
+    const outreachId = await createDraft({ sendInDays: -1 })
+
+    await stranded.sweepStrandedPaid()
+
+    // The paid sweep never touches an `authorized` row.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+    expect(trackSpy).not.toHaveBeenCalled()
   })
 })

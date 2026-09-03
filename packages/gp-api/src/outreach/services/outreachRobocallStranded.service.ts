@@ -2,7 +2,9 @@ import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { isRobocallEstimateBillingEnabled } from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { OutreachRobocallChargeService } from './outreachRobocallCharge.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 
 // Every 15 minutes on the only minute-of-hour slots no other robocall cron
@@ -13,6 +15,13 @@ import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 // cadence is ample. Explicit timeZone per docs/scheduled-jobs.md.
 const ROBOCALL_STRANDED_SWEEP_CRON = '6,21,36,51 * * * *'
 const ROBOCALL_STRANDED_SWEEP_JOB = 'robocallStrandedAuthorizedSweep'
+
+// The estimate-billing (CONTINGENCY) analogue shares the authorized sweep's
+// 15-minute cadence: the two are mutually exclusive in practice — a draft is
+// `authorized` (hold model) OR `paid` (charge model) depending on how it was
+// paid, never both — so running them on the same minute never doubles work, and
+// every non-herd minute slot is already claimed by another robocall cron.
+const ROBOCALL_STRANDED_PAID_SWEEP_JOB = 'robocallStrandedPaidSweep'
 
 // Recovers a robocall stranded in `authorized` that NEVER staged
 // (`callhubCampaignPkStr` still NULL) once its send passed: the staging sweep
@@ -32,7 +41,10 @@ const ROBOCALL_STRANDED_SWEEP_JOB = 'robocallStrandedAuthorizedSweep'
 export class OutreachRobocallStrandedService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
-  constructor(private readonly holds: OutreachRobocallHoldService) {
+  constructor(
+    private readonly holds: OutreachRobocallHoldService,
+    private readonly charge: OutreachRobocallChargeService,
+  ) {
     super()
   }
 
@@ -74,6 +86,58 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
         this.logger.error(
           { err, outreachId },
           'robocall stranded-authorized fail failed for a draft; continuing',
+        )
+      }
+    }
+  }
+
+  // The estimate-billing (CONTINGENCY) analogue: a draft that CHARGED its
+  // estimate up front (`paid`) but whose send passed while still UN-staged
+  // (`callhubCampaignPkStr` NULL, `chargeIntentId` committed) is caught by no
+  // other sweep — staging only stages future sends, send only dials staged
+  // drafts — so it would sit in `paid` forever with the estimate captured, zero
+  // calls placed, and nothing surfaced. failStrandedEstimate moves it to
+  // send_failed, logs CRITICAL for a MANUAL refund (this branch never
+  // auto-refunds), and emails the candidate. Gated ENTIRELY on the flag so it is
+  // inert when the contingency model is off; unlike the authorized sweep it voids
+  // no Stripe hold, so it is NOT prod-only — a strand can occur wherever the flag
+  // charged the estimate. @Cron (not @Interval) so the schedule survives deploys;
+  // failStrandedEstimate's single-owner CAS elects one winner per draft across
+  // replicas.
+  @Cron(ROBOCALL_STRANDED_SWEEP_CRON, {
+    name: ROBOCALL_STRANDED_PAID_SWEEP_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepStrandedPaid(): Promise<void> {
+    if (!isRobocallEstimateBillingEnabled()) return
+
+    const now = new Date()
+    const candidates = await this.model.findMany({
+      where: {
+        settleState: RobocallSettleState.paid,
+        // The estimate was committed (never-surface-unpaid): the sub-second
+        // paid-but-not-committed charge window is excluded, as is any row whose
+        // charge did not land.
+        chargeIntentId: { not: null },
+        // Never staged: a staged (or in-flight staging/send) draft is owned by
+        // the staging/send sweeps.
+        callhubCampaignPkStr: null,
+        outreach: {
+          outreachType: OutreachType.robocall,
+          date: { lte: now },
+        },
+      },
+      select: { outreachId: true },
+    })
+
+    for (const { outreachId } of candidates) {
+      try {
+        await this.charge.failStrandedEstimate(outreachId)
+      } catch (err) {
+        // Per-record isolation: one draft's failure must not abort the sweep.
+        this.logger.error(
+          { err, outreachId },
+          'robocall stranded-paid fail failed for a draft; continuing',
         )
       }
     }
