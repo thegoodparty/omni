@@ -39,8 +39,14 @@ model ContactInteractionDoorKnock {
   // treats NULLs as distinct so the unique index never collides those rows.
   sourceId         String?          @map("source_id")
   manual           Boolean          @default(false)
+  // The caller (manual log) or canvasser (tool sync) who logged this row.
+  // Null on rows written before this column existed (no backfill) — the
+  // feed renders those authorless.
+  actorUserId      Int?             @map("actor_user_id")
+  actor            User?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@unique([organizationSlug, sourceId])
   @@index([organizationSlug, personId, occurredAt])
+  @@index([organizationSlug, actorUserId])
   @@map("contact_interaction_door_knock")
 }

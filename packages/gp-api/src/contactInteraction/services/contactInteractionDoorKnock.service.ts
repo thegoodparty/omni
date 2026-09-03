@@ -60,6 +60,9 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
         organizationSlug_sourceId: { organizationSlug, sourceId },
       },
       create: data,
+      // actorUserId is deliberately absent here: a re-sync of the same
+      // sourceId must not clear or overwrite an existing stamp, so the
+      // first write is the one that owns it.
       update: {
         personId: data.personId,
         occurredAt: data.occurredAt,
