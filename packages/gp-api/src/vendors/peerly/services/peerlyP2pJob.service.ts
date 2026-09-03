@@ -329,7 +329,10 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     }
   }
 
-  async getJobDetailedStats(jobId: string): Promise<{
+  async getJobDetailedStats(
+    jobId: string,
+    range?: { startDate: string; endDate: string },
+  ): Promise<{
     sentTotal: number
     receivedTotal: number
     delivered: number
@@ -338,9 +341,20 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     totalCost: number
   }> {
     try {
+      // date_range is required and Peerly scans the whole span server-side;
+      // THIS_YEAR over a busy account stalls the read for minutes, so
+      // callers that know the job's lifetime pass a CUSTOM window instead.
       const response = await this.peerlyHttpService.get(
         `/1to1/jobs/${jobId}/detailedstats`,
-        { params: { date_range: 'THIS_YEAR' } },
+        {
+          params: range
+            ? {
+                date_range: 'CUSTOM',
+                start_date: range.startDate,
+                end_date: range.endDate,
+              }
+            : { date_range: 'THIS_YEAR' },
+        },
       )
       const stats = this.peerlyHttpService.validateResponse(
         response.data,

@@ -14,6 +14,7 @@ import {
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
 } from '@goodparty_org/contracts'
+import { addDays, format } from 'date-fns'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
@@ -122,7 +123,13 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         },
       ),
       timeboxed(
-        this.peerlyP2pJobService.getJobDetailedStats(row.projectId),
+        // Scoped to the row's lifetime: Peerly scans the requested span
+        // server-side, and the default THIS_YEAR over a busy account is
+        // what stalled this read for minutes.
+        this.peerlyP2pJobService.getJobDetailedStats(row.projectId, {
+          startDate: format(row.createdAt, 'yyyy-MM-dd'),
+          endDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+        }),
       ).catch((err: Error): SmsAdminJobStats | null => {
         this.logger.warn(
           { err, outreachId },
