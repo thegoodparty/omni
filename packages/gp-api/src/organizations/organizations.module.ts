@@ -3,6 +3,7 @@ import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { EmailModule } from '@/email/email.module'
 import { FeaturesModule } from '@/features/features.module'
 import { UsersModule } from '@/users/users.module'
+import { CrmModule } from '@/crm/crmModule'
 import { Module } from '@nestjs/common'
 import { UseOrganizationGuard } from './guards/UseOrganization.guard'
 import { OrganizationsController } from './organizations.controller'
@@ -18,6 +19,7 @@ import { OrganizationsService } from './services/organizations.service'
     EmailModule,
     FeaturesModule,
     UsersModule,
+    CrmModule,
   ],
   providers: [
     OrganizationsService,

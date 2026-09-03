@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -23,6 +25,9 @@ import { ClerkInvitationsService } from '@/vendors/clerk/services/clerkInvitatio
 import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import { toLowerAndTrim } from '@/shared/util/strings.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { WrapperType } from '@/shared/types/utility.types'
 import {
   Organization,
   OrganizationMembership,
@@ -42,6 +47,9 @@ export class OrganizationTeamService {
     private readonly clerkInvitations: ClerkInvitationsService,
     private readonly email: EmailService,
     private readonly analytics: AnalyticsService,
+    private readonly crmTeamMembers: CrmTeamMembersService,
+    @Inject(forwardRef(() => CampaignsService))
+    private readonly campaigns: WrapperType<CampaignsService>,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OrganizationTeamService.name)
@@ -230,6 +238,13 @@ export class OrganizationTeamService {
 
     await this.clearInviteMetadata(user.clerkId)
 
+    void this.syncTeamMemberToHubspot({
+      organizationSlug: membership.organizationSlug,
+      email: user.email,
+      name: getUserFullName(user) || metadata.name,
+      role: membership.role,
+    })
+
     return {
       organizationSlug: membership.organizationSlug,
       role: membership.role,
@@ -267,6 +282,13 @@ export class OrganizationTeamService {
         toRole: updated.role,
       })
       .catch(() => undefined)
+
+    void this.syncTeamMemberToHubspot({
+      organizationSlug: organization.slug,
+      email: updated.user.email,
+      name: getUserFullName(updated.user) || null,
+      role: updated.role,
+    })
 
     return {
       userId: updated.userId,
@@ -366,6 +388,13 @@ export class OrganizationTeamService {
       )
     }
 
+    void this.syncTeamMemberToHubspot({
+      organizationSlug: organization.slug,
+      email: existingUser.email,
+      name: getUserFullName(existingUser) || null,
+      role,
+    })
+
     return {
       status: 'added',
       member: {
@@ -428,5 +457,36 @@ export class OrganizationTeamService {
         'Failed to clear Clerk team invite metadata; next accept will retry',
       )
     }
+  }
+
+  // ENG-10826: best-effort HubSpot contact sync. Membership truth is
+  // Postgres, never HubSpot — a sync failure must never fail the
+  // invite/accept/role-change request that already succeeded in Postgres.
+  private async syncTeamMemberToHubspot(params: {
+    organizationSlug: string
+    email: string
+    name: string | null
+    role: OrganizationRole
+  }): Promise<void> {
+    const { organizationSlug, ...member } = params
+    try {
+      const crmCompanyId = await this.resolveCrmCompanyId(organizationSlug)
+      await this.crmTeamMembers.syncTeamMember({ ...member, crmCompanyId })
+    } catch (err) {
+      this.logger.warn(
+        { err, email: params.email, organizationSlug },
+        'Failed to sync team member contact to HubSpot',
+      )
+    }
+  }
+
+  private async resolveCrmCompanyId(
+    organizationSlug: string,
+  ): Promise<string | null> {
+    const campaign = await this.campaigns.findUnique({
+      where: { organizationSlug },
+    })
+    const hubspotId = campaign?.data?.hubspotId
+    return typeof hubspotId === 'string' ? hubspotId : null
   }
 }
