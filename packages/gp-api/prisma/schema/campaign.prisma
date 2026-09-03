@@ -54,6 +54,7 @@ model Campaign {
   campaignPlan             CampaignPlan?
   campaignStrategy         CampaignStrategy?
   campaignStory            CampaignStory?
+  campaignIdeology         CampaignIdeology?
   electedOffices           ElectedOffice[]
   voterOutreachActivities  VoterOutreachActivity[]
   raceOpponents            RaceOpponent[]
