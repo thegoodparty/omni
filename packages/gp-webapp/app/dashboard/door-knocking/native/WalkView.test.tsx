@@ -113,6 +113,11 @@ const routePayload: DoorKnockingRoutePayload = {
         {
           addressKey: '210|cedar|row',
           address: '210 Cedar Row',
+          // Both stops in this payload are houses: the stop's `displayAddress`
+          // is the street line, the address under it is the same street line,
+          // and there is no unit between them. That is the shape with no door
+          // row at all, so a test that wants one builds a building below.
+          unit: '',
           targets: [
             {
               stopTargetId: 22,
@@ -143,6 +148,7 @@ const routePayload: DoorKnockingRoutePayload = {
         {
           addressKey: '105|elm|st',
           address: '105 Elm St',
+          unit: '',
           targets: [
             {
               stopTargetId: 21,
@@ -293,6 +299,12 @@ const withHousehold = (
 // A second door at the first stop, which is what makes it a block of flats
 // rather than a house — the one shape that expands twice, and the one the
 // building glyph is for.
+//
+// The stop keeps its bare street line and BOTH doors gain a unit, because that
+// is what the server produces for a building: the coordinate is the stop and
+// the flats are the doors under it. The first door's address moves into Apt 1
+// rather than staying the plain street, since two doors a canvasser cannot tell
+// apart is not a shape this fixture should be able to express.
 const withSecondDoor = (
   payload: DoorKnockingRoutePayload,
 ): DoorKnockingRoutePayload => ({
@@ -302,10 +314,16 @@ const withSecondDoor = (
       ? {
           ...stop,
           addresses: [
-            ...stop.addresses,
+            {
+              ...stop.addresses[0]!,
+              addressKey: '105|elm|st|apt|1',
+              address: '105 Elm St Apt 1',
+              unit: 'Apt 1',
+            },
             {
               addressKey: '105|elm|st|apt|2',
               address: '105 Elm St Apt 2',
+              unit: 'Apt 2',
               otherResidents: [],
               targets: [
                 {
@@ -320,6 +338,57 @@ const withSecondDoor = (
         }
       : stop,
   ),
+})
+
+// The reported defect's own building. Both halves of a door's name used to come
+// off one field: the stop was labelled from whichever resident sorted first, so
+// the whole building announced itself as "205 Benton Dr Apt 13205", and each
+// door row then said its unit twice — the address line already ends in the
+// unit, and the apartment number was appended to it again.
+//
+// One resident per door, so the counts on the row and in the expansion have
+// nothing else in them to read. Taken as doors rather than as a whole payload
+// because the same building is the two-door case, the lone-apartment case and
+// the mixed case below, and those are one shape apart from each other.
+//
+// An empty `unit` is a door the voter file has no `ApartmentNum` for, which is
+// a thing that happens in a building where its neighbours do — so the fixture
+// has to be able to say it, and it composes the address the way the server
+// does: the stop's street line plus the unit, and the street line alone when
+// there is none.
+const bentonBuilding = (
+  doors: Array<{ unit: string; name: string }>,
+): DoorKnockingRoutePayload => ({
+  ...routePayload,
+  stops: [
+    {
+      id: 41,
+      seq: 1,
+      lat: 36.16,
+      lng: -86.78,
+      displayAddress: '205 Benton Dr',
+      legSeconds: 0,
+      legMeters: 0,
+      addresses: doors.map(({ unit, name }, index) => {
+        const address = unit === '' ? '205 Benton Dr' : `205 Benton Dr ${unit}`
+        return {
+          addressKey: address.toLowerCase().replaceAll(' ', '|'),
+          address,
+          unit,
+          otherResidents: [],
+          targets: [
+            {
+              ...(routePayload.stops[1]!.addresses[0]!
+                .targets[0] as RoutePayloadTarget),
+              stopTargetId: 40 + index,
+              personId: `person-4${index}`,
+              name,
+            },
+          ],
+        }
+      }),
+    },
+  ],
 })
 
 // The stop rows are the only list items on this surface, and their button is
@@ -547,17 +616,140 @@ describe('WalkView', () => {
     )
     const item = expandStop('105 Elm St')
 
-    // Both doors, and neither resident: the people are a level further in.
-    expect(within(item).getByText('105 Elm St · 1 person')).toBeInTheDocument()
-    expect(
-      within(item).getByText('105 Elm St Apt 2 · 1 person'),
-    ).toBeInTheDocument()
+    // Both doors, and neither resident: the people are a level further in. The
+    // rows are the units alone, because the stop directly above them is already
+    // the building's street line.
+    expect(within(item).getByText('Apt 1 · 1 person')).toBeInTheDocument()
+    expect(within(item).getByText('Apt 2 · 1 person')).toBeInTheDocument()
     expect(within(item).queryByText('Dorian Fen')).toBeNull()
 
-    fireEvent.click(within(item).getByText('105 Elm St Apt 2 · 1 person'))
+    fireEvent.click(within(item).getByText('Apt 2 · 1 person'))
 
     expect(within(item).getByText('Winnie Fen')).toBeInTheDocument()
     expect(within(item).queryByText('Dorian Fen')).toBeNull()
+  })
+
+  // The reported defect, both halves of it. A stop is a coordinate and this
+  // coordinate is one building, so the row carries the street line and nothing
+  // else — naming it after a single flat labelled the whole block with whichever
+  // resident happened to sort first. The units are the doors under it, and they
+  // are the whole of what a door row says.
+  it('names the building on the stop row and the units on its doors', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: bentonBuilding([
+        { unit: 'Apt 8309', name: 'Dorian Fen' },
+        { unit: 'Apt 13205', name: 'Winnie Fen' },
+      ]),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('205 Benton Dr')).toBeInTheDocument(),
+    )
+    expect(within(stopRow(0)).getByText('205 Benton Dr')).toBeInTheDocument()
+    expect(within(stopRow(0)).queryByText(/Apt/)).toBeNull()
+
+    const item = expandStop('205 Benton Dr')
+
+    expect(item.querySelectorAll('svg.lucide-door-closed')).toHaveLength(2)
+    expect(within(item).getByText('Apt 8309 · 1 person')).toBeInTheDocument()
+    expect(within(item).getByText('Apt 13205 · 1 person')).toBeInTheDocument()
+    // The street is said once, on the stop above; a door row repeating it is
+    // what made every flat in a building read as its own house.
+    expect(within(item).queryByText(/Benton Dr Apt/)).toBeNull()
+    // And the string the report was filed with: the unit appended to a line
+    // that already ended in it.
+    expect(screen.queryByText(/Apt 8309 Apt 8309/i)).toBeNull()
+    expect(screen.queryByText(/Apt 13205 Apt 13205/i)).toBeNull()
+  })
+
+  // Dirty voter-file data, which is the whole reason the door row has a
+  // fallback at all: one door of a building carries an `ApartmentNum` and its
+  // neighbour does not, so the server composes one address with a unit and one
+  // that is just the street line. The unitless door has nothing to be named by
+  // except that whole address — rendering its unit alone would leave a row that
+  // is a door glyph, a separator and a person count with no door on it, which
+  // is a row nobody can act on and the failure worth pinning.
+  //
+  // It reaches this branch only alongside a sibling: on its own it is a house,
+  // and a house expands straight to its residents.
+  it('names a door with no unit by its whole address, beside one that has a unit', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: bentonBuilding([
+        { unit: 'Apt 8309', name: 'Dorian Fen' },
+        { unit: '', name: 'Winnie Fen' },
+      ]),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('205 Benton Dr')).toBeInTheDocument(),
+    )
+    const item = expandStop('205 Benton Dr')
+
+    // Two doors, and both of them named: the unit where the file has one, the
+    // whole address where it does not.
+    expect(item.querySelectorAll('svg.lucide-door-closed')).toHaveLength(2)
+    expect(within(item).getByText('Apt 8309 · 1 person')).toBeInTheDocument()
+    expect(
+      within(item).getByText('205 Benton Dr · 1 person'),
+    ).toBeInTheDocument()
+    // The blank row, spelled the way it would render: the count with nothing in
+    // front of it.
+    expect(within(item).queryByText('· 1 person')).toBeNull()
+    // The door that does have a unit still says only that — one neighbour with
+    // an empty column does not put the street back on every row.
+    expect(within(item).queryByText(/Benton Dr Apt/)).toBeNull()
+  })
+
+  // A lone apartment is one door under its stop and still needs its row. The
+  // condition used to be the count of sibling doors, which was right only while
+  // the stop carried the unit — with the stop naming the building instead, that
+  // dropped the one number saying which door in it a canvasser is standing at.
+  // So it is keyed on the unit.
+  it('gives a stop with one apartment behind it a door row', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: bentonBuilding([{ unit: 'Apt 8309', name: 'Dorian Fen' }]),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('205 Benton Dr')).toBeInTheDocument(),
+    )
+    const item = expandStop('205 Benton Dr')
+
+    // The door first and the resident a level further in — the same two taps a
+    // building with a dozen doors takes.
+    expect(within(item).getByText('Apt 8309 · 1 person')).toBeInTheDocument()
+    expect(within(item).queryByText('Dorian Fen')).toBeNull()
+
+    fireEvent.click(within(item).getByText('Apt 8309 · 1 person'))
+
+    expect(within(item).getByText('Dorian Fen')).toBeInTheDocument()
+  })
+
+  // The other side of that condition, and the reason it is not simply "always
+  // draw a door row": a house has one door and no unit, so the row in between
+  // would be a row that only said the street again. Two residents so the
+  // expansion has something in it to be counted.
+  it('expands a single-family stop straight to its residents', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: withHousehold(routePayload),
+    })
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    const item = expandStop('105 Elm St')
+
+    expect(item.querySelector('svg.lucide-door-closed')).toBeNull()
+    expect(within(item).getByText('Dorian Fen')).toBeInTheDocument()
+    expect(within(item).getByText('Winnie Fen')).toBeInTheDocument()
   })
 
   // The canvas's expanded door: a tinted well under the stop, one row per
@@ -763,6 +955,7 @@ describe('WalkView', () => {
             {
               addressKey: '210|cedar|row',
               address: '210 Cedar Row',
+              unit: '',
               otherResidents: [],
               targets: [
                 {
@@ -1247,6 +1440,7 @@ describe('WalkView not-a-voter reason', () => {
               {
                 addressKey: '210|cedar|row',
                 address: '210 Cedar Row',
+                unit: '',
                 otherResidents: [],
                 targets: [
                   { ...base, notAVoterReason: 'deceased' as const },
@@ -1451,6 +1645,7 @@ describe('WalkView auto-advance', () => {
       {
         addressKey: address.toLowerCase().replaceAll(' ', '|'),
         address,
+        unit: '',
         targets,
         otherResidents: [],
       },
@@ -2018,6 +2213,7 @@ describe('WalkView map pin taps', () => {
       {
         addressKey: address.toLowerCase().replaceAll(' ', '|'),
         address,
+        unit: '',
         targets,
         otherResidents: [],
       },
@@ -2363,6 +2559,7 @@ describe('WalkView notes', () => {
       {
         addressKey: address.toLowerCase().replaceAll(' ', '|'),
         address,
+        unit: '',
         targets,
         otherResidents: [],
       },

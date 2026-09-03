@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { doorKnock, stop, target } from './walkListFixtures'
 import { walkListFilename, walkListRows } from './walkListRows'
 
+// The unit split off the address line, exactly as the server splits it — an
+// `Apt` suffix if the line carries one and empty if it does not. Derived rather
+// than passed in beside the address, because the two are one fact and a fixture
+// free to disagree with itself is a fixture that can pass a test the real
+// payload fails: `address: '400 Birch Ln Apt 1'` with no unit is a shape the
+// serve cannot produce.
+const unitOf = (address: string): string =>
+  / (Apt .+)$/.exec(address)?.[1] ?? ''
+
 const household = (
   address: string,
   targets: ReturnType<typeof target>[],
@@ -9,6 +18,7 @@ const household = (
 ) => ({
   addressKey: address.toLowerCase().replace(/\s+/g, '|'),
   address,
+  unit: unitOf(address),
   targets,
   otherResidents,
 })
@@ -67,6 +77,51 @@ describe('walkListRows', () => {
 
     expect(rows.map((row) => row.firstInStop)).toEqual([true, false])
     expect(rows.map((row) => row.firstInHousehold)).toEqual([true, true])
+  })
+
+  // The reported defect, with the reporter's own addresses. Both halves of a
+  // door's address used to be read off one field: the stop was named after
+  // whichever resident sorted first, so a whole building announced itself as
+  // "205 Benton Dr Apt 13205", and each row then printed its own unit twice
+  // because `AddressLine` already ends in it and `ApartmentNum` was appended
+  // again. What paper needs is the whole address once per row, spelled
+  // differently on each door.
+  it('gives each door of a building its own whole address, said once', () => {
+    const rows = walkListRows([
+      stop({
+        displayAddress: '205 Benton Dr',
+        addresses: [
+          household('205 Benton Dr Apt 8309', [target({ stopTargetId: 31 })]),
+          household('205 Benton Dr Apt 13205', [target({ stopTargetId: 32 })]),
+        ],
+      }),
+    ])
+
+    expect(rows.map((row) => row.address)).toEqual([
+      '205 Benton Dr Apt 8309',
+      '205 Benton Dr Apt 13205',
+    ])
+    // The unit twice in one cell is what a canvasser actually read.
+    for (const row of rows) {
+      expect(row.address).not.toMatch(/(8309|13205)\D+\1/)
+    }
+  })
+
+  // A building can hold one targeted door, and that is the shape the model used
+  // to get wrong: the address fell back to the stop's line whenever a stop had a
+  // single address, which was harmless while the stop still carried a unit and
+  // became a lobby with no door number the moment it stopped. Paper has no
+  // expansion to nest under, so the row has to say the whole thing itself.
+  it('prints the whole address for the one door a stop holds', () => {
+    const rows = walkListRows([
+      stop({
+        displayAddress: '205 Benton Dr',
+        addresses: [household('205 Benton Dr Apt 8309', [target()])],
+      }),
+    ])
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.address).toBe('205 Benton Dr Apt 8309')
   })
 
   // The walk between stops is a fact about the stop, so it merges the same way

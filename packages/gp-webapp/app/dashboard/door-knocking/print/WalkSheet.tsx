@@ -189,10 +189,13 @@ const stopRows = (stop: RoutePayloadStop) => {
       firstInStop: rowsSoFar++ === 0,
       firstInHousehold: index === 0,
       seq: stop.seq,
-      // With one address the stop's display address is the door; with several,
-      // the unit is the only thing telling a canvasser which one to knock.
-      address:
-        stop.addresses.length > 1 ? address.address : stop.displayAddress,
+      // The door's whole address, every row, because paper has no expansion
+      // to nest under: a printed line reading "Apt 8309" names no house, and
+      // the stop's own line is the building rather than the door. It used to
+      // fall back to the stop for single-address stops, which broke as soon as
+      // the stop stopped carrying a unit — a lone apartment printed as its
+      // building.
+      address: address.address,
       travel: legTravelLine(stop),
       alsoHere: others.length > 0 ? `Also here: ${others.join(', ')}` : null,
     }))

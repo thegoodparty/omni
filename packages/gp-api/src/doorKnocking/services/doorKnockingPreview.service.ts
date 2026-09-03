@@ -15,7 +15,11 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { MAX_STOPS } from './doorKnockingCreate.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
-import { renderUnitAddress } from '../utils/unitAddress.util'
+import { renderDoorAddress, streetLineOfStop } from '../utils/unitAddress.util'
+
+// One door of a stop: how many of the drawn shape's people live behind it, and
+// the line to name it by.
+type DoorTally = { people: number; displayAddress: string }
 import { DoorKnockingAddressPreview } from '../schemas/doorKnockingAddressPreview.schema'
 
 type EvaluatedPerson = {
@@ -23,6 +27,10 @@ type EvaluatedPerson = {
   lat: number
   lng: number
   addressKey: string
+  // The line as a person would write it, which the uppercased key is not.
+  // The create service freezes this same field onto the stop, so previewing
+  // and then walking a list shows one house one way.
+  displayAddress: string
 }
 
 const EMPTY_COUNTS = {
@@ -127,15 +135,31 @@ export class DoorKnockingPreviewService {
       )
     if (inside.length === 0) return EMPTY_COUNTS
 
-    const byCoordinate = new Map<string, Map<string, number>>()
+    // Each door carries a display line as well as a count, because the count
+    // alone cannot be rendered into an address a candidate recognises: the
+    // addressKey is uppercased by the mirror, and this panel is the preview of
+    // a list the walk view will later spell in title case. One house shown two
+    // ways across those two screens reads as two houses.
+    const byCoordinate = new Map<string, Map<string, DoorTally>>()
     for (const person of inside) {
       const key = `${person.lat}|${person.lng}`
       let doors = byCoordinate.get(key)
       if (!doors) {
-        doors = new Map<string, number>()
+        doors = new Map<string, DoorTally>()
         byCoordinate.set(key, doors)
       }
-      doors.set(person.addressKey, (doors.get(person.addressKey) ?? 0) + 1)
+      const tally = doors.get(person.addressKey)
+      if (tally) {
+        tally.people += 1
+      } else {
+        // The first resident's line, matching how the create service freezes a
+        // stop's. `inside` is sorted by addressKey then id above, so which
+        // resident that is does not vary between two previews of one shape.
+        doors.set(person.addressKey, {
+          people: 1,
+          displayAddress: person.displayAddress,
+        })
+      }
     }
 
     const stops = byCoordinate.size
@@ -147,9 +171,15 @@ export class DoorKnockingPreviewService {
       // doors than it has, which is the one thing a door list must not do.
       if (locations.length >= MAX_STOPS) continue
       locations.push({
-        doors: [...doorsAtStop.entries()].map(([addressKey, count]) => ({
-          address: renderUnitAddress(addressKey),
-          people: count,
+        doors: [...doorsAtStop.entries()].map(([addressKey, tally]) => ({
+          // Cleaned against this door's own key rather than the whole stop's,
+          // which is safe here and not in the serve: the line came off a
+          // resident of this very door, so the unit on it is this door's.
+          address: renderDoorAddress(
+            addressKey,
+            streetLineOfStop(tally.displayAddress, [addressKey]),
+          ),
+          people: tally.people,
         })),
       })
     }
