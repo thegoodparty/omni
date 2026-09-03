@@ -93,4 +93,56 @@ export class ClerkInvitationsService {
       throw new BadGatewayException('Failed to revoke team invitation')
     }
   }
+
+  // Reads the invite payload straight off the invitee's own Clerk user —
+  // Clerk copies an invitation's publicMetadata onto the user at sign-up, so
+  // this is the only place the accept endpoint may read it from (never the
+  // request body). A shape that doesn't parse (already accepted, cleared, or
+  // never invited) is "no invite", not an error.
+  async getTeamInviteMetadata(
+    clerkId: string,
+  ): Promise<TeamInviteMetadata | null> {
+    let user
+    try {
+      user = await clerkCall(
+        'users.getUser',
+        { 'clerk.user_id': clerkId },
+        () => this.clerkClient.users.getUser(clerkId),
+      )
+    } catch (err) {
+      this.logger.error(
+        { err },
+        'Failed to fetch Clerk user for invite acceptance',
+      )
+      throw new BadGatewayException('Failed to fetch Clerk user')
+    }
+
+    const metadata = TeamInviteMetadataSchema.safeParse(user.publicMetadata)
+    return metadata.success ? metadata.data : null
+  }
+
+  // Clears the invite keys after acceptance so the pending-invite payload
+  // can't be read (or re-accepted against) again. Called after the DB
+  // commit — a null here deletes the key rather than setting it, which is
+  // Clerk metadata's merge-patch semantics.
+  async clearTeamInviteMetadata(clerkId: string): Promise<void> {
+    try {
+      await clerkCall(
+        'users.updateUserMetadata',
+        { 'clerk.user_id': clerkId },
+        () =>
+          this.clerkClient.users.updateUserMetadata(clerkId, {
+            publicMetadata: {
+              organizationSlug: null,
+              role: null,
+              name: null,
+              invitedByUserId: null,
+            },
+          }),
+      )
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to clear Clerk team invite metadata')
+      throw new BadGatewayException('Failed to clear team invite metadata')
+    }
+  }
 }

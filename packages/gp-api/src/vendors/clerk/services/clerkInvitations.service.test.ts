@@ -22,15 +22,20 @@ const makeService = ({
   createInvitation = vi.fn(),
   getInvitationList = vi.fn(),
   revokeInvitation = vi.fn(),
+  getUser = vi.fn(),
+  updateUserMetadata = vi.fn(),
 } = {}) => {
   const clerkClient = {
     invitations: { createInvitation, getInvitationList, revokeInvitation },
+    users: { getUser, updateUserMetadata },
   } as unknown as ClerkClient
   return {
     service: new ClerkInvitationsService(clerkClient, createMockLogger()),
     createInvitation,
     getInvitationList,
     revokeInvitation,
+    getUser,
+    updateUserMetadata,
   }
 }
 
@@ -129,6 +134,61 @@ describe('ClerkInvitationsService', () => {
       await expect(service.revokeInvitation('inv_1')).rejects.toBeInstanceOf(
         BadGatewayException,
       )
+    })
+  })
+
+  describe('getTeamInviteMetadata', () => {
+    it('parses valid metadata off the Clerk user', async () => {
+      const getUser = vi.fn().mockResolvedValue({ publicMetadata: metadata })
+      const { service } = makeService({ getUser })
+
+      await expect(service.getTeamInviteMetadata('user_1')).resolves.toEqual(
+        metadata,
+      )
+      expect(getUser).toHaveBeenCalledWith('user_1')
+    })
+
+    it('returns null when the metadata does not parse as an invite', async () => {
+      const getUser = vi.fn().mockResolvedValue({ publicMetadata: {} })
+      const { service } = makeService({ getUser })
+
+      await expect(service.getTeamInviteMetadata('user_1')).resolves.toBeNull()
+    })
+
+    it('throws BadGatewayException when Clerk fails to fetch the user', async () => {
+      const getUser = vi.fn().mockRejectedValue(new Error('down'))
+      const { service } = makeService({ getUser })
+
+      await expect(
+        service.getTeamInviteMetadata('user_1'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+  })
+
+  describe('clearTeamInviteMetadata', () => {
+    it('nulls out every invite metadata key', async () => {
+      const updateUserMetadata = vi.fn().mockResolvedValue({})
+      const { service } = makeService({ updateUserMetadata })
+
+      await service.clearTeamInviteMetadata('user_1')
+
+      expect(updateUserMetadata).toHaveBeenCalledWith('user_1', {
+        publicMetadata: {
+          organizationSlug: null,
+          role: null,
+          name: null,
+          invitedByUserId: null,
+        },
+      })
+    })
+
+    it('throws BadGatewayException when Clerk fails to clear metadata', async () => {
+      const updateUserMetadata = vi.fn().mockRejectedValue(new Error('down'))
+      const { service } = makeService({ updateUserMetadata })
+
+      await expect(
+        service.clearTeamInviteMetadata('user_1'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
     })
   })
 })

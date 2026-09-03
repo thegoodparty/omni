@@ -160,6 +160,14 @@ export const EVENTS = {
   Ordinances: {
     QualityLoopCompleted: 'Ordinances - Quality Loop Completed',
   },
+  // Team accounts (ENG-10816). Membership rows are only ever created by the
+  // invite/accept endpoints, so these are the only place these events fire.
+  Team: {
+    MemberInvited: 'Team - Member Invited',
+    InviteAccepted: 'Team - Invite Accepted',
+    RoleChanged: 'Team - Role Changed',
+    MemberRemoved: 'Team - Member Removed',
+  },
   // Robocall payment milestones (Win, VO 2.0). Server-truth outcomes of the
   // pay-time authorization hold the browser cannot observe. Each is emitted
   // only from the winning DB transition with a deterministic Segment messageId
