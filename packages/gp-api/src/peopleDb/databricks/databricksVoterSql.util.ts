@@ -288,6 +288,32 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
   return null
 }
 
+// Voter_Independent_Affinity is a non-nullable BOOLEAN, so this compares
+// against a boolean literal instead of taking the presence-check path every
+// other has-* filter uses: `IS NOT NULL` there would match all 219M rows and
+// silently un-filter the request. Selecting both values is likewise no
+// constraint at all, so it returns null rather than an always-true clause.
+const buildIndependentAffinityFilter = (op?: FilterOperator): string | null => {
+  if (!op) return null
+  const target = col('Voter_Independent_Affinity')
+  const selected =
+    op.operator === 'in' && op.values
+      ? op.values.map(String)
+      : op.operator === 'eq' && op.value !== undefined
+        ? [String(op.value)]
+        : []
+  const hasYes = selected.includes('Yes')
+  const hasNo = selected.includes('No')
+  if (hasYes && hasNo) return null
+  if (hasYes) return `${target} = TRUE`
+  if (hasNo) return `${target} = FALSE`
+  if (op.operator === 'is' && op.value === 'not_null') {
+    return `${target} IS NOT NULL`
+  }
+  if (op.operator === 'is' && op.value === 'null') return `${target} IS NULL`
+  return null
+}
+
 const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   if (!op) return null
   const target = col('Language_Code')
@@ -547,6 +573,17 @@ export const buildVoterFiltersSql = (
         break
       case 'language':
         sql = buildLanguageFilter(bag, op)
+        break
+      case 'ideology':
+        sql = buildMappedFieldFilter(
+          bag,
+          'hf_ideology_general',
+          op,
+          VALUE_MAPPERS.ideology,
+        )
+        break
+      case 'independentAffinity':
+        sql = buildIndependentAffinityFilter(op)
         break
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)

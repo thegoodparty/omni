@@ -15,6 +15,11 @@ import { PinoLogger } from 'nestjs-pino'
 // long property (e.g. a community-issue summary) can't drop the event.
 const MAX_EVENT_PROPERTY_LENGTH = 256
 
+// Segment requires exactly one of these on every call. `userId` is a gp-api
+// User.id; `anonymousId` is for events about somebody who has no gp-api user at
+// all (see trackAnonymousEvent).
+type SegmentIdentity = { userId: string } | { anonymousId: string }
+
 @Injectable()
 export class SegmentService {
   private analytics: Analytics
@@ -40,9 +45,60 @@ export class SegmentService {
     // single downstream email instead of one per retry.
     messageId?: string,
   ): Promise<TrackParams> {
-    try {
-      const stringId = String(userId)
+    return this.send({ userId: String(userId) }, event, properties, {
+      userContext,
+      messageId,
+      subject: `user: ${userId}`,
+    })
+  }
 
+  /**
+   * track() for an event whose subject is NOT a gp-api user.
+   *
+   * The public person profiles are the case this exists for: the person a
+   * visitor is nudging has, by definition, never signed up, so there is no
+   * User.id to key on. Putting a civics UUID in `userId` instead would be
+   * worse than having no id — the warehouse's Segment staging models treat
+   * `user_id` as a gp-api user, so a UUID there quietly becomes an unjoinable
+   * row in every downstream model that keys on it.
+   *
+   * `anonymousId` should be stable for the same subject (the personId, not the
+   * submission), so repeat events about one person collapse onto a single
+   * Segment profile rather than minting one per submission.
+   *
+   * Downstream resolution is therefore `userContext.email`'s job, which is what
+   * the HubSpot destination matches contacts on.
+   */
+  async trackAnonymousEvent(
+    anonymousId: string,
+    event: string,
+    properties: SegmentTrackEventProperties = {},
+    userContext?: UserContext,
+    messageId?: string,
+  ): Promise<TrackParams> {
+    return this.send({ anonymousId }, event, properties, {
+      userContext,
+      messageId,
+      subject: `anonymousId: ${anonymousId}`,
+    })
+  }
+
+  private async send(
+    identity: SegmentIdentity,
+    event: string,
+    properties: SegmentTrackEventProperties,
+    {
+      userContext,
+      messageId,
+      subject,
+    }: {
+      userContext?: UserContext
+      messageId?: string
+      // Only ever used to make the log lines legible.
+      subject: string
+    },
+  ): Promise<TrackParams> {
+    try {
       const truncatedProperties = Object.fromEntries(
         Object.entries(properties).map(([key, value]) => [
           key,
@@ -53,8 +109,8 @@ export class SegmentService {
       )
 
       const eventConfig: TrackParams = {
+        ...identity,
         event,
-        userId: stringId,
         properties: truncatedProperties,
         ...(messageId ? { messageId } : {}),
       }
@@ -75,15 +131,13 @@ export class SegmentService {
       }
 
       await this.analytics.track(eventConfig)
-      this.logger.debug(
-        `[SEGMENT] Event tracked - Event: ${event}, User: ${userId}`,
-      )
+      this.logger.debug(`[SEGMENT] Event tracked - Event: ${event}, ${subject}`)
       return eventConfig
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
       this.logger.error(
         error,
-        `[SEGMENT] Failed to track event: ${event} for user: ${userId}`,
+        `[SEGMENT] Failed to track event: ${event} for ${subject}`,
       )
       throw error
     }

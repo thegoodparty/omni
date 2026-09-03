@@ -122,6 +122,36 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     return this.attachOfficeContext(person)
   }
 
+  // The person's contact email, and nothing else. The ONLY read on this service
+  // that serves a PERSON_PII_COLUMNS field.
+  //
+  // Every other person read omits `email` because its response is proxied
+  // onward to a public page — gp-marketing renders /people/* straight from
+  // getPersonById — so an address riding inside that shape reaches the browser
+  // the first time anyone spreads it. Here the address IS the response, so
+  // there is no wider payload for it to travel in unnoticed, and a caller has
+  // to ask for it by name.
+  //
+  // The caller is gp-api resolving the subject's HubSpot contact when a visitor
+  // asks that person to complete their profile: HubSpot keys contacts on email,
+  // and gp_person_id is not a unique property over there. Like every route on
+  // this service it is M2M-only (default-deny guard in AuthenticationModule).
+  //
+  // Null email is ordinary, not an error — the person feed only carries an
+  // address for people a source had one for.
+  async getContactEmail(
+    personId: string,
+  ): Promise<{ personId: string; email: string | null }> {
+    const person = await this.model.findUnique({
+      where: { id: personId },
+      select: { email: true },
+    })
+    if (!person) {
+      throw new NotFoundException(`Person not found for id=${personId}`)
+    }
+    return { personId, email: person.email ?? null }
+  }
+
   // gp-marketing builds the /people breadcrumb (`Elections > State > County >
   // City > Position > Name`) by splitting a slug shaped
   // `tx/hidalgo/mission/county-sheriff` into its place path and office segment.

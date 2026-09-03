@@ -81,7 +81,7 @@ export const DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS = [
 // address column contains: a current key has three segments and a legacy one
 // seven. Keys older than both (the four-segment household key, from before
 // door knocking keyed by unit at all) answer false and are handled by
-// `renderUnitAddress`'s own fallback — they never matched a component-composed
+// `splitUnitAddress`'s own fallback — they never matched a component-composed
 // key either, so nothing regresses by leaving them out.
 export const isLegacyDoorKnockingUnitKey = (addressKey: string): boolean =>
   addressKey.split('|').length === DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS.length

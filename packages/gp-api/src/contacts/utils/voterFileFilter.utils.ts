@@ -210,6 +210,11 @@ export const convertVoterFileFilterToFilters = (
     'contactsMade3',
     'contactsMade4',
     'contactsMade5Plus',
+    'independentAffinity',
+    'ideologyConservative',
+    'ideologyLiberal',
+    'ideologyModerate',
+    'ideologyUnknown',
   ])
 
   for (const [key, value] of Object.entries(segment)) {
@@ -416,6 +421,27 @@ export const convertVoterFileFilterToFilters = (
 
   if (segment.hasLandline) {
     filters['hasLandline'] = true
+  }
+
+  const ideologyValues: string[] = []
+  if (segment.ideologyConservative) ideologyValues.push('Conservative')
+  // The wire vocabulary follows the mart column, which says Liberal; the
+  // product labels it "Progressive" and only the label differs.
+  if (segment.ideologyLiberal) ideologyValues.push('Liberal')
+  if (segment.ideologyModerate) ideologyValues.push('Moderate')
+  if (segment.ideologyUnknown) ideologyValues.push('Unknown')
+  if (ideologyValues.length > 0) {
+    filters['ideology'] =
+      ideologyValues.length === 1
+        ? { eq: ideologyValues[0] }
+        : { in: ideologyValues }
+  }
+
+  // Voter_Independent_Affinity is a non-nullable BOOLEAN, so this travels as
+  // an enum value rather than the presence check every other has-* boolean
+  // uses — `IS NOT NULL` on that column matches the whole file.
+  if (segment.independentAffinity) {
+    filters['independentAffinity'] = { eq: 'Yes' }
   }
   return filters
 }

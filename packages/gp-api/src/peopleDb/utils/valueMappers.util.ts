@@ -94,6 +94,23 @@ export const VALUE_MAPPERS = {
         return value
     }
   },
+  // hf_ideology_general stores the vendor's own three words, so this is an
+  // identity map apart from Unknown -> null (the column is 40% NULL, and the
+  // Unknown bucket has to resolve to IS NULL rather than be dropped).
+  ideology: (value: string): string | null => {
+    switch (value) {
+      case 'Conservative':
+        return 'Conservative'
+      case 'Liberal':
+        return 'Liberal'
+      case 'Moderate':
+        return 'Moderate'
+      case 'Unknown':
+        return null
+      default:
+        return value
+    }
+  },
   maritalStatus: (value: string): string | null => {
     switch (value) {
       case 'Inferred Married':

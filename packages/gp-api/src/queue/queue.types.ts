@@ -17,7 +17,6 @@ export enum QueueType {
   NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
   CV_STATUS_POLL = 'cvStatusPoll',
   ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
-  RECOMMENDED_LISTS_RECOMPUTE = 'recommendedListsRecompute',
 }
 
 export type QueueMessage =
@@ -67,10 +66,6 @@ export type QueueMessage =
   | {
       type: QueueType.ORDINANCE_QUALITY_LOOP
       data: OrdinanceQualityLoopMessage
-    }
-  | {
-      type: QueueType.RECOMMENDED_LISTS_RECOMPUTE
-      data: RecommendedListsRecomputeMessage
     }
 
 export type GenerateAiContentMessageData = {
@@ -251,19 +246,4 @@ export const OrdinanceQualityLoopMessageSchema = z.object({
 })
 export type OrdinanceQualityLoopMessage = z.infer<
   typeof OrdinanceQualityLoopMessageSchema
->
-
-// A single recompute of a campaign's recommended-lists snapshot. `attempt`
-// exists only to vary the FIFO deduplicationId on TTL re-enqueues — the handler
-// reads the authoritative attempt count and stale-guard state from the snapshot
-// row, never the message. `raceId` is the snapshot the recompute must match; a
-// mismatch means the campaign's race changed under an in-flight run and the
-// handler ack-drops it.
-export const RecommendedListsRecomputeMessageSchema = z.object({
-  campaignId: z.number().int(),
-  raceId: z.string().nullable(),
-  attempt: z.number().int(),
-})
-export type RecommendedListsRecomputeMessage = z.infer<
-  typeof RecommendedListsRecomputeMessageSchema
 >

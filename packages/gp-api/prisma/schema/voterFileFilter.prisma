@@ -28,6 +28,16 @@ model VoterFileFilter {
   genderUnknown              Boolean?                           @default(false) @map("gender_unknown")
   hasCellPhone               Boolean?                           @default(false) @map("has_cell_phone")
   hasLandline                Boolean?                           @default(false) @map("has_landline")
+  hasAnyPhone                Boolean?                           @default(false) @map("has_any_phone")
+  /// Voter_Independent_Affinity is a non-nullable BOOLEAN in the mart, so
+  /// there is no Unknown bucket to persist alongside this.
+  independentAffinity        Boolean?                           @default(false) @map("independent_affinity")
+  ideologyConservative       Boolean?                           @default(false) @map("ideology_conservative")
+  /// The mart column's value is `Liberal`; the product labels it
+  /// "Progressive". The persisted name follows the data, not the label.
+  ideologyLiberal            Boolean?                           @default(false) @map("ideology_liberal")
+  ideologyModerate           Boolean?                           @default(false) @map("ideology_moderate")
+  ideologyUnknown            Boolean?                           @default(false) @map("ideology_unknown")
   languageCodes              String[]                           @default([]) @map("language_codes")
   voterStatus                String[]                           @default([]) @map("voter_status")
   likelyMarried              Boolean?                           @default(false) @map("likely_married")

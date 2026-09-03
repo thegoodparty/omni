@@ -21,7 +21,11 @@ import { DoorKnockingActivityService } from './doorKnockingActivity.service'
 import { DoorKnockingNotesService } from './doorKnockingNotes.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatusService } from './doorKnockingStatus.service'
-import { renderUnitAddress } from '../utils/unitAddress.util'
+import {
+  renderDoorAddress,
+  splitUnitAddress,
+  streetLineOfStop,
+} from '../utils/unitAddress.util'
 import { activeTurfScope } from '../utils/turfScope.util'
 
 const ROUTE_INCLUDE = {
@@ -152,9 +156,17 @@ export class DoorKnockingServeService extends createPrismaBase(
       },
       pathGeometry: route.pathGeometry ?? null,
       stops: route.stops.map((stop) => {
+        // The building's own line, with whichever door's unit the frozen
+        // column happened to capture taken back off. Computed once and used
+        // for both the stop's name and the full address of every door under
+        // it, so the two cannot disagree about which house this is.
+        const streetLine = streetLineOfStop(
+          stop.displayAddress,
+          stop.targets.map((target) => target.addressKey),
+        )
         const addresses = this.buildAddresses(
           stop.targets,
-          stop.displayAddress,
+          streetLine,
           liveByAddressKey,
           statusByPersonId,
           doNotKnockPersonIds,
@@ -167,7 +179,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           seq: stop.seq,
           lat: stop.lat,
           lng: stop.lng,
-          displayAddress: stop.displayAddress,
+          displayAddress: streetLine,
           legSeconds: stop.legSeconds,
           legMeters: stop.legMeters,
           addresses,
@@ -178,7 +190,7 @@ export class DoorKnockingServeService extends createPrismaBase(
 
   private buildAddresses(
     targets: DoorKnockingStopTarget[],
-    stopDisplayAddress: string,
+    streetLine: string,
     liveByAddressKey: Map<string, LiveAddress>,
     statusByPersonId: Map<string, DoorKnockStatus>,
     doNotKnockPersonIds: Set<string>,
@@ -198,16 +210,19 @@ export class DoorKnockingServeService extends createPrismaBase(
       const liveTargetsById = new Map(
         (live?.targets ?? []).map((person) => [person.personId, person]),
       )
+      // Frozen at the lock: read from the key's own segments — never
+      // re-derived from live data, so the walk view matches what was routed.
+      // The unit key is ADDRESSLINE|APT|ZIP
+      // (DOOR_KNOCKING_UNIT_KEY_COLUMNS order); `splitUnitAddress` also
+      // handles the component-composed keys older routes froze.
+      const { line2 } = splitUnitAddress(addressKey)
       return {
         addressKey,
-        // Frozen at the lock: rendered from the key's own segments — never
-        // re-derived from live data, so the walk view matches what was
-        // routed. The unit key is ADDRESSLINE|APT|ZIP
-        // (DOOR_KNOCKING_UNIT_KEY_COLUMNS order); `renderUnitAddress` also
-        // handles the component-composed keys older routes froze.
-        // An all-empty key renders to '' — fall back to the stop's frozen
-        // display line rather than serving a blank address.
-        address: renderUnitAddress(addressKey) || stopDisplayAddress,
+        // The whole address, cased after the stop it hangs under so one house
+        // is not announced as "205 Benton Dr" by the stop and "205 BENTON DR"
+        // by the door directly beneath it.
+        address: renderDoorAddress(addressKey, streetLine),
+        unit: line2,
         targets: group.map((target) => {
           const livePerson = liveTargetsById.get(target.personId)
           return {

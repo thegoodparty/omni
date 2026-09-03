@@ -202,24 +202,27 @@ vi.mock('./VoterMapCanvas', () => ({
     </div>
   ),
 }))
-// The real layout is a sidebar shell this suite has no use for, but the two
-// things the page asks of it are part of what the page decides — the height it
-// gets, and the chrome it drops — so the stub keeps both readable.
+// The real layout is a sidebar shell this suite has no use for, but what the
+// page asks of it is part of what the page decides — the height it gets, and
+// the chrome it drops — so the stub keeps all of it readable.
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
   default: ({
     children,
     wrapperClassName,
     hideMenu,
+    hideChatDock,
   }: {
     children: ReactNode
     wrapperClassName?: string
     hideMenu?: boolean
+    hideChatDock?: boolean
   }) => (
     <div
       data-testid="dashboard-wrapper"
       className={wrapperClassName}
       data-hide-menu={String(Boolean(hideMenu))}
+      data-hide-chat-dock={String(Boolean(hideChatDock))}
     >
       {children}
     </div>
@@ -391,6 +394,10 @@ const walkStop = (
     {
       addressKey: `${id}|elm|st`,
       address: displayAddress,
+      // One door on a street, so the address IS the stop's line and there is no
+      // unit under it. These tests are about the two surfaces numbering one
+      // stop the same way, not about buildings.
+      unit: '',
       otherResidents: [],
       targets: [
         {
@@ -859,6 +866,24 @@ describe('NativeDoorKnockingPage page chrome', () => {
 
     expect(screen.getByTestId('dashboard-wrapper')).toHaveAttribute(
       'data-hide-menu',
+      'true',
+    )
+  })
+
+  // The campaign-manager dock is a fixed bar across the bottom of the window,
+  // and the bottom of the window is where the walk logs a knock: `PersonSheet`
+  // ends in `RecordKnockForm`'s "Did they answer?" ladder and
+  // `NotAVoterControl`, and the dock sat on top of them — the canvasser at the
+  // door had no control to record the answer with. Restacking cannot reach it
+  // either, the sheet being `fixed z-40` inside `WalkSurface`'s `absolute
+  // z-20`. Its own prop and not `hideMenu`: the four other routes that hide
+  // the menu keep the manager.
+  it('drops the chat dock too, because the walk owns the bottom of the window', async () => {
+    renderPage()
+    await mapReady()
+
+    expect(screen.getByTestId('dashboard-wrapper')).toHaveAttribute(
+      'data-hide-chat-dock',
       'true',
     )
   })

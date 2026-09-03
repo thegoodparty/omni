@@ -551,6 +551,21 @@ export default function NativeDoorKnockingPage({
         // (`EcanvasserProvider`, `SidebarProvider`, the impersonation banner)
         // and costs the map only the chrome the design doesn't draw.
         hideMenu
+        // The same argument one surface further down, and a worse consequence.
+        // The walk owns the bottom of the window: `PersonSheet` ends in the
+        // knock-log footer — `RecordKnockForm`'s "Did they answer?" ladder and
+        // `NotAVoterControl` — and the campaign-manager dock's fixed bar sits
+        // across exactly that strip, so a canvasser standing at the door with
+        // the answer in hand has nothing on screen to write it down with.
+        // Restacking is not the fix: the sheet is `fixed z-40` inside
+        // `WalkSurface`'s `absolute z-20`, so it is ranked within that context
+        // and can never outrank a bar in the root one.
+        //
+        // Its own prop rather than a second meaning for `hideMenu`, which four
+        // other routes pass and none of which has a bottom of its own to
+        // defend. Nothing here is taken away from the surfaces the manager is
+        // reachable from — this is the one page whose job it breaks.
+        hideChatDock
       >
         <div className="flex h-full w-full flex-col">
           {/* No VISIBLE page header. The design draws door knocking as a bare

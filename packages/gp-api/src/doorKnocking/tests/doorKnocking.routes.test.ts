@@ -1537,6 +1537,94 @@ describe('door-knocking routes', () => {
       expect(address?.address).toBe('1234 S 5678 W Apt 3B')
     })
 
+    // The reported bug, end to end. A stop is a coordinate and a block of
+    // flats is one coordinate with many doors, so the stop was frozen under
+    // whichever resident sorted first and then announced the whole building by
+    // that one tenant's apartment number — while every door beneath it said
+    // its own unit twice, because AddressLine already contains the unit and
+    // ApartmentNum was appended to it again.
+    it('names a building by its street and its doors by their units', async () => {
+      const at = (index: number, apartment: string) => ({
+        ...person(
+          index,
+          41.9,
+          -87.65,
+          `205 BENTON DR APT ${apartment}|${apartment}|37013`,
+        ),
+        displayAddress: `205 Benton Dr Apt ${apartment}`,
+      })
+      stubVendors({
+        people: [at(1, '8309'), at(3, '13205'), person(4, 41.902, -87.652)],
+        residents: { addresses: [] },
+      })
+      const turf = await createTurf()
+
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      const building = (
+        res.data.stops as Array<{
+          displayAddress: string
+          addresses: Array<{ address: string; unit: string }>
+        }>
+      ).find((stop) => stop.addresses.length > 1)
+
+      // The building, not one of its tenants.
+      expect(building?.displayAddress).toBe('205 Benton Dr')
+      // Each door named by the unit that tells it from its neighbour, and its
+      // whole address said once for the surfaces that print a door on its own.
+      expect(building?.addresses).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            unit: 'Apt 8309',
+            address: '205 Benton Dr Apt 8309',
+          }),
+          expect.objectContaining({
+            unit: 'Apt 13205',
+            address: '205 Benton Dr Apt 13205',
+          }),
+        ]),
+      )
+    })
+
+    // A house has no unit, and the empty string is what tells the walk list to
+    // skip the door row it would otherwise draw with nothing in it.
+    it('gives a single-family stop no unit', async () => {
+      stubVendors({
+        people: [
+          {
+            ...person(1, 41.9, -87.65, '608 FANNIN CT||37013'),
+            displayAddress: '608 Fannin Ct',
+          },
+          person(3, 41.901, -87.651),
+          person(4, 41.902, -87.652),
+        ],
+        residents: { addresses: [] },
+      })
+      const turf = await createTurf()
+
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      const house = (
+        res.data.stops as Array<{
+          displayAddress: string
+          addresses: Array<{
+            addressKey: string
+            address: string
+            unit: string
+          }>
+        }>
+      )
+        .flatMap((stop) => stop.addresses)
+        .find((entry) => entry.addressKey === '608 FANNIN CT||37013')
+      expect(house).toMatchObject({ unit: '', address: '608 Fannin Ct' })
+    })
+
     it('carries the demographic profile onto a live target', async () => {
       const { res } = await knockAndServe()
 
@@ -3714,6 +3802,35 @@ describe('door-knocking routes', () => {
           { doors: [{ address: 'KEY-4', people: 1 }] },
         ],
       })
+    })
+
+    // The file's AddressLine already ends in the unit, so appending
+    // ApartmentNum to it printed the apartment twice — "205 BENTON DR APT 8309
+    // Apt 8309". The casing half matters for the same reason the whole helper
+    // is shared: this panel is the preview of a list the walk view will spell
+    // in title case, and one house shown two ways reads as two.
+    it('says a unit once, in the casing the walk view will use', async () => {
+      const at = (index: number, apartment: string) => ({
+        ...person(
+          index,
+          41.9,
+          -87.65,
+          `205 BENTON DR APT ${apartment}|${apartment}|37013`,
+        ),
+        displayAddress: `205 Benton Dr Apt ${apartment}`,
+      })
+      stubVendors({ people: [at(1, '8309'), at(3, '13205')] })
+
+      const res = await preview()
+
+      expect(res.data.locations).toEqual([
+        {
+          doors: [
+            { address: '205 Benton Dr Apt 13205', people: 1 },
+            { address: '205 Benton Dr Apt 8309', people: 1 },
+          ],
+        },
+      ])
     })
 
     // A shape drawn over nothing is an ordinary moment in drawing, not a

@@ -58,7 +58,22 @@ const target = (
   ...overrides,
 })
 
-const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
+// The door the sheet is opened at. `displayAddress` is the STREET LINE — a stop
+// is a coordinate and a block of flats is one coordinate with many doors, so it
+// never carries a unit — and the unit belongs to the address under it. The
+// default is a house, which is the one shape where the two are the same string
+// and there is no unit to put anywhere.
+//
+// `door` is a parameter rather than a second fixture because the panel reads all
+// three fields and reads them differently: the heading is the stop's line, the
+// subheading is the unit, and Contact information spells out the whole address.
+// A house and a flat are the same panel with one field filled in.
+const HOUSE_DOOR = { address: '105 Elm St', unit: '' }
+
+const stop = (
+  targets: RoutePayloadTarget[],
+  door: { address: string; unit: string } = HOUSE_DOOR,
+): RoutePayloadStop => ({
   id: 10,
   seq: 1,
   lat: 36.16,
@@ -69,7 +84,8 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   addresses: [
     {
       addressKey: '105|elm|st',
-      address: '105 Elm St',
+      address: door.address,
+      unit: door.unit,
       targets,
       otherResidents: [],
     },
@@ -81,7 +97,13 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
 // the notes list collapsed into the route cache — the targets themselves. This
 // harness is that half of the walk, standing in for `patchPerson`, so the
 // assertions below stay about what the sheet renders and reports.
-const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
+const Harness = ({
+  targets,
+  door,
+}: {
+  targets: RoutePayloadTarget[]
+  door?: { address: string; unit: string }
+}) => {
   const [residents, setResidents] = useState(targets)
   const [selectedTargetId, setSelectedTargetId] = useState(
     targets[0]!.stopTargetId,
@@ -99,7 +121,7 @@ const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
     )
   return (
     <PersonSheet
-      stop={stop(residents)}
+      stop={stop(residents, door)}
       stopSeq={7}
       onOpenPreviousStop={null}
       onOpenNextStop={null}
@@ -124,8 +146,10 @@ const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
   )
 }
 
-const renderSheet = (targets: RoutePayloadTarget[]) =>
-  render(<Harness targets={targets} />)
+const renderSheet = (
+  targets: RoutePayloadTarget[],
+  door?: { address: string; unit: string },
+) => render(<Harness targets={targets} door={door} />)
 
 const contactCard = () =>
   screen.getByRole('heading', { name: 'Contact information' }).parentElement!
@@ -172,6 +196,92 @@ describe('PersonSheet header', () => {
     renderSheet([target({ knockStatus: 'supporter' })])
 
     expect(screen.getByText('Last: Supporter')).toBeInTheDocument()
+  })
+})
+
+// One door, three readings of it, and this panel is the only surface that needs
+// all three at once: the heading is the building a canvasser is standing
+// outside, the line under it is which door of that building, and Contact
+// information spells the address out whole. The split is right for reading a
+// list at a doorstep and wrong for the field somebody copies into a CRM note or
+// reads down a phone, which is why the panel does both.
+describe('PersonSheet door address', () => {
+  // Kept on Elm St so the heading is the same string the rest of this file
+  // asserts on. The unit is the reporter's own — the flat whose number was
+  // being printed as the building's name.
+  const APARTMENT_DOOR = { address: '105 Elm St Apt 8309', unit: 'Apt 8309' }
+
+  // The stop's line, and only the stop's line. Naming the panel after one
+  // resident's flat is the reported bug: a stop is a coordinate, a block of
+  // flats is one coordinate, and whichever resident sorted first used to label
+  // the whole of it.
+  it('heads the panel with the street line rather than with the unit', () => {
+    renderSheet([target()], APARTMENT_DOOR)
+
+    expect(
+      screen.getByRole('heading', { name: '105 Elm St', level: 2 }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Apt 8309/ })).toBeNull()
+  })
+
+  // Under the building, because that is the only thing saying which door of it
+  // this is — and conditioned on the unit rather than on the stop having
+  // sibling doors, so a lone apartment gets it too. Without that the one number
+  // a canvasser needs to find the door is nowhere on the panel opened at it.
+  it('names the door under the building for an apartment', () => {
+    renderSheet([target()], APARTMENT_DOOR)
+    const header = screen.getByRole('heading', {
+      name: '105 Elm St',
+    }).parentElement!
+
+    expect(within(header).getByText('Apt 8309')).toBeInTheDocument()
+    // Said once: the street is the heading above it, and repeating it here is
+    // what made every door of a building read as its own house.
+    expect(within(header).queryByText(/Elm St Apt/)).toBeNull()
+  })
+
+  // A house has no unit, so there is no second line to draw — an empty one is a
+  // subheading claiming a door number the file does not have.
+  it('leaves the door line off a house', () => {
+    renderSheet([target()])
+    const header = screen.getByRole('heading', {
+      name: '105 Elm St',
+    }).parentElement!
+
+    expect(header.querySelector('svg.lucide-door-closed')).toBeNull()
+    expect(within(header).queryByText(/Apt/)).toBeNull()
+  })
+
+  // `address` rather than the heading and the unit stuck back together: only the
+  // addressKey knows where the street line ends, so the server does that
+  // subtraction once and this field is the side of it a letter would be
+  // addressed to.
+  it('spells the whole address out in Contact information', () => {
+    renderSheet([target()], APARTMENT_DOOR)
+    const card = within(contactCard())
+
+    expect(card.getByText('Address')).toBeInTheDocument()
+    expect(card.getByText('105 Elm St Apt 8309')).toBeInTheDocument()
+  })
+
+  it('states a house’s address in the same field', () => {
+    renderSheet([target()])
+
+    expect(within(contactCard()).getByText('105 Elm St')).toBeInTheDocument()
+  })
+
+  // A stop is a coordinate, and two houses can geocode to one. Neither has a
+  // unit, so a subheading keyed on the unit alone would show nothing and the
+  // heading can only name one of the two — leaving a canvasser at the wrong
+  // door with nothing on the panel to say so. The door line falls back to the
+  // whole address, the same way the walk list's door rows do.
+  it('names a unitless door that is not the house the heading names', () => {
+    renderSheet([target()], { address: '102 Oak Ave', unit: '' })
+    const header = screen.getByRole('heading', {
+      name: '105 Elm St',
+    }).parentElement!
+
+    expect(within(header).getByText('102 Oak Ave')).toBeInTheDocument()
   })
 })
 
@@ -1027,6 +1137,7 @@ describe('PersonSheet demographic information', () => {
             {
               addressKey: '105|elm|st',
               address: '105 Elm St',
+              unit: '',
               targets: [fullTarget()],
               otherResidents: [{ name: 'Ruben Vega' }],
             },

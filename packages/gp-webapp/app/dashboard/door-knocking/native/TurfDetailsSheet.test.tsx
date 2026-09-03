@@ -99,12 +99,17 @@ const routeWithDoors: DoorKnockingRoutePayload = {
         {
           addressKey: '105|elm|st|1',
           address: '105 Elm St Apt 1',
+          // The stop above is the building — '105 Elm St' — and the two doors
+          // are told apart by their units alone. The whole address stays here
+          // for the paper surfaces, which have no stop line to nest under.
+          unit: 'Apt 1',
           otherResidents: [],
           targets: [{ ...resident, stopTargetId: 21 }],
         },
         {
           addressKey: '105|elm|st|2',
           address: '105 Elm St Apt 2',
+          unit: 'Apt 2',
           otherResidents: [],
           targets: [
             { ...resident, stopTargetId: 22, personId: 'person-2' },
@@ -631,6 +636,7 @@ describe('TurfDetailsSheet status breakdown', () => {
           {
             addressKey: '105|elm|st',
             address: '105 Elm St',
+            unit: '',
             otherResidents: [],
             targets: targets.map((override, index) => ({
               ...resident,

@@ -227,12 +227,14 @@ export class PublicPersonProfilesController {
   // scripted caller from flooding the leads table until edge/WAF limits land.
   //
   // A `notify` submission (a VISITOR nudging this person, as opposed to the
-  // person claiming their own page) also refreshes the candidate's HubSpot
-  // `candidate_profile_requests` count. That runs detached and after the row is
-  // committed: the visitor's submission is already durable and successful by
-  // then, so a HubSpot or warehouse outage can only cost the CRM number a
-  // refresh — which the next submission repairs, since the write is a computed
-  // total rather than an increment.
+  // person claiming their own page) also drives the CRM: it refreshes the
+  // candidate's HubSpot `candidate_profile_requests` count and emits the Segment
+  // event that person's nudge email is sent off (see CrmPersonProfilesService).
+  // Both run detached and after the row is committed: the visitor's submission
+  // is already durable and successful by then, so a HubSpot, warehouse, or
+  // Segment outage can only cost the CRM side, never the lead. The count repairs
+  // itself on the next submission, being a computed total rather than an
+  // increment; a lost event is a lost email, which is why it is metered.
   @Post('claim-request')
   @HttpCode(HttpStatus.CREATED)
   @ResponseSchema(ProfileClaimRequestResponseSchema)
@@ -244,14 +246,14 @@ export class PublicPersonProfilesController {
       await this.personProfilesService.createClaimRequest(dto)
 
     if (dto.source === ProfileClaimRequestSource.notify) {
-      // `syncClaimRequestCount` already swallows its own failures, but settle
+      // `handleNotifySubmitted` already swallows its own failures, but settle
       // BOTH outcomes explicitly rather than `void`-ing the promise: an
       // unhandled rejection here would take the process down, and a bare
       // `void p` (or `p.finally()`) leaves one unhandled if that guarantee ever
       // regresses.
       const settle = (): void => undefined
       this.crmPersonProfiles
-        .syncClaimRequestCount(dto.personId)
+        .handleNotifySubmitted(dto.personId, claimRequest.id)
         .then(settle, settle)
     }
 

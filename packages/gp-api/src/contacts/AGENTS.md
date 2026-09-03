@@ -338,6 +338,91 @@ two legacy voter-file endpoints (`countVoterFilePeople`,
 `downloadVoterFilePeople`) which skip activity/support resolution entirely
 and so skip contacts-made too, by the same existing precedent.
 
+### Recommended-list filter dimensions
+
+Three dimensions added as groundwork for recommended lists. All resolve
+against `mart_gp_api.gp_api_voters`, the same table every other voter filter
+hits, and all four are persisted `VoterFileFilter` columns
+(`20260903190310_add_affinity_ideology_address_phone_filters`) so a saved
+list can express them.
+
+| Dimension            | Persisted columns                                                                   | Mart column                  | Wire filter key                      |
+| -------------------- | ----------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ |
+| Independent affinity | `independentAffinity`                                                               | `Voter_Independent_Affinity` | `independentAffinity: { eq: 'Yes' }` |
+| Ideology             | `ideologyConservative` / `ideologyLiberal` / `ideologyModerate` / `ideologyUnknown` | `hf_ideology_general`        | `ideology: { in \| eq }`             |
+| Any phone            | `hasAnyPhone`                                                                       | the two `VoterTelephones_*`  | `hasAnyPhone: true`                  |
+
+`hasAnyPhone` already existed as a people-db filter key and SQL case, and
+also backs the phone-banking reachability tile and the `phoneBanking`
+built-in segment. What it lacked was a persisted column, so
+`voterFilterBaseSchema` silently stripped it on save and a list built with it
+lost the filter. `CountContactsDTO` no longer extends the base schema with
+`hasAnyPhone`; it is a real column now.
+
+**There is deliberately no has-address filter.** A sizing eval found
+`Residence_Addresses_AddressLine` 100% populated — zero null or empty across
+30.6M voters in CA, MD and LA — so the filter would match every voter and
+could never narrow a list. A column was added by
+`20260903190310` and dropped again by `20260903200114_drop_has_address_filter`
+rather than edited out of the first, which had already been applied to the
+PR's preview database. `hasAddress` survives as a people-db **wire** filter
+and SQL case. Both pre-date this work and are untouched by it; only the
+persisted column and the user-facing dimension are gone. What they back is
+the **`doorKnocking` reachability tile** — `buildListDetailAggregatesSql`
+emits `COUNT_IF(addressPresentSql()) AS doorKnocking` — NOT the
+`doorKnocking` built-in segment, which carries `filters: []` and has never
+filtered on address. Since the column is 100% populated, that tile always
+equals the list's total count; it predates this change and is a separate
+ticket, not a bug introduced here.
+
+**`independentAffinity` is an enum on the wire, not a boolean.**
+`Voter_Independent_Affinity` is a non-nullable BOOLEAN (no Unknown bucket
+exists — the file classifies everyone), so the presence-check path every
+other has-\* filter takes would compile to `IS NOT NULL` and match all 219M
+rows, silently un-filtering the request. `buildIndependentAffinityFilter`
+compares against `TRUE`/`FALSE` instead, and selecting both values is no
+constraint at all so it emits nothing.
+
+**Ideology's Unknown bucket is ~40% of the file.** It resolves through
+`VALUE_MAPPERS.ideology` (identity for the three real values, `null` for
+Unknown), so `buildMappedFieldFilter` turns it into `IS NULL` on its own and
+`OR`s the null branch when Unknown is mixed with real values — the same
+mechanism education/marital/gender use. Dropping it would return the
+complement of what was asked for. The mart column's third value is
+`Liberal`; the product labels it **Progressive**. The persisted key, wire
+value, and `VALUE_MAPPERS` entry all follow the data; only the label differs
+(`filterDimensions.catalog.ts` and the wizard both show Progressive).
+
+**Win/Serve.** `independentAffinity` **and `ideology`** are Win-only like
+party: `assertNoRecommendedListFilterForElectedOffice` 400s either at all
+five choke points the party gate covers, and both carry `modes: 'win'` in
+the catalog. Unlike party this is not a licensing rule but a product one —
+both describe how someone votes in a contested election, which has no
+meaning for an office holder who serves everyone in the district.
+`hasAnyPhone` stays `both`: plain contactability, and Serve runs phone
+banking and robocall too.
+
+This Win gate and the `win-recommended-lists` flag are **two independent
+mechanisms** and both apply. The flag decides whether the wizard renders the
+groups; the Win gate decides who may filter on them at all, permanently, and
+holds whatever the flag says. The flag never reaches gp-api.
+
+**Phone interaction.** Three phone booleans now exist and they AND together.
+`hasAnyPhone` is the OR of the other two, so it cannot be expressed by
+combining them — hence its own option. Every phone value is presence-only,
+so a combination is **redundant, never contradictory** (`hasAnyPhone AND
+hasCellPhone` is just `hasCellPhone`): the resolver keeps plain AND
+semantics rather than 400ing or dropping a key, and the wizard is what makes
+the three mutually exclusive of the "any" option. A saved row carrying both
+still resolves the obvious way.
+
+**The webapp side is flag-gated, this side is not.** The wizard shows the
+three groups only behind `win-recommended-lists`; the columns, contract,
+translation, SQL and the dimensions catalog all ship ungated, so a list
+saved while the flag was on resolves regardless of flag state. That also
+means the AI assistant advertises these dimensions before the UI shows them
+(the catalog is the assistant's vocabulary and carries no flag).
+
 ### Door-knock willVote writes a voter_likelihood override (ENG-10841)
 
 The door-knocking tool's `willVote` answer (yes/no/unsure) is the one
@@ -488,14 +573,15 @@ scope.
 
 ## Access control and mode rules
 
-| Rule                              | Enforcement                                                                                                                                                                                                                                                                                                                                                                                    |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Win contacts access is default-on | The `win-voter-data` flag gate was removed 2026-07-20 (PRs #885–#887); `assertContactsAccess` is gone. Any Win campaign reaches the page                                                                                                                                                                                                                                                       |
-| Pro is per-action, not page-level | Non-Pro Win: real district aggregates + a **synthetic** preview (`utils/previewContacts.utils.ts` — fabricated rows, never real PII; `totalResults` is set to the real count so the stat card doesn't regress). `findContacts` rejects search/named segments; `findPerson`, `countContacts`, `downloadContacts`, notes, and interactions all reject non-Pro (`PRO_FILTERING_REQUIRED_MESSAGE`) |
-| Serve = `eo-` slug prefix         | `hasElectedOfficeAccess`; Serve orgs are license-equivalent to Pro                                                                                                                                                                                                                                                                                                                             |
-| Party never reaches Serve         | `stripPartyIfElectedOffice` (list + detail + typeahead), download drops party (plus turnout propensity + vote history, ENG-10830) via projection, party **filters** 400 (`assertNoPartyFilterForElectedOffice`), and the dimensions catalog hides party. A party value in any `eo-` response is a bug — there's a party-leak test suite                                                        |
-| CRM UI flag                       | `serve-crm` (Amplitude) gates the CRM page (`useCrmEnabled`) and the assistant tools for Serve only; Win CRM is unconditional (`win-crm` hit 100% and was removed)                                                                                                                                                                                                                             |
-| Free tier / AI                    | District stats stay open to non-Pro; counts are Pro-gated like search (the assistant's `count_contacts` recognizes `PRO_FILTERING_REQUIRED_MESSAGE` and suggests the upgrade); assistant tools are aggregate-only by construction                                                                                                                                                              |
+| Rule                              | Enforcement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Win contacts access is default-on | The `win-voter-data` flag gate was removed 2026-07-20 (PRs #885–#887); `assertContactsAccess` is gone. Any Win campaign reaches the page                                                                                                                                                                                                                                                                                                                                                                                         |
+| Pro is per-action, not page-level | Non-Pro Win: real district aggregates + a **synthetic** preview (`utils/previewContacts.utils.ts` — fabricated rows, never real PII; `totalResults` is set to the real count so the stat card doesn't regress). `findContacts` rejects search/named segments; `findPerson`, `countContacts`, `downloadContacts`, notes, and interactions all reject non-Pro (`PRO_FILTERING_REQUIRED_MESSAGE`)                                                                                                                                   |
+| Serve = `eo-` slug prefix         | `hasElectedOfficeAccess`; Serve orgs are license-equivalent to Pro                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Affinity + ideology are Win-only  | `assertNoRecommendedListFilterForElectedOffice` 400s either at the same five choke points the party gate covers, and the dimensions catalog marks both `modes: 'win'`. Not a licensing rule like party — a permanent product rule, and a separate mechanism from the `win-recommended-lists` flag; see the recommended-list dimensions section                                                                                                                                                                                   |
+| Party never reaches Serve         | `stripPartyIfElectedOffice` (list + detail + typeahead), download drops party (plus turnout propensity + vote history, ENG-10830) via projection, party **filters** 400 (`assertNoPartyFilterForElectedOffice`), and the dimensions catalog hides party. A party value in any `eo-` response is a bug — there's a party-leak test suite                                                                                                                                                                                          |
+| CRM UI flag                       | `serve-crm` (Amplitude) gates the CRM page (`useCrmEnabled`) and the assistant tools for Serve only; Win CRM is unconditional (`win-crm` hit 100% and was removed)                                                                                                                                                                                                                                                                                                                                                               |
+| Free tier / AI                    | District stats stay open to non-Pro; counts are Pro-gated like search (the assistant's `count_contacts` recognizes `PRO_FILTERING_REQUIRED_MESSAGE` and suggests the upgrade); assistant tools are aggregate-only by construction                                                                                                                                                                                                                                                                                                |
 | Team accounts (ENG-11025)         | `GET /v1/contact-engagement/:id/activities` (`UseEngagementContextGuard`) resolves org access via `OrganizationMembershipService.resolveRole` and now admits an org's `owner` or a `campaignAdmin` member, not just the owner; a `volunteer` membership row is denied. `eo-` (Serve) orgs stay owner-only regardless of role — Serve staff accounts are a Phase-1 non-goal. Voter-file download (`CanDownloadVoterFileGuard`) uses the same role resolution plus its own plan/eligibility check; `volunteer` is denied there too |
 
 ## Debugging playbook
@@ -545,8 +631,9 @@ over interaction rows with a non-null `support_answer`; a "list" =
   list builder freezes any phone (cell first), so the tile now agrees with
   the built list. `robocall` stays landline-only. The `hasAnyPhone`
   filter key (`src/peopleDb/databricks/databricksVoterSql.util.ts`) backs
-  both the tile and the `phoneBanking` entry in
-  `segmentsToFiltersMap.const.ts` (the built-in CRM segment/CSV export).
+  the tile, the `phoneBanking` entry in `segmentsToFiltersMap.const.ts`
+  (the built-in CRM segment/CSV export), AND the persisted filter column of
+  the same name — one predicate, so a tile and a list built from it agree.
 - `fetchListDetailAggregates` makes ONE people-db call
   (`VoterQueryService.getListDetailAggregates`) and the whole payload is
   all-or-nothing: the demographics and every channel come from a single
@@ -575,7 +662,9 @@ over interaction rows with a non-null `support_answer`; a "list" =
   `tests/contactsOptedOutChip.routes.test.ts`,
   `tests/contactsAgeFilters.routes.test.ts`,
   `tests/contactsVoterLikelihoodOverride.routes.test.ts`,
-  `tests/contactsMade.routes.test.ts`, `contacts.e2e.ts`.
+  `tests/contactsMade.routes.test.ts`,
+  `tests/contactsAffinityIdeologyFilters.routes.test.ts`,
+  `contacts.e2e.ts`.
   Assistant/UI parity: `chats/general/crm-tools/countContactsParity.routes.test.ts`.
 - Resolution + derivation: `src/contactInteraction/tests/`, including
   `contactsMadeResolution.service.test.ts` (the bucket SQL + the
