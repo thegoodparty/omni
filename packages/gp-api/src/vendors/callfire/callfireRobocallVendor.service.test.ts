@@ -199,7 +199,7 @@ describe('CallfireRobocallVendor', () => {
       expect(result).toEqual({ audienceRef: '77', loadedCount: 2 })
     })
 
-    it('throws when validation reaches a terminal failure', async () => {
+    it('fails permanently on a terminal validation failure without polling', async () => {
       contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
       contacts.getListStatus.mockResolvedValue(
         listStatus({ isReady: false, isFailed: true, status: 'IMPORT_FAILED' }),
@@ -211,7 +211,10 @@ describe('CallfireRobocallVendor', () => {
           csvUrl: 'https://s3.example/audience.csv',
           countryIso: 'US',
         }),
-      ).rejects.toBeInstanceOf(BadGatewayException)
+      ).rejects.toBeInstanceOf(VendorPermanentError)
+      // A terminal list-validation failure can never be fixed by retrying —
+      // it surfaces as permanent on the first read, not after the poll window.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(1)
     })
 
     it('tolerates a transient BadGatewayException on one poll attempt and retries', async () => {

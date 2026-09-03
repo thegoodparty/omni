@@ -187,7 +187,7 @@ export class CallfireRobocallVendor implements RobocallVendor {
         continue
       }
       if (status.isFailed) {
-        throw new BadGatewayException(
+        throw new VendorPermanentError(
           `CallFire list ${listId} validation failed (${status.status})`,
         )
       }
