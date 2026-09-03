@@ -13,7 +13,7 @@ step, the code lives in `outreach/v2/` and BOTH surfaces feel it — read
 | File                          | Role                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `page.tsx`                    | Server component: `serveAccess()` (redirects non-serve users; switches orgs through `/post-auth-redirect` when the user owns an eo- org that isn't selected), then fetches history via `GET /v1/outreach/serve` with `ignoreResponseError` — an empty array is a valid fresh-org response, never a 404 |
-| `ConstituentOutreachPage.tsx` | Client hub: `FeatureFlagGuard` on `serve-outreach` (redirect to `/dashboard`), `OutreachProvider` seeded with the server rows, channel cards, both serve flows, the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage` |
+| `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, both serve flows, the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage` |
 | `ServeChannelCards.tsx`       | The channel grid — Social media and Phone banking only. Sized to its two cards (`max-w-md grid-cols-2`), not the candidate grid's five-column breakpoints. Door knocking has no serve wiring yet and gets NO card — a permanently disabled placeholder read as broken, so it was removed until its own epic wires it |
 
 ## Connection to Win outreach — one machine, two callers
@@ -50,7 +50,6 @@ byte-identical when they're omitted):
 | --------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | User + scope    | Candidate with a campaign; rows keyed `campaignId`                                              | Elected official with an `ElectedOffice` row (eo- org); rows keyed `{ campaignId: null, organizationSlug }` — the isolation constraint, ENG-10976 |
 | Access          | Campaign auth; per-channel Pro/compliance gates (text gate, upgrade-at-entry)                   | `serveAccess()` on the page, `@UseElectedOffice()` on the API. NO Pro gate anywhere: the `ElectedOffice` row IS the entitlement                  |
-| Flags           | `voter-outreach-v2` page gate + per-channel swap flags over legacy TaskFlows                    | One `serve-outreach` flag; no legacy arm — the surface was born on v2 components. The page's `FeatureFlagGuard` is the treatment surface; the nav item reads the flag with `trackExposure: false` |
 | Channels        | Social, SMS, phone banking, robocall, door knocking                                              | Social + phone banking only. Paid channels (texting, robocall) are out of scope — no compliance/payment machinery on Serve. Door knocking: no card until its serve epic |
 | Endpoints       | `/v1/outreach/*`, `POST /v1/phone-banking/lists`                                                 | `/v1/outreach/serve/*` siblings, `POST /v1/phone-banking/serve/lists`                                                                            |
 | Purpose slugs   | `SocialPurpose` / `PhoneBankingPurpose`                                                          | `ServeSocialPurpose` / `ServePhoneBankingPurpose` (contracts) — voter framing becomes constituent framing                                        |
@@ -78,11 +77,10 @@ generation services, the spine scoping — are in
   (ENG-10991, both directions). `organization-picker.tsx` marks the
   `outreachDetailQueryPrefix` family stale WITHOUT refetching; keep any new
   per-org query family out of that trap the same way.
-- **Nav visibility is three-way**: `serveAccessEnabled && isElectedOffice &&
-  serveOutreachEnabled` in `DashboardMenu.tsx`. The route itself is
-  double-gated (`serveAccess()` server-side + the flag guard client-side), so
-  a hidden nav item never implies an unreachable page. The mobile title comes
-  from `MOBILE_PAGE_TITLES` in `DashboardLayout.tsx`.
+- **Nav visibility mirrors page access**: `isElectedOffice` in
+  `DashboardMenu.tsx`, the same elected-office existence the server-side
+  `serveAccess()` gate on the route enforces. The mobile title comes from
+  `MOBILE_PAGE_TITLES` in `DashboardLayout.tsx`.
 - **Saved rows are seeded, not refetched** — mirrors `OutreachHubPage`:
   social's save response is a full `OutreachDetail` (seed the detail cache +
   prepend), phone banking's create response is just the list (prepend an

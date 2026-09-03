@@ -3,8 +3,6 @@
 import { useState } from 'react'
 import type { OutreachDetail } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
-import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
-import { SERVE_OUTREACH_FLAG_KEY } from '@shared/experiments/serveOutreachFlag'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
@@ -117,28 +115,24 @@ const ConstituentOutreachContent = () => {
   )
 }
 
-// FeatureFlagGuard is the treatment surface for this experiment; the nav
-// item reads the flag with trackExposure=false.
 const ConstituentOutreachPage = ({
   pathname,
   outreaches = [],
 }: ConstituentOutreachPageProps): React.JSX.Element => {
   return (
-    <FeatureFlagGuard flagKey={SERVE_OUTREACH_FLAG_KEY} redirectTo="/dashboard">
-      <OutreachProvider initValue={outreaches}>
-        <DashboardLayout
-          pathname={pathname}
-          showAlert={false}
-          wrapperClassName="!p-0"
-          navHeader={{
-            icon: 'megaphone',
-            label: NAV_LABELS.constituentOutreach,
-          }}
-        >
-          <ConstituentOutreachContent />
-        </DashboardLayout>
-      </OutreachProvider>
-    </FeatureFlagGuard>
+    <OutreachProvider initValue={outreaches}>
+      <DashboardLayout
+        pathname={pathname}
+        showAlert={false}
+        wrapperClassName="!p-0"
+        navHeader={{
+          icon: 'megaphone',
+          label: NAV_LABELS.constituentOutreach,
+        }}
+      >
+        <ConstituentOutreachContent />
+      </DashboardLayout>
+    </OutreachProvider>
   )
 }
 

@@ -19,13 +19,6 @@ import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 // mobile card list (also in the DOM, hidden via CSS).
 const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
-vi.mock('@shared/experiments/FeatureFlagsProvider', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@shared/experiments/FeatureFlagsProvider')
-  >()),
-  useFlagOn: () => ({ ready: true, on: true }),
-}))
-
 // The real layout is a sidebar shell that needs an OrganizationProvider this
 // suite has no use for — a stub keeps the focus on the content it wraps.
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({

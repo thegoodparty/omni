@@ -67,7 +67,6 @@ import {
   OrganizationPicker,
   useOrganization,
 } from '@shared/organization-picker'
-import { useServeOutreachFlag } from '@shared/experiments/serveOutreachFlag'
 
 interface MenuItem {
   id: string
@@ -279,7 +278,6 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
-  serveOutreachEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -287,10 +285,6 @@ export const getDashboardMenuItems = (
   // elected-office existence alone.
   const communityIssuesShown = isElectedOffice
   const ordinancesShown = isElectedOffice
-  // Constituent Outreach nav is gated behind serve-outreach so it can be
-  // dark-launched independently; the page route's FeatureFlagGuard is the
-  // treatment surface.
-  const constituentOutreachShown = isElectedOffice && serveOutreachEnabled
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (isElectedOffice) {
@@ -308,9 +302,7 @@ export const getDashboardMenuItems = (
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
-    if (constituentOutreachShown) {
-      menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
-    }
+    menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
@@ -370,18 +362,10 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
-  // Nav-only gate for the Constituent Outreach tab; the page's
-  // FeatureFlagGuard is the treatment surface.
-  const { enabled: serveOutreachEnabled } = useServeOutreachFlag(false)
 
   const menuItems = useMemo(
-    () =>
-      getDashboardMenuItems(
-        !!electedOffice,
-        isElectedOfficeLoading,
-        serveOutreachEnabled,
-      ),
-    [electedOffice, isElectedOfficeLoading, serveOutreachEnabled],
+    () => getDashboardMenuItems(!!electedOffice, isElectedOfficeLoading),
+    [electedOffice, isElectedOfficeLoading],
   )
 
   useEffect(() => {

@@ -4,17 +4,10 @@ import { getDashboardMenuItems } from './DashboardMenu'
 const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
-  serveOutreachEnabled = false,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
-  serveOutreachEnabled?: boolean
-} = {}) =>
-  getDashboardMenuItems(
-    isElectedOffice,
-    isElectedOfficeLoading,
-    serveOutreachEnabled,
-  )
+} = {}) => getDashboardMenuItems(isElectedOffice, isElectedOfficeLoading)
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -171,30 +164,28 @@ describe('getDashboardMenuItems — Ordinances tab gating', () => {
 })
 
 describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
-  it('shows the item for an elected office when the flag is on', () => {
+  it('shows the item for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      serveOutreachEnabled: true,
     })
     expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
       true,
     )
   })
 
-  it('hides the item when the flag is off', () => {
+  it('hides the item for a campaign (non-elected-office) org', () => {
     const items = links({
-      isElectedOffice: true,
-      serveOutreachEnabled: false,
+      isElectedOffice: false,
     })
     expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
       false,
     )
   })
 
-  it('hides the item for a campaign (non-elected-office) org even when the flag is on', () => {
+  it('does not commit to the item while the elected-office query is loading', () => {
     const items = links({
       isElectedOffice: false,
-      serveOutreachEnabled: true,
+      isElectedOfficeLoading: true,
     })
     expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
       false,
