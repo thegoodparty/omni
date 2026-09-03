@@ -70,7 +70,7 @@ export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
 
 // Pre-compliance-launch identification check (prototype's hasIntro), used
-// while the voter-outreach-sms-compliance flag is off: the message head
+// while the voter-outreach-v2-sms flag is off: the message head
 // must read as an identification. With no first name on file the name
 // check is vacuous, so only the candidacy phrasing is required.
 export const hasIdentification = (body: string, firstName: string): boolean => {

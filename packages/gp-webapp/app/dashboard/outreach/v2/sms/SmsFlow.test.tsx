@@ -10,8 +10,8 @@ import type { TcrCompliance } from 'helpers/types'
 // Launch-switch mock: defaults off (pre-launch behavior); individual tests
 // flip it on to exercise the compliance composer.
 let complianceFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/smsComplianceV2Flag', () => ({
-  useSmsComplianceV2Flag: () => complianceFlag,
+vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
+  useVoterOutreachV2SmsFlag: () => complianceFlag,
 }))
 
 beforeEach(() => {

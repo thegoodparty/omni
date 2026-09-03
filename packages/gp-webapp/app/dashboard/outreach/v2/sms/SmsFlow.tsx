@@ -10,7 +10,7 @@ import type {
   SocialTone,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
-import { useSmsComplianceV2Flag } from '@shared/experiments/smsComplianceV2Flag'
+import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
 import {
   checkSmsStandards,
   SMS_COMPOSED_MAX_LENGTH,
@@ -347,11 +347,13 @@ export const SmsFlow = ({
       user?.firstName ?? '',
       campaign?.details?.normalizedOffice ?? '',
     )
-  // Launch switch (voter-outreach-sms-compliance): off keeps the exact
+  // Launch switch (the voter-outreach-v2-sms flag — the compliance
+  // behavior ships with the v2 flow itself): off keeps the exact
   // pre-launch composer — opt-out-only footer and the prototype's
-  // identification warning; on adds the paid-for-by line and the five-rule
-  // blocking check.
-  const { enabled: complianceV2 } = useSmsComplianceV2Flag()
+  // identification warning; on adds the paid-for-by line and the
+  // five-rule blocking check. gp-api mirrors it with
+  // SMS_COMPLIANCE_V2_ENABLED; flip both together.
+  const { enabled: complianceV2 } = useVoterOutreachV2SmsFlag(false)
   const committeeName = complianceV2
     ? (tcrCompliance?.committeeName ?? null)
     : null

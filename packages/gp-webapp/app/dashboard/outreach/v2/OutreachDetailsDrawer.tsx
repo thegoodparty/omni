@@ -48,7 +48,7 @@ import {
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useSmsComplianceV2Flag } from '@shared/experiments/smsComplianceV2Flag'
+import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
 import type { SmsEditTarget } from './sms/SmsEditFlow'
 import type { VoterFileFilters } from 'helpers/types'
 import { FetchError } from 'ofetch'
@@ -186,7 +186,7 @@ export const OutreachDetailsDrawer = ({
   const isPaidFlowSms = isSms && row?.phoneListId != null
   // Launch switch: on, candidate editing is gone and the Statistics card
   // appears; off is exactly the pre-launch drawer.
-  const { enabled: complianceV2 } = useSmsComplianceV2Flag()
+  const { enabled: complianceV2 } = useVoterOutreachV2SmsFlag(false)
 
   const [outreaches, setOutreaches] = useOutreach()
   const queryClient = useQueryClient()

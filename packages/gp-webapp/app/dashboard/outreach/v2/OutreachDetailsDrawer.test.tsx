@@ -5,8 +5,8 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 
 let complianceFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/smsComplianceV2Flag', () => ({
-  useSmsComplianceV2Flag: () => complianceFlag,
+vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
+  useVoterOutreachV2SmsFlag: () => complianceFlag,
 }))
 
 beforeEach(() => {
