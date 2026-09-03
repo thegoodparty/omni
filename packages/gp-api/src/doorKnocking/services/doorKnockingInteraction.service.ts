@@ -37,6 +37,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   // the DB): a replayed clientKey re-syncs the same row — never a duplicate.
   async record(
     organization: Organization,
+    actorUserId: number,
     input: RecordDoorKnockInteraction,
   ): Promise<RecordDoorKnockInteractionResponse> {
     const personId = await this.personIdForTarget(
@@ -54,6 +55,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       note: input.note ?? null,
       sourceId: input.clientKey,
       manual: false,
+      actorUserId,
     })
 
     return {
