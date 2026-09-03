@@ -155,6 +155,14 @@ Email is not a channel — the product doesn't support email outreach, and there
 is no email column in L2 or in the mart. Social and "write my own message" get
 no recommendation.
 
+The intent arrives as the outreach flow's **purpose** slug. Those were three
+divergent per-channel vocabularies (SMS and robocall shared one, phone banking
+had its own, door knocking had none at all), so this feature consolidates them
+onto the SMS list — `introduce_myself`, `persuade_voters`, `event_invite`,
+`early_voting`, `election_day_turnout`, `custom` — and maps that one list to
+the five intents. `custom` and social's `issue_update` map to no intent and
+therefore get no recommendation.
+
 Measured yield: SMS retains 58%–74% of a list, phone 70%–85%.
 
 `hasAnyPhone` is a within-dimension OR (cell present OR landline present) and
