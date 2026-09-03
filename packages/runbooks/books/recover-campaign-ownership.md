@@ -279,14 +279,17 @@ for the new owner.
 
 ```sql
 \set new_owner_id 2002
+\set org_slug 'the-transferred-campaign-org-slug'
 SELECT id, email, meta_data->>'customerId' AS customer_id FROM "user"
 WHERE id = :new_owner_id;
 
--- Second condition: does the new owner own any OTHER campaign that carries its
--- own subscription? Any row here means the automatic recovery can pick the
--- wrong subscription, regardless of the null customer_id above.
+-- Second condition: does the new owner own any OTHER campaign (excluding the
+-- one just transferred) that carries its own subscription? Any row here means
+-- the automatic recovery can pick the wrong subscription, regardless of the
+-- null customer_id above.
 SELECT id, slug, details->>'subscriptionId' AS subscription_id FROM campaign
 WHERE user_id = :new_owner_id
+  AND organization_slug <> :'org_slug'
   AND details->>'subscriptionId' IS NOT NULL;
 ```
 
@@ -360,10 +363,16 @@ WHERE organization_slug = :'org_slug';
 ```
 
 Then confirm client-side: have both accounts (or impersonate them) load the org
-picker. The campaign should now appear for the new owner and disappear from the old
-owner's list unless they stayed on as `campaignAdmin`, in which case it stays but
-without owner-only actions (billing, member removal, role changes — see the
-`@OwnerOnly()` inventory in the team-accounts TDD's implementation notes).
+picker. The campaign should now appear for the new owner. What the old owner sees
+depends on whether the membership-aware guards and member-inclusive org listing
+(ENG-10818 / ENG-10823) have shipped: before they ship, a `campaignAdmin`
+membership row grants no access — the guards resolve ownership only (see
+Prerequisites) — so the campaign is expected to be ABSENT from the old owner's
+list even if you ran Block B; that absence is correct, not a failed transfer.
+Once those tickets have shipped, the campaign stays in the old owner's list as
+`campaignAdmin`, without owner-only actions (billing, member removal, role
+changes — see the `@OwnerOnly()` inventory in the team-accounts TDD's
+implementation notes).
 
 ## Known gaps
 
