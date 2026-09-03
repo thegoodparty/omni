@@ -590,8 +590,6 @@ export {
 
 export * from './artifactReview'
 
-export * from './recommendedLists'
-
 export * from './raceOpponent'
 
 export * from './experiments'

@@ -10,7 +10,6 @@ import { AnnotationAttachmentService } from '@/annotations/services/annotationAt
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
-import { RecommendedListsComputeService } from '@/recommendedLists/services/recommendedListsCompute.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
@@ -237,7 +236,6 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1011,7 +1009,6 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
     )
   })
@@ -1206,7 +1203,6 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger(),
     )
   })
@@ -1384,10 +1380,6 @@ describe('QueueConsumerService - message type routing', () => {
         {
           provide: AnnotationAttachmentService,
           useValue: { runOcr: vi.fn() },
-        },
-        {
-          provide: RecommendedListsComputeService,
-          useValue: { handleRecompute: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
@@ -1852,10 +1844,6 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
           useValue: { handleStep: vi.fn() },
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
-        {
-          provide: RecommendedListsComputeService,
-          useValue: { handleRecompute: vi.fn() },
-        },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -1976,7 +1964,6 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       { handleStep } as never,
-      {} as never,
       createMockLogger(),
     )
 
@@ -2015,73 +2002,5 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 
     expect(result).toBe(true)
     expect(handleStep).not.toHaveBeenCalled()
-  })
-})
-
-describe('QueueConsumerService - RECOMMENDED_LISTS_RECOMPUTE', () => {
-  const buildService = (handleRecompute: ReturnType<typeof vi.fn>) =>
-    new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      { handleRecompute } as never,
-      createMockLogger(),
-    )
-
-  const recomputeMessage = (data: unknown): Message => ({
-    MessageId: 'msg-reclists-1',
-    Body: JSON.stringify({
-      type: QueueType.RECOMMENDED_LISTS_RECOMPUTE,
-      data,
-    }),
-  })
-
-  it('dispatches a valid recompute message to handleRecompute', async () => {
-    const handleRecompute = vi.fn().mockResolvedValue(true)
-    const service = buildService(handleRecompute)
-    const payload = { campaignId: 42, raceId: 'race-1', attempt: 1 }
-
-    const result = await service.processMessage(recomputeMessage(payload))
-
-    expect(result).toBe(true)
-    expect(handleRecompute).toHaveBeenCalledWith(payload)
-  })
-
-  it('acks and drops a malformed recompute message instead of requeueing', async () => {
-    const handleRecompute = vi.fn()
-    const service = buildService(handleRecompute)
-
-    const result = await service.processMessage(
-      recomputeMessage({ campaignId: 'not-a-number' }),
-    )
-
-    expect(result).toBe(true)
-    expect(handleRecompute).not.toHaveBeenCalled()
   })
 })
