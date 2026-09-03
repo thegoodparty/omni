@@ -962,6 +962,39 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       }
     }
 
+    // Canceling returns what the send consumed: a row whose billable count
+    // ran below its text count spent free-promo texts, so the offer is
+    // restored for the campaign's next send (product decision 2026-09-03).
+    // Guarded on the redeemed state, so a cancel retry cannot double-grant,
+    // and a later full-price campaign (billable == textCount) never
+    // triggers it. Best-effort: the cancel and refund are already
+    // committed, so a restore failure logs for manual fixing rather than
+    // faking a failed cancel.
+    const consumedFreeTexts =
+      outreach.textCount !== null &&
+      outreach.billableTextCount !== null &&
+      outreach.billableTextCount < outreach.textCount
+    if (consumedFreeTexts) {
+      try {
+        await this.client.campaign.updateMany({
+          where: {
+            id: campaignId,
+            hasFreeTextsOffer: false,
+            freeTextsOfferRedeemedAt: { not: null },
+          },
+          data: {
+            hasFreeTextsOffer: true,
+            freeTextsOfferRedeemedAt: null,
+          },
+        })
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, campaignId },
+          'Free-texts offer restore failed after cancel; restore manually',
+        )
+      }
+    }
+
     const updated = await this.model.findFirstOrThrow({
       where: { id: outreachId, campaignId },
     })

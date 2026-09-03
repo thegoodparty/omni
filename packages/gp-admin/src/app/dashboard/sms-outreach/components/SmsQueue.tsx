@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Badge,
@@ -59,6 +60,7 @@ const compareItems = (
 }
 
 export function SmsQueue({ items }: SmsQueueProps) {
+  const router = useRouter()
   const [tab, setTab] = useState<QueueTab>('awaiting')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('sendDate')
@@ -191,7 +193,13 @@ export function SmsQueue({ items }: SmsQueueProps) {
           </Table.Header>
           <Table.Body>
             {visible.map((item) => (
-              <Table.Row key={item.id}>
+              <Table.Row
+                key={item.id}
+                className="cursor-pointer hover:bg-[var(--gray-a2)]"
+                onClick={() =>
+                  router.push(`/dashboard/sms-outreach/${item.id}`)
+                }
+              >
                 <Table.Cell>
                   <Flex direction="column">
                     <Text size="2">{item.candidateName ?? '—'}</Text>

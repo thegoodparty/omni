@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Theme } from '@radix-ui/themes'
@@ -12,6 +12,13 @@ class ResizeObserverMock {
 }
 globalThis.ResizeObserver =
   ResizeObserverMock as unknown as typeof ResizeObserver
+
+const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+  }),
+}))
 
 const item = (
   overrides: Partial<SmsApprovalQueueItem>
@@ -87,6 +94,10 @@ describe('SmsQueue', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: /Denied \(1\)/ }))
     expect(screen.getByText('Denied send')).toBeInTheDocument()
+
+    // The whole row is clickable, not just the campaign link.
+    await userEvent.click(screen.getByText('Jane Doe'))
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/sms-outreach/43')
   })
 
   it('flags standards failures and vendor readiness problems', () => {
