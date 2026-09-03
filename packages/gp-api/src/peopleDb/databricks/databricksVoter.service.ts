@@ -16,6 +16,7 @@ import {
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
   PeoplePrecinctsResponseSchema,
+  type IdOverrides,
   type PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import {
@@ -302,11 +303,18 @@ export class DatabricksVoterService {
   // Callers already have `district` -- the recommended-lists endpoint fans
   // out several of these plus a districtTotal concurrently against one
   // resolved district, so resolving it again per variant would be wasted work.
+  // `idOverrides` carries the Voter Likelihood override resolution, which
+  // every voterStatus-bearing filter picks up before it is countable; a
+  // count that dropped it would disagree with the list the same filter
+  // saves.
   async countForFilter(
     district: DbxDistrict,
     filters: FilterData,
+    idOverrides?: IdOverrides,
   ): Promise<number> {
-    const { rows } = await this.run(buildCountSql({ district, filters }))
+    const { rows } = await this.run(
+      buildCountSql({ district, filters, idOverrides }),
+    )
     return Number(rows[0]?.[0] ?? 0)
   }
 
@@ -332,11 +340,13 @@ export class DatabricksVoterService {
     district: DbxDistrict,
     filters: FilterData,
     doorTarget: number,
+    idOverrides?: IdOverrides,
   ): Promise<RankPrecinctsResult> {
     const { rows } = await this.run(
       buildRankPrecinctsSql({
         district,
         filters,
+        idOverrides,
         limit: MAX_RANKED_PRECINCTS,
       }),
     )

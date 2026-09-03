@@ -344,7 +344,6 @@ shape plus everything the card displays:
 | `filter`           | the unsaved `VoterFileFilter` shape                         |
 | `count`            | contactable size after the channel refinement               |
 | `districtShare`    | `count` over the district total                             |
-| `estimatedCost`    | channel unit price × count                                  |
 | `copy`             | `{ title, criteriaSummary }` with placeholders filled       |
 | `existingFilterId` | set when this recommendation already exists as a saved list |
 
