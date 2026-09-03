@@ -174,33 +174,38 @@ Two traps when touching it:
   written by hand with `%20` for this reason, and `peopleDb.service.test.ts`
   asserts the encoding.
 
-## The two direction columns cannot hold a direction
+## The two direction columns hold a direction now, and the legacy key must not read them
 
 `Residence_Addresses_PrefixDirection` and `Residence_Addresses_SuffixDirection`
-are **INTEGER** in the mirror (`prisma-people/schema/Voter.prisma`), as are their
-`Mailing_` twins, while every other address component is TEXT. The L2 file spells
-them `N`/`S`/`E`/`W`; the data-platform loader `try_cast`s each to `int`
-(`dbt/project/models/marts/people_api/m_people_api__voter.sql`, and
-`INTEGER_COLUMNS` in `write__l2_databricks_to_gp_api.py`), which in Spark yields
-NULL rather than an error. **Every residence directional is therefore NULL,
-silently.** Nothing in this repo can recover them.
+used to be **INTEGER** in the mirror and NULL for every voter in the country, as
+were their `Mailing_` twins. The L2 file spells them `N`/`S`/`E`/`W` and the
+data-platform loader `try_cast`ed each to `int`
+(`dbt/project/models/marts/people_api/m_people_api__voter.sql`), which in Spark
+yields NULL rather than an error. DATA-2372 dropped those casts. All four are
+TEXT in the mirror and STRING in `mart_gp_api.gp_api_voters`, and they carry
+values: 44.5M residence prefixes and 13.5M residence suffixes.
 
-**Do not read either column.** Anything needing a street line reads
-`Residence_Addresses_AddressLine`, which is TEXT and holds the whole line,
-directions included — the stop's frozen `displayAddress` and the door-knocking
-unit key both do.
+**The legacy unit key still has to compose both segments empty.** Every stored
+legacy key was frozen while the columns were NULL, so `legacyUnitKey()` in
+`databricksVoterSql.util.ts` pins those two positions to `''` instead of reading
+them. Read them and the recomposed key matches nothing a pre-switch route
+stored, so `residents()` answers with an empty door for a canvasser mid-walk.
+`databricksDoorKnockingSql.util.test.ts` guards the pin.
 
-The cost of getting this wrong is not cosmetic. The unit key used to compose the
-line from components, so with both directionals permanently empty `1234 S Main
-St` and `1234 N Main St` in one ZIP keyed identically and were **one door** to
-`residents()`, which merged two households' rosters. Salt Lake City is where it
-is impossible to miss: the grid puts the information in the directions, so
-`1234 S 5678 W` keyed — and printed on the walk sheet — as `1234 5678`.
-
-Fixing this properly is a data-platform change (the column type, upstream). If it
-ever lands, the components become usable again, but there is no reason to go
-back to them: AddressLine is one column instead of five and already carries the
+A street line still comes from `Residence_Addresses_AddressLine`, which holds the
+whole line, directions included. The stop's frozen `displayAddress` and the
+current unit key both use it, and there is no reason to go back to composing from
+components: AddressLine is one column instead of five and already carries the
 CASS-standardized spelling.
+
+While the columns were empty this was a de-duplication defect and not only a
+display one. The unit key used to compose the line from components, so `1234 S
+Main St` and `1234 N Main St` in one ZIP keyed identically and were **one door**
+to `residents()`, which merged two households' rosters. Salt Lake City was where
+it was impossible to miss: the grid puts the information in the directions, so
+`1234 S 5678 W` keyed, and printed on the walk sheet, as `1234 5678`. Routes
+frozen then still print that way; the key has nothing to recover the directions
+from and re-knocking the list is what clears it.
 
 ## Door knocking: the query returns rows, the shaping happens here
 

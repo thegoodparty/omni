@@ -892,19 +892,37 @@ export const buildCsvSql = (
   return { sql, params: bag.params }
 }
 
-// Unit-granularity twin of householdKey(), in Spark dialect. Cast to STRING
-// before COALESCE because two of the legacy key's columns are INT in the mart
-// (the permanently-NULL direction columns), and Spark will not COALESCE an INT
-// with ''. The Postgres builder casts for the same reason, so a legacy key
-// composed here is byte-identical to one composed there.
-const unitKey = (columns: readonly string[]): string =>
+// Unit-granularity twin of householdKey(), in Spark dialect. Every component
+// is CAST to STRING before COALESCE so a NULL still contributes an empty
+// segment and a future retype cannot change what a key composes to.
+const unitKey = (
+  columns: readonly string[],
+  pinnedEmpty: ReadonlySet<string> = new Set(),
+): string =>
   `concat_ws('|', ${columns
-    .map((name) => `upper(trim(coalesce(cast(${col(name)} AS STRING), '')))`)
+    .map((name) =>
+      pinnedEmpty.has(name)
+        ? "''"
+        : `upper(trim(coalesce(cast(${col(name)} AS STRING), '')))`,
+    )
     .join(', ')})`
+
+// Both direction segments are pinned empty rather than read from the mart.
+// Every stored legacy key was frozen while these two columns were NULL for
+// every voter (DATA-2372); they now carry 'N'/'S'/'E'/'W', so recomputing
+// them here would compose a key that no longer matches what a route stored,
+// and residents() would answer with nothing for a canvasser mid-walk.
+const LEGACY_KEY_PINNED_EMPTY_COLUMNS: ReadonlySet<string> = new Set([
+  'Residence_Addresses_PrefixDirection',
+  'Residence_Addresses_SuffixDirection',
+])
 
 const currentUnitKey = (): string => unitKey(DOOR_KNOCKING_UNIT_KEY_COLUMNS)
 const legacyUnitKey = (): string =>
-  unitKey(DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS)
+  unitKey(
+    DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS,
+    LEGACY_KEY_PINNED_EMPTY_COLUMNS,
+  )
 
 // Rooftop-geocoded rows only, the same v1 quality gate both Postgres door
 // knocking queries apply.

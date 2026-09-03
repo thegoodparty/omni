@@ -36,6 +36,12 @@ const BBOX = { minLat: 41.8, maxLat: 41.9, minLng: -87.7, maxLng: -87.6 }
 const CURRENT_KEY = '1200 W ELM ST|4B|62704'
 const LEGACY_KEY = '1200||ELM||| |62704'
 
+// Pinned to '' in the legacy key rather than read from the mart (DATA-2372).
+const LEGACY_PINNED_EMPTY = new Set<string>([
+  'Residence_Addresses_PrefixDirection',
+  'Residence_Addresses_SuffixDirection',
+])
+
 const valueOf = (
   params: Array<{ name: string; value: string | null }>,
   marker: string,
@@ -136,6 +142,7 @@ describe('buildDoorKnockingResidentsSql', () => {
   it('compiles only the legacy key expression for legacy-format keys', () => {
     const { sql } = build([LEGACY_KEY])
     for (const column of DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS) {
+      if (LEGACY_PINNED_EMPTY.has(column)) continue
       expect(sql).toContain(column)
     }
   })
@@ -144,7 +151,8 @@ describe('buildDoorKnockingResidentsSql', () => {
   // request has to come back keyed the legacy way or every address misses.
   it('projects the same key format it matched on', () => {
     const legacy = build([LEGACY_KEY]).sql
-    const projection = legacy.slice(legacy.lastIndexOf('AS `addressKey`') - 400)
+    const alias = legacy.lastIndexOf('AS `addressKey`')
+    const projection = legacy.slice(legacy.lastIndexOf('concat_ws', alias))
     expect(projection).toContain('Residence_Addresses_HouseNumber')
   })
 
@@ -154,14 +162,18 @@ describe('buildDoorKnockingResidentsSql', () => {
     expect(sql).toContain('CASE WHEN')
   })
 
-  it('casts key components to string so the INT direction columns coalesce', () => {
-    // Residence_Addresses_PrefixDirection / _SuffixDirection are INT in the
-    // mart, and Spark will not coalesce an INT with ''. Without the cast the
-    // legacy key would fail to compile rather than produce the empty segment
-    // Postgres produces.
+  // Every stored legacy key was frozen while the two direction columns were
+  // NULL for every voter. DATA-2372 populated them, so reading them back here
+  // would compose a key matching nothing a route ever stored, and a canvasser
+  // on a pre-switch list would be served an empty door.
+  it('pins the legacy key direction segments empty rather than reading them', () => {
     const { sql } = build([LEGACY_KEY])
+    for (const column of LEGACY_PINNED_EMPTY) {
+      expect(sql).not.toContain(column)
+    }
+    // The segment following the house number is the prefix direction.
     expect(sql).toContain(
-      'coalesce(cast(v.`Residence_Addresses_PrefixDirection` AS STRING)',
+      "upper(trim(coalesce(cast(v.`Residence_Addresses_HouseNumber` AS STRING), ''))), ''",
     )
   })
 
