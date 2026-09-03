@@ -591,6 +591,7 @@ export {
 export * from './artifactReview'
 
 export * from './raceOpponent'
+export * from './recommendedLists'
 
 export * from './experiments'
 
