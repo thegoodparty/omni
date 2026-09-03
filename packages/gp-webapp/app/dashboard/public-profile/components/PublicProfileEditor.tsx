@@ -297,6 +297,37 @@ function LoadedEditor({
       return
     }
 
+    // Ahead of the no-op check rather than after it: a fresh attempt supersedes
+    // the last one's errors whether or not it turns out to have anything to
+    // send, and that shouldn't rest on an argument about which states are
+    // reachable.
+    setErrors({})
+
+    // Untitled rows are dropped below, which is right for a row the owner never
+    // filled in and wrong for one they did. A row holding an organization or a
+    // description is something they wrote, so it is worth stopping for rather
+    // than discarding on their behalf — the whole point of this change. `source`
+    // is bookkeeping, not content: every new experience row carries it, so
+    // counting it would stop the save on an empty row.
+    const untitledExperience = experience.some(
+      (r) =>
+        r.title.trim() === '' &&
+        ((r.organization ?? '').trim() !== '' || (r.term ?? '').trim() !== ''),
+    )
+    const untitledAccomplishment = accomplishments.some(
+      (r) =>
+        r.title.trim() === '' &&
+        ((r.description ?? '').trim() !== '' || (r.date ?? '').trim() !== ''),
+    )
+    if (untitledExperience || untitledAccomplishment) {
+      errorSnackbar(
+        untitledExperience
+          ? 'Give your experience entry a title, or remove the row.'
+          : 'Give your accomplishment a title, or remove the row.',
+      )
+      return
+    }
+
     const body: UpsertPersonProfileRequest = {}
     for (const key of changed) body[key] = toNull(normalized[key])
     const nextExperience = experience.filter((r) => r.title.trim() !== '')
@@ -309,12 +340,6 @@ function LoadedEditor({
     if (!sameList(nextAccomplishments, baselineLists.accomplishments)) {
       body.accomplishments = nextAccomplishments
     }
-
-    // Ahead of the no-op check rather than after it: a fresh attempt supersedes
-    // the last one's errors whether or not it turns out to have anything to
-    // send, and that shouldn't rest on an argument about which states are
-    // reachable.
-    setErrors({})
 
     if (Object.keys(body).length === 0) {
       successSnackbar('No changes to save.')

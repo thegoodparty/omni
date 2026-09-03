@@ -633,6 +633,61 @@ describe('PublicProfileEditor — partial saves', () => {
     )
   })
 
+  // The filter that keeps a blank row out of the payload cannot tell an
+  // abandoned "Add" click from a row someone wrote a description into and
+  // forgot to title. The second one is theirs, and it used to vanish on save
+  // without a word.
+  it('stops rather than discard an experience row that was started but never titled', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /add experience/i }),
+    )
+    await userEvent.type(screen.getByLabelText('Organization'), 'City Council')
+    await save()
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Give your experience entry a title, or remove the row.',
+      ),
+    )
+    expect(putPayload()).toBeUndefined()
+  })
+
+  it('stops rather than discard an accomplishment that was started but never titled', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /add accomplishment/i }),
+    )
+    await userEvent.type(
+      screen.getByLabelText('Description'),
+      'Passed the ordinance',
+    )
+    await save()
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Give your accomplishment a title, or remove the row.',
+      ),
+    )
+    expect(putPayload()).toBeUndefined()
+  })
+
   it('has a label for every field it can send', () => {
     const missing = FORM_KEYS.filter(
       (key) => fieldLabel(key, 'win') === (key as string),
