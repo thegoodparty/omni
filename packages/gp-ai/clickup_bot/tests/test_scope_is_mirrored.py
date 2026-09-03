@@ -58,8 +58,8 @@ CASES = [
         id="the Data Backlog list",
     ),
     pytest.param(
-        task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"}),
-        id="the Growth-Bugs list, which is now routed rather than refused",
+        task_dump(list={"id": handler.MARKETING_SITE_BUGS_LIST_ID, "name": "Marketing Site Bugs"}),
+        id="the Marketing Site Bugs list, which is routed rather than refused",
     ),
     pytest.param(
         task_dump(list={"id": escalation.DATA_BACKLOG_LIST_ID}),
@@ -119,6 +119,28 @@ def test_every_routed_repo_has_a_briefing():
     assert resolve_repo(handler.DEFAULT_REPO).full_name == handler.DEFAULT_REPO
 
 
+def test_the_base_branches_agree_across_the_package_boundary():
+    """The Lambda's second copy of every repo's base branch.
+
+    It cannot import repos.py — it is packaged and deployed alone — but it has
+    to know the branch, because the CI-fix instructions tell the agent what to
+    diff against and what to merge from. gp-marketing's is `develop`, so a drift
+    to `main` here would have a fix run comparing its PR against a branch the PR
+    does not merge into, and then "fixing" the difference.
+    """
+    for repo, branch in handler.BASE_BRANCH_BY_REPO.items():
+        assert resolve_repo(repo).base_branch == branch, f"{repo} disagrees about its base branch"
+
+
+def test_every_routable_repo_knows_its_base_branch():
+    # The two tables are reached by different paths — one from a ClickUp list,
+    # the other from a CI-drive payload — so a repo can be routable for analysis
+    # while a fix run on its PR is refused for being an unknown repo.
+    routable = set(handler.REPO_BY_LIST_ID.values()) | {handler.DEFAULT_REPO}
+
+    assert routable <= set(handler.BASE_BRANCH_BY_REPO)
+
+
 def test_a_repo_may_only_be_written_to_if_it_can_be_routed_to():
     # An implement allowlist naming a repo nothing routes to is dead config that
     # reads like an enabled feature. Every writable repo is either the default
@@ -149,7 +171,7 @@ def test_a_marketing_ticket_is_a_different_repo_not_a_refusal():
     # Growth-Bugs sat in OUT_OF_SCOPE_LIST_IDS until gp-marketing became a repo
     # the agent could be pointed at. Both copies have to have let go of it, or
     # marketing tickets keep being refused by whichever copy still remembers.
-    marketing = task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"})
+    marketing = task_dump(list={"id": handler.MARKETING_SITE_BUGS_LIST_ID, "name": "Marketing Site Bugs"})
 
     assert handler.out_of_scope_reason(marketing) is None
     assert escalation.out_of_scope_reason(marketing) is None

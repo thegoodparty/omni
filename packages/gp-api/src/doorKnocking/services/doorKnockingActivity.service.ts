@@ -23,6 +23,9 @@ type DoorKnockRow = BaseRow & {
   supportAnswer: SupportAnswer | null
   note: string | null
   manual: boolean
+  actorUserId: number | null
+  actorFirstName: string | null
+  actorLastName: string | null
 }
 
 type TextRow = BaseRow & {
@@ -102,15 +105,21 @@ export class DoorKnockingActivityService extends createPrismaBase(
     const [doorKnocks, texts, robocalls, phoneBankings, statusEvents] =
       await Promise.all([
         this.client.$queryRaw<DoorKnockRow[]>(Prisma.sql`
-          SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
-                 outcome, support_answer AS "supportAnswer", note, manual
+          SELECT ranked."personId", ranked."occurredAt", ranked.id,
+                 ranked.outcome, ranked."supportAnswer", ranked.note,
+                 ranked.manual, ranked."actorUserId",
+                 "user".first_name AS "actorFirstName",
+                 "user".last_name AS "actorLastName"
           FROM (
-            SELECT *, ${RANK_OVER} AS rank
+            SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
+                   outcome, support_answer AS "supportAnswer", note, manual,
+                   actor_user_id AS "actorUserId", ${RANK_OVER} AS rank
             FROM contact_interaction_door_knock
             WHERE organization_slug = ${organizationSlug}
               AND person_id IN (${ids})
           ) ranked
-          WHERE rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
+          LEFT JOIN "user" ON "user".id = ranked."actorUserId"
+          WHERE ranked.rank <= ${ROUTE_TARGET_ACTIVITY_LIMIT}
         `),
         this.client.$queryRaw<TextRow[]>(Prisma.sql`
           SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
@@ -192,6 +201,8 @@ export class DoorKnockingActivityService extends createPrismaBase(
             supportAnswer: row.supportAnswer,
             note: row.note,
             manual: row.manual,
+            actorName: composeActorName(row.actorFirstName, row.actorLastName),
+            actorUserId: row.actorUserId,
           },
         },
       ]),

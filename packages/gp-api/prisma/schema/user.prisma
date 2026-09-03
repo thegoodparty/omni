@@ -44,6 +44,7 @@ model User {
   phoneBankingCalls       ContactInteractionPhoneBanking[]
   contactNotes            ContactNote[]
   organizationMemberships OrganizationMembership[]
+  doorKnockInteractions   ContactInteractionDoorKnock[]
 
   @@index([firstName])
   @@index([lastName])

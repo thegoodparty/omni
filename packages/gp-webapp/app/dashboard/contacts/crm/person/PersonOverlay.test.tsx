@@ -382,6 +382,8 @@ describe('<PersonOverlay>', () => {
           supportAnswer: 'supporter',
           note: null,
           manual: true,
+          actorName: null,
+          actorUserId: null,
         },
       },
       {
@@ -467,6 +469,8 @@ describe('<PersonOverlay>', () => {
           supportAnswer: 'supporter',
           note: null,
           manual: true,
+          actorName: null,
+          actorUserId: null,
         },
       },
     ]
@@ -500,6 +504,8 @@ describe('<PersonOverlay>', () => {
           supportAnswer: 'supporter',
           note: null,
           manual: true,
+          actorName: null,
+          actorUserId: null,
         },
       },
     ]
@@ -928,6 +934,8 @@ describe('<PersonOverlay>', () => {
           supportAnswer: 'supporter',
           note: 'Left a flyer',
           manual: true,
+          actorName: null,
+          actorUserId: null,
         },
       },
       {

@@ -22,6 +22,8 @@ export const doorKnock = (
     supportAnswer: 'unsure',
     note: null,
     manual: false,
+    actorName: null,
+    actorUserId: null,
     ...overrides,
   },
 })
