@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import {
   encodePrecinctPair,
@@ -47,6 +47,16 @@ type VariantDraft = {
 
 type SizedDraft = VariantDraft & { count: number }
 
+// A variant that could not be sized at all, kept apart from the `null` a
+// variant that was sized and did not qualify returns. Collapsing the two is
+// how a warehouse outage comes to read as "nothing qualifies".
+type SizeFailure = { error: Error }
+
+type SizeOutcome = SizedDraft | SizeFailure | null
+
+const isSized = (outcome: SizeOutcome): outcome is SizedDraft =>
+  outcome !== null && !('error' in outcome)
+
 type ResolvedScope = {
   filters: FilterData
   idOverrides?: IdOverrides
@@ -73,11 +83,18 @@ export class RecommendedListsService {
     // `custom` and social's `issue_update` map to no intent at all.
     if (!intent) return []
 
-    // Win only. Without this an `eo-` organization would get a partial
-    // answer rather than a refusal: affinity and ideology are Win-gated
-    // inside the shared filter resolution, so those variants would 400 and
-    // be dropped one by one as failures while the rest still rendered.
-    if (organization.slug.startsWith('eo-')) return []
+    // Win only, and a refusal rather than an empty answer: the endpoint
+    // gate is the primary one, and a backstop that returned [] would hand
+    // an elected-office organization an empty state instead of a 4xx if
+    // that gate were ever missed or reordered. Without any gate here the
+    // answer would be worse still — partial — because only the affinity
+    // and ideology families are Win-gated inside the shared filter
+    // resolution, so the rest of the intent's variants would render.
+    if (organization.slug.startsWith('eo-')) {
+      throw new BadRequestException(
+        'Recommended lists are not available for this organization',
+      )
+    }
 
     const [districtId, ideologyBucket, savedFilters] = await Promise.all([
       this.contacts.resolveEligibleDistrictId(organization),
@@ -114,21 +131,30 @@ export class RecommendedListsService {
       ),
     ])
 
+    // Every draft failing is an outage, not an empty result set. Returning
+    // [] here would tell a candidate they have no recommendations while the
+    // warehouse is down, with a warn line as the only trace. The first
+    // failure already carries the peopleDb layer's own status — 502 for an
+    // unavailable warehouse, 504 for a timeout — so it is rethrown rather
+    // than re-coded into a third status for the same condition.
+    const [firstFailure, ...restFailures] = sized.filter(
+      (outcome): outcome is SizeFailure =>
+        outcome !== null && !isSized(outcome),
+    )
+    if (firstFailure && restFailures.length + 1 === drafts.length) {
+      throw firstFailure.error
+    }
+
     // variantsForIntent already returns registry display order and neither
     // the map nor the filter above disturbs it.
-    return sized
-      .filter((draft): draft is SizedDraft => draft !== null)
-      .map(({ variant, filter, count }) => ({
-        variant,
-        filter,
-        count,
-        ...(districtTotal ? { districtShare: count / districtTotal } : {}),
-        copy: fillCopy(
-          variant,
-          ideologyBucket ? { bucket: ideologyBucket } : {},
-        ),
-        existingFilterId: findEquivalentFilter(filter, savedFilters),
-      }))
+    return sized.filter(isSized).map(({ variant, filter, count }) => ({
+      variant,
+      filter,
+      count,
+      ...(districtTotal ? { districtShare: count / districtTotal } : {}),
+      copy: fillCopy(variant, ideologyBucket ? { bucket: ideologyBucket } : {}),
+      existingFilterId: findEquivalentFilter(filter, savedFilters),
+    }))
   }
 
   // The denominator is the mart's own count, not
@@ -152,7 +178,7 @@ export class RecommendedListsService {
     district: DbxDistrict,
     channel: RecommendedListChannel,
     draft: VariantDraft,
-  ): Promise<SizedDraft | null> {
+  ): Promise<SizeOutcome> {
     try {
       // The same resolution a saved list gets before it is queried.
       // `convertVoterFileFilterToFilters` alone drops support status, so a
@@ -182,14 +208,18 @@ export class RecommendedListsService {
       )
       return count >= RECOMMENDED_LIST_SIZE_FLOOR ? { ...draft, count } : null
     } catch (error) {
-      // One variant's failure costs that card, not the response. The
-      // aggregates are independent and the surviving ones are still worth
-      // showing, so this does not rethrow.
+      // One variant's failure costs that card, not the response — the
+      // aggregates are independent and the survivors are still worth
+      // showing. It returns the failure rather than a bare null so the
+      // caller can still tell "could not size" from "did not qualify" and
+      // refuse when every draft failed.
       this.logger.warn(
         { err: error, variant: draft.variant, channel },
         'Recommended list variant could not be sized',
       )
-      return null
+      return {
+        error: error instanceof Error ? error : new Error(String(error)),
+      }
     }
   }
 

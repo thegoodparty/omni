@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilter.utils'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
@@ -157,21 +158,26 @@ describe('RecommendedListsService.recommend', () => {
     expect(results[0]?.count).toBe(RECOMMENDED_LIST_SIZE_FLOOR)
   })
 
-  it('counts every variant concurrently, not in series', async () => {
+  // The district total is part of the fan-out, not a step before it, so
+  // the counter it shares with the variant counts has to see all four in
+  // flight at once — three variants plus the total.
+  it('fans the counts and the district total out together', async () => {
     bucketForCampaign.mockResolvedValue('progressive')
     let inFlight = 0
     let peak = 0
-    countForFilter.mockImplementation(async () => {
+    const track = async <Value>(value: Value): Promise<Value> => {
       inFlight += 1
       peak = Math.max(peak, inFlight)
       await new Promise((resolve) => setTimeout(resolve, 1))
       inFlight -= 1
-      return 1000
-    })
+      return value
+    }
+    countForFilter.mockImplementation(() => track(1000))
+    districtTotal.mockImplementation(() => track(DISTRICT_TOTAL))
 
     await service.recommend(organization, CAMPAIGN_ID, 'sms', 'persuade')
 
-    expect(peak).toBe(3)
+    expect(peak).toBe(4)
   })
 
   it('divides the count by the mart district total for the share', async () => {
@@ -303,6 +309,33 @@ describe('RecommendedListsService.recommend', () => {
     ])
   })
 
+  // A warehouse outage nulls every variant. Returning [] for that is the
+  // service telling a candidate they have no recommendations, which is a
+  // different claim from "we could not look".
+  it('rethrows when every variant fails, rather than emptying', async () => {
+    bucketForCampaign.mockResolvedValue('progressive')
+    const outage = new BadGatewayException('Voter data is unavailable')
+    countForFilter.mockRejectedValue(outage)
+
+    await expect(
+      service.recommend(organization, CAMPAIGN_ID, 'sms', 'persuade'),
+    ).rejects.toBe(outage)
+  })
+
+  it('still empties when every variant is merely too small', async () => {
+    bucketForCampaign.mockResolvedValue('progressive')
+    countForFilter.mockResolvedValue(RECOMMENDED_LIST_SIZE_FLOOR - 1)
+
+    const results = await service.recommend(
+      organization,
+      CAMPAIGN_ID,
+      'sms',
+      'persuade',
+    )
+
+    expect(results).toEqual([])
+  })
+
   it('omits a variant whose support status resolves to nobody', async () => {
     resolveSavedFilterForQuery.mockResolvedValue({
       filters: {},
@@ -332,15 +365,11 @@ describe('RecommendedListsService.recommend', () => {
     expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
   })
 
-  it('returns nothing for an elected-office organization', async () => {
-    const results = await service.recommend(
-      electedOffice,
-      CAMPAIGN_ID,
-      'sms',
-      'introduce',
-    )
+  it('refuses an elected-office org rather than emptying', async () => {
+    await expect(
+      service.recommend(electedOffice, CAMPAIGN_ID, 'sms', 'introduce'),
+    ).rejects.toBeInstanceOf(BadRequestException)
 
-    expect(results).toEqual([])
     expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
   })
 
