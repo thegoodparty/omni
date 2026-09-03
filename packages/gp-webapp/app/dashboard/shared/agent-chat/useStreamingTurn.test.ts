@@ -416,6 +416,15 @@ describe('useStreamingTurn', () => {
     // stuck-false mountedRef bug the settle teardown never runs, so `sending`
     // would stay true here forever.
     await waitFor(() => expect(result.current.sending).toBe(false))
-    expect(result.current.messages.some((m) => m.id === 'a1')).toBe(true)
+    // `sending` drops before the commit, not with it: the hook re-enables the
+    // composer as soon as the stream is done, then drains the reveal (40ms
+    // ticks) and awaits listMessages before swapping in the transcript. So the
+    // reconcile needs its own wait — asserting it off the `sending` wait races
+    // the drain and only passes when the runner is fast. Still guards the bug:
+    // a stuck-false mountedRef makes canReconcile() false, so the commit never
+    // lands and this times out.
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.id === 'a1')).toBe(true),
+    )
   })
 })

@@ -24,48 +24,56 @@ vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 // A triangle around both dots, tapped one vertex at a time, so the draw step
 // can be walked the way a canvasser walks it: the stub reports each tap the
 // way the canvas does, including its three-point gate on the ring.
-const { districtResolution, drawSession, packSource, packFixture } = vi.hoisted(
-  () => ({
-    // Whether this org's district can be identified at all. Mutable because
-    // the page's first branch is the one drawn when it cannot, and a static
-    // mock can only ever exercise the other side of it.
-    districtResolution: { isUnresolvable: false },
-    // The two states the module-level pack stub otherwise never reaches. The
-    // pack has to resolve for almost every test in this file, so holding and
-    // failing it are switches rather than a second mock per test.
-    packSource: { failed: false, held: null as Promise<void> | null },
-    drawSession: {
-      placed: [] as Array<[number, number]>,
-      taps: [
-        [-87.67, 41.885],
-        [-87.63, 41.885],
-        [-87.65, 41.95],
-      ] as Array<[number, number]>,
+const {
+  districtResolution,
+  drawSession,
+  packSource,
+  packFixture,
+  organization,
+} = vi.hoisted(() => ({
+  // Which org is selected. Mutable because it is what decides Win or Serve
+  // for this page — a Campaign takes precedence and an `electedOfficeId` is
+  // consulted in its absence — and both answers change where exits land.
+  organization: { current: null as { electedOfficeId?: number } | null },
+  // Whether this org's district can be identified at all. Mutable because
+  // the page's first branch is the one drawn when it cannot, and a static
+  // mock can only ever exercise the other side of it.
+  districtResolution: { isUnresolvable: false },
+  // The two states the module-level pack stub otherwise never reaches. The
+  // pack has to resolve for almost every test in this file, so holding and
+  // failing it are switches rather than a second mock per test.
+  packSource: { failed: false, held: null as Promise<void> | null },
+  drawSession: {
+    placed: [] as Array<[number, number]>,
+    taps: [
+      [-87.67, 41.885],
+      [-87.63, 41.885],
+      [-87.65, 41.95],
+    ] as Array<[number, number]>,
+  },
+  packFixture: {
+    manifest: {
+      version: 1,
+      generatedAt: '2026-07-21T12:00:00Z',
+      counts: { people: 4, households: 3, dots: 2 },
+      dims: [
+        {
+          key: 'canvassStatus',
+          values: ['unknown', 'not_home', 'supporter'],
+        },
+        { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
+      ],
+      arrays: [],
     },
-    packFixture: {
-      manifest: {
-        version: 1,
-        generatedAt: '2026-07-21T12:00:00Z',
-        counts: { people: 4, households: 3, dots: 2 },
-        dims: [
-          {
-            key: 'canvassStatus',
-            values: ['unknown', 'not_home', 'supporter'],
-          },
-          { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
-        ],
-        arrays: [],
-      },
-      positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
-      personToHousehold: new Uint32Array([0, 0, 1, 2]),
-      householdToDot: new Uint32Array([0, 0, 1]),
-      dimPlanes: new Map([
-        ['canvassStatus', new Uint8Array([2, 0, 0, 0])],
-        ['party', new Uint8Array([1, 2, 0, 0])],
-      ]),
-    },
-  }),
-)
+    positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
+    personToHousehold: new Uint32Array([0, 0, 1, 2]),
+    householdToDot: new Uint32Array([0, 0, 1]),
+    dimPlanes: new Map([
+      ['canvassStatus', new Uint8Array([2, 0, 0, 0])],
+      ['party', new Uint8Array([1, 2, 0, 0])],
+    ]),
+  },
+}))
 
 vi.mock('./useVoterPack', () => ({
   voterPackQueryOptions: {
@@ -221,7 +229,7 @@ vi.mock('app/dashboard/shared/useDistrictResolution', () => ({
   useDistrictResolution: () => districtResolution,
 }))
 vi.mock('@shared/organization-picker', () => ({
-  useOrganization: () => null,
+  useOrganization: () => organization.current,
 }))
 // Real state rather than a null stub: the walk covers the map with its own
 // sheet, so anything the page has to reset on the way out needs a session the
@@ -445,8 +453,10 @@ const startWalk = async (
 const leaveWalk = () =>
   fireEvent.click(walkSurface().getByRole('button', { name: 'Close' }))
 
-// The hub door knocking is entered from and every exit from it lands on.
+// The hubs door knocking is entered from and every exit from it lands on —
+// one per surface, because one route serves both.
 const OUTREACH_HUB = '/dashboard/outreach'
+const SERVE_HUB = '/dashboard/constituent-outreach'
 
 // Every test gets an org with room to build, because the daily allowances are
 // a gate on opening the create flow and almost nothing in this file is about
@@ -461,6 +471,10 @@ beforeEach(() => {
   packSource.failed = false
   packSource.held = null
   drawSession.placed = []
+  // No org, so no `electedOfficeId`: every test in this file is a Win surface
+  // unless it says otherwise, which is what `campaign={null}` already implied
+  // before Serve could reach this page at all.
+  organization.current = null
   api.mock('GET /v1/door-knocking/quota', {
     status: 200,
     data: {
@@ -1456,5 +1470,47 @@ describe('NativeDoorKnockingPage end of walk', () => {
     leaveWalk()
 
     expect(router.push).toHaveBeenCalledWith(`${OUTREACH_HUB}?outreachId=42`)
+  })
+
+  // One route serves both surfaces, so the exit has to pick. A Serve org
+  // reaches this map from the Serve hub's door-knocking card and from its
+  // history rows, and `/dashboard/outreach` is not a page it may land on:
+  // that route redirects an org with no Campaign to the marketing site, so
+  // exiting onto it drops the official out of the product entirely.
+  it('lands a serve walk on the serve hub, not the win one', async () => {
+    organization.current = { electedOfficeId: 9 }
+    // The serve rail is its own endpoint, so the turf has to exist on it for
+    // `?walkTurfId=` to resolve to anything.
+    api.mock('GET /v1/door-knocking/serve/turfs', {
+      status: 200,
+      data: [turf],
+    })
+
+    await startWalk()
+
+    leaveWalk()
+
+    expect(router.push).toHaveBeenCalledWith(SERVE_HUB)
+    expect(router.push).not.toHaveBeenCalledWith(OUTREACH_HUB)
+  })
+
+  // Same for a walk resumed from a Serve history row. The id is dropped
+  // rather than carried: the Serve hub's page takes no searchParams, so
+  // there is nothing there to consume it.
+  it('lands a resumed serve walk on the serve hub without the deep link', async () => {
+    organization.current = { electedOfficeId: 9 }
+    api.mock('GET /v1/door-knocking/serve/turfs', {
+      status: 200,
+      data: [turf],
+    })
+
+    await startWalk(undefined, { fromOutreachId: 42 })
+
+    leaveWalk()
+
+    expect(router.push).toHaveBeenCalledWith(SERVE_HUB)
+    expect(router.push).not.toHaveBeenCalledWith(
+      `${OUTREACH_HUB}?outreachId=42`,
+    )
   })
 })

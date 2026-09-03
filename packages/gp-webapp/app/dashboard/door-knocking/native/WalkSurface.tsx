@@ -227,13 +227,19 @@ export default function WalkSurface({
           {/* The pointer events are stopped rather than the click: the grip
               around this button is driven by pointer handlers, so a press that
               did not stop them would drag the sheet under the finger closing
-              it. */}
+              it. Keydown is stopped for the keyboard equivalent: the grip
+              treats Enter/Space as "cycle the snap" and preventDefaults them,
+              so a bubbled keypress on this button would both swallow the
+              button's own click (the default action the browser fires after
+              keydown propagation) and toggle the sheet — leaving Close unable
+              to close. */}
           <IconButton
             variant="ghost"
             aria-label="Close"
             className="shrink-0"
             onPointerDown={(event) => event.stopPropagation()}
             onPointerUp={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
             onClick={onExit}
           >
             <XMarkIcon size={18} />

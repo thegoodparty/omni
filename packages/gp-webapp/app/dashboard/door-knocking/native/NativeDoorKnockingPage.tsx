@@ -84,8 +84,15 @@ type WalkOrigin =
   | { kind: 'outreach'; outreachId: number }
 
 // The hub, which is both where door knocking is entered from and where every
-// exit from it lands.
+// exit from it lands. One route serves both surfaces, so there are two of
+// them: a Serve org reaches this map from the Serve hub's door-knocking card
+// and from its history rows, and `/dashboard/outreach` is not a page it may
+// land on — that route redirects an org with no Campaign to the marketing
+// site, so exiting a Serve walk onto it would drop the official out of the
+// product entirely. Picked off `serveMode`, the same Campaign-then-
+// ElectedOffice answer everything else on this page reads.
 const OUTREACH_HUB = '/dashboard/outreach'
+const SERVE_HUB = '/dashboard/constituent-outreach'
 
 // How far the map's control cluster sits above the bottom edge while the
 // drawing surface is up, clearing that surface's own footer bar.
@@ -117,6 +124,8 @@ export default function NativeDoorKnockingPage({
   // `DoorKnockingPageGate` resolves access in and the same order gp-api's
   // create endpoint chooses a scope in.
   const serveMode = !campaign && isElectedOfficial
+  // Which hub this surface belongs to, and so where every exit from it lands.
+  const hubPath = serveMode ? SERVE_HUB : OUTREACH_HUB
   // The pack and every turf read resolve a district server-side
   // (resolveEligibleDistrictId), so without one they can only 400 — and a turf
   // cannot be drawn against a district we can't identify.
@@ -294,14 +303,20 @@ export default function NativeDoorKnockingPage({
     if (origin.kind === 'outreach') {
       // The hub's own consume-once deep link, the one the activity feed's
       // "View outreach" already uses — so the row reopens in its drawer rather
-      // than merely being on screen somewhere in the history table.
-      router.push(`${OUTREACH_HUB}?outreachId=${origin.outreachId}`)
-      return
+      // than merely being on screen somewhere in the history table. Win only:
+      // the Serve hub's page takes no searchParams, so there is nothing there
+      // to consume the id, and appending it would only put a param in the bar
+      // that nothing reads. A Serve walk lands on its hub with the row in the
+      // table instead of reopened in its drawer.
+      if (!serveMode) {
+        router.push(`${OUTREACH_HUB}?outreachId=${origin.outreachId}`)
+        return
+      }
     }
     // The design's own exit. Staying would land on a bare map with no surface
     // on it and no control to make one, which is what the rail used to be for;
     // the campaign that was just walked is a row on the hub.
-    router.push(OUTREACH_HUB)
+    router.push(hubPath)
   }
 
   // Every list has its route from the moment it exists, so Knock is now
@@ -433,15 +448,16 @@ export default function NativeDoorKnockingPage({
     draw.clearDrawing()
     setLeaving(true)
     // Pressed the tile, changed their mind. `back()` rather than a path,
-    // because the tile exists on both the Win hub and the Serve one and this
-    // page cannot tell which of them sent us; typed URLs have no such entry to
-    // pop and get the hub itself.
+    // because it returns to the hub scrolled where they left it — and the tile
+    // exists on both the Win hub and the Serve one, so it is right for either
+    // without asking which. Typed URLs have no such entry to pop and get this
+    // surface's own hub instead.
     if (tileOpened.current) {
       tileOpened.current = false
       router.back()
       return
     }
-    router.push(OUTREACH_HUB)
+    router.push(hubPath)
   }
   // The whole chain committed. The design hands straight over to the walk
   // rather than returning to the rail: the list was created to be knocked, and

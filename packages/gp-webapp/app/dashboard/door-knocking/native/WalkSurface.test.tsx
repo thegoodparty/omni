@@ -378,6 +378,25 @@ describe('WalkSurface seam', () => {
     expect(onExit).toHaveBeenCalled()
   })
 
+  // Close sits inside the grip, and the grip claims Enter/Space for its own
+  // snap cycle AND preventDefaults them. An unstopped keypress on the button
+  // therefore did two wrong things at once: swallowed the button's own click
+  // (the default action the browser fires after keydown finishes bubbling) so
+  // the walk did not close, and cycled the sheet as a parting gift.
+  it('closes the walk from the keyboard without cycling the sheet', async () => {
+    const onExit = vi.fn()
+    render(surface({ onExit }))
+
+    const sheet = screen.getByRole('complementary')
+    expect(sheet).toHaveAttribute('data-snap', 'half')
+
+    screen.getByRole('button', { name: 'Close' }).focus()
+    await userEvent.keyboard('{Enter}')
+
+    expect(onExit).toHaveBeenCalledTimes(1)
+    expect(sheet).toHaveAttribute('data-snap', 'half')
+  })
+
   // Everything below the header comes down at `peek`, so a canvasser reading
   // the street has the map and the list's name and nothing else. The header
   // itself never does — it is what they drag back up by.
