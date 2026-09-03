@@ -3,6 +3,11 @@ import filterSections, {
 } from '../../[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
 import {
+  ANY_PHONE_FIELD,
+  RECOMMENDED_LIST_FILTER_FIELDS,
+  WIN_ONLY_RECOMMENDED_FIELD_KEYS,
+} from '../shared/recommendedListFilters.config'
+import {
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
   SUPPORT_STATUS_OPTIONS,
@@ -67,35 +72,44 @@ export const buildFilterSummary = (
 ): string => {
   const clauses: string[] = []
 
-  for (const section of filterSections) {
-    for (const field of section.fields) {
-      // Political party and voter likelihood don't apply to an elected
-      // official's constituent file — same exclusions VoterFileStep.tsx
-      // applies at creation time.
-      if (
-        isElectedOfficial &&
-        (field.key === 'political_party' || field.key === 'voter_likely')
-      )
-        continue
-      // Contacts Made gets its own "with N or M prior contacts made" clause
-      // (ENG-10839, matching the product-specified wording) instead of the
-      // generic "{Label} {value}" phrasing every other boolean-group field
-      // uses — same skip-and-handle-separately pattern as language/income.
-      if (field.key === 'contacts_made') continue
-      if (field.key === 'language' || field.key === 'income_ranges') continue
+  // Read side is deliberately UNGATED by win-recommended-lists: a list saved
+  // while the flag was on has to keep describing itself after it flips off.
+  const summarizedFields = [
+    ...filterSections.flatMap((section) => section.fields),
+    ...RECOMMENDED_LIST_FILTER_FIELDS,
+    ANY_PHONE_FIELD,
+  ]
 
-      // Lists saved before ENG-10752 carry the retired age keys; without
-      // this union an age-only legacy list would summarize as unfiltered.
-      const options =
-        field.key === 'age'
-          ? [...field.options, ...legacyAgeOptions]
-          : field.options
-      const matched = options.filter((option) => isTrue(segment[option.key]))
-      if (matched.length > 0) {
-        clauses.push(
-          `${sentenceCase(field.label)} ${matched.map((option) => option.label).join(' or ')}`,
-        )
-      }
+  for (const field of summarizedFields) {
+    // Political party and voter likelihood don't apply to an elected
+    // official's constituent file — same exclusions VoterFileStep.tsx
+    // applies at creation time. Affinity and ideology are Win-only the same
+    // way (gp-api 400s both for an eo- org).
+    if (
+      isElectedOfficial &&
+      (field.key === 'political_party' ||
+        field.key === 'voter_likely' ||
+        WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key))
+    )
+      continue
+    // Contacts Made gets its own "with N or M prior contacts made" clause
+    // (ENG-10839, matching the product-specified wording) instead of the
+    // generic "{Label} {value}" phrasing every other boolean-group field
+    // uses — same skip-and-handle-separately pattern as language/income.
+    if (field.key === 'contacts_made') continue
+    if (field.key === 'language' || field.key === 'income_ranges') continue
+
+    // Lists saved before ENG-10752 carry the retired age keys; without
+    // this union an age-only legacy list would summarize as unfiltered.
+    const options =
+      field.key === 'age'
+        ? [...field.options, ...legacyAgeOptions]
+        : field.options
+    const matched = options.filter((option) => isTrue(segment[option.key]))
+    if (matched.length > 0) {
+      clauses.push(
+        `${sentenceCase(field.label)} ${matched.map((option) => option.label).join(' or ')}`,
+      )
     }
   }
 
