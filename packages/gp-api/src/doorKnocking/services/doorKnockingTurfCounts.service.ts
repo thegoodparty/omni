@@ -4,6 +4,7 @@ import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 
 export type DoorKnockingTurfCounts = {
   doorCount: number
+  knockedDoorCount: number
   peopleCount: number
   loggedCount: number
 }
@@ -71,19 +72,25 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
       ])
 
     const doors = new Map<number, Set<string>>()
+    // Doors with somebody behind them worth knocking, and doors where somebody
+    // behind them has been written down. Both are keyed by the same door key
+    // as `doors`, so the three sets are directly comparable.
+    const knockableDoors = new Map<number, Set<string>>()
+    const loggedDoors = new Map<number, Set<string>>()
     const people = new Map<number, number>()
     const logged = new Map<number, number>()
     for (const routeId of routeIds) {
       doors.set(routeId, new Set())
+      knockableDoors.set(routeId, new Set())
+      loggedDoors.set(routeId, new Set())
       people.set(routeId, 0)
       logged.set(routeId, 0)
     }
 
     for (const target of targets) {
       const routeId = target.stop.doorKnockingRouteId
-      doors
-        .get(routeId)
-        ?.add(doorKey(target.doorKnockingStopId, target.addressKey))
+      const door = doorKey(target.doorKnockingStopId, target.addressKey)
+      doors.get(routeId)?.add(door)
 
       // The walk's `isKnockable`: ADR 0007 do-not-knock and ADR 0008
       // not-a-voter residents are nobody to talk to, so they are not people
@@ -96,6 +103,7 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
         continue
       }
       people.set(routeId, (people.get(routeId) ?? 0) + 1)
+      knockableDoors.get(routeId)?.add(door)
 
       // "Logged", not "reached": not_home, inaccessible and refused all
       // satisfy this, and none of them is a conversation. Counted over the
@@ -103,18 +111,36 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
       // rendered as one ratio, so both halves have to be one population.
       if ((statusByPersonId.get(target.personId) ?? 'unknown') !== 'unknown') {
         logged.set(routeId, (logged.get(routeId) ?? 0) + 1)
+        // A door is KNOCKED once anybody behind it has an answer written down.
+        // At-least-one rather than all-of-them, because that is what the verb
+        // describes: a canvasser knocks once and speaks to whoever opens.
+        loggedDoors.get(routeId)?.add(door)
       }
     }
 
     return new Map(
-      routeIds.map((routeId) => [
-        routeId,
-        {
-          doorCount: doors.get(routeId)?.size ?? 0,
-          peopleCount: people.get(routeId) ?? 0,
-          loggedCount: logged.get(routeId) ?? 0,
-        },
-      ]),
+      routeIds.map((routeId) => {
+        const all = doors.get(routeId) ?? new Set<string>()
+        const knockable = knockableDoors.get(routeId) ?? new Set<string>()
+        const loggedAt = loggedDoors.get(routeId) ?? new Set<string>()
+        // Doors with nobody knockable behind them are counted as done rather
+        // than left outstanding: they were correctly skipped, there is nothing
+        // to write down there, and leaving them out of the numerator alone
+        // would put 100% out of reach for any list containing one.
+        let knockedDoorCount = loggedAt.size
+        for (const door of all) {
+          if (!knockable.has(door)) knockedDoorCount += 1
+        }
+        return [
+          routeId,
+          {
+            doorCount: all.size,
+            knockedDoorCount,
+            peopleCount: people.get(routeId) ?? 0,
+            loggedCount: logged.get(routeId) ?? 0,
+          },
+        ]
+      }),
     )
   }
 }

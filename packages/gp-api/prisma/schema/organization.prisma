@@ -1,30 +1,36 @@
 model Organization {
-  createdAt                       DateTime                         @default(now()) @map("created_at")
-  updatedAt                       DateTime                         @default(now()) @updatedAt @map("updated_at")
-  slug                            String                           @id
-  owner                           User                             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId                         Int                              @map("owner_id")
-  positionId                      String?                          @map("position_id")
-  overrideDistrictId              String?                          @map("override_district_id")
-  customPositionName              String?                          @map("custom_position_name")
-  campaign                        Campaign?
-  electedOffice                   ElectedOffice?
-  voterFileFilters                VoterFileFilter[]
-  experimentRuns                  ExperimentRun[]
-  artifactFeedbacks               ArtifactFeedback[]
-  communityIssues                 CommunityIssue[]
-  ordinanceCodeRecord             OrdinanceCodeRecord?
-  outreaches                      Outreach[]
-  contactNotes                    ContactNote[]
-  contactInteractionDoorKnocks    ContactInteractionDoorKnock[]
-  contactInteractionTexts         ContactInteractionText[]
-  contactInteractionRobocalls     ContactInteractionRobocall[]
-  contactInteractionPhoneBankings ContactInteractionPhoneBanking[]
-  phoneBankingLists               PhoneBankingList[]
-  phoneBankingSuppressedPhones    PhoneBankingSuppressedPhone[]
-  peerlyPhoneLists                PeerlyPhoneList[]
-  contactStatusEvents             ContactStatusEvent[]
-  contactCurrentStatuses          ContactCurrentStatus[]
+  createdAt                         DateTime                         @default(now()) @map("created_at")
+  updatedAt                         DateTime                         @default(now()) @updatedAt @map("updated_at")
+  slug                              String                           @id
+  owner                             User                             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId                           Int                              @map("owner_id")
+  positionId                        String?                          @map("position_id")
+  overrideDistrictId                String?                          @map("override_district_id")
+  customPositionName                String?                          @map("custom_position_name")
+  // Raises this org's daily door-knocking waypoint allowance above the
+  // default. A column rather than a settings key — this table has no JSON blob
+  // and the same reasoning as campaign.ballotStatus applies: a missing column
+  // fails loudly where a mistyped JSONB key fails silently, and this one
+  // governs vendor spend. Null means the default in waypointQuota.util.ts.
+  overrideDoorKnockingWaypointLimit Int?                             @map("override_door_knocking_waypoint_limit")
+  campaign                          Campaign?
+  electedOffice                     ElectedOffice?
+  voterFileFilters                  VoterFileFilter[]
+  experimentRuns                    ExperimentRun[]
+  artifactFeedbacks                 ArtifactFeedback[]
+  communityIssues                   CommunityIssue[]
+  ordinanceCodeRecord               OrdinanceCodeRecord?
+  outreaches                        Outreach[]
+  contactNotes                      ContactNote[]
+  contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
+  contactInteractionTexts           ContactInteractionText[]
+  contactInteractionRobocalls       ContactInteractionRobocall[]
+  contactInteractionPhoneBankings   ContactInteractionPhoneBanking[]
+  phoneBankingLists                 PhoneBankingList[]
+  phoneBankingSuppressedPhones      PhoneBankingSuppressedPhone[]
+  peerlyPhoneLists                  PeerlyPhoneList[]
+  contactStatusEvents               ContactStatusEvent[]
+  contactCurrentStatuses            ContactCurrentStatus[]
 
   @@index([ownerId])
   @@map("organization")

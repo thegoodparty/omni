@@ -28,6 +28,10 @@ export type FriendlyOrganization = {
   slug: string
   hasDistrictOverride: boolean
   customPositionName: string | null
+  // Carried through rather than derived to a boolean like hasDistrictOverride:
+  // the admin routes that surface it need the number itself, since "is there
+  // an override" and "what is it" are the same question for a spend limit.
+  overrideDoorKnockingWaypointLimit: number | null
   position: {
     id: string
     name: string
@@ -160,6 +164,8 @@ export class OrganizationsService extends createPrismaBase(
       data: {
         positionId: position?.id ?? null,
         overrideDistrictId: updates.overrideDistrictId,
+        overrideDoorKnockingWaypointLimit:
+          updates.overrideDoorKnockingWaypointLimit,
         customPositionName: clearsStaleCustomName
           ? null
           : updates.customPositionName,
@@ -652,6 +658,7 @@ export class OrganizationsService extends createPrismaBase(
       slug: org.slug,
       hasDistrictOverride: !!org.overrideDistrictId,
       customPositionName: org.customPositionName,
+      overrideDoorKnockingWaypointLimit: org.overrideDoorKnockingWaypointLimit,
       position: position
         ? {
             id: position.id,

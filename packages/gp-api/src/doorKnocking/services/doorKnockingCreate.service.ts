@@ -1,12 +1,8 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
-import {
-  DoorKnockingKnockRequest,
-  DoorKnockingKnockResponse,
-  DoorKnockingRouteHeader,
+  CreateDoorKnockingTurf,
+  DoorKnockingTurf,
   GeoJsonPolygon,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -14,21 +10,21 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { LngLat } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
-import { recordRoutePlannerCredits } from '@/vendors/geoapify/observability/geoapify.metrics'
+import type { GeoapifyApi } from '@/vendors/geoapify/observability/geoapify.metrics'
+import { recordGeoapifyCredits } from '@/vendors/geoapify/observability/geoapify.metrics'
 import {
-  Campaign,
   ContactStatusField,
   DoNotKnockStatus,
-  DoorKnockingRoute,
   NotAVoterStatus,
   Organization,
   OutreachStatus,
   OutreachType,
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
+import { DoorKnockingTurfService } from './doorKnockingTurf.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
-import { lockTurf } from '../utils/turfLock.util'
-import { activeTurfScope } from '../utils/turfScope.util'
+import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
+import { assertCampaignQuota } from '../utils/campaignQuota.util'
 import {
   assertWaypointQuota,
   recordWaypointSpend,
@@ -39,12 +35,14 @@ import {
 // the number of stops a savable list can hold, rather than carrying a second
 // 150 that can drift from this one.
 export const MAX_STOPS = 150
-// Geoapify bills the Route Planner at 10 credits per location (the
-// schema-documented meaning of route.credits).
-const GEOAPIFY_CREDITS_PER_LOCATION = 10
-// The vendor call happens inside the lock-holding transaction by design (so
-// concurrent knocks make exactly one call); the timeout must absorb it.
-const KNOCK_TX_TIMEOUT_MS = 120_000
+// The vendor call happens inside the transaction by design, so the timeout
+// must absorb it.
+const CREATE_TX_TIMEOUT_MS = 120_000
+
+// What one create cost, kept split by API until the metric records it that
+// way and totalled for everything else. The two rates have nothing in common,
+// so a single number here would be a number nobody could take apart again.
+type RouteCredits = Record<GeoapifyApi, number>
 
 type EvaluatedPerson = {
   id: string
@@ -63,22 +61,33 @@ type PlannedStop = {
   people: EvaluatedPerson[]
 }
 
-const toHeader = (
-  route: DoorKnockingRoute,
-  stopCount: number,
-): DoorKnockingRouteHeader => ({
-  id: route.id,
-  doorKnockingTurfId: route.doorKnockingTurfId,
-  mode: route.mode,
-  loop: route.loop,
-  totalSeconds: route.totalSeconds,
-  totalMeters: route.totalMeters,
-  stopCount,
-  createdAt: route.createdAt,
-})
+type RouteRequest = {
+  mode: CreateDoorKnockingTurf['mode']
+  loop: CreateDoorKnockingTurf['loop']
+}
 
+// The envelope's scope, chosen by the caller rather than derived from whether
+// the org happens to hold a Campaign. `campaignId: null` is what makes a row
+// a Serve one, and an org mid-transition holds both — deriving it here is
+// exactly the ENG-10976 leak. Same shape phone banking's list service takes.
+export type DoorKnockingOutreachScope = {
+  campaignId: number | null
+  organizationSlug: string
+}
+
+// Creating a door-knocking list buys its route. Turf, route, stops, stop
+// targets and the Outreach envelope are one transaction and one 1:1:1 chain —
+// there is no saved-but-unrouted turf for a later Knock button to act on,
+// which is what retired both the "locked" flag and the knock idempotency
+// probe that used to guard a second purchase of the same turf.
+//
+// The advisory lock that knocking held is gone with it. It existed so two
+// knocks of the SAME turf could not both call the vendor; a create always
+// makes a new turf, so there is no shared row to serialize on. Two creates
+// racing each other were never serialized anyway — see the quota note below,
+// which is unchanged.
 @Injectable()
-export class DoorKnockingKnockService extends createPrismaBase(
+export class DoorKnockingCreateService extends createPrismaBase(
   MODELS.DoorKnockingRoute,
 ) {
   constructor(
@@ -86,28 +95,32 @@ export class DoorKnockingKnockService extends createPrismaBase(
     private readonly geoapify: GeoapifyRoutePlannerService,
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
+    private readonly turfs: DoorKnockingTurfService,
   ) {
     super()
   }
 
-  async knock(
-    turfId: number,
+  // A Serve org's scope is no longer a reason to skip the envelope — it is
+  // written scoped by organization alone. That conditional envelope is what
+  // forced the list lifecycle onto the turf in the first place, since a Serve
+  // org would otherwise have had nowhere to record it.
+  async create(
     organization: Organization,
-    campaign: Campaign | null,
-    request: DoorKnockingKnockRequest,
-  ): Promise<DoorKnockingKnockResponse> {
+    scope: DoorKnockingOutreachScope,
+    input: CreateDoorKnockingTurf,
+  ): Promise<DoorKnockingTurf> {
     // Runs the same eligibility gate as every other voter-data read — a
     // Win campaign without downloadable voter data can't knock either.
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 
-    // ADR 0007 and ADR 0008. Read outside the transaction, like the district
-    // resolution above: they touch a different table and adding them to the
-    // critical section would hold the turf lock across two more round trips.
-    // Both sets are the org's own flagged people, small by construction.
+    // ADR 0007 and ADR 0008. Read outside the transaction because they touch a
+    // different table and would otherwise add two round trips to a critical
+    // section that already contains a vendor call. Both sets are the org's own
+    // flagged people, small by construction.
     //
     // One exclusion list, because evaluation has one job either way: leave
-    // this person's door out of the next route. Deduped because a person told
+    // this person's door out of the route. Deduped because a person told
     // "don't come back" who also moved is two facts about one door.
     const [doNotKnockIds, notAVoterIds] = await Promise.all([
       this.contactStatus.personIdsByFieldValue(
@@ -123,43 +136,42 @@ export class DoorKnockingKnockService extends createPrismaBase(
     ])
     const excludePersonIds = [...new Set([...doNotKnockIds, ...notAVoterIds])]
 
-    return this.client.$transaction(
+    const turfId = await this.client.$transaction(
       async (tx) => {
-        await lockTurf(tx, turfId)
-
-        // The turf (and its polygon) is read AFTER the lock, so a racing
-        // edit can't slip a changed polygon between read and freeze — turf
-        // update/delete take the same lock.
-        const turf = await tx.doorKnockingTurf.findFirst({
-          where: { id: turfId, ...activeTurfScope(organization.slug) },
+        const filter = await tx.voterFileFilter.findFirst({
+          where: {
+            id: input.voterFileFilterId,
+            organizationSlug: organization.slug,
+          },
           // activityConditions is a relation, so it has to be pulled in
           // explicitly — without it the resolution below sees a list with no
-          // conditions and knocks the unfiltered roster.
-          include: {
-            voterFileFilter: { include: { activityConditions: true } },
+          // conditions and routes the unfiltered roster.
+          include: { activityConditions: true },
+        })
+        if (!filter) {
+          throw new NotFoundException('Voter file filter not found')
+        }
+
+        // The turf is inserted before the vendor call so the spend ledger can
+        // name the turf that caused it, exactly as it did when the turf
+        // already existed. The ledger holds a plain int and never joins, so a
+        // rollback below leaving it pointing at an id that no longer exists is
+        // the documented, intended behaviour: the money was still spent.
+        const turf = await tx.doorKnockingTurf.create({
+          data: {
+            voterFileFilterId: filter.id,
+            name: input.name,
+            color: input.color,
+            geoPoly: input.geoPoly,
           },
         })
-        if (!turf) {
-          throw new NotFoundException('Turf not found')
-        }
-        const filter = turf.voterFileFilter
 
-        const existing = await tx.doorKnockingRoute.findUnique({
-          where: { doorKnockingTurfId: turfId },
-          include: { _count: { select: { stops: true } } },
-        })
-        if (existing) {
-          return {
-            created: false,
-            route: toHeader(existing, existing._count.stops),
-          }
-        }
-
-        // The turf's own saved list, resolved exactly as the CRM resolves it.
-        // Anything less and the list's activity conditions, support-status,
-        // contacts-made, and voter-likelihood overrides stop applying the
-        // moment it's knocked — the roster the candidate previewed in
-        // Contacts and the roster they walk would quietly disagree.
+        // The list's own saved filters, resolved exactly as the CRM resolves
+        // them. Anything less and the list's activity conditions,
+        // support-status, contacts-made and voter-likelihood overrides stop
+        // applying the moment it is routed — the roster the candidate
+        // previewed in Contacts and the roster they walk would quietly
+        // disagree.
         const resolved = await this.contacts.resolveSavedFilterForQuery(
           organization,
           filter,
@@ -175,41 +187,62 @@ export class DoorKnockingKnockService extends createPrismaBase(
 
         const { people } = await this.peopleApi.evaluate({
           districtId,
-          bbox: polygonBbox(turf.geoPoly),
+          bbox: polygonBbox(input.geoPoly),
           filters: resolved.filters,
           idOverrides: resolved.idOverrides,
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
           excludePersonIds,
         })
-        const stops = this.buildStops(people, turf.geoPoly)
+        const stops = this.buildStops(people, input.geoPoly)
 
-        // Last gate before the only paid call in the system. The re-knock
-        // probe above returns without spending anything, so a route is never
-        // billed to the budget twice.
+        // Last gate before the only paid call in the system.
         //
-        // The advisory lock serializes per turf, not per organization, so two
-        // turfs knocked in the same instant can both read the same spend and
-        // overshoot. That's bounded by the 150-stop cap and preferable to
-        // holding an org-wide lock across a 30-second vendor call — this is a
-        // spend guardrail, not a billing boundary.
-        await assertWaypointQuota(tx, organization.slug, stops.length)
+        // The draw step already reports both of the failures below — it runs
+        // this same evaluation through DoorKnockingPreviewService and blocks
+        // Build route on an empty or oversized result — so reaching them here
+        // means the data moved underneath a shape drawn earlier. They stay
+        // because the preview is an advisory read and this is the write.
+        await assertWaypointQuota(tx, organization, stops.length)
 
-        const plan = await this.planStops(stops, request)
+        // The second of the two daily gates, and independent of the first:
+        // the waypoint budget caps how many doors an organization routes in a
+        // rolling day, this caps how many separate turfs it cuts. Either can
+        // refuse a create the other would allow, so both are checked and both
+        // sit ahead of the vendor call.
+        await assertCampaignQuota(tx, organization.slug)
+
+        const plan = await this.planStops(stops, input)
+
+        // Priced off what the vendor was actually sent, not off stops.length:
+        // the anchors are billed locations, the Route Planner's rate is
+        // quadratic under ten of them, and the path-geometry fetch is a
+        // second billed call whose waypoint count includes those anchors.
+        // `routingWaypoints` is 0 when that call never completed, which is
+        // the only thing that makes it free.
+        const credits: RouteCredits = {
+          route_planner: routePlannerCredits(plan.locations),
+          routing: routingCredits(plan.routingWaypoints, plan.totalMeters),
+        }
 
         // The vendor has been paid. Record it before anything below can fail,
         // and on `this.client` rather than `tx` so the ledger row survives a
         // rollback of the freeze — otherwise the budget forgets a call that
         // really happened and hands the same allowance out again.
-        await this.recordSpend(organization.slug, turfId, stops.length)
+        await this.recordSpend(
+          organization.slug,
+          turf.id,
+          stops.length,
+          credits,
+        )
 
         const route = await tx.doorKnockingRoute.create({
           data: {
-            doorKnockingTurfId: turfId,
-            mode: request.mode,
-            loop: request.loop,
+            doorKnockingTurfId: turf.id,
+            mode: input.mode,
+            loop: input.loop,
             totalSeconds: plan.totalSeconds,
             totalMeters: plan.totalMeters,
-            credits: stops.length * GEOAPIFY_CREDITS_PER_LOCATION,
+            credits: credits.route_planner + credits.routing,
             pathGeometry: plan.pathGeometry ?? undefined,
             stops: {
               create: plan.orderedJobIds.map((jobId, index) => {
@@ -237,47 +270,54 @@ export class DoorKnockingKnockService extends createPrismaBase(
           },
         })
 
-        // First knock against this filter locks it from edits, same as any
-        // other outreach launch (first-write-wins, never rolled back).
+        // First use of this filter locks it from edits, same as any other
+        // outreach launch (first-write-wins, never rolled back).
         await tx.voterFileFilter.updateMany({
           where: { id: filter.id, firstUsedForOutreachAt: null },
           data: { firstUsedForOutreachAt: new Date() },
         })
 
-        // The envelope makes the route show up on outreach surfaces. Orgs
-        // without a campaign (Serve) still get a route — just no envelope.
-        if (campaign) {
-          await tx.outreach.create({
-            data: {
-              campaignId: campaign.id,
-              organizationSlug: campaign.organizationSlug,
-              outreachType: OutreachType.nativeDoorKnocking,
-              status: OutreachStatus.in_progress,
-              name: turf.name,
-              voterFileFilterId: filter.id,
-              doorKnockingRouteId: route.id,
-              date: new Date(),
-            },
-          })
-        }
+        // The envelope is the walk: it carries the lifecycle and it is what
+        // outreach surfaces list.
+        await tx.outreach.create({
+          data: {
+            ...scope,
+            outreachType: OutreachType.nativeDoorKnocking,
+            status: OutreachStatus.in_progress,
+            name: turf.name,
+            voterFileFilterId: filter.id,
+            doorKnockingRouteId: route.id,
+            date: new Date(),
+          },
+        })
 
-        return { created: true, route: toHeader(route, stops.length) }
+        return turf.id
       },
-      { timeout: KNOCK_TX_TIMEOUT_MS },
+      { timeout: CREATE_TX_TIMEOUT_MS },
     )
+
+    // Read back outside the transaction so the response is built by the one
+    // function that builds every turf response, counts included — the new
+    // list appears on the rail with the same shape it will have on reload.
+    return this.turfs.get(turfId, organization.slug)
   }
 
-  // A failed ledger write must not fail a knock the vendor already billed, so
-  // this logs and continues. The consequence of losing a row is an under-count
-  // of the daily budget — the same failure mode the old stop-row read had for
-  // every rolled-back knock, and far cheaper than rejecting paid work.
+  // A failed ledger write must not fail a purchase the vendor already billed,
+  // so this logs and continues. The consequence of losing a row is an
+  // under-count of the daily budget — far cheaper than rejecting paid work.
   private async recordSpend(
     organizationSlug: string,
     turfId: number,
     stops: number,
+    credits: RouteCredits,
   ): Promise<void> {
-    const credits = stops * GEOAPIFY_CREDITS_PER_LOCATION
+    const billed = credits.route_planner + credits.routing
 
+    // `waypoints` is stops and only stops: it is the unit the daily quota is
+    // denominated in, and it does not convert into `credits`, which counts two
+    // APIs at two rates. Read this line for money through `credits` and for
+    // allowance through `waypoints`; neither divides into the other.
+    //
     // Emitted before the ledger write and independently of its outcome: the
     // vendor has already billed, so this line — not the ledger — is what the
     // spend queries and the global daily-credit ceiling alert count. Losing a
@@ -290,16 +330,17 @@ export class DoorKnockingKnockService extends createPrismaBase(
       organizationSlug,
       turfId,
       waypoints: stops,
-      credits,
+      credits: billed,
     })
-    recordRoutePlannerCredits(credits)
+    recordGeoapifyCredits('route_planner', credits.route_planner)
+    recordGeoapifyCredits('routing', credits.routing)
 
     try {
       await recordWaypointSpend(this.client, {
         organizationSlug,
         doorKnockingTurfId: turfId,
         waypoints: stops,
-        credits,
+        credits: billed,
       })
     } catch (error) {
       this.logger.error(
@@ -353,10 +394,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
     return stops
   }
 
-  private async planStops(
-    stops: PlannedStop[],
-    request: DoorKnockingKnockRequest,
-  ) {
+  private async planStops(stops: PlannedStop[], request: RouteRequest) {
     const jobs = stops.map((stop, index) => ({
       id: String(index),
       location: [stop.lng, stop.lat] as LngLat,

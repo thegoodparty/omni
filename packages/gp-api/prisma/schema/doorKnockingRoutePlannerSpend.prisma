@@ -18,7 +18,11 @@ model DoorKnockingRoutePlannerSpend {
   doorKnockingTurfId Int?   @map("door_knocking_turf_id")
   // Waypoints (stops) sent to the vendor — the unit DAILY_WAYPOINT_LIMIT caps.
   waypoints        Int
-  // Geoapify credits, waypoints x 10 at the Route Planner's current rate.
+  // Geoapify credits for both calls the route was billed for: the Route
+  // Planner optimization and the Routing request behind its path geometry.
+  // Not derivable from `waypoints` — the Route Planner's per-location rate is
+  // quadratic below ten locations, the agent's anchors are locations of their
+  // own, and a geometry fetch that never completed is not charged.
   credits          Int
 
   // Serves the rolling-window sum in assertWaypointQuota.

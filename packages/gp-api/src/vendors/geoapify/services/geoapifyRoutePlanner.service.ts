@@ -81,11 +81,24 @@ export type RoutePlannerPlan = {
   legMeters: number[]
   totalSeconds: number
   totalMeters: number
+  // What the two billed calls were actually asked for, reported rather than
+  // left for the caller to re-derive from the stop list it handed in: the
+  // anchors and the plan's own waypoint array are only visible here, and a
+  // caller reconstructing them is a caller that will drift from the request.
+  locations: number
+  // Zero when the Routing call was never billed, which is the ONLY signal for
+  // that — a null pathGeometry is not one (see fetchPathGeometry).
+  routingWaypoints: number
   // Road-following tour path, fetched once here so it can be frozen with
   // the route (Geoapify's terms permit storing results). Null when the
   // routing call failed — the route itself is still valid, consumers fall
   // back to straight legs.
   pathGeometry: RoutePathGeometry | null
+}
+
+type PathGeometryFetch = {
+  geometry: RoutePathGeometry | null
+  billedWaypoints: number
 }
 
 @Injectable()
@@ -126,6 +139,16 @@ export class GeoapifyRoutePlannerService {
     for (const job of args.jobs) {
       planner.addJob(new sdk.Job().setId(job.id).setLocation(...job.location))
     }
+
+    // Counted off the request that was just built, not off the caller's stop
+    // list: the anchors occupy their own billed location slots even when they
+    // sit on a coordinate a job already covers, and nothing between here and
+    // the wire collapses them. Why raw and not distinct coordinates is argued
+    // in doorKnocking/utils/geoapifyCost.util.ts, which prices this number.
+    const locations =
+      args.jobs.length +
+      (args.agent.start_location ? 1 : 0) +
+      (args.agent.end_location ? 1 : 0)
 
     let result: RoutePlannerResult
     try {
@@ -206,48 +229,68 @@ export class GeoapifyRoutePlannerService {
       )
     }
 
+    const path = await this.fetchPathGeometry(agentPlan, args.mode)
+
     return {
       orderedJobIds,
       legSeconds,
       legMeters,
       totalSeconds: agentPlan.getTime() ?? 0,
       totalMeters: agentPlan.getDistance() ?? 0,
-      pathGeometry: await this.fetchPathGeometry(agentPlan, args.mode),
+      locations,
+      routingWaypoints: path.billedWaypoints,
+      pathGeometry: path.geometry,
     }
   }
 
   // Best-effort: the ordered plan is the critical artifact; a geometry
   // failure must not fail the knock. It is still a second billed vendor call
-  // per knock, and the waypoint ledger only knows about the Route Planner —
-  // so the counter here is the only place this call is visible.
+  // per knock, so it reports what it was charged for alongside what it found.
   private async fetchPathGeometry(
     agentPlan: AgentPlan,
     mode: 'walk' | 'drive',
-  ): Promise<RoutePathGeometry | null> {
+  ): Promise<PathGeometryFetch> {
+    // The plan's waypoint array verbatim, because that is what getRoute turns
+    // into the `waypoints=` query param it is billed on — anchors included.
+    // The job count is a different, smaller number.
+    const billedWaypoints = agentPlan.getWaypoints().length
+
+    // Only the await is guarded. Billed means the call came back, and the
+    // sole place that is not true is the catch below, one statement from the
+    // failure counter — so the two cannot answer differently. Everything
+    // after the try returns money already spent: a response we could not read
+    // is charged, a projection we refuse to freeze is charged, and so is the
+    // straight line the SDK invents when Geoapify answers with no features.
+    // Inferring payment from a null geometry would drop all three.
+    let feature: unknown
     try {
       // getRoute is typed Promise<any>; narrow structurally instead of
       // asserting.
-      const feature: unknown = await raceWithDeadline<unknown>(
+      feature = await raceWithDeadline<unknown>(
         agentPlan.getRoute({ mode }),
         'Routing request timed out',
       )
-      recordGeoapifyCall('routing', 'success')
-      if (
-        typeof feature !== 'object' ||
-        feature === null ||
-        !('geometry' in feature)
-      ) {
-        return null
-      }
-      const geometry = feature.geometry
-      return isRoutePathGeometry(geometry) ? geometry : null
     } catch (error) {
       recordGeoapifyCall('routing', 'failed')
       this.logger.warn(
         { message: error instanceof Error ? error.message : String(error) },
         'Geoapify route geometry fetch failed; route ships without a path',
       )
-      return null
+      return { geometry: null, billedWaypoints: 0 }
+    }
+    recordGeoapifyCall('routing', 'success')
+
+    if (
+      typeof feature !== 'object' ||
+      feature === null ||
+      !('geometry' in feature)
+    ) {
+      return { geometry: null, billedWaypoints }
+    }
+    const geometry = feature.geometry
+    return {
+      geometry: isRoutePathGeometry(geometry) ? geometry : null,
+      billedWaypoints,
     }
   }
 }

@@ -33,7 +33,8 @@ export type DoorKnockingPreviewLocation = z.infer<
 >
 
 // The exact in-ring audience for a shape being drawn: the same evaluation the
-// knock runs, minus the billed vendor call and without freezing anything.
+// create transaction runs, minus the billed vendor call and without writing
+// anything.
 //
 // `stops`, `doors` and `people` are the three quantities `routeCounts.ts`
 // defines, computed the way the freeze computes them — stops are unique
@@ -54,6 +55,15 @@ export const DoorKnockingAddressPreviewResponseSchema = z.object({
   // would report fewer doors than the building has. `locations.length` below
   // `stops` is what tells the panel it is showing a prefix.
   locations: z.array(DoorKnockingPreviewLocationSchema),
+  // Stops left in the org's rolling 24-hour Geoapify allowance, so the draw
+  // step can disable Build route BEFORE the purchase rather than let the
+  // create call 429 after the candidate has named the list and picked a
+  // travel mode. It is the only one of the four purchase failures whose
+  // remedy is waiting a day, and the create flow holds its work in memory —
+  // so it is the one that has to be caught early. Advisory, not a
+  // reservation: `assertWaypointQuota` inside the transaction is still the
+  // authority, since another turf can spend this between the two calls.
+  waypointsRemaining: z.number().int().nonnegative(),
 })
 
 export type DoorKnockingAddressPreviewResponse = z.infer<

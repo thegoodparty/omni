@@ -12,10 +12,12 @@ import {
   NotAVoterStatus,
   Organization,
 } from '../../generated/prisma'
+import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
-import { MAX_STOPS } from './doorKnockingKnock.service'
+import { MAX_STOPS } from './doorKnockingCreate.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { renderUnitAddress } from '../utils/unitAddress.util'
+import { waypointsRemaining } from '../utils/waypointQuota.util'
 import { DoorKnockingAddressPreview } from '../schemas/doorKnockingAddressPreview.schema'
 
 type EvaluatedPerson = {
@@ -25,7 +27,7 @@ type EvaluatedPerson = {
   addressKey: string
 }
 
-const EMPTY_PREVIEW: DoorKnockingAddressPreviewResponse = {
+const EMPTY_COUNTS = {
   stops: 0,
   doors: 0,
   people: 0,
@@ -33,20 +35,25 @@ const EMPTY_PREVIEW: DoorKnockingAddressPreviewResponse = {
 }
 
 // The draw step's answer to "which houses are these?", asked before anything
-// is bought. It runs the knock's own evaluation — the same resolved filters,
-// the same suppression, the same polygon test — and stops short of the vendor
-// call, so the addresses on screen are the addresses the route would freeze.
+// is bought. It runs the create transaction's own evaluation — the same
+// resolved filters, the same suppression, the same polygon test — and stops
+// short of the vendor call, so the addresses on screen are the addresses the
+// route would freeze.
 //
 // Nothing here is persisted and no Geoapify credit is spent; the only cost is
 // one people-db scan per explicit request. See ADR 0010 for why that request
 // is explicit rather than debounced.
 @Injectable()
-export class DoorKnockingPreviewService {
+export class DoorKnockingPreviewService extends createPrismaBase(
+  MODELS.DoorKnockingRoutePlannerSpend,
+) {
   constructor(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
-  ) {}
+  ) {
+    super()
+  }
 
   async preview(
     organization: Organization,
@@ -54,6 +61,11 @@ export class DoorKnockingPreviewService {
   ): Promise<DoorKnockingAddressPreviewResponse> {
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
+
+    // Read on every preview rather than once per session: the allowance is a
+    // rolling window shared by the whole org, so a teammate's purchase moves
+    // it while this candidate is still drawing.
+    const remaining = await waypointsRemaining(this.client, organization)
 
     // ADR 0007 and ADR 0008, deduped into one exclusion list exactly as the
     // knock builds it. A door whose every resident is flagged therefore has
@@ -85,11 +97,13 @@ export class DoorKnockingPreviewService {
       organization,
       input.filters,
     )
-    // Nobody survives the draft's own filters. The knock raises a 400 here
-    // because a turf is being committed; a shape still being drawn is
+    // Nobody survives the draft's own filters. Creating a turf raises a 400
+    // here because a list is being committed; a shape still being drawn is
     // allowed to enclose nobody, and the draw step already says "No doors in
     // this area" for it. Erroring would turn ordinary drawing into a failure.
-    if (resolved.empty) return EMPTY_PREVIEW
+    if (resolved.empty) {
+      return { ...EMPTY_COUNTS, waypointsRemaining: remaining }
+    }
 
     const { people } = await this.peopleApi.evaluate({
       districtId,
@@ -100,26 +114,29 @@ export class DoorKnockingPreviewService {
       excludePersonIds,
     })
 
-    return this.summarize(people, input.geoPoly)
+    return {
+      ...this.summarize(people, input.geoPoly),
+      waypointsRemaining: remaining,
+    }
   }
 
-  // Mirrors DoorKnockingKnockService.buildStops: the bbox is a prefilter, so
+  // Mirrors DoorKnockingCreateService.buildStops: the bbox is a prefilter, so
   // the ray-cast is what decides membership; ordering is deterministic on
   // (addressKey, id); a stop is a unique coordinate and a door is a unique
-  // unit key within it. Written out rather than shared with the knock, which
-  // additionally throws on an empty or oversized turf — behaviour a shape
-  // being drawn must not have.
+  // unit key within it. Written out rather than shared with the create path,
+  // which additionally throws on an empty or oversized turf — behaviour a
+  // shape being drawn must not have.
   private summarize(
     people: EvaluatedPerson[],
     polygon: GeoJsonPolygon,
-  ): DoorKnockingAddressPreviewResponse {
+  ): Omit<DoorKnockingAddressPreviewResponse, 'waypointsRemaining'> {
     const inside = people
       .filter((person) => pointInPolygon(person.lng, person.lat, polygon))
       .sort(
         (a, b) =>
           a.addressKey.localeCompare(b.addressKey) || a.id.localeCompare(b.id),
       )
-    if (inside.length === 0) return EMPTY_PREVIEW
+    if (inside.length === 0) return EMPTY_COUNTS
 
     const byCoordinate = new Map<string, Map<string, number>>()
     for (const person of inside) {

@@ -9,7 +9,7 @@ const block = {
   doorCount: 4,
   peopleCount: 9,
   loggedCount: 6,
-  completedAt: null,
+  completed: false,
   archivedAt: null,
 }
 
@@ -43,27 +43,26 @@ const envelope = {
 }
 
 describe('DoorKnockingOutreachDetailSchema', () => {
-  it('parses a walk with its counts and turf lifecycle', () => {
+  it('parses a walk with its counts and lifecycle', () => {
     expect(() => DoorKnockingOutreachDetailSchema.parse(block)).not.toThrow()
   })
 
-  // Nullable where the rail's are nullable, but never absent: an envelope
-  // exists only for a route that was frozen, so a block that reached the wire
-  // always has doors to count. Null here would let a walked list read as an
-  // unknocked one.
+  // Never null: an envelope exists only for a route that was bought, so a
+  // block that reached the wire always has doors to count. Null here would let
+  // a walked list read as one that was never routed.
   it('rejects a null count', () => {
     expect(() =>
       DoorKnockingOutreachDetailSchema.parse({ ...block, doorCount: null }),
     ).toThrow()
   })
 
-  it('accepts the turf lifecycle timestamps as ISO strings', () => {
+  it('accepts the archive timestamp as an ISO string', () => {
     const parsed = DoorKnockingOutreachDetailSchema.parse({
       ...block,
-      completedAt: '2026-08-01T12:00:00.000Z',
+      completed: true,
       archivedAt: '2026-08-02T12:00:00.000Z',
     })
-    expect(parsed.completedAt).toBeInstanceOf(Date)
+    expect(parsed.completed).toBe(true)
     expect(parsed.archivedAt).toBeInstanceOf(Date)
   })
 })
