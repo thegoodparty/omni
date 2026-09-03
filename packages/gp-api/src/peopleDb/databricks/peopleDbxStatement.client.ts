@@ -144,8 +144,11 @@ export class PeopleDbxStatementTooLargeError extends Error {
 // the product renders as "no constituent data for this office", so an auth or
 // connectivity failure must never be able to present as that.
 export class PeopleDbxUnavailableError extends Error {
-  constructor(reason: string) {
-    super(`Databricks voter data is unreachable: ${reason}`)
+  // Takes a cause because the failure worth classifying most often carries its
+  // detail one level down: undici's `fetch failed` names nothing, and the
+  // `SocketError: other side closed` underneath it is the whole diagnosis.
+  constructor(reason: string, options?: ErrorOptions) {
+    super(`Databricks voter data is unreachable: ${reason}`, options)
   }
 }
 
