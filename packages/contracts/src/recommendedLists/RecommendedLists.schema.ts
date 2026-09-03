@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SupportStatusRollupSchema } from '../people/Person.schema'
 
 // The channel picked first in the outreach flow. Door knocking has no
 // purpose step of its own yet (Task 9 adds one), but reads the same
@@ -52,4 +53,44 @@ export const RecommendedListVariantSchema = z.enum(
 )
 export type RecommendedListVariant = z.infer<
   typeof RecommendedListVariantSchema
+>
+
+// The unsaved `VoterFileFilter` shape a recommendation carries. Only the
+// fields the recommended-list universes ever populate — not the full
+// dozens-of-fields filter schema, which stays gp-api-local since nothing
+// else here crosses the wire.
+export const RecommendedListFilterSchema = z.object({
+  voterStatus: z.array(z.string()).optional(),
+  supportStatus: z.array(SupportStatusRollupSchema).optional(),
+  independentAffinity: z.boolean().optional(),
+  ideologyLiberal: z.boolean().optional(),
+  ideologyModerate: z.boolean().optional(),
+  ideologyConservative: z.boolean().optional(),
+  hasCellPhone: z.boolean().optional(),
+  hasAnyPhone: z.boolean().optional(),
+  // `county|precinct` pairs (encodePrecinctPair), set only for a
+  // door-knocking variant that survived on its precinct-restricted count.
+  precincts: z.array(z.string()).optional(),
+})
+export type RecommendedListFilter = z.infer<typeof RecommendedListFilterSchema>
+
+export const RecommendedListSchema = z.object({
+  variant: RecommendedListVariantSchema,
+  filter: RecommendedListFilterSchema,
+  count: z.number().int().nonnegative(),
+  // Absent — not null — when the district total couldn't be read.
+  // `estimatedCost` is omitted entirely: no per-channel unit price exists
+  // yet, so there is nothing to validate here.
+  districtShare: z.number().min(0).max(1).optional(),
+  copy: z.object({
+    title: z.string(),
+    criteriaSummary: z.string(),
+  }),
+  existingFilterId: z.number().int().nullable(),
+})
+export type RecommendedList = z.infer<typeof RecommendedListSchema>
+
+export const RecommendedListsResponseSchema = z.array(RecommendedListSchema)
+export type RecommendedListsResponse = z.infer<
+  typeof RecommendedListsResponseSchema
 >
