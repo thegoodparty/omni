@@ -27,11 +27,17 @@ The two most consequential constraints driving those cuts:
    `VoterFileFilter` has no size column. So any sizing rule expressed as "the
    top N voters by propensity" is computable but unstorable.
 
-An earlier, unrelated `recommendedLists` module existed in `gp-api` and was
-deleted before this work started. It served door-knocking aggregates from
-Win's `mart_win_agents.win_agent_voters` warehouse behind an async snapshot,
-had no webapp consumer, and shares no code with this feature. Don't resurrect
-it.
+**A prerequisite, not history.** An earlier, unrelated `recommendedLists`
+module is still live in `gp-api` on `main`: `RecommendedListsModule` is
+registered in `app.module.ts`, and its controller owns
+`GET campaigns/mine/recommended-lists` — the **identical route** this feature's
+endpoint uses. It serves door-knocking aggregates from Win's
+`mart_win_agents.win_agent_voters` warehouse behind an async snapshot, has no
+webapp consumer, and shares no code with this feature.
+
+PR #1648 deletes it in full. **That PR must merge before this feature's
+endpoint is wired**, or the two collide at module registration. Don't resurrect
+the old module, and don't build around it.
 
 ## Verified data facts
 
@@ -168,6 +174,13 @@ Measured yield: SMS retains 58%–74% of a list, phone 70%–85%.
 `hasAnyPhone` is a within-dimension OR (cell present OR landline present) and
 so is expressible. It is **not** the same as setting `hasCellPhone` and
 `hasLandline` together, which ANDs to "has both."
+
+**`hasAnyPhone` only became persistable in the filter-dimensions PR (#1678).**
+On `main` it is a count-only wire filter, deliberately absent from
+`voterFilterBaseSchema`, so a robocall or phone-banking recommendation has no
+storable representation of "cell OR landline" until that PR lands. It adds
+`has_any_phone` to `voterFileFilter.prisma` alongside affinity and ideology.
+Another reason #1678 gates this work.
 
 ## Door-knocking precinct selection
 
