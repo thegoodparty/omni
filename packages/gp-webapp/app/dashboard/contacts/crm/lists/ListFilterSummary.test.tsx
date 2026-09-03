@@ -267,18 +267,13 @@ describe('buildFilterSummary — precinct clause', () => {
 // while the flag was on has to keep describing itself if the flag flips off,
 // or the person who saved it can no longer tell what it holds.
 describe('buildFilterSummary — recommended-list dimensions', () => {
-  it('names the affinity, address and any-phone selections', () => {
+  it('names the affinity and any-phone selections', () => {
     const summary = buildFilterSummary(
-      baseSegment({
-        independentAffinity: true,
-        hasAddress: true,
-        hasAnyPhone: true,
-      }),
+      baseSegment({ independentAffinity: true, hasAnyPhone: true }),
       false,
     )
     expect(summary).toBe(
-      'Independent affinity Open to Independents, Address Has Address,' +
-        ' and Phone Has Any Phone.',
+      'Independent affinity Open to Independents and Phone Has Any Phone.',
     )
   })
 
@@ -290,11 +285,17 @@ describe('buildFilterSummary — recommended-list dimensions', () => {
     expect(summary).toBe('Ideology Progressive or Unknown.')
   })
 
-  it('excludes independent affinity for an elected official (Win-only)', () => {
+  // Both are Win-only, so a Serve list describes itself with neither — even
+  // one saved before the exclusion, or written by the AI assistant.
+  it('excludes affinity and ideology for an elected official', () => {
     const summary = buildFilterSummary(
-      baseSegment({ independentAffinity: true, ideologyModerate: true }),
+      baseSegment({
+        independentAffinity: true,
+        ideologyModerate: true,
+        hasAnyPhone: true,
+      }),
       true,
     )
-    expect(summary).toBe('Ideology Moderate.')
+    expect(summary).toBe('Phone Has Any Phone.')
   })
 })

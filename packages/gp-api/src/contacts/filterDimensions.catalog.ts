@@ -256,22 +256,17 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     ],
   },
   {
-    key: 'address',
-    label: 'Address',
-    kind: 'boolean-group',
-    modes: 'both',
-    provenance: 'observed',
-    values: [{ key: 'hasAddress', label: 'Has Address' }],
-  },
-  {
     // Column is hf_ideology_general, whose own vocabulary says Liberal; the
     // product says Progressive, so the key follows the data and the label
     // follows the copy. Unknown covers the 40% of the file with no value and
-    // is a real reportable segment, not a gap to drop.
+    // is a real reportable segment, not a gap to drop. Win-only alongside
+    // affinity: the recommended-list dimensions are a Win product surface.
+    // That is a permanent product rule, independent of the feature flag,
+    // which only decides whether the wizard shows them.
     key: 'ideology',
     label: 'Ideology',
     kind: 'boolean-group',
-    modes: 'both',
+    modes: 'win',
     provenance: 'modeled',
     values: [
       { key: 'ideologyConservative', label: 'Conservative' },
@@ -285,7 +280,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     // column, so unlike every other modeled dimension here there is no
     // Unknown bucket — the file classifies everyone. Win-only like party:
     // it describes electoral behavior toward a candidate, which has no Serve
-    // meaning (assertNoIndependentAffinityFilterForElectedOffice 400s it).
+    // meaning (assertNoRecommendedListFilterForElectedOffice 400s it).
     key: 'independentAffinity',
     label: 'Independent Affinity',
     kind: 'boolean-group',

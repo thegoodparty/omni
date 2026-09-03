@@ -14,11 +14,20 @@
 // import each other.
 export const AFFINITY_FIELD_KEY = 'independent_affinity'
 
+// Win-only field keys. The recommended-list dimensions are a Win product
+// surface and gp-api 400s them for an eo- org, so they are stripped at both
+// the write side (VoterFileStep) and the read side (ListFilterSummary).
+// This is a permanent PRODUCT rule and has nothing to do with
+// win-recommended-lists, which only decides whether the wizard shows the
+// groups at all. hasAnyPhone is deliberately absent: plain contactability,
+// and Serve runs phone banking and robocall too.
+export const WIN_ONLY_RECOMMENDED_FIELD_KEYS = [AFFINITY_FIELD_KEY, 'ideology']
+
 export const RECOMMENDED_LIST_FILTER_FIELDS = [
   {
     // Win-only, like political party: openness to voting for an independent
     // describes electoral behavior toward a candidate. gp-api 400s it for an
-    // eo- org (assertNoIndependentAffinityFilterForElectedOffice).
+    // eo- org (assertNoRecommendedListFilterForElectedOffice).
     key: AFFINITY_FIELD_KEY,
     label: 'Independent Affinity',
     options: [{ key: 'independentAffinity', label: 'Open to Independents' }],
@@ -27,7 +36,8 @@ export const RECOMMENDED_LIST_FILTER_FIELDS = [
     // The mart column's value for the third option is `Liberal`; house copy
     // says Progressive, so the persisted key follows the data and only the
     // label differs. Unknown covers the ~40% of the file with no modeled
-    // ideology and is a real segment, not a gap to drop.
+    // ideology and is a real segment, not a gap to drop. Win-only alongside
+    // affinity (gp-api 400s both for an eo- org).
     key: 'ideology',
     label: 'Ideology',
     options: [
@@ -36,11 +46,6 @@ export const RECOMMENDED_LIST_FILTER_FIELDS = [
       { key: 'ideologyLiberal', label: 'Progressive' },
       { key: 'ideologyUnknown', label: 'Unknown' },
     ],
-  },
-  {
-    key: 'address',
-    label: 'Address',
-    options: [{ key: 'hasAddress', label: 'Has Address' }],
   },
 ]
 

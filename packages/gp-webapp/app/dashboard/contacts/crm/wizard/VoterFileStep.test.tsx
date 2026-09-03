@@ -656,23 +656,20 @@ describe('VoterFileStep — recommended-list filter groups', () => {
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
 
-  it('hides all four groups when the flag is off', () => {
+  it('hides all three groups when the flag is off', () => {
     renderStep()
 
     expect(headings()).not.toContain('Independent affinity')
     expect(headings()).not.toContain('Ideology')
-    expect(headings()).not.toContain('Address')
     expect(screen.queryByText('Has Any Phone')).not.toBeInTheDocument()
   })
 
-  it('renders all four groups when the flag is on', () => {
+  it('renders all three groups when the flag is on', () => {
     renderStep({ showRecommendedListFilters: true })
 
     expect(headings()).toContain('Independent affinity')
     expect(headings()).toContain('Ideology')
-    expect(headings()).toContain('Address')
     expect(screen.getByText('Open to Independents')).toBeInTheDocument()
-    expect(screen.getByText('Has Address')).toBeInTheDocument()
     expect(screen.getByText('Has Any Phone')).toBeInTheDocument()
   })
 
@@ -694,14 +691,15 @@ describe('VoterFileStep — recommended-list filter groups', () => {
     expect(within(ideologyGroup).getByText('Unknown')).toBeInTheDocument()
   })
 
-  // Win-only for the same reason political party is: gp-api 400s an
-  // independentAffinity filter for an eo- org.
-  it('hides only Independent affinity for a Serve organization', () => {
+  // Win-only for the same reason political party is: gp-api 400s both an
+  // affinity and an ideology filter for an eo- org. Any-phone survives —
+  // plain contactability, and Serve runs phone banking and robocall.
+  it('hides affinity and ideology for a Serve organization', () => {
     renderStep({ showRecommendedListFilters: true, isElectedOfficial: true })
 
     expect(headings()).not.toContain('Independent affinity')
-    expect(headings()).toContain('Ideology')
-    expect(headings()).toContain('Address')
+    expect(headings()).not.toContain('Ideology')
+    expect(screen.getByText('Has Any Phone')).toBeInTheDocument()
   })
 
   it('clears the cell/landline picks when Has Any Phone is selected', async () => {

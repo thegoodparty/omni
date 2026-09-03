@@ -29,7 +29,6 @@ model VoterFileFilter {
   hasCellPhone               Boolean?                           @default(false) @map("has_cell_phone")
   hasLandline                Boolean?                           @default(false) @map("has_landline")
   hasAnyPhone                Boolean?                           @default(false) @map("has_any_phone")
-  hasAddress                 Boolean?                           @default(false) @map("has_address")
   /// Voter_Independent_Affinity is a non-nullable BOOLEAN in the mart, so
   /// there is no Unknown bucket to persist alongside this.
   independentAffinity        Boolean?                           @default(false) @map("independent_affinity")

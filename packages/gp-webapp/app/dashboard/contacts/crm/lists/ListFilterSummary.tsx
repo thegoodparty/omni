@@ -3,9 +3,9 @@ import filterSections, {
 } from '../../[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
 import {
-  AFFINITY_FIELD_KEY,
   ANY_PHONE_FIELD,
   RECOMMENDED_LIST_FILTER_FIELDS,
+  WIN_ONLY_RECOMMENDED_FIELD_KEYS,
 } from '../shared/recommendedListFilters.config'
 import {
   ACTIVITY_CONDITION_ACTION_LABELS,
@@ -83,13 +83,13 @@ export const buildFilterSummary = (
   for (const field of summarizedFields) {
     // Political party and voter likelihood don't apply to an elected
     // official's constituent file — same exclusions VoterFileStep.tsx
-    // applies at creation time. Independent affinity is Win-only the same
-    // way (gp-api 400s it for an eo- org).
+    // applies at creation time. Affinity and ideology are Win-only the same
+    // way (gp-api 400s both for an eo- org).
     if (
       isElectedOfficial &&
       (field.key === 'political_party' ||
         field.key === 'voter_likely' ||
-        field.key === AFFINITY_FIELD_KEY)
+        WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key))
     )
       continue
     // Contacts Made gets its own "with N or M prior contacts made" clause

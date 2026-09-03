@@ -8,11 +8,11 @@ import {
 } from '../shared/constants'
 import { sentenceCase } from '../shared/labels.util'
 import {
-  AFFINITY_FIELD_KEY,
   ANY_PHONE_FIELD,
   ANY_PHONE_FILTER_KEY,
   RECOMMENDED_LIST_FILTER_FIELDS,
   SPECIFIC_PHONE_FILTER_KEYS,
+  WIN_ONLY_RECOMMENDED_FIELD_KEYS,
 } from '../shared/recommendedListFilters.config'
 import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
@@ -74,7 +74,6 @@ const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'any_phone',
   'cell_phone',
   'landline',
-  'address',
 ]
 
 // Step 2 of the voter-file branch (ENG-10721 locked-prototype parity): pill
@@ -103,11 +102,15 @@ export default function VoterFileStep({
     return index === -1 ? FIELD_ORDER_BELOW_SUPPORT_STATUS.length : index
   }
 
-  // Independent affinity is Win-only for the same reason political party is
-  // — gp-api 400s it for an eo- org, so it must not be selectable there.
+  // Affinity and ideology are Win-only for the same reason political party
+  // is — gp-api 400s both for an eo- org, so neither may be selectable
+  // there. Any-phone stays, being plain contactability. This strip is the
+  // permanent product rule; showRecommendedListFilters is the flag.
   const recommendedListFields = showRecommendedListFilters
     ? [...RECOMMENDED_LIST_FILTER_FIELDS, ANY_PHONE_FIELD].filter(
-        (field) => !isElectedOfficial || field.key !== AFFINITY_FIELD_KEY,
+        (field) =>
+          !isElectedOfficial ||
+          !WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key),
       )
     : []
 

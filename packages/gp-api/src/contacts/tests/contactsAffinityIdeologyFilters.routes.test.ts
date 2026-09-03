@@ -9,13 +9,13 @@ const service = useTestService()
 
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 
-// The four dimensions added for recommended lists (affinity, ideology,
-// hasAddress, hasAnyPhone). The count route runs the same
+// The three dimensions added for recommended lists (affinity, ideology,
+// hasAnyPhone). The count route runs the same
 // convertVoterFileFilterToFilters translation the saved-segment
 // list/download paths use, so pinning what reaches the people-db query here
 // pins it for all of them. The SQL each translated key compiles to is
 // asserted directly in databricksVoterSql.util.test.ts.
-describe('POST /v1/contacts/count — affinity/ideology/address/phone', () => {
+describe('POST /v1/contacts/count — affinity/ideology/phone', () => {
   const setupWinProOrg = async (suffix: string) => {
     const slug = `campaign-affinity-${suffix}-${Date.now()}`
     await service.prisma.organization.create({
@@ -158,16 +158,12 @@ describe('POST /v1/contacts/count — affinity/ideology/address/phone', () => {
     ).toBeUndefined()
   })
 
-  it('persists hasAddress and hasAnyPhone as presence filters', async () => {
+  it('persists hasAnyPhone as a presence filter', async () => {
     const slug = await setupWinProOrg('reachability')
-    const findPeopleSpy = await countWith(slug, {
-      hasAddress: true,
-      hasAnyPhone: true,
-    })
+    const findPeopleSpy = await countWith(slug, { hasAnyPhone: true })
 
     expect(findPeopleSpy.mock.calls[0]?.[0]?.filters.filterOperators).toEqual(
       expect.objectContaining({
-        hasAddress: { operator: 'is', value: 'not_null' },
         hasAnyPhone: { operator: 'is', value: 'not_null' },
       }),
     )
@@ -189,34 +185,36 @@ describe('POST /v1/contacts/count — affinity/ideology/address/phone', () => {
     ])
   })
 
-  it('serves ideology, hasAddress and hasAnyPhone to a Serve (eo-) org', async () => {
+  // hasAnyPhone is plain contactability, and Serve runs phone banking and
+  // robocall, so it is the one recommended-list option a Serve org keeps.
+  it('serves hasAnyPhone to a Serve (eo-) org', async () => {
     const slug = await setupEoOrg('shared')
-    const findPeopleSpy = await countWith(slug, {
-      ideologyConservative: true,
-      hasAddress: true,
-      hasAnyPhone: true,
-    })
+    const findPeopleSpy = await countWith(slug, { hasAnyPhone: true })
 
     expect(findPeopleSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects an independentAffinity selection for a Serve (eo-) org', async () => {
-    const slug = await setupEoOrg('rejected')
+  // Both describe how someone votes in a contested election, which has no
+  // meaning for an office holder. A permanent product rule, not the flag's
+  // doing — the flag never reaches gp-api at all.
+  it.each([
+    ['independentAffinity', { independentAffinity: true }],
+    ['ideology', { ideologyConservative: true }],
+  ])('rejects a %s selection for a Serve (eo-) org', async (key, body) => {
+    const slug = await setupEoOrg(`rejected-${key.toLowerCase()}`)
 
-    const response = await service.client.post(
-      '/v1/contacts/count',
-      { independentAffinity: true },
-      { headers: { [ORG_SLUG_HEADER]: slug } },
-    )
+    const response = await service.client.post('/v1/contacts/count', body, {
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
 
     expect(response.status).toBe(400)
   })
 })
 
 // A saved list has to carry the new dimensions, which is the whole point of
-// the persisted columns: the wire keys hasAddress/hasAnyPhone already existed
-// as people-db filter keys, but voterFilterBaseSchema stripped them on save,
-// so a list built with them silently lost the filter.
+// the persisted columns: the wire key hasAnyPhone already existed as a
+// people-db filter key, but voterFilterBaseSchema stripped it on save, so a
+// list built with it silently lost the filter.
 describe('POST /v1/voters/voter-file/filter — new dimensions persist', () => {
   const setupWinProOrg = async (suffix: string) => {
     const slug = `campaign-affinity-save-${suffix}-${Date.now()}`
@@ -238,7 +236,7 @@ describe('POST /v1/voters/voter-file/filter — new dimensions persist', () => {
     return slug
   }
 
-  it('round-trips all four dimensions through the saved row', async () => {
+  it('round-trips all three dimensions through the saved row', async () => {
     const slug = await setupWinProOrg('roundtrip')
 
     const created = await service.client.post(
@@ -248,7 +246,6 @@ describe('POST /v1/voters/voter-file/filter — new dimensions persist', () => {
         independentAffinity: true,
         ideologyModerate: true,
         ideologyUnknown: true,
-        hasAddress: true,
         hasAnyPhone: true,
       },
       { headers: { [ORG_SLUG_HEADER]: slug } },
@@ -265,7 +262,6 @@ describe('POST /v1/voters/voter-file/filter — new dimensions persist', () => {
       ideologyLiberal: saved.ideologyLiberal,
       ideologyModerate: saved.ideologyModerate,
       ideologyUnknown: saved.ideologyUnknown,
-      hasAddress: saved.hasAddress,
       hasAnyPhone: saved.hasAnyPhone,
     }).toEqual({
       independentAffinity: true,
@@ -273,7 +269,6 @@ describe('POST /v1/voters/voter-file/filter — new dimensions persist', () => {
       ideologyLiberal: false,
       ideologyModerate: true,
       ideologyUnknown: true,
-      hasAddress: true,
       hasAnyPhone: true,
     })
   })
