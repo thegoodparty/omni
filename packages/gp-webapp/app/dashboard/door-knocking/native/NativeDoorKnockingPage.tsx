@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { DoorKnockingTurf } from '@goodparty_org/contracts'
+import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,8 +18,19 @@ import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { voterPackQueryOptions } from './useVoterPack'
-import { polygonStats, runFilter, type FilterResult } from './filterEngine'
+import {
+  PACK_ERROR_MESSAGE,
+  PACK_LOADING_DURATION,
+  PACK_LOADING_TITLE,
+  recordLoggedKnocks,
+  voterPackQueryOptions,
+} from './useVoterPack'
+import {
+  applyLoggedKnocks,
+  polygonStats,
+  runFilter,
+  type FilterResult,
+} from './filterEngine'
 import { quotaQueryOptions, turfsQueryOptions } from './turfQueries'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
@@ -42,7 +53,7 @@ const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
   loading: () => (
     <div className="flex h-full w-full items-center justify-center">
-      <LoadingAnimation />
+      <LoadingAnimation title="Loading the map…" />
     </div>
   ),
 })
@@ -236,7 +247,10 @@ export default function NativeDoorKnockingPage({
   const filterResult = useMemo<FilterResult | null>(
     () =>
       packQuery.data && selections
-        ? runFilter(packQuery.data, selections)
+        ? applyLoggedKnocks(
+            packQuery.data,
+            runFilter(packQuery.data, selections),
+          )
         : null,
     [packQuery.data, selections],
   )
@@ -278,9 +292,26 @@ export default function NativeDoorKnockingPage({
     completeFinishedWalk()
     const doorsLogged = walk.end({ stopCount: walkMap.stopCount })
     if (doorsLogged > 0) {
-      void queryClient.invalidateQueries({
-        queryKey: voterPackQueryOptions.queryKey,
-      })
+      // The map's dots carry a knock status and this walk has just moved some
+      // of them. This used to invalidate the pack, which re-downloaded the
+      // whole district — hundreds of thousands of rows, 5-30 seconds — to
+      // change a handful of status bytes, on the one gesture whose very next
+      // frame is a navigation off the map. The doors are folded into the
+      // cached pack instead; `applyLoggedKnocks` documents what a coordinate
+      // join can and cannot say.
+      //
+      // The pins carry the statuses the walk itself has been recolouring, off
+      // the route cache each logged knock patches, so this reads the same
+      // answer the canvasser has been watching rather than a second one.
+      recordLoggedKnocks(
+        queryClient,
+        walkMap.routePins.flatMap((pin) => {
+          const status = DOOR_KNOCK_STATUSES.indexOf(pin.status)
+          // 0 is `unknown`, which is a door nobody has answered for — the same
+          // thing the pack already says about it.
+          return status > 0 ? [{ lng: pin.lng, lat: pin.lat, status }] : []
+        }),
+      )
     }
     // Same stranding rule for the walk's own map state: a pin tapped on the way
     // out would reopen its sheet on the next walk, and the coach mark is
@@ -603,14 +634,28 @@ export default function NativeDoorKnockingPage({
                   and our team can set this up for you.
                 </p>
               )}
+              {/* Titled, because an untitled "Loading... Something awesome."
+                over a wait that runs to half a minute is the part of this that
+                got reported. The create flow says the same two sentences from
+                inside its own sheet — see `CreateListFlow` — since the sheet
+                covers this region for the whole of the wait that matters. */}
               {!isUnresolvable && packQuery.isPending && (
                 <div className="flex h-full items-center justify-center">
-                  <LoadingAnimation />
+                  <LoadingAnimation
+                    title={
+                      <>
+                        {PACK_LOADING_TITLE}
+                        <span className="mt-2 block text-base font-normal text-zinc-600">
+                          {PACK_LOADING_DURATION}
+                        </span>
+                      </>
+                    }
+                  />
                 </div>
               )}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
-                  The voter map could not load. Refresh to try again.
+                  {PACK_ERROR_MESSAGE}
                 </p>
               )}
               {packQuery.data && filterResult && (
@@ -694,7 +739,7 @@ export default function NativeDoorKnockingPage({
               what gets shown in it. */}
             {leaving && (
               <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
-                <LoadingAnimation />
+                <LoadingAnimation title="Taking you back…" />
               </div>
             )}
             {walkSurface()}
@@ -706,6 +751,12 @@ export default function NativeDoorKnockingPage({
                 onStepChange={changeFlowStep}
                 onClose={closeFlow}
                 districtHouseholds={filterResult?.households ?? 0}
+                // The count above is derived from the pack, so it reads 0 for
+                // the whole of a download the sheet is drawn over. These two
+                // are what let the flow say so instead of printing that 0 as
+                // an answer.
+                districtHouseholdsPending={packQuery.isPending}
+                districtHouseholdsFailed={packQuery.isError}
                 ring={ring}
                 turfStats={turfStats}
                 drawPointCount={draw.pointCount}

@@ -1,5 +1,5 @@
-import { queryOptions } from '@tanstack/react-query'
-import { decodePack, DecodedPack } from './packDecoder'
+import { queryOptions, type QueryClient } from '@tanstack/react-query'
+import { decodePack, DecodedPack, type LoggedKnock } from './packDecoder'
 
 // The gateway in front of gp-api kills a request that has produced no bytes
 // for this long, and it does so without writing a status — the client is left
@@ -12,6 +12,19 @@ export const GATEWAY_IDLE_TIMEOUT_MS = 120_000
 // The slowest pack ever served took 43.5s, so this leaves ample headroom for a
 // genuinely slow build.
 export const PACK_FETCH_TIMEOUT_MS = 90_000
+
+// What this download costs, said out loud. Prod over 72h: p50 4.5s, p95 33.6s,
+// max 57s. It lives here beside the fetch and its timeouts because two surfaces
+// say it — the map region and the create flow's sheet, which covers that region
+// — and a candidate meeting both must not be told two different things about
+// the same wait. `LoadingAnimation`'s bar LOOKS determinate and is a fixed-width
+// indeterminate animation, so nothing here may imply progress: a duration is the
+// only honest promise this wait can make.
+export const PACK_LOADING_TITLE = 'Loading your voter map…'
+export const PACK_LOADING_DURATION =
+  'Large districts can take up to 30 seconds.'
+export const PACK_ERROR_MESSAGE =
+  'The voter map could not load. Refresh to try again.'
 
 // Raw fetch, not clientRequest: the pack is a binary ArrayBuffer and
 // clientRequest is JSON-only. The /api/v1 middleware rewrite attaches the
@@ -33,7 +46,13 @@ export const voterPackQueryOptions = queryOptions({
   // A worst-city pack is tens of MB and tens of seconds — never refetch it
   // behind the user's back within a session.
   staleTime: Infinity,
-  gcTime: 10 * 60 * 1000,
+  // Long enough to cover being away from the surface, because the alternative
+  // is paying for the district again: this used to be ten minutes, so a
+  // candidate who took a phone call between building a list and walking it
+  // came back to the same 5-30 second download they had already waited out.
+  // The cost of holding it is tens of MB of ArrayBuffer with no observer on
+  // it, which is the cheaper side of that trade by a wide margin.
+  gcTime: 60 * 60 * 1000,
   // No retry. This is the single most expensive read the feature has, and
   // abandoning the connection does not cancel the scan behind it, so a retry
   // contends with a build that is still running against the same people-db —
@@ -41,3 +60,27 @@ export const voterPackQueryOptions = queryOptions({
   // one visible failure into 165 seconds of spinner.
   retry: 0,
 })
+
+// Doors logged since the pack was built, carried on the cached pack itself.
+//
+// The cache entry rather than the page's own state, because the page does not
+// outlive the gesture that writes this: every exit from a walk is a navigation
+// to the hub, so a knock kept in component state would be gone before the
+// candidate could come back and look at it — and coming back inside `gcTime`
+// serves this same pack. It dies with the pack it corrects, which is right:
+// a freshly built one already carries these statuses in its `canvassStatus`
+// plane.
+export const recordLoggedKnocks = (
+  queryClient: QueryClient,
+  knocks: readonly LoggedKnock[],
+): void => {
+  if (knocks.length === 0) return
+  queryClient.setQueryData(voterPackQueryOptions.queryKey, (pack) =>
+    pack
+      ? {
+          ...pack,
+          loggedKnocks: [...(pack.loggedKnocks ?? []), ...knocks],
+        }
+      : pack,
+  )
+}

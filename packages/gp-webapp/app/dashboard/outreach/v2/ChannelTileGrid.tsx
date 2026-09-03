@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { ChannelCard } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
@@ -17,6 +18,7 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
+import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
 import { CHANNEL_META } from './channelMeta'
 
 interface ChannelTileGridProps {
@@ -51,6 +53,7 @@ export const ChannelTileGrid = ({
   onCreatePhoneBanking,
 }: ChannelTileGridProps) => {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [campaign] = useCampaign()
   const { isPro } = campaign || {}
   const [flowType, setFlowType] = useState<OutreachType | null>(null)
@@ -181,6 +184,18 @@ export const ChannelTileGrid = ({
       const listId = pendingPreselectedListId
       setPendingPreselectedListId(undefined)
       lastSyncedPropListIdRef.current = undefined
+      // Start the district download here rather than on the far side of the
+      // navigation. The pack is the slowest read the product has (p50 4.5s,
+      // p95 33.6s in prod) and everything the create flow counts is derived
+      // from it, so every millisecond it can be given ahead of the first step
+      // is a millisecond the candidate does not spend on a dead Continue. The
+      // route transition and the map chunk are that head start; the flow's own
+      // purpose and who steps are the rest of it.
+      //
+      // Prefetch and not fetch: a district this org cannot resolve answers 400
+      // and the page's own `isUnresolvable` branch already speaks for that
+      // case, so a rejection here must not surface as anything.
+      void queryClient.prefetchQuery(voterPackQueryOptions)
       router.push(
         listId === undefined
           ? '/dashboard/door-knocking?create=1'
