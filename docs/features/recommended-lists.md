@@ -7,8 +7,12 @@ election day turnout). This feature turns that pair into one or more
 **recommended voter lists** — each a `VoterFileFilter` the candidate can accept,
 edit, and send against.
 
-Behind the `win-recommended-lists` flag. Win candidates only; Serve (`eo-`)
-organizations are out of scope.
+**Two independent gates, and they are not the same mechanism.** Win-only is a
+permanent product restriction, not a rollout setting: the endpoint refuses
+Serve (`eo-`) organizations, and the affinity and ideology filter dimensions
+are Win-only at the API boundary. The `win-recommended-lists` flag is separate
+and controls only UI visibility during rollout. Turning the flag off never
+opens the feature to Serve, and turning it on never bypasses the Win check.
 
 ## Background and division of labor
 
@@ -47,7 +51,7 @@ here without a data-platform change.
 | `Voter_Independent_Affinity`                                | BOOLEAN | **No nulls.** 66.45% true                                                                     |
 | `hf_ideology_general`                                       | STRING  | 59.9% fill. `Conservative` 51.2M, `Liberal` 45.7M, `Moderate` 34.2M, null 87.9M               |
 | `Voter_Turnout_Probability`                                 | DOUBLE  | ~97.5%. Not referenced anywhere in gp-api                                                     |
-| `Residence_Addresses_AddressLine`                           | STRING  | **100% populated** — see the gotcha below                                                     |
+| `Residence_Addresses_AddressLine`                           | STRING  | **100% populated**, which is why there is no address filter |
 | `VoterTelephones_CellPhoneFormatted` / `_LandlineFormatted` | STRING  | Sparse                                                                                        |
 | `County`, `Precinct`, `City`, `City_Ward`                   | STRING  | Precinct has gaps — see the gotcha below                                                      |
 
@@ -149,7 +153,7 @@ and for door knocking a precinct restriction.
 | SMS           | `hasCellPhone`                                          |
 | Robocall      | `hasAnyPhone`                                           |
 | Phone banking | `hasAnyPhone`                                           |
-| Door knocking | `hasAddress`, plus the top-N precincts for that variant |
+| Door knocking | the top-N precincts for that variant |
 
 Email is not a channel — the product doesn't support email outreach, and there
 is no email column in L2 or in the mart. Social and "write my own message" get
@@ -419,11 +423,11 @@ Listed so nobody helpfully reimplements them.
 
 ## Gotchas
 
-- **`hasAddress` narrows nothing.** `Residence_Addresses_AddressLine` is 100%
-  populated — zero null or empty rows across 30.6M voters in CA, MD and LA —
-  and a door-knocking refinement on it was a no-op in all 390 measured eval
-  cells. Only the precinct restriction narrows a door list. Don't derive a
-  "reachable by door" number from it; it will always read 100%.
+- **There is no address filter, deliberately.** `Residence_Addresses_AddressLine`
+  is 100% populated — zero null or empty rows across 30.6M voters in CA, MD and
+  LA — and a door-knocking refinement on it was a no-op in all 390 measured
+  eval cells. So only the precinct restriction narrows a door list, and there is
+  no "reachable by door" number to derive; it would always read 100%.
 - **Two district totals disagree.** The mart's own voter count and
   `m_election_api__district.registered_voters` differ by under 0.5% usually,
   but 2.2% for CA statewide (23,348,065 vs 22,847,425) and 0.6% for IN-1. Pick
@@ -439,11 +443,6 @@ Listed so nobody helpfully reimplements them.
 
 ## Open items
 
-- Whether to ship `hasAddress` as a user-facing filter at all, given it cannot
-  narrow anything.
-- Win vs Serve gating for the ideology dimension. Affinity is Win-only
-  (electoral behavior toward independents); ideology could reasonably be
-  visible to Serve.
 - Where per-channel unit pricing lives, for `estimatedCost`.
 - Reconciliation with Nigel's revised model once he lands the AND-only rewrite.
   The propensity-band narrowing (dropping `Unreliable` from `reliable`), the
@@ -452,6 +451,6 @@ Listed so nobody helpfully reimplements them.
 ## Where the eval lives
 
 The 26-district sizing eval that set the floor, killed the wide propensity
-band, and found the `hasAddress` no-op produced a per-district, per-variant,
-per-channel CSV grid plus a re-runnable query script. It is scratch output, not
+band, and showed the address column carries no signal produced a per-district,
+per-variant, per-channel CSV grid plus a re-runnable query script. It is scratch output, not
 committed here. Re-run it after the universes change — they will.
