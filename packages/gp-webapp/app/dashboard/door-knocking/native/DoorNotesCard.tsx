@@ -210,7 +210,7 @@ export default function DoorNotesCard({
     ) : null
 
   return (
-    <section className="mb-4 rounded-lg border border-border">
+    <section className="mb-4 rounded-xl border border-border">
       <SheetSectionHeader icon={NotebookPenIcon} title="Notes" />
       <div className="flex flex-col gap-3 p-4 text-sm">
         {notes.entries.length > 0 && (

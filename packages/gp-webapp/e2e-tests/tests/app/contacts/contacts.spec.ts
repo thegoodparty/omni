@@ -123,7 +123,7 @@ test.describe('CRM Contacts Page (Serve)', () => {
       { timeout: 30_000 },
     )
     await expect(
-      detailSheet.getByRole('heading', { name: 'Outreach history' }),
+      detailSheet.getByRole('heading', { name: 'Outreach campaign history' }),
     ).toBeVisible()
     await expect(detailSheet.getByText('No outreach yet.')).toBeVisible({
       timeout: 30_000,

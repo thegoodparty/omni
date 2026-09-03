@@ -30,3 +30,35 @@ export const activeTurfScope = (
   voterFileFilter: { organizationSlug },
   deletedAt: null,
 })
+
+/**
+ * The rail's scope, which is the org scope above plus the surface the rail is
+ * being drawn on.
+ *
+ * Only the LIST needs this. Every other turf read is reached by id, and an id
+ * the caller already holds cannot be made to cross a surface by asking for it
+ * on the wrong one — the org scope is what keeps it inside the tenant, and
+ * that is the whole job there.
+ *
+ * Door knocking could not express this before 3.0. A turf carries no campaign
+ * — only an org, through its filter — so an org that holds both a Campaign and
+ * an ElectedOffice (the post-election transition) saw one shared rail on both
+ * surfaces, which is the ENG-10976 leak `OutreachService.findByScope` exists
+ * to prevent for every other channel. The 1:1:1 invariant is what makes it
+ * expressible: every turf now has an envelope, and the envelope carries the
+ * scope, so the rail filters on `campaignId` through the route exactly the way
+ * the outreach history does directly.
+ *
+ * `campaignId: null` IS the Serve scope, not a missing value — the same
+ * dual-scope idiom every other channel uses. Note the join is required in both
+ * directions: Prisma's `route: { outreach: { campaignId } }` is an inner join
+ * through two relations, so a turf whose chain is broken appears on neither
+ * rail rather than on both. `assertRouted` then turns that into a loud error.
+ */
+export const railTurfScope = (
+  organizationSlug: string,
+  scope: { campaignId: number | null },
+): Prisma.DoorKnockingTurfWhereInput => ({
+  ...activeTurfScope(organizationSlug),
+  route: { outreach: { campaignId: scope.campaignId } },
+})

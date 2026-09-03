@@ -56,7 +56,11 @@ model Outreach {
   voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")
   // nativeDoorKnocking envelopes only: the list row carries its destination
-  // (the per-channel pointer idiom, like phoneListId/projectId).
+  // (the per-channel pointer idiom, like phoneListId/projectId). Nullable for
+  // every other outreachType, but NOT NULL for this one — a CHECK enforces it
+  // (see migration door_knocking_one_to_one), which is what makes
+  // outreach -> turf -> route a real 1:1:1 chain rather than a convention.
+  // The turf is one hop further on, through the route's unique turf id.
   doorKnockingRoute                 DoorKnockingRoute?                 @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
   doorKnockingRouteId               Int?                               @unique @map("door_knocking_route_id")
   // nativePhoneBanking envelopes only: same per-channel pointer idiom as

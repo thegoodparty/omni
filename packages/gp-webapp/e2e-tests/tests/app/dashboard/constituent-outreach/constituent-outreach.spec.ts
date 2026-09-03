@@ -53,11 +53,18 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     await expect(
       page.getByRole('button', { name: 'Phone banking' }),
     ).toBeVisible()
-    // Door knocking has no serve wiring, so it gets no card at all
-    // (ServeChannelCards.tsx) — not a disabled one.
+    // Door knocking has a card here since 3.0, which is the change: it used to
+    // get none at all (rather than a disabled one) because it had no serve
+    // wiring. It now has both halves it was missing — a Serve outreach row and
+    // a turf a Serve org can own — so the card is live. Unlike the two above it
+    // navigates instead of opening a flow in place (`/dashboard/door-knocking
+    // ?create=1`, the map is its own page), and that push is asserted in
+    // ConstituentOutreachPage.test.tsx rather than here: following it would
+    // take the district voter pack as a dependency of this spec, and the hub is
+    // what this test is about.
     await expect(
       page.getByRole('button', { name: 'Door knocking' }),
-    ).toHaveCount(0)
+    ).toBeVisible()
 
     // setupElectedOfficeUser provisions an isolated user, so this org's
     // history is genuinely empty. The empty copy renders twice (desktop table

@@ -22,21 +22,28 @@ const meter = metrics.getMeter('gp-api')
 
 // Prometheus (via Grafana Cloud OTLP) exposes these as:
 //   geoapify_vendor_call_count_total{api=...,result=...}
-//   geoapify_route_planner_credits_total{}
+//   geoapify_credits_total{api=...}
 const vendorCallCounter = meter.createCounter('geoapify.vendor_call.count', {
   description: 'Billed Geoapify API calls by API and result',
 })
 
-const routePlannerCreditsCounter = meter.createCounter(
-  'geoapify.route_planner.credits',
-  { description: 'Geoapify Route Planner credits billed by door knocking' },
-)
+// One counter split by `api` rather than a counter per API, and keyed on the
+// same closed set the call counter uses. A single route spends at two APIs at
+// two completely different rates, so the two questions worth asking are the
+// total and the split — both one query off one series, neither needing a
+// dashboard to remember which counters to sum. It also means a third billed
+// API arrives as an attribute value instead of a counter that every existing
+// total silently omits.
+const creditsCounter = meter.createCounter('geoapify.credits', {
+  description: 'Geoapify credits billed by door knocking, by API',
+})
 
 /**
- * Which billed Geoapify API a call hit. One knock makes two: a
+ * Which billed Geoapify API a call hit. One create makes two: a
  * `route_planner` optimization and a `routing` fetch for the path geometry.
- * Only the first is in the waypoint ledger, so `routing` is counted here or
- * nowhere.
+ * The waypoint ledger counts only the first in its `waypoints` column, which
+ * is the unit the per-organization quota caps; its `credits` column and the
+ * counters here cover both.
  */
 export type GeoapifyApi = 'route_planner' | 'routing'
 
@@ -54,15 +61,19 @@ export const recordGeoapifyCall = (
   }
 }
 
-// Credits rather than waypoints: credits are the unit Geoapify's shared daily
-// pool is denominated in, so this is the series a global ceiling reads. Kept
+// Credits rather than waypoints or calls: credits are the unit Geoapify's
+// shared daily pool is denominated in, and neither of the other two converts
+// into it — the Route Planner's rate is quadratic under ten locations. Kept
 // free of an organization attribute on purpose — per-org spend is attributed
 // in the DoorKnockingSpend log line instead, where high cardinality is free.
-export const recordRoutePlannerCredits = (credits: number): void => {
+export const recordGeoapifyCredits = (
+  api: GeoapifyApi,
+  credits: number,
+): void => {
   if (!isOtelEnabled()) return
   try {
-    routePlannerCreditsCounter.add(credits, { environment: environment() })
+    creditsCounter.add(credits, { api, environment: environment() })
   } catch (error) {
-    logger.error('Failed to record Geoapify route planner credits', error)
+    logger.error('Failed to record Geoapify credits', error)
   }
 }

@@ -122,6 +122,53 @@ const PhoneBankingSupportersMetric = ({
   )
 }
 
+// A door-knocking envelope carries no send counts either, and unlike a text
+// blast its figures do not stop moving when the campaign is created: doors get
+// logged for as long as the walk runs. So both cells read the SAME live
+// aggregate the rail and the details drawer read, rather than a snapshot taken
+// at knock time that would disagree with them by the end of the first evening.
+const DoorKnockingPeopleMetric = ({
+  id,
+  compact,
+  detailFetcher,
+}: {
+  id: number
+  compact?: boolean
+  detailFetcher: OutreachDetailFetcher
+}) => {
+  const { data } = useOutreachDetail(id, true, detailFetcher)
+  const count = data?.doorKnocking?.peopleCount
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  if (compact) {
+    return <>{count.toLocaleString()} people</>
+  }
+  return (
+    <>
+      <span className="text-sm">{count.toLocaleString()}</span>{' '}
+      <span className="text-xs">people</span>
+    </>
+  )
+}
+
+// "Logged", not "responses": a knock is logged whether or not anyone answered,
+// and the drawer already says "N of M people logged" off this same number.
+const DoorKnockingLoggedMetric = ({
+  id,
+  detailFetcher,
+}: {
+  id: number
+  detailFetcher: OutreachDetailFetcher
+}) => {
+  const { data } = useOutreachDetail(id, true, detailFetcher)
+  const count = data?.doorKnocking?.loggedCount
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return <>{count.toLocaleString()} logged</>
+}
+
 // compact = the mobile card's flat text-xs line; the table cell splits the
 // number (text-sm) from the unit (text-xs) per the prototype.
 const RowMetric = ({
@@ -139,6 +186,15 @@ const RowMetric = ({
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (
       <PhoneBankingCalledMetric id={row.id} detailFetcher={detailFetcher} />
+    )
+  }
+  if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
+    return (
+      <DoorKnockingPeopleMetric
+        id={row.id}
+        compact={compact}
+        detailFetcher={detailFetcher}
+      />
     )
   }
   const sent = row.textCount ?? row.billableTextCount
@@ -175,6 +231,11 @@ const RowResults = ({
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (
       <PhoneBankingSupportersMetric id={row.id} detailFetcher={detailFetcher} />
+    )
+  }
+  if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
+    return (
+      <DoorKnockingLoggedMetric id={row.id} detailFetcher={detailFetcher} />
     )
   }
   return <span className="text-muted-foreground">—</span>
@@ -341,7 +402,7 @@ export const OutreachHistoryTable = ({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">
-            {showArchive ? 'Archived outreach' : 'Outreach history'}
+            {showArchive ? 'Archived outreach' : 'Outreach campaign history'}
           </h2>
           <p className="text-sm text-muted-foreground">
             {showArchive

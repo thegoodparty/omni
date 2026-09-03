@@ -72,20 +72,25 @@ const ACTION: Record<(typeof TIERS)[number], string> = {
 /**
  * Tiered warnings on the whole-account Geoapify allowance.
  *
- * The gap these fill: `assertWaypointQuota` allows one organization 500
- * waypoints per rolling 24h by default and nothing sums across organizations,
- * and the existing `door-knocking-route-planner-spend-ceiling` catches a fast
- * burn (>10,000 credits / 6h) without knowing what the account can afford.
- * Neither answers "how close are we to the wall?", and the wall is hard:
+ * The gap these fill, and it is now the whole gap: nothing in the code
+ * measures credits against what the account can afford. A per-organization
+ * stop budget used to sit here — 500 waypoints per rolling 24h — and was
+ * removed, so the only per-account limit left is five campaigns a day per
+ * organization, which paces list-building rather than bounding spend and
+ * cannot: five two-stop turfs and five 150-stop turfs are the same five
+ * campaigns and differ by a factor of thirty in credits. The existing
+ * `door-knocking-route-planner-spend-ceiling` catches a fast burn (>10,000
+ * credits / 6h) without knowing the budget. So these tiers are the only thing
+ * that answers "how close are we to the wall?", and the wall is hard:
  * Geoapify refuses, `planRoute` throws `BadGatewayException`, and list
  * creation returns 502 for everyone at once regardless of whose spend caused
  * it.
  *
- * The 500 is a default an admin can raise per organization
- * (`override_door_knocking_waypoint_limit`, capped at 5,000 waypoints), which
- * is precisely why these tiers exist rather than a sum of per-org quotas: an
- * override buys no new headroom, it enlarges one org's share of this same
- * fixed pool, and only a measurement of the pool notices.
+ * That is also why measuring the pool is the right shape rather than summing
+ * per-org allowances. The campaign limit is admin-raisable per organization
+ * (`override_door_knocking_campaign_limit`, capped at 30), and an override
+ * buys no new headroom — it enlarges one org's share of this same fixed pool,
+ * and only a measurement of the pool notices.
  *
  * A runaway trips the 6h ceiling first and these later, which is the intended
  * ordering — that one measures rate, these measure budget.
@@ -133,7 +138,7 @@ export const geoapifyBudgetAlerts: Alert[] = TIERS.map((percent) => ({
       'en-US',
     )} credits) in the last 24 hours, across all organizations.`,
     ACTION[percent],
-    'Click *View in Grafana* for the DoorKnockingSpend lines, then group by organization to find the source: `sum by (organizationSlug) (sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))`. A single organization above 5,000 is over the default quota, which is either the ENG-10901 overshoot or an admin-granted override — check `override_door_knocking_waypoint_limit` on the org before treating it as a bug. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
+    'Click *View in Grafana* for the DoorKnockingSpend lines, then group by organization to find the source: `sum by (organizationSlug) (sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))`. No per-org spend cap exists to compare that against, so read it against the campaign limit instead: a full-sized campaign is about 1,650 credits, so an organization far above five of those (~8,000) has either been granted an override — check `override_door_knocking_campaign_limit` on the org — or is looping. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
     `The allowance is a hand-maintained constant (GEOAPIFY_DAILY_CREDIT_POOL, currently ${GEOAPIFY_DAILY_CREDIT_POOL.toLocaleString(
       'en-US',
     )}), not something gp-api can read. If all four tiers fired at once, suspect the constant before the spend — a free-tier key is 3,000/day.`,

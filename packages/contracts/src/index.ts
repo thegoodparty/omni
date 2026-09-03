@@ -950,6 +950,11 @@ export {
 } from './doorKnocking/DoorKnockingAddressPreview.schema'
 
 export {
+  DoorKnockingQuotaResponseSchema,
+  type DoorKnockingQuotaResponse,
+} from './doorKnocking/DoorKnockingQuota.schema'
+
+export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
   CONTACTS_MADE_DIM_KEY,
@@ -997,12 +1002,8 @@ export {
   type DoorKnockingOutreachDetail,
   DoorKnockingArchiveRequestSchema,
   type DoorKnockingArchiveRequest,
-  DoorKnockingKnockRequestSchema,
-  type DoorKnockingKnockRequest,
   DoorKnockingRouteHeaderSchema,
   type DoorKnockingRouteHeader,
-  DoorKnockingKnockResponseSchema,
-  type DoorKnockingKnockResponse,
   DoorKnockingModeSchema,
   type DoorKnockingMode,
 } from './doorKnocking/DoorKnockingTurf.schema'

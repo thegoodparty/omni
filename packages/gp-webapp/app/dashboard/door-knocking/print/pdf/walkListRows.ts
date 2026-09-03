@@ -1,6 +1,11 @@
 import type { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
 import { skipInstruction, STATUS_LABELS } from '../../native/statusPresentation'
-import { describeTarget, lastContactLine, legTravelLine } from '../walkFacts'
+import {
+  describeTarget,
+  lastContactLine,
+  legTravelLine,
+  targetPhone,
+} from '../walkFacts'
 
 // What the three answer columns hold for one resident. `skip` and `logged`
 // replace the tick-boxes entirely — there is nothing to ask at either door.
@@ -29,12 +34,23 @@ export interface WalkListRow {
   // in the voter file, and a canvasser reads anything in that cell as a fact
   // about the person.
   age: number | null
+  // The number to try when nobody answers, in the Phone column the design
+  // template rules. Cell first, landline as the fallback, chosen by
+  // `targetPhone` so the two paper surfaces cannot pick differently.
+  //
+  // This is the field the row model was structurally unable to carry, and the
+  // reason that mattered: a column here is reachable by every renderer at once.
+  // It is deliberately the *only* screen-side field that crossed — the
+  // eleven-attribute demographic profile and ADR 0011's saved notes are still
+  // absent, and the tests that assert their omission against a fixture carrying
+  // all of them are unchanged.
+  phone: string | null
   meta: string
   // ENG-10876. When this campaign last reached this resident and what happened,
   // or null when it never has. A blank answer form means "worth knocking", which
   // on paper reads the same for a door nobody has been to and one that answered
-  // unsure — this is the line that tells them apart. Never a note and never a
-  // phone number; see `lastContactLine`.
+  // unsure — this is the line that tells them apart. Never a note; see
+  // `lastContactLine`.
   lastContact: string | null
   // How long the walk from the previous stop takes, on the stop's first row and
   // null on every other row of it — the same merge as the stop number, because
@@ -75,6 +91,7 @@ export const walkListRows = (
             .filter((name): name is string => Boolean(name)),
           name: target.name ?? 'Name unavailable',
           age: target.age,
+          phone: targetPhone(target),
           meta: describeTarget(target),
           lastContact: lastContactLine(target),
           travel: firstInStop ? legTravelLine(stop) : null,

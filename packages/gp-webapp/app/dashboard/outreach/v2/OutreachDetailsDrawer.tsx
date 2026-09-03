@@ -59,6 +59,7 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
+import { ExportWalkSheetButton } from 'app/dashboard/door-knocking/native/ExportWalkSheetButton'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { shortOutreachDate } from './outreachDate.util'
@@ -311,13 +312,11 @@ export const OutreachDetailsDrawer = ({
       errorSnackbar("Couldn't cancel this campaign. Please try again."),
   })
 
-  // The envelope's flag for every channel that owns its own archive, and the
-  // TURF's for a walk. They are one act with two rows, and the turf is the
-  // source the envelope is mirrored off — so a list archived before that
-  // mirror shipped has an envelope still reading active, and trusting the
-  // projection here would draw "Move to archive" on a list already on the
-  // shelf. The repair is pressing the button, which is why reading the source
-  // and writing through the turf go together.
+  // Both of these are the same envelope's `archivedAt` for a walk: the block
+  // restates it, and the history row carries it directly. Read off the block
+  // anyway, because it arrives with the detail rather than with the table —
+  // a row this drawer was opened from through a deep link has no cached copy
+  // to be right or wrong about.
   const isArchived = Boolean(
     isDoorKnocking ? doorKnocking?.archivedAt : row?.archivedAt,
   )
@@ -326,11 +325,11 @@ export const OutreachDetailsDrawer = ({
       const rowId = row?.id
       if (!rowId) return Promise.reject(new Error('row unavailable'))
       // Door knocking archives through the TURF's endpoint, never this row's.
-      // `DoorKnockingTurfService.setArchived` moves both rows in one
-      // transaction; `OutreachService.setArchived` can only reach the
-      // envelope, and a second writer that reaches one of two flags is exactly
-      // how they drift apart. So this drawer gained the button by gaining the
-      // turf id, not by gaining a write of its own.
+      // Both write the same envelope column, but the turf's route is the one
+      // the door-knocking rail invalidates against and the one whose response
+      // is a turf — so routing the write through it keeps one act with one
+      // writer, and this drawer gained the button by gaining the turf id
+      // rather than a write of its own.
       if (isDoorKnocking) {
         const turfId = doorKnocking?.turfId
         if (!turfId) return Promise.reject(new Error('turfId unavailable'))
@@ -403,11 +402,22 @@ export const OutreachDetailsDrawer = ({
     ? phoneBanking
       ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
       : null
-    : // The walk is resumed from the door-knocking surface, which opens on the
-      // rail of saved lists. The turf id is now on the detail, so the blocker
-      // is no longer identifying the list — it is that the door-knocking page
-      // reads no such param, so a deeper link would land on the rail anyway.
-      '/dashboard/door-knocking'
+    : // Straight into the walk, not onto the rail: every door-knocking row has
+      // a routed turf now, so "Continue knocking" has exactly one list it can
+      // mean. `outreachId` is the return leg — closing the walk reopens this
+      // drawer through the hub's own consume-once deep link, so a candidate
+      // who went to knock a list comes back to the row they were reading
+      // rather than to a map.
+      //
+      // Null until the detail lands, which is phone banking's rule for the
+      // same reason: the turf id rides the detail, so a link built without it
+      // could only go to the bare map. Holding the slot disabled for a moment
+      // beats a press that silently lands somewhere else — and a walk whose
+      // list has since been deleted keeps the slot disabled for good, which is
+      // the truth about a walk with nothing left to knock.
+      doorKnocking
+      ? `/dashboard/door-knocking?walkTurfId=${doorKnocking.turfId}&outreachId=${row?.id}`
+      : null
 
   const editDetail = detailQuery.data
   const canEditSms =
@@ -552,22 +562,28 @@ export const OutreachDetailsDrawer = ({
                           <PhoneIcon className="size-4" />
                         ),
                       }
-                    : // Phone banking's href is the list id, which rides the
-                      // detail rather than the history row, so it is unknown
-                      // for as long as that query is in flight. Holding the
-                      // slot disabled beats letting the whole footer appear a
-                      // beat after the drawer — the body is already showing
-                      // "Loading call progress…", and a CTA that materializes
-                      // under a thumb already moving is worse than one that
-                      // was visibly not ready yet. Only while loading: once
-                      // the detail has failed the body says so and offers the
-                      // recovery, and a button that can never enable is not a
-                      // state to render.
+                    : // Both channels' hrefs are ids that ride the detail —
+                      // phone banking's list, door knocking's turf — so
+                      // neither is known for as long as that query is in
+                      // flight. Holding the slot disabled beats letting the
+                      // whole footer appear a beat after the drawer: the body
+                      // is already showing its own loading line, and a CTA
+                      // that materializes under a thumb already moving is
+                      // worse than one that was visibly not ready yet. Only
+                      // while loading: once the detail has failed the body
+                      // says so and offers the recovery, and a button that can
+                      // never enable is not a state to render.
                       detailQuery.isLoading
                       ? {
                           kind: 'disabled',
-                          label: CONTINUE_LABELS.phoneBanking,
-                          icon: <PhoneIcon className="size-4" />,
+                          label: isDoorKnocking
+                            ? CONTINUE_LABELS.doorKnocking
+                            : CONTINUE_LABELS.phoneBanking,
+                          icon: isDoorKnocking ? (
+                            <DoorOpenIcon className="size-4" />
+                          ) : (
+                            <PhoneIcon className="size-4" />
+                          ),
                         }
                       : null
               }
@@ -611,6 +627,16 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
+            {/* First in the body, where the design puts it: the walk sheet is
+                the one thing a candidate opens this row to take away, and
+                everything below it is a report on a walk that has already
+                happened. Gated on the detail having landed rather than on the
+                channel alone, because the turf id is what the print route
+                needs and it arrives with the detail. */}
+            {isDoorKnocking && doorKnocking && (
+              <ExportWalkSheetButton turfId={doorKnocking.turfId} />
+            )}
+
             {(audienceName || audienceLabels.length > 0) && (
               <DetailsSection title="Applied filters">
                 {audienceName && (

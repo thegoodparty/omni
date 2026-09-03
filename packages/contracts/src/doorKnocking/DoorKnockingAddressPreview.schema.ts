@@ -33,7 +33,8 @@ export type DoorKnockingPreviewLocation = z.infer<
 >
 
 // The exact in-ring audience for a shape being drawn: the same evaluation the
-// knock runs, minus the billed vendor call and without freezing anything.
+// create transaction runs, minus the billed vendor call and without writing
+// anything.
 //
 // `stops`, `doors` and `people` are the three quantities `routeCounts.ts`
 // defines, computed the way the freeze computes them — stops are unique

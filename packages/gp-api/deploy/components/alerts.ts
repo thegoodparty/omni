@@ -195,12 +195,12 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'log',
-    // The waypoint quota allows 500 waypoints per organization per rolling
-    // 24h by default — an admin can raise a single org past that —
-    // and nothing sums across organizations, so the total bill scales with how
-    // many orgs hold the flag. This is that missing global view: a ceiling
-    // that pages rather than a hard cap, because one org's spend must not be
-    // able to fail another org's knock.
+    // No per-organization spend cap exists — a 500-waypoint daily budget used
+    // to sit beside this and was removed — and nothing sums across
+    // organizations, so the total bill scales with how many orgs hold the
+    // flag. This is that missing global view: a ceiling that pages rather than
+    // a hard cap, because one org's spend must not be able to fail another
+    // org's knock.
     //
     // Reads the DoorKnockingSpend log line rather than
     // geoapify_credits_total: the log is exact and immune to the

@@ -2,8 +2,7 @@ import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
   DoorKnockingArchiveRequest,
-  DoorKnockingKnockRequest,
-  DoorKnockingKnockResponse,
+  DoorKnockingQuotaResponse,
   DoorKnockingRoutePayload,
   DoorKnockingTurf,
   GeoJsonPolygon,
@@ -983,14 +982,47 @@ export type APIEndpoints = {
     Request: undefined
     Response: ArrayBuffer
   }
+  // The rail. Scoped by SURFACE as well as by org: it returns the lists whose
+  // outreach envelope carries this caller's campaign, so a dual-role org's Win
+  // and Serve rails cannot see each other's turfs (ENG-10976). Every other
+  // turf route is reached by id and needs only the org scope.
   'GET /v1/door-knocking/turfs': {
     Request: {}
     Response: DoorKnockingTurf[]
   }
+  // Serve sibling of the above. A separate route rather than a parameter
+  // because the whole point is that the scope is NOT derived from what the org
+  // happens to hold — choosing this endpoint is how a Serve caller says so.
+  'GET /v1/door-knocking/serve/turfs': {
+    Request: {}
+    Response: DoorKnockingTurf[]
+  }
+  // Both daily allowances, read before the create flow opens. Org-scoped and
+  // NOT surface-scoped, unlike the two rails above: an org has one campaign
+  // allowance and one stop allowance, shared across Win and Serve.
+  'GET /v1/door-knocking/quota': {
+    Request: {}
+    Response: DoorKnockingQuotaResponse
+  }
+  // Creating a list buys its Geoapify route in the same transaction, so this
+  // is the only paid call the feature makes and the request carries the walk
+  // settings (`mode`, `loop`) the route is optimized for. It can fail on
+  // vendor timeout or the daily campaign limit, which is why the flow keeps
+  // its state
+  // mounted rather than clearing on submit — nothing is persisted unless the
+  // whole chain commits.
   'POST /v1/door-knocking/turfs': {
     Request: CreateDoorKnockingTurf
     Response: DoorKnockingTurf
   }
+  // Serve sibling of the above, for an elected official. Same body; the
+  // envelope it writes is scoped by organization with no campaign.
+  'POST /v1/door-knocking/serve/turfs': {
+    Request: CreateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  // Name and colour only. The polygon is what the frozen route was computed
+  // from, so it is not editable at all.
   'PUT /v1/door-knocking/turfs/:id': {
     Request: UpdateDoorKnockingTurf
     Response: DoorKnockingTurf
@@ -999,9 +1031,10 @@ export type APIEndpoints = {
     Request: {}
     Response: undefined
   }
-  // The list lifecycle. Both apply only to a knocked list, both answer with the
-  // whole row, and both are idempotent server-side in the direction that stamps
-  // a timestamp — so a retry cannot walk the date a card renders forward.
+  // The list lifecycle, which is written on the list's outreach envelope and
+  // read back on the whole row. Both are idempotent server-side in the
+  // direction that stamps a timestamp, so a retry cannot walk the date a card
+  // renders forward.
   'POST /v1/door-knocking/turfs/:id/complete': {
     Request: {}
     Response: DoorKnockingTurf
@@ -1011,10 +1044,6 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/turfs/:id/archive': {
     Request: DoorKnockingArchiveRequest
     Response: DoorKnockingTurf
-  }
-  'POST /v1/door-knocking/turfs/:id/knock': {
-    Request: DoorKnockingKnockRequest
-    Response: DoorKnockingKnockResponse
   }
   'GET /v1/door-knocking/turfs/:id/route': {
     Request: {}

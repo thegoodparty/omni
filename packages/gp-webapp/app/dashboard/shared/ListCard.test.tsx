@@ -67,31 +67,23 @@ describe('ListCard', () => {
     )
   })
 
-  // The expanded slot is where the least frequent and most final action goes,
-  // so it must not be reachable on a card nobody has opened.
-  it('reveals the expanded actions only while selected', () => {
-    const { rerender } = render(
-      <ListCard
-        title="Elm St & 5th"
-        expandedActions={<button type="button">Mark this list done</button>}
-      />,
+  // Every rail that stacks these is a column flex scroller. Without this the
+  // cards divide the visible height between them rather than overflowing it,
+  // and the `overflow-hidden` that keeps the accent bar inside the rounded
+  // corner then clips whatever fell off the bottom — which on a phone took the
+  // footer actions off two cards out of three, with nothing to show it had.
+  it('keeps its full height in a rail too short to hold it', () => {
+    render(
+      <div className="flex h-10 flex-col overflow-y-auto">
+        <ListCard
+          title="Elm St & 5th"
+          data-testid="card"
+          actions={<button type="button">Knock</button>}
+        />
+      </div>,
     )
 
-    expect(
-      screen.queryByRole('button', { name: 'Mark this list done' }),
-    ).toBeNull()
-
-    rerender(
-      <ListCard
-        title="Elm St & 5th"
-        selected
-        expandedActions={<button type="button">Mark this list done</button>}
-      />,
-    )
-
-    expect(
-      screen.getByRole('button', { name: 'Mark this list done' }),
-    ).toBeVisible()
+    expect(screen.getByTestId('card')).toHaveClass('shrink-0')
   })
 
   // Selection is drawn without changing the box. These cards stack in a

@@ -10,25 +10,28 @@ model DoorKnockingTurf {
   color             String
   /// [GeoJsonPolygon]
   geoPoly           Json              @map("geo_poly")
+  // Optional only because the FK lives on the child. Since 3.0 the route is
+  // bought in the same transaction that inserts this row, so a turf with no
+  // route cannot be created; the migration deleted the ones that predate it.
   route             DoorKnockingRoute?
 
-  // The list lifecycle lives here rather than on the Outreach envelope even
-  // though the envelope already has a `status` enum that spells both states.
-  // The envelope requires a Campaign, and a Serve org knocks without one, so
-  // the knock transaction skips creating it entirely — a lifecycle stored
-  // there would be invisible to an org the Pro gate deliberately admits (see
-  // DoorKnockingPageGate). The envelope's status is written alongside these
-  // as a mirror, for the Win outreach history table.
-  completedAt       DateTime?         @map("completed_at")
-  archivedAt        DateTime?         @map("archived_at")
-  // Soft delete, and only ever for a knocked list. Deleting the row cascades
-  // turf -> route -> stops -> targets AND the Outreach envelope, which throws
-  // away the frozen addresses, the name snapshots kept for privacy deletion,
-  // and a Geoapify route that was billed once and is documented as never
-  // re-bought. Knock history itself survives regardless — it hangs off the
-  // organization, not this chain — so what a hard delete destroys is the
-  // context that says which list a knock belonged to.
-  deletedAt         DateTime?         @map("deleted_at")
+  // No completedAt/archivedAt here: the lifecycle lives on the Outreach
+  // envelope (status + archivedAt), which since 3.0 every turf has. It used
+  // to live here because the envelope needed a Campaign and a Serve org
+  // knocks without one, so the knock transaction skipped it — that forced a
+  // mirror write on both rows and the two columns drifted apart whenever one
+  // half was missed. Serve orgs now get an org-scoped envelope of their own
+  // (campaignId null, the dual-scope idiom every channel uses), so there is
+  // exactly one home for it again.
+
+  // Soft delete. Deleting the row cascades turf -> route -> stops -> targets
+  // AND the Outreach envelope, which throws away the frozen addresses, the
+  // name snapshots kept for privacy deletion, and a Geoapify route that was
+  // billed once and is documented as never re-bought. Every turf is billed
+  // from birth now, so this is the only delete there is — the hard-delete
+  // branch for an unbought drawing has nothing left to match. Knock history
+  // survives regardless: it hangs off the organization, not this chain.
+  deletedAt DateTime? @map("deleted_at")
 
   @@index([voterFileFilterId])
   @@map("door_knocking_turf")

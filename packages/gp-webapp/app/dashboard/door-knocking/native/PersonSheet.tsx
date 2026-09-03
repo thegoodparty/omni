@@ -10,11 +10,13 @@ import {
 } from '@goodparty_org/contracts'
 import {
   BadgeCheckIcon,
+  Button,
   ChevronLeftIcon,
   ChevronRightIcon,
-  CircleUserRoundIcon,
   ClipboardListIcon,
-  FileTextIcon,
+  ContactRoundIcon,
+  DoorClosedIcon,
+  FolderOpenIcon,
   HouseIcon,
   IconButton,
   MapPinIcon,
@@ -22,8 +24,13 @@ import {
   XMarkIcon,
 } from '@styleguide'
 import SheetSectionHeader from './SheetSectionHeader'
-import { demographicFacts, voterDemographicFacts } from './demographicFacts'
+import {
+  NOT_ON_FILE,
+  demographicFacts,
+  voterDemographicFacts,
+} from './demographicFacts'
 import RecordKnockForm from './RecordKnockForm'
+import { SUPPORT_OPTIONS } from './knockQuestions'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
 import DoNotKnockControl from './DoNotKnockControl'
@@ -75,7 +82,7 @@ const FactCard = ({
   title: string
   facts: Array<{ label: string; value: string }>
 }) => (
-  <section className="mb-4 rounded-lg border border-border">
+  <section className="mb-4 rounded-xl border border-border">
     <SheetSectionHeader icon={icon} title={title} />
     <div className="flex flex-col gap-4 p-4">
       {facts.map(({ label, value }) => (
@@ -101,13 +108,25 @@ const FactCard = ({
 // on the payload carries no timestamp of its own and inventing one would date a
 // stance to whenever the walk happened to be served.
 //
-// **Will-vote is deliberately not here.** The canvas card carries a second line
-// for it and `RecordKnockForm` asks the question, but the answer only lives in
-// the CRM interaction — nothing derives it onto `knockStatus` the way support
-// is derived, so the panel has no current value to state. Recorded as still
-// open in `AGENTS.md` rather than approximated from the most recent knock,
-// which would quietly report one canvasser's answer as the resident's standing
-// position.
+// **The row is the canvas's `panelField('Do they support you?', …)`** — the
+// knock form's own question, answered in the knock form's own words. The canvas
+// writes the value through `PB_SUPPORT_LABEL` (Yes / No / Unsure), and the
+// vocabulary is already in this feature as `SUPPORT_OPTIONS`, so the card reads
+// it from there rather than restating it: the question a canvasser was asked at
+// the door and the answer read back a week later are then literally the same
+// two strings. `STATUS_LABELS`' "Supporter" / "Non-supporter" stays where it
+// belongs — on the rosters and the legend, where a row in a list of people
+// needs a noun rather than an answer to a question that isn't printed beside it.
+//
+// **Will-vote is deliberately not here**, and this is the one place the card
+// departs from the canvas's field list. The canvas draws a second row,
+// `panelField('Will they vote?', …)`, and `RecordKnockForm` does ask the
+// question — but the answer only lives in the CRM interaction: nothing derives
+// it onto `knockStatus` the way support is derived, so there is no current value
+// to state and "Not logged" would be false for every resident who has actually
+// answered it. Recorded as still open in `AGENTS.md` rather than approximated
+// from the most recent knock, which would quietly report one canvasser's answer
+// as the resident's standing position.
 //
 // ADR 0007 and 0008: withheld for a flagged resident. That is `targetMarker`'s
 // rule at panel scale — the marker REPLACES the status rather than sitting
@@ -128,14 +147,15 @@ const VoterSupportCard = ({
   const support = supportStatus(status)
   if (!support) return null
   const asOf = supportAsOf(target, support)
+  const answer = SUPPORT_OPTIONS.find(([option]) => option === support)?.[1]
   return (
-    <section className="mb-4 rounded-lg border border-border">
+    <section className="mb-4 rounded-xl border border-border">
       <SheetSectionHeader icon={BadgeCheckIcon} title="Voter support" />
-      <div className="p-4">
-        <p className="flex items-center gap-2 text-sm font-medium">
-          <StatusDot status={support} />
-          {STATUS_LABELS[support]}
-        </p>
+      <div className="flex flex-col gap-4 p-4">
+        <FactRow label="Do they support you?" value={answer ?? NOT_ON_FILE} />
+        {/* Not a canvas row. The status carries no timestamp, so this is read
+            off the resident's own history and is simply absent when nothing
+            there states the answer being shown — see `supportAsOf`. */}
         {asOf && <p className="text-sm text-muted-foreground">As of {asOf}</p>}
       </div>
     </section>
@@ -200,14 +220,40 @@ interface PersonSheetProps {
 // sheet, which leaves the building.
 const digitsOnly = (phone: string): string => phone.replace(/\D/g, '')
 
-const PhoneRow = ({ label, phone }: { label: string; phone: string }) => (
+// A `panelField` whose value happens to be dialable. The canvas draws both
+// phone rows unconditionally and writes the empty one as a value rather than
+// dropping it (`panelField('Landline','Unknown')`), which is the better shape:
+// a card that silently loses a row states nothing about whether the number was
+// looked for, and the two rows are also the only place this card can say the
+// number is missing now that it has no sentence of its own.
+//
+// The absent value is `NOT_ON_FILE` and not the canvas's "Unknown", because
+// this panel already has one word for an empty voter-file column and it is the
+// one the two fact cards below print nine and three times over. Two vocabularies
+// for absence, one card apart, teaches a reader that the boundary means
+// something — which is exactly the argument `demographicFacts.ts` makes about
+// its own two cards.
+const PhoneRow = ({
+  label,
+  phone,
+}: {
+  label: string
+  phone: string | null | undefined
+}) => (
   <div>
     <p className="text-sm text-muted-foreground">{label}</p>
-    {/* Tappable: the point of a number at the door is calling it from the
-        phone already in the canvasser's hand. */}
-    <a className="underline" href={`tel:${digitsOnly(phone)}`}>
-      {phone}
-    </a>
+    {phone ? (
+      // Tappable: the point of a number at the door is calling it from the
+      // phone already in the canvasser's hand.
+      <a
+        className="text-sm font-medium underline"
+        href={`tel:${digitsOnly(phone)}`}
+      >
+        {phone}
+      </a>
+    ) : (
+      <p className="text-sm font-medium">{NOT_ON_FILE}</p>
+    )}
   </div>
 )
 
@@ -249,6 +295,11 @@ export default function PersonSheet({
   const otherResidents = stop.addresses.flatMap(
     (address) => address.otherResidents,
   )
+  const addressOfTarget = stop.addresses.find((address) =>
+    address.targets.some(
+      (candidate) => candidate.stopTargetId === target.stopTargetId,
+    ),
+  )
 
   // ADR 0007 and 0008, resolved once for the whole sheet. A flagged door has
   // nothing to say and nothing to log, so the footer swaps the script, the form
@@ -278,7 +329,11 @@ export default function PersonSheet({
         onClick={onClose}
       />
       <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[85dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
-        <div className="flex flex-col gap-3 border-b border-border p-4">
+        {/* 20px of horizontal padding through all three bands, which is
+            `renderPanel`'s: the header, the scrolling body (`padding:'0 20px
+            16px'`) and the sticky log bar (`'12px 20px 16px'`) all measure from
+            the same edge, so a card's border and the name above it line up. */}
+        <div className="flex flex-col gap-3 border-b border-border px-5 py-4">
           <div className="flex items-start gap-2">
             {/* The canvas's panel header: back, the stop's number, the person,
                 forward. Both chevrons are rendered at every position and
@@ -303,18 +358,28 @@ export default function PersonSheet({
               {stopSeq}
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-xl font-semibold">
-                {target.name ?? 'Name unavailable'}
+              {/* The DOOR, not the person: `renderPanel` heads this panel with
+                  `v.address` at 17/700 and leaves the names to the switcher
+                  below. That is the right subject — the panel is opened from a
+                  pin and closed at a doorstep, and a household of four opened
+                  four panels titled four different ways under one knocker.
+                  The person's own facts are all still here, in the switcher and
+                  in the demographics cards. */}
+              <h2 className="text-[17px] font-bold leading-tight">
+                {stop.displayAddress}
               </h2>
-              {/* The age alone, as the canvas draws it. Party used to share
-                  this line; it is a voter-file attribute like registration and
-                  turnout, so it sits with those in the Voter demographics card
-                  and the subtitle is left to identify the person. */}
-              <p className="text-sm text-muted-foreground">
-                {target.age !== null
-                  ? `${target.age} years old`
-                  : 'No details on file'}
-              </p>
+              {/* A block of flats: which door of it, under the building's
+                  address. The canvas's `doors.length>1 && …door.label`. */}
+              {stop.addresses.length > 1 && addressOfTarget && (
+                <p className="mt-0.5 flex items-center gap-1 truncate text-[13px] font-medium text-muted-foreground">
+                  <DoorClosedIcon
+                    size={14}
+                    aria-hidden="true"
+                    className="shrink-0"
+                  />
+                  {addressOfTarget.address}
+                </p>
+              )}
             </div>
             <IconButton
               variant="ghost"
@@ -376,51 +441,85 @@ export default function PersonSheet({
               })}
             </div>
           )}
+          {/* One resident means no switcher, and the switcher is where a
+              household's statuses are read — so the canvas prints the one
+              status on its own line instead (`residents.length<=1 && prev`).
+              A flagged resident's marker replaces it, the rule every roster in
+              this feature follows. */}
+          {targets.length === 1 &&
+            (targetMarker(target) ? (
+              <ResidentMarker marker={targetMarker(target) as string} />
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+                <StatusDot status={statusFor(target)} />
+                Last: {STATUS_LABELS[statusFor(target)]}
+              </span>
+            ))}
         </div>
 
-        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-4">
-          <section className="mb-4 rounded-lg border border-border">
+        {/* `renderPanel`'s card sequence, in its order: Talking points, Contact
+            information, Household, Voter demographics, Voter support,
+            Demographic information, Notes, Activity Feed.
+
+            **Notes moving to seventh reverses a position ADR 0011 recorded.**
+            The ADR argued it second, above the profile, because it is the only
+            card here read BEFORE the knock — "dog in the yard, use the side
+            gate" under a dozen rows of reference material is a note nobody
+            standing at a gate finds. That argument is unchanged and is worth
+            re-reading before this moves again; what overrules it is the design
+            call that this panel's card order is the canvas's. Nothing about the
+            card itself moved: it is still per-resident, still reads off the
+            payload, still writes straight to the CRM, and still renders for a
+            flagged resident whose footer is withheld. */}
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {/* First in the body, where the canvas draws it — it used to be a
+              collapsed disclosure pinned above the form. Withheld for a flagged
+              resident, by the same `flagControl` predicate the support card
+              reads: a door nobody should knock has nothing to open with. */}
+          {flagControl === null && (
+            <DoorScript intro={script.intro} issues={script.issues} />
+          )}
+
+          <section className="mb-4 rounded-xl border border-border">
             <SheetSectionHeader
-              icon={CircleUserRoundIcon}
+              icon={ContactRoundIcon}
               title="Contact information"
             />
             <div className="flex flex-col gap-4 p-4 text-sm">
               <div>
                 <p className="text-sm text-muted-foreground">Address</p>
-                <p className="font-medium">{stop.displayAddress}</p>
+                <p className="text-sm font-medium">{stop.displayAddress}</p>
               </div>
-              {target.cellPhone && (
-                <PhoneRow label="Cell phone" phone={target.cellPhone} />
-              )}
-              {target.landline && (
-                <PhoneRow label="Landline" phone={target.landline} />
-              )}
-              {/* Only meaningful for someone we still have a live row for: a
-                  mover has no number because the row is gone, not because the
-                  file lacks one, and the moved warning below says so. */}
-              {!target.cellPhone &&
-                !target.landline &&
-                !target.mayHaveMoved && (
-                  <p className="text-sm text-muted-foreground">
-                    No phone number on file.
-                  </p>
-                )}
-              {/* Google's documented universal maps URL, which hands off to
-                  the Maps app on both phone platforms rather than opening a web
-                  map in a tab over the walk. The query is the STOP's frozen
+              {/* Second, immediately under the address, where the canvas puts
+                  it — the address and the way to get there are one thought.
+
+                  Google's documented universal maps URL, which hands off to the
+                  Maps app on both phone platforms rather than opening a web map
+                  in a tab over the walk. The query is the STOP's frozen
                   coordinates, not its address text: the route was built from
                   them, and a rural or newly-built door is exactly where a
                   geocoder searching the address string lands somewhere else.
                   New tab for the reason the printed sheet uses one — leaving
-                  this tab unmounts the walk and discards its replay keys. */}
-              <a
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
-                href={`https://www.google.com/maps/search/?api=1&query=${stop.lat},${stop.lng}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <MapPinIcon size={16} /> Open in Maps
-              </a>
+                  this tab unmounts the walk and discards its replay keys.
+
+                  The canvas's own `DS.Button variant='outline'` at full width,
+                  through `asChild` so it stays an anchor: a real link is what
+                  makes the new tab and the middle-click work. */}
+              <Button asChild variant="outline" className="w-full">
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${stop.lat},${stop.lng}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MapPinIcon size={16} /> Open in Maps
+                </a>
+              </Button>
+              <PhoneRow label="Cell phone number" phone={target.cellPhone} />
+              <PhoneRow label="Landline" phone={target.landline} />
+              {/* Not a canvas line. A mover has no numbers and no demographic
+                  profile because the serve has no live row to read them off —
+                  not because the file is empty — and the rows above cannot say
+                  which of the two blanks this is. */}
               {target.mayHaveMoved && (
                 <p className="text-sm text-warning">
                   May have moved since this route was built.
@@ -429,50 +528,10 @@ export default function PersonSheet({
             </div>
           </section>
 
-          {/* ADR 0011. Second in the body, above the profile cards, because it
-              is the only card here a canvasser reads BEFORE they knock: "dog in
-              the yard, use the side gate" is the archetypal note, and putting
-              it under a dozen rows the comments below correctly call reference
-              material scanned mid-conversation is putting it where nobody
-              standing at a gate will find it. Contact information keeps the top
-              because the address and Open in Maps are what get someone to the
-              door in the first place. The canvas puts Notes second from last;
-              this position is the ADR's and outranks it.
-
-              In the scrolling body rather than the footer fragment, for the
-              same reason the activity feed is, and it is the same argument
-              twice over: notes are the record of the person, not an action on
-              them, so they keep rendering for a resident whose script and knock
-              form are withheld. A do-not-knock flag set on the wrong resident
-              is caught by reading what people have written about them, and a
-              note saying "this is the son, not the registered voter" is
-              precisely the kind of thing that would be hidden at the one moment
-              it is worth reading.
-
-              Keyed, unlike the feed beside it — not against a sibling
-              collision, which it has none of out here, but because the card
-              holds a draft and an open editor. Those belong to one resident:
-              carrying half a typed sentence about Dorian across the switcher
-              and offering it under Marisol's name is text about a named voter
-              attached to the wrong one. The saved lists themselves survive the
-              switch — and the sheet closing, and the door being reopened —
-              because they are not held here at all: a write is reported up and
-              lands in the cached route payload, which is where `target.notes`
-              is read back from. One list per resident, and this card renders
-              it. */}
-          <DoorNotesCard
-            key={target.stopTargetId}
-            personId={target.personId}
-            notes={seedDoorNotes(target.notes)}
-            onCreated={(created) => onNoteCreated(target.personId, created)}
-            onUpdated={(updated) => onNoteUpdated(target.personId, updated)}
-            onDeleted={(noteId) => onNoteDeleted(target.personId, noteId)}
-          />
-
-          {/* Above the three profile cards, where the canvas puts it. Who else
-              is behind this door is a fact about the door, and it is read
-              before the knock; the profile below is read during it. */}
-          <section className="mb-4 rounded-lg border border-border">
+          {/* Third, where the canvas puts it. Who else is behind this door is a
+              fact about the door, and it is read before the knock; the profile
+              below is read during it. */}
+          <section className="mb-4 rounded-xl border border-border">
             <SheetSectionHeader icon={HouseIcon} title="Household" />
             <div className="flex flex-col gap-2 p-4 text-sm">
               {targets.map((member) => {
@@ -538,13 +597,43 @@ export default function PersonSheet({
             <VoterSupportCard target={target} status={statusFor(target)} />
           )}
 
-          {/* `FileTextIcon` where the canvas uses `folder-open`, which the
-              styleguide does not export. Adding it is a styleguide change, not
-              a door-knocking one. */}
           <FactCard
-            icon={FileTextIcon}
+            icon={FolderOpenIcon}
             title="Demographic information"
             facts={demographicFacts(target)}
+          />
+
+          {/* ADR 0011, seventh, where the canvas draws Notes — see the sequence
+              note at the top of this body for what that reversed and why.
+
+              In the scrolling body rather than the footer fragment, for the same
+              reason the activity feed is, and it is the same argument twice
+              over: notes are the record of the person, not an action on them, so
+              they keep rendering for a resident whose talking points and knock
+              form are withheld. A do-not-knock flag set on the wrong resident is
+              caught by reading what people have written about them, and a note
+              saying "this is the son, not the registered voter" is precisely the
+              kind of thing that would be hidden at the one moment it is worth
+              reading.
+
+              Keyed, unlike the feed beside it — not against a sibling
+              collision, which it has none of out here, but because the card
+              holds a draft and an open editor. Those belong to one resident:
+              carrying half a typed sentence about Dorian across the switcher
+              and offering it under Marisol's name is text about a named voter
+              attached to the wrong one. The saved lists themselves survive the
+              switch — and the sheet closing, and the door being reopened —
+              because they are not held here at all: a write is reported up and
+              lands in the cached route payload, which is where `target.notes`
+              is read back from. One list per resident, and this card renders
+              it. */}
+          <DoorNotesCard
+            key={target.stopTargetId}
+            personId={target.personId}
+            notes={seedDoorNotes(target.notes)}
+            onCreated={(created) => onNoteCreated(target.personId, created)}
+            onUpdated={(updated) => onNoteUpdated(target.personId, updated)}
+            onDeleted={(noteId) => onNoteDeleted(target.personId, noteId)}
           />
 
           {/* ADR 0009. Scoped to `target`, so switching resident switches the
@@ -572,22 +661,28 @@ export default function PersonSheet({
           <ActivityFeedCard history={target.history ?? []} />
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-border p-4">
-          {/* ADR 0007 and 0008. The script and the form are withheld rather
-              than disabled: a flagged door has nothing to say and nothing to
-              log, and an inert set of pills invites someone to work out why
-              they don't respond. `flagControl` is resolved above, where
-              do-not-knock is checked first because it is the stronger
-              instruction — it is about the door, not the resident. */}
+        {/* The canvas's sticky log bar: `borderTop`, the background colour, and
+            `padding:'12px 20px 16px'` with 16px between its groups. It holds
+            only what a canvasser ACTS on — the question ladder — now that the
+            talking points card has moved to the top of the body where the canvas
+            draws it. */}
+        <div className="flex flex-col gap-4 border-t border-border px-5 pb-4 pt-3">
+          {/* ADR 0007 and 0008. The form is withheld rather than disabled: a
+              flagged door has nothing to log, and an inert set of pills invites
+              someone to work out why they don't respond. `flagControl` is
+              resolved above, where do-not-knock is checked first because it is
+              the stronger instruction — it is about the door, not the
+              resident. */}
           {flagControl ?? (
             <>
-              {/* Above the form, because it's what the canvasser says before
-                  there is anything to log. The canvas draws talking points as
-                  the first card in the scrolling body instead; pinned here it
-                  stays readable while the answers are being tapped, which is
-                  when a canvasser is still talking. */}
-              <DoorScript intro={script.intro} issues={script.issues} />
-              <h3 className="text-base font-semibold">Log this door</h3>
+              {/* No heading over the ladder. The design's log bar starts
+                  straight on the "Did they answer?" label, and a "Log this
+                  door" line above a question that says the same thing is the
+                  kind of copy this pass exists to remove. It survived one
+                  round only because two suites used the string as their "is the
+                  sheet open" sentinel; those now assert on the first question,
+                  which is a better sentinel anyway — it is the thing the
+                  canvasser is actually offered. */}
               <RecordKnockForm
                 key={target.stopTargetId}
                 target={target}
@@ -598,20 +693,22 @@ export default function PersonSheet({
               />
               {/* Below the form, because it is a follow-up to what the form
                   just recorded — it renders nothing until this door is logged
-                  as `not_a_voter`. */}
+                  as `not_a_voter`. Namespaced: a bare stopTargetId would
+                  collide with the form's key above, and React reconciles
+                  same-key siblings as one child. It still needs a key so it
+                  resets its mutation state when the canvasser switches
+                  resident.
+
+                  No `Don't knock again` beside it. The design's door has no
+                  such control, and the flag it set is not going away with it:
+                  a resident already flagged still gets the banner at the top
+                  of this footer, with its Undo, and the CRM is still where the
+                  flag is set. What is gone is a one-tap, permanent exclusion
+                  sitting directly under the log form on a phone in the rain. */}
               <NotAVoterControl
                 key={`not-a-voter-${target.stopTargetId}`}
                 target={target}
                 onChanged={onNotAVoterChanged}
-              />
-              {/* Namespaced: a bare stopTargetId would collide with the
-                  form's key above, and React reconciles same-key siblings as
-                  one child. All three still need a key so each resets its
-                  mutation state when the canvasser switches resident. */}
-              <DoNotKnockControl
-                key={`do-not-knock-${target.stopTargetId}`}
-                target={target}
-                onChanged={onDoNotKnockChanged}
               />
             </>
           )}

@@ -12,16 +12,40 @@ this file.
 The **filter** (existing `voter_file_filter`, untouched) names the audience;
 a **turf** (`door_knocking_turf`) is a named, colored polygon over it — one
 filter can hold N turfs; a **route** (`door_knocking_route`) is the frozen,
-immutable artifact generated the first time someone knocks a turf; and
-**interactions** (the CRM epic's `contact_interaction_door_knock`) are the
-only mutable record — one row per knock on a person.
+immutable artifact bought from Geoapify when the turf is created; an
+**outreach** (`outreach`) is the envelope that carries the list's lifecycle and
+puts it in the campaign's history; and **interactions** (the CRM epic's
+`contact_interaction_door_knock`) are the only mutable record — one row per
+knock on a person.
+
+### `outreach` → `turf` → `route` is 1:1:1
+
+The three rows are born together in one transaction and there is no state in
+which any of them exists without the others. This is the invariant everything
+below leans on, and it replaces a two-step flow where a turf was saved first
+and a **Knock** button bought its route later. Three things fell out of it:
+
+- **No unrouted turf, so no `locked`.** `locked` was `route !== null`, and it
+  gated update, delete and the rail's counts. It is always true, so it is gone
+  from the response entirely.
+- **No second purchase to guard against**, so the knock endpoint's idempotency
+  probe and its per-turf advisory lock retire with it. Nothing serializes two
+  creates: they make different turfs, and the daily campaign gate was never
+  serialized across turfs anyway (see below).
+- **Every turf has an envelope**, including a Serve org's, which is what let
+  the list lifecycle move off the turf and onto it.
+
+The chain is a `CHECK` rather than a convention:
+`outreach_type <> 'nativeDoorKnocking' OR door_knocking_route_id IS NOT NULL`.
+Route → turf is the route's `@unique doorKnockingTurfId`, so no column was
+added in either direction.
 
 ## Tables (all in this package's Prisma schema)
 
 | Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | -------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Locked (derived) iff its route exists. `completedAt`/`archivedAt`/`deletedAt` carry the list lifecycle — see below                                                                                                                                                                                                                                                                                    |
-| `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation                                                                                                                                                                                                                                                                                                                                                  |
+| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Always has exactly one route and one envelope. `deletedAt` is its only lifecycle column, and it is always a tombstone — see below                                                                                                                                                                                                                                                                     |
+| `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE. Written in the create transaction and never mutated after                                                                                                                                                                                                                                                                                                                                                                     |
 | `door_knocking_stop`             | One per unique lat/lng, in visit order                                | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze                                                                                                                                                                                                                                                                                                                                                 |
 | `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
 | `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
@@ -36,7 +60,7 @@ the one component that separates a unit from its building.
 Routes frozen before that hold a seven-segment key composed from the file's
 parsed components instead. Two of those components were the cardinal directions,
 and the columns they came from are INTEGER in the mirror and so always NULL — see
-peopleDb/AGENTS.md § *The two direction columns cannot hold a direction* for the
+peopleDb/AGENTS.md § _The two direction columns cannot hold a direction_ for the
 mechanism. A legacy key therefore never captured an `S` or a `W`, and nothing can
 recover them from one: **a list knocked before the fix keeps printing its
 addresses without directions until it is re-knocked**, because the key is frozen
@@ -60,56 +84,53 @@ Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
 
 ## The list lifecycle
 
-Three nullable timestamps on `door_knocking_turf`, driven by
-`POST turfs/:id/complete`, `POST turfs/:id/archive` (`{ archived: boolean }`),
-and the existing `DELETE turfs/:id`. All three apply only to a knocked list.
+`status` and `archivedAt` on the `Outreach` envelope, driven by
+`POST turfs/:id/complete` and `POST turfs/:id/archive`
+(`{ archived: boolean }`); `deletedAt` on the turf, driven by
+`DELETE turfs/:id`. The two lifecycle routes take a **turf** id and write the
+**envelope** it hangs off, which is the one place the addressing and the
+storage differ — the client holds turfs, and the turf is one `@unique` hop from
+the row that answers.
 
-**Why the turf and not the `Outreach` envelope.** The envelope already has a
-`status` enum that spells `in_progress` and `completed`, and an `archivedAt` of
-its own, so it looks like the obvious home. It isn't: the envelope requires a
-`campaignId`, and a Serve org knocks without a campaign, so the knock
-transaction skips creating one entirely. A lifecycle stored there would be
-invisible to an org the Pro gate deliberately admits. The turf is the one row
-every knocker has.
+**Why the envelope and not the turf.** The envelope already has a `status` enum
+spelling `in_progress` and `completed` and an `archivedAt` of its own, and the
+outreach history reads them for every other channel. The lifecycle used to live
+on the turf for exactly one reason: the envelope was skipped for a Serve org (a
+plain `if (campaign)` in the knock transaction), so a lifecycle stored there
+would have been invisible to an org the Pro gate deliberately admits. 3.0
+writes an envelope for every turf — `campaignId: null` is the Serve scope, the
+same dual-scope idiom every other channel uses — so that reason is gone and the
+turf's two columns went with it.
 
-**The envelope is a mirror of it, written in the same transaction.** Both
-lifecycle writers do this, and neither is optional: `complete` sets
-`status: completed`, `setArchived` sets `archivedAt` to whatever the turf's
-became. `updateMany` matched on `doorKnockingRouteId`, so the Serve case — no
-envelope at all — is a no-op rather than an error. Doing it server-side rather
-than in the caller is the point: it is one commit instead of two round trips a
-phone can die between, and it holds for any caller, not just the webapp. The
-webapp did carry a best-effort client mirror for archive (#1396) while gp-api
-was frozen; that is gone.
+**There is no mirror any more, and that is the point.** `complete` and
+`setArchived` used to write the turf and then copy the answer onto the envelope
+in the same transaction, and most of what this section used to say was about
+keeping the two copies honest: the ordering rule that put the copy ahead of the
+idempotence guard so a list archived before the mirror shipped could still be
+repaired, the shared-timestamp rule that stopped a repeat press walking
+"archived since" forward on one row only, and the restore symmetry. One row
+cannot drift from itself, so all of it is deleted rather than reworded. The
+migration copied the turf's answer over the envelope's unconditionally on the
+way through, so no list carries the old drift into 3.0.
 
-Two details in `setArchived` that are easy to undo by accident:
+The idempotence guards themselves stay, because they are about the timestamp
+and not about the second row: pressing Archive twice must not move
+"archived since", and `complete` must not restamp a finished list.
 
-- **The mirror runs ahead of the idempotence guard.** Lists archived before the
-  mirror existed have an envelope that never followed, and the guard
-  (`if (archived && locked.archivedAt) return locked`) would return early on
-  exactly those, leaving the drift permanent — pressing Archive again is the
-  only repair a candidate has.
-- **Both rows get the same timestamp, and it is the turf's existing one when
-  there is one.** That is what makes running the mirror unconditionally safe:
-  the guard exists so a double-tap can't walk "archived since" forward, and
-  writing `now` into the envelope on a repeat press would break that promise on
-  the other row.
+**Delete is always a tombstone.** It used to branch on the lock, because the
+two cases destroyed very different amounts: an unrouted turf was a drawing that
+nothing had paid for and was hard-deleted, while a routed one was tombstoned.
+Every turf is routed from creation now, so only the second case survives.
+Hard-deleting one would cascade turf → route → stops → targets **and** the
+`Outreach` envelope, throwing away a Geoapify route that was billed once and is
+documented here as never re-bought, the frozen addresses, and the name
+snapshots privacy deletion redacts in place. `deletedAt` instead: unreachable
+from every read and write path, intact underneath.
 
-**Restore mirrors too.** `setArchived(false)` writes null to both. An archive
-that mirrors and a restore that does not puts the two rows back out of step one
-press later.
-
-**Why delete is two different operations.** Delete is now offered at every
-stage; the confirmation dialog is the guard, not the lock. Which delete runs
-depends on the lock, because the two cases destroy very different amounts:
-
-- **Unlocked** — a drawing. Nothing frozen, nothing billed. Hard delete.
-- **Locked** — hard-deleting cascades turf → route → stops → targets **and**
-  the `Outreach` envelope. That throws away a Geoapify route that was billed
-  once and is documented here as never re-bought, the frozen addresses, and
-  the name snapshots privacy deletion redacts in place. So it is tombstoned
-  with `deletedAt` instead: unreachable from every read and write path, intact
-  underneath.
+`assertNotLocked` is gone from `delete` and from `update` both. Update kept it
+because `geoPoly` was editable and the polygon is what the route was computed
+from; the endpoint now accepts `name` and `color` only, so there is nothing
+left for it to protect and a list stays renameable for its whole life.
 
 `contact_interaction_door_knock` survives either way — it hangs off the
 organization, not this chain. That independence is the premise the policy
@@ -130,10 +151,26 @@ door, and it does _not_ require the turf to be alive. The phone snapshots the
 route and syncs later, so a list deleted mid-walk would turn every queued write
 into a 404 and discard work that was actually done — and these rows hang off
 the organization rather than the turf, so they outlive the list by design. The
-org scope still applies, so nothing resolves across a tenant. Contrast the
-knock freeze, which does filter: that one bills a Geoapify route. The rule is
-that `activeTurfScope` guards anything that _hands out_ a turf or its route,
-not anything that records against one already handed out.
+org scope still applies, so nothing resolves across a tenant. The rule is that
+`activeTurfScope` guards anything that _hands out_ a turf or its route, not
+anything that records against one already handed out.
+
+**The rail also scopes by surface, and only the rail does.**
+`railTurfScope()` is `activeTurfScope` plus
+`route: { outreach: { campaignId } }` — non-null for Win, `null` for Serve.
+Door knocking could not express this before 3.0: a turf carries no campaign,
+only an org through its filter, so an org holding both a `Campaign` and an
+`ElectedOffice` saw one shared rail on both surfaces, which is the ENG-10976
+leak `OutreachService.findByScope` exists to prevent everywhere else. The
+invariant is what fixed it — every turf has an envelope, and the envelope
+carries the scope.
+
+Every other turf route is reached by id and needs the org scope only: an id the
+caller already holds cannot be made to cross a surface by asking for it on the
+wrong one. So the Win/Serve pair is two routes wide —
+`POST turfs` / `POST serve/turfs` and `GET turfs` / `GET serve/turfs` — and
+both pairs derive the scope the same way, because a create and a list that
+disagreed would write rows onto a rail that cannot show them.
 
 **Archived rows are still returned by `GET turfs`.** They carry `archivedAt`
 and the client sections them. Filtering them out server-side would leave
@@ -149,10 +186,18 @@ and refusing that would leave delete as the only way out.
 
 `GET /v1/outreach/:id` returns a `doorKnocking` block for a `nativeDoorKnocking`
 envelope — turf id, route id, the turf's live name, `doorCount` / `peopleCount`
-/ `loggedCount`, and the turf's `completedAt` / `archivedAt`. It is the sibling
-of `phoneBanking` on the same schema, and it exists so a walk reads like its
-peers in the shared history drawer instead of as a row that knows only a route
-id.
+/ `loggedCount`, and the lifecycle. It is the sibling of `phoneBanking` on the
+same schema, and it exists so a walk reads like its peers in the shared history
+drawer instead of as a row that knows only a route id.
+`GET /v1/outreach/serve/:id` returns the same block: it is the same
+`findDetail` with a Serve scope, so wiring door knocking for Serve needed
+nothing here.
+
+The lifecycle half of the block is read straight off the envelope being
+described rather than from a second select on the turf. It used to read the
+turf's `completedAt` / `archivedAt` on purpose, so the drawer showed the source
+rather than a mirror that might not have followed; there is one row now, so the
+block and the row it decorates cannot disagree.
 
 **The reverse edge needed no column.** The envelope stores
 `doorKnockingRouteId`; `door_knocking_route` already carries a `@unique`
@@ -183,36 +228,52 @@ that one service). Both that edge and `DoorKnockingModule`'s own
 survive by design, above — leaves the envelope reporting only what it always
 did. The drawer says so rather than printing em-dashes.
 
-**Archive from the history drawer writes the TURF.** The drawer now offers
-Archive/Restore on a finished walk like every other channel, and the button
-calls `POST /v1/door-knocking/turfs/:id/archive` — never
-`PATCH /v1/outreach/:id/archive`. What blocked it before was reach rather than
-policy: nothing there could name the turf, and a writer that could only reach
-the envelope is exactly how the two `archivedAt` columns drift apart.
-`setArchived` is still the single writer of both rows. For the same reason the
-drawer reads `doorKnocking.archivedAt` — the source — rather than the
-envelope's mirror, so a list archived before the mirror shipped offers Restore
-instead of a second Archive.
+**Archive from the history drawer still goes through the door-knocking route.**
+The drawer offers Archive/Restore on a finished walk like every other channel,
+and the button calls `POST /v1/door-knocking/turfs/:id/archive` rather than
+`PATCH /v1/outreach/:id/archive`. Both now write the same column on the same
+row, so this is no longer about avoiding drift — it is that the door-knocking
+route is the one that runs door knocking's own guards (the timestamp
+idempotence above, and the turf scope), and having two ways in would mean
+remembering to keep them in step. What blocked the button originally was reach:
+nothing in the drawer could name the turf until the detail block carried its
+id.
 
 ## Where the code lives
 
-`src/doorKnocking/` (turf CRUD + the knock transaction; controller routes
+`src/doorKnocking/` (turf CRUD + the create transaction; controller routes
 under `/v1/door-knocking`), `src/vendors/geoapify/` (Route Planner client —
 requires `GEOAPIFY_API_KEY`, validated lazily at call time so environments
 without it still boot), and the evaluation/residents contracts in
 `@goodparty_org/contracts`, served in-process by
 `src/peopleDb/services/voterDoorKnocking.service.ts`.
 
-## The knock transaction (the money path)
+## The create transaction (the money path)
 
-`knock(doorKnockingTurfId, mode, loop)` runs as ONE advisory-locked
-interactive transaction:
+`DoorKnockingCreateService.create(organization, scope, input)` behind
+`POST turfs` / `POST serve/turfs`. Creating a list is what buys its route, so
+this is the only paid call in the feature and the only write the create flow
+persists — everything before the last step of that flow is client state.
 
-1. `SELECT pg_advisory_xact_lock(<ns>, doorKnockingTurfId)` — serializes
-   concurrent knocks per turf; auto-releases on commit/rollback/crash.
-2. Existence probe (`SELECT id` only). Found → return the route,
-   `created: false`, no vendor call.
-3. Resolve the turf's saved `VoterFileFilter` through
+It runs as ONE interactive transaction, and it is the knock transaction plus
+the turf insert. Two things it no longer has:
+
+- **No advisory lock.** The old one existed so two knocks of the SAME turf
+  could not both call the vendor. A create always makes a new turf, so there is
+  no shared row to serialize on. Two creates racing each other were never
+  serialized anyway — see the quota note at step 4, which is unchanged.
+- **No idempotency probe.** There is no saved-but-unrouted turf for a second
+  press to act on, so there is no second purchase to return `created: false`
+  for.
+
+The steps:
+
+1. Insert the turf. It goes first so the spend ledger at step 7 can name the
+   turf that caused the charge, exactly as it did when the turf already
+   existed. The ledger holds a plain int and never joins, so a rollback below
+   leaving it pointing at an id that no longer exists is intended: the money
+   was still spent.
+2. Resolve the turf's saved `VoterFileFilter` through
    `ContactsService.resolveSavedFilterForQuery` — the same three steps the CRM
    read path runs (convert → party gate → Voter Likelihood overrides, plus
    activity-condition/support-status and contacts-made id resolution).
@@ -221,76 +282,305 @@ interactive transaction:
    voter-likelihood overrides, so a list previewed in Contacts used to knock a
    different audience than it displayed. A filter resolving to nobody → 400,
    no people-db round trip.
-4. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
+3. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
    `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
    bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
    below), dedupe to unique lat/lng stops, re-check the 150-stop cap. The
    org's suppressed people — do-not-knock plus not-a-voter — are read
    _before_ the transaction and passed as one deduped `excludePersonIds`
    (see "Do-not-knock" and "'Not a voter'").
-5. Check the daily waypoint budget (`waypointQuota.util.ts`): 500 stops per
-   organization per rolling 24 hours, summed from the
-   `door_knocking_route_planner_spend` ledger. Over budget → 429 and no vendor
-   call. The turf lock doesn't serialize across turfs, so simultaneous knocks
-   in one org can overshoot by up to a route; that's deliberate — see the util.
-6. One Geoapify Route Planner call (coords + opaque job ids only — no PII
+4. Check the daily campaign budget, and check it here so it cannot reach the
+   vendor. `campaignQuota.util.ts` allows 5 turfs per organization per rolling
+   24 hours, counted off `door_knocking_turf` itself, or whatever
+   `organization.override_door_knocking_campaign_limit` says instead (see
+   § Raising one organization's allowance). Over budget → 429 and no vendor
+   call. A 500-stop daily budget was checked here beside it and has been
+   removed, so this is the only per-account limit a create has to clear — see
+   § The daily campaign gate. Nothing serializes two creates in one org, so
+   simultaneous ones can overshoot by one; that's deliberate, and the util
+   says why.
+5. One Geoapify Route Planner call (coords + opaque job ids only — no PII
    leaves; loop → start=end anchor at the first stop by address order;
    open → end-only anchor at the farthest-from-centroid stop; both
    deterministic, never random).
-7. Record the spend (`recordWaypointSpend`) immediately, on the plain client
-   and NOT the transaction. The vendor has been paid by this point, so the
-   ledger row has to commit whether or not the freeze below it succeeds —
-   reading spend off the frozen stop rows instead meant every rolled-back
-   knock spent real money the budget never saw and handed the same allowance
-   out again. A failed ledger write is logged and swallowed: it must not turn
-   billed work into a failed knock. `route.credits` still records what that
-   individual route cost; the ledger is what the budget reads. The ledger was
-   backfilled from the pre-existing routes when it was introduced
-   (`20260813170000_backfill_...`) — starting it empty would have let every
-   knock already billed inside the rolling window spend its allowance twice.
-8. Atomically create route + stops + stop targets + the Outreach envelope
-   row (skip envelope if the org has no campaign; status `in_progress`,
-   never `pending` — payment flows gate on it). The per-target activity
-   event is still deferred, as noted above.
+6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
+   immediately, on the plain client and NOT the transaction. The vendor has
+   been paid by this point, so the ledger row has to commit whether or not the
+   freeze below it succeeds — reading spend off the frozen stop rows instead
+   meant every rolled-back purchase spent real money no total ever saw. A
+   failed ledger write is logged and swallowed: it must not turn billed work
+   into a failed request. `route.credits` records what that individual route
+   cost; the ledger is where the account's spend is summed across
+   organizations, which is the one thing nothing else does (see § Spend
+   visibility). The ledger was backfilled from the pre-existing routes when it
+   was introduced (`20260813170000_backfill_...`), so the table describes every
+   route the vendor has ever billed us for rather than only those since it
+   landed.
+7. Create route + stops + stop targets + the `Outreach` envelope. The envelope
+   is unconditional (`campaignId: null` for Serve), status `in_progress`,
+   never `pending` — payment flows gate on it. The scope is the caller's,
+   chosen by which endpoint was hit and never derived from what the org holds.
+   The per-target activity event is still deferred, as noted above.
 
-A crash before commit leaves zero rows; the next knock regenerates. If
-Geoapify is down, knock fails visibly — no fallback engine in v1.
+A crash before commit leaves zero rows, and the flow that was submitting still
+holds the polygon, the filters, the name, the colour, the mode and the loop —
+none of it was ever persisted, so a retry is a second press rather than a
+recovery. If Geoapify is down, this fails visibly — no fallback engine in v1.
 
-Non-negotiable tests: (a) two concurrent knocks → exactly one Geoapify
-call, loser returns `created: false`; (b) crash-mid-freeze → zero rows;
-(c) interaction replay with the same `clientKey` → one row; (d) a knock that
-rolls back after the vendor call still leaves its spend in the ledger; (e) a
-saved list's exclusions shrink the stop set.
+**Two of the four failure modes cannot reach the paid press.** The draw step
+runs `DoorKnockingPreviewService`, which is this evaluation minus the vendor
+call, and blocks on an empty result or one over the 150-stop cap. The third,
+the daily campaign limit, is pre-flighted the same way: `GET quota` reports
+what the organization has left, so the client refuses to **open** the flow on
+a spent day rather than letting a 429 land at the one press that costs money —
+the remedy is waiting out a rolling 24-hour window, which the flow's in-memory
+state cannot survive. The preview response used to carry the day's remaining
+stop allowance beside its counts so the draw step could disable **Build route**
+on the stop budget as well; that budget is gone, so the only thing that
+disables Continue there now is the 150-stop cap — a per-list bound rather than
+a daily allowance, and therefore fixable by drawing a smaller shape. A vendor
+timeout is the fourth and stays a plain retry.
+
+Non-negotiable tests: (a) crash-mid-freeze → zero rows; (b) interaction replay
+with the same `clientKey` → one row; (c) a create that rolls back after the
+vendor call still leaves its spend in the ledger; (d) a saved list's exclusions
+shrink the stop set; (e) a Serve create writes its envelope with
+`campaignId: null`; (f) a dual-role org's Win and Serve rails do not see each
+other's turfs.
+
+### The daily campaign gate
+
+Step 4 is one limit: `DEFAULT_DAILY_CAMPAIGN_LIMIT` (5) turfs per organization
+per rolling 24 hours, in `campaignQuota.util.ts`, counted off
+`door_knocking_turf` rows and refused with a 429. The window rolls rather than
+resetting at midnight because campaigns knock in every US time zone and
+nothing on the organization says which one, so a calendar reset would land
+mid-afternoon for some of them.
+
+**A 500-stop daily budget used to sit beside it**, summed over the same
+rolling window from the `door_knocking_route_planner_spend` ledger, with an
+admin override of its own — and it is worth knowing it existed, because
+`waypoints` is still recorded and still means stops. Two ceilings on one press
+meant a candidate could be refused for either reason and the flow had to
+explain both, and of the two, this is the one that describes the behaviour
+worth pacing. Every turf is a paid Geoapify route and a list nobody has walked
+yet, so an afternoon spent carving the map into lists is backlog being built
+rather than doors being knocked, and a stop count cannot express that: five
+two-stop turfs and one ten-stop turf spent the same stop allowance and are not
+the same behaviour.
+
+What replaced the stop budget is not another cap but visibility. Spend is still
+recorded per route (`waypointSpend.util.ts`) and the account-wide total is
+alerted on in tiers, so the shared credit pool is bounded by watching it rather
+than by rationing each organization against a number nobody could set
+correctly — see § Spend visibility and the budget tiers below it. **Nothing
+caps stops per organization any longer.** The only bound on how large one list
+can be is `MAX_STOPS` (150), which is a per-list hard cap enforced at the
+freeze and by the `CHECK` on `stop.seq`, and which the draw step blocks on
+before the paid press.
+
+The 429's body is the design's own wording, because the create flow renders it
+as a blocking dialog rather than a toast:
+
+> You've created 5 door knocking campaigns today. Go knock the doors you've
+> already mapped, and build more lists tomorrow.
+
+The five in that sentence is the organization's own limit read back through
+`dailyCampaignLimit()`, not the constant, so an org an admin has raised is
+quoted the number that actually refused it.
+
+**Deleted turfs still count.** `campaignsRemaining` deliberately omits the
+`deletedAt: null` every other turf read carries. Every turf since 3.0 was
+billed for a Geoapify route the moment it was created, and that route is
+documented above as never re-bought, so the spend stands whether or not the
+row was later shelved. A count that skipped tombstones would also make Delete
+the way to buy unlimited routes: create, delete, repeat.
+
+**The campaign gate counts rows; it does not read the remainder.** The create
+transaction inserts its turf at step 1, before reaching step 4, so the count
+inside the transaction already includes the campaign being created — the fifth
+of a window sees five rows and is allowed, the sixth sees six and is not. Both
+of those report zero remaining, so a gate written against `campaignsRemaining`
+would quietly leave every organization with four.
+
+**The five is where an organization starts, not where it has to stay.** An
+admin can raise a single org, and the column that does it is the one the stop
+budget used to own — see § Raising one organization's allowance. That is the
+whole of the per-account story now: one number, resolved in one function, read
+by the gate, the 429's wording and `GET quota` alike.
+
+### Reading the allowance before the press
+
+`GET /v1/door-knocking/quota`, Pro-gated with the rest:
+
+```ts
+type DoorKnockingQuotaResponse = {
+  campaignsRemaining: number
+  campaignLimit: number
+}
+```
+
+It used to answer two allowances; the stop budget's remainder and its limit
+went with the budget itself, and there is nothing left for a client to
+pre-flight except this one.
+
+The limit rides along with the remainder rather than being a constant the
+client keeps a copy of, because it is genuinely per organization: a hardcoded 5
+is wrong for exactly the orgs an admin raised.
+
+Org-scoped, with no Serve sibling. The allowance belongs to the organization —
+turfs reach it through `voter_file_filter.organization_slug` — so there is no
+per-surface answer for a Win/Serve pair to keep apart the way the rail has.
+
+Advisory, and that is the division of labour: `assertCampaignQuota` inside the
+create transaction stays the authority, since a teammate's turf can spend the
+allowance between this read and the press. This read exists so the flow can
+refuse to open on a spent day rather than take a candidate through five steps
+and 429 at the end.
 
 ## Spend visibility
 
-The waypoint quota is a per-organization guardrail, not a bill. Two things it
-can't see: **nothing sums across organizations**, so the total bill scales with
-how many orgs hold the flag; and the ledger records Route Planner waypoints
-only, while every knock also makes a **second billed call** —
-`fetchPathGeometry`'s Routing request for the path geometry.
+The spend ledger is a record, not a guardrail. It used to be half of one: the
+500-stop daily budget summed these rows over a rolling 24 hours to decide
+whether an organization could route another turf. That budget is gone and the
+write survives it, because **nothing else sums spend across organizations** —
+the total bill scales with how many orgs hold the flag, and the campaign limit
+cannot bound it even in principle, since five two-stop turfs and five 150-stop
+turfs are the same five campaigns and differ by a factor of thirty in credits.
+So the write is now purely for account-wide accounting rather than for a
+per-org guardrail: the budget tiers below evaluate the `DoorKnockingSpend` log
+line, and this table is where the same spend is summed in SQL when one of them
+fires and someone has to say which organization caused it.
 
-Both are now visible, and no surface here can carry the API key: the Route
-Planner SDK puts the key in its request URL, so nothing sourced from a URL or a
-caught error is ever logged or labelled. Every metric attribute is a closed set
-of literals.
+What a route costs is priced in `doorKnocking/utils/geoapifyCost.util.ts`, the
+one transcription of [Geoapify's cost
+calculator](https://www.geoapify.com/pricing-details/), and it is neither flat
+nor linear. Every create makes **two** billed calls: the Route Planner
+optimization, charged per location — every stop plus the agent's start and end
+anchors, squared rather than multiplied when there are fewer than ten of them —
+and `fetchPathGeometry`'s Routing request, charged one credit per pair of the
+waypoints in the resulting plan. A stop therefore costs a little over ten
+credits all in, and a small turf costs far less than that: two stops is about
+five credits, 150 is about 1,650.
 
-| Signal                                         | Where                                                | Reads                                                                                                                                                                                      |
-| ---------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `event: 'DoorKnockingSpend'` log line          | `doorKnockingKnock.service.ts` spend path            | `organizationSlug`, `turfId`, `waypoints`, `credits` — emitted before the ledger write and regardless of its outcome, so a lost ledger row under-counts the quota without hiding the money |
-| `geoapify_route_planner_credits_total`         | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, no org label (Prometheus cardinality)                                                                                                                                      |
-| `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — this is the only place the second call is counted                                                                                              |
+Both calls are in `credits` everywhere it appears — the route row, the log
+line, the ledger, the counter. **`waypoints` is not credits divided by
+anything**: it counts stops, and the two numbers do not convert into each other
+in either direction, because the Route Planner's rate is quadratic under ten
+locations, every route also pays for its agent's anchors, and a geometry fetch
+that never completed is free. `waypoints` is now a measurement rather than an
+allowance — nothing caps stops per organization — so read this line for money
+through `credits` and for how much walking was bought through `waypoints`.
+
+No surface here can carry the API key: the Route Planner SDK puts the key in
+its request URL, so nothing sourced from a URL or a caught error is ever logged
+or labelled. Every metric attribute is a closed set of literals.
+
+| Signal                                         | Where                                                | Reads                                                                                                                                                                                                           |
+| ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event: 'DoorKnockingSpend'` log line          | `doorKnockingCreate.service.ts` spend path           | `organizationSlug`, `turfId`, `waypoints` (stops), `credits` (both calls) — emitted before the ledger write and regardless of its outcome, so a lost ledger row cannot hide money the vendor has already billed |
+| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing`, no org label (Prometheus cardinality)                                                                                                                        |
+| `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
-6h across all orgs, `#dev-alerts`, `@win-bugs`), and the `≥ 500` route alerts
-on this controller — including the 502 for a missing `GEOAPIFY_API_KEY`. The
-per-org 429, the empty/oversized-turf 400s, and the `VOTER_DATA_UNAVAILABLE`
-400 deliberately do not (see gp-api `docs/observability.md` §
-Server-errors-only controllers).
+6h across all orgs, `#dev-alerts`, `@win-bugs`), the **daily credit budget**
+tiers below it, and the `≥ 500` route alerts on this controller — including the
+502 for a missing `GEOAPIFY_API_KEY`. The per-org 429, the empty/oversized-turf
+400s, and the `VOTER_DATA_UNAVAILABLE` 400 deliberately do not (see gp-api
+`docs/observability.md` § Server-errors-only controllers).
 
 Deliberately a chart-and-alert rather than an enforced global cap: a hard
 ceiling across organizations would let one org's knocking fail another's, which
 is worse than a page during a pilot.
+
+### Raising one organization's allowance
+
+The five is a default, not a ceiling.
+`organization.override_door_knocking_campaign_limit` (nullable int, null = the
+default) replaces it for exactly one org, and `dailyCampaignLimit()` in
+`campaignQuota.util.ts` is the only place it is read — so the gate inside the
+create transaction, the 429's wording and `GET quota`'s `campaignLimit` all
+quote the same number.
+
+The override used to move the stop budget, which was what "raising an
+organization" meant while that budget existed: more doors per day, and the same
+five turfs. It was repurposed rather than deleted when the budget went, because
+the reason for having it did not go with it — a pilot org can legitimately need
+more than five lists a day, and the campaign count is now the only thing
+between it and the vendor.
+
+- **Who can set it:** admins only, through
+  `PATCH /v1/organizations/admin/:slug` behind
+  `AdminOrM2MGuard`. It is deliberately absent from the self-service
+  `PatchOrganizationDto`: a candidate raising their own spending limit is the
+  whole risk, since every campaign it buys is a paid Geoapify route drawn from
+  one daily pool shared with every other organization.
+- **How to read the current value:** `GET /v1/organizations/admin/:slug`
+  returns `overrideDoorKnockingCampaignLimit` (null when the org is on the
+  default), so triaging a budget alert does not need a psql session. Readable
+  exactly where it is writable — the candidate-facing `GET /organizations/` and
+  `GET /organizations/:slug` do not carry it, and neither does the
+  `/admin/list` search table.
+- **How high:** capped at `MAX_DAILY_CAMPAIGN_LIMIT` (30 campaigns), which is
+  derived rather than chosen. A campaign holds at most `MAX_STOPS` (150) stops
+  and a stop draws about eleven credits — ten for its Route Planner location
+  plus its share of the path-geometry Routing call — so a full-sized campaign
+  is near 1,650 credits and thirty of them is about the account's assumed daily
+  pool of 50,000. Most campaigns are far smaller, so in practice thirty sits
+  well under the pool; the point is that no admin can hand one organization an
+  allowance the account could not fund even in the worst case. Above it the
+  number is unhonourable no matter which org asks, so the DTO rejects it with a
+  400 rather than letting the vendor discover it.
+- **How long:** per organization and permanent until someone sets it back to
+  null. Nothing expires it and nothing reviews it.
+- **What it costs everyone else:** the pool the budget tiers below watch is
+  fixed and shared, so an override does not create headroom — it moves one
+  org's share of the same 50,000 credits. An org raised to 30 campaigns can
+  consume the whole account's day on its own, which is exactly why 30 is the
+  ceiling and not a round number above it.
+
+There is no audit table in gp-api, so the only record of a change is the
+structured log line `event: 'DoorKnockingCampaignLimitOverride'`
+(`organizationSlug`, `previousLimit`, `newLimit`, `actorEmail`), queryable in
+Loki the same way `DoorKnockingSpend` is. `actorEmail` is frequently null:
+gp-admin authenticates with an M2M token and authorizes the human in its own
+server action, so gp-api never sees who pressed the button.
+
+### The account-wide budget, and why it needs its own alerts
+
+The ceiling above answers "is something running away?" — a rate. It cannot
+answer "how close are we to the wall?", because nothing in gp-api knows what
+the account can afford. That matters because the wall is hard and shared:
+when Geoapify refuses, `planRoute` throws `BadGatewayException` and list
+creation returns 502 for **every** organization at once, including ones that
+spent nothing.
+
+So `deploy/components/alerting/geoapify-budget-alerts.ts` generates four rules
+at 60 / 80 / 90 / 95% of `GEOAPIFY_DAILY_CREDIT_POOL` over a rolling 24h,
+escalating from "is this real growth?" to "pull the flag from the heaviest
+orgs now". A runaway trips the 6h ceiling first and these later, which is the
+intended ordering.
+
+Three things to know before trusting a tier:
+
+- **The denominator is hand-maintained.** The allowance lives in Geoapify's
+  billing console; `GEOAPIFY_API_KEY` is an ECS secret and carries no plan
+  information. The constant is 50,000 — the TDD-sized $179/month tier, and the
+  same figure the 6h ceiling already reasons against. If we are still on a free
+  key it is 3,000 (see § Procurement above), the constant is 16x too high, and
+  no tier can fire before the vendor starts refusing. **If all four fire at
+  once, suspect the constant before the spend.**
+- **The tiers are per environment; the allowance may not be.** The stream
+  selector pins `$ENV`, so dev and prod each measure only themselves. If they
+  share a key they share a pool, and real headroom is smaller than any tier
+  reports — part of why the first tier sits at 60%.
+- **Rolling 24h, not calendar.** LogQL has no calendar alignment, so the window
+  can span the tail of one metered day and the head of the next. That
+  over-estimates, which is the safe direction here.
+
+All four read the same `DoorKnockingSpend` expression, differing only in
+threshold, so Loki's result cache serves tiers 2-4 from the work tier 1 does.
+Keep it that way — a per-tier edit to the query forfeits it.
 
 Credits per organization per day (Loki, no dashboard needed):
 
@@ -304,8 +594,8 @@ sum by (organizationSlug) (
 )
 ```
 
-Same thing from the ledger, when the question is about the quota rather than
-the bill (the ledger is the only source `assertWaypointQuota` reads):
+Same thing from the ledger, which is where the spend is recorded rather than
+logged — and the only place it is summed in SQL:
 
 ```sql
 select organization_slug,
@@ -318,11 +608,16 @@ group by 1, 2
 order by credits desc;
 ```
 
-`sum by (organizationSlug)` above 5,000 credits (500 waypoints) in a rolling
-24h is the `ENG-10901` overshoot — concurrent knocks in one org each passing the
-quota check because the advisory lock is per turf — now measurable rather than
-inferred. That trade-off stands: an org-wide lock would serialize every knock
-behind a 30-second vendor call.
+Both queries measure money, and `credits` is the same figure in either. There
+is no per-organization spend cap to read a heavy org against any more, so the
+yardstick is the campaign limit: a full-sized campaign is about 1,650 credits,
+so an organization far above five of those (~8,000 in a rolling 24h) has either
+been granted an override — check `override_door_knocking_campaign_limit` on the
+org — or is looping. The `waypoints` sum beside it is stops, and it answers a
+different question: how much walking the organization actually bought. It is
+not a credit figure divided by anything, because credits are not proportional
+to stops — a turf under ten locations is billed on its square, and every route
+also pays for its anchors and its Routing call.
 
 ## Serving
 
@@ -898,7 +1193,8 @@ deploy proves nothing about whether the feature works. Four things must be true
 at once, and each fails differently.
 
 **Two Geoapify keys, and they are not interchangeable.** `GEOAPIFY_API_KEY` is
-server-side and buys route optimization, billed ~10 credits per stop.
+server-side and buys route optimization, billed a little over 10 credits per
+stop once the path-geometry call is counted (see § Spend visibility).
 `NEXT_PUBLIC_GEOAPIFY_TILES_KEY` is inlined into the browser bundle and buys
 map tiles at ~0.25 credits each. Because the second one ships to the client it
 must be domain-restricted in the Geoapify console or anyone can spend our
@@ -945,8 +1241,8 @@ aws ecs describe-task-definition --output text \
 ```
 
 Note that green CI is not evidence either way. The e2e suite deliberately never
-builds a route — `POST turfs/:id/knock` is the only call in the feature that
-reaches a billed vendor — so those specs pass whether or not a key exists.
+builds a route — `POST turfs` is the only call in the feature that reaches a
+billed vendor — so those specs pass whether or not a key exists.
 
 ### Procurement, as of this writing
 
@@ -958,15 +1254,17 @@ warns that the generated HTML embeds your personal key — and the TDD still lis
 purchasing as an open leadership ask, approved in principle only. So confirm the
 account with whoever provisioned it before sizing a pilot on it.
 
-The distinction has teeth, because the free tier is 3,000 credits/day: at 10
-credits per stop that is ~300 optimized stops/day across the whole account,
-_below_ `DAILY_WAYPOINT_LIMIT` (500) in `waypointQuota.util.ts`. On a free key
-the vendor's ceiling binds before ours does, our own quota error never fires,
-and one enthusiastic pilot campaign can exhaust the account for everyone. Free
-is fine for a gated QA pass — Geoapify permits commercial use on it provided the
-map carries their attribution, which initializing MapLibre from their
-`style.json` does automatically, as `VoterMapCanvas` does — but it is not a
-pilot-sized plan.
+The distinction has teeth, because the free tier is 3,000 credits/day: at the
+~11 credits a stop really costs that is ~272 optimized stops/day across the
+whole account, or fewer than two full-sized campaigns. A single organization's
+default of five (`DEFAULT_DAILY_CAMPAIGN_LIMIT` in `campaignQuota.util.ts`) is
+therefore more than a free key can fund on its own. On such a key the vendor's
+ceiling binds long before ours does, our own 429 never fires, and one
+enthusiastic pilot campaign can exhaust the account for everyone.
+Free is fine for a gated QA pass — Geoapify permits commercial use on it
+provided the map carries their attribution, which initializing MapLibre from
+their `style.json` does automatically, as `VoterMapCanvas` does — but it is not
+a pilot-sized plan.
 
 The TDD sized the real plan at ~50k credits/day, which is the $179/month tier —
 note that the TDD's separate "$299–609" figure prices the tiers above it, since
@@ -993,8 +1291,8 @@ never stricter than the API. A flag-on non-Pro candidate who reaches the URL
 anyway — a stale tab, a bookmark — gets `DoorKnockingPageGate`'s locked upgrade
 card rather than a map that draws and then 400s. Unlike Know Your Opponent,
 whose nav entry is deliberately shown to non-Pro candidates as an upsell, this
-entry is hidden: every knock spends vendor routing credits, so the pitch does
-not belong in a nav row. That makes the locked card a safety net rather than a
+entry is hidden: creating a list spends vendor routing credits, so the pitch
+does not belong in a nav row. That makes the locked card a safety net rather than a
 funnel step, which is why it is deliberately shorter than
 `OpponentProLockedView` and fires no exposure event.
 
@@ -1014,21 +1312,32 @@ it is across Contacts. Refusal is that method's `BadRequestException`, 400 with
 | Route                   | Gated  |
 | ----------------------- | ------ |
 | `POST /turfs`           | yes    |
+| `POST /serve/turfs`     | yes    |
 | `GET /turfs`            | yes    |
+| `GET /serve/turfs`      | yes    |
 | `GET /turfs/:id`        | yes    |
 | `PUT /turfs/:id`        | yes    |
 | `DELETE /turfs/:id`     | yes    |
 | `GET /turfs/:id/route`  | yes    |
 | `GET /pack`             | yes    |
+| `GET /quota`            | yes    |
 | `POST /address-preview` | yes    |
 | `POST /interactions`    | yes    |
-| `POST /turfs/:id/knock` | yes    |
 | `POST /do-not-knock`    | **no** |
 | `POST /not-a-voter`     | **no** |
 
+The two Serve siblings keep the call even though it cannot refuse them:
+`@UseElectedOffice()` has already found the row that `hasElectedOfficeAccess`
+short-circuits on. That looks like it contradicts constituent-outreach's
+AGENTS.md, which says the `ElectedOffice` row is the entitlement, but both are
+true at once — the row IS the entitlement, and the gate is the predicate that
+says so. It stays for the same reason phone banking's serve sibling keeps its
+own: the gate is applied per method rather than per module, so a route missing
+the line is indistinguishable from one that forgot it.
+
 Reads are gated alongside the writes on purpose: a map that opens and then
-fails on the first turf is a worse answer than an upgrade prompt, and routing
-spends real Geoapify credits per knock.
+fails on the first turf is a worse answer than an upgrade prompt, and creating
+a list spends real Geoapify credits.
 
 The two holes are ADR 0007 and ADR 0008, and they are the point rather than an
 oversight — see "Do-not-knock" and "'Not a voter'" below. If an org lapses
