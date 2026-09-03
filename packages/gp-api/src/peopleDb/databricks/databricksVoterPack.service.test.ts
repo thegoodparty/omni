@@ -194,4 +194,87 @@ describe('DatabricksVoterPackService', () => {
     await expect(service.build(request as never)).rejects.toThrow()
     expect(logger.error).toHaveBeenCalled()
   })
+
+  // A district is drained in many chunks and the whole build dies with any one
+  // of them, so a blip that would be unnoticeable on a single request is close
+  // to routine across a full scan. This is what took the voter map down in
+  // prod: three builds in one 32-second window, each losing one chunk.
+  describe('a chunk that fails in transit', () => {
+    const socketClosed = () =>
+      Object.assign(new TypeError('fetch failed'), {
+        cause: new Error('other side closed'),
+      })
+
+    const okOnce = (body: string) => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: () => Promise.resolve(Buffer.from(body)),
+    })
+
+    // The prod failure exactly: undici rejects rather than answering, because
+    // the storage host closed a pooled connection that had gone idle during
+    // the previous chunk's CSV parse.
+    it('retries a rejected fetch and still builds the pack', async () => {
+      client.startCsvExport.mockResolvedValue({
+        firstChunk: { externalLink: 'c0', nextChunkLink: null },
+      })
+      const body = [HEADER, csvRow('a')].join('\n')
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(socketClosed())
+        .mockResolvedValue(okOnce(body))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const pack = await service.build(request as never)
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(manifestOf(pack).counts.people).toBe(1)
+    })
+
+    it('retries a 5xx, which is the host having a moment', async () => {
+      client.startCsvExport.mockResolvedValue({
+        firstChunk: { externalLink: 'c0', nextChunkLink: null },
+      })
+      const body = [HEADER, csvRow('a')].join('\n')
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 503 })
+        .mockResolvedValue(okOnce(body))
+      vi.stubGlobal('fetch', fetchMock)
+
+      await service.build(request as never)
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    // The presigned expiry is an answer, not a blip. Retrying it only makes
+    // the user wait longer for the same 403.
+    it('does not retry a 4xx', async () => {
+      client.startCsvExport.mockResolvedValue({
+        firstChunk: { externalLink: 'missing', nextChunkLink: null },
+      })
+      const fetchMock = vi.fn(() => Promise.resolve({ ok: false, status: 403 }))
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(service.build(request as never)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    // Bounded: something failing this persistently is not transient, and the
+    // client is holding the build open the whole time.
+    it('gives up as a classified 502 rather than retrying forever', async () => {
+      client.startCsvExport.mockResolvedValue({
+        firstChunk: { externalLink: 'c0', nextChunkLink: null },
+      })
+      const fetchMock = vi.fn().mockRejectedValue(socketClosed())
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(service.build(request as never)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    })
+  })
 })
