@@ -36,6 +36,23 @@ type RegistrationNames = {
   committeeName: string | null
 }
 
+// Live vendor reads are additive detail, but Peerly has shown 45s-4min
+// detailedstats responses on the shared test account. Every live read is
+// timeboxed so a stalling vendor can never hold the queue or review page.
+const VENDOR_READ_TIMEOUT_MS = 10_000
+
+const timeboxed = <T>(read: Promise<T>): Promise<T> =>
+  Promise.race([
+    read,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Peerly read exceeded the timebox')),
+        VENDOR_READ_TIMEOUT_MS,
+      )
+      timer.unref?.()
+    }),
+  ])
+
 // The CAS approval back office (gp-admin). Scope is deliberately the cancel
 // window: a p2p row at spine `pending` with a vendor job — the state where
 // the job exists at Peerly but nothing sends until canvassers are requested.
@@ -91,25 +108,29 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     const registrations = await this.registrationsByCampaign([row])
     const owners = await this.ownersByCampaign([row])
 
-    // Live reads are additive detail — either failing must not 404 the row.
-    let job: PeerlyJob | null = null
-    try {
-      job = await this.peerlyP2pJobService.getJob(row.projectId)
-    } catch (err) {
-      this.logger.warn(
-        { err, outreachId },
-        'Admin detail: live job read failed; rendering without it',
-      )
-    }
-    let stats: SmsAdminJobStats | null = null
-    try {
-      stats = await this.peerlyP2pJobService.getJobDetailedStats(row.projectId)
-    } catch (err) {
-      this.logger.warn(
-        { err, outreachId },
-        'Admin detail: job stats read failed; rendering without them',
-      )
-    }
+    // Live reads are additive detail — either failing (or stalling past
+    // the timebox) must not 404 or hang the row. Parallel: neither read
+    // depends on the other.
+    const [job, stats] = await Promise.all([
+      timeboxed(this.peerlyP2pJobService.getJob(row.projectId)).catch(
+        (err: Error): PeerlyJob | null => {
+          this.logger.warn(
+            { err, outreachId },
+            'Admin detail: live job read failed; rendering without it',
+          )
+          return null
+        },
+      ),
+      timeboxed(
+        this.peerlyP2pJobService.getJobDetailedStats(row.projectId),
+      ).catch((err: Error): SmsAdminJobStats | null => {
+        this.logger.warn(
+          { err, outreachId },
+          'Admin detail: job stats read failed; rendering without them',
+        )
+        return null
+      }),
+    ])
 
     return {
       item: this.toQueueItem(
@@ -405,8 +426,9 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     const byProjectId = new Map<string, PeerlyJob>()
     for (const identityId of identityIds) {
       try {
-        const jobs =
-          await this.peerlyP2pJobService.getJobsByIdentityId(identityId)
+        const jobs = await timeboxed(
+          this.peerlyP2pJobService.getJobsByIdentityId(identityId),
+        )
         for (const job of jobs) {
           byProjectId.set(job.id, job)
         }
