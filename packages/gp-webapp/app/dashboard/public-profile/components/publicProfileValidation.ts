@@ -7,6 +7,8 @@
 // before a request is spent, and translate a rejection back onto the field that
 // caused it.
 
+import type { PublicProfileProduct } from '../publicProfileAccess'
+
 export const URL_FIELDS = [
   'websiteUrl',
   'governmentWebsiteUrl',
@@ -21,8 +23,20 @@ export type UrlField = (typeof URL_FIELDS)[number]
 
 export type FieldErrors = Partial<Record<string, string>>
 
-const FIELD_LABELS: Record<string, string> = {
+/**
+ * How the form names each field it can send. The editor labels its inputs from
+ * here too, so an error can only ever name something the owner can see: a key
+ * missing from this map degrades to the raw column name, and "Check
+ * roleTitleOverride and save again." points at a word that appears nowhere on
+ * screen.
+ */
+export const FIELD_LABELS = {
+  displayName: 'Display name',
+  roleTitleOverride: 'Role / title',
+  bioOverride: 'About me',
   publicEmail: 'Public email',
+  publicPhone: 'Phone',
+  officePhone: 'Office phone',
   websiteUrl: 'Personal website',
   governmentWebsiteUrl: 'Government website',
   instagramUrl: 'Instagram',
@@ -30,6 +44,19 @@ const FIELD_LABELS: Record<string, string> = {
   facebookUrl: 'Facebook',
   twitterUrl: 'X / Twitter',
   linkedinUrl: 'LinkedIn',
+} as const satisfies Record<string, string>
+
+/**
+ * `whyRunning` is the one field the form renames per product, so it is resolved
+ * here rather than in the map — an error naming "Why I'm running" to someone
+ * looking at a box labelled "Why I serve" is the same failure as naming the
+ * column.
+ */
+export function fieldLabel(key: string, product: PublicProfileProduct): string {
+  if (key === 'whyRunning') {
+    return product === 'serve' ? 'Why I serve' : "Why I'm running"
+  }
+  return FIELD_LABELS[key as keyof typeof FIELD_LABELS] ?? key
 }
 
 export const GENERIC_SAVE_ERROR =
@@ -123,8 +150,11 @@ export function fieldErrorsFromApiError(err: unknown): FieldErrors {
 }
 
 /** Names the fields to fix, so the message is actionable rather than generic. */
-export function summarize(errors: FieldErrors): string {
-  const labels = Object.keys(errors).map((key) => FIELD_LABELS[key] ?? key)
+export function summarize(
+  errors: FieldErrors,
+  product: PublicProfileProduct,
+): string {
+  const labels = Object.keys(errors).map((key) => fieldLabel(key, product))
   if (labels.length === 0) return GENERIC_SAVE_ERROR
   if (labels.length === 1) return `Check ${labels[0]} and save again.`
   const last = labels[labels.length - 1]

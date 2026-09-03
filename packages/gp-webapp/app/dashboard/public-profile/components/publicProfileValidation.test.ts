@@ -102,18 +102,51 @@ describe('fieldErrorsFromApiError', () => {
 
 describe('summarize', () => {
   it('names one field', () => {
-    expect(summarize({ publicEmail: 'x' })).toBe(
+    expect(summarize({ publicEmail: 'x' }, 'win')).toBe(
       'Check Public email and save again.',
     )
   })
 
   it('names several', () => {
-    expect(summarize({ publicEmail: 'x', instagramUrl: 'y' })).toBe(
+    expect(summarize({ publicEmail: 'x', instagramUrl: 'y' }, 'win')).toBe(
       'Check Public email and Instagram, then save again.',
     )
   })
 
   it('falls back when nothing is attributable', () => {
-    expect(summarize({})).toBe(GENERIC_SAVE_ERROR)
+    expect(summarize({}, 'win')).toBe(GENERIC_SAVE_ERROR)
+  })
+
+  // The server can reject any column the editor sends, not just the contact
+  // ones the client pre-validates, and naming a column is the same as saying
+  // nothing.
+  it('names the fields the client never validates, in the form\u2019s words', () => {
+    expect(summarize({ displayName: 'x' }, 'win')).toBe(
+      'Check Display name and save again.',
+    )
+    expect(summarize({ roleTitleOverride: 'x' }, 'win')).toBe(
+      'Check Role / title and save again.',
+    )
+    expect(summarize({ bioOverride: 'x' }, 'win')).toBe(
+      'Check About me and save again.',
+    )
+    expect(summarize({ publicPhone: 'x', officePhone: 'y' }, 'win')).toBe(
+      'Check Phone and Office phone, then save again.',
+    )
+  })
+
+  it('follows the product when the form renames a field', () => {
+    expect(summarize({ whyRunning: 'x' }, 'win')).toBe(
+      "Check Why I'm running and save again.",
+    )
+    expect(summarize({ whyRunning: 'x' }, 'serve')).toBe(
+      'Check Why I serve and save again.',
+    )
+  })
+
+  it('falls back to the key for a field the editor cannot show', () => {
+    expect(summarize({ someNewColumn: 'x' }, 'win')).toBe(
+      'Check someNewColumn and save again.',
+    )
   })
 })

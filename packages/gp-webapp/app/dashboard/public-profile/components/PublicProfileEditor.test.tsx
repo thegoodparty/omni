@@ -30,7 +30,8 @@ vi.mock('helpers/useSnackbar', () => ({
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
 import { clientRequest } from 'gpApi/typed-request'
-import PublicProfileEditor from './PublicProfileEditor'
+import PublicProfileEditor, { FORM_KEYS } from './PublicProfileEditor'
+import { fieldLabel } from './publicProfileValidation'
 
 const mockedRequest = vi.mocked(clientRequest)
 
@@ -452,6 +453,64 @@ describe('PublicProfileEditor — partial saves', () => {
 
     await waitFor(() => expect(putPayload()).toBeDefined())
     expect('whyRunning' in putPayload()!).toBe(false)
+  })
+
+  // The client only pre-validates emails and links, so every other column
+  // reaches the server and can come back rejected. Naming it by column tells
+  // the owner to check something the page does not contain.
+  it('names a server-rejected field as the form labels it', async () => {
+    mockedRequest.mockRejectedValue({
+      data: { errors: [{ path: ['displayName'], message: 'Too long' }] },
+    })
+
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText('Display name'), '!')
+    await save()
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Check Display name and save again.',
+      ),
+    )
+  })
+
+  it('uses the serve wording when that is what the owner is looking at', async () => {
+    mockedRequest.mockRejectedValue({
+      data: { errors: [{ path: ['whyRunning'], message: 'Too long' }] },
+    })
+
+    render(
+      <PublicProfileEditor
+        product="serve"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText('Why I serve'), 'Parks')
+    await save()
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Check Why I serve and save again.',
+      ),
+    )
+  })
+
+  it('has a label for every field it can send', () => {
+    const missing = FORM_KEYS.filter(
+      (key) => fieldLabel(key, 'win') === (key as string),
+    )
+    expect(missing).toEqual([])
   })
 })
 

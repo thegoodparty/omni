@@ -21,7 +21,9 @@ import PrioritiesPublicationEditor, {
   type PriorityRow,
 } from './PrioritiesPublicationEditor'
 import {
+  FIELD_LABELS,
   fieldErrorsFromApiError,
+  fieldLabel,
   normalizeUrl,
   summarize,
   URL_FIELDS,
@@ -56,7 +58,9 @@ interface FormState {
   linkedinUrl: string
 }
 
-const FORM_KEYS = [
+// Exported so a test can hold the label map to the same set: a field added here
+// without a label reports as its column name when the server rejects it.
+export const FORM_KEYS = [
   'displayName',
   'roleTitleOverride',
   'bioOverride',
@@ -288,7 +292,7 @@ function LoadedEditor({
     const [firstInvalid] = Object.keys(invalid)
     if (firstInvalid !== undefined) {
       setErrors(invalid)
-      errorSnackbar(summarize(invalid))
+      errorSnackbar(summarize(invalid, product))
       document.getElementById(firstInvalid)?.focus()
       return
     }
@@ -329,7 +333,7 @@ function LoadedEditor({
       // asking someone to retry a value the server will never accept.
       const fieldErrors = fieldErrorsFromApiError(err)
       setErrors(fieldErrors)
-      errorSnackbar(summarize(fieldErrors))
+      errorSnackbar(summarize(fieldErrors, product))
     } finally {
       setSaving(false)
     }
@@ -404,18 +408,24 @@ function LoadedEditor({
 
   const contactFields = useMemo(
     () =>
-      [
-        ['publicEmail', 'Public email', 'you@example.com'],
-        ['publicPhone', 'Phone', '(555) 123-4567'],
-        ['officePhone', 'Office phone', '(555) 987-6543'],
-        ['websiteUrl', 'Personal website', 'https://…'],
-        ['governmentWebsiteUrl', 'Government website', 'https://…'],
-        ['instagramUrl', 'Instagram', 'https://instagram.com/…'],
-        ['tiktokUrl', 'TikTok', 'https://tiktok.com/@…'],
-        ['facebookUrl', 'Facebook', 'https://facebook.com/…'],
-        ['twitterUrl', 'X / Twitter', 'https://x.com/…'],
-        ['linkedinUrl', 'LinkedIn', 'https://linkedin.com/in/…'],
-      ] as Array<[keyof FormState, string, string]>,
+      (
+        [
+          ['publicEmail', 'you@example.com'],
+          ['publicPhone', '(555) 123-4567'],
+          ['officePhone', '(555) 987-6543'],
+          ['websiteUrl', 'https://…'],
+          ['governmentWebsiteUrl', 'https://…'],
+          ['instagramUrl', 'https://instagram.com/…'],
+          ['tiktokUrl', 'https://tiktok.com/@…'],
+          ['facebookUrl', 'https://facebook.com/…'],
+          ['twitterUrl', 'https://x.com/…'],
+          ['linkedinUrl', 'https://linkedin.com/in/…'],
+        ] as const
+      ).map(([key, placeholder]) => ({
+        key,
+        label: FIELD_LABELS[key],
+        placeholder,
+      })),
     [],
   )
 
@@ -462,7 +472,7 @@ function LoadedEditor({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             id="displayName"
-            label="Display name"
+            label={FIELD_LABELS.displayName}
             hint="Overrides the name from public records."
             value={form.displayName}
             placeholder="Jane Doe"
@@ -470,7 +480,7 @@ function LoadedEditor({
           />
           <Field
             id="roleTitleOverride"
-            label="Role / title"
+            label={FIELD_LABELS.roleTitleOverride}
             value={form.roleTitleOverride}
             placeholder="City Council Member, Ward 3"
             onChange={(v) => setField('roleTitleOverride', v)}
@@ -482,7 +492,7 @@ function LoadedEditor({
       <Card className="flex flex-col gap-4 p-5 sm:p-6">
         <h2 className="text-lg font-semibold">About</h2>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bioOverride">About me</Label>
+          <Label htmlFor="bioOverride">{FIELD_LABELS.bioOverride}</Label>
           <Textarea
             id="bioOverride"
             rows={5}
@@ -493,7 +503,7 @@ function LoadedEditor({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="whyRunning">
-            {product === 'serve' ? 'Why I serve' : "Why I'm running"}
+            {fieldLabel('whyRunning', product)}
           </Label>
           <Textarea
             id="whyRunning"
@@ -560,7 +570,7 @@ function LoadedEditor({
       <Card className="flex flex-col gap-4 p-5 sm:p-6">
         <h2 className="text-lg font-semibold">Contact & links</h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          {contactFields.map(([key, label, placeholder]) => (
+          {contactFields.map(({ key, label, placeholder }) => (
             <Field
               key={key}
               id={key}
