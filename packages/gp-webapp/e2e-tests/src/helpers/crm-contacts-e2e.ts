@@ -13,9 +13,14 @@ import { personContactPanel } from 'src/helpers/contacts-e2e'
 // Force the Serve CRM rebuild on via the off-prod override cookie. Call
 // BEFORE auth/navigation so the first SSR render already sees it — flag
 // resolution is server-side and this cookie is the only deterministic lever
-// (e2e-tests/CLAUDE.md "Flag-gated surfaces").
-export const enableCrmFlags = async (page: Page): Promise<void> => {
-  await setFlagOverrides(page, { 'serve-crm': 'on' })
+// (e2e-tests/CLAUDE.md "Flag-gated surfaces"). `overrides` merges in
+// additional flags (e.g. `{ 'win-recommended-lists': 'on' }` for the
+// recommended-list filter dimensions) without disturbing serve-crm.
+export const enableCrmFlags = async (
+  page: Page,
+  overrides: Record<string, string> = {},
+): Promise<void> => {
+  await setFlagOverrides(page, { 'serve-crm': 'on', ...overrides })
 }
 
 // Pin serve-crm off for the retained Serve legacy smoke, so it keeps testing
