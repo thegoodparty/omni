@@ -141,6 +141,29 @@ describe('UseOrganizationGuard', () => {
       expect(req.organizationRole).toBeUndefined()
     })
 
+    // A volunteer row under continueIfNotFound deliberately behaves exactly
+    // like a non-member: pass through unenriched (no organization, no role on
+    // the request), never throw. Pinned so a Phase 1.5 change to volunteer
+    // admission has to change this test consciously.
+    it('passes a volunteer through unenriched when continueIfNotFound', async () => {
+      mockMetadata({ continueIfNotFound: true })
+      vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+        role: OrganizationRole.volunteer,
+        organization: mockOrg,
+      })
+
+      const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+      const result = await guard.canActivate(ctx)
+
+      expect(result).toBe(true)
+      const req = ctx.switchToHttp().getRequest() as {
+        organization?: Organization
+        organizationRole?: OrganizationRole
+      }
+      expect(req.organization).toBeUndefined()
+      expect(req.organizationRole).toBeUndefined()
+    })
+
     it('returns true without org when continueIfNotFound', async () => {
       mockMetadata({ continueIfNotFound: true })
       vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue(null)

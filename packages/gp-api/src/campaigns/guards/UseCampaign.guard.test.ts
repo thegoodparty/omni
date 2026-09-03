@@ -165,6 +165,29 @@ describe('UseCampaignGuard', () => {
     expect(result).toBe(true)
   })
 
+  // Symmetric with UseOrganizationGuard: a volunteer under continueIfNotFound
+  // passes through exactly like a non-member — no campaign lookup, no role on
+  // the request, no throw.
+  it('passes a volunteer through unenriched when continueIfNotFound', async () => {
+    mockMetadata({ continueIfNotFound: true })
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.volunteer,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
+    })
+
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+    const result = await guard.canActivate(ctx)
+
+    expect(result).toBe(true)
+    expect(campaignsService.findFirst).not.toHaveBeenCalled()
+    const req = ctx.switchToHttp().getRequest() as {
+      campaign?: unknown
+      organizationRole?: unknown
+    }
+    expect(req.campaign).toBeUndefined()
+    expect(req.organizationRole).toBeUndefined()
+  })
+
   it('throws NotFoundException when no header is present', async () => {
     mockMetadata()
 
