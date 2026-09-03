@@ -112,7 +112,7 @@ export function getTeamMemberAddedEmailContent(
                 <tr>
                   <td>
                     <br /><br /><a
-                      href="${link}"
+                      href="${escapeHtml(link)}"
                       style="
                         padding: 16px 32px;
                         background: black;

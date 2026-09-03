@@ -28,4 +28,15 @@ describe('getTeamMemberAddedEmailContent', () => {
     expect(html).toContain('&lt;script&gt;')
     expect(html).toContain('&lt;b&gt;Fake Login&lt;/b&gt;')
   })
+
+  it('escapes the link so it cannot break out of the href attribute', () => {
+    const html = getTeamMemberAddedEmailContent(
+      'Jamie',
+      'Jamie for Mayor',
+      'https://app.goodparty.org/dashboard"onmouseover="alert(1)',
+    )
+
+    expect(html).not.toContain('"onmouseover="alert(1)')
+    expect(html).toContain('&quot;onmouseover=&quot;alert(1)')
+  })
 })
