@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog'
+import type { VariantProps } from 'class-variance-authority'
 
 import { cn } from '@styleguide/lib/utils'
 import { buttonVariants } from '@styleguide/components/ui/button'
@@ -120,11 +121,17 @@ function AlertDialogDescription({
 
 function AlertDialogAction({
   className,
+  variant,
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action> &
+  // A confirm that DELETES something is a destructive button, and the only way
+  // to say so was a caller-side className fighting the default variant's own
+  // colours. Same `variant` vocabulary as Button, so a dialog's action and a
+  // page's button can't come to mean different things by the same word.
+  Pick<VariantProps<typeof buttonVariants>, 'variant'>) {
   return (
     <AlertDialogPrimitive.Action
-      className={cn(buttonVariants(), className)}
+      className={cn(buttonVariants({ variant }), className)}
       {...props}
     />
   )

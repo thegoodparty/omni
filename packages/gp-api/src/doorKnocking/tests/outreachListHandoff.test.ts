@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 
 // The server half of the "Send outreach → door knocking" journey covered end to
 // end in
@@ -33,10 +34,83 @@ const RING: GeoJsonPolygon = {
   ],
 }
 
+// One person inside the ring and a Geoapify plan that visits them, because
+// creating a turf now buys its route in the same request. Neither vendor is
+// what this file is about — they are here so the accepted half of the polygon
+// question can reach a 201 at all. The routing detail lives in
+// doorKnocking.routes.test.ts.
+const realFetch = globalThis.fetch.bind(globalThis)
+
+const stubVendors = () => {
+  vi.spyOn(
+    service.app.get(DoorKnockingPeopleApiService),
+    'evaluate',
+  ).mockResolvedValue({
+    people: [
+      {
+        id: '00000001-1111-1111-1111-111111111111',
+        firstName: 'Voter',
+        lastName: 'One',
+        lat: 41.135,
+        lng: -104.82,
+        addressKey: '1 W ELM ST||82001',
+        displayAddress: '1 W Elm St',
+      },
+    ],
+  } as never)
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (!String(url).includes('routeplanner')) {
+      return realFetch(url as Parameters<typeof fetch>[0], init)
+    }
+    const body = JSON.parse(String(init?.body)) as {
+      jobs: Array<{ id: string; location: [number, number] }>
+      agents?: Array<Record<string, unknown>>
+    }
+    return Response.json({
+      type: 'FeatureCollection',
+      properties: {
+        mode: 'walk',
+        params: {
+          mode: 'walk',
+          agents: body.agents ?? [{}],
+          jobs: body.jobs,
+          shipments: [],
+          locations: [],
+        },
+      },
+      features: [
+        {
+          type: 'Feature',
+          properties: {
+            agent_index: 0,
+            time: 900,
+            distance: 1200,
+            mode: 'walk',
+            actions: body.jobs.map((job) => ({
+              type: 'job',
+              job_id: job.id,
+            })),
+            legs: body.jobs.map(() => ({ time: 60, distance: 100 })),
+            waypoints: body.jobs.map((job) => ({
+              original_location: job.location,
+              location: job.location,
+              actions: [],
+            })),
+          },
+        },
+      ],
+    })
+  })
+}
+
 describe('outreach list handoff to door knocking', () => {
   let orgSlug: string
 
   const orgHeaders = () => ({ headers: { [ORG_SLUG_HEADER]: orgSlug } })
+
+  beforeAll(() => {
+    process.env.GEOAPIFY_API_KEY ??= 'test-key'
+  })
 
   beforeEach(async () => {
     const suffix = Date.now()
@@ -96,9 +170,17 @@ describe('outreach list handoff to door knocking', () => {
       orgHeaders(),
     )
 
+    stubVendors()
+
     const withoutPolygon = await service.client.post(
       '/v1/door-knocking/turfs',
-      { voterFileFilterId: list.id, name: 'No shape', color: '#2563eb' },
+      {
+        voterFileFilterId: list.id,
+        name: 'No shape',
+        color: '#2563eb',
+        mode: 'walk',
+        loop: false,
+      },
       { ...orgHeaders(), validateStatus: () => true },
     )
     expect(withoutPolygon.status).toBe(400)
@@ -110,6 +192,8 @@ describe('outreach list handoff to door knocking', () => {
         name: 'Elm St walk',
         color: '#2563eb',
         geoPoly: RING,
+        mode: 'walk',
+        loop: false,
       },
       orgHeaders(),
     )

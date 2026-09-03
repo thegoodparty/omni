@@ -13,7 +13,7 @@ import {
   Organization,
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
-import { MAX_STOPS } from './doorKnockingKnock.service'
+import { MAX_STOPS } from './doorKnockingCreate.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { renderUnitAddress } from '../utils/unitAddress.util'
 import { DoorKnockingAddressPreview } from '../schemas/doorKnockingAddressPreview.schema'
@@ -25,7 +25,7 @@ type EvaluatedPerson = {
   addressKey: string
 }
 
-const EMPTY_PREVIEW: DoorKnockingAddressPreviewResponse = {
+const EMPTY_COUNTS = {
   stops: 0,
   doors: 0,
   people: 0,
@@ -33,13 +33,17 @@ const EMPTY_PREVIEW: DoorKnockingAddressPreviewResponse = {
 }
 
 // The draw step's answer to "which houses are these?", asked before anything
-// is bought. It runs the knock's own evaluation — the same resolved filters,
-// the same suppression, the same polygon test — and stops short of the vendor
-// call, so the addresses on screen are the addresses the route would freeze.
+// is bought. It runs the create transaction's own evaluation — the same
+// resolved filters, the same suppression, the same polygon test — and stops
+// short of the vendor call, so the addresses on screen are the addresses the
+// route would freeze.
 //
 // Nothing here is persisted and no Geoapify credit is spent; the only cost is
 // one people-db scan per explicit request. See ADR 0010 for why that request
 // is explicit rather than debounced.
+// Touches no table of its own. It used to extend the spend ledger's Prisma
+// base to read the org's remaining daily stops off it; that allowance is gone,
+// and with it the only reason this service held a client.
 @Injectable()
 export class DoorKnockingPreviewService {
   constructor(
@@ -85,11 +89,13 @@ export class DoorKnockingPreviewService {
       organization,
       input.filters,
     )
-    // Nobody survives the draft's own filters. The knock raises a 400 here
-    // because a turf is being committed; a shape still being drawn is
+    // Nobody survives the draft's own filters. Creating a turf raises a 400
+    // here because a list is being committed; a shape still being drawn is
     // allowed to enclose nobody, and the draw step already says "No doors in
     // this area" for it. Erroring would turn ordinary drawing into a failure.
-    if (resolved.empty) return EMPTY_PREVIEW
+    if (resolved.empty) {
+      return EMPTY_COUNTS
+    }
 
     const { people } = await this.peopleApi.evaluate({
       districtId,
@@ -103,12 +109,12 @@ export class DoorKnockingPreviewService {
     return this.summarize(people, input.geoPoly)
   }
 
-  // Mirrors DoorKnockingKnockService.buildStops: the bbox is a prefilter, so
+  // Mirrors DoorKnockingCreateService.buildStops: the bbox is a prefilter, so
   // the ray-cast is what decides membership; ordering is deterministic on
   // (addressKey, id); a stop is a unique coordinate and a door is a unique
-  // unit key within it. Written out rather than shared with the knock, which
-  // additionally throws on an empty or oversized turf — behaviour a shape
-  // being drawn must not have.
+  // unit key within it. Written out rather than shared with the create path,
+  // which additionally throws on an empty or oversized turf — behaviour a
+  // shape being drawn must not have.
   private summarize(
     people: EvaluatedPerson[],
     polygon: GeoJsonPolygon,
@@ -119,7 +125,7 @@ export class DoorKnockingPreviewService {
         (a, b) =>
           a.addressKey.localeCompare(b.addressKey) || a.id.localeCompare(b.id),
       )
-    if (inside.length === 0) return EMPTY_PREVIEW
+    if (inside.length === 0) return EMPTY_COUNTS
 
     const byCoordinate = new Map<string, Map<string, number>>()
     for (const person of inside) {

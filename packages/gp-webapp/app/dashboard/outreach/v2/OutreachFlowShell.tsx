@@ -29,6 +29,13 @@ export interface FlowShellCta {
   secondary?: {
     label: string
     onClick: () => void
+    disabled?: boolean
+    // `ghost` is the interstitial's dismissal. `outline` is for a pair where
+    // BOTH buttons commit and the primary only claims which move is expected
+    // — the door-knocking confirm step's "Save and exit" beside "Save and
+    // draw another". A filled `secondary` would weight the two equally and
+    // make leading with one of them say nothing.
+    variant?: 'ghost' | 'outline'
   }
 }
 
@@ -146,8 +153,9 @@ export const OutreachFlowShell = ({
               {cta.secondary && (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant={cta.secondary.variant ?? 'ghost'}
                   className="w-full text-sm lg:w-auto lg:flex-1"
+                  disabled={cta.secondary.disabled}
                   onClick={cta.secondary.onClick}
                 >
                   {cta.secondary.label}

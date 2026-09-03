@@ -280,7 +280,8 @@ describe('Outreach submission flow — single API call contract', () => {
     it('p2p submission produces 1 success Slack with peerly link, DB row, counter, hubspot', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -296,7 +297,8 @@ describe('Outreach submission flow — single API call contract', () => {
     it('text submission produces 1 success Slack WITHOUT peerly link', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.text,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
 
@@ -325,10 +327,30 @@ describe('Outreach submission flow — single API call contract', () => {
   })
 
   describe('failure cases — Slack still fires', () => {
+    it('launch switch on: a non-compliant script is rejected at scheduling', async () => {
+      vi.stubEnv('SMS_COMPLIANCE_V2_ENABLED', 'true')
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'Vote for me. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain(
+        'does not meet texting compliance standards',
+      )
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
+      vi.unstubAllEnvs()
+    })
+
     it('invalid image MIME (HEIC) → 400, no DB row, FAILURE Slack with step=validation', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         imageMime: 'image/heic',
@@ -348,7 +370,8 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -369,7 +392,9 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me: tinyurl.com/x. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty: tinyurl.com/x. ' +
+          'Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -436,7 +461,8 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -455,7 +481,8 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -472,7 +499,9 @@ describe('Outreach submission flow — single API call contract', () => {
   })
 
   describe('draft-first purchase flow', () => {
-    const draftScript = 'Vote for me. Reply STOP to opt-out.'
+    const draftScript =
+      'Hello {first_name}, this is Johnny Goodparty. Vote for me. ' +
+      'Paid for by Friends of Johnny. Reply STOP to opt out.'
 
     const submitDraft = () =>
       submitOutreach({
@@ -511,7 +540,9 @@ describe('Outreach submission flow — single API call contract', () => {
           aiContent: {
             smsKey: {
               name: 'smsKey',
-              content: '<p>Hi from AI</p>',
+              content:
+                '<p>Hello {first_name}, this is Johnny Goodparty. ' +
+                'Paid for by Friends of Johnny. Reply STOP to opt out.</p>',
               updatedAt: Date.now(),
             },
           },
@@ -539,7 +570,10 @@ describe('Outreach submission flow — single API call contract', () => {
       // Stamped at the initial insert, not deferred to finalize.
       expect(row.organizationSlug).toBe(orgSlug)
       expect(row.identityId).toBe('11538886')
-      expect(row.script).toBe('Hi from AI')
+      expect(row.script).toBe(
+        'Hello {first_name}, this is Johnny Goodparty. ' +
+          'Paid for by Friends of Johnny. Reply STOP to opt out.',
+      )
       expect(row.textCount).toBe(5200)
       expect(row.billableTextCount).toBe(200)
       expect(row.campaignPlanDueDate).toBe('2026-04-19')
@@ -688,7 +722,8 @@ describe('Outreach submission flow — single API call contract', () => {
     it('draft with a non-p2p outreachType → 400, no DB row', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.text,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         draft: true,
       })

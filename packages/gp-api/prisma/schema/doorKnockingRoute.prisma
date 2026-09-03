@@ -6,12 +6,15 @@ enum DoorKnockingMode {
 model DoorKnockingRoute {
   id                 Int                    @id @default(autoincrement())
   // createdAt is the generation moment; the row never mutates after the
-  // knock transaction commits (locked/idempotent both derive from its
-  // existence — see docs/door-knocking.md).
+  // create transaction commits (see docs/door-knocking.md). It used to double
+  // as the turf's "locked" flag and the knock's idempotency key; since 3.0
+  // buys the route at list creation there is no unlocked state to flag and no
+  // second purchase to guard against.
   createdAt          DateTime               @default(now()) @map("created_at")
   updatedAt          DateTime               @updatedAt @map("updated_at")
   // Unique: the route's only parent. Linear chain:
-  // voter_file_filter <- door_knocking_turf <- door_knocking_route.
+  // voter_file_filter <- door_knocking_turf <- door_knocking_route <- outreach,
+  // the last three 1:1:1 and all three written in one transaction.
   turf               DoorKnockingTurf       @relation(fields: [doorKnockingTurfId], references: [id], onDelete: Cascade)
   doorKnockingTurfId Int                    @unique @map("door_knocking_turf_id")
   mode               DoorKnockingMode
@@ -19,7 +22,10 @@ model DoorKnockingRoute {
   loop               Boolean
   totalSeconds       Int                    @map("total_seconds")
   totalMeters        Int                    @map("total_meters")
-  // Geoapify credits spent generating this route (locations x 10).
+  // Geoapify credits spent generating this route: its Route Planner
+  // optimization plus the Routing request for the path geometry below, the
+  // latter only when that request completed. Priced in
+  // doorKnocking/utils/geoapifyCost.util.ts, which is neither flat nor linear.
   credits            Int
   /// [RoutePathGeometry]
   /// Road-following path from Geoapify's Routing API, fetched once at knock

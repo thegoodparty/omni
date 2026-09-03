@@ -279,7 +279,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
       await screen.findByRole('heading', { name: 'Voter list details' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Outreach history' }),
+      screen.getByRole('heading', { name: 'Outreach campaign history' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
@@ -388,7 +388,7 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
       screen.queryByRole('button', { name: 'Rename list' }),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: 'Outreach history' }),
+      screen.queryByRole('heading', { name: 'Outreach campaign history' }),
     ).not.toBeInTheDocument()
     // ENG-10809: the universe row's own card carries Send outreach — the
     // sheet footer must never duplicate it, unlike the saved-list branch.

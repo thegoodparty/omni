@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import maplibregl from 'maplibre-gl'
 import { DOOR_KNOCK_STATUSES } from '@goodparty_org/contracts'
 import type {
   DoorKnockingPackManifest,
@@ -187,11 +189,12 @@ const turfFixture: DoorKnockingTurf = {
       ],
     ],
   },
-  locked: true,
-  doorCount: null,
-  peopleCount: null,
-  loggedCount: null,
-  completedAt: null,
+  doorCount: 12,
+  peopleCount: 18,
+  loggedCount: 0,
+  knockedDoorCount: 0,
+  routeSeconds: 1_800,
+  completed: false,
   archivedAt: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),
   updatedAt: new Date('2026-07-21T00:00:00Z'),
@@ -835,9 +838,36 @@ describe('VoterMapCanvas drawing', () => {
     // being cut around stay readable through it.
     expect(fill.slice(0, 3)).toEqual(line.slice(0, 3))
     expect(fill[3]).toBeLessThan(line[3] ?? 0)
-    // The corners belong to the same boundary, so they move with it — a blue
-    // handle on a green ring reads as two shapes.
-    expect(staticColor('draw-vertices', 'getFillColor')).toEqual(line)
+    // The corners belong to the same boundary, so their OUTLINE moves with it
+    // — a blue handle on a green ring reads as two shapes. The centre stays
+    // white at every hue: the design's handle is a ring around a hollow, which
+    // is what tells it apart from the voter pins underneath it.
+    expect(staticColor('draw-vertices', 'getLineColor')).toEqual(line)
+    expect(staticColor('draw-vertices', 'getFillColor')).toEqual([
+      255, 255, 255, 255,
+    ])
+  })
+
+  // Two points are not a polygon, so the fill-and-outline layer has nothing to
+  // draw and the shape in progress would be a pair of unconnected handles. The
+  // design draws the edge between them dashed, and switches to the solid ring
+  // on the third point.
+  it('joins the first two points with a dashed edge, then closes the ring', () => {
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    POINTS.slice(0, 2).forEach(clickMap)
+    expect(layerData('draw-draft-edge')).toHaveLength(1)
+    expect(layerData('draw-preview')).toHaveLength(0)
+
+    clickMap(POINTS[2] as [number, number])
+    expect(layerData('draw-draft-edge')).toHaveLength(0)
+    expect(layerData('draw-preview')).toHaveLength(1)
   })
 
   // `--primary` -> `--theme-primary` -> `--color-brand-blue-500` ->
@@ -1012,11 +1042,11 @@ describe('VoterMapCanvas drawing', () => {
     expect(framePadding().bottom).toBe(framePadding().top)
   })
 
-  // Every corner on the right of this map is behind the manage surface's
-  // floating rail above `lg` (`lg:inset-y-4 lg:right-4 lg:w-96`), so a control
-  // placed there is drawn, looks pressable and cannot be clicked. The left half
-  // is what nothing floats over at any width.
-  it('puts the map controls on the left, away from the floating rail', () => {
+  // The cluster is ours, not maplibre's. Its third button is a location toggle
+  // maplibre's navigation stack has no equivalent of, so adopting that stack
+  // would put a second, differently-styled pair of zoom buttons on the map
+  // beside the three the design draws.
+  it('builds the control cluster itself rather than adopting maplibre’s', () => {
     render(
       <VoterMapCanvas
         {...baseProps}
@@ -1025,30 +1055,74 @@ describe('VoterMapCanvas drawing', () => {
       />,
     )
 
-    const corners = gl.map.addControl.mock.calls.map((call) => call[1])
-    expect(corners).toContain('top-left')
-    expect(corners).toContain('bottom-left')
-    expect(corners).not.toContain('top-right')
-    expect(corners).not.toContain('bottom-right')
-    // The attribution is placed rather than defaulted, and maplibre only lets
-    // it be placed if its own default is switched off first — leaving the
-    // option on would put a second credit back in the covered corner.
-    expect(gl.mapOptions?.attributionControl).toBe(false)
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeInTheDocument()
+    const added = gl.map.addControl.mock.calls.map((call) => call[0])
+    expect(
+      added.some((control) => control instanceof maplibregl.NavigationControl),
+    ).toBe(false)
   })
 
-  // The band the confirm step uncovers is a picture: it is shielded from taps,
-  // so every button standing in it is one that answers nothing when pressed.
-  it('takes the map controls down for a step showing the map as a picture', () => {
-    const { container, rerender } = render(
+  // The rail now floats over the top-left and the sheets rise from the bottom,
+  // which leaves the bottom-right as the one corner nothing covers on any of
+  // the three surfaces. The attribution is placed there rather than defaulted,
+  // and maplibre only lets it be placed if its own default is switched off
+  // first — leaving the option on would put a second credit back under the rail.
+  it('puts the credit in the corner nothing floats over', () => {
+    render(
       <VoterMapCanvas
         {...baseProps}
         onPolygonChange={vi.fn()}
         onDrawPointCount={vi.fn()}
       />,
     )
-    expect(container.firstElementChild?.className).not.toContain(
-      'maplibregl-ctrl-top-left',
+
+    const attribution = gl.map.addControl.mock.calls.find(
+      ([control]) => control instanceof maplibregl.AttributionControl,
     )
+    expect(attribution?.[1]).toBe('bottom-right')
+    expect(gl.mapOptions?.attributionControl).toBe(false)
+  })
+
+  // The sheets rise over the map's bottom edge, so the cluster is told where
+  // the uncovered map ends rather than sitting at a fixed inset underneath one.
+  it('lifts the cluster clear of a sheet standing over the map', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    const cluster = () =>
+      screen.getByRole('button', { name: 'Zoom in' }).parentElement
+
+    // The design's 16px edge on a surface with nothing over it.
+    expect(cluster()).toHaveStyle({ bottom: '16px' })
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        controlsBottomPx={320}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(cluster()).toHaveStyle({ bottom: '320px' })
+  })
+
+  // The band the confirm step uncovers is a picture: it is shielded from taps,
+  // so every button standing in it is one that answers nothing when pressed.
+  it('takes the map controls down for a step showing the map as a picture', () => {
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
 
     rerender(
       <VoterMapCanvas
@@ -1059,20 +1133,17 @@ describe('VoterMapCanvas drawing', () => {
       />,
     )
 
-    // maplibre's navigation stack is maplibre's own DOM, so it goes away by CSS
-    // rather than by being removed and rebuilt on a step change. The rule sits
-    // on the wrapper, never on the container maplibre writes its own classes
-    // onto — a className React rewrites would take `maplibregl-map` with it.
-    const wrapper = container.firstElementChild
-    expect(wrapper?.className).toContain('maplibregl-ctrl-top-left')
-    expect(wrapper?.firstElementChild?.className).toBe('h-full w-full')
+    // Unmounted rather than hidden. The cluster is React's own DOM now, so a
+    // shielded step takes it out of the tree entirely and leaves nothing behind
+    // for a thumb to find.
+    expect(screen.queryByRole('button', { name: 'Zoom in' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Zoom out' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /my location/i })).toBeNull()
   })
 
-  // The canvas draws the dot; it does not own the switch. "My live location"
-  // is a walk control in the prototype and is offered on no other surface, so
-  // this component must have no button of its own to take down — a second
-  // switch here would be a second answer to "am I being watched".
-  it('draws the fix it is handed and offers no control of its own', () => {
+  // The reading is the page's; the drawing is this component's. Nothing here
+  // watches the device — a fix arrives as a prop or the dot is simply absent.
+  it('draws the fix it is handed, and nothing until it has one', () => {
     const { rerender } = render(
       <VoterMapCanvas
         {...baseProps}
@@ -1080,7 +1151,6 @@ describe('VoterMapCanvas drawing', () => {
         onDrawPointCount={vi.fn()}
       />,
     )
-    expect(screen.queryByRole('button')).toBeNull()
     expect(layer('live-location-dot')?.data).toEqual([])
 
     const fix = { lng: -86.78, lat: 36.16, accuracyMeters: 9 }
@@ -1095,7 +1165,114 @@ describe('VoterMapCanvas drawing', () => {
 
     expect(layer('live-location-dot')?.data).toEqual([fix])
     expect(layer('live-location-accuracy')?.data).toEqual([fix])
-    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  // The switch sits in the map's own cluster in 2.0 rather than in the walk
+  // sheet, because it aims the map and the sheet can be dragged down over it.
+  // But turning the watch on is what asks the browser for permission, so a
+  // surface with nothing to do with the answer must not be able to ask: the
+  // button exists only where a handler does.
+  it('offers the location switch only where something can act on it', async () => {
+    const onToggleLiveLocation = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /my location/i })).toBeNull()
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        onToggleLiveLocation={onToggleLiveLocation}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // Off, and saying what pressing it would do rather than what it is.
+    const show = screen.getByRole('button', { name: 'Show my location' })
+    expect(show).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(show)
+    expect(onToggleLiveLocation).toHaveBeenCalledWith(true)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        liveLocationEnabled
+        onToggleLiveLocation={onToggleLiveLocation}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const hide = screen.getByRole('button', { name: 'Hide my location' })
+    expect(hide).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(hide)
+    expect(onToggleLiveLocation).toHaveBeenLastCalledWith(false)
+  })
+
+  // The reason this exists: a pressed switch with no dot is what a blocked OS
+  // permission looks like, and it is also what a working switch looks like a
+  // second after the tap. On the walk the sheet tells them apart; the drawing
+  // surface has no sheet, so without this the button answers a tap with a
+  // permission prompt and then silence.
+  it('reports a watch that cannot produce a fix where no sheet does', () => {
+    const denied: LiveLocation = {
+      status: 'denied',
+      fix: null,
+      approximate: false,
+    }
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        location={denied}
+        liveLocationEnabled
+        onToggleLiveLocation={vi.fn()}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    // Off by default, because the walk's sheet is already saying it.
+    expect(screen.queryByRole('status')).toBeNull()
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        location={denied}
+        liveLocationEnabled
+        locationNotice
+        onToggleLiveLocation={vi.fn()}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('status')).toHaveTextContent(/Location is blocked/)
+  })
+
+  // "Still looking" is a state worth drawing, since a desktop fix can take
+  // seconds — but a working watch must not leave a pill sitting over the map.
+  it('says nothing once the fix is good', () => {
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        location={{
+          status: 'tracking',
+          fix: { lng: -86.78, lat: 36.16, accuracyMeters: 9 },
+          approximate: false,
+        }}
+        liveLocationEnabled
+        locationNotice
+        onToggleLiveLocation={vi.fn()}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   // A wifi or IP fix can sit a canvasser a block from the dot, so a coarse one

@@ -14,6 +14,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DoorKnockingTurfCountsService } from '@/doorKnocking/services/doorKnockingTurfCounts.service'
 import { activeTurfScope } from '@/doorKnocking/utils/turfScope.util'
 import {
+  Outreach,
   OutreachStatus,
   OutreachType,
   PhoneBankCallOutcome,
@@ -139,7 +140,7 @@ export class OutreachSocialService extends createPrismaBase(
         : undefined
     // organizationSlug is nullable on the spine for legacy rows, and it is the
     // scope every suppression read in the counts aggregate needs. Every
-    // nativeDoorKnocking envelope has one — the knock transaction writes it
+    // nativeDoorKnocking envelope has one — the create transaction writes it
     // from an org-gated request — so a null here is a row this feature never
     // wrote, and the block is simply absent rather than counted org-wide.
     const doorKnocking =
@@ -149,6 +150,7 @@ export class OutreachSocialService extends createPrismaBase(
         ? await this.computeDoorKnockingDetail(
             outreach.doorKnockingRouteId,
             outreach.organizationSlug,
+            outreach,
           )
         : undefined
     return toOutreachDetail(outreach, phoneBanking, doorKnocking)
@@ -172,22 +174,22 @@ export class OutreachSocialService extends createPrismaBase(
   // block at all. That is the honest answer: a soft-deleted turf is gone from
   // every door-knocking read path, and a drawer offering an Archive button
   // pointed at an endpoint that 404s would be worse than one that offers none.
+  //
+  // The lifecycle comes from the envelope the caller already holds rather than
+  // from a second read, because since 3.0 the envelope IS where it lives. This
+  // used to select `completedAt`/`archivedAt` off the turf specifically so the
+  // drawer would read the source instead of the envelope's mirror of it; there
+  // is one row now, so the block and the row it decorates cannot disagree.
   private async computeDoorKnockingDetail(
     routeId: number,
     organizationSlug: string,
+    envelope: Pick<Outreach, 'status' | 'archivedAt'>,
   ): Promise<DoorKnockingOutreachDetail | undefined> {
     const route = await this.client.doorKnockingRoute.findFirst({
       where: { id: routeId, turf: activeTurfScope(organizationSlug) },
       select: {
         id: true,
-        turf: {
-          select: {
-            id: true,
-            name: true,
-            completedAt: true,
-            archivedAt: true,
-          },
-        },
+        turf: { select: { id: true, name: true } },
       },
     })
     if (!route) return undefined
@@ -208,8 +210,8 @@ export class OutreachSocialService extends createPrismaBase(
       doorCount: routeCounts.doorCount,
       peopleCount: routeCounts.peopleCount,
       loggedCount: routeCounts.loggedCount,
-      completedAt: route.turf.completedAt,
-      archivedAt: route.turf.archivedAt,
+      completed: envelope.status === OutreachStatus.completed,
+      archivedAt: envelope.archivedAt,
     }
   }
 

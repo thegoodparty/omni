@@ -128,3 +128,35 @@ export const useLiveLocation = (enabled: boolean): LiveLocation => {
     approximate: fix !== null && fix.accuracyMeters > LOW_ACCURACY_METERS,
   }
 }
+
+// The one thing the design's live-location control has no equivalent of, kept
+// after the control itself became the map cluster's third button: a blocked
+// permission and a coarse fix are the difference between a switch that is off
+// and one that cannot work, and an icon toggle on the map cannot say which.
+//
+// It lives beside the hook rather than beside the switch because there is no
+// longer one place the switch is — the cluster holds it and the walk sheet
+// reports it — and because it is a reading of this state and nothing else.
+// `null` in the two states with nothing to add, so the walk's sheet renders
+// nothing at all in the ordinary case; the design's screen has no line here.
+export const liveLocationMessage = (location: LiveLocation): string | null => {
+  switch (location.status) {
+    case 'locating':
+      // Also the state while the permission prompt sits unanswered.
+      return 'Finding your location…'
+    case 'denied':
+      return 'Location is blocked. Allow it in your browser settings to see yourself on the map.'
+    case 'error':
+      return location.fix
+        ? 'Location has not updated in a moment.'
+        : 'No location fix right now — still trying.'
+    case 'tracking':
+      return location.approximate
+        ? `Approximate location — accurate to about ${Math.round(
+            location.fix?.accuracyMeters ?? LOW_ACCURACY_METERS,
+          )} m.`
+        : null
+    default:
+      return null
+  }
+}

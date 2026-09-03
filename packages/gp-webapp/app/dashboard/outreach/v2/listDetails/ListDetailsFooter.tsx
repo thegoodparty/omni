@@ -22,7 +22,11 @@ export type ListDetailsFooterAction =
 
 interface ListDetailsFooterProps {
   mode: ListDetailsFooterMode
-  // Compact, ghost, destructive — first in the row, never the width-taker.
+  // Compact and non-destructive — first in the row, never the width-taker.
+  // Door knocking's PDF button, which is the same shape as the destructive
+  // slot below and emphatically not the same act, so it gets its own.
+  leading?: ReactNode
+  // Compact, ghost, destructive — never the width-taker.
   destructive?: ReactNode
   primary?: ListDetailsFooterAction | null
   // A second full-width row under the primary one. Archive/restore lives here:
@@ -59,13 +63,14 @@ const PrimaryAction = ({ action }: { action: ListDetailsFooterAction }) => {
 
 export const ListDetailsFooter = ({
   mode,
+  leading,
   destructive,
   primary,
   secondary,
   note,
 }: ListDetailsFooterProps) => {
   if (mode === 'none') return null
-  const hasActions = Boolean(destructive || primary || secondary)
+  const hasActions = Boolean(leading || destructive || primary || secondary)
   if (mode !== 'automatic' && !hasActions && !note) return null
 
   return (
@@ -76,8 +81,9 @@ export const ListDetailsFooter = ({
             {AUTOMATIC_NOTE}
           </p>
         ) : (
-          (destructive || primary) && (
+          (leading || destructive || primary) && (
             <div className="flex gap-3">
+              {leading}
               {destructive}
               {primary && <PrimaryAction action={primary} />}
             </div>

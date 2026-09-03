@@ -21,6 +21,7 @@ import { PeerlyScheduleService } from './peerlySchedule.service'
 import {
   CreateJobResponseDto,
   GetJobResponseDto,
+  JobDetailedStatsResponseDto,
 } from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
 
@@ -271,6 +272,111 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       }
       this.logger.error({ error }, P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
+    }
+  }
+
+  // The send trigger: books Peerly's paid canvassers for the job. Their
+  // team reviews the request; approval lands on the job as
+  // canvassers_schedule.approved. One open request per job — reschedules
+  // must clearCanvassers first.
+  async requestCanvassers(
+    jobId: string,
+    { initials, date }: { initials: string; date?: string },
+  ): Promise<void> {
+    try {
+      // The send window is a product requirement (2026-09-02): canvassers
+      // work 9am-9pm in each recipient's local timezone. Sent explicitly as
+      // a CUSTOM window rather than relying on the vendor's ANY_TIME
+      // default semantics.
+      await this.peerlyHttpService.post(`/v2/p2p/${jobId}/request_canvassers`, {
+        requested_initials: initials,
+        ...(date && { requested_date: date }),
+        requested_timeframe: 'CUSTOM',
+        requested_start_time: '09:00:00',
+        requested_end_time: '21:00:00',
+        requested_timezone: 'LOCAL',
+      })
+    } catch (error) {
+      // A 400 here is CAS-actionable (e.g. a request already open) — keep
+      // Peerly's own message via the shared parser instead of a blanket 502.
+      await this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        context: {
+          customMessage: P2P_ERROR_MESSAGES.REQUEST_CANVASSERS_FAILED,
+        },
+      })
+    }
+  }
+
+  async clearCanvassers(jobId: string): Promise<void> {
+    try {
+      await this.peerlyHttpService.post(`/v2/p2p/${jobId}/clear_canvassers`)
+    } catch (error) {
+      // Nothing-to-clear is the desired state: a 404/400 for a job with no
+      // open request must not fail the caller (edit clears defensively).
+      if (
+        isAxiosError(error) &&
+        (error.response?.status === 404 || error.response?.status === 400)
+      ) {
+        this.logger.debug(
+          `No canvasser request to clear on job ${jobId}; treating as done`,
+        )
+        return
+      }
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
+    }
+  }
+
+  async getJobDetailedStats(jobId: string): Promise<{
+    sentTotal: number
+    receivedTotal: number
+    delivered: number
+    deliveryFailed: number
+    deliveryUnconfirmed: number
+    totalCost: number
+  }> {
+    try {
+      const response = await this.peerlyHttpService.get(
+        `/1to1/jobs/${jobId}/detailedstats`,
+        { params: { date_range: 'THIS_YEAR' } },
+      )
+      const stats = this.peerlyHttpService.validateResponse(
+        response.data,
+        JobDetailedStatsResponseDto,
+        'job detailed stats',
+      )
+      // Key names inside the count maps aren't documented (docs say
+      // "RX/TX SUCCESS/FAIL"), so counts sum by direction prefix.
+      const sumBy = (
+        record: Record<string, number> | undefined,
+        prefix: string,
+      ) =>
+        Object.entries(record ?? {})
+          .filter(([key]) => key.toUpperCase().startsWith(prefix))
+          .reduce((total, [, count]) => total + count, 0)
+      const receipts = {
+        ...(stats.delivery_receipts ?? {}),
+      }
+      for (const [key, count] of Object.entries(
+        stats.mms_delivery_receipts ?? {},
+      )) {
+        receipts[key] = (receipts[key] ?? 0) + count
+      }
+      return {
+        sentTotal:
+          sumBy(stats.messages, 'TX') + sumBy(stats.mms_messages, 'TX'),
+        receivedTotal:
+          sumBy(stats.messages, 'RX') + sumBy(stats.mms_messages, 'RX'),
+        delivered: receipts['Delivered'] ?? 0,
+        deliveryFailed: receipts['Delivery Failed'] ?? 0,
+        deliveryUnconfirmed: receipts['Delivery Unconfirmed'] ?? 0,
+        totalCost: stats.total_cost ?? 0,
+      }
+    } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.JOB_STATS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.JOB_STATS_FAILED)
     }
   }
 

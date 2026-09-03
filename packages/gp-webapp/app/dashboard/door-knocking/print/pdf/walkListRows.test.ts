@@ -93,31 +93,52 @@ describe('walkListRows', () => {
     expect(rows[2]?.travel).toBeNull()
   })
 
-  // Paper leaves the building and stops being access-controlled when it does.
-  // The fixture carries a cell number so this asserts the omission rather than
-  // trusting it — and it asserts against the whole model, because the renderer
-  // cannot print what it was never handed.
-  it('never carries a phone number into the PDF model', () => {
+  // The design template rules a Phone column, so the model now carries one.
+  // Cell first with the landline as the fallback, picked by `targetPhone` rather
+  // than here, so the printable page cannot choose the other number.
+  it('carries the number to try, cell before landline', () => {
     const rows = walkListRows([
       stop({
         addresses: [
           household('105 Elm St', [
-            target({ cellPhone: '(312) 555-0101', landline: '(312) 555-0102' }),
+            target({
+              stopTargetId: 21,
+              cellPhone: '(312) 555-0101',
+              landline: '(312) 555-0102',
+            }),
+            target({
+              stopTargetId: 22,
+              personId: 'person-2',
+              cellPhone: null,
+              landline: '(312) 555-0103',
+            }),
+            target({
+              stopTargetId: 23,
+              personId: 'person-3',
+              cellPhone: null,
+              landline: null,
+            }),
           ]),
         ],
       }),
     ])
 
-    expect(JSON.stringify(rows)).not.toMatch(/555-010/)
+    expect(rows.map((row) => row.phone)).toEqual([
+      '(312) 555-0101',
+      '(312) 555-0103',
+      null,
+    ])
   })
 
-  // Same rule, larger disclosure. The eleven-attribute demographic profile is
-  // screen-only for the reason the phone numbers are: paper leaves the building
-  // and stops being access-controlled when it does. Asserted against the whole
-  // model rather than the rendered page, because the renderer structurally
+  // The Phone column is the one screen-side field the design brought onto paper,
+  // and this is the rule it is an exception to rather than a repeal of. The
+  // eleven-attribute demographic profile stays screen-only: paper leaves the
+  // building and stops being access-controlled when it does, and a profile of a
+  // named voter is a far larger disclosure than a number. Asserted against the
+  // whole model rather than the rendered page, because the renderer structurally
   // cannot print what it was never handed — which is the property worth
-  // pinning, since a future column added to the row model would be reachable by
-  // every renderer at once.
+  // pinning, since a column added to the row model is reachable by every
+  // renderer at once, exactly as `phone` above now is.
   //
   // The fixture carries a value for all eleven, so this fails if the model ever
   // starts carrying one.
@@ -432,8 +453,8 @@ describe('walkListRows', () => {
 
   // A note is free text about a named voter, on the surface that leaves the
   // building and stops being access-controlled when it does — the same rule
-  // that keeps phone numbers off it. The fixture carries one so this asserts
-  // the omission rather than trusting it.
+  // that keeps the demographic profile off it. The fixture carries one so this
+  // asserts the omission rather than trusting it.
   it('never carries a note onto paper', () => {
     const rows = walkListRows([
       stop({

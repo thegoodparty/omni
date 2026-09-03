@@ -6,80 +6,41 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import {
-  OUTCOME_OPTIONS,
-  SUPPORT_OPTIONS,
-  WILL_VOTE_OPTIONS,
-} from '../native/knockQuestions'
 import { skipInstruction, STATUS_LABELS } from '../native/statusPresentation'
 import {
+  ANSWER_COLUMN_KEYS,
+  ANSWERED_BOXES,
   describeTarget,
+  FOOTER_TAGLINE,
   lastContactLine,
   legTravelLine,
   MARK_INSTRUCTION,
   RECORDS_NOTICE,
+  SUPPORT_BOXES,
+  targetPhone,
   WALK_COLUMNS,
   walkSummary,
 } from './walkFacts'
 import './walkSheet.css'
 
-// The columns, and the share of the page each gets. The handoff's own
-// percentages wherever the column means the same thing on both — `# 2`, `Name
-// 18`, `Age 4`, `Address 16` — and every departure measured rather than
-// guessed, against a 960px content width (Letter landscape inside the handoff's
-// half-inch margins) in the browser this sheet is printed from.
+// The design template's own eight columns and its own percentages, straight from
+// `walkFacts` — the PDF resolves the same table against its own content width,
+// so the two formats of one artifact cannot come out ruled differently.
 //
-// Each departure is one of the collisions this sheet escalates rather than
-// adopts:
-//
-//   - `Phone 11` is not here at all, and its share funds the `Will vote` column
-//     the handoff drops and the app's form still asks.
-//   - `#` is 3 rather than 2. The handoff renders 1 to 40 rows; a route here is
-//     capped at 150 stops, and "150" at 9.5px does not fit the 19px that 2% of
-//     the page comes to — it wrapped to two lines from stop 10 onward.
-//   - `Answered` is 24 rather than 12, because this surface offers all five
-//     outcomes where the handoff offers three. Five 12px boxes with their
-//     labels beneath measure 226px laid out in one row, which is 23.5% — and
-//     one row is what the handoff asks for.
-//   - `Support` is 9 rather than 16, for the mirror-image reason: three options
-//     against the handoff's four measure 79px, or 8.3%.
-//   - `Notes` gives up the residual 5, to 18. It is the column a canvasser
-//     writes in and the one worth protecting, so it is last to be charged and
-//     everything above it is measured to the pixel to keep the bill small.
-//
-// What does not fit at any of these widths is the last-contact line, whose
-// longest form runs about 224px against the 173px `Name` gets. It wraps to two
-// lines of 8.5px, which costs height rather than information; widening `Name`
-// far enough to hold it would have to come out of `Notes`.
-//
-// `table-layout: fixed` makes these binding rather than advisory, which is the
-// point: the widest street name on a route must not be able to squeeze the
+// `table-layout: fixed` makes the widths binding rather than advisory, which is
+// the point: the widest street name on a route must not be able to squeeze the
 // column someone is writing in.
-const COLUMNS: Array<[label: string, width: string]> = [
-  [WALK_COLUMNS.seq, '3%'],
-  [WALK_COLUMNS.name, '17%'],
-  [WALK_COLUMNS.age, '4%'],
-  [WALK_COLUMNS.address, '13%'],
-  [WALK_COLUMNS.answered, '26%'],
-  [WALK_COLUMNS.support, '10%'],
-  [WALK_COLUMNS.willVote, '10%'],
-  [WALK_COLUMNS.notes, '17%'],
-]
+const COLUMN_COUNT = WALK_COLUMNS.length
 
-// An outlined square with its label beneath it, per the handoff. The label is
-// below rather than beside so a three-option column can be narrow: side-by-side
-// labels are what forced the PDF's old `Y N ?` abbreviations, and an abbreviated
-// option is one a transcriber has to guess the meaning of.
+// An outlined square with its label beneath it. The label is below rather than
+// beside so a four-option column can be narrow: side-by-side labels are what
+// forced the PDF's old `Y N ?` abbreviations, and an abbreviated option is one a
+// transcriber has to guess the meaning of.
 //
-// The options are always the form's own — `OUTCOME_OPTIONS`, `SUPPORT_OPTIONS`,
-// `WILL_VOTE_OPTIONS` — never a list written out here. Paper is transcribed back
-// into that form, so a box this sheet offers that the form does not is an answer
-// the canvasser cannot file. The design handoff's own lists (a four-way Strong /
-// Lean / Undec / No support, and a "Moved" outcome) are an error in the handoff
-// rather than a decision to reconcile: the Voter Outreach 2.0 canvas, which is
-// this feature's source of truth, ticks `Yes / No / Unsure` for both follow-ups
-// and has no "Moved" door outcome anywhere. See the `### Paper` section of
-// AGENTS.md. The handoff's box *geometry* is what this component implements.
+// The options are always the form's own, assembled in `walkFacts` and never a
+// list written out here. Paper is transcribed back into `RecordKnockForm`, so a
+// box this sheet offers that the form has no value for is an answer the
+// canvasser cannot file.
 const MarkBoxes = ({
   options,
 }: {
@@ -166,6 +127,13 @@ const ResidentRow = ({
           </>
         )}
       </td>
+      {/* The resident's own number, not the household's — two people behind one
+          door have two records. It prints for every row, like the age and the
+          address beside it, including a row whose answer columns carry a skip:
+          the instruction is about knocking a door and the phone is the column
+          that says what else there is. Empty rather than a dash when the file
+          has none, for the reason the age cell is. */}
+      <td className="ws-phone">{targetPhone(target) ?? ''}</td>
       {/* ADR 0007 and 0008. Turf evaluation keeps flagged people off new lists,
           but it cannot reach a route already frozen — and paper freezes again
           the moment it prints. The row stays so the sheet still matches the
@@ -173,30 +141,25 @@ const ResidentRow = ({
           Checked before `recorded`: a flagged resident is not to be knocked
           whatever was logged there before. */}
       {skip !== null ? (
-        <td className="ws-instruction" colSpan={4}>
+        <td className="ws-instruction" colSpan={ANSWER_COLUMN_KEYS.length}>
           {skip}
         </td>
       ) : recorded ? (
-        <td className="ws-logged" colSpan={4}>
+        <td className="ws-logged" colSpan={ANSWER_COLUMN_KEYS.length}>
           Already logged: {STATUS_LABELS[target.knockStatus]}
         </td>
       ) : (
         <>
-          {/* All five outcomes. Paper cannot branch the way the app's
-              walkthrough does, so every ending it can reach has to be offered at
-              once — and this surface has a whole column to spend on them. */}
-          <td className="ws-marks">
-            <MarkBoxes options={OUTCOME_OPTIONS} />
+          {/* The app's first question, whole and in its order. */}
+          <td>
+            <MarkBoxes options={ANSWERED_BOXES} />
           </td>
-          <td className="ws-marks">
-            <MarkBoxes options={SUPPORT_OPTIONS} />
-          </td>
-          {/* The handoff has no Will-vote column; the canvas asks the question,
-              so the handoff simply omitted it. Kept, because a sheet that cannot
-              record an answer the form wants is a sheet that has to be walked
-              twice. */}
-          <td className="ws-marks">
-            <MarkBoxes options={WILL_VOTE_OPTIONS} />
+          {/* Support, with the one engagement answer a canvasser still has to be
+              able to write down in front of it — paper cannot branch the way the
+              app's walkthrough does, so the ending and the answer share a
+              column. Assembled in `walkFacts` from the form's own constants. */}
+          <td>
+            <MarkBoxes options={SUPPORT_BOXES} />
           </td>
           {/* Empty and stays empty. This is the column the canvasser writes in;
               the ruled line the old layout drew inside it only limited them to
@@ -236,12 +199,15 @@ const stopRows = (stop: RoutePayloadStop) => {
   })
 }
 
-// The brand system's own horizontal logo, per the handoff's instruction to use
-// the one already in the codebase rather than the file it shipped. This is the
-// lockup that file draws — heart plus the `GoodParty.org` wordmark — and the
-// same one `pdf/GoodPartyLogo.tsx` traces for the PDF footer, so the two paper
-// surfaces are signed the same way. `black-logo.svg` is the other horizontal
-// mark in `public/images` and is a different lockup.
+// Two things and nothing else, as the template rules it: the horizontal logo at
+// 22px on the left, the tagline in italics on the right. No rule above it, and
+// no page counter — see `SheetHeader` for why the counter left rather than moved.
+//
+// The logo is the brand system's own lockup — heart plus the `GoodParty.org`
+// wordmark — rather than the SVG the template ships, and it is the same one
+// `pdf/GoodPartyLogo.tsx` traces, so the two paper surfaces are signed
+// identically. `black-logo.svg` is the other horizontal mark in `public/images`
+// and is a different lockup.
 const SheetFooter = () => (
   <div className="ws-foot">
     <Image
@@ -254,7 +220,7 @@ const SheetFooter = () => (
       // gap: the browser has no reason to fetch it before the dialog opens.
       priority
     />
-    <span className="ws-tagline">Empowering people to run, win, and serve</span>
+    <span className="ws-tagline">{FOOTER_TAGLINE}</span>
   </div>
 )
 
@@ -274,22 +240,20 @@ const SheetHeader = ({ turfName, stops, payload }: SheetHeaderProps) => (
             have reported different door counts for one route before. */}
         <p className="ws-desc">{walkSummary(stops, payload.route)}</p>
       </div>
-      {/* Deliberately no printed date. This renders in Node, whose clock is UTC,
-          so an evening print anywhere in the US would be stamped tomorrow — and
-          formatting it as UTC only makes the wrong date a consistent one. The
-          canvasser dates the sheet, which is both accurate and what people
-          already do with paper.
+      {/* Two blanks, exactly as the template rules them, and deliberately no
+          printed date: this renders in Node, whose clock is UTC, so an evening
+          print anywhere in the US would be stamped tomorrow — and formatting it
+          as UTC only makes the wrong date a consistent one. The canvasser dates
+          the sheet, which is both accurate and what people already do with
+          paper.
 
-          The page number is a blank for a harder reason. The handoff asks for
-          `counter(page) of counter(pages)`, and `counter(pages)` resolves only
-          inside an `@page` margin box — which no browser implements, and which
-          is in any case the one place a document cannot put its own content. In
-          flow content, the only place we can put it, Chrome resolves the counter
-          to nothing and prints "Page 0 of 0": a number that is wrong where a
-          blank would at least be honest. The PDF numbers its own pages from
-          `@react-pdf/renderer`'s render callback, because it is the surface that
-          knows how many there are — and a browser's print dialog offers page
-          numbers of its own besides. */}
+          The `Page ____ of ____` blank that used to sit beside them is gone
+          rather than moved. It was there because the earlier handoff asked for
+          `counter(page) of counter(pages)` and no browser resolves that outside
+          an `@page` margin box, so a blank was the honest form of a number this
+          surface cannot compute. The template asks for no counter at all, on
+          either surface, so there is nothing left to stand in for — and a print
+          dialog numbers the pages itself. */}
       <p className="ws-meta">
         <span>
           Canvasser <b>____________________</b>
@@ -297,14 +261,12 @@ const SheetHeader = ({ turfName, stops, payload }: SheetHeaderProps) => (
         <span>
           Date <b>____ / ____ / ______</b>
         </span>
-        <span>
-          Page <b>____ of ____</b>
-        </span>
       </p>
     </div>
-    <p className="ws-legend">
-      {MARK_INSTRUCTION} {RECORDS_NOTICE}
-    </p>
+    {/* One sentence, which is all the template's legend carries. The notice
+        about re-keying moved to the screen-only preamble below — see
+        `RECORDS_NOTICE`. */}
+    <p className="ws-legend">{MARK_INSTRUCTION}</p>
   </>
 )
 
@@ -343,8 +305,7 @@ export default function WalkSheet({
           >
             Download PDF
           </a>{' '}
-          for the same grid as a file — easier to hand a volunteer, and it
-          numbers its own pages.
+          for the same grid as a file — easier to hand a volunteer.
         </p>
       </div>
 
@@ -356,11 +317,11 @@ export default function WalkSheet({
       ) : (
         <table className="ws-table">
           <colgroup>
-            {COLUMNS.map(([label, width]) => (
-              <col key={label} style={{ width }} />
+            {WALK_COLUMNS.map(({ key, width }) => (
+              <col key={key} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
-          {/* The handoff's header and legend repeat on every printed page. Its
+          {/* The template's header and legend repeat on every printed page. Its
               prototype gets that from a paged-media component with a `header`
               slot; a browser gives us exactly two regions it will repeat, and
               `thead` is the one at the top of the page. So the header rides
@@ -373,7 +334,7 @@ export default function WalkSheet({
               tests should both find in here. */}
           <thead>
             <tr>
-              <td className="ws-banner" colSpan={COLUMNS.length}>
+              <td className="ws-banner" colSpan={COLUMN_COUNT}>
                 <SheetHeader
                   turfName={turfName}
                   stops={stops}
@@ -382,8 +343,8 @@ export default function WalkSheet({
               </td>
             </tr>
             <tr className="ws-cols">
-              {COLUMNS.map(([label]) => (
-                <th key={label} scope="col">
+              {WALK_COLUMNS.map(({ key, label }) => (
+                <th key={key} scope="col">
                   {label}
                 </th>
               ))}
@@ -396,7 +357,7 @@ export default function WalkSheet({
               and they get separated. */}
           <tfoot>
             <tr>
-              <td colSpan={COLUMNS.length}>
+              <td colSpan={COLUMN_COUNT}>
                 <SheetFooter />
               </td>
             </tr>

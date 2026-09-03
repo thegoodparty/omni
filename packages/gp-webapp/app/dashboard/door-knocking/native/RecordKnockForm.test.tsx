@@ -163,7 +163,28 @@ describe('RecordKnockForm walkthrough', () => {
     answer('Did they answer?', 'Not home')
 
     expect(screen.getByText('Note')).toBeVisible()
-    expect(screen.getByPlaceholderText('Notes (optional)')).toBeVisible()
+    // The canvas's placeholder, and the end of the canvas's ladder: "Did they
+    // answer?" → "Did they engage?" → "Do they support you?" → "Will they vote
+    // this election?" → Note → Save above Cancel.
+    expect(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+    ).toBeVisible()
+  })
+
+  // `panelActions`: a full-width Save stacked above a full-width outline
+  // Cancel, in that order. Save first because it is what the panel is for, and
+  // stacked because a two-up row halves the target each presents to a thumb.
+  it('puts Save above Cancel, both full width', () => {
+    renderForm()
+    answer('Did they answer?', 'Not home')
+
+    const save = screen.getByRole('button', { name: 'Save' })
+    const cancel = screen.getByRole('button', { name: 'Cancel' })
+    expect(
+      save.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(save.className).toContain('w-full')
+    expect(cancel.className).toContain('w-full')
   })
 
   it('offers the note on an answered door that would not engage', () => {
@@ -171,7 +192,9 @@ describe('RecordKnockForm walkthrough', () => {
     answer('Did they answer?', 'Answered')
     answer('Did they engage?', 'Refused')
 
-    expect(screen.getByPlaceholderText('Notes (optional)')).toBeVisible()
+    expect(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+    ).toBeVisible()
   })
 
   // A note is never a reason a door can't be saved — the whole point of a
@@ -347,9 +370,12 @@ describe('RecordKnockForm saving', () => {
     renderForm()
 
     answer('Did they answer?', 'Not home')
-    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
-      target: { value: 'Dog in the yard, come back Saturday' },
-    })
+    fireEvent.change(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+      {
+        target: { value: 'Dog in the yard, come back Saturday' },
+      },
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
@@ -377,15 +403,18 @@ describe('RecordKnockForm saving', () => {
     walkToEngaged()
     answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
-    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
-      target: { value: 'Dog in the yard, come back Saturday' },
-    })
+    fireEvent.change(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+      {
+        target: { value: 'Dog in the yard, come back Saturday' },
+      },
+    )
 
     answer('Did they answer?', 'Not home')
 
-    expect(screen.getByPlaceholderText('Notes (optional)')).toHaveValue(
-      'Dog in the yard, come back Saturday',
-    )
+    expect(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+    ).toHaveValue('Dog in the yard, come back Saturday')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
@@ -405,9 +434,12 @@ describe('RecordKnockForm saving', () => {
     renderForm()
 
     answer('Did they answer?', 'Not home')
-    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
-      target: { value: 'Dog in the yard, come back Saturday' },
-    })
+    fireEvent.change(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+      {
+        target: { value: 'Dog in the yard, come back Saturday' },
+      },
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
@@ -429,9 +461,12 @@ describe('RecordKnockForm saving', () => {
     walkToEngaged()
     answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
-    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
-      target: { value: 'Marisol said her landlord is the problem' },
-    })
+    fireEvent.change(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+      {
+        target: { value: 'Marisol said her landlord is the problem' },
+      },
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
@@ -549,9 +584,9 @@ describe('RecordKnockForm dictation', () => {
     walkToNote()
     dictate('Open to talking again next week')
 
-    expect(screen.getByPlaceholderText('Notes (optional)')).toHaveValue(
-      'Open to talking again next week',
-    )
+    expect(
+      screen.getByPlaceholderText("What did they say? We'll clean it up."),
+    ).toHaveValue('Open to talking again next week')
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(posted).toHaveLength(1))

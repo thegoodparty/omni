@@ -32,12 +32,8 @@ export interface ListCardProps {
   meta?: ListCardMetaItem[]
   // The footer row, right-aligned. The primary CTA goes last.
   actions?: ReactNode
-  // Rendered below the actions, and only while the card is selected. The
-  // session-ending control lives here rather than in the always-visible footer:
-  // it is the least frequent thing anyone does to a list and the most final.
-  expandedActions?: ReactNode
-  // Quieter presentation for a row the surface is de-emphasising (a hidden
-  // outline, an archived list) without removing any of its affordances.
+  // Quieter presentation for a row the surface is de-emphasising (an archived
+  // list) without removing any of its affordances.
   dimmed?: boolean
   'data-testid'?: string
 }
@@ -51,7 +47,6 @@ export function ListCard({
   controls,
   meta,
   actions,
-  expandedActions,
   dimmed = false,
   'data-testid': testId,
 }: ListCardProps) {
@@ -59,7 +54,13 @@ export function ListCard({
     <Card
       data-testid={testId}
       className={cn(
-        'relative gap-0 overflow-hidden p-4',
+        // `shrink-0` because every rail that stacks these is a column flex
+        // scroller: without it the cards divide the visible height between
+        // them instead of overflowing it, and `overflow-hidden` — which is
+        // what keeps the accent bar inside the rounded corner — then clips
+        // whatever fell off the bottom. On a phone that took the Details and
+        // Knock buttons off two cards out of three, silently.
+        'relative shrink-0 gap-0 overflow-hidden p-4',
         accentColor && 'pl-5',
         // Selection is drawn as a 1px border plus a 1px INSET RING rather than
         // a 2px border. The canvas thickens its border on select, which grows
@@ -121,11 +122,6 @@ export function ListCard({
       {actions && (
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {actions}
-        </div>
-      )}
-      {selected && expandedActions && (
-        <div className="mt-3 border-t border-border pt-3">
-          {expandedActions}
         </div>
       )}
     </Card>

@@ -1,20 +1,23 @@
 import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { printWalkListPath, seedTurf } from 'src/helpers/door-knocking-e2e'
+import { printWalkListPath } from 'src/helpers/door-knocking-e2e'
 
 // The printable walk list is the feature's offline story: a server component
 // with no client code of its own, reached on a phone with one bar. Its unit
 // tests cover the branches with `serverRequest` and `candidateAccess` mocked,
 // which is exactly what leaves the interesting question open — whether gp-api
-// really answers the way the page assumes. These assert the wiring end to end.
+// really answers the way the page assumes.
 //
-// The route is never built here. POST turfs/:id/knock is the only call in the
-// feature that reaches a paid external vendor (Geoapify's route planner), so a
-// spec that rendered a populated sheet would spend real credits from a shared
-// pool on every run of a suite that gates every PR in the monorepo, and would
-// take a 30s third-party call as a dependency. See the PR for the full
-// reasoning; the rendered sheet stays covered by WalkSheet.test.tsx.
+// Only the refusals are asserted here, and neither needs a list. A populated
+// sheet would: since 3.0 a saved list IS a bought Geoapify route — the two are
+// one transaction — so seeding one would spend real credits from a shared pool
+// on every run of a suite that gates every PR in the monorepo, and would take a
+// 30s third-party call as a dependency. The rendered sheet stays covered by
+// WalkSheet.test.tsx.
+//
+// The third refusal this file used to carry is gone with the state it named: a
+// turf that existed with no route to print. 3.0 has no such turf.
 test.describe('printable door-knocking walk list', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
@@ -40,19 +43,19 @@ test.describe('printable door-knocking walk list', () => {
     expect(url.searchParams.get('redirect_url')).toBe(target)
   })
 
-  // Both inputs share one authenticated user on purpose: `setupProCampaignUser`
-  // provisions a fresh Clerk user + campaign, and concurrent bootstraps against
-  // a cold preview are this suite's dominant flake source (see the 401 note in
-  // tests/utils/headless-user.ts). Every other spec file here spends exactly one.
-  // The two assertions are independent page loads, so sharing costs no isolation.
-  test('404s a print URL with nothing to print', async ({ page }) => {
+  // This one DOES need an authenticated user, unlike the bounce above and for
+  // exactly the reason that test proves: middleware.ts intercepts every
+  // `/dashboard/**` URL, so a signed-out visitor asking for a mangled id is
+  // redirected to login and served a 200 login page — the refusal asserted here
+  // is the page's, and the page never runs. No turf is seeded though, which is
+  // the whole saving: the id is rejected before gp-api is asked about it, since
+  // gp-api parses the param with ParseIntPipe and would answer 400 rather than
+  // 404. So this costs one Clerk bootstrap and no Geoapify credits.
+  test('404s a print URL whose id names nothing', async ({ page }) => {
     test.setTimeout(3 * 60 * 1000)
 
-    const { client } = await setupProCampaignUser(page)
-    const turf = await seedTurf(client, `E2E print turf ${Date.now()}`)
+    await setupProCampaignUser(page)
 
-    // gp-api parses this param with ParseIntPipe, which 400s rather than 404s,
-    // so the page short-circuits a hand-mangled URL before asking at all.
     const mangled = await page.goto(printWalkListPath('not-a-turf'), {
       waitUntil: 'domcontentloaded',
     })
@@ -62,27 +65,5 @@ test.describe('printable door-knocking walk list', () => {
     await expect(
       page.getByRole('heading', { name: 'Error: 404 Not Found' }),
     ).toBeVisible({ timeout: 20_000 })
-
-    // The case a canvasser actually hits: the print link for a list they own but
-    // have not knocked yet, so no route exists to print. gp-api answers 404
-    // ("This turf has not been knocked yet") and the page has to treat that as
-    // "nothing to show" rather than surfacing an error — a cross-service
-    // assumption no mock can confirm.
-    const unknocked = await page.goto(printWalkListPath(turf.id), {
-      waitUntil: 'domcontentloaded',
-    })
-    expect(unknocked?.status()).toBe(404)
-    await expect(
-      page.getByRole('heading', { name: 'Error: 404 Not Found' }),
-    ).toBeVisible({ timeout: 20_000 })
-
-    // Control: the turf really does exist and belong to this org. Without it the
-    // assertion above would pass just as happily against a seed that silently
-    // failed, which would make this a test that the print route 404s everything.
-    // So the 404 is specifically about the missing route, not a missing turf.
-    const { status } = await client.get(`/v1/door-knocking/turfs/${turf.id}`, {
-      validateStatus: () => true,
-    })
-    expect(status).toBe(200)
   })
 })

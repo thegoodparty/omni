@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   BadGatewayException,
   BadRequestException,
   Injectable,
@@ -17,6 +18,12 @@ import {
 } from '../../generated/prisma'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { isBefore } from 'date-fns'
+import {
+  checkSmsStandards,
+  type SmsOutreachResults,
+  type SmsStandardsRule,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
@@ -43,6 +50,22 @@ export interface P2pOutreachImageInput {
   stream: Buffer | Readable
   filename: string
   mimetype: string
+}
+
+// The 2026-09-02 compliance launch kill-switch (mirrors the webapp's
+// voter-outreach-sms-compliance Amplitude flag): scheduling enforcement,
+// the cancel-at-send-time guard, and the candidate-edit shutdown all key
+// off it, so a merge cannot change prod behavior until it is deliberately
+// enabled per environment.
+const smsComplianceV2Enabled = () =>
+  process.env.SMS_COMPLIANCE_V2_ENABLED === 'true'
+
+const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
+  opt_out_line: 'add an opt-out line ("Reply STOP to opt out.")',
+  first_name_token: 'use the {first_name} personalization token',
+  candidate_name: "include the candidate's name",
+  paid_for_by: 'include "Paid for by <your committee name>"',
+  length: 'shorten the message to fit the length limit',
 }
 
 @Injectable()
@@ -85,6 +108,36 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     return peerlyIdentityId
   }
 
+  private async requireCompliantScript(
+    campaign: Campaign,
+    script: string,
+  ): Promise<void> {
+    const tcr = await this.tcrComplianceService.findFirst({
+      where: { campaignId: campaign.id },
+    })
+    const user = await this.client.user.findUnique({
+      where: { id: campaign.userId ?? -1 },
+    })
+    const accountName = user
+      ? `${(user.firstName ?? '').trim()} ${(user.lastName ?? '').trim()}`.trim()
+      : ''
+    const verdict = checkSmsStandards(script, {
+      candidateNames: [accountName, tcr?.candidateName].filter(
+        (name): name is string => !!name,
+      ),
+      committeeName: tcr?.committeeName ?? null,
+    })
+    if (verdict.passed) return
+    const fixes = verdict.failures
+      .map((rule) => SMS_STANDARDS_FIXES[rule])
+      .filter((fix): fix is string => !!fix)
+    throw new BadRequestException(
+      `The message does not meet texting compliance standards: ${fixes.join(
+        '; ',
+      )}`,
+    )
+  }
+
   private async resolveP2pCreateInputs(
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
@@ -109,6 +162,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         `Script cannot exceed ${P2P_SCRIPT_MAX_LENGTH} characters for ` +
           `P2P outreach (got ${resolvedScriptText.length})`,
       )
+    }
+
+    // Compliance is enforced at scheduling, deterministically (product
+    // decision 2026-09-02): a message missing a required element never
+    // becomes a scheduled campaign. Admin approval stays advisory-only.
+    if (smsComplianceV2Enabled()) {
+      await this.requireCompliantScript(campaign, resolvedScriptText)
     }
 
     let resolvedGeography: P2pJobGeographyResult
@@ -221,6 +281,146 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       },
       imageUrl,
     )
+  }
+
+  /**
+   * Edit-before-send. Editable = the cancel window (status `pending` with a
+   * vendor job): name, script, and send date — never the audience, which is
+   * frozen and priced at checkout (that path is cancel-and-recreate).
+   * Pre-compliance-launch only: once the 2026-09-02 launch switch is on,
+   * candidate editing is retired (the campaign success team edits from the
+   * admin console) and this rejects outright.
+   *
+   * Vendor first, then DB: a Peerly failure leaves the row untouched and the
+   * edit retryable. The DB write is a CAS on `pending` so the hourly
+   * completion sweep can't be overwritten mid-advance; losing that race after
+   * a vendor success is logged for manual reconciliation (content only —
+   * no money moves here).
+   */
+  async updateScheduledOutreach(
+    campaign: Campaign,
+    outreachId: number,
+    input: { name: string; script: string; date: string },
+    newImage?: P2pOutreachImageInput & { url: string },
+  ): Promise<Outreach> {
+    if (smsComplianceV2Enabled()) {
+      throw new BadRequestException(
+        'Editing a scheduled campaign is no longer available — cancel and ' +
+          'recreate it, or contact support',
+      )
+    }
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId: campaign.id },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (
+      outreach.status !== OutreachStatus.pending ||
+      outreach.outreachType !== OutreachType.p2p ||
+      !outreach.projectId ||
+      !outreach.identityId
+    ) {
+      throw new BadRequestException('Only scheduled campaigns can be edited')
+    }
+
+    // Peerly's template update is a destructive overwrite, so it always
+    // needs the image bytes — the replacement's, or the stored one's.
+    let imageInfo: {
+      fileStream: Buffer | Readable
+      fileName: string
+      mimeType: string
+      title?: string
+    }
+    if (newImage) {
+      imageInfo = {
+        fileStream: newImage.stream,
+        fileName: newImage.filename,
+        mimeType: newImage.mimetype,
+        title: outreach.title ?? undefined,
+      }
+    } else {
+      if (!outreach.imageUrl) {
+        throw new BadRequestException(
+          'This campaign has no stored image; attach a new one',
+        )
+      }
+      const imageKey = decodeURIComponent(
+        new URL(outreach.imageUrl).pathname.slice(1),
+      )
+      const image = await this.s3.getFileBytesWithContentType(
+        ASSET_DOMAIN,
+        imageKey,
+      )
+      if (!image) {
+        throw new BadRequestException(
+          'The stored image could not be read; attach a new one',
+        )
+      }
+      imageInfo = {
+        fileStream: image.bytes,
+        fileName: imageKey.split('/').pop() ?? 'outreach-image',
+        mimeType: image.contentType ?? 'image/jpeg',
+        title: outreach.title ?? undefined,
+      }
+    }
+
+    // Same local-day derivation as draft creation: the offset-annotated
+    // client string's first 10 chars are the user's send day for Peerly.
+    const dateOnly = input.date.slice(0, 10)
+    const rescheduleDate =
+      dateOnly !== outreach.scheduledLocalDate ? dateOnly : undefined
+
+    // An edited message must never ride a stale approval: a CAS-approved
+    // send has an open canvass request at Peerly, and the vendor allows one
+    // request per job, so it is cleared BEFORE the job update. Fail closed —
+    // if the clear fails, the edit fails and the old, approved content keeps
+    // sending as reviewed.
+    if (outreach.canvassRequestedAt) {
+      await this.peerlyP2pJobService.clearCanvassers(outreach.projectId)
+    }
+
+    await this.peerlyP2pJobService.updatePeerlyP2pJob({
+      jobId: outreach.projectId,
+      campaignId: campaign.id,
+      imageInfo,
+      scriptText: input.script,
+      identityId: outreach.identityId,
+      name: input.name,
+      rescheduleDate,
+    })
+
+    const updated = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending },
+      data: {
+        name: input.name,
+        script: input.script,
+        message: input.script,
+        date: new Date(input.date),
+        scheduledLocalDate: dateOnly,
+        ...(newImage && { imageUrl: newImage.url }),
+        // Re-queue for manual reapproval (CAS console): any edit resets the
+        // decision, including a denial the candidate just addressed.
+        approvedAt: null,
+        approvedBy: null,
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        canvassRequestedAt: null,
+      },
+    })
+    if (updated.count === 0) {
+      this.logger.error(
+        `Outreach ${outreachId} advanced past pending during edit; Peerly ` +
+          'job has the new content but the row kept the old — manual ' +
+          'reconciliation required',
+      )
+      throw new ConflictException('This campaign is no longer editable')
+    }
+
+    return await this.model.findFirstOrThrow({
+      where: { id: outreachId, campaignId: campaign.id },
+    })
   }
 
   /**
@@ -676,6 +876,19 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     if (outreach.status !== OutreachStatus.pending) {
       throw new BadRequestException('Only scheduled campaigns can be canceled')
     }
+    // Cancel is available up to the scheduled send, not through it: once the
+    // send time arrives canvassers may be texting, and deleting the vendor
+    // job mid-send is not a cancel, it is a mess (product decision
+    // 2026-09-02, behind the compliance launch switch).
+    if (
+      smsComplianceV2Enabled() &&
+      outreach.date &&
+      !isBefore(new Date(), outreach.date)
+    ) {
+      throw new BadRequestException(
+        'This campaign has reached its send time and can no longer be canceled',
+      )
+    }
 
     const claimed = await this.model.updateMany({
       where: { id: outreachId, status: OutreachStatus.pending },
@@ -756,119 +969,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
-   * Edit-before-send. Editable = the cancel window (status `pending` with a
-   * vendor job): name, script, and send date — never the audience, which is
-   * frozen and priced at checkout (that path is cancel-and-recreate).
-   *
-   * Vendor first, then DB: a Peerly failure leaves the row untouched and the
-   * edit retryable. The DB write is a CAS on `pending` so the hourly
-   * completion sweep can't be overwritten mid-advance; losing that race after
-   * a vendor success is logged for manual reconciliation (content only —
-   * no money moves here).
-   */
-  async updateScheduledOutreach(
-    campaign: Campaign,
-    outreachId: number,
-    input: { name: string; script: string; date: string },
-    newImage?: P2pOutreachImageInput & { url: string },
-  ): Promise<Outreach> {
-    const outreach = await this.model.findFirst({
-      where: { id: outreachId, campaignId: campaign.id },
-    })
-    if (!outreach) {
-      throw new NotFoundException('Outreach not found')
-    }
-    if (
-      outreach.status !== OutreachStatus.pending ||
-      outreach.outreachType !== OutreachType.p2p ||
-      !outreach.projectId ||
-      !outreach.identityId
-    ) {
-      throw new BadRequestException('Only scheduled campaigns can be edited')
-    }
-
-    // Peerly's template update is a destructive overwrite, so it always
-    // needs the image bytes — the replacement's, or the stored one's.
-    let imageInfo: {
-      fileStream: Buffer | Readable
-      fileName: string
-      mimeType: string
-      title?: string
-    }
-    if (newImage) {
-      imageInfo = {
-        fileStream: newImage.stream,
-        fileName: newImage.filename,
-        mimeType: newImage.mimetype,
-        title: outreach.title ?? undefined,
-      }
-    } else {
-      if (!outreach.imageUrl) {
-        throw new BadRequestException(
-          'This campaign has no stored image; attach a new one',
-        )
-      }
-      const imageKey = decodeURIComponent(
-        new URL(outreach.imageUrl).pathname.slice(1),
-      )
-      const image = await this.s3.getFileBytesWithContentType(
-        ASSET_DOMAIN,
-        imageKey,
-      )
-      if (!image) {
-        throw new BadRequestException(
-          'The stored image could not be read; attach a new one',
-        )
-      }
-      imageInfo = {
-        fileStream: image.bytes,
-        fileName: imageKey.split('/').pop() ?? 'outreach-image',
-        mimeType: image.contentType ?? 'image/jpeg',
-        title: outreach.title ?? undefined,
-      }
-    }
-
-    // Same local-day derivation as draft creation: the offset-annotated
-    // client string's first 10 chars are the user's send day for Peerly.
-    const dateOnly = input.date.slice(0, 10)
-    const rescheduleDate =
-      dateOnly !== outreach.scheduledLocalDate ? dateOnly : undefined
-
-    await this.peerlyP2pJobService.updatePeerlyP2pJob({
-      jobId: outreach.projectId,
-      campaignId: campaign.id,
-      imageInfo,
-      scriptText: input.script,
-      identityId: outreach.identityId,
-      name: input.name,
-      rescheduleDate,
-    })
-
-    const updated = await this.model.updateMany({
-      where: { id: outreachId, status: OutreachStatus.pending },
-      data: {
-        name: input.name,
-        script: input.script,
-        message: input.script,
-        date: new Date(input.date),
-        scheduledLocalDate: dateOnly,
-        ...(newImage && { imageUrl: newImage.url }),
-      },
-    })
-    if (updated.count === 0) {
-      this.logger.error(
-        `Outreach ${outreachId} advanced past pending during edit; Peerly ` +
-          'job has the new content but the row kept the old — manual ' +
-          'reconciliation required',
-      )
-      throw new BadRequestException(
-        'This campaign started sending and can no longer be edited',
-      )
-    }
-    return this.model.findFirstOrThrow({ where: { id: outreachId } })
-  }
-
-  /**
    * Live receipt read for a paid campaign. No local payment snapshot
    * exists — the row only stores the checkout session id — so the card and
    * receipt URL come from Stripe on every read. Free-texts rows never
@@ -923,6 +1023,43 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         ? new Date(charge.created * 1000).toISOString()
         : null,
     }
+  }
+
+  // Counts only (reply content never leaves the CRM). The per-recipient
+  // interaction rows are the source when they exist; a campaign that
+  // predates recipient capture falls back to the purchase-time count.
+  async getSmsResults(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<SmsOutreachResults> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (
+      outreach.outreachType !== OutreachType.p2p &&
+      outreach.outreachType !== OutreachType.text
+    ) {
+      throw new BadRequestException(
+        'Results are only available for text campaigns',
+      )
+    }
+    const [recipients, responded, optedOut] = await Promise.all([
+      this.client.contactInteractionText.count({ where: { outreachId } }),
+      this.client.contactInteractionText.count({
+        where: { outreachId, respondedAt: { not: null } },
+      }),
+      this.client.contactInteractionText.count({
+        where: { outreachId, optedOutAt: { not: null } },
+      }),
+    ])
+    const contacts =
+      recipients > 0
+        ? recipients
+        : (outreach.billableTextCount ?? outreach.textCount ?? 0)
+    return { contacts, responded, optedOut }
   }
 
   // Shared list query behind both scoped list readers below. Win rows carry
