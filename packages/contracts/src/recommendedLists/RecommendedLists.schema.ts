@@ -58,20 +58,28 @@ export type RecommendedListVariant = z.infer<
 // The unsaved `VoterFileFilter` shape a recommendation carries. Only the
 // fields the recommended-list universes ever populate — not the full
 // dozens-of-fields filter schema, which stays gp-api-local since nothing
-// else here crosses the wire.
-export const RecommendedListFilterSchema = z.object({
-  voterStatus: z.array(z.string()).optional(),
-  supportStatus: z.array(SupportStatusRollupSchema).optional(),
-  independentAffinity: z.boolean().optional(),
-  ideologyLiberal: z.boolean().optional(),
-  ideologyModerate: z.boolean().optional(),
-  ideologyConservative: z.boolean().optional(),
-  hasCellPhone: z.boolean().optional(),
-  hasAnyPhone: z.boolean().optional(),
-  // `county|precinct` pairs (encodePrecinctPair), set only for a
-  // door-knocking variant that survived on its precinct-restricted count.
-  precincts: z.array(z.string()).optional(),
-})
+// else here crosses the wire. `.strict()` is load-bearing: a plain
+// `z.object()` silently strips an unrecognized key instead of failing, so
+// without it a variant that starts populating a field outside this set
+// would drop data with nothing to say so. Strict makes that a loud parse
+// failure (500 via ZodResponseInterceptor) instead — still not what you
+// want in prod, but recommendedListsFilterSchema.test.ts turns it into a
+// red test the moment someone adds such a variant, rather than only in prod.
+export const RecommendedListFilterSchema = z
+  .object({
+    voterStatus: z.array(z.string()).optional(),
+    supportStatus: z.array(SupportStatusRollupSchema).optional(),
+    independentAffinity: z.boolean().optional(),
+    ideologyLiberal: z.boolean().optional(),
+    ideologyModerate: z.boolean().optional(),
+    ideologyConservative: z.boolean().optional(),
+    hasCellPhone: z.boolean().optional(),
+    hasAnyPhone: z.boolean().optional(),
+    // `county|precinct` pairs (encodePrecinctPair), set only for a
+    // door-knocking variant that survived on its precinct-restricted count.
+    precincts: z.array(z.string()).optional(),
+  })
+  .strict()
 export type RecommendedListFilter = z.infer<typeof RecommendedListFilterSchema>
 
 export const RecommendedListSchema = z.object({
