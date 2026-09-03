@@ -80,7 +80,7 @@ interface DraftInput<TPurpose extends string> {
 //                                        instructions field when given
 //   early-voting window / election    -> buildDateContext below (grounded
 //   day date                             from campaign.details + a live
-//                                        milestones fetch, vote-early only)
+//                                        milestones fetch, early_voting only)
 const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
   introduce_myself:
     'Write a phonebank voter ID script for a volunteer introducing the ' +
