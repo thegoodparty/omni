@@ -290,6 +290,27 @@ export class ContactsService {
     }
   }
 
+  // Win-only for the same reason party is, and gated the same way: the
+  // converted FilterObject carries `independentAffinity`, so the key check
+  // mirrors the party one exactly. Unlike party this is not a licensing
+  // rule — it is a product judgement that "open to voting for an
+  // independent" describes electoral behavior toward a candidate and has no
+  // Serve meaning — so if that judgement changes, delete this and flip the
+  // catalog entry's `modes` to 'both'.
+  private assertNoIndependentAffinityFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (
+      this.hasElectedOfficeAccess(organization) &&
+      'independentAffinity' in filters
+    ) {
+      throw new BadRequestException(
+        'Independent affinity filtering is not available for this organization',
+      )
+    }
+  }
+
   // Win-only (ENG-10839), same shape as the party gate above but checked on
   // the raw pre-conversion input: contactsMade* booleans never reach the
   // converted FilterObject (see extractContactsMadeSelection's doc comment),
@@ -401,6 +422,10 @@ export class ContactsService {
   ): Promise<{ filters: FilterObject; idOverrides?: IdOverrides }> {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    this.assertNoIndependentAffinityFilterForElectedOffice(
+      organization,
+      baseFilters,
+    )
     this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
     return this.resolveVoterLikelihoodFilter(organization, baseFilters)
   }
@@ -662,6 +687,10 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoIndependentAffinityFilterForElectedOffice(
+      organization,
+      filters,
+    )
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
     // request itself carries no live search, re-apply the saved list's stored
@@ -1340,6 +1369,10 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoIndependentAffinityFilterForElectedOffice(
+      organization,
+      filters,
+    )
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
@@ -1402,6 +1435,10 @@ export class ContactsService {
   ): Promise<number> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoIndependentAffinityFilterForElectedOffice(
+      organization,
+      filters,
+    )
 
     return this.withOrgDistrictResolution(
       organization,
@@ -1428,6 +1465,10 @@ export class ContactsService {
   ): Promise<void> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoIndependentAffinityFilterForElectedOffice(
+      organization,
+      filters,
+    )
 
     return this.withOrgDistrictResolution(organization, (params) =>
       this.streamPeopleDownload(

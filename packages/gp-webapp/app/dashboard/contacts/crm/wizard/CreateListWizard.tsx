@@ -6,6 +6,7 @@ import { Button, DrawerTitle, Stepper } from '@styleguide'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinRecommendedListsFlag } from '@shared/experiments/winRecommendedListsFlag'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import CrmSheet from '../shared/CrmSheet'
@@ -66,6 +67,7 @@ export default function CreateListWizard({
     customSegments,
     voterDataUnavailable,
   } = useContactsTable()
+  const recommendedLists = useWinRecommendedListsFlag()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -485,6 +487,9 @@ export default function CreateListWizard({
           onPrecinctsChange={setPrecincts}
           precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
+          showRecommendedListFilters={
+            recommendedLists.ready && recommendedLists.enabled
+          }
         />
       )}
       {stepName === 'conditions' && activeBranch === 'activity' && (

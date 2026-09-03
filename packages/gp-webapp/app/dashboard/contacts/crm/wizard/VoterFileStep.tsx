@@ -7,6 +7,13 @@ import {
   PILL_TOGGLE_ITEM_CLASSNAME,
 } from '../shared/constants'
 import { sentenceCase } from '../shared/labels.util'
+import {
+  AFFINITY_FIELD_KEY,
+  ANY_PHONE_FIELD,
+  ANY_PHONE_FILTER_KEY,
+  RECOMMENDED_LIST_FILTER_FIELDS,
+  SPECIFIC_PHONE_FILTER_KEYS,
+} from '../shared/recommendedListFilters.config'
 import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import {
@@ -28,6 +35,11 @@ interface VoterFileStepProps {
   // React Query context that a bare render of this component does not.
   precinctOptions: PrecinctOptionsResult
   isElectedOfficial: boolean
+  // win-recommended-lists. Visibility only: the keys serialize either way
+  // (voterFileFilterTransform.util.ts), so a list saved with them keeps
+  // resolving after the flag flips off. Defaults false so the outreach v2
+  // builders, which share this step, stay unchanged.
+  showRecommendedListFilters?: boolean
 }
 
 // filters.config.ts's "General Information" section key for Contacts Made:
@@ -56,9 +68,13 @@ const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'income_ranges',
   'language',
   'ethnicity',
+  'independent_affinity',
+  'ideology',
   'gender',
+  'any_phone',
   'cell_phone',
   'landline',
+  'address',
 ]
 
 // Step 2 of the voter-file branch (ENG-10721 locked-prototype parity): pill
@@ -75,6 +91,7 @@ export default function VoterFileStep({
   onPrecinctsChange,
   precinctOptions,
   isElectedOfficial,
+  showRecommendedListFilters = false,
 }: VoterFileStepProps) {
   // Political party doesn't apply to an elected official's constituent file —
   // same exclusion FiltersSheet applies today. Contacts Made is Win-only the
@@ -86,8 +103,18 @@ export default function VoterFileStep({
     return index === -1 ? FIELD_ORDER_BELOW_SUPPORT_STATUS.length : index
   }
 
-  const fieldsBelowSupportStatus = filterSections
-    .flatMap((section) => section.fields)
+  // Independent affinity is Win-only for the same reason political party is
+  // — gp-api 400s it for an eo- org, so it must not be selectable there.
+  const recommendedListFields = showRecommendedListFilters
+    ? [...RECOMMENDED_LIST_FILTER_FIELDS, ANY_PHONE_FIELD].filter(
+        (field) => !isElectedOfficial || field.key !== AFFINITY_FIELD_KEY,
+      )
+    : []
+
+  const fieldsBelowSupportStatus = [
+    ...filterSections.flatMap((section) => section.fields),
+    ...recommendedListFields,
+  ]
     .filter(
       (field) =>
         field.key !== CONTACTS_MADE_FIELD_KEY &&
@@ -114,6 +141,18 @@ export default function VoterFileStep({
     options.forEach((option) => {
       updated[option.key] = selected.has(option.key)
     })
+    // "Has any phone" is the OR of cell and landline, which AND together, so
+    // holding it alongside either narrows to the specific number and reads
+    // as a bug. Whichever side the user just touched wins.
+    if (updated[ANY_PHONE_FILTER_KEY]) {
+      if (options.some((option) => option.key === ANY_PHONE_FILTER_KEY)) {
+        SPECIFIC_PHONE_FILTER_KEYS.forEach((key) => {
+          updated[key] = false
+        })
+      } else if (SPECIFIC_PHONE_FILTER_KEYS.some((key) => updated[key])) {
+        updated[ANY_PHONE_FILTER_KEY] = false
+      }
+    }
     onFiltersChange(updated)
   }
 

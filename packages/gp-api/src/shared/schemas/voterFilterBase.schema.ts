@@ -34,6 +34,13 @@ export const voterFilterBaseSchema = z.object({
   genderUnknown: z.boolean().optional(),
   hasCellPhone: z.boolean().optional(),
   hasLandline: z.boolean().optional(),
+  hasAnyPhone: z.boolean().optional(),
+  hasAddress: z.boolean().optional(),
+  independentAffinity: z.boolean().optional(),
+  ideologyConservative: z.boolean().optional(),
+  ideologyLiberal: z.boolean().optional(),
+  ideologyModerate: z.boolean().optional(),
+  ideologyUnknown: z.boolean().optional(),
   // New boolean flags to allow FE to pass simple true/false values
   registeredVoterTrue: z.boolean().optional(),
   registeredVoterFalse: z.boolean().optional(),

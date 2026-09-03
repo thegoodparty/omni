@@ -240,15 +240,58 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     ],
   },
   {
+    // hasAnyPhone is the OR of the other two, so it cannot be expressed by
+    // combining them (they AND). Selecting it alongside either is redundant
+    // rather than contradictory — every value here is presence-only — so the
+    // wizard makes it exclusive and the resolver keeps plain AND semantics.
     key: 'phone',
     label: 'Phone',
     kind: 'boolean-group',
     modes: 'both',
     provenance: 'observed',
     values: [
+      { key: 'hasAnyPhone', label: 'Has Any Phone' },
       { key: 'hasCellPhone', label: 'Has Cell Phone' },
       { key: 'hasLandline', label: 'Has Landline' },
     ],
+  },
+  {
+    key: 'address',
+    label: 'Address',
+    kind: 'boolean-group',
+    modes: 'both',
+    provenance: 'observed',
+    values: [{ key: 'hasAddress', label: 'Has Address' }],
+  },
+  {
+    // Column is hf_ideology_general, whose own vocabulary says Liberal; the
+    // product says Progressive, so the key follows the data and the label
+    // follows the copy. Unknown covers the 40% of the file with no value and
+    // is a real reportable segment, not a gap to drop.
+    key: 'ideology',
+    label: 'Ideology',
+    kind: 'boolean-group',
+    modes: 'both',
+    provenance: 'modeled',
+    values: [
+      { key: 'ideologyConservative', label: 'Conservative' },
+      { key: 'ideologyModerate', label: 'Moderate' },
+      { key: 'ideologyLiberal', label: 'Progressive' },
+      { key: 'ideologyUnknown', label: 'Unknown' },
+    ],
+  },
+  {
+    // Modeled openness to voting for an independent. A non-nullable BOOLEAN
+    // column, so unlike every other modeled dimension here there is no
+    // Unknown bucket — the file classifies everyone. Win-only like party:
+    // it describes electoral behavior toward a candidate, which has no Serve
+    // meaning (assertNoIndependentAffinityFilterForElectedOffice 400s it).
+    key: 'independentAffinity',
+    label: 'Independent Affinity',
+    kind: 'boolean-group',
+    modes: 'win',
+    provenance: 'modeled',
+    values: [{ key: 'independentAffinity', label: 'Open to Independents' }],
   },
   {
     key: 'languageCodes',
