@@ -281,13 +281,19 @@ for the new owner.
 \set new_owner_id 2002
 SELECT id, email, meta_data->>'customerId' AS customer_id FROM "user"
 WHERE id = :new_owner_id;
+
+-- Second condition: does the new owner own any OTHER campaign that carries its
+-- own subscription? Any row here means the automatic recovery can pick the
+-- wrong subscription, regardless of the null customer_id above.
+SELECT id, slug, details->>'subscriptionId' AS subscription_id FROM campaign
+WHERE user_id = :new_owner_id
+  AND details->>'subscriptionId' IS NOT NULL;
 ```
 
-- **`customer_id` is `null` and the new owner owns no other subscribed campaign** —
-  the common case. Paste the message above; their first Manage Subscription click
+- **`customer_id` is `null` and the second query returns zero rows** — the common
+  case. Paste the message above; their first Manage Subscription click
   will resolve correctly.
-- **`customer_id` is already set, or the new owner owns another campaign with its
-  own `subscriptionId`** — don't paste the message above. The automatic recovery
+- **`customer_id` is already set, or the second query returns any row** — don't paste the message above. The automatic recovery
   will point at the wrong Stripe customer (theirs, or another campaign's) rather
   than the one for the campaign you just transferred. Escalate to someone with
   direct Stripe access to set the payment method deliberately instead of letting
