@@ -439,3 +439,67 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
     await closePersonPanel(panel)
   })
 })
+
+// win-recommended-lists (ENG-10708 follow-on): three dimensions added to the
+// wizard — independent affinity, ideology, and hasAnyPhone. Affinity and
+// ideology are Win-only (gp-api 400s both for an eo- org via
+// assertNoRecommendedListFilterForElectedOffice, and VoterFileStep/
+// ListFilterSummary strip them the same way), so this Serve/eo- suite can
+// only exercise hasAnyPhone directly — the other two are covered against a
+// Win Pro user in win-contacts-filters.spec.ts. What belongs here instead is
+// the negative space: proving the Win-only gate is actually enforced
+// end-to-end for Serve, which nothing else in this repo tests.
+test('contacts filters: recommended-list dimensions (any-phone + Win-only gate)', async ({
+  page,
+}) => {
+  test.setTimeout(TEST_TIMEOUT)
+  // The beforeEach's enableCrmFlags(page) only turns serve-crm on; the
+  // recommended-list groups additionally need win-recommended-lists, so
+  // re-apply before any navigation happens (setUpCrmContacts is what first
+  // navigates to /dashboard/contacts).
+  await enableCrmFlags(page, { 'win-recommended-lists': 'on' })
+  const client = await setUpCrmContacts(page)
+  const { wizard, unfiltered } = await openWizard(page)
+
+  await test.step('Independent Affinity and Ideology are absent for Serve (permanent Win-only gate)', async () => {
+    await expect(wizardPillGroup(wizard, 'Independent Affinity')).toHaveCount(0)
+    await expect(wizardPillGroup(wizard, 'Ideology')).toHaveCount(0)
+  })
+
+  let cellCount = 0
+  let anyPhoneCount = 0
+  await test.step('Filter: hasAnyPhone is never narrower than Has Cell Phone alone (OR, not AND)', async () => {
+    cellCount = await probeCount(
+      page,
+      wizard,
+      unfiltered,
+      [['Cell Phone', 'Has Cell Phone']],
+      { strict: false },
+    )
+    anyPhoneCount = await probeCount(
+      page,
+      wizard,
+      unfiltered,
+      [['Phone', 'Has Any Phone']],
+      { strict: false },
+    )
+    expect(anyPhoneCount).toBeGreaterThanOrEqual(cellCount)
+  })
+
+  await test.step('hasAnyPhone: saved list round-trips (reopen shows the same count)', async () => {
+    await selectWizardPill(wizard, 'Phone', 'Has Any Phone')
+    const settledCount = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
+    })
+    expect(settledCount).toBeGreaterThan(0)
+
+    const listId = await buildListFromSelection(
+      page,
+      settledCount,
+      `E2E any phone ${Date.now()}`,
+    )
+
+    const members = await fetchListMembers(client, listId)
+    expect(members.length).toBeGreaterThan(0)
+  })
+})
