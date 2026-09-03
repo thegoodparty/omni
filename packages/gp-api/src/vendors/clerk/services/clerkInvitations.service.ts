@@ -59,6 +59,11 @@ export class ClerkInvitationsService {
         () =>
           this.clerkClient.invitations.getInvitationList({
             status: 'pending',
+            // Clerk defaults to a 10-item page; without an explicit limit a
+            // team past 10 pending invites would silently truncate here,
+            // making the rest invisible and un-revocable. 500 is Clerk's
+            // documented page-size ceiling.
+            limit: 500,
           }),
       ))
     } catch (err) {

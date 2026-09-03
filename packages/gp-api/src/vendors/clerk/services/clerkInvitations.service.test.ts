@@ -92,7 +92,10 @@ describe('ClerkInvitationsService', () => {
       const result = await service.listPendingTeamInvitations('acme')
 
       expect(result.map((invitation) => invitation.id)).toEqual(['inv_1'])
-      expect(getInvitationList).toHaveBeenCalledWith({ status: 'pending' })
+      expect(getInvitationList).toHaveBeenCalledWith({
+        status: 'pending',
+        limit: 500,
+      })
     })
 
     it('throws BadGatewayException when Clerk fails to list invitations', async () => {
