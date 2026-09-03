@@ -13,6 +13,7 @@ import {
 } from '../schemas/people.schema'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import { DatabricksVoterService } from './databricksVoter.service'
+import { MAX_RANKED_PRECINCTS } from './databricksRecommendedListsSql.util'
 import type { DbxDistrict } from './databricksVoterSql.util'
 import {
   PeopleDbxStatementClient,
@@ -493,21 +494,21 @@ describe('DatabricksVoterService', () => {
         ],
       })
 
-      const precincts = await service.rankPrecincts(
-        DISTRICT,
-        noFilters(),
-        10000,
-      )
+      const result = await service.rankPrecincts(DISTRICT, noFilters(), 10000)
 
       // 9000 alone is under target; +4000 reaches it, so the third precinct
       // (already ranked lower) is never needed.
-      expect(precincts).toEqual([
-        { county: 'Los Angeles', precinct: '001', voters: 9000 },
-        { county: 'Los Angeles', precinct: '002', voters: 4000 },
-      ])
+      expect(result).toEqual({
+        precincts: [
+          { county: 'Los Angeles', precinct: '001', voters: 9000 },
+          { county: 'Los Angeles', precinct: '002', voters: 4000 },
+        ],
+        totalVoters: 13000,
+        reachedTarget: true,
+      })
     })
 
-    it('returns all rows when the target is never reached', async () => {
+    it('flags reachedTarget false when precincts run out first', async () => {
       query.mockResolvedValueOnce({
         columns: ['county', 'precinct', 'voters'],
         rows: [
@@ -516,13 +517,44 @@ describe('DatabricksVoterService', () => {
         ],
       })
 
-      const precincts = await service.rankPrecincts(
-        DISTRICT,
-        noFilters(),
-        10000,
-      )
+      const result = await service.rankPrecincts(DISTRICT, noFilters(), 10000)
 
-      expect(precincts).toHaveLength(2)
+      // Every fetched row is under target -- the district has nothing more
+      // to offer, not merely a slow accumulation, and reachedTarget has to
+      // say so rather than leave the caller to infer it from the row count.
+      expect(result).toEqual({
+        precincts: [
+          { county: 'Campti', precinct: '001', voters: 200 },
+          { county: 'Campti', precinct: '002', voters: 120 },
+        ],
+        totalVoters: 320,
+        reachedTarget: false,
+      })
+    })
+
+    // The other way reachedTarget can come back false: MAX_RANKED_PRECINCTS
+    // rows all came back (the query never signals "there could be more"), and
+    // even summing every one of them doesn't reach doorTarget. This is the
+    // branch a below-floor widening loop can never distinguish from a
+    // genuinely small district without this flag -- and the one that will
+    // otherwise go unexercised until a real large-and-fragmented district
+    // hits it in production.
+    it('flags reachedTarget false when the cap runs out first', async () => {
+      const rows = Array.from({ length: MAX_RANKED_PRECINCTS }, (_, i) => [
+        'Los Angeles',
+        String(i).padStart(3, '0'),
+        '10',
+      ])
+      query.mockResolvedValueOnce({
+        columns: ['county', 'precinct', 'voters'],
+        rows,
+      })
+
+      const result = await service.rankPrecincts(DISTRICT, noFilters(), 100000)
+
+      expect(result.precincts).toHaveLength(MAX_RANKED_PRECINCTS)
+      expect(result.totalVoters).toBe(MAX_RANKED_PRECINCTS * 10)
+      expect(result.reachedTarget).toBe(false)
     })
   })
 })

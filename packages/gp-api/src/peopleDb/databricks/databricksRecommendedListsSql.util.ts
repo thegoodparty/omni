@@ -14,10 +14,11 @@ import {
 // ranged ~990-2,240), so 500 precincts is generous headroom in practice.
 //
 // It is a heuristic cap, not a guarantee: if a district's top 500 precincts by
-// count still don't sum to doorTarget, rankPrecincts returns fewer voters than
-// doorTarget rather than reaching further into the ranking -- the caller gets
-// a shorter list than it asked for, silently, and has to treat that the same
-// as "widen N and it's still short" per the minimum-size-floor rules.
+// count still don't sum to doorTarget, DatabricksVoterService.rankPrecincts
+// returns fewer voters than doorTarget rather than reaching further into the
+// ranking. That shortfall is never silent, though -- rankPrecincts reports it
+// via its `reachedTarget` flag, which the below-floor widening logic needs to
+// tell "ran out of precincts" apart from "reached the target."
 export const MAX_RANKED_PRECINCTS = 500
 
 export type RankPrecinctsArgs = DbxScopeArgs & { limit: number }
