@@ -51,6 +51,24 @@ const claimRequestCrmSyncCounter = meter.createCounter(
   },
 )
 
+// person_profile_completion_request_event_count_total{result=...}
+const completionRequestEventCounter = meter.createCounter(
+  'person_profile.completion_request_event.count',
+  {
+    description:
+      'Segment "Person Profile - Completion Requested" emissions by result',
+  },
+)
+
+// person_profile_completion_request_contact_gap_count_total{result=...}
+const completionRequestContactGapCounter = meter.createCounter(
+  'person_profile.completion_request_contact_gap.count',
+  {
+    description:
+      'Sent completion-request events by whether HubSpot already held a contact for the subject',
+  },
+)
+
 // person_profile_person_id_drift_count_total{result=...}
 const personIdDriftCounter = meter.createCounter(
   'person_profile.person_id_drift.count',
@@ -114,17 +132,70 @@ export type RevalidationResult = 'success' | 'skipped' | 'failed'
  * Outcome of a candidate_profile_requests write to HubSpot:
  *  - success:    the candidate's contact now holds the current count
  *  - skipped:    HubSpot is unconfigured (off-prod), so nothing was attempted
- *  - no_contact: the person maps to no HubSpot contact — expected and common
+ *  - no_contact: the person mart vouches that this person maps to no HubSpot
+ *                contact — expected and common
+ *  - unresolved: the mart was never asked (warehouse unconfigured), so the
+ *                person's contact status is simply unknown this run
  *  - failed:     the warehouse lookup or the HubSpot write errored
  *
  * `no_contact` is the one to watch: a sustained 100% share means the person↔
  * contact linkage is unreachable, not that the counter is working.
+ *
+ * `no_contact` and `unresolved` were one value until the completion-request
+ * event started reading this outcome. Both still mean "no count was written",
+ * but only `no_contact` is evidence ABOUT the CRM, and the event half needs
+ * that distinction to tell a contact Segment is about to create from a lookup
+ * that never happened — see CompletionRequestContactGapResult below.
  */
 export type ClaimRequestCrmSyncResult =
   | 'success'
   | 'skipped'
   | 'no_contact'
+  | 'unresolved'
   | 'failed'
+
+/**
+ * Outcome of emitting the Segment event that triggers the "complete your
+ * profile" nudge email:
+ *  - sent:     the event went to Segment carrying the subject's email
+ *  - no_email: election-api holds no address for this person, so the event was
+ *              not sent — HubSpot could not route it to anyone
+ *  - failed:   the lookup or the Segment call errored
+ *
+ * `no_email` is the share to watch, because it is the ceiling on how many of
+ * these nudges can ever be delivered. It is a data-coverage number, not a
+ * defect: it moves when the person feed gains addresses, not when this code
+ * changes.
+ */
+export type CompletionRequestEventResult = 'sent' | 'no_email' | 'failed'
+
+/**
+ * For a completion-request event we DID send, whether HubSpot already held a
+ * contact for the subject:
+ *  - existing_contact: the person mart resolved an `hs_contact_id`, so the
+ *                      event lands on a record that already existed
+ *  - new_contact:      it did not, so Segment's cloud-mode destination creates
+ *                      the contact
+ *  - unknown:          contact status was not determined this run (HubSpot
+ *                      unconfigured off-prod, or the warehouse lookup failed)
+ *
+ * `new_contact` is the population that costs us something irreversible: a
+ * contact the Segment destination creates is attributed to HubSpot's offline
+ * sources, and original source is immutable after creation, so if that person
+ * later signs up through paid or organic their real attribution is already
+ * gone. That trade is accepted — a nudge nobody can receive is worth less than
+ * the attribution — but it is the number to check before widening this feature
+ * or believing an acquisition report. See the HubSpot integration doc,
+ * "Signup Attribution: Forms API with hutk", for why creation-time source
+ * cannot be repaired afterwards.
+ *
+ * Only recorded when the event was actually sent: nothing is created in the CRM
+ * for a submission that never emitted one.
+ */
+export type CompletionRequestContactGapResult =
+  | 'existing_contact'
+  | 'new_contact'
+  | 'unknown'
 
 /**
  * Outcome of a public voter-density proxy request:
@@ -221,6 +292,37 @@ export function recordClaimRequestCrmSync(
     claimRequestCrmSyncCounter.add(1, { result, environment: environment() })
   } catch (error) {
     logger.error('Failed to record claim request CRM sync metric', error)
+  }
+}
+
+export function recordCompletionRequestEvent(
+  result: CompletionRequestEventResult,
+): void {
+  if (!isOtelEnabled()) return
+  try {
+    completionRequestEventCounter.add(1, {
+      result,
+      environment: environment(),
+    })
+  } catch (error) {
+    logger.error('Failed to record completion request event metric', error)
+  }
+}
+
+export function recordCompletionRequestContactGap(
+  result: CompletionRequestContactGapResult,
+): void {
+  if (!isOtelEnabled()) return
+  try {
+    completionRequestContactGapCounter.add(1, {
+      result,
+      environment: environment(),
+    })
+  } catch (error) {
+    logger.error(
+      'Failed to record completion request contact gap metric',
+      error,
+    )
   }
 }
 

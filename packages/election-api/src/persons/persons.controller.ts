@@ -62,6 +62,15 @@ export class PersonsController {
     return this.personsService.getVoterDensity(params.personId)
   }
 
+  // The subject's contact email on its own, for gp-api's CRM resolution of a
+  // profile-completion request. Deliberately a route of its own rather than a
+  // column on the reads above: those responses are rendered into public pages,
+  // this one never leaves a server. See PersonsService.getContactEmail.
+  @Get(':personId/contact-email')
+  async getContactEmail(@Param() params: GetPersonByIdParamsDTO) {
+    return this.personsService.getContactEmail(params.personId)
+  }
+
   @Get(':personId')
   async getPersonById(@Param() params: GetPersonByIdParamsDTO) {
     return this.personsService.getPersonById(params.personId)

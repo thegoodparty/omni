@@ -340,6 +340,51 @@ describe('GET /v1/persons (public list)', () => {
   })
 })
 
+// The single exception to expectNoPersonPii, and the shape of the exception is
+// the safeguard: the address is the whole response, so it cannot ride into a
+// public page inside a payload someone spread without noticing.
+describe('GET /v1/persons/:personId/contact-email', () => {
+  it('serves the address, and nothing else about the person', async () => {
+    const res = await service.client.get(
+      `/v1/persons/${PERSON_ID}/contact-email`,
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data).toEqual({ personId: PERSON_ID, email: PERSON_EMAIL })
+    // No name, no slug, no phone — nothing to make this useful as a general
+    // person read.
+    expect(Object.keys(res.data).sort()).toEqual(['email', 'personId'])
+  })
+
+  it('404s an unknown person', async () => {
+    const res = await service.client.get(
+      `/v1/persons/${MISSING_PERSON_ID}/contact-email`,
+    )
+
+    expect(res.status).toBe(404)
+  })
+
+  it('rejects an unauthenticated caller (the whole basis for serving PII here)', async () => {
+    const res = await service.unauthedClient.get(
+      `/v1/persons/${PERSON_ID}/contact-email`,
+    )
+
+    expect(res.status).toBe(401)
+    expect(JSON.stringify(res.data)).not.toContain(PERSON_EMAIL)
+  })
+
+  it('does not shadow the by-id route', async () => {
+    // `:personId/contact-email` and `:personId` are different depths, but the
+    // profile read is what every /people page depends on, so assert it still
+    // resolves to the full spine rather than to the email route.
+    const res = await service.client.get(`/v1/persons/${PERSON_ID}`)
+
+    expect(res.status).toBe(200)
+    expect(res.data.slug).toBe(PERSON_SLUG)
+    expectNoPersonPii(res.data)
+  })
+})
+
 describe('GET /v1/persons/:personId (public profile)', () => {
   it('returns the person with relations and never any PII', async () => {
     const res = await service.client.get(`/v1/persons/${PERSON_ID}`)
