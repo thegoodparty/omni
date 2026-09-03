@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { PinoLogger } from 'nestjs-pino'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { ROBOCALL_VENDOR, RobocallVendor } from '../vendor/robocallVendor'
+import { VendorPermanentError } from '../vendor/vendorPermanentError'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 
 // A slot away from the CallHub-heavy staging (:07) / send (:04) bursts, since
@@ -23,7 +24,7 @@ const ROBOCALL_CALLHUB_CLEANUP_JOB = 'robocallCallhubCleanupSweep'
 export class OutreachRobocallCallhubCleanupService {
   constructor(
     private readonly orphans: RobocallOrphanedCampaignService,
-    private readonly callhubCampaign: CallhubCampaignService,
+    @Inject(ROBOCALL_VENDOR) private readonly vendor: RobocallVendor,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallCallhubCleanupService.name)
@@ -44,17 +45,32 @@ export class OutreachRobocallCallhubCleanupService {
     const orphans = await this.orphans.findUnaborted()
     for (const orphan of orphans) {
       try {
-        // ABORT is idempotent enough for retry: a campaign already ABORTed/ENDed
-        // either no-ops or 502s, and a 502 just leaves abortedAt null to retry.
-        await this.callhubCampaign.abortVoiceBroadcast(orphan.campaignPkStr)
+        // ABORT is safe to repeat: a still-live orphan is aborted; a campaign
+        // already gone/retired (a 4xx → VendorPermanentError) or transiently
+        // failing is classified in the catch below.
+        await this.vendor.abortBroadcast(orphan.campaignPkStr)
         await this.orphans.markAborted(orphan.id)
       } catch (err) {
-        // Per-record isolation: one campaign's CallHub failure must not abort the
-        // rest of the sweep. The row stays unaborted and retries next pass.
-        this.logger.error(
-          { err, campaignPkStr: orphan.campaignPkStr },
-          'robocall orphaned-campaign abort failed; continuing sweep',
-        )
+        // Per-record isolation: one campaign's vendor failure must not abort the
+        // rest of the sweep. Split permanent from transient — a PERMANENT failure
+        // (VendorPermanentError, e.g. a 404 for a campaign already gone/retired,
+        // or any non-recoverable 4xx) can never be aborted, so stamp it handled
+        // like a terminal rather than retrying every sweep forever against the
+        // rate-limited vendor. VendorPermanentError extends BadGatewayException,
+        // so this check MUST precede any transient-502 handling. A TRANSIENT
+        // failure (a plain 502 / network / 429) leaves abortedAt null to retry.
+        if (err instanceof VendorPermanentError) {
+          await this.orphans.markAborted(orphan.id)
+          this.logger.warn(
+            { err, campaignPkStr: orphan.campaignPkStr },
+            'robocall orphaned-campaign abort hit a permanent vendor error; treating as already-gone and stamping handled',
+          )
+        } else {
+          this.logger.error(
+            { err, campaignPkStr: orphan.campaignPkStr },
+            'robocall orphaned-campaign abort failed; continuing sweep',
+          )
+        }
       }
     }
   }

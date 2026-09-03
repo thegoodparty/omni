@@ -1,8 +1,10 @@
 import { BadGatewayException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROBOCALL_BROADCAST_STATUS } from '@/outreach/vendor/robocallVendor.types'
+import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CallfireRobocallVendor } from './callfireRobocallVendor'
+import { NoInventoryError } from './noInventoryError'
 import { CallfireBroadcastService } from './services/callfireBroadcast.service'
 import { CallfireContactsService } from './services/callfireContacts.service'
 import { CallfireDncService } from './services/callfireDnc.service'
@@ -83,6 +85,105 @@ describe('CallfireRobocallVendor', () => {
       expect(numbers.rentNumber).toHaveBeenCalledWith({ areaCode: '512' })
       expect(result).toEqual({ phoneNumber: '+18005551234', region: null })
     })
+
+    it('falls back to a national number when the area code has no inventory', async () => {
+      numbers.rentNumber
+        .mockRejectedValueOnce(
+          new NoInventoryError('No CallFire local number available'),
+        )
+        .mockResolvedValueOnce({ phoneNumber: '+18885559999', region: 'CA' })
+
+      const result = await vendor.rentNumber({ areaCode: '512' })
+
+      // First tries the prefix, then degrades to a no-prefix national rental.
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(2)
+      expect(numbers.rentNumber).toHaveBeenNthCalledWith(1, { areaCode: '512' })
+      expect(numbers.rentNumber).toHaveBeenNthCalledWith(2, { areaCode: '' })
+      expect(result).toEqual({ phoneNumber: '+18885559999', region: 'CA' })
+    })
+
+    it('propagates a transient error without a billable national retry', async () => {
+      // A 429 / auth / timeout is a plain BadGatewayException, NOT a
+      // NoInventoryError — it must propagate for an upstream retry rather than
+      // silently triggering a real national number purchase.
+      numbers.rentNumber.mockRejectedValue(
+        new BadGatewayException('CallFire throttled'),
+      )
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
+      expect(numbers.rentNumber).toHaveBeenCalledWith({ areaCode: '512' })
+    })
+
+    it('propagates a permanent 4xx failure without a national retry', async () => {
+      numbers.rentNumber.mockRejectedValue(
+        new VendorPermanentError('bad prefix'),
+      )
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(VendorPermanentError)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
+    })
+
+    it('propagates a national-retry failure', async () => {
+      numbers.rentNumber
+        .mockRejectedValueOnce(
+          new NoInventoryError('No CallFire local number available'),
+        )
+        .mockRejectedValueOnce(new BadGatewayException('national exhausted'))
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(2)
+    })
+
+    it('surfaces a national-retry NoInventoryError as a clean BadGatewayException', async () => {
+      // The national fallback rental must also convert a NoInventoryError into
+      // a caller-facing BadGatewayException — the internal sentinel must never
+      // leak out of the port method.
+      numbers.rentNumber
+        .mockRejectedValueOnce(
+          new NoInventoryError('No CallFire local number available'),
+        )
+        .mockRejectedValueOnce(
+          new NoInventoryError('No CallFire national number available'),
+        )
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry when the area-code rental succeeds', async () => {
+      numbers.rentNumber.mockResolvedValue({
+        phoneNumber: '+18005551234',
+        region: 'TX',
+      })
+
+      await vendor.rentNumber({ areaCode: '512' })
+
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
+    })
+
+    it('surfaces a national no-inventory result as a clean BadGatewayException', async () => {
+      // With no area code the first search is already national, so a
+      // NoInventoryError is terminal — it must convert to a caller-facing
+      // BadGatewayException rather than leak the internal sentinel or retry.
+      numbers.rentNumber.mockRejectedValue(
+        new NoInventoryError('No CallFire national number available'),
+      )
+
+      await expect(vendor.rentNumber({})).rejects.toBeInstanceOf(
+        BadGatewayException,
+      )
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
+      expect(numbers.rentNumber).toHaveBeenCalledWith({ areaCode: '' })
+    })
   })
 
   describe('uploadMedia', () => {
@@ -131,7 +232,7 @@ describe('CallfireRobocallVendor', () => {
       expect(result).toEqual({ audienceRef: '77', loadedCount: 2 })
     })
 
-    it('throws when validation reaches a terminal failure', async () => {
+    it('fails permanently on a terminal validation failure without polling', async () => {
       contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
       contacts.getListStatus.mockResolvedValue(
         listStatus({ isReady: false, isFailed: true, status: 'IMPORT_FAILED' }),
@@ -143,7 +244,61 @@ describe('CallfireRobocallVendor', () => {
           csvUrl: 'https://s3.example/audience.csv',
           countryIso: 'US',
         }),
+      ).rejects.toBeInstanceOf(VendorPermanentError)
+      // A terminal list-validation failure can never be fixed by retrying —
+      // it surfaces as permanent on the first read, not after the poll window.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(1)
+    })
+
+    it('tolerates a transient BadGatewayException on one poll attempt and retries', async () => {
+      contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
+      contacts.getListStatus
+        .mockRejectedValueOnce(new BadGatewayException('gateway timeout'))
+        .mockResolvedValueOnce(listStatus({ size: 2 }))
+
+      const result = await vendor.loadAudience({
+        name: 'Robocall audience',
+        csvUrl: 'https://s3.example/audience.csv',
+        countryIso: 'US',
+      })
+
+      // The transient error is swallowed and the poll retries to ACTIVE.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({ audienceRef: '77', loadedCount: 2 })
+    })
+
+    it('fails fast on a permanent status error without exhausting the poll window', async () => {
+      contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
+      contacts.getListStatus.mockRejectedValue(
+        new VendorPermanentError('CallFire list 77 not found'),
+      )
+
+      await expect(
+        vendor.loadAudience({
+          name: 'Robocall audience',
+          csvUrl: 'https://s3.example/audience.csv',
+          countryIso: 'US',
+        }),
+      ).rejects.toBeInstanceOf(VendorPermanentError)
+      // A permanent 4xx propagates on the first attempt — never retried 30x.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws when validation never settles within the poll window', async () => {
+      contacts.createListFromCsv.mockResolvedValue({ listId: '77' })
+      contacts.getListStatus.mockResolvedValue(
+        listStatus({ isReady: false, status: 'VALIDATING' }),
+      )
+
+      await expect(
+        vendor.loadAudience({
+          name: 'Robocall audience',
+          csvUrl: 'https://s3.example/audience.csv',
+          countryIso: 'US',
+        }),
       ).rejects.toBeInstanceOf(BadGatewayException)
+      // Exhausts the full poll window (LIST_POLL_ATTEMPTS) before failing loudly.
+      expect(contacts.getListStatus).toHaveBeenCalledTimes(30)
     })
 
     it('throws when the CSV download fails', async () => {

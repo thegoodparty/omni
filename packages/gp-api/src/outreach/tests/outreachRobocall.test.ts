@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
-import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
+import { ROBOCALL_VENDOR } from '@/outreach/vendor/robocallVendor'
 import { RobocallComplianceService } from '@/outreach/services/robocallCompliance.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign } from '../../generated/prisma'
@@ -22,8 +22,8 @@ let headObjectSpy: ReturnType<typeof vi.spyOn>
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
-  const callhub = service.app.get(CallhubNumbersService)
-  vi.spyOn(callhub, 'rentNumber').mockImplementation(rentNumber)
+  const vendor = service.app.get(ROBOCALL_VENDOR)
+  vi.spyOn(vendor, 'rentNumber').mockImplementation(rentNumber)
   const areaCodeFromZip = service.app.get(AreaCodeFromZipService)
   vi.spyOn(areaCodeFromZip, 'getAreaCodeFromZip').mockImplementation(
     getAreaCodeFromZip,
@@ -310,9 +310,8 @@ describe('POST /v1/outreach/robocall/number', () => {
     // campaign.details.zip is '78634' (Georgetown, TX)
     getAreaCodeFromZip.mockResolvedValue(['512', '737'])
     rentNumber.mockResolvedValue({
-      phone_number: '+15125550143',
+      phoneNumber: '+15125550143',
       region: 'TX',
-      is_active: true,
     })
 
     const res = await postNumber()
@@ -320,10 +319,7 @@ describe('POST /v1/outreach/robocall/number', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ phoneNumber: '+15125550143', region: 'TX' })
     expect(getAreaCodeFromZip).toHaveBeenCalledWith('78634')
-    expect(rentNumber).toHaveBeenCalledWith({
-      countryIso: 'US',
-      areaCodePrefix: '512',
-    })
+    expect(rentNumber).toHaveBeenCalledWith({ areaCode: '512' })
   })
 
   it('falls back to a national rental when the campaign has no zip', async () => {
@@ -332,9 +328,8 @@ describe('POST /v1/outreach/robocall/number', () => {
       data: { details: { normalizedOffice: 'City Council' } },
     })
     rentNumber.mockResolvedValue({
-      phone_number: '+12025550147',
+      phoneNumber: '+12025550147',
       region: 'DC',
-      is_active: true,
     })
 
     const res = await postNumber()
@@ -342,38 +337,30 @@ describe('POST /v1/outreach/robocall/number', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
     expect(getAreaCodeFromZip).not.toHaveBeenCalled()
-    expect(rentNumber).toHaveBeenCalledWith({
-      countryIso: 'US',
-      areaCodePrefix: undefined,
-    })
+    expect(rentNumber).toHaveBeenCalledWith({ areaCode: undefined })
   })
 
   it('falls back to a national rental when the zip has no known area code', async () => {
     getAreaCodeFromZip.mockResolvedValue(null)
     rentNumber.mockResolvedValue({
-      phone_number: '+12025550147',
+      phoneNumber: '+12025550147',
       region: 'DC',
-      is_active: true,
     })
 
     const res = await postNumber()
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
-    expect(rentNumber).toHaveBeenCalledWith({
-      countryIso: 'US',
-      areaCodePrefix: undefined,
-    })
+    expect(rentNumber).toHaveBeenCalledWith({ areaCode: undefined })
   })
 
-  it('still succeeds when CallHub has no inventory for the requested area code', async () => {
-    // CallHub never errors on an exhausted prefix — it silently substitutes a
-    // national number, which the rental must surface, not reject.
+  it('still succeeds when the vendor has no inventory for the requested area code', async () => {
+    // A vendor may substitute a national number on an exhausted prefix, which
+    // the rental must surface, not reject.
     getAreaCodeFromZip.mockResolvedValue(['512'])
     rentNumber.mockResolvedValue({
-      phone_number: '+12025550147',
+      phoneNumber: '+12025550147',
       region: 'DC',
-      is_active: true,
     })
 
     const res = await postNumber()
@@ -394,8 +381,8 @@ describe('POST /v1/outreach/robocall/number', () => {
     expect(rentNumber).not.toHaveBeenCalled()
   })
 
-  it('propagates a CallHub rental failure as a 502', async () => {
-    // The vendor service maps a CallHub failure to BadGateway; the controller
+  it('propagates a vendor rental failure as a 502', async () => {
+    // The vendor adapter maps a rental failure to BadGateway; the controller
     // must not swallow or remap it.
     getAreaCodeFromZip.mockResolvedValue(['512'])
     rentNumber.mockRejectedValue(new BadGatewayException('rental failed'))

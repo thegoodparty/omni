@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BadGatewayException } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { RobocallOrphanedCampaignService } from '@/outreach/services/robocallOrphanedCampaign.service'
-import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { ROBOCALL_VENDOR } from '@/outreach/vendor/robocallVendor'
+import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 
 const service = useTestService()
 
@@ -14,7 +17,7 @@ beforeEach(() => {
   cleanup = service.app.get(OutreachRobocallCallhubCleanupService)
   orphans = service.app.get(RobocallOrphanedCampaignService)
   abortSpy = vi
-    .spyOn(service.app.get(CallhubCampaignService), 'abortVoiceBroadcast')
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'abortBroadcast')
     .mockResolvedValue(undefined)
 })
 
@@ -77,6 +80,36 @@ describe('OutreachRobocallCallhubCleanupService.sweepOrphanedCampaigns', () => {
     await cleanup.sweepOrphanedCampaigns()
 
     expect(abortSpy).not.toHaveBeenCalled()
+  })
+
+  it('stamps a permanently-gone campaign handled instead of retrying forever', async () => {
+    await orphans.record('vb_gone', 1, 'reauth_restage')
+    abortSpy.mockRejectedValueOnce(new VendorPermanentError('campaign gone'))
+    const warnSpy = vi.spyOn(
+      (cleanup as unknown as { logger: PinoLogger }).logger,
+      'warn',
+    )
+
+    await cleanup.sweepOrphanedCampaigns()
+
+    // A permanent failure can never be aborted, so it is stamped handled (not
+    // left null to retry every sweep forever), and a warn records why.
+    expect((await readOrphan('vb_gone'))?.abortedAt).not.toBeNull()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('leaves a transient failure unaborted to retry and logs an error', async () => {
+    await orphans.record('vb_transient', 1, 'reauth_restage')
+    abortSpy.mockRejectedValueOnce(new BadGatewayException('callhub 502'))
+    const errorSpy = vi.spyOn(
+      (cleanup as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
+
+    await cleanup.sweepOrphanedCampaigns()
+
+    expect((await readOrphan('vb_transient'))?.abortedAt).toBeNull()
+    expect(errorSpy).toHaveBeenCalled()
   })
 
   it('isolates a per-campaign failure: others abort, the failed one retries', async () => {

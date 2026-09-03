@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Inject,
   Param,
   ParseIntPipe,
   Post,
@@ -41,10 +42,10 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
-import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, Organization, User } from '../generated/prisma'
+import { ROBOCALL_VENDOR, RobocallVendor } from './vendor/robocallVendor'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
@@ -77,7 +78,7 @@ export class OutreachRobocallController {
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly contacts: ContactsService,
-    private readonly callhubNumbers: CallhubNumbersService,
+    @Inject(ROBOCALL_VENDOR) private readonly vendor: RobocallVendor,
     private readonly areaCodeFromZipService: AreaCodeFromZipService,
     private readonly stripe: StripeService,
     private readonly s3: S3Service,
@@ -108,15 +109,14 @@ export class OutreachRobocallController {
     }
   }
 
-  // Rents a fresh CallHub caller-ID number for this robocall. The candidate
-  // reads it aloud as the callback number, so it must exist before the script
-  // is drafted with its disclosure. A number is rented per robocall (numbers
-  // get spam-flagged); the account auto-un-rents idle ones. Requests a number
-  // local to the campaign's zip so the callback number looks like a local
-  // call to voters, rather than an arbitrary national area code. A missing
-  // zip, a zip lookup miss, or CallHub having no inventory for that area code
-  // all degrade to CallHub's plain national rental — this must never fail the
-  // rental over caller-ID geography.
+  // Rents a fresh caller-ID number for this robocall. The candidate reads it
+  // aloud as the callback number, so it must exist before the script is drafted
+  // with its disclosure. A number is rented per robocall (numbers get
+  // spam-flagged). Requests a number local to the campaign's zip so the callback
+  // number looks like a local call to voters, rather than an arbitrary national
+  // area code. A missing zip, a zip lookup miss, or the vendor having no
+  // inventory for that area code all degrade to a plain national rental — this
+  // must never fail the rental over caller-ID geography.
   @Post('robocall/number')
   @ResponseSchema(RobocallNumberResponseSchema)
   async rentNumber(
@@ -130,26 +130,22 @@ export class OutreachRobocallController {
       logger: this.logger,
     })
 
-    const rented = await this.callhubNumbers.rentNumber({
-      countryIso: 'US',
-      areaCodePrefix,
-    })
+    const rented = await this.vendor.rentNumber({ areaCode: areaCodePrefix })
 
-    // CallHub never errors when the requested prefix has no inventory — it
-    // silently substitutes a national number (see callhubNumber.schema.ts).
-    // Detect and log that fallback rather than asserting on it; the rental
-    // itself already succeeded.
+    // A vendor may substitute a national number when the requested prefix has
+    // no inventory. Detect and log that fallback rather than asserting on it;
+    // the rental itself already succeeded.
     if (
       areaCodePrefix &&
-      areaCodeFromE164UsNumber(rented.phone_number) !== areaCodePrefix
+      areaCodeFromE164UsNumber(rented.phoneNumber) !== areaCodePrefix
     ) {
       this.logger.warn(
         { requestedAreaCodePrefix: areaCodePrefix, region: rented.region },
-        'Robocall number rental: CallHub had no inventory for the requested area code, rented a national number instead',
+        'Robocall number rental: the vendor had no inventory for the requested area code, rented a national number instead',
       )
     }
 
-    return { phoneNumber: rented.phone_number, region: rented.region }
+    return { phoneNumber: rented.phoneNumber, region: rented.region }
   }
 
   // Vaults the candidate's card for the later off-session robocall charge:

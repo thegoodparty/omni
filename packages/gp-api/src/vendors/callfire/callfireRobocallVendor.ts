@@ -14,7 +14,9 @@ import {
   UploadMediaInput,
   UploadedMedia,
 } from '@/outreach/vendor/robocallVendor.types'
+import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { sleep } from '@/shared/util/sleep.util'
+import { NoInventoryError } from './noInventoryError'
 import { CallfireBroadcastService } from './services/callfireBroadcast.service'
 import {
   CallfireContactsService,
@@ -55,10 +57,47 @@ export class CallfireRobocallVendor implements RobocallVendor {
     this.logger.setContext(CallfireRobocallVendor.name)
   }
 
+  // The port contract guarantees that a defined area code with no CallFire
+  // inventory DEGRADES to a national (no-prefix) rental rather than failing the
+  // request. So attempt the area-code rental and, ONLY on a NoInventoryError
+  // (the empty-search sentinel), retry once nationally. A transient
+  // BadGatewayException (429 / auth / timeout) and a VendorPermanentError (a 4xx
+  // a national retry can't fix, and which may already have placed a real order)
+  // both propagate — falling back on either would swallow a retryable error or
+  // trigger a wasted billable national purchase, so only a true no-inventory
+  // degrades.
   async rentNumber(input: RentNumberInput): Promise<RentedNumber> {
-    const rented = await this.numbers.rentNumber({
-      areaCode: input.areaCode ?? '',
+    const areaCode = input.areaCode ?? ''
+    let rented = await this.numbers.rentNumber({ areaCode }).catch((err) => {
+      // Area-code search with no inventory falls back to a national rental
+      // below.
+      if (areaCode && err instanceof NoInventoryError) {
+        return null
+      }
+      // No area code was requested: the search above was already national, so
+      // a no-inventory result is terminal — surface a clean caller-facing
+      // error rather than leaking the internal NoInventoryError sentinel.
+      if (!areaCode && err instanceof NoInventoryError) {
+        throw new BadGatewayException(
+          'No CallFire national number available for rental',
+        )
+      }
+      throw err
     })
+    if (!rented) {
+      this.logger.warn(
+        { areaCode },
+        'No CallFire inventory for area code; renting a national number',
+      )
+      rented = await this.numbers.rentNumber({ areaCode: '' }).catch((err) => {
+        if (err instanceof NoInventoryError) {
+          throw new BadGatewayException(
+            'No CallFire national number available for rental',
+          )
+        }
+        throw err
+      })
+    }
     return {
       phoneNumber: rented.phoneNumber,
       region: rented.region ?? null,
@@ -143,8 +182,9 @@ export class CallfireRobocallVendor implements RobocallVendor {
 
   // Polls the list's async validation to a terminal state. Returns the validated
   // row count once ACTIVE; throws on a terminal FAILED status or if validation
-  // never settles inside the poll window. A transient vendor error (mapped to a
-  // BadGatewayException) is retried; any other error is permanent and propagates.
+  // never settles inside the poll window. A transient vendor error (a plain
+  // BadGatewayException) is retried within the poll window; a VendorPermanentError
+  // (a permanent 4xx, e.g. list-not-found) or any other error propagates at once.
   private async waitForListReady(listId: string): Promise<number> {
     for (let attempt = 0; attempt < LIST_POLL_ATTEMPTS; attempt++) {
       await sleep(LIST_POLL_DELAY_MS)
@@ -152,7 +192,11 @@ export class CallfireRobocallVendor implements RobocallVendor {
       try {
         status = await this.contacts.getListStatus(listId)
       } catch (err) {
-        if (!(err instanceof BadGatewayException)) throw err
+        if (
+          !(err instanceof BadGatewayException) ||
+          err instanceof VendorPermanentError
+        )
+          throw err
         this.logger.warn(
           { listId, attempt, err },
           'Transient error polling CallFire list status; retrying',
@@ -160,7 +204,7 @@ export class CallfireRobocallVendor implements RobocallVendor {
         continue
       }
       if (status.isFailed) {
-        throw new BadGatewayException(
+        throw new VendorPermanentError(
           `CallFire list ${listId} validation failed (${status.status})`,
         )
       }

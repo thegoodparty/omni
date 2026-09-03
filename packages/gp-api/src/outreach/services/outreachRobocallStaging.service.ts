@@ -1,4 +1,4 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import { BadGatewayException, Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { addHours, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
@@ -7,14 +7,11 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
-import { CALLHUB_MEDIA_MIME_TYPES } from '@/vendors/callhub/schemas/callhubMedia.schema'
-import {
-  CallhubCampaignService,
-  CreateVbCampaignResult,
-} from '@/vendors/callhub/services/callhubCampaign.service'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import { CALLFIRE_SOUND_MIME_TYPES } from '@/vendors/callfire/schemas/callfireMedia.schema'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { ROBOCALL_VENDOR, RobocallVendor } from '../vendor/robocallVendor'
+import { CreatedBroadcast } from '../vendor/robocallVendor.types'
+import { VendorPermanentError } from '../vendor/vendorPermanentError'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
@@ -62,8 +59,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
 
   constructor(
     private readonly phonebook: RobocallPhonebookService,
-    private readonly media: CallhubMediaService,
-    private readonly campaigns: CallhubCampaignService,
+    @Inject(ROBOCALL_VENDOR) private readonly vendor: RobocallVendor,
     private readonly s3: S3Service,
     private readonly transcode: AudioTranscodeService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
@@ -129,7 +125,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
           // healthy run is never re-driven. NO date guard here on purpose: a
           // draft authorized close to its send can go stale only after sendAt
           // has passed, so a date filter would leave it permanently stuck in
-          // `staging`. A reclaim whose send has passed fails createVoiceBroadcast
+          // `staging`. A reclaim whose send has passed fails createBroadcast
           // and reverts to `authorized`, where a later reconciliation/START
           // slice releases the hold — it must never stay invisible in `staging`.
           {
@@ -215,15 +211,14 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     // org-only, outreach.prisma).
     const campaign = outreach.campaign!
     const campaignName = `Robocall ${campaign.slug} #${outreachId}`
-    let created: CreateVbCampaignResult
+    let created: CreatedBroadcast
     try {
-      // Upload the (format-sensitive) media BEFORE loading the phonebook: a
+      // Upload the (format-sensitive) media BEFORE loading the audience: a
       // transcode or upload failure fails fast here, before
-      // loadAudienceToPhonebook creates a fresh CallHub phonebook and
-      // bulk-imports the audience — real external state we'd otherwise leak on
-      // every sweep pass.
+      // loadAudienceToPhonebook creates a fresh vendor audience and imports the
+      // recipients — real external state we'd otherwise leak on every sweep pass.
       const audio = await this.loadAudio(draft.audioKey)
-      // ETAG BIND (legal): the bytes about to reach CallHub MUST be the exact
+      // ETAG BIND (legal): the bytes about to reach the vendor MUST be the exact
       // ones that passed compliance. complianceAudioEtag was frozen on the draft
       // at create; refuse to upload anything else — a re-upload to the presigned
       // key after the create gate would otherwise send unapproved audio to real
@@ -245,42 +240,40 @@ export class OutreachRobocallStagingService extends createPrismaBase(
           'Robocall audio no longer matches the approved compliance recording',
         )
       }
-      const upload = await this.toCallhubAudio(
+      const upload = await this.toVendorAudio(
         audio,
         audioFileName(draft.audioKey),
       )
-      const media = await this.media.uploadMedia({
+      const media = await this.vendor.uploadMedia({
         file: upload.bytes,
         fileName: upload.fileName,
         mimeType: upload.contentType,
-        name: campaignName,
       })
-      const phonebook = await this.phonebook.loadAudienceToPhonebook(
+      const audience = await this.phonebook.loadAudienceToPhonebook(
         campaign,
         voterFileFilterId,
       )
-      created = await this.campaigns.createVoiceBroadcast({
-        scheduledStart: sendAt,
+      created = await this.vendor.createBroadcast({
         name: campaignName,
-        phonebookPkStr: phonebook.phonebookPkStr,
-        mediaFileId: media.media_file_id,
+        audienceRef: audience.audienceRef,
         callerId: draft.callbackNumber,
+        mediaId: media.mediaId,
+        scheduledStart: sendAt,
       })
     } catch (err) {
-      // A PERMANENT CallHub failure will never succeed on retry, so surface it:
+      // A PERMANENT vendor failure will never succeed on retry, so surface it:
       // fail the send (void the hold, email the candidate) instead of reverting
       // to authorized to retry forever. TWO shapes are permanent here:
-      //   - a 4xx validation reject (`CallhubPermanentError` — e.g. a rejected
+      //   - a 4xx validation reject (`VendorPermanentError` — e.g. a rejected
       //     caller ID or media), and
-      //   - a `ZodError` from parsing the createVoiceBroadcast response: the
-      //     response shape is wrong for real CallHub data, which a retry can
-      //     never fix (the completion poll treats its own credits/status ZodError
-      //     the same way).
+      //   - a `ZodError` from parsing the createBroadcast response: the response
+      //     shape is wrong for real vendor data, which a retry can never fix (the
+      //     completion poll treats its own count/status ZodError the same way).
       // BOTH are money-safe to fail here because staging NEVER dials — it only
-      // creates a PAUSED campaign — so no calls were placed regardless of which
-      // failure it was. The claim is `staging`, which failSend accepts. Transient
-      // errors revert + retry as before.
-      if (err instanceof CallhubPermanentError || err instanceof ZodError) {
+      // creates a non-dialing campaign — so no calls were placed regardless of
+      // which failure it was. The claim is `staging`, which failSend accepts.
+      // Transient errors revert + retry as before.
+      if (err instanceof VendorPermanentError || err instanceof ZodError) {
         await this.failStagingPermanent(outreachId)
         return
       }
@@ -288,38 +281,39 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       throw err
     }
 
-    // COMMIT: persist the CallHub handle + the computed dial window and release
-    // the claim, only if the draft is still the staging row we own.
+    // COMMIT: persist the vendor campaign handle + the computed dial window and
+    // release the claim, only if the draft is still the staging row we own. The
+    // neutral campaignRef is stored in the SAME columns the CallHub pk_str used.
     const commit = await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.staging },
       data: {
         settleState: RobocallSettleState.authorized,
-        callhubCampaignPkStr: created.pk_str,
+        callhubCampaignPkStr: created.campaignRef,
         callhubStartingDate: created.startingDate,
         callhubExpirationDate: created.expirationDate,
       },
     })
     if (commit.count === 0) {
-      // ORPHAN GUARD: the draft moved out of staging while CallHub was creating
-      // (a cancel, or a concurrent stager that somehow advanced it), so the
-      // just-created campaign can't be attached. It is PAUSED and charges
-      // nothing, but it must be retired — record its pk_str so the cleanup sweep
-      // ABORTs it. Best-effort: a lost record only leaves harmless account
+      // ORPHAN GUARD: the draft moved out of staging while the vendor was
+      // creating (a cancel, or a concurrent stager that somehow advanced it), so
+      // the just-created campaign can't be attached. It is non-dialing and
+      // charges nothing, but it must be retired — record its ref so the cleanup
+      // sweep ABORTs it. Best-effort: a lost record only leaves harmless account
       // clutter and must not fail the (already committed-nothing) stage.
       this.logger.error(
-        { outreachId, orphanedCampaignPkStr: created.pk_str },
-        'robocall staging committed nothing; orphaned CallHub campaign',
+        { outreachId, orphanedCampaignPkStr: created.campaignRef },
+        'robocall staging committed nothing; orphaned vendor campaign',
       )
       try {
         await this.orphanedCampaigns.record(
-          created.pk_str,
+          created.campaignRef,
           outreachId,
           'staging_lost_commit',
         )
       } catch (err) {
         this.logger.error(
-          { err, outreachId, campaignPkStr: created.pk_str },
-          'robocall staging: failed to record orphaned CallHub campaign',
+          { err, outreachId, campaignPkStr: created.campaignRef },
+          'robocall staging: failed to record orphaned vendor campaign',
         )
       }
     }
@@ -349,17 +343,17 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     }
   }
 
-  // CallHub's upload accepts only mp3/wav/ogg, but the recorder produces
-  // webm/mp4 in the dominant browsers. Upload a CallHub-accepted recording
+  // The vendor's upload accepts only mp3/wav, but the recorder produces
+  // webm/mp4 in the dominant browsers. Upload a vendor-accepted recording
   // as-is; transcode anything else to mp3 first so a real call can play it.
-  private async toCallhubAudio(
+  private async toVendorAudio(
     audio: { bytes: Buffer; contentType: string },
     fileName: string,
   ): Promise<{ bytes: Buffer; contentType: string; fileName: string }> {
-    const accepted: readonly string[] = CALLHUB_MEDIA_MIME_TYPES
+    const accepted: readonly string[] = CALLFIRE_SOUND_MIME_TYPES
     if (accepted.includes(audio.contentType)) return { ...audio, fileName }
     const bytes = await this.transcode.toMp3(audio.bytes, audio.contentType)
-    // CallHub rejects a filename/MIME mismatch, so the transcoded mp3 must
+    // The vendor rejects a filename/MIME mismatch, so the transcoded mp3 must
     // carry an .mp3 filename to match its audio/mpeg content-type — a .webm /
     // .m4a name here fails the upload, defeating the transcode.
     return {

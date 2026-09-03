@@ -1,5 +1,6 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { NoInventoryError } from '../noInventoryError'
 import {
   CallfireNumber,
   CallfireNumberListSchema,
@@ -76,7 +77,7 @@ export class CallfireNumbersService {
       count: 1,
     })
     if (!candidate) {
-      throw new BadGatewayException(
+      throw new NoInventoryError(
         `No CallFire local number available for area code ${params.areaCode}`,
       )
     }
