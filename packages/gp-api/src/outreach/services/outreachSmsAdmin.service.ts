@@ -199,7 +199,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
     try {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
-        initials: input.initials,
         date: row.scheduledLocalDate ?? undefined,
       })
     } catch (error) {

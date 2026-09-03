@@ -199,12 +199,11 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       const res = await service.client.post(
         `/v1/outreach/admin/sms/${row.id}/approve`,
-        { approvedBy: 'cas@goodparty.org', initials: 'CW' },
+        { approvedBy: 'cas@goodparty.org' },
       )
 
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
-        initials: 'CW',
         date: '2026-09-10',
       })
       expect(res.data.approvalStatus).toBe('canvass_requested')
@@ -228,7 +227,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       const res = await service.client.post(
         `/v1/outreach/admin/sms/${row.id}/approve`,
-        { approvedBy: 'cas@goodparty.org', initials: 'CW' },
+        { approvedBy: 'cas@goodparty.org' },
       )
 
       expect(res.status).toBeGreaterThanOrEqual(500)
@@ -243,11 +242,10 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       const row = await seedOutreach()
       await service.client.post(`/v1/outreach/admin/sms/${row.id}/approve`, {
         approvedBy: 'cas@goodparty.org',
-        initials: 'CW',
       })
       const again = await service.client.post(
         `/v1/outreach/admin/sms/${row.id}/approve`,
-        { approvedBy: 'other@goodparty.org', initials: 'OT' },
+        { approvedBy: 'other@goodparty.org' },
       )
       expect(again.status).toBe(HttpStatus.CONFLICT)
       expect(requestCanvassers).toHaveBeenCalledTimes(1)

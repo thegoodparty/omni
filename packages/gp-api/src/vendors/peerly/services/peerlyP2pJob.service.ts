@@ -281,9 +281,17 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   // must clearCanvassers first.
   async requestCanvassers(
     jobId: string,
-    { initials, date }: { initials: string; date?: string },
+    { date }: { date?: string } = {},
   ): Promise<void> {
     try {
+      // Peerly validates requested_initials against the REQUESTING user —
+      // the API login this service authenticates as — not the human who
+      // clicked approve (whose initials it 400s as "invalid user
+      // initials"). So the initials are always derived from the
+      // authenticated Peerly user, never taken from a caller.
+      const user = await this.peerlyHttpService.getAuthenticatedUser()
+      const initials =
+        `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase()
       // The send window is a product requirement (2026-09-02): canvassers
       // work 9am-9pm in each recipient's local timezone. Sent explicitly as
       // a CUSTOM window rather than relying on the vendor's ANY_TIME
