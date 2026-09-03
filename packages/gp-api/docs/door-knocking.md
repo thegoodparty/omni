@@ -30,7 +30,7 @@ and a **Knock** button bought its route later. Three things fell out of it:
   from the response entirely.
 - **No second purchase to guard against**, so the knock endpoint's idempotency
   probe and its per-turf advisory lock retire with it. Nothing serializes two
-  creates: they make different turfs, and the waypoint quota was never
+  creates: they make different turfs, and the daily campaign gate was never
   serialized across turfs anyway (see below).
 - **Every turf has an envelope**, including a Serve org's, which is what let
   the list lifecycle move off the turf and onto it.
@@ -261,7 +261,7 @@ the turf insert. Two things it no longer has:
 - **No advisory lock.** The old one existed so two knocks of the SAME turf
   could not both call the vendor. A create always makes a new turf, so there is
   no shared row to serialize on. Two creates racing each other were never
-  serialized anyway — see the quota note at step 5, which is unchanged.
+  serialized anyway — see the quota note at step 4, which is unchanged.
 - **No idempotency probe.** There is no saved-but-unrouted turf for a second
   press to act on, so there is no second purchase to return `created: false`
   for.
@@ -289,32 +289,33 @@ The steps:
    org's suppressed people — do-not-knock plus not-a-voter — are read
    _before_ the transaction and passed as one deduped `excludePersonIds`
    (see "Do-not-knock" and "'Not a voter'").
-4. Check both daily budgets, and check them here so neither can reach the
-   vendor. The **waypoint** budget (`waypointQuota.util.ts`) is 500 stops per
-   organization per rolling 24 hours by default, summed from the
-   `door_knocking_route_planner_spend` ledger, or whatever
-   `organization.override_door_knocking_waypoint_limit` says instead (see
-   § Raising one organization's allowance). The **campaign** budget
-   (`campaignQuota.util.ts`) is 5 turfs per organization per rolling 24 hours,
-   flat, counted off `door_knocking_turf` itself. Either one over budget → 429
-   and no vendor call. Nothing serializes two creates in one org, so
-   simultaneous ones can overshoot either budget by one; that's deliberate —
-   see the utils, and § The two daily gates for why there are two of them.
+4. Check the daily campaign budget, and check it here so it cannot reach the
+   vendor. `campaignQuota.util.ts` allows 5 turfs per organization per rolling
+   24 hours, counted off `door_knocking_turf` itself, or whatever
+   `organization.override_door_knocking_campaign_limit` says instead (see
+   § Raising one organization's allowance). Over budget → 429 and no vendor
+   call. A 500-stop daily budget was checked here beside it and has been
+   removed, so this is the only per-account limit a create has to clear — see
+   § The daily campaign gate. Nothing serializes two creates in one org, so
+   simultaneous ones can overshoot by one; that's deliberate, and the util
+   says why.
 5. One Geoapify Route Planner call (coords + opaque job ids only — no PII
    leaves; loop → start=end anchor at the first stop by address order;
    open → end-only anchor at the farthest-from-centroid stop; both
    deterministic, never random).
-6. Record the spend (`recordWaypointSpend`) immediately, on the plain client
-   and NOT the transaction. The vendor has been paid by this point, so the
-   ledger row has to commit whether or not the freeze below it succeeds —
-   reading spend off the frozen stop rows instead meant every rolled-back
-   purchase spent real money the budget never saw and handed the same
-   allowance out again. A failed ledger write is logged and swallowed: it must
-   not turn billed work into a failed request. `route.credits` still records
-   what that individual route cost; the ledger is what the budget reads. The
-   ledger was backfilled from the pre-existing routes when it was introduced
-   (`20260813170000_backfill_...`) — starting it empty would have let every
-   route already billed inside the rolling window spend its allowance twice.
+6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
+   immediately, on the plain client and NOT the transaction. The vendor has
+   been paid by this point, so the ledger row has to commit whether or not the
+   freeze below it succeeds — reading spend off the frozen stop rows instead
+   meant every rolled-back purchase spent real money no total ever saw. A
+   failed ledger write is logged and swallowed: it must not turn billed work
+   into a failed request. `route.credits` records what that individual route
+   cost; the ledger is where the account's spend is summed across
+   organizations, which is the one thing nothing else does (see § Spend
+   visibility). The ledger was backfilled from the pre-existing routes when it
+   was introduced (`20260813170000_backfill_...`), so the table describes every
+   route the vendor has ever billed us for rather than only those since it
+   landed.
 7. Create route + stops + stop targets + the `Outreach` envelope. The envelope
    is unconditional (`campaignId: null` for Serve), status `in_progress`,
    never `pending` — payment flows gate on it. The scope is the caller's,
@@ -329,13 +330,16 @@ recovery. If Geoapify is down, this fails visibly — no fallback engine in v1.
 **Two of the four failure modes cannot reach the paid press.** The draw step
 runs `DoorKnockingPreviewService`, which is this evaluation minus the vendor
 call, and blocks on an empty result or one over the 150-stop cap. The third,
-the daily quotas, is pre-flighted the same way: the preview response carries
-`waypointsRemaining` and `GET quota` carries both allowances, so the client
-refuses to open the flow on the campaign limit and disables **Build route**
-with a stated reason on the waypoint one, rather than letting a 429 land at
-the one press that costs money — the remedy for either is waiting out a
-rolling 24-hour window, which the flow's in-memory state cannot survive. A
-vendor timeout is the fourth and stays a plain retry.
+the daily campaign limit, is pre-flighted the same way: `GET quota` reports
+what the organization has left, so the client refuses to **open** the flow on
+a spent day rather than letting a 429 land at the one press that costs money —
+the remedy is waiting out a rolling 24-hour window, which the flow's in-memory
+state cannot survive. The preview response used to carry the day's remaining
+stop allowance beside its counts so the draw step could disable **Build route**
+on the stop budget as well; that budget is gone, so the only thing that
+disables Continue there now is the 150-stop cap — a per-list bound rather than
+a daily allowance, and therefore fixable by drawing a smaller shape. A vendor
+timeout is the fourth and stays a plain retry.
 
 Non-negotiable tests: (a) crash-mid-freeze → zero rows; (b) interaction replay
 with the same `clientKey` → one row; (c) a create that rolls back after the
@@ -344,30 +348,46 @@ shrink the stop set; (e) a Serve create writes its envelope with
 `campaignId: null`; (f) a dual-role org's Win and Serve rails do not see each
 other's turfs.
 
-### The two daily gates
+### The daily campaign gate
 
-Step 4 is two limits, not one, and they cap different quantities:
+Step 4 is one limit: `DEFAULT_DAILY_CAMPAIGN_LIMIT` (5) turfs per organization
+per rolling 24 hours, in `campaignQuota.util.ts`, counted off
+`door_knocking_turf` rows and refused with a 429. The window rolls rather than
+resetting at midnight because campaigns knock in every US time zone and
+nothing on the organization says which one, so a calendar reset would land
+mid-afternoon for some of them.
 
-|                | `waypointQuota.util.ts`                              | `campaignQuota.util.ts`         |
-| -------------- | ---------------------------------------------------- | ------------------------------- |
-| Caps           | stops routed                                         | turfs cut                       |
-| Default        | 500 per rolling 24h                                  | 5 per rolling 24h               |
-| Counted from   | the `door_knocking_route_planner_spend` ledger       | `door_knocking_turf` rows       |
-| Admin override | `organization.override_door_knocking_waypoint_limit` | none                            |
-| Refusal        | 429 naming the stops needed and left                 | 429 in the design's own wording |
+**A 500-stop daily budget used to sit beside it**, summed over the same
+rolling window from the `door_knocking_route_planner_spend` ledger, with an
+admin override of its own — and it is worth knowing it existed, because
+`waypoints` is still recorded and still means stops. Two ceilings on one press
+meant a candidate could be refused for either reason and the flow had to
+explain both, and of the two, this is the one that describes the behaviour
+worth pacing. Every turf is a paid Geoapify route and a list nobody has walked
+yet, so an afternoon spent carving the map into lists is backlog being built
+rather than doors being knocked, and a stop count cannot express that: five
+two-stop turfs and one ten-stop turf spent the same stop allowance and are not
+the same behaviour.
 
-**Neither implies the other**, which is why both exist. Five two-stop turfs
-and one ten-stop turf spend the same stop allowance, and only the first is a
-candidate carving the map into lists nobody has walked — no setting of the
-waypoint limit expresses that, because it is denominated in doors and this is
-about turfs. An organization can be refused on either while comfortably inside
-the other, in both directions, and the routes suite pins both.
+What replaced the stop budget is not another cap but visibility. Spend is still
+recorded per route (`waypointSpend.util.ts`) and the account-wide total is
+alerted on in tiers, so the shared credit pool is bounded by watching it rather
+than by rationing each organization against a number nobody could set
+correctly — see § Spend visibility and the budget tiers below it. **Nothing
+caps stops per organization any longer.** The only bound on how large one list
+can be is `MAX_STOPS` (150), which is a per-list hard cap enforced at the
+freeze and by the `CHECK` on `stop.seq`, and which the draw step blocks on
+before the paid press.
 
-The campaign 429's body is the design's own wording, because the create flow
-renders it as a blocking dialog rather than a toast:
+The 429's body is the design's own wording, because the create flow renders it
+as a blocking dialog rather than a toast:
 
 > You've created 5 door knocking campaigns today. Go knock the doors you've
 > already mapped, and build more lists tomorrow.
+
+The five in that sentence is the organization's own limit read back through
+`dailyCampaignLimit()`, not the constant, so an org an admin has raised is
+quoted the number that actually refused it.
 
 **Deleted turfs still count.** `campaignsRemaining` deliberately omits the
 `deletedAt: null` every other turf read carries. Every turf since 3.0 was
@@ -383,40 +403,54 @@ of a window sees five rows and is allowed, the sixth sees six and is not. Both
 of those report zero remaining, so a gate written against `campaignsRemaining`
 would quietly leave every organization with four.
 
-**No admin override, on purpose.** The waypoint limit has one because a
-waypoint is money and a pilot org can legitimately need more of it. The
-campaign limit is about pacing rather than spend, so there is nothing on the
-org row to raise and `DAILY_CAMPAIGN_LIMIT` is the whole answer. An org raised
-to 5,000 waypoints still cuts five campaigns a day.
+**The five is where an organization starts, not where it has to stay.** An
+admin can raise a single org, and the column that does it is the one the stop
+budget used to own — see § Raising one organization's allowance. That is the
+whole of the per-account story now: one number, resolved in one function, read
+by the gate, the 429's wording and `GET quota` alike.
 
-### Reading both allowances before the press
+### Reading the allowance before the press
 
 `GET /v1/door-knocking/quota`, Pro-gated with the rest:
 
 ```ts
-{
-  ;(campaignsRemaining, campaignLimit, waypointsRemaining, waypointLimit)
+type DoorKnockingQuotaResponse = {
+  campaignsRemaining: number
+  campaignLimit: number
 }
 ```
 
-The limits ride along with the remainders rather than being constants the
-client keeps a copy of: the waypoint one is genuinely per organization, so a
-hardcoded 500 is wrong for exactly the orgs an admin raised.
+It used to answer two allowances; the stop budget's remainder and its limit
+went with the budget itself, and there is nothing left for a client to
+pre-flight except this one.
 
-Org-scoped, with no Serve sibling. Both allowances belong to the organization
-— turfs reach it through `voter_file_filter.organization_slug`, spend through
-the ledger's own column — so there is no per-surface answer for a Win/Serve
-pair to keep apart the way the rail has.
+The limit rides along with the remainder rather than being a constant the
+client keeps a copy of, because it is genuinely per organization: a hardcoded 5
+is wrong for exactly the orgs an admin raised.
 
-Advisory in exactly the way the preview's own `waypointsRemaining` is: the two
-asserts inside the create transaction stay the authority, since a teammate's
-turf can spend either allowance between this read and the press.
+Org-scoped, with no Serve sibling. The allowance belongs to the organization —
+turfs reach it through `voter_file_filter.organization_slug` — so there is no
+per-surface answer for a Win/Serve pair to keep apart the way the rail has.
+
+Advisory, and that is the division of labour: `assertCampaignQuota` inside the
+create transaction stays the authority, since a teammate's turf can spend the
+allowance between this read and the press. This read exists so the flow can
+refuse to open on a spent day rather than take a candidate through five steps
+and 429 at the end.
 
 ## Spend visibility
 
-The waypoint quota is a per-organization guardrail, not a bill. What it can't
-see is that **nothing sums across organizations**, so the total bill scales
-with how many orgs hold the flag.
+The spend ledger is a record, not a guardrail. It used to be half of one: the
+500-stop daily budget summed these rows over a rolling 24 hours to decide
+whether an organization could route another turf. That budget is gone and the
+write survives it, because **nothing else sums spend across organizations** —
+the total bill scales with how many orgs hold the flag, and the campaign limit
+cannot bound it even in principle, since five two-stop turfs and five 150-stop
+turfs are the same five campaigns and differ by a factor of thirty in credits.
+So the write is now purely for account-wide accounting rather than for a
+per-org guardrail: the budget tiers below evaluate the `DoorKnockingSpend` log
+line, and this table is where the same spend is summed in SQL when one of them
+fires and someone has to say which organization caused it.
 
 What a route costs is priced in `doorKnocking/utils/geoapifyCost.util.ts`, the
 one transcription of [Geoapify's cost
@@ -431,8 +465,12 @@ five credits, 150 is about 1,650.
 
 Both calls are in `credits` everywhere it appears — the route row, the log
 line, the ledger, the counter. **`waypoints` is not credits divided by
-anything**: it counts stops, the unit `DAILY_WAYPOINT_LIMIT` caps, and the two
-numbers do not convert into each other.
+anything**: it counts stops, and the two numbers do not convert into each other
+in either direction, because the Route Planner's rate is quadratic under ten
+locations, every route also pays for its agent's anchors, and a geometry fetch
+that never completed is free. `waypoints` is now a measurement rather than an
+allowance — nothing caps stops per organization — so read this line for money
+through `credits` and for how much walking was bought through `waypoints`.
 
 No surface here can carry the API key: the Route Planner SDK puts the key in
 its request URL, so nothing sourced from a URL or a caught error is ever logged
@@ -440,7 +478,7 @@ or labelled. Every metric attribute is a closed set of literals.
 
 | Signal                                         | Where                                                | Reads                                                                                                                                                                                                           |
 | ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `event: 'DoorKnockingSpend'` log line          | `doorKnockingCreate.service.ts` spend path           | `organizationSlug`, `turfId`, `waypoints` (stops), `credits` (both calls) — emitted before the ledger write and regardless of its outcome, so a lost ledger row under-counts the quota without hiding the money |
+| `event: 'DoorKnockingSpend'` log line          | `doorKnockingCreate.service.ts` spend path           | `organizationSlug`, `turfId`, `waypoints` (stops), `credits` (both calls) — emitted before the ledger write and regardless of its outcome, so a lost ledger row cannot hide money the vendor has already billed |
 | `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing`, no org label (Prometheus cardinality)                                                                                                                        |
 | `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
@@ -457,43 +495,52 @@ is worse than a page during a pilot.
 
 ### Raising one organization's allowance
 
-The 500 is a default, not a ceiling.
-`organization.override_door_knocking_waypoint_limit` (nullable int, null = the
-default) replaces it for exactly one org, and `dailyWaypointLimit()` in
-`waypointQuota.util.ts` is the only place it is read — so the ledger check, the
-429's wording, the preview's `waypointsRemaining` and `GET quota`'s
-`waypointLimit` all quote the same number.
+The five is a default, not a ceiling.
+`organization.override_door_knocking_campaign_limit` (nullable int, null = the
+default) replaces it for exactly one org, and `dailyCampaignLimit()` in
+`campaignQuota.util.ts` is the only place it is read — so the gate inside the
+create transaction, the 429's wording and `GET quota`'s `campaignLimit` all
+quote the same number.
 
-It moves the stop budget and nothing else. The five-campaign gate beside it
-(§ The two daily gates) has no override at all, so an org raised here is
-allowed more doors per day and the same number of turfs.
+The override used to move the stop budget, which was what "raising an
+organization" meant while that budget existed: more doors per day, and the same
+five turfs. It was repurposed rather than deleted when the budget went, because
+the reason for having it did not go with it — a pilot org can legitimately need
+more than five lists a day, and the campaign count is now the only thing
+between it and the vendor.
 
 - **Who can set it:** admins only, through
   `PATCH /v1/organizations/admin/:slug` behind
   `AdminOrM2MGuard`. It is deliberately absent from the self-service
   `PatchOrganizationDto`: a candidate raising their own spending limit is the
-  whole risk, since every waypoint is real money at Geoapify.
+  whole risk, since every campaign it buys is a paid Geoapify route drawn from
+  one daily pool shared with every other organization.
 - **How to read the current value:** `GET /v1/organizations/admin/:slug`
-  returns `overrideDoorKnockingWaypointLimit` (null when the org is on the
+  returns `overrideDoorKnockingCampaignLimit` (null when the org is on the
   default), so triaging a budget alert does not need a psql session. Readable
   exactly where it is writable — the candidate-facing `GET /organizations/` and
   `GET /organizations/:slug` do not carry it, and neither does the
   `/admin/list` search table.
-- **How high:** capped at `MAX_DAILY_WAYPOINT_LIMIT` (5,000 waypoints, derived
-  as the account's entire assumed daily pool of 50,000 credits at ten per
-  stop — nearer 55,000 once each route's anchors and its Routing call are
-  counted, so the cap over-grants slightly and deliberately stays put). Above
-  that the number is unhonourable no matter which org asks, so the DTO rejects
-  it with a 400 rather than letting the vendor discover it.
+- **How high:** capped at `MAX_DAILY_CAMPAIGN_LIMIT` (30 campaigns), which is
+  derived rather than chosen. A campaign holds at most `MAX_STOPS` (150) stops
+  and a stop draws about eleven credits — ten for its Route Planner location
+  plus its share of the path-geometry Routing call — so a full-sized campaign
+  is near 1,650 credits and thirty of them is about the account's assumed daily
+  pool of 50,000. Most campaigns are far smaller, so in practice thirty sits
+  well under the pool; the point is that no admin can hand one organization an
+  allowance the account could not fund even in the worst case. Above it the
+  number is unhonourable no matter which org asks, so the DTO rejects it with a
+  400 rather than letting the vendor discover it.
 - **How long:** per organization and permanent until someone sets it back to
   null. Nothing expires it and nothing reviews it.
 - **What it costs everyone else:** the pool the budget tiers below watch is
   fixed and shared, so an override does not create headroom — it moves one
-  org's share of the same 50,000 credits. An org raised to 5,000 waypoints can
-  consume the whole account's day on its own.
+  org's share of the same 50,000 credits. An org raised to 30 campaigns can
+  consume the whole account's day on its own, which is exactly why 30 is the
+  ceiling and not a round number above it.
 
 There is no audit table in gp-api, so the only record of a change is the
-structured log line `event: 'DoorKnockingWaypointLimitOverride'`
+structured log line `event: 'DoorKnockingCampaignLimitOverride'`
 (`organizationSlug`, `previousLimit`, `newLimit`, `actorEmail`), queryable in
 Loki the same way `DoorKnockingSpend` is. `actorEmail` is frequently null:
 gp-admin authenticates with an M2M token and authorizes the human in its own
@@ -547,8 +594,8 @@ sum by (organizationSlug) (
 )
 ```
 
-Same thing from the ledger, when the question is about the quota rather than
-the bill (the ledger is the only source `assertWaypointQuota` reads):
+Same thing from the ledger, which is where the spend is recorded rather than
+logged — and the only place it is summed in SQL:
 
 ```sql
 select organization_slug,
@@ -561,16 +608,15 @@ group by 1, 2
 order by credits desc;
 ```
 
-The Loki query above measures money and the SQL one measures allowance, so use
-the SQL `waypoints` sum — not a credit figure — to decide whether an org went
-over its quota: an org past 500 waypoints in a rolling 24h is the `ENG-10901`
-overshoot, concurrent knocks each passing the quota check because the advisory
-lock is per turf, now measurable rather than inferred. That trade-off stands:
-an org-wide lock would serialize every knock behind a 30-second vendor call.
-Check `override_door_knocking_waypoint_limit` on the org before concluding
-that, though: an org holding an override is legitimately above 500. Credits are
-the wrong yardstick for the question because they are not proportional to
-waypoints — a turf under ten locations is billed on its square, and every route
+Both queries measure money, and `credits` is the same figure in either. There
+is no per-organization spend cap to read a heavy org against any more, so the
+yardstick is the campaign limit: a full-sized campaign is about 1,650 credits,
+so an organization far above five of those (~8,000 in a rolling 24h) has either
+been granted an override — check `override_door_knocking_campaign_limit` on the
+org — or is looping. The `waypoints` sum beside it is stops, and it answers a
+different question: how much walking the organization actually bought. It is
+not a credit figure divided by anything, because credits are not proportional
+to stops — a turf under ten locations is billed on its square, and every route
 also pays for its anchors and its Routing call.
 
 ## Serving
@@ -1210,10 +1256,11 @@ account with whoever provisioned it before sizing a pilot on it.
 
 The distinction has teeth, because the free tier is 3,000 credits/day: at the
 ~11 credits a stop really costs that is ~272 optimized stops/day across the
-whole account, _below_ `DEFAULT_DAILY_WAYPOINT_LIMIT` (500) in
-`waypointQuota.util.ts`. On a
-free key the vendor's ceiling binds before ours does, our own quota error never
-fires, and one enthusiastic pilot campaign can exhaust the account for everyone.
+whole account, or fewer than two full-sized campaigns. A single organization's
+default of five (`DEFAULT_DAILY_CAMPAIGN_LIMIT` in `campaignQuota.util.ts`) is
+therefore more than a free key can fund on its own. On such a key the vendor's
+ceiling binds long before ours does, our own 429 never fires, and one
+enthusiastic pilot campaign can exhaust the account for everyone.
 Free is fine for a gated QA pass — Geoapify permits commercial use on it
 provided the map carries their attribution, which initializing MapLibre from
 their `style.json` does automatically, as `VoterMapCanvas` does — but it is not

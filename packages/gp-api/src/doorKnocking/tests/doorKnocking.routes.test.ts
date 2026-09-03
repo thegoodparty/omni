@@ -27,7 +27,6 @@ import { DoorKnockingCreateService } from '../services/doorKnockingCreate.servic
 import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
 import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
-import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
 import {
   Campaign,
   OutreachStatus,
@@ -987,109 +986,12 @@ describe('door-knocking routes', () => {
       expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
     })
 
-    describe('daily waypoint budget', () => {
-      // Spend accrues in the ledger, which is what the quota reads — one row
-      // per vendor call, exactly as the create path writes it. Seeded per
-      // organization rather than per route: the ledger has no route foreign key
-      // on purpose, so spend outlives the turf that caused it.
-      const spendWaypoints = async (
-        total: number,
-        options: { organizationSlug?: string; occurredAt?: Date } = {},
-      ) => {
-        let remaining = total
-        // The vendor is never asked for more than the 150-stop cap in one
-        // call, so a large allowance arrives as several rows — which is also
-        // how it accrues in the field.
-        while (remaining > 0) {
-          const size = Math.min(remaining, 150)
-          await service.prisma.doorKnockingRoutePlannerSpend.create({
-            data: {
-              organizationSlug: options.organizationSlug ?? orgSlug,
-              waypoints: size,
-              // Priced rather than assumed proportional, since nothing here
-              // reads it: the quota sums `waypoints`, and a made-up ratio in
-              // the column beside it invites the next reader to derive one.
-              credits: routePlannerCredits(size) + routingCredits(size, 1_200),
-              ...(options.occurredAt ? { occurredAt: options.occurredAt } : {}),
-            },
-          })
-          remaining -= size
-        }
-      }
-
-      const raiseWaypointLimit = (limit: number, slug = orgSlug) =>
-        service.prisma.organization.update({
-          where: { slug },
-          data: { overrideDoorKnockingWaypointLimit: limit },
-        })
-
-      // The standard stub yields 3 stops, so 498 already spent puts this
-      // create one over the 500 limit.
-      it('rejects a create that would exceed the budget, before calling the vendor', async () => {
-        await spendWaypoints(498)
-        const spy = stubVendors()
-
-        const res = await postTurf()
-
-        expect(res.status).toBe(429)
-        expect(res.data.message).toContain('2 of your 500 daily stops')
-        expect(
-          spy.mock.calls.filter(([url]) =>
-            String(url).includes('routeplanner'),
-          ),
-        ).toHaveLength(0)
-        expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
-      })
-
-      // One stop lower: the limit is a ceiling the last route may reach, not
-      // one it has to stay under. Without this the rejection above would also
-      // pass if the budget were off by a stop in either direction.
-      it('allows a create that lands exactly on the budget', async () => {
-        await spendWaypoints(497)
-        stubVendors()
-
-        const res = await postTurf()
-
-        expect(res.status).toBe(201)
-        expect(res.data.doorCount).toBe(3)
-      })
-
-      it('ignores spend that has aged out of the rolling window', async () => {
-        await spendWaypoints(498, {
-          occurredAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
-        })
-        stubVendors()
-
-        expect((await postTurf()).status).toBe(201)
-      })
-
-      it("ignores another organization's spend", async () => {
-        await spendWaypoints(498, {
-          organizationSlug: `campaign-budget-${Date.now()}`,
-        })
-        stubVendors()
-
-        expect((await postTurf()).status).toBe(201)
-      })
-
-      // The same allowance, reported to the draw step so Build route can be
-      // disabled before the press rather than 429-ing at it. The quota's
-      // remedy is waiting out a 24-hour window, which in-memory flow state
-      // cannot survive — so this number is the only thing standing between a
-      // over-budget org and losing its drawn polygon.
-      it('reports the remaining allowance on the address preview', async () => {
-        await spendWaypoints(497)
-
-        const res = await service.client.post(
-          '/v1/door-knocking/address-preview',
-          { geoPoly: GEO_POLY, filters: {} },
-          orgHeaders(),
-        )
-
-        expect(res.status).toBe(201)
-        expect(res.data.waypointsRemaining).toBe(3)
-      })
-
+    // The limit these rows used to enforce is gone; the rows are not. Nothing
+    // sums Geoapify spend across organizations except this ledger, and the
+    // account-wide total is what the tiered budget alerts read — so the write
+    // has to survive a rolled-back create, name the org that caused it, and
+    // bill every vendor call that actually happened.
+    describe('Geoapify spend ledger', () => {
       // The reason the ledger exists: the vendor call sits inside the create
       // transaction, so a later failure rolls the turf and route back. Spend
       // recorded on that same transaction would vanish with it and the budget
@@ -1197,77 +1099,6 @@ describe('door-knocking routes', () => {
         expect(spend.credits).toBe(16)
         expect(spend.waypoints).toBe(3)
       })
-
-      // An admin can raise one organization above the default through
-      // `PATCH /v1/organizations/admin/:slug`. The number moves in three
-      // places at once — what the ledger check allows, what the refusal
-      // quotes, and what the draw step is told — and they are asserted
-      // separately because a single resolution point is the only thing
-      // keeping them from drifting apart.
-      describe('an organization with a raised limit', () => {
-        it('allows a create the default would refuse', async () => {
-          await raiseWaypointLimit(800)
-          await spendWaypoints(498)
-          stubVendors()
-
-          const res = await postTurf()
-
-          expect(res.status).toBe(201)
-          expect(res.data.doorCount).toBe(3)
-        })
-
-        it('quotes the raised limit in the refusal, not the default', async () => {
-          await raiseWaypointLimit(800)
-          await spendWaypoints(798)
-          stubVendors()
-
-          const res = await postTurf()
-
-          expect(res.status).toBe(429)
-          expect(res.data.message).toContain('2 of your 800 daily stops')
-        })
-
-        it('reports the remaining allowance against the raised limit', async () => {
-          await raiseWaypointLimit(900)
-          await spendWaypoints(497)
-
-          const res = await service.client.post(
-            '/v1/door-knocking/address-preview',
-            { geoPoly: GEO_POLY, filters: {} },
-            orgHeaders(),
-          )
-
-          expect(res.status).toBe(201)
-          expect(res.data.waypointsRemaining).toBe(403)
-        })
-
-        // The override lives on one org row, so it can only ever move that
-        // org. Worth asserting rather than assuming: the allowance used to be
-        // a module constant, and a resolution that read it from anywhere
-        // shared would raise the ceiling for every organization at once.
-        it('leaves another organization on the default', async () => {
-          await raiseWaypointLimit(5_000)
-          const { slug, filterId, headers } = await serveOrg('quota')
-          await spendWaypoints(498, { organizationSlug: slug })
-          stubVendors()
-
-          const res = await service.client.post(
-            '/v1/door-knocking/serve/turfs',
-            {
-              voterFileFilterId: filterId,
-              name: 'EO quota turf',
-              color: '#3355ff',
-              geoPoly: GEO_POLY,
-              mode: 'walk',
-              loop: false,
-            },
-            { ...headers, validateStatus: () => true },
-          )
-
-          expect(res.status).toBe(429)
-          expect(res.data.message).toContain('2 of your 500 daily stops')
-        })
-      })
     })
 
     // The second daily gate, and a different quantity from the first: the
@@ -1296,15 +1127,9 @@ describe('door-knocking routes', () => {
         expect(res.data).toEqual({
           campaignsRemaining: 5,
           campaignLimit: 5,
-          waypointsRemaining: 500,
-          waypointLimit: 500,
         })
       })
 
-      // Both halves move on one create, and by different amounts — one
-      // campaign and three stops. That is the clearest statement that the two
-      // are denominated in different things and neither divides into the
-      // other.
       it('counts each list built against the allowance', async () => {
         await createTurf('First')
         await createTurf('Second')
@@ -1313,7 +1138,6 @@ describe('door-knocking routes', () => {
 
         expect(res.status).toBe(200)
         expect(res.data.campaignsRemaining).toBe(3)
-        expect(res.data.waypointsRemaining).toBe(494)
       })
 
       // The limit is a ceiling the fifth list may reach, not one it has to
@@ -1409,78 +1233,85 @@ describe('door-knocking routes', () => {
         expect((await postTurf({ name: 'Mine' })).status).toBe(201)
       })
 
-      // Two ceilings on one press, and neither implies the other. A gate that
-      // read the wrong one would refuse a candidate who is inside it and
-      // admit one who is not, which is why both directions are pinned rather
-      // than just the pair being present.
-      describe('independent of the waypoint budget', () => {
-        // The ledger the stop budget reads, seeded straight in. Rows are
-        // capped at 150 like the real ones: the vendor is never asked for
-        // more than the stop cap in one call.
-        const spendWaypoints = async (total: number) => {
-          for (let left = total; left > 0; left -= 150) {
-            const size = Math.min(left, 150)
-            await service.prisma.doorKnockingRoutePlannerSpend.create({
-              data: {
-                organizationSlug: orgSlug,
-                waypoints: size,
-                credits:
-                  routePlannerCredits(size) + routingCredits(size, 1_200),
-              },
-            })
-          }
-        }
+      // An admin can raise one organization above the default through
+      // `PATCH /v1/organizations/admin/:slug`. The number moves in three
+      // places at once — what the gate allows, what the refusal quotes, and
+      // what the create flow is told it has left — and they are asserted
+      // separately because a single resolution point is the only thing
+      // keeping them from drifting apart.
+      describe('an organization with a raised limit', () => {
+        const raiseCampaignLimit = (limit: number, slug = orgSlug) =>
+          service.prisma.organization.update({
+            where: { slug },
+            data: { overrideDoorKnockingCampaignLimit: limit },
+          })
 
-        it('still refuses on stops for an org that has built no lists', async () => {
-          await spendWaypoints(498)
-          stubVendors()
-
-          const quota = await readQuota()
-          expect(quota.data.campaignsRemaining).toBe(5)
-          expect(quota.data.waypointsRemaining).toBe(2)
-
-          const res = await postTurf()
-
-          expect(res.status).toBe(429)
-          expect(res.data.message).toContain('2 of your 500 daily stops')
-        })
-
-        it('still refuses on campaigns for an org with stops to spare', async () => {
+        it('allows a create the default would refuse', async () => {
+          await raiseCampaignLimit(8)
           await fillTheDay()
           stubVendors()
-
-          const quota = await readQuota()
-          expect(quota.data.campaignsRemaining).toBe(0)
-          // Five creates at three stops each: nowhere near the stop ceiling,
-          // and the reason this refusal cannot be expressed as a stop budget
-          // no matter where it is set.
-          expect(quota.data.waypointsRemaining).toBe(485)
 
           const res = await postTurf({ name: 'Six' })
 
-          expect(res.status).toBe(429)
-          expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
+          expect(res.status).toBe(201)
+          expect(res.data.doorCount).toBe(3)
         })
 
-        // The waypoint limit's admin override moves one number and not the
-        // other: an organization raised to 5,000 stops still cuts five turfs
-        // a day, because this limit is a flat constant with nothing on the
-        // org row to raise it.
-        it('leaves the campaign limit where it is when stops are raised', async () => {
-          await service.prisma.organization.update({
-            where: { slug: orgSlug },
-            data: { overrideDoorKnockingWaypointLimit: 5_000 },
-          })
+        it('reports the raised allowance on the quota read', async () => {
+          await raiseCampaignLimit(8)
           await fillTheDay()
 
-          const quota = await readQuota()
-          expect(quota.data).toEqual({
-            campaignsRemaining: 0,
-            campaignLimit: 5,
-            waypointsRemaining: 4_985,
-            waypointLimit: 5_000,
+          expect((await readQuota()).data).toEqual({
+            campaignsRemaining: 3,
+            campaignLimit: 8,
           })
-          expect((await postTurf({ name: 'Six' })).status).toBe(429)
+        })
+
+        it('quotes the raised limit in the refusal, not the default', async () => {
+          await raiseCampaignLimit(6)
+          await fillTheDay()
+          stubVendors()
+          expect((await postTurf({ name: 'Six' })).status).toBe(201)
+
+          const res = await postTurf({ name: 'Seven' })
+
+          expect(res.status).toBe(429)
+          expect(res.data.message).toBe(
+            "You've created 6 door knocking campaigns today. Go knock the " +
+              "doors you've already mapped, and build more lists tomorrow.",
+          )
+        })
+
+        // The override lives on one org row, so it can only ever move that
+        // org. Worth asserting rather than assuming: the allowance used to be
+        // a module constant, and a resolution that read it from anywhere
+        // shared would raise the ceiling for every organization at once.
+        it('leaves another organization on the default', async () => {
+          await raiseCampaignLimit(20)
+          const { slug, filterId, headers } = await serveOrg('quota')
+          stubVendors()
+          const postServeTurf = (name: string) =>
+            service.client.post(
+              '/v1/door-knocking/serve/turfs',
+              {
+                voterFileFilterId: filterId,
+                name,
+                color: '#3355ff',
+                geoPoly: GEO_POLY,
+                mode: 'walk',
+                loop: false,
+              },
+              { ...headers, validateStatus: () => true },
+            )
+          expect(slug).not.toBe(orgSlug)
+          for (const name of ['One', 'Two', 'Three', 'Four', 'Five']) {
+            expect((await postServeTurf(name)).status).toBe(201)
+          }
+
+          const res = await postServeTurf('Six')
+
+          expect(res.status).toBe(429)
+          expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
         })
       })
     })
@@ -3873,9 +3704,6 @@ describe('door-knocking routes', () => {
         stops: 2,
         doors: 3,
         people: 4,
-        // The untouched daily allowance, which the draw step compares against
-        // `stops` to decide whether Build route can be pressed at all.
-        waypointsRemaining: 500,
         locations: [
           {
             doors: [
@@ -3900,7 +3728,6 @@ describe('door-knocking routes', () => {
         stops: 0,
         doors: 0,
         people: 0,
-        waypointsRemaining: 500,
         locations: [],
       })
     })

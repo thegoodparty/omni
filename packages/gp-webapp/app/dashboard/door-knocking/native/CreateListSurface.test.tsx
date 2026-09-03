@@ -68,14 +68,11 @@ const mockPreview = () => {
     previewCalls.bodies.push(body as Record<string, unknown>)
     return {
       status: 200,
-      // `waypointsRemaining` rides the same response so the draw step can
-      // block Build route before the paid press rather than after it.
       data: {
         stops: 1,
         doors: 2,
         people: 2,
         locations: [],
-        waypointsRemaining: 500,
       },
     }
   })

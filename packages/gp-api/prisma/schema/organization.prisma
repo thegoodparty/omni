@@ -7,12 +7,12 @@ model Organization {
   positionId                        String?                          @map("position_id")
   overrideDistrictId                String?                          @map("override_district_id")
   customPositionName                String?                          @map("custom_position_name")
-  // Raises this org's daily door-knocking waypoint allowance above the
+  // Raises this org's daily door-knocking campaign allowance above the
   // default. A column rather than a settings key — this table has no JSON blob
   // and the same reasoning as campaign.ballotStatus applies: a missing column
   // fails loudly where a mistyped JSONB key fails silently, and this one
-  // governs vendor spend. Null means the default in waypointQuota.util.ts.
-  overrideDoorKnockingWaypointLimit Int?                             @map("override_door_knocking_waypoint_limit")
+  // governs vendor spend. Null means the default in campaignQuota.util.ts.
+  overrideDoorKnockingCampaignLimit Int?                             @map("override_door_knocking_campaign_limit")
   campaign                          Campaign?
   electedOffice                     ElectedOffice?
   voterFileFilters                  VoterFileFilter[]

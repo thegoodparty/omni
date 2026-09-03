@@ -999,7 +999,8 @@ export type APIEndpoints = {
   // Creating a list buys its Geoapify route in the same transaction, so this
   // is the only paid call the feature makes and the request carries the walk
   // settings (`mode`, `loop`) the route is optimized for. It can fail on
-  // vendor timeout or waypoint quota, which is why the flow keeps its state
+  // vendor timeout or the daily campaign limit, which is why the flow keeps
+  // its state
   // mounted rather than clearing on submit — nothing is persisted unless the
   // whole chain commits.
   'POST /v1/door-knocking/turfs': {

@@ -1,6 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { MAX_DAILY_WAYPOINT_LIMIT } from '@/doorKnocking/utils/waypointQuota.util'
+import { MAX_DAILY_CAMPAIGN_LIMIT } from '@/doorKnocking/utils/campaignQuota.util'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -657,19 +657,19 @@ describe('GET /v1/organizations/:slug', () => {
   // shape, which is also the only place it can be written. Asserting the key's
   // absence rather than its value is the point: it catches a future edit that
   // widens the shared base schema instead of the admin one.
-  it('omits the door knocking waypoint override entirely', async () => {
+  it('omits the door knocking campaign override entirely', async () => {
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-101',
         ownerId: service.user.id,
-        overrideDoorKnockingWaypointLimit: 3000,
+        overrideDoorKnockingCampaignLimit: 12,
       },
     })
 
     const result = await service.client.get('/v1/organizations/campaign-101')
 
     expect(result.status).toBe(200)
-    expect(result.data).not.toHaveProperty('overrideDoorKnockingWaypointLimit')
+    expect(result.data).not.toHaveProperty('overrideDoorKnockingCampaignLimit')
   })
 
   it('returns 404 for a non-existent slug', async () => {
@@ -843,10 +843,10 @@ describe('PATCH /v1/organizations/:slug', () => {
   })
 
   // Same shape of guard as overrideDistrictId above, for a different harm:
-  // the waypoint limit is spending authority against a Geoapify pool shared
+  // the campaign limit is spending authority against a Geoapify pool shared
   // by every organization, so a candidate must not be able to grant it to
   // themselves by naming the field on their own org.
-  it('ignores overrideDoorKnockingWaypointLimit from a self-service caller', async () => {
+  it('ignores overrideDoorKnockingCampaignLimit from a self-service caller', async () => {
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-214',
@@ -866,7 +866,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     const result = await service.client.patch(
       '/v1/organizations/campaign-214',
       {
-        overrideDoorKnockingWaypointLimit: 4000,
+        overrideDoorKnockingCampaignLimit: 15,
         customPositionName: 'Legit Name',
       },
     )
@@ -876,7 +876,7 @@ describe('PATCH /v1/organizations/:slug', () => {
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-214' },
     })
-    expect(updated?.overrideDoorKnockingWaypointLimit).toBeNull()
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBeNull()
     expect(updated?.customPositionName).toBe('Legit Name')
   })
 
@@ -1386,21 +1386,21 @@ describe('GET /v1/organizations/admin/:slug', () => {
     })
   })
 
-  it('returns the door knocking waypoint override when the org has one', async () => {
+  it('returns the door knocking campaign override when the org has one', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: ['admin'] },
     })
 
     const otherUser = await service.prisma.user.create({
-      data: { email: 'admin-waypoint-read@goodparty.org' },
+      data: { email: 'admin-campaign-limit-read@goodparty.org' },
     })
 
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-403',
         ownerId: otherUser.id,
-        overrideDoorKnockingWaypointLimit: 2500,
+        overrideDoorKnockingCampaignLimit: 10,
       },
     })
 
@@ -1409,17 +1409,17 @@ describe('GET /v1/organizations/admin/:slug', () => {
     )
 
     expect(result.status).toBe(200)
-    expect(result.data.overrideDoorKnockingWaypointLimit).toBe(2500)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBe(10)
   })
 
-  it('returns a null waypoint override for an org on the default', async () => {
+  it('returns a null campaign override for an org on the default', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: ['admin'] },
     })
 
     const otherUser = await service.prisma.user.create({
-      data: { email: 'admin-waypoint-default@goodparty.org' },
+      data: { email: 'admin-campaign-limit-default@goodparty.org' },
     })
 
     await service.prisma.organization.create({
@@ -1434,7 +1434,7 @@ describe('GET /v1/organizations/admin/:slug', () => {
     )
 
     expect(result.status).toBe(200)
-    expect(result.data.overrideDoorKnockingWaypointLimit).toBeNull()
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBeNull()
   })
 
   it('returns 404 for a non-existent slug when caller is admin', async () => {
@@ -1718,14 +1718,14 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
     expect(updated?.overrideDistrictId).toBeNull()
   })
 
-  it('sets overrideDoorKnockingWaypointLimit when caller is admin', async () => {
+  it('sets overrideDoorKnockingCampaignLimit when caller is admin', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: ['admin'] },
     })
 
     const otherUser = await service.prisma.user.create({
-      data: { email: 'admin-waypoint-target@goodparty.org' },
+      data: { email: 'admin-campaign-limit-target@goodparty.org' },
     })
 
     await service.prisma.organization.create({
@@ -1738,7 +1738,7 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
     await service.prisma.campaign.create({
       data: {
         userId: otherUser.id,
-        slug: 'admin-waypoint-campaign',
+        slug: 'admin-campaign-limit-campaign',
         details: {},
         organizationSlug: 'campaign-507',
       },
@@ -1746,72 +1746,72 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
 
     const result = await service.client.patch(
       '/v1/organizations/admin/campaign-507',
-      { overrideDoorKnockingWaypointLimit: 2000 },
+      { overrideDoorKnockingCampaignLimit: 8 },
     )
 
     expect(result.status).toBe(200)
-    expect(result.data.overrideDoorKnockingWaypointLimit).toBe(2000)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBe(8)
 
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-507' },
     })
-    expect(updated?.overrideDoorKnockingWaypointLimit).toBe(2000)
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBe(8)
   })
 
   // An explicit null is how an admin puts an organization back on the default
   // allowance, and it has to be distinguishable from the field being absent
   // (the test below) — the two reach Prisma as null and undefined, and only one
   // of them is supposed to write.
-  it('clears overrideDoorKnockingWaypointLimit when an admin sends null', async () => {
+  it('clears overrideDoorKnockingCampaignLimit when an admin sends null', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: ['admin'] },
     })
 
     const otherUser = await service.prisma.user.create({
-      data: { email: 'admin-waypoint-clear@goodparty.org' },
+      data: { email: 'admin-campaign-limit-clear@goodparty.org' },
     })
 
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-509',
         ownerId: otherUser.id,
-        overrideDoorKnockingWaypointLimit: 2000,
+        overrideDoorKnockingCampaignLimit: 8,
       },
     })
 
     const result = await service.client.patch(
       '/v1/organizations/admin/campaign-509',
-      { overrideDoorKnockingWaypointLimit: null },
+      { overrideDoorKnockingCampaignLimit: null },
     )
 
     expect(result.status).toBe(200)
-    expect(result.data.overrideDoorKnockingWaypointLimit).toBeNull()
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBeNull()
 
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-509' },
     })
-    expect(updated?.overrideDoorKnockingWaypointLimit).toBeNull()
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBeNull()
   })
 
   // Spending authority must not be revoked as a side effect of an unrelated
   // admin edit. The patch names one field and the override is not it, so the
   // org keeps the allowance it was granted.
-  it('leaves an existing waypoint override alone when the patch omits it', async () => {
+  it('leaves an existing campaign override alone when the patch omits it', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: ['admin'] },
     })
 
     const otherUser = await service.prisma.user.create({
-      data: { email: 'admin-waypoint-untouched@goodparty.org' },
+      data: { email: 'admin-campaign-limit-untouched@goodparty.org' },
     })
 
     await service.prisma.organization.create({
       data: {
         slug: 'campaign-510',
         ownerId: otherUser.id,
-        overrideDoorKnockingWaypointLimit: 2500,
+        overrideDoorKnockingCampaignLimit: 10,
       },
     })
 
@@ -1821,26 +1821,26 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
     )
 
     expect(result.status).toBe(200)
-    expect(result.data.overrideDoorKnockingWaypointLimit).toBe(2500)
+    expect(result.data.overrideDoorKnockingCampaignLimit).toBe(10)
 
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-510' },
     })
-    expect(updated?.overrideDoorKnockingWaypointLimit).toBe(2500)
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBe(10)
     expect(updated?.customPositionName).toBe('Water Commissioner')
   })
 
   // The ceiling is the whole account's assumed daily pool, so a larger number
   // is unspendable for anyone rather than merely generous to this org — which
   // is why it is refused here instead of at the vendor.
-  it('rejects an overrideDoorKnockingWaypointLimit above the account pool', async () => {
+  it('rejects an overrideDoorKnockingCampaignLimit above the account pool', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { roles: ['admin'] },
     })
 
     const otherUser = await service.prisma.user.create({
-      data: { email: 'admin-waypoint-too-high@goodparty.org' },
+      data: { email: 'admin-campaign-limit-too-high@goodparty.org' },
     })
 
     await service.prisma.organization.create({
@@ -1852,7 +1852,7 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
 
     const result = await service.client.patch(
       '/v1/organizations/admin/campaign-508',
-      { overrideDoorKnockingWaypointLimit: MAX_DAILY_WAYPOINT_LIMIT + 1 },
+      { overrideDoorKnockingCampaignLimit: MAX_DAILY_CAMPAIGN_LIMIT + 1 },
     )
 
     expect(result.status).toBe(400)
@@ -1860,7 +1860,7 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
     const updated = await service.prisma.organization.findUnique({
       where: { slug: 'campaign-508' },
     })
-    expect(updated?.overrideDoorKnockingWaypointLimit).toBeNull()
+    expect(updated?.overrideDoorKnockingCampaignLimit).toBeNull()
   })
 
   it('returns 404 for a non-existent slug when caller is admin', async () => {

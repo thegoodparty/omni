@@ -65,15 +65,12 @@ const baseProps = {
   onRetryAddresses: vi.fn(),
 }
 
-// `waypointsRemaining` defaults to a whole day's allowance, so a test has to
-// opt in to being near the quota rather than tripping over it.
 const preview = (
   locations: Array<{ doors: Array<{ address: string; people: number }> }>,
   totals?: {
     stops: number
     doors: number
     people: number
-    waypointsRemaining?: number
   },
 ) => ({
   locations,
@@ -88,7 +85,6 @@ const preview = (
         sum + location.doors.reduce((doors, door) => doors + door.people, 0),
       0,
     ),
-  waypointsRemaining: totals?.waypointsRemaining ?? 500,
 })
 
 // What gp-api hands back for a created turf. Every count is a real number
@@ -416,53 +412,6 @@ describe('CreateListFlow', () => {
       EVENTS.DoorKnocking.ListCreated,
       expect.objectContaining({ mode: 'walk', suggestedMode: 'drive' }),
     )
-  })
-
-  // The fourth way the purchase can fail, and the only one whose remedy is
-  // waiting out a rolling 24-hour window — which in-memory state cannot
-  // survive. So it is discovered at the draw step, where the shape can still
-  // be made smaller, rather than at the paid press with a shape and a name
-  // that a reload would lose.
-  it('blocks the drawn shape when the daily routing allowance cannot cover it', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(60, 55)}
-        addressPreview={preview([], {
-          stops: 60,
-          doors: 55,
-          people: 90,
-          waypointsRemaining: 20,
-        })}
-      />,
-    )
-
-    expect(
-      screen.getByText(
-        'This route needs 60 stops and only 20 of your daily stops are left. ' +
-          'Draw a smaller area, or build this route tomorrow.',
-      ),
-    ).toBeInTheDocument()
-  })
-
-  it('holds Build route shut while the allowance is short', async () => {
-    const props = {
-      turfStats: turfStats(60, 55),
-      addressPreview: preview([], {
-        stops: 60,
-        doors: 55,
-        people: 90,
-        waypointsRemaining: 20,
-      }),
-    }
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="confirm" />,
-    )
-    advanceToRoute(rerender, props)
-
-    expect(screen.getByRole('button', { name: 'Build route' })).toBeDisabled()
-    expect(screen.getByText(/only 20 of your daily stops/)).toBeInTheDocument()
   })
 
   // An audience cut by hand used to be filed here, from a step that named it

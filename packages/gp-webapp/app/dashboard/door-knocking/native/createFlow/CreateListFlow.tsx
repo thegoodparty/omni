@@ -528,20 +528,14 @@ export default function CreateListFlow({
 
   const overCap = stops > HARD_STOP_LIMIT
   const longWalk = stops > SOFT_STOP_LIMIT && !overCap
-  // The fourth way the purchase can fail, and the only one whose remedy is
-  // waiting a day rather than redrawing — so it is the one that must not be
-  // discovered at the paid press, with a shape and a name already committed
-  // to memory that a reload would lose. The allowance rides the address
-  // preview, so this is only knowable once the candidate has asked for the
-  // addresses; the server's own check inside the transaction stays the
-  // authority either way.
-  const waypointsLeft = addressPreview?.waypointsRemaining ?? null
-  const overQuota = waypointsLeft !== null && stops > waypointsLeft
-  // The design's bare word, in every state. What the button is waiting for is
-  // said by the surface rather than by the button: the centred hint names the
-  // gesture until the first point lands, and the count pill reads the shape
-  // from there. A button that renames itself three times is three controls to
-  // read where the design draws one.
+  // The per-list stop cap above is the only thing the drawing surface
+  // enforces. A daily allowance used to be checked here too: a 500-stop
+  // budget rode the address preview, so a shape could be refused for its size
+  // once the addresses came back. That limit is gone, and the one that
+  // replaced it counts campaigns rather than stops — which makes it knowable
+  // before any drawing happens, so the page refuses to open the flow at all
+  // on a spent day rather than letting a candidate draw and then taking the
+  // shape away.
 
   const unpreviewableDisclosure = unpreviewableDisclosureSentence(
     unpreviewableDisclosureLabels(unpreviewableKeys),
@@ -629,11 +623,6 @@ export default function CreateListFlow({
     </AlertDialog>
   )
 
-  const quotaMessage =
-    overQuota && waypointsLeft !== null
-      ? `This route needs ${stops} stops and only ${waypointsLeft} of your daily stops are left. Draw a smaller area, or build this route tomorrow.`
-      : null
-
   if (stage === 'draw') {
     const { currentStep, totalSteps } = stepperPosition(stage)
     if (drawFullScreen) {
@@ -644,7 +633,13 @@ export default function CreateListFlow({
             onUndoPoint={onUndoPoint}
             stops={stops}
             overCap={overCap}
-            continueDisabled={!ring || stops === 0 || overCap || overQuota}
+            // The design's bare word, in every state. What the button is
+            // waiting for is said by the surface rather than by the button:
+            // the centred hint names the gesture until the first point lands,
+            // and the count pill reads the shape from there. A button that
+            // renames itself three times is three controls to read where the
+            // design draws one.
+            continueDisabled={!ring || stops === 0 || overCap}
             onContinue={() => {
               onDrawFullScreenChange(false)
               goToStage('confirm')
@@ -686,9 +681,6 @@ export default function CreateListFlow({
             <p className="text-sm text-destructive">
               Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
             </p>
-          )}
-          {quotaMessage && (
-            <p className="text-sm text-destructive">{quotaMessage}</p>
           )}
           {longWalk && (
             <p className="text-sm text-warning">
@@ -769,7 +761,7 @@ export default function CreateListFlow({
                 }
               : {
                   label: save.isPending ? 'Building route…' : 'Build route',
-                  disabled: save.isPending || overQuota,
+                  disabled: save.isPending,
                   onClick: () => save.mutate(),
                 }
       }
@@ -859,9 +851,6 @@ export default function CreateListFlow({
               onLoopChange={setLoop}
               suggested={suggestedMode}
             />
-            {quotaMessage && (
-              <p className="text-sm text-destructive">{quotaMessage}</p>
-            )}
             {save.isError && (
               <p role="alert" className="text-sm text-destructive">
                 {toCreateErrorMessage(save.error)}

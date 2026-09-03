@@ -112,7 +112,7 @@ const AdminListOrganizationsResponseSchema = z.object({
 })
 
 // The single-org admin read, extended the same way the list shape above is:
-// the door-knocking waypoint override is readable exactly where it is
+// the door-knocking campaign override is readable exactly where it is
 // writable, and nowhere else. It stays off APIOrganizationSchema because that
 // shape is what a candidate gets back about their own organization, and a
 // control over vendor spend is not part of the answer to "what is my org?".
@@ -122,7 +122,7 @@ const AdminListOrganizationsResponseSchema = z.object({
 // the field. Absent it, the value could be set and never read, which leaves
 // an admin unable to tell whether an org already has one.
 const AdminOrganizationDetailSchema = APIOrganizationSchema.extend({
-  overrideDoorKnockingWaypointLimit: z.number().int().nullable(),
+  overrideDoorKnockingCampaignLimit: z.number().int().nullable(),
 })
 
 type AdminOrganizationDetail = z.infer<typeof AdminOrganizationDetailSchema>
@@ -274,7 +274,7 @@ export class OrganizationsController {
     const org = await this.organizationsService.adminGetOrganization(slug)
     return {
       ...toAPIOrganization(org, organizationStatus(org, new Date())),
-      overrideDoorKnockingWaypointLimit: org.overrideDoorKnockingWaypointLimit,
+      overrideDoorKnockingCampaignLimit: org.overrideDoorKnockingCampaignLimit,
     }
   }
 
@@ -294,9 +294,9 @@ export class OrganizationsController {
 
     // Only when the patch names the field — an org edit that leaves the
     // spending limit alone should not emit a spend-control line into the log.
-    const touchesWaypointLimit = 'overrideDoorKnockingWaypointLimit' in updates
-    const newLimit = updates.overrideDoorKnockingWaypointLimit ?? null
-    if (touchesWaypointLimit && newLimit !== previousLimit) {
+    const touchesCampaignLimit = 'overrideDoorKnockingCampaignLimit' in updates
+    const newLimit = updates.overrideDoorKnockingCampaignLimit ?? null
+    if (touchesCampaignLimit && newLimit !== previousLimit) {
       // There is no audit table anywhere in gp-api, and AdminAuditInterceptor
       // keys off @Roles(admin) metadata, which this AdminOrM2MGuard route does
       // not carry — so this line is the only durable record that someone moved
@@ -309,19 +309,19 @@ export class OrganizationsController {
       // below is null for the calls this endpoint mostly serves.
       this.logger.info(
         {
-          event: 'DoorKnockingWaypointLimitOverride',
+          event: 'DoorKnockingCampaignLimitOverride',
           organizationSlug: slug,
           previousLimit,
           newLimit,
           actorEmail: effectiveUser(req)?.email ?? null,
         },
-        'Door knocking waypoint limit override changed',
+        'Door knocking campaign limit override changed',
       )
     }
 
     return {
       ...toAPIOrganization(org, organizationStatus(org, new Date())),
-      overrideDoorKnockingWaypointLimit: org.overrideDoorKnockingWaypointLimit,
+      overrideDoorKnockingCampaignLimit: org.overrideDoorKnockingCampaignLimit,
     }
   }
 }

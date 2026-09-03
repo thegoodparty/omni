@@ -12,12 +12,10 @@ import {
   NotAVoterStatus,
   Organization,
 } from '../../generated/prisma'
-import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { MAX_STOPS } from './doorKnockingCreate.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { renderUnitAddress } from '../utils/unitAddress.util'
-import { waypointsRemaining } from '../utils/waypointQuota.util'
 import { DoorKnockingAddressPreview } from '../schemas/doorKnockingAddressPreview.schema'
 
 type EvaluatedPerson = {
@@ -43,17 +41,16 @@ const EMPTY_COUNTS = {
 // Nothing here is persisted and no Geoapify credit is spent; the only cost is
 // one people-db scan per explicit request. See ADR 0010 for why that request
 // is explicit rather than debounced.
+// Touches no table of its own. It used to extend the spend ledger's Prisma
+// base to read the org's remaining daily stops off it; that allowance is gone,
+// and with it the only reason this service held a client.
 @Injectable()
-export class DoorKnockingPreviewService extends createPrismaBase(
-  MODELS.DoorKnockingRoutePlannerSpend,
-) {
+export class DoorKnockingPreviewService {
   constructor(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
-  ) {
-    super()
-  }
+  ) {}
 
   async preview(
     organization: Organization,
@@ -61,11 +58,6 @@ export class DoorKnockingPreviewService extends createPrismaBase(
   ): Promise<DoorKnockingAddressPreviewResponse> {
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
-
-    // Read on every preview rather than once per session: the allowance is a
-    // rolling window shared by the whole org, so a teammate's purchase moves
-    // it while this candidate is still drawing.
-    const remaining = await waypointsRemaining(this.client, organization)
 
     // ADR 0007 and ADR 0008, deduped into one exclusion list exactly as the
     // knock builds it. A door whose every resident is flagged therefore has
@@ -102,7 +94,7 @@ export class DoorKnockingPreviewService extends createPrismaBase(
     // allowed to enclose nobody, and the draw step already says "No doors in
     // this area" for it. Erroring would turn ordinary drawing into a failure.
     if (resolved.empty) {
-      return { ...EMPTY_COUNTS, waypointsRemaining: remaining }
+      return EMPTY_COUNTS
     }
 
     const { people } = await this.peopleApi.evaluate({
@@ -114,10 +106,7 @@ export class DoorKnockingPreviewService extends createPrismaBase(
       excludePersonIds,
     })
 
-    return {
-      ...this.summarize(people, input.geoPoly),
-      waypointsRemaining: remaining,
-    }
+    return this.summarize(people, input.geoPoly)
   }
 
   // Mirrors DoorKnockingCreateService.buildStops: the bbox is a prefilter, so
@@ -129,7 +118,7 @@ export class DoorKnockingPreviewService extends createPrismaBase(
   private summarize(
     people: EvaluatedPerson[],
     polygon: GeoJsonPolygon,
-  ): Omit<DoorKnockingAddressPreviewResponse, 'waypointsRemaining'> {
+  ): DoorKnockingAddressPreviewResponse {
     const inside = people
       .filter((person) => pointInPolygon(person.lng, person.lat, polygon))
       .sort(

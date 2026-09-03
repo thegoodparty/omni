@@ -25,10 +25,7 @@ import { DoorKnockingTurfService } from './doorKnockingTurf.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
 import { assertCampaignQuota } from '../utils/campaignQuota.util'
-import {
-  assertWaypointQuota,
-  recordWaypointSpend,
-} from '../utils/waypointQuota.util'
+import { recordWaypointSpend } from '../utils/waypointSpend.util'
 
 // Leadership-approved hard cap; the DB CHECK on stop.seq enforces the same
 // bound. Exported so the draw-step preview materializes addresses only up to
@@ -195,21 +192,17 @@ export class DoorKnockingCreateService extends createPrismaBase(
         })
         const stops = this.buildStops(people, input.geoPoly)
 
-        // Last gate before the only paid call in the system.
+        // Last gate before the only paid call in the system, and the sole
+        // per-account limit: five campaigns a rolling day. A 500-stop daily
+        // budget used to be checked here too and was removed — the per-org
+        // stop cap is gone, and the shared credit pool is now bounded by the
+        // account-wide alerts over the spend ledger rather than by rationing
+        // each organization against it.
         //
-        // The draw step already reports both of the failures below — it runs
-        // this same evaluation through DoorKnockingPreviewService and blocks
-        // Build route on an empty or oversized result — so reaching them here
-        // means the data moved underneath a shape drawn earlier. They stay
-        // because the preview is an advisory read and this is the write.
-        await assertWaypointQuota(tx, organization, stops.length)
-
-        // The second of the two daily gates, and independent of the first:
-        // the waypoint budget caps how many doors an organization routes in a
-        // rolling day, this caps how many separate turfs it cuts. Either can
-        // refuse a create the other would allow, so both are checked and both
-        // sit ahead of the vendor call.
-        await assertCampaignQuota(tx, organization.slug)
+        // The create flow refuses to open once this is spent, so reaching it
+        // here means a teammate spent the day's allowance in between. It stays
+        // as the authority: that read is advisory and this is the write.
+        await assertCampaignQuota(tx, organization)
 
         const plan = await this.planStops(stops, input)
 
@@ -313,18 +306,20 @@ export class DoorKnockingCreateService extends createPrismaBase(
   ): Promise<void> {
     const billed = credits.route_planner + credits.routing
 
-    // `waypoints` is stops and only stops: it is the unit the daily quota is
-    // denominated in, and it does not convert into `credits`, which counts two
-    // APIs at two rates. Read this line for money through `credits` and for
-    // allowance through `waypoints`; neither divides into the other.
+    // `waypoints` is stops and only stops, and it does not convert into
+    // `credits`, which counts two APIs at two rates. Read this line for money
+    // through `credits` and for size through `waypoints`; neither divides into
+    // the other. Nothing is denominated in stops any more — the daily budget
+    // that was is gone — so `waypoints` is here to say how big the route was,
+    // not what it was allowed to be.
     //
     // Emitted before the ledger write and independently of its outcome: the
-    // vendor has already billed, so this line — not the ledger — is what the
-    // spend queries and the global daily-credit ceiling alert count. Losing a
-    // ledger row is allowed to under-count one org's quota; it must not also
-    // hide the money. Carries organizationSlug so per-org-per-day spend (and
-    // any ENG-10901 overshoot past the 500-waypoint cap) is queryable in Loki
-    // without the cardinality cost of a Prometheus label.
+    // vendor has already billed, so this line — not the ledger — is what every
+    // spend query and all five credit alerts actually count. A lost ledger row
+    // must not be able to hide money that left. Carries organizationSlug so
+    // per-org-per-day spend is queryable in Loki without the cardinality cost
+    // of a Prometheus label, which is how a fired budget tier gets narrowed to
+    // the organization that caused it.
     this.logger.info({
       event: 'DoorKnockingSpend',
       organizationSlug,

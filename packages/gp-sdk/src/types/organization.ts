@@ -25,11 +25,11 @@ export type AdminOrganization = {
   district: OrgDistrict | null
   electedOfficeId: string | null
   campaignId: number | null
-  // The org's daily door-knocking waypoint allowance, or null when it is on
+  // The org's daily door-knocking campaign allowance, or null when it is on
   // gp-api's default. Returned by `/organizations/admin/:slug` only, which is
   // also the only route that can set it.
   // Optional: older gp-api deployments omit it, current ones return it.
-  overrideDoorKnockingWaypointLimit?: number | null
+  overrideDoorKnockingCampaignLimit?: number | null
 }
 
 export type ListOrganizationsOptions = {
@@ -62,8 +62,8 @@ export type PatchOrganizationInput = {
   ballotReadyPositionId?: string | null
   overrideDistrictId?: string | null
   customPositionName?: string | null
-  // Daily door-knocking waypoint allowance for this org; null restores
-  // gp-api's default. gp-api caps it at 5,000 — the whole Geoapify account's
-  // assumed daily pool — and rejects anything higher with a 400.
-  overrideDoorKnockingWaypointLimit?: number | null
+  // Daily door-knocking campaign allowance for this org; null restores
+  // gp-api's default. gp-api caps it at 30 — roughly the whole Geoapify
+  // account's assumed daily pool — and rejects anything higher with a 400.
+  overrideDoorKnockingCampaignLimit?: number | null
 }

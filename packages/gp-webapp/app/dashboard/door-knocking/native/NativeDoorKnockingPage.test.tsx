@@ -480,8 +480,6 @@ beforeEach(() => {
     data: {
       campaignsRemaining: 5,
       campaignLimit: 5,
-      waypointsRemaining: 500,
-      waypointLimit: 500,
     },
   })
 })
@@ -648,8 +646,6 @@ describe('NativeDoorKnockingPage create flow', () => {
       data: {
         campaignsRemaining: 0,
         campaignLimit: 5,
-        waypointsRemaining: 500,
-        waypointLimit: 500,
       },
     })
     renderPage()
@@ -682,8 +678,6 @@ describe('NativeDoorKnockingPage create flow', () => {
         data: {
           campaignsRemaining: 0,
           campaignLimit: 5,
-          waypointsRemaining: 500,
-          waypointLimit: 500,
         },
       }
     })
@@ -886,7 +880,6 @@ const mockPreview = () => {
         people: 4,
         // A whole day's allowance left, so the draw step's quota gate never
         // fires in the tests that only care about when the scan runs.
-        waypointsRemaining: 500,
         locations: [
           {
             doors: [
@@ -1069,7 +1062,6 @@ describe('NativeDoorKnockingPage draw step', () => {
         stops: 1,
         doors: 2,
         people: 2,
-        waypointsRemaining: 500,
         locations: [
           {
             doors: [

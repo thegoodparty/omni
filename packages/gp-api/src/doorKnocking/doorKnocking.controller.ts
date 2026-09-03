@@ -298,18 +298,17 @@ export class DoorKnockingController {
     return this.previewService.preview(organization, input)
   }
 
-  // Both daily allowances in one read, so the create flow can refuse to open
-  // on the campaign limit for the same reason the draw step disables Build
-  // route on the waypoint limit: the remedy for either is waiting out a
-  // rolling 24-hour window, and the flow holds its polygon, name and travel
-  // mode in memory only. Meeting a 429 at the last press throws that away.
+  // The day's allowance, read before the flow opens rather than discovered at
+  // the last press. The remedy for this 429 is waiting out a rolling 24-hour
+  // window, and the flow holds its polygon, name and travel mode in memory
+  // only — so meeting it at Build route throws all of that away. This is the
+  // only allowance left to report: a 500-stop daily budget rode the
+  // address-preview response and has been removed.
   //
-  // Org-scoped with no serve sibling, unlike the rail. Both allowances belong
-  // to the organization — turfs reach it through
-  // `voterFileFilter.organizationSlug` and spend through the ledger's own
-  // column — so there is no per-surface answer for a Win/Serve pair to keep
-  // apart, and a Serve org reaches this the same way it reaches
-  // address-preview.
+  // Org-scoped with no serve sibling. The allowance belongs to the
+  // organization — turfs reach it through `voterFileFilter.organizationSlug`
+  // — so there is no per-surface answer for a Win/Serve pair to keep apart,
+  // and a Serve org reaches this the same way it reaches address-preview.
   @Get('quota')
   @UseOrganization()
   @ResponseSchema(DoorKnockingQuotaResponseSchema)
