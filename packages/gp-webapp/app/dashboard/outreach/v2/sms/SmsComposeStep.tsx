@@ -2,7 +2,11 @@
 
 import { useRef } from 'react'
 import type { ReactNode } from 'react'
-import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
+import {
+  type SmsStandardsRule,
+  SOCIAL_TONE_VALUES,
+  type SocialTone,
+} from '@goodparty_org/contracts'
 import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
@@ -29,11 +33,7 @@ import {
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { Intro } from '../social/Intro'
 import { ThinkingStream } from '../social/ThinkingStream'
-import {
-  IMAGE_ACCEPT,
-  IMAGE_MAX_BYTES,
-  OPT_OUT_FOOTER,
-} from './smsCompose.util'
+import { composeFooter, IMAGE_ACCEPT, IMAGE_MAX_BYTES } from './smsCompose.util'
 
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
@@ -53,8 +53,9 @@ interface SmsComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   audienceName: string
-  missingIdentification: boolean
+  standardsFailures: SmsStandardsRule[]
   identificationExample: string
+  committeeName: string | null
   body: string
   onBodyChange: (body: string) => void
   composedLength: number
@@ -73,12 +74,31 @@ interface SmsComposeStepProps {
   onImageError: (message: string | null) => void
 }
 
+// Plain-language fix per failed compliance rule. The greeting, opt-out, and
+// paid-for-by lines are system-owned, so these mostly fire only when an edit
+// deletes one of them.
+const standardsFailureCopy = (
+  rule: SmsStandardsRule,
+  identificationExample: string,
+): string => {
+  if (rule === 'candidate_name') {
+    return `messages must include your name, e.g. "${identificationExample}"`
+  }
+  if (rule === 'opt_out_line') return 'keep the "Reply STOP" opt-out line'
+  if (rule === 'first_name_token') {
+    return 'keep the {first_name} greeting token'
+  }
+  if (rule === 'paid_for_by') return 'keep the "Paid for by" line'
+  return 'shorten the message to fit the length limit'
+}
+
 export const SmsComposeStep = ({
   tone,
   onToneChange,
   audienceName,
-  missingIdentification,
+  standardsFailures,
   identificationExample,
+  committeeName,
   body,
   onBodyChange,
   composedLength,
@@ -261,8 +281,8 @@ export const SmsComposeStep = ({
               aria-invalid={overLimit}
               className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
             />
-            <p className="mt-3 text-xs text-muted-foreground">
-              {OPT_OUT_FOOTER}
+            <p className="mt-3 text-xs text-muted-foreground whitespace-pre-line">
+              {composeFooter(committeeName)}
             </p>
 
             <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
@@ -328,12 +348,14 @@ export const SmsComposeStep = ({
           </p>
         )}
         {imageError && <p className="text-xs text-destructive">{imageError}</p>}
-        {missingIdentification && body.trim().length > 0 && (
-          <p className="text-xs text-destructive">
-            Compliance: messages must open with an identification, e.g. &quot;
-            {identificationExample}&quot;
-          </p>
-        )}
+        {body.trim().length > 0 &&
+          standardsFailures
+            .filter((rule) => rule !== 'length')
+            .map((rule) => (
+              <p key={rule} className="text-xs text-destructive">
+                Compliance: {standardsFailureCopy(rule, identificationExample)}
+              </p>
+            ))}
         {overLimit && (
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out

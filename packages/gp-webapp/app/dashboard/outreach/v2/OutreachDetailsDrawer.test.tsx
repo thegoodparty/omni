@@ -3,6 +3,15 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+
+let complianceFlag = { ready: true, enabled: false }
+vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
+  useVoterOutreachV2SmsFlag: () => complianceFlag,
+}))
+
+beforeEach(() => {
+  complianceFlag = { ready: true, enabled: false }
+})
 import { useSnackbar } from 'helpers/useSnackbar'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import type { HistoryRow } from './historyStatus.util'
@@ -709,6 +718,53 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
   })
 })
 
+describe('OutreachDetailsDrawer — SMS statistics', () => {
+  it('renders the Statistics card for a completed text campaign', async () => {
+    complianceFlag = { ready: true, enabled: true }
+    const completedSmsRow: HistoryRow = {
+      id: 51,
+      createdAt: '2026-08-20T00:00:00Z',
+      outreachType: 'p2p',
+      name: 'Likely voters — SMS',
+      status: 'completed',
+      phoneListId: 9,
+    }
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 51,
+        outreachType: 'p2p' as const,
+        status: 'completed' as const,
+        phoneListId: 9,
+      },
+    })
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 1204, responded: 186, optedOut: 9 },
+    })
+
+    render(
+      <OutreachDetailsDrawer row={completedSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/Based on 1,204 SMS contacts/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Responded')).toBeInTheDocument()
+    expect(screen.getByText('186')).toBeInTheDocument()
+    expect(screen.getByText('15%')).toBeInTheDocument()
+    expect(screen.getByText('No response')).toBeInTheDocument()
+    expect(screen.getByText('1,009')).toBeInTheDocument()
+    expect(screen.getByText('Opted out')).toBeInTheDocument()
+    expect(screen.getByText('1%')).toBeInTheDocument()
+  })
+})
+
 describe('OutreachDetailsDrawer — cancel before send', () => {
   const scheduledSmsRow: HistoryRow = {
     id: 41,
@@ -732,7 +788,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       data: { message: 'No receipt' },
     })
 
-  it('offers Edit campaign on a cancelable row and hands the hub the detail', async () => {
+  it('offers Edit campaign on a cancelable row (launch switch off) and hands the hub the detail', async () => {
     mockNoReceipt()
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -775,15 +831,28 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('renders no Edit campaign without an onEdit handler or outside the cancel window', async () => {
+  it('hides Edit campaign when the launch switch is on', async () => {
+    complianceFlag = { ready: true, enabled: true }
     mockNoReceipt()
-    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...smsDetail,
+        script: 'Hello {first_name}, hi.\n\nReply STOP to opt out.',
+        date: new Date('2026-09-06T14:00:00Z'),
+        imageUrl: 'https://assets.example.org/img.png',
+      },
+    })
     render(
-      <OutreachDetailsDrawer row={scheduledSmsRow} onOpenChange={vi.fn()} />,
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={vi.fn()}
+        onEdit={vi.fn()}
+      />,
     )
     expect(
-      (await screen.findAllByText('Likely voters — SMS')).length,
-    ).toBeGreaterThan(0)
+      await screen.findByRole('button', { name: 'Cancel campaign' }),
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Edit campaign' }),
     ).not.toBeInTheDocument()

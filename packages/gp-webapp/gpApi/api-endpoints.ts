@@ -35,6 +35,7 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  SmsOutreachResults,
   SocialDraftRequest,
   SocialDraftResponse,
   SocialGenerateRequest,
@@ -312,6 +313,13 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id/receipt': {
     Request: {}
     Response: OutreachReceipt
+  }
+
+  // Candidate-facing text results for the details sheet's Statistics card:
+  // counts only, reply content never leaves the CRM.
+  'GET /v1/outreach/:id/results': {
+    Request: {}
+    Response: SmsOutreachResults
   }
 
   // Synchronous, stateless: one structured LLM call writes the compose-step

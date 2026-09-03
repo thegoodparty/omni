@@ -41,3 +41,19 @@ const getJobResponseSchema = z.object({
 })
 
 export class GetJobResponseDto extends createZodDto(getJobResponseSchema) {}
+
+// detailedstats counters the admin monitor maps (narrow: only the keyed
+// count objects and total cost — the endpoint returns much more). Records
+// are label→count maps whose exact key set Peerly doesn't document, so the
+// mapper sums by TX/RX prefix instead of naming keys.
+const jobDetailedStatsResponseSchema = z.object({
+  messages: z.record(z.string(), z.number()).optional(),
+  mms_messages: z.record(z.string(), z.number()).optional(),
+  delivery_receipts: z.record(z.string(), z.number()).optional(),
+  mms_delivery_receipts: z.record(z.string(), z.number()).optional(),
+  total_cost: z.number().optional(),
+})
+
+export class JobDetailedStatsResponseDto extends createZodDto(
+  jobDetailedStatsResponseSchema,
+) {}

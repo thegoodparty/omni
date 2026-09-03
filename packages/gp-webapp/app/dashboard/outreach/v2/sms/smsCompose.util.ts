@@ -11,6 +11,17 @@ export const smsPurposeLabel = (purpose: string): string =>
 
 export const OPT_OUT_FOOTER = 'Reply STOP to opt out.'
 
+// Compliance: the "Paid for by <committee>" disclaimer is system-owned, like
+// the opt-out line — appended deterministically to every message (product
+// decision 2026-09-02), never left to the candidate or the LLM.
+export const paidForByLine = (committeeName: string): string =>
+  `Paid for by ${committeeName}.`
+
+export const composeFooter = (committeeName?: string | null): string =>
+  committeeName
+    ? `${paidForByLine(committeeName)}\n${OPT_OUT_FOOTER}`
+    : OPT_OUT_FOOTER
+
 // Peerly merges {first_name} from the uploaded list CSV — the same token our
 // own 10DLC identity registration samples use ("Hello {first_name}, this is
 // Jack…"), so the vendor contract already depends on it. Verify the merge on
@@ -41,19 +52,27 @@ export const identificationIntro = (
 // the user's message (which opens with the identification) — the backend
 // has no region concept and sends the script to the vendor verbatim
 // (merge token included).
-// The opt-out footer sits after a blank line (design parity in the preview
-// bubble; SMS newlines are legal and Peerly gets the script verbatim).
+// The footer (paid-for-by + opt-out) sits after a blank line (design parity
+// in the preview bubble; SMS newlines are legal and Peerly gets the script
+// verbatim).
 export const composeScript = (
   body: string,
-  footer: string = OPT_OUT_FOOTER,
+  committeeName?: string | null,
 ): string =>
-  [[SMS_GREETING, body.trim()].filter(Boolean).join(' '), footer]
+  [
+    [SMS_GREETING, body.trim()].filter(Boolean).join(' '),
+    composeFooter(committeeName),
+  ]
     .filter(Boolean)
     .join('\n\n')
 
-// Prototype's hasIntro: the message head must read as an identification.
-// With no first name on file the name check is vacuous, so only the
-// candidacy phrasing is required.
+export const IMAGE_MAX_BYTES = 500000
+export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
+
+// Pre-compliance-launch identification check (prototype's hasIntro), used
+// while the voter-outreach-v2-sms flag is off: the message head
+// must read as an identification. With no first name on file the name
+// check is vacuous, so only the candidacy phrasing is required.
 export const hasIdentification = (body: string, firstName: string): boolean => {
   const head = body.slice(0, 140).toLowerCase()
   const nameOk =
@@ -62,13 +81,10 @@ export const hasIdentification = (body: string, firstName: string): boolean => {
   return nameOk && (head.includes('candidate') || head.includes('running for'))
 }
 
-export const IMAGE_MAX_BYTES = 500000
-export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
-
-// Inverse of composeScript, for edit-before-send: recover the editable body
-// from a stored script by peeling the known system regions. Tolerant of
-// legacy rows that predate the region model — whatever doesn't match is
-// simply kept as body text.
+// Inverse of composeScript, for edit-before-send (pre-launch only):
+// recover the editable body from a stored script by peeling the known
+// system regions. Tolerant of legacy rows that predate the region model —
+// whatever doesn't match is simply kept as body text.
 export const stripComposedScript = (script: string): string => {
   let body = script
   if (body.endsWith(`\n\n${OPT_OUT_FOOTER}`)) {

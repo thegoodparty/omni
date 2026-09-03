@@ -841,6 +841,10 @@ export {
   OutreachReceiptSchema,
   type OutreachReceipt,
 } from './outreach/OutreachReceipt.schema'
+export {
+  SmsOutreachResultsSchema,
+  type SmsOutreachResults,
+} from './outreach/OutreachResults.schema'
 
 export {
   SMS_PURPOSE_VALUES,
@@ -853,6 +857,33 @@ export {
   SmsDraftResponseSchema,
   type SmsDraftResponse,
 } from './outreach/OutreachSms.schema'
+export {
+  SMS_APPROVAL_STATUS_VALUES,
+  SmsApprovalStatusSchema,
+  type SmsApprovalStatus,
+  SMS_STANDARDS_RULE_VALUES,
+  SmsStandardsRuleSchema,
+  type SmsStandardsRule,
+  SmsStandardsVerdictSchema,
+  type SmsStandardsVerdict,
+  checkSmsStandards,
+  SmsApprovalQueueItemSchema,
+  type SmsApprovalQueueItem,
+  SmsApprovalQueueResponseSchema,
+  type SmsApprovalQueueResponse,
+  SmsAdminJobStatsSchema,
+  type SmsAdminJobStats,
+  SmsAdminDetailResponseSchema,
+  type SmsAdminDetailResponse,
+  ApproveSmsOutreachRequestSchema,
+  type ApproveSmsOutreachRequest,
+  DenySmsOutreachRequestSchema,
+  type DenySmsOutreachRequest,
+  EditSmsOutreachRequestSchema,
+  type EditSmsOutreachRequest,
+  SmsTestMessageRequestSchema,
+  type SmsTestMessageRequest,
+} from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 

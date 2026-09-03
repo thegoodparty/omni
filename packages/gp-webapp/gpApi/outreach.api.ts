@@ -40,7 +40,8 @@ export interface UpdateOutreachPayload {
 /**
  * Edit a scheduled-not-sent SMS campaign (PATCH /outreach/:id): name, script,
  * send date, optional replacement image. The audience is not editable —
- * that path is cancel-and-recreate.
+ * that path is cancel-and-recreate. Pre-compliance-launch only: the server
+ * rejects once the launch switch is on.
  */
 export async function updateOutreach(
   id: number,
