@@ -651,9 +651,17 @@ OUT_OF_SCOPE_TAG_NAMES = frozenset({"bug: district-assignment"})
 OMNI_REPO = "thegoodparty/omni"
 MARKETING_REPO = "thegoodparty/gp-marketing"
 
-GROWTH_BUGS_LIST_ID = "901326170992"
+# A list that holds one product's bugs and nothing else. Growth-Bugs was used
+# for this at first and was the wrong choice: it is fed by HubSpot and collects
+# every kind of growth bug, so its one real ticket on the day routing shipped
+# was a weekly digest EMAIL — gp-api code, in omni. One ticket, one mis-route.
+#
+# The fix is a list that means one thing, not a cleverer way to read a list that
+# means several. Growth-Bugs is deliberately absent from the table below and so
+# falls back to omni, which is where its contents have always belonged.
+MARKETING_SITE_BUGS_LIST_ID = "901328971692"
 
-REPO_BY_LIST_ID = {GROWTH_BUGS_LIST_ID: MARKETING_REPO}
+REPO_BY_LIST_ID = {MARKETING_SITE_BUGS_LIST_ID: MARKETING_REPO}
 DEFAULT_REPO = OMNI_REPO
 
 # WHICH REPOS THE BOT MAY WRITE CODE IN, as opposed to merely read.

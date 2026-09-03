@@ -58,8 +58,8 @@ CASES = [
         id="the Data Backlog list",
     ),
     pytest.param(
-        task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"}),
-        id="the Growth-Bugs list, which is now routed rather than refused",
+        task_dump(list={"id": handler.MARKETING_SITE_BUGS_LIST_ID, "name": "Marketing Site Bugs"}),
+        id="the Marketing Site Bugs list, which is routed rather than refused",
     ),
     pytest.param(
         task_dump(list={"id": escalation.DATA_BACKLOG_LIST_ID}),
@@ -149,7 +149,7 @@ def test_a_marketing_ticket_is_a_different_repo_not_a_refusal():
     # Growth-Bugs sat in OUT_OF_SCOPE_LIST_IDS until gp-marketing became a repo
     # the agent could be pointed at. Both copies have to have let go of it, or
     # marketing tickets keep being refused by whichever copy still remembers.
-    marketing = task_dump(list={"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"})
+    marketing = task_dump(list={"id": handler.MARKETING_SITE_BUGS_LIST_ID, "name": "Marketing Site Bugs"})
 
     assert handler.out_of_scope_reason(marketing) is None
     assert escalation.out_of_scope_reason(marketing) is None

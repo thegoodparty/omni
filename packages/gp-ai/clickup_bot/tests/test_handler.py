@@ -2833,10 +2833,33 @@ def test_data_backlog_list_blocks_implement_without_a_custom_id(fake_clickup, fa
     assert_no_side_effects(fake_clickup, fake_ecs)
 
 
-def growth_bugs_task(**overrides) -> dict:
+def test_a_mixed_list_is_not_a_routing_key(fake_clickup, fake_ecs, ecs_env):
+    """Growth-Bugs routed to gp-marketing for one day, and was wrong all day.
+
+    It is fed by HubSpot and collects every kind of growth bug, so its one real
+    ticket was "Marketing Emails Have Bad Formatting and Incorrect Dates" — a
+    weekly digest email, which is gp-api code, in omni.
+
+    The lesson is about what makes a routing key, not about this list: a key has
+    to mean exactly one thing. Growth-Bugs is now absent from REPO_BY_LIST_ID
+    and falls back to omni, and the pin belongs here because nothing in the
+    table's own shape would notice it being added back.
+    """
+    fake_clickup.task_response = {
+        "custom_id": None,
+        "list": {"id": "901326170992", "name": "Growth-Bugs"},
+        "tags": [],
+    }
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+
+
+def marketing_site_task(**overrides) -> dict:
     task = {
         "custom_id": "ENG-11100",
-        "list": {"id": handler.GROWTH_BUGS_LIST_ID, "name": "Growth-Bugs"},
+        "list": {"id": handler.MARKETING_SITE_BUGS_LIST_ID, "name": "Marketing Site Bugs"},
         "tags": [],
     }
     task.update(overrides)
@@ -2848,7 +2871,7 @@ def test_a_marketing_ticket_is_analyzed_against_the_marketing_repo(fake_clickup,
     # only knew omni. It knows gp-marketing now, so the ticket is routed rather
     # than refused — and routed is only useful if the launch actually carries
     # the repo, which is what this asserts.
-    fake_clickup.task_response = growth_bugs_task()
+    fake_clickup.task_response = marketing_site_task()
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
 
@@ -2873,7 +2896,7 @@ def test_a_marketing_ticket_cannot_open_a_pr_while_that_repo_is_analyze_only(fak
     # the analysis escalating. gp-marketing has no PR triage and no CI drive
     # watching it yet, so a PR opened there would be exactly the unowned bot PR
     # the triage workflow exists to prevent.
-    fake_clickup.task_response = growth_bugs_task()
+    fake_clickup.task_response = marketing_site_task()
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 
@@ -2885,7 +2908,7 @@ def test_widening_the_implement_list_is_what_turns_marketing_prs_on(fake_clickup
     # The flip, pinned: one variable, and the same ticket that was held back
     # above now launches — against gp-marketing, not omni.
     monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, f"{handler.OMNI_REPO},{handler.MARKETING_REPO}")
-    fake_clickup.task_response = growth_bugs_task()
+    fake_clickup.task_response = marketing_site_task()
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 
@@ -2915,7 +2938,7 @@ def test_a_data_ticket_in_the_marketing_list_is_still_refused(fake_clickup, fake
     # The data guard has to survive a ticket being routable, or enabling a repo
     # quietly widens the data boundary along with it.
     monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, f"{handler.OMNI_REPO},{handler.MARKETING_REPO}")
-    fake_clickup.task_response = growth_bugs_task(custom_id="DATA-2400")
+    fake_clickup.task_response = marketing_site_task(custom_id="DATA-2400")
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 
@@ -2936,7 +2959,7 @@ def test_data_work_is_refused_as_data_work_not_as_an_analyze_only_repo(fake_clic
     # Deliberately does NOT widen IMPLEMENT_REPOS, unlike the test above: with
     # gp-marketing analyze-only, both guards would fire and the answer says
     # which one ran first.
-    fake_clickup.task_response = growth_bugs_task(custom_id="DATA-2400")
+    fake_clickup.task_response = marketing_site_task(custom_id="DATA-2400")
 
     resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
 

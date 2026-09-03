@@ -631,11 +631,12 @@ An implement trigger is skipped (200, `{"skipped": "out of scope"}`) when any of
 | tag | `bug: district-assignment` | The data team's marker, for data work sitting in an ENG list |
 
 Growth-Bugs (`901326170992`) was in this table until marketing tickets became
-routable. It was refused because "marketing-site work does not live in omni",
-which was true and still is — what changed is that the bot can now be pointed at
-the repo it *does* live in. See "More than one repo" below. Being routable does
-not make it exempt from the rest of the table: a `DATA-` ticket filed into
-Growth-Bugs is still data work and still refused.
+routable, refused because "marketing-site work does not live in omni". It is now
+neither refused nor routed: it falls back to omni, which is where its contents
+turned out to belong. See "More than one repo" below. Routing never exempts a
+ticket from the rest of the table — a `DATA-` ticket in a routed list is still
+data work and still refused, and the scope guard runs first so that is the
+reason recorded.
 
 Two orderings are load-bearing. The guard runs **before the comments GET**, so a
 rejected task costs one ClickUp call rather than two — it now fires on every
@@ -703,19 +704,27 @@ is broken" appears in both. Anything unrouted is omni, which is where every
 ticket went before this existed, so a new list or a typo'd id lands somewhere
 known rather than somewhere nobody chose.
 
-### The list is a guess, and it is sometimes wrong
+### A routing key has to mean exactly one thing
 
-Growth-Bugs held exactly one real ticket the day routing shipped: *"Marketing
-Emails Have Bad Formatting and Incorrect Dates"* — a weekly digest email, which
-is gp-api code, in omni. One ticket, one mis-route. The list is where a human
-filed the ticket, not where the code is, and Growth-Bugs collects growth bugs
-rather than gp-marketing bugs specifically.
+Routing first pointed Growth-Bugs at gp-marketing, and that was wrong within a
+day. Growth-Bugs is fed by HubSpot and collects every kind of growth bug, so the
+one real ticket in it was *"Marketing Emails Have Bad Formatting and Incorrect
+Dates"* — a weekly digest email, which is gp-api code, in omni. One ticket, one
+mis-route.
 
-Refining the key does not help: no field on the ticket knows which repo the code
-is in. So the guess is allowed to fail out loud instead. Every repo briefing
+The answer was a list that means one thing (`Marketing Site Bugs`, filed via the
+bug form), not a cleverer way to read a list that means several. Growth-Bugs
+falls back to omni. **Before adding a list here, ask what else is in it**: a
+list that collects several products' bugs cannot be a routing key, however
+obvious its name looks.
+
+Even a clean list is a record of where a human filed a ticket, not of where the
+code is, so the guess is also allowed to fail out loud. Every repo briefing
 tells the agent that if the behaviour is produced by code somewhere else, it
 must return `needs-human`, name the repo it believes the bug belongs to, and
-stop — explicitly rather than hunting for something local to change.
+stop — explicitly rather than hunting for something local to change. That guard
+is what caught the ticket above, on the first real run: it read gp-marketing,
+found no email code, and said so instead of inventing a fix.
 
 `needs-human` rather than a new verdict token, deliberately: `parse_verdict`
 drops anything outside `KNOWN_VERDICTS`, so an invented one reads as no verdict
