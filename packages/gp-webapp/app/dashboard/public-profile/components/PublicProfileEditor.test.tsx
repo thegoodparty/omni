@@ -364,6 +364,52 @@ describe('PublicProfileEditor — partial saves', () => {
     expect('publicEmail' in putPayload()!).toBe(false)
   })
 
+  // Normalization adds `https://`, so a scheme-less stored link would look
+  // edited if the diff compared a normalized form against a raw baseline. It
+  // would then be rewritten without being asked, and — once it fails
+  // validation — take the rest of the save down with it.
+  it('does not send or judge an untouched link that has no scheme', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({
+          instagramUrl: 'instagram.com/jane',
+          websiteUrl: 'not a url',
+        })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText("Why I'm running"), 'Parks')
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    const body = putPayload()!
+    expect(body.whyRunning).toBe('Parks')
+    expect('instagramUrl' in body).toBe(false)
+    expect('websiteUrl' in body).toBe(false)
+  })
+
+  it('still lets the owner repair such a link by editing it', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ instagramUrl: 'instagram.com/jane' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    const field = screen.getByLabelText('Instagram')
+    await userEvent.clear(field)
+    await userEvent.type(field, 'instagram.com/jane')
+    await save()
+
+    await waitFor(() => expect(putPayload()).toBeDefined())
+    expect(putPayload()!.instagramUrl).toBe('https://instagram.com/jane')
+  })
+
   it('makes no request when nothing changed', async () => {
     render(
       <PublicProfileEditor

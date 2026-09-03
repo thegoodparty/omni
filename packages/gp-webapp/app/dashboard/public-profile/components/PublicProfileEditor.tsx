@@ -202,6 +202,14 @@ function LoadedEditor({
 }): JSX.Element {
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [form, setForm] = useState<FormState>(() => toForm(profile))
+  // Which fields the owner actually edited. Membership here, not a value
+  // comparison, is what makes a field eligible to be sent: normalizing adds
+  // `https://` to a scheme-less link, so comparing a normalized form against a
+  // raw baseline would make a stored `instagram.com/jane` look edited and drag
+  // it into a save the owner never asked for.
+  const [touched, setTouched] = useState<ReadonlySet<keyof FormState>>(
+    () => new Set(),
+  )
   // Last known server state. Saves send only what differs from this, so a field
   // this editor never touched cannot be overwritten by a stale snapshot — the
   // form is captured once at mount and is not otherwise reconciled.
@@ -231,6 +239,7 @@ function LoadedEditor({
 
   const setField = (key: keyof FormState, value: string): void => {
     setForm((prev) => ({ ...prev, [key]: value }))
+    setTouched((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
     // Clear as they type, so the message tracks the field's current contents
     // rather than lingering from the last attempt.
     setErrors((prev) => {
@@ -241,21 +250,30 @@ function LoadedEditor({
   }
 
   // On blur rather than at save time, so the `https://` that will actually be
-  // stored is visible while they are still looking at the field.
-  const normalizeUrlField = (key: keyof FormState): void =>
+  // stored is visible while they are still looking at the field. Only for a
+  // field they edited — merely tabbing through a stored link must not rewrite
+  // it, or the displayed value stops matching what is on the server.
+  const normalizeUrlField = (key: keyof FormState): void => {
+    if (!touched.has(key)) return
     setForm((prev) => ({ ...prev, [key]: normalizeUrl(prev[key]) }))
+  }
 
   const handleSave = async (): Promise<void> => {
+    // Blur normally does this first; repeated here for a save triggered without
+    // one, and confined to edited fields for the same reason blur is.
     const normalized: FormState = { ...form }
     for (const key of URL_FIELDS) {
-      normalized[key] = normalizeUrl(normalized[key])
+      if (touched.has(key)) normalized[key] = normalizeUrl(normalized[key])
     }
     setForm(normalized)
 
-    // Only what actually changed. Sending the whole form made every save a
-    // last-write-wins overwrite of a mount-time snapshot, so editing one
-    // section silently blanked anything set elsewhere since the page loaded.
-    const changed = FORM_KEYS.filter((key) => normalized[key] !== baseline[key])
+    // Only what the owner edited, and only where it actually differs. Sending
+    // the whole form made every save a last-write-wins overwrite of a
+    // mount-time snapshot, so editing one section silently blanked anything set
+    // elsewhere since the page loaded.
+    const changed = FORM_KEYS.filter(
+      (key) => touched.has(key) && normalized[key] !== baseline[key],
+    )
 
     // Validated per changed field rather than over the whole form. The columns
     // carry no DB constraint, so a value the rule would reject can be stored by
@@ -299,6 +317,7 @@ function LoadedEditor({
       const { data } = await clientRequest('PUT /v1/person-profiles/mine', body)
       onProfile(data)
       setBaseline(toForm(data))
+      setTouched(new Set())
       setBaselineLists({
         recentExperience: data.recentExperience ?? [],
         accomplishments: data.accomplishments ?? [],
