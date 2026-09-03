@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import {
-  filtersSchema,
-  type FilterData,
-} from '../peopleDb/schemas/filters.schema'
-import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
+import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import {
   buildRankPrecinctsSql,
   MAX_RANKED_PRECINCTS,
-} from './recommendedListsSql.util'
+} from './databricksRecommendedListsSql.util'
+import type { DbxDistrict } from './databricksVoterSql.util'
 
 const CONGRESSIONAL: DbxDistrict = {
   districtId: '635757db-0000-0000-0000-000000000000',

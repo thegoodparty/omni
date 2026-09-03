@@ -52,7 +52,7 @@ import type { FilterData } from '../schemas/filters.schema'
 import {
   buildRankPrecinctsSql,
   MAX_RANKED_PRECINCTS,
-} from '../../recommendedLists/recommendedListsSql.util'
+} from './databricksRecommendedListsSql.util'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
@@ -304,7 +304,10 @@ export class DatabricksVoterService {
   // doorTarget. Widening N when a district falls short of doorTarget, and
   // omitting the recommendation entirely if the district-wide total still
   // doesn't reach it, are both decisions for the caller -- this just ranks
-  // and cuts.
+  // and cuts. The rank itself is capped at MAX_RANKED_PRECINCTS, so on a
+  // district whose top precincts are unusually small this can return fewer
+  // voters than doorTarget -- the caller cannot assume a full doorTarget
+  // worth of voters came back, only that it got the best available.
   async rankPrecincts(
     district: DbxDistrict,
     filters: FilterData,

@@ -5,13 +5,19 @@ import {
   VOTER_TABLE,
   type DbxScopeArgs,
   type DbxStatement,
-} from '../peopleDb/databricks/databricksVoterSql.util'
+} from './databricksVoterSql.util'
 
 // Bounds the ranked-precinct result at the DB layer. California statewide has
 // 50,041 precincts (docs/features/recommended-lists.md) against a door target
-// of 5,000-15,000 voters that the top handful of precincts always covers, so
-// an unbounded GROUP BY would return two orders of magnitude more rows than
-// any door-knocking recommendation could ever use.
+// of 5,000-15,000 voters that the top handful of precincts always covers in
+// every sampled district above 15k voters (avg voters-per-precinct in the eval
+// ranged ~990-2,240), so 500 precincts is generous headroom in practice.
+//
+// It is a heuristic cap, not a guarantee: if a district's top 500 precincts by
+// count still don't sum to doorTarget, rankPrecincts returns fewer voters than
+// doorTarget rather than reaching further into the ranking -- the caller gets
+// a shorter list than it asked for, silently, and has to treat that the same
+// as "widen N and it's still short" per the minimum-size-floor rules.
 export const MAX_RANKED_PRECINCTS = 500
 
 export type RankPrecinctsArgs = DbxScopeArgs & { limit: number }
