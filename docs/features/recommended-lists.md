@@ -426,8 +426,18 @@ Listed so nobody helpfully reimplements them.
 - **There is no address filter, deliberately.** `Residence_Addresses_AddressLine`
   is 100% populated — zero null or empty rows across 30.6M voters in CA, MD and
   LA — and a door-knocking refinement on it was a no-op in all 390 measured
-  eval cells. So only the precinct restriction narrows a door list, and there is
-  no "reachable by door" number to derive; it would always read 100%.
+  eval cells. So the precinct restriction is the only thing that narrows a door
+  list. Note this was already true before this feature: the `doorKnocking`
+  built-in segment carries `filters: []` and has never filtered on address.
+- **The shipped door-knock reachability figure is meaningless, and predates
+  this work.** `buildListDetailAggregatesSql` emits
+  `COUNT_IF(addressPresentSql()) AS doorKnocking`
+  (`databricksVoterSql.util.ts:694`), which feeds the list-detail response and
+  its tile. Because the column is 100% populated, that number always equals the
+  list total. Don't build anything on it, and don't read it as a reachability
+  signal. Fixing it changes an API response's meaning, so it needs its own
+  decision: keep it and accept that it means "everyone", or drop the channel
+  from the tile.
 - **Two district totals disagree.** The mart's own voter count and
   `m_election_api__district.registered_voters` differ by under 0.5% usually,
   but 2.2% for CA statewide (23,348,065 vs 22,847,425) and 0.6% for IN-1. Pick
