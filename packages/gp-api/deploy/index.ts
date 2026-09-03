@@ -457,6 +457,15 @@ export = async () => {
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
+      // The SMS compliance launch switch (server half of the webapp's
+      // voter-outreach-v2-sms flag): scheduling enforcement, the
+      // cancel-at-send-time guard, and the candidate-edit shutdown. Dev and
+      // previews run launched; prod stays off until the coordinated flip.
+      SMS_COMPLIANCE_V2_ENABLED: select({
+        preview: 'true',
+        dev: 'true',
+        prod: 'false',
+      }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
       ASSET_DOMAIN: select({

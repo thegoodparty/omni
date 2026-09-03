@@ -3,6 +3,15 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+
+let complianceFlag = { ready: true, enabled: false }
+vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
+  useVoterOutreachV2SmsFlag: () => complianceFlag,
+}))
+
+beforeEach(() => {
+  complianceFlag = { ready: true, enabled: false }
+})
 import { useSnackbar } from 'helpers/useSnackbar'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import type { HistoryRow } from './historyStatus.util'
@@ -451,7 +460,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     doorCount: 4,
     peopleCount: 9,
     loggedCount: 6,
-    completedAt: null,
+    completed: false,
     archivedAt: null,
   }
 
@@ -479,11 +488,12 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     status,
   })
 
-  // The phone-banking precedent, in door knocking's verb. Still the surface
-  // rather than the list: the turf id is on the detail now, but the
-  // door-knocking page reads no such param, so a deeper link would land here
-  // anyway.
-  it('offers Continue knocking on an in-progress walk', async () => {
+  // The phone-banking precedent, in door knocking's verb — and straight into
+  // the walk rather than onto the rail, which only became possible once every
+  // door-knocking row had exactly one routed list behind it. `outreachId` is
+  // the return leg: closing the walk reopens this drawer, so a candidate who
+  // left to knock comes back to the row they were reading.
+  it('links Continue knocking straight into the walk, with a way back', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('in_progress'),
@@ -497,10 +507,39 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     )
 
     const cta = await screen.findByRole('link', { name: 'Continue knocking' })
-    expect(cta).toHaveAttribute('href', '/dashboard/door-knocking')
+    expect(cta).toHaveAttribute(
+      'href',
+      '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
+    )
     expect(
       screen.queryByRole('link', { name: 'Continue calling' }),
     ).not.toBeInTheDocument()
+  })
+
+  // The design's full-width outline button, and the one thing a candidate
+  // opens this row to take away. It is the same component the walk view
+  // renders, so the label, the icon, the path and the toast cannot drift
+  // between the two places they appear.
+  it('offers the walk sheet as a full-width export', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('in_progress')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const link = await screen.findByRole('link', {
+      name: 'Export this list to PDF',
+    })
+    expect(link).toHaveAttribute(
+      'href',
+      '/dashboard/door-knocking/print/12/pdf',
+    )
   })
 
   it('renders doors, people and logged progress from the block', async () => {
@@ -549,10 +588,10 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
   })
 
-  // The archive seam. Two rows carry an archivedAt for one walk, and only the
-  // TURF's endpoint writes both — so the drawer gets the same button every
-  // other finished row has, pointed at the one writer rather than at this
-  // envelope's own archive route.
+  // The archive seam. There is one `archivedAt` for a walk and it is the
+  // envelope's, but the write goes through the TURF's endpoint — that is the
+  // route the door-knocking rail invalidates against, and two writers for one
+  // act is how a rail and a drawer come to disagree about one list.
   it('archives a finished walk through the turf endpoint, not the envelope', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -600,10 +639,10 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     ).toBeInTheDocument()
   })
 
-  // The drift this block exists to read past: the turf was archived before the
-  // envelope mirror shipped, so the envelope still reads active. The source is
-  // the turf, so the button must offer Restore rather than a second archive.
-  it('reads archived state off the turf, not the envelope mirror', async () => {
+  // Read off the BLOCK rather than off the history row, which is what makes
+  // the button right when this drawer was opened by a deep link and there is
+  // no cached table row to consult.
+  it('reads archived state off the detail block', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('completed', {
@@ -709,6 +748,53 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
   })
 })
 
+describe('OutreachDetailsDrawer — SMS statistics', () => {
+  it('renders the Statistics card for a completed text campaign', async () => {
+    complianceFlag = { ready: true, enabled: true }
+    const completedSmsRow: HistoryRow = {
+      id: 51,
+      createdAt: '2026-08-20T00:00:00Z',
+      outreachType: 'p2p',
+      name: 'Likely voters — SMS',
+      status: 'completed',
+      phoneListId: 9,
+    }
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 51,
+        outreachType: 'p2p' as const,
+        status: 'completed' as const,
+        phoneListId: 9,
+      },
+    })
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 1204, responded: 186, optedOut: 9 },
+    })
+
+    render(
+      <OutreachDetailsDrawer row={completedSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/Based on 1,204 SMS contacts/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Responded')).toBeInTheDocument()
+    expect(screen.getByText('186')).toBeInTheDocument()
+    expect(screen.getByText('15%')).toBeInTheDocument()
+    expect(screen.getByText('No response')).toBeInTheDocument()
+    expect(screen.getByText('1,009')).toBeInTheDocument()
+    expect(screen.getByText('Opted out')).toBeInTheDocument()
+    expect(screen.getByText('1%')).toBeInTheDocument()
+  })
+})
+
 describe('OutreachDetailsDrawer — cancel before send', () => {
   const scheduledSmsRow: HistoryRow = {
     id: 41,
@@ -732,7 +818,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       data: { message: 'No receipt' },
     })
 
-  it('offers Edit campaign on a cancelable row and hands the hub the detail', async () => {
+  it('offers Edit campaign on a cancelable row (launch switch off) and hands the hub the detail', async () => {
     mockNoReceipt()
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -775,15 +861,28 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('renders no Edit campaign without an onEdit handler or outside the cancel window', async () => {
+  it('hides Edit campaign when the launch switch is on', async () => {
+    complianceFlag = { ready: true, enabled: true }
     mockNoReceipt()
-    api.mock('GET /v1/outreach/:id', { status: 200, data: smsDetail })
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...smsDetail,
+        script: 'Hello {first_name}, hi.\n\nReply STOP to opt out.',
+        date: new Date('2026-09-06T14:00:00Z'),
+        imageUrl: 'https://assets.example.org/img.png',
+      },
+    })
     render(
-      <OutreachDetailsDrawer row={scheduledSmsRow} onOpenChange={vi.fn()} />,
+      <OutreachDetailsDrawer
+        row={scheduledSmsRow}
+        onOpenChange={vi.fn()}
+        onEdit={vi.fn()}
+      />,
     )
     expect(
-      (await screen.findAllByText('Likely voters — SMS')).length,
-    ).toBeGreaterThan(0)
+      await screen.findByRole('button', { name: 'Cancel campaign' }),
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Edit campaign' }),
     ).not.toBeInTheDocument()

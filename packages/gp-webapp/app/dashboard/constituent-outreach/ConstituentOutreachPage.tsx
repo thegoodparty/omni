@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { OutreachDetail } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
@@ -31,15 +32,17 @@ interface ConstituentOutreachPageProps {
   outreaches?: HistoryRow[]
 }
 
-// Social and phone banking are the wired cards (ENG-10970); door knocking has
-// no row type yet, so a row click is scoped to the two wired channels the
-// same way the history table's onRowClick is scoped to whichever channels a
-// caller wires.
+// The three wired channels. Door knocking joined them in 3.0: a Serve turf
+// now gets an outreach envelope like every other channel's, so it has a row
+// here at all, and `GET /v1/outreach/serve/:id` fills its `doorKnocking`
+// detail block — which is what makes the row worth opening.
 const isDrawerRow = (row: HistoryRow): boolean =>
   row.outreachType === OUTREACH_TYPES.socialMedia ||
-  row.outreachType === OUTREACH_TYPES.nativePhoneBanking
+  row.outreachType === OUTREACH_TYPES.nativePhoneBanking ||
+  row.outreachType === OUTREACH_TYPES.nativeDoorKnocking
 
 const ConstituentOutreachContent = () => {
+  const router = useRouter()
   const [outreaches, setOutreaches] = useOutreach()
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
@@ -85,6 +88,14 @@ const ConstituentOutreachContent = () => {
       <ServeChannelCards
         onSocialClick={() => setSocialFlowOpen(true)}
         onPhoneBankingClick={() => setPhoneBankingFlowOpen(true)}
+        // A navigation, not a flow: door knocking's create wizard is drawn
+        // over its own map, which is a route rather than a drawer, and the map
+        // is most of what the flow is for. `?create=1` so the card still opens
+        // the wizard like the other two cards open theirs, rather than landing
+        // on the rail and asking for one more press.
+        onDoorKnockingClick={() =>
+          router.push('/dashboard/door-knocking?create=1')
+        }
       />
       <SocialFlow
         open={socialFlowOpen}

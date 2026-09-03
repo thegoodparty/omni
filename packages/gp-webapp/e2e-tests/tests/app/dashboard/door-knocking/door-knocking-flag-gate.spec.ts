@@ -62,15 +62,22 @@ test.describe('native door-knocking flag gate', () => {
     await enableNativeDoorKnockingFlag(page)
     await gotoDoorKnocking(page)
 
-    // Both anchors are NativeDoorKnockingPage's own header chrome, which renders
-    // as soon as the gate picks the native branch. Deliberately nothing that
-    // waits on the deck.gl/maplibre canvas or the district voter pack — the map
-    // is a next/dynamic ssr:false import of heavy WebGL libraries, so anchoring
-    // the gate assertion on it would make this a race on every cold deploy.
+    // The mirror image of the control arm, and nothing else: the native page's
+    // own name is there, and both things only the legacy surface has are gone.
+    // Deliberately nothing that waits on the deck.gl/maplibre canvas or the
+    // district voter pack — the map is a next/dynamic ssr:false import of heavy
+    // WebGL libraries, so anchoring the gate assertion on it would make this a
+    // race on every cold deploy.
+    //
+    // The second anchor used to be a `Create list` button in the native
+    // header. 3.0 draws the map edge to edge and has no header at all, so that
+    // button no longer exists on either surface — asserting its absence is the
+    // zero state's job (door-knocking-zero-state.spec.ts) and says nothing
+    // about the flag. `Sync Now` does: it is the eCanvasser refresh, so it
+    // proves the OLD product is gone as precisely as the control arm proved it
+    // was there.
     await expect(nativeShellHeading(page)).toBeVisible({ timeout: 30_000 })
-    await expect(
-      page.getByRole('button', { name: 'Create list' }),
-    ).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sync Now' })).toBeHidden()
     await expect(legacyDashboardHeading(page)).toBeHidden()
   })
 })

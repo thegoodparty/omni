@@ -98,6 +98,9 @@ describe('voterDemographicFacts', () => {
 describe('demographicFacts', () => {
   it('returns the personal attributes in the order product asked for', () => {
     expect(demographicFacts(target()).map((fact) => fact.label)).toEqual([
+      // First, as the canvas orders it. It came down here from the sheet's
+      // header subtitle, which now names the door rather than the person.
+      'Age',
       'Marital status',
       'Has children under 18',
       'Veteran status',
@@ -115,7 +118,7 @@ describe('demographicFacts', () => {
   // absence means something different each time — and splitting the card in two
   // is exactly the moment two vocabularies could creep in.
   it('renders every absent attribute identically, on both cards', () => {
-    const empty = target({ politicalParty: null })
+    const empty = target({ politicalParty: null, age: null })
     expect(
       [...voterDemographicFacts(empty), ...demographicFacts(empty)].every(
         (fact) => fact.value === NOT_ON_FILE,

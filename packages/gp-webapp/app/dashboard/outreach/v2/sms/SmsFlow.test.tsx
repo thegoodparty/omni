@@ -5,6 +5,18 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { SmsDraftRequest } from '@goodparty_org/contracts'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
+import type { TcrCompliance } from 'helpers/types'
+
+// Launch-switch mock: defaults off (pre-launch behavior); individual tests
+// flip it on to exercise the compliance composer.
+let complianceFlag = { ready: true, enabled: false }
+vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
+  useVoterOutreachV2SmsFlag: () => complianceFlag,
+}))
+
+beforeEach(() => {
+  complianceFlag = { ready: true, enabled: false }
+})
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -130,7 +142,14 @@ const attachImage = async () => {
 const openFlow = () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
-  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
+  render(
+    <SmsFlow
+      open
+      onClose={onClose}
+      onScheduled={onScheduled}
+      tcrCompliance={TCR_FIXTURE}
+    />,
+  )
   return { onClose, onScheduled }
 }
 
@@ -156,6 +175,21 @@ const dayName = (daysFromNow: number) => {
   )
 }
 
+const TCR_FIXTURE = {
+  id: 'tcr-1',
+  ein: '84-3917265',
+  postalAddress: '1 Main St, Austin, TX 78634',
+  committeeName: 'Friends of Jane',
+  candidateName: 'Jane Doe',
+  websiteDomain: '',
+  filingUrl: 'https://example.org/filing',
+  phone: '15551234567',
+  email: 'jane@example.org',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  campaignId: 1,
+} satisfies TcrCompliance
+
 describe('SmsFlow', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -176,6 +210,7 @@ describe('SmsFlow', () => {
   })
 
   it('runs purpose → audience → schedule → compose → review and schedules free', async () => {
+    complianceFlag = { ready: true, enabled: true }
     const draftCalls = mockDraft()
     let receiptCalls = 0
     api.mock('GET /v1/outreach/:id/receipt', () => {
@@ -219,7 +254,9 @@ describe('SmsFlow', () => {
     expect(
       screen.getByText(/this is Jane, candidate for City Council\./),
     ).toBeInTheDocument()
-    expect(screen.getByText('Reply STOP to opt out.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Paid for by Friends of Jane\./),
+    ).toBeInTheDocument()
 
     // Continue blocked until the required image is attached.
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
@@ -260,6 +297,7 @@ describe('SmsFlow', () => {
   })
 
   it('shows the server message when the free purchase is rejected as a 400', async () => {
+    complianceFlag = { ready: true, enabled: true }
     mockDraft()
     const rejectionMessage =
       'Message cannot contain tinyurl.com links. Please correct your message.'

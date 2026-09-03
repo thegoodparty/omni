@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
 import {
@@ -23,6 +22,7 @@ import { SocialFlow } from './social/SocialFlow'
 import { RobocallFlow } from './robocall/RobocallFlow'
 import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { SmsFlow } from './sms/SmsFlow'
+import { useQueryClient } from '@tanstack/react-query'
 import { SmsEditFlow, type SmsEditTarget } from './sms/SmsEditFlow'
 import {
   outreachDetailQueryKey,
@@ -61,9 +61,9 @@ const OutreachHubContent = ({
   const [phoneBankingPreselectedListId, setPhoneBankingPreselectedListId] =
     useState<number | undefined>(undefined)
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
+  const queryClient = useQueryClient()
   const [smsEditTarget, setSmsEditTarget] = useState<SmsEditTarget | null>(null)
   const seedOutreachDetail = useSeedOutreachDetail()
-  const queryClient = useQueryClient()
 
   // The save response is the created row: seed the detail cache (so the
   // drawer and the "N platforms" metric never refetch it) and prepend it to
@@ -160,6 +160,7 @@ const OutreachHubContent = ({
         open={smsFlowOpen}
         onClose={() => setSmsFlowOpen(false)}
         onScheduled={refetchOutreaches}
+        tcrCompliance={tcrCompliance}
       />
       <SmsEditFlow
         open={smsEditTarget !== null}

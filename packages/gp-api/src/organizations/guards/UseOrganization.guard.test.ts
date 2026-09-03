@@ -13,6 +13,7 @@ const mockOrg: Organization = {
   positionId: null,
   overrideDistrictId: null,
   customPositionName: null,
+  overrideDoorKnockingCampaignLimit: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }

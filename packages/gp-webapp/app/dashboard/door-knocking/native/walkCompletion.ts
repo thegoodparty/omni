@@ -39,9 +39,9 @@ import { canCompleteTurf, useTurfLifecycle } from './turfLifecycle'
 //     nobody asked for costs more than a Done nobody got, and this is the one
 //     case where a canvasser walked past every door without logging anything.
 //
-// The write itself is `useTurfLifecycle`'s. It is idempotent server-side and
-// mirrors `status: completed` onto the outreach envelope inside gp-api's own
-// transaction, and it invalidates the rail before its snackbar fires — so the
+// The write itself is `useTurfLifecycle`'s. It is idempotent server-side, it
+// sets `status: completed` on the outreach envelope that IS this list's
+// lifecycle, and it invalidates the rail before its snackbar fires — so the
 // candidate lands back on a map whose card already reads Done.
 export const useWalkCompletion = (turf: DoorKnockingTurf | null) => {
   // The turf the mutation was started against has to outlive the walk by a
@@ -71,26 +71,50 @@ export const useWalkCompletion = (turf: DoorKnockingTurf | null) => {
   }
 }
 
+// The walk's own `Move to archive`, the one button under its stop list. Both
+// halves of what that label stands for are in `TurfLifecycleAction`'s
+// `completeAndArchive`; what belongs here is the same ref the completion above
+// needs, and for the same reason — the walk closes on the way out, so the turf
+// the write was started against has to outlive it by a beat.
+//
+// Unconditional, unlike `useWalkCompletion`. That hook's whole argument is that
+// a canvasser LEAVING a walk has not said the list is finished, so it refuses
+// to stamp one that isn't; this is the canvasser pressing a button that says
+// what it does, on a route they have decided they are done with. Nothing about
+// how much of it they walked is this button's business.
+export const useWalkArchive = (turf: DoorKnockingTurf | null) => {
+  const startedAgainst = useRef<DoorKnockingTurf | null>(null)
+  if (turf) startedAgainst.current = turf
+  const lifecycle = useTurfLifecycle(startedAgainst.current ?? NO_WALK_TURF)
+  return {
+    moveToArchive: (onSettled: () => void) =>
+      lifecycle.finishAndArchive({ onSettled }),
+    pending: lifecycle.pendingAction === 'completeAndArchive',
+  }
+}
+
 // `useTurfLifecycle` takes a turf because every other caller is a rail card
 // that has one; the orchestrator only has one while a walk is open, and a hook
 // cannot be called conditionally. This stands in for the renders before the
 // first walk of a session.
 //
-// Nothing can be written against it. The returned callback returns on a null
-// `turf` before it reaches the mutation, and `canCompleteTurf` is false here
-// anyway — `locked: false`, which is the same gate that keeps the rail from
-// offering Done on a list with no route.
+// Nothing can be written against it: the returned callback returns on a null
+// `turf` before it reaches the mutation. It used to also be un-completable by
+// shape — `locked: false` failed `canCompleteTurf` — but the routeless state
+// that flag named no longer exists, so the null check is the whole guard.
+// `id: 0` keeps it from naming a real row if one ever slipped past.
 const NO_WALK_TURF: DoorKnockingTurf = {
   id: 0,
   voterFileFilterId: 0,
   name: '',
   color: '#000000',
   geoPoly: { type: 'Polygon', coordinates: [] },
-  locked: false,
-  doorCount: null,
-  peopleCount: null,
-  loggedCount: null,
-  completedAt: null,
+  doorCount: 0,
+  knockedDoorCount: 0,
+  peopleCount: 0,
+  loggedCount: 0,
+  routeSeconds: 0,
+  completed: false,
   archivedAt: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),

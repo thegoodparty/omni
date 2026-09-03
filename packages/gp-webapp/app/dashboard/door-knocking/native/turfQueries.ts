@@ -12,10 +12,43 @@ export const savedListsQueryOptions = queryOptions({
     ),
 })
 
-export const turfsQueryOptions = queryOptions({
-  queryKey: ['door-knocking-turfs'],
+// The prefix every rail cache entry shares. Invalidating on it clears both
+// surfaces' entries at once, which is what every mutation below wants: they
+// are all reached by turf id from whichever rail is on screen, and a write
+// that only refreshed the surface it was made from would leave the other one
+// stale for a dual-role org.
+export const TURFS_QUERY_KEY = ['door-knocking-turfs'] as const
+
+// One rail, two surfaces. `serve` is not derived here or anywhere below the
+// page: an org that holds both a Campaign and an ElectedOffice would derive
+// Win from the Campaign it happens to hold and show its Win lists on the Serve
+// rail, which is the ENG-10976 leak. The page decides, once, and hands the
+// answer down through `DoorKnockingSurfaceContext`.
+//
+// The two endpoints are written out rather than selected into one
+// `clientRequest` call because the typed client keys off a literal.
+export const turfsQueryOptions = (serve: boolean) =>
+  queryOptions({
+    queryKey: [...TURFS_QUERY_KEY, serve ? 'serve' : 'win'],
+    queryFn: () =>
+      (serve
+        ? clientRequest('GET /v1/door-knocking/serve/turfs', {})
+        : clientRequest('GET /v1/door-knocking/turfs', {})
+      ).then((res) => res.data),
+  })
+
+// Both daily allowances, read before the create flow opens rather than at the
+// press that spends them. The campaign count is the one that has to be known
+// this early: it refuses the whole flow rather than one shape, so discovering
+// it at the paid press would mean throwing away a boundary and a name the
+// candidate had already committed to.
+//
+// Not scoped by Win/Serve — both allowances belong to the organization, and a
+// dual-role org shares one of each across its two rails.
+export const quotaQueryOptions = queryOptions({
+  queryKey: ['door-knocking-quota'],
   queryFn: () =>
-    clientRequest('GET /v1/door-knocking/turfs', {}).then((res) => res.data),
+    clientRequest('GET /v1/door-knocking/quota', {}).then((res) => res.data),
 })
 
 // The exact audience inside a drawn shape, addresses included (ADR 0010).

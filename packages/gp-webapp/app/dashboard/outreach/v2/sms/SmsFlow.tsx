@@ -9,7 +9,12 @@ import type {
   SmsPurpose,
   SocialTone,
 } from '@goodparty_org/contracts'
-import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
+import type { TcrCompliance } from 'helpers/types'
+import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
+import {
+  checkSmsStandards,
+  SMS_COMPOSED_MAX_LENGTH,
+} from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
@@ -88,6 +93,7 @@ const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
 
 interface SmsFlowProps {
   open: boolean
+  tcrCompliance?: TcrCompliance
   onClose: () => void
   // Fired after payment (or free redemption) completes server-side; the hub
   // refetches the outreach list there.
@@ -227,7 +233,12 @@ export const SuccessScreen = ({
 // Flow state is flat client state owned here (phase 1 shell convention):
 // nothing persists until the pay step's draft-first create, and reopening
 // starts fresh.
-export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
+export const SmsFlow = ({
+  open,
+  onClose,
+  onScheduled,
+  tcrCompliance,
+}: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
 
@@ -336,9 +347,29 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
       user?.firstName ?? '',
       campaign?.details?.normalizedOffice ?? '',
     )
-  const composedMessage = composeScript(body)
+  // Launch switch (the voter-outreach-v2-sms flag — the compliance
+  // behavior ships with the v2 flow itself): off keeps the exact
+  // pre-launch composer — opt-out-only footer and the prototype's
+  // identification warning; on adds the paid-for-by line and the
+  // five-rule blocking check. gp-api mirrors it with
+  // SMS_COMPLIANCE_V2_ENABLED; flip both together.
+  const { enabled: complianceV2 } = useVoterOutreachV2SmsFlag(false)
+  const committeeName = complianceV2
+    ? (tcrCompliance?.committeeName ?? null)
+    : null
+  const composedMessage = composeScript(body, committeeName)
   const composedLength = composedMessage.length
-  const missingIdentification = !hasIdentification(body, user?.firstName ?? '')
+  const accountName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+  const standards = complianceV2
+    ? checkSmsStandards(composedMessage, {
+        candidateNames: [accountName, tcrCompliance?.candidateName].filter(
+          (name): name is string => !!name,
+        ),
+        committeeName,
+      })
+    : hasIdentification(body, user?.firstName ?? '')
+      ? { passed: true, failures: [] }
+      : { passed: false, failures: ['candidate_name' as const] }
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -691,7 +722,7 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
                   onClick: () => setStepId('review'),
                   disabled:
                     body.trim().length === 0 ||
-                    missingIdentification ||
+                    !standards.passed ||
                     composedLength > SMS_COMPOSED_MAX_LENGTH ||
                     image === null ||
                     draftMutation.isPending,
@@ -808,8 +839,9 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
           tone={tone}
           onToneChange={handleToneChange}
           audienceName={selectedList?.name ?? audience.builderName}
-          missingIdentification={missingIdentification}
+          standardsFailures={standards.failures}
           identificationExample={introFor(tone)}
+          committeeName={committeeName}
           body={body}
           onBodyChange={handleBodyChange}
           composedLength={composedLength}

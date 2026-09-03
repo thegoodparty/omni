@@ -2,13 +2,13 @@ import { ReqFile } from '@/files/decorators/ReqFiles.decorator'
 import { FileUpload } from '@/files/files.types'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
+  Patch,
+  ParseIntPipe,
+  Param,
   BadRequestException,
   Body,
   Controller,
   Get,
-  Param,
-  ParseIntPipe,
-  Patch,
   Post,
   UnauthorizedException,
   UseInterceptors,
@@ -130,7 +130,8 @@ export class OutreachController {
   // Edit-before-send for a scheduled P2P campaign: name, script, send date,
   // and optionally a replacement image — never the audience (frozen and
   // priced at checkout; that path is cancel-and-recreate). Same multipart
-  // shape as create so the image rides the same interceptor.
+  // shape as create so the image rides the same interceptor. Retired once
+  // the 2026-09-02 compliance launch switch is on (the service rejects).
   @Patch(':id')
   @UseCampaign()
   @UseInterceptors(

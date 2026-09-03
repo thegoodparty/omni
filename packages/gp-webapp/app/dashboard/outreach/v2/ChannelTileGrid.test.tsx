@@ -234,7 +234,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     await userEvent.click(screen.getByText('Door knocking'))
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?listId=42',
+      '/dashboard/door-knocking?create=1&listId=42',
     )
   })
 
@@ -243,7 +243,9 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
 
     await userEvent.click(screen.getByText('Door knocking'))
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/door-knocking')
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1',
+    )
   })
 
   it('still hands the list to the SMS tile when door knocking was not pressed', async () => {
@@ -266,7 +268,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
 
     await userEvent.click(screen.getByText('Door knocking'))
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?listId=42',
+      '/dashboard/door-knocking?create=1&listId=42',
     )
 
     // SMS is the tile that always launches the legacy TaskFlow, which is the

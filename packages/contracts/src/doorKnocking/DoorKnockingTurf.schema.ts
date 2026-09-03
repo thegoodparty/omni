@@ -39,12 +39,19 @@ export const GeoJsonPolygonSchema = z
 
 export type GeoJsonPolygon = z.infer<typeof GeoJsonPolygonSchema>
 
+// Creating a turf buys its route, so the walk settings ride the create body:
+// `mode` and `loop` are what the route is optimized for and they freeze onto
+// it. They used to be a separate knock request sent later, from a dialog on an
+// already-saved list; 3.0 has no such moment, because a turf without a route
+// is a state the model no longer has.
 export const CreateDoorKnockingTurfSchema = z
   .object({
     voterFileFilterId: z.number().int().positive(),
     name: z.string().min(1).max(120),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     geoPoly: GeoJsonPolygonSchema,
+    mode: DoorKnockingModeSchema,
+    loop: z.boolean(),
   })
   .strict()
 
@@ -52,39 +59,75 @@ export type CreateDoorKnockingTurf = z.infer<
   typeof CreateDoorKnockingTurfSchema
 >
 
-export const UpdateDoorKnockingTurfSchema = CreateDoorKnockingTurfSchema.omit({
-  voterFileFilterId: true,
-}).partial()
+// Name and colour only, and deliberately NOT derived from the create schema by
+// omission any more. The polygon is what the frozen route was computed from,
+// so accepting one would desync the two — and since every turf is routed from
+// birth, a shared `.partial()` would have made every field permanently
+// unacceptable rather than just that one. Splitting the fields is what keeps a
+// list renameable after its route exists.
+export const UpdateDoorKnockingTurfSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  })
+  .partial()
+  .strict()
 
 export type UpdateDoorKnockingTurf = z.infer<
   typeof UpdateDoorKnockingTurfSchema
 >
 
-// `locked` is derived, not stored: a turf is locked iff its route exists.
+// There is no `locked` field. It was derived from the route's existence, and
+// since 3.0 buys the route in the same transaction that inserts the turf there
+// is no unlocked state left for it to describe.
 //
-// The three counts are derived too, and from the frozen route — so they are
-// null, not 0, on an unlocked turf: there is no route to count, and a zero
-// would claim a walked list that turned out to be empty. Doors are addresses
-// and people are knockable targets (do-not-knock and not-a-voter residents
-// dropped), the same two populations the walk surfaces report; `loggedCount`
-// is the subset of `peopleCount` whose derived knock status is not `unknown`,
-// so the pair reads as "N of M logged" and never mixes populations.
+// That is also why the counts are non-nullable here. They used to be null
+// rather than 0 on an unlocked list — nothing frozen, nothing to count, and a
+// zero would have claimed a walked list that turned out empty. Every turf now
+// has a route from birth, so there is always something to count. Doors are
+// addresses and people are knockable targets (do-not-knock and not-a-voter
+// residents dropped), the same two populations the walk surfaces report;
+// `loggedCount` is the subset of `peopleCount` whose derived knock status is
+// not `unknown`, so the pair reads as "N of M logged" and never mixes
+// populations.
+//
+// `knockedDoorCount` is the DOOR-side twin of `loggedCount`, and it exists
+// because the rail's overline is a ratio of doors: a door is knocked once
+// anybody behind it has been written down, so it counts a door with at least
+// one knockable resident whose status is not `unknown` — and also a door with
+// no knockable residents at all, which was correctly skipped and has nothing
+// left to do. Without that second clause a list containing one do-not-knock
+// house could never reach 100%, which is the same asymmetry `peopleCount`
+// drops flagged residents to avoid. It is a subset of `doorCount`, never of
+// `peopleCount`, so the overline's two halves count the same noun.
 export const DoorKnockingTurfSchema = z.object({
   id: z.number().int(),
   voterFileFilterId: z.number().int(),
   name: z.string(),
   color: z.string(),
   geoPoly: GeoJsonPolygonSchema,
-  locked: z.boolean(),
-  doorCount: z.number().int().nullable(),
-  peopleCount: z.number().int().nullable(),
-  loggedCount: z.number().int().nullable(),
-  // Both are timestamps rather than booleans so a card can say *when*, and
-  // both are only ever set on a knocked list. `deletedAt` is deliberately
-  // absent: a soft-deleted turf never leaves the API at all, so exposing the
-  // column would only invite a client to render a list the server considers
-  // gone.
-  completedAt: zDate().nullable(),
+  doorCount: z.number().int(),
+  knockedDoorCount: z.number().int(),
+  peopleCount: z.number().int(),
+  loggedCount: z.number().int(),
+  // The route's own `totalSeconds` — travel between doors, with no time spent
+  // at them (see `doorKnockingServe.service.ts`). The create flow's estimate
+  // and the details drawer's are a different quantity, and printing one here
+  // under the same clock icon would put two of them in one column of the rail.
+  routeSeconds: z.number().int(),
+  // Both read off the turf's Outreach envelope, which since 3.0 is the one
+  // place the lifecycle lives. They are shaped differently because the
+  // envelope stores them differently: completion is a `status` value, so it
+  // arrives as a boolean, while archiving has a real `archivedAt` column and
+  // keeps its timestamp. The turf used to carry a `completedAt` instant, but
+  // nothing ever rendered the date — `turfStage` only asks whether it is set —
+  // so there is no reader to strand, and inventing an instant out of the
+  // envelope's `updatedAt` would have been a plausible-looking lie.
+  //
+  // `deletedAt` is deliberately absent: a soft-deleted turf never leaves the
+  // API at all, so exposing the column would only invite a client to render a
+  // list the server considers gone.
+  completed: z.boolean(),
   archivedAt: zDate().nullable(),
   createdAt: zDate(),
   updatedAt: zDate(),
@@ -104,17 +147,10 @@ export type DoorKnockingTurf = z.infer<typeof DoorKnockingTurfSchema>
 // derivation here would be the two-denominator failure ADR 0010 wrote the rule
 // against — one quantity, one number, wherever it is printed.
 //
-// They are non-nullable here where the turf's are nullable, and the envelope is
-// why: one `Outreach` row is created per generated `door_knocking_route`, so a
-// row carrying this block always has a frozen route to count. The unlocked
-// turf that makes the rail's counts null has no envelope at all.
-//
 // `turfId` is what the drawer could not reach before: the envelope stores
 // `doorKnockingRouteId`, and the turf is one `@unique` hop the other side of
-// it. It is here so the archive action can be written by the turf's own
-// endpoint — the single writer that moves both `archivedAt` rows in one
-// transaction — rather than by a second writer that could only reach the
-// envelope.
+// it. It is here so the drawer's Archive action can name the turf, and so the
+// footer can link into the walk.
 export const DoorKnockingOutreachDetailSchema = z.object({
   turfId: z.number().int(),
   routeId: z.number().int(),
@@ -125,11 +161,13 @@ export const DoorKnockingOutreachDetailSchema = z.object({
   doorCount: z.number().int(),
   peopleCount: z.number().int(),
   loggedCount: z.number().int(),
-  // The turf's lifecycle, which is the source the envelope's own `status` and
-  // `archivedAt` are mirrors of. Carried so the drawer reads the source rather
-  // than its projection — a list archived before that mirror shipped has an
-  // envelope that never followed, and the repair is pressing Archive again.
-  completedAt: zCoerceDate().nullable(),
+  // The walk's lifecycle. It used to be carried here because it lived on the
+  // turf and the envelope held only a mirror that could fall behind it; now
+  // both come off the envelope this block already describes, so they agree by
+  // construction. Kept on the block anyway so a caller holding it does not
+  // have to reach back out to the row for two fields, and shaped to match
+  // `DoorKnockingTurfSchema` above.
+  completed: z.boolean(),
   archivedAt: zCoerceDate().nullable(),
 })
 
@@ -149,19 +187,6 @@ export type DoorKnockingArchiveRequest = z.infer<
   typeof DoorKnockingArchiveRequestSchema
 >
 
-// Walk settings are request params picked in the knock dialog, not turf
-// columns — they freeze onto the route.
-export const DoorKnockingKnockRequestSchema = z
-  .object({
-    mode: DoorKnockingModeSchema,
-    loop: z.boolean(),
-  })
-  .strict()
-
-export type DoorKnockingKnockRequest = z.infer<
-  typeof DoorKnockingKnockRequestSchema
->
-
 export const DoorKnockingRouteHeaderSchema = z.object({
   id: z.number().int(),
   doorKnockingTurfId: z.number().int(),
@@ -175,15 +200,4 @@ export const DoorKnockingRouteHeaderSchema = z.object({
 
 export type DoorKnockingRouteHeader = z.infer<
   typeof DoorKnockingRouteHeaderSchema
->
-
-// `created: false` = the turf already had a route (knock is idempotent —
-// the existing route is returned as-is, nothing is re-billed).
-export const DoorKnockingKnockResponseSchema = z.object({
-  created: z.boolean(),
-  route: DoorKnockingRouteHeaderSchema,
-})
-
-export type DoorKnockingKnockResponse = z.infer<
-  typeof DoorKnockingKnockResponseSchema
 >

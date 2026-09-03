@@ -10,20 +10,25 @@ import {
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 import {
+  Building2Icon,
+  Button,
   CarIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   cn,
+  DoorClosedIcon,
   FootprintsIcon,
-  RepeatIcon,
+  HouseIcon,
   UserIcon,
   UsersIcon,
 } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
-import LiveLocationControl, { WALK_CONTROL_PILL } from './LiveLocationControl'
-import type { LiveLocation } from './useLiveLocation'
+import { liveLocationMessage, type LiveLocation } from './useLiveLocation'
+import { formatDuration } from './formatDuration'
+import { estimateOutingSeconds } from './walkEstimate'
 import PersonSheet from './PersonSheet'
+import { ExportWalkSheetButton } from './ExportWalkSheetButton'
 import {
   DoorNoteList,
   editServedNotes,
@@ -31,7 +36,6 @@ import {
   withDeletedNote,
   withUpdatedNote,
 } from './doorNotes'
-import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
   knockStatusCounts,
@@ -46,20 +50,68 @@ import {
   targetMarker,
 } from './statusPresentation'
 
-const formatDuration = (seconds: number): string => {
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
-}
+// Per-leg travel, in the design's own format (`${Math.ceil(mins)}m ${travel}`,
+// line 6467): always minutes, always rounded up, never carried into hours. A
+// leg between two doors on one street is a couple of minutes, and the shared
+// `formatDuration` — which is right for a whole route — would print "0m" for
+// the ninety-second ones.
+const formatLeg = (seconds: number): string =>
+  `${Math.max(1, Math.ceil(seconds / 60))}m`
 
-// A dot per resident is fine at a house and runs off the screen at an apartment
-// complex — one Collin County stop carries 80+ knockable people, and every dot
-// is `shrink-0`, so the row pushed through the card and gave the whole page a
-// horizontal scrollbar. Truncating loses nothing: these dots are decorative on
-// a stop that expands (the expanded rows label each resident), and the
-// authoritative figure is the `N people` count immediately after them, which
-// renders whenever there is more than one dot.
-const STOP_DOT_LIMIT = 10
+// The leaf of the design's expansion, and the row that opens a door's sheet.
+// One component because it is reached two ways — straight off a house, or one
+// level down inside a block of flats — and the design draws it identically at
+// both depths (`padding:'10px 16px 10px 52px'`, a person glyph, the name, a
+// bordered status pill, a chevron).
+const ResidentRow = ({
+  target,
+  onOpen,
+}: {
+  target: RoutePayloadTarget
+  onOpen: () => void
+}) => (
+  <button
+    type="button"
+    className="flex w-full items-center gap-2.5 border-t border-border py-2.5 pr-4 pl-[52px] text-left text-sm hover:bg-muted/70"
+    onClick={onOpen}
+  >
+    <UserIcon
+      size={16}
+      aria-hidden="true"
+      className="shrink-0 text-muted-foreground"
+    />
+    <span className="min-w-0 flex-1 truncate">
+      {target.name ?? 'Name unavailable'}
+    </span>
+    {/* ADR 0007 and 0008. Read before walking up, not after opening the sheet,
+        so the marker REPLACES the knock status rather than sitting beside it —
+        a flagged resident knocked before the flag was set still carries one,
+        and "Do not knock" next to "Support unknown" is two answers to one
+        question. */}
+    {targetMarker(target) ? (
+      <span className="shrink-0 rounded-full border border-warning px-2 py-0.5 text-xs font-medium text-warning">
+        {targetMarker(target)}
+      </span>
+    ) : (
+      // The design reads an unlogged resident as "Not visited"; ours says
+      // "Support unknown", which is the 2026-08-20 product call and not drift.
+      // `unknown` also covers answered-but-unsure, so "not visited" would be
+      // false of a door somebody stood at and had a conversation on.
+      <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+        <span
+          className="h-2 w-2 rounded-full"
+          style={{ backgroundColor: STATUS_DOT_COLORS[target.knockStatus] }}
+        />
+        {STATUS_LABELS[target.knockStatus]}
+      </span>
+    )}
+    <ChevronRightIcon
+      size={16}
+      className="shrink-0 text-muted-foreground"
+      aria-hidden="true"
+    />
+  </button>
+)
 
 // The numeral sits ON the stop's status color, so it has to invert with it the
 // way the map's pin numerals do — white on `not_home` yellow is a number nobody
@@ -87,13 +139,15 @@ interface WalkViewProps {
   // marked row are one fact and cannot drift.
   selectedStopId: number | null
   onSelectStop: (stopId: number) => void
-  // "My live location", the canvas's first walk control. The watch itself
-  // belongs to the page — the map draws the dot and the canvas outlives the
-  // walk — so what crosses into here is the reading and the switch, and this
-  // view owns only where the control sits and what it says.
+  // "My live location" is the map cluster's third button now, where the design
+  // puts it, so the switch does not come in here any more. The READING still
+  // does: a blocked permission or a coarse fix is something only words can
+  // report, and the design's screen has no words for it because the design's
+  // switch cannot fail.
   liveLocation: LiveLocation
-  liveLocationEnabled: boolean
-  onToggleLiveLocation: (next: boolean) => void
+  // `Move to archive`, the one button under the stop list.
+  onMoveToArchive: () => void
+  archivePending: boolean
 }
 
 export default function WalkView({
@@ -103,8 +157,8 @@ export default function WalkView({
   selectedStopId,
   onSelectStop,
   liveLocation,
-  liveLocationEnabled,
-  onToggleLiveLocation,
+  onMoveToArchive,
+  archivePending,
 }: WalkViewProps) {
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
@@ -180,6 +234,12 @@ export default function WalkView({
       notes: editServedNotes(target.notes, edit),
     }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
+  // The second level of the design's list, and only reachable on a stop with
+  // more than one door: a block of flats expands to its doors, and a door
+  // expands to the people behind it. A house expands straight to its residents,
+  // because the one door in the middle would be a row that only ever said the
+  // address again.
+  const [openDoorKey, setOpenDoorKey] = useState<string | null>(null)
   const stopRowRefs = useRef(new Map<number, HTMLLIElement | null>())
   const [sheet, setSheet] = useState<{
     stopId: number
@@ -284,22 +344,10 @@ export default function WalkView({
   // planning surface cannot report the same list differently.
   const statusCounts = useMemo(() => knockStatusCounts(stops), [stops])
   const stopStatus = rollupStopStatus
-  const primaryTargetName = (stop: RoutePayloadStop): string | null =>
-    stop.addresses[0]?.targets[0]?.name ?? null
   const targetsForStop = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
     stop.addresses.flatMap((address) => address.targets)
   const stopKnockable = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
     targetsForStop(stop).filter(isKnockable)
-  // The lone resident of a one-person door, or null. Read off `targetsForStop`
-  // and not `stopKnockable`, because it answers the same question the row's tap
-  // handler does — a stop with one resident opens their sheet instead of
-  // expanding, so it is the one stop whose status never gets labelled anywhere
-  // else.
-  const loneResidentStatus = (stop: RoutePayloadStop): string | null => {
-    const stopTargets = targetsForStop(stop)
-    const lone = stopTargets.length === 1 ? stopTargets[0] : undefined
-    return lone ? STATUS_LABELS[lone.knockStatus] : null
-  }
   // Distinct markers only: three deceased residents at one stop is one thing to
   // read, not three.
   const stopMarkers = (stop: RoutePayloadStop): string[] => [
@@ -420,8 +468,10 @@ export default function WalkView({
     openStopFromMapRef.current(stop)
   }, [requestToken, requestStopId, stops])
 
+  const locationMessage = liveLocationMessage(liveLocation)
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">
+    <div className="mx-auto min-h-0 w-full max-w-[608px] flex-1 overflow-y-auto px-4 pb-6">
       {routeQuery.isPending && (
         <div className="flex h-full items-center justify-center">
           <LoadingAnimation />
@@ -437,59 +487,38 @@ export default function WalkView({
         </p>
       )}
       {routeQuery.data && (
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-          {/* The canvas's walk control row, in its order and on its side of
-              the column: the live-location switch first, then the facts about
-              the route it is walking. Ours were right-aligned and led with a
-              paper link, which has moved to the page header where the canvas
-              keeps it. */}
-          <div className="flex flex-wrap items-center gap-2">
-            <LiveLocationControl
-              location={liveLocation}
-              enabled={liveLocationEnabled}
-              onToggle={onToggleLiveLocation}
-            />
-            {/* Read-only, and deliberately so: the route was bought for one
-                mode and cannot be re-bought from inside itself, so the canvas's
-                pair of switchable mode chips would offer a change this surface
-                cannot make. They carry the canvas's icons because those are the
-                same two glyphs the per-leg times below use, and a chip that
-                names the mode should look like the times it explains. */}
-            <span className={cn(WALK_CONTROL_PILL, 'cursor-default')}>
-              {routeQuery.data.route.mode === 'walk' ? (
-                <>
-                  <FootprintsIcon size={16} aria-hidden="true" /> Walking
-                </>
-              ) : (
-                <>
-                  <CarIcon size={16} aria-hidden="true" /> Driving
-                </>
-              )}
-            </span>
-            {routeQuery.data.route.loop && (
-              <span className={cn(WALK_CONTROL_PILL, 'cursor-default')}>
-                <RepeatIcon size={16} aria-hidden="true" /> Loop
-              </span>
-            )}
-          </div>
+        <div className="flex flex-col gap-4">
+          {/* The design's walk sheet has no control row at all — the live
+              location switch is the map cluster's third button, and the travel
+              mode and loop are read off the per-leg times below, which name the
+              mode on every leg. What is left is the one thing an icon toggle
+              cannot report: a permission that was refused, or a fix too coarse
+              to trust. Absent in the ordinary case, so the screen the design
+              draws is the screen that renders. */}
+          {locationMessage && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {locationMessage}
+            </p>
+          )}
 
-          <div className="flex flex-col gap-3 rounded-lg border border-border p-4">
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.03em] text-muted-foreground">
                 In this list
               </span>
-              {/* The canvas's own bubble colours (`secondary-light` on
-                  `secondary-dark`). The WORD is ours and stays ours — "logged"
-                  and never "reached", because not-home, inaccessible and
-                  refused all satisfy the predicate this counts and calling them
-                  reached credits a walk with conversations it did not have. The
-                  colour was never part of that argument and had drifted to the
-                  near-black `tertiary-dark`, which reads as a filled control
-                  rather than as a count. */}
-              <span className="rounded-full bg-secondary-light px-3 py-1 text-xs font-semibold tabular-nums text-secondary-dark">
+              {/* The design's own bubble and the design's own word. "Reached"
+                  overstates what the predicate behind it counts — `not_home`,
+                  `inaccessible` and `refused` all satisfy `knockStatus !==
+                  'unknown'`, so a canvasser who knocked forty doors and spoke
+                  to nobody reads 40/40 — and this surface said "logged" for
+                  exactly that reason until the design review put the design's
+                  wording back. Nothing else in the product says it: the details
+                  drawer states the same figure as a bare `X of Y`, so there is
+                  no second surface for this to disagree with. */}
+              <span className="inline-flex h-6 items-center rounded-full bg-secondary-light px-2.5 text-xs font-medium tabular-nums text-secondary-dark">
                 {`${loggedCount(routeQuery.data.stops)}/${targetCount(
                   routeQuery.data.stops,
-                )} logged`}
+                )} reached`}
               </span>
             </div>
             {/* Segmented by outcome, which OVERTURNS the recorded decision to
@@ -543,8 +572,8 @@ export default function WalkView({
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
                   />
-                  {STATUS_LABELS[status]}{' '}
-                  <span className="font-semibold tabular-nums text-foreground">
+                  {STATUS_LABELS[status]}
+                  <span className="ml-0.5 text-[10px] tabular-nums">
                     {statusCounts[status]}
                   </span>
                 </span>
@@ -552,266 +581,304 @@ export default function WalkView({
             </div>
           </div>
 
-          <div className="rounded-lg border border-border">
-            <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
+          {/* Between the progress card and the stops, where the design puts
+              it: a canvasser reaches for paper before they start down the
+              list, not after they have scrolled past forty doors. */}
+          <ExportWalkSheetButton turfId={turfId} />
+
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <div className="flex items-center justify-between border-b border-border p-4">
               <h3 className="text-sm font-semibold">Stops</h3>
+              {/* Two facts and no more, in the design's own shape. The stop
+                  count and the distance came out: the doors are what a
+                  canvasser is working through, and the design's header is one
+                  line beside a heading rather than a route summary.
+
+                  The duration is the whole outing rather than Geoapify's
+                  travel figure, because there is no room to qualify it here and
+                  bare travel time is what undersold an evening by more than
+                  half. `estimateOutingSeconds` sets out how the two halves add,
+                  and the design's own number is built the same way. */}
               <span className="text-sm tabular-nums text-muted-foreground">
-                {routeQuery.data.route.stopCount} stops ·{' '}
-                {countDoors(routeQuery.data.stops)} doors ·{' '}
-                {/* "travel", because that is all Geoapify measures: the jobs
-                    we send it carry no per-stop duration, so this is the
-                    movement between doors with zero time spent AT them. Bare,
-                    in a row of route facts, it read as the cost of the outing
-                    and undersold it by more than half. The per-leg number
-                    below already names its mode for the same reason. */}
-                {formatDuration(routeQuery.data.route.totalSeconds)} travel ·{' '}
-                {formatDistance(routeQuery.data.route.totalMeters)}
+                {countDoors(routeQuery.data.stops)}{' '}
+                {countDoors(routeQuery.data.stops) === 1 ? 'door' : 'doors'} ·{' '}
+                {formatDuration(
+                  estimateOutingSeconds(
+                    routeQuery.data.route.totalSeconds,
+                    countDoors(routeQuery.data.stops),
+                  ),
+                )}
               </span>
             </div>
-            <ol className="divide-y divide-border">
-              {stops.map((stop) => (
-                <li
-                  key={stop.id}
-                  // `block` because globals.css gives every `<li>` inside a
-                  // `data-slot` element `display: flex`, and the dashboard's
-                  // sidebar wrapper puts this list in that scope: without it
-                  // the row and its expanded door become sibling flex items in
-                  // a row, and the residents' names truncate beside the stop
-                  // rather than stacking under it.
-                  className="block"
-                  ref={(element) => {
-                    stopRowRefs.current.set(stop.id, element)
-                  }}
-                >
-                  <button
-                    type="button"
-                    aria-current={selectedStopId === stop.id || undefined}
-                    className={cn(
-                      'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
-                      selectedStopId === stop.id
-                        ? 'bg-primary/10'
-                        : 'hover:bg-muted/50',
-                    )}
-                    onClick={() => {
-                      onSelectStop(stop.id)
-                      // One resident: straight to their sheet. Several:
-                      // expand so the canvasser picks (the demo's behavior).
-                      const stopTargets = targetsForStop(stop)
-                      if (stopTargets.length === 1 && stopTargets[0]) {
-                        openSheet(
-                          stop.id,
-                          stopTargets.map((t) => t.stopTargetId),
-                          stopTargets[0].stopTargetId,
-                        )
-                        return
-                      }
-                      setOpenStopId(openStopId === stop.id ? null : stop.id)
+            <ol>
+              {stops.map((stop, index) => {
+                const doors = stop.addresses
+                const expanded = openStopId === stop.id
+                return (
+                  <li
+                    key={stop.id}
+                    // `block` because globals.css gives every `<li>` inside a
+                    // `data-slot` element `display: flex`, and the dashboard's
+                    // sidebar wrapper puts this list in that scope: without it
+                    // the row and its expanded door become sibling flex items
+                    // in a row, and the residents' names truncate beside the
+                    // stop rather than stacking under it.
+                    className="block"
+                    ref={(element) => {
+                      stopRowRefs.current.set(stop.id, element)
                     }}
                   >
-                    {/* One circle carrying both of the stop's facts: the
-                        rolled-up status as the fill, and `seq` — the route's
-                        own order, the numeral the map's pin layer draws and the
-                        printed sheet prints — as the digit on it. The three
-                        surfaces have to name a stop the same way for a pin to
-                        be findable in the list at all, which is what the
-                        numbering is for; an index would drift from `seq` the
-                        moment anything but the whole route is listed. Selection
-                        is a ring rather than a fill, so it cannot take the
-                        status color's place — and the map's own pin is ringed
-                        the same way, off the same `selectedStopId`, so the two
-                        marks are one fact drawn twice. */}
-                    <span
+                    <button
+                      type="button"
+                      aria-current={selectedStopId === stop.id || undefined}
+                      aria-expanded={expanded}
                       className={cn(
-                        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',
-                        selectedStopId === stop.id && 'ring-2 ring-primary',
+                        'flex w-full items-start gap-3 p-4 text-left transition-colors',
+                        index > 0 && 'border-t border-border',
+                        selectedStopId === stop.id
+                          ? 'bg-primary/10'
+                          : 'hover:bg-muted/50',
                       )}
-                      style={{
-                        backgroundColor: STATUS_DOT_COLORS[stopStatus(stop)],
-                        color: stopNumeralColor(stopStatus(stop)),
+                      onClick={() => {
+                        onSelectStop(stop.id)
+                        setOpenStopId(expanded ? null : stop.id)
+                        setOpenDoorKey(null)
                       }}
                     >
-                      {/* A numeral in a circle at the head of a row reads as a
-                          position on screen and as a bare digit to a screen
-                          reader, which has none of that layout. */}
-                      <span className="sr-only">Stop </span>
-                      {stop.seq}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {primaryTargetName(stop) ?? stop.displayAddress}
+                      {/* One circle carrying both of the stop's facts: the
+                          rolled-up status as the fill, and `seq` — the route's
+                          own order, the numeral the map's pin layer draws and
+                          the printed sheet prints — as the digit on it. The
+                          three surfaces have to name a stop the same way for a
+                          pin to be findable in the list at all, which is what
+                          the numbering is for; an index would drift from `seq`
+                          the moment anything but the whole route is listed.
+
+                          The design fills this with `primary` when the stop is
+                          active and `muted` otherwise, which is the one place
+                          the two disagree and the one place ours has to win:
+                          the map pin beside it is status-coloured, and a list
+                          whose badges were all grey would leave a fifty-pin map
+                          with nothing to match against. So selection is a ring
+                          instead of a fill, on both, off the same
+                          `selectedStopId` — one fact drawn twice. */}
+                      <span
+                        className={cn(
+                          'mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',
+                          selectedStopId === stop.id && 'ring-2 ring-primary',
+                        )}
+                        style={{
+                          backgroundColor: STATUS_DOT_COLORS[stopStatus(stop)],
+                          color: stopNumeralColor(stopStatus(stop)),
+                        }}
+                      >
+                        {/* A numeral in a circle at the head of a row reads as
+                            a position on screen and as a bare digit to a screen
+                            reader, which has none of that layout. */}
+                        <span className="sr-only">Stop </span>
+                        {stop.seq}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {stop.displayAddress}
-                      </span>
-                      <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        {/* ADR 0007 and 0008. The count is knockable people,
-                            like every other people figure (routeCounts), and a
-                            flagged resident knocked before the flag was set
-                            still carries a status whose dot would sit next to a
-                            marker saying the opposite. A stop with nobody left
-                            says so outright rather than reading as an empty
-                            house — its rollup color is the same grey as
-                            still-to-knock, and the marker is the only thing
-                            that tells those two apart. */}
-                        {!stopIsKnockable(stop) ? (
-                          <span className="font-medium text-warning">
-                            Nobody to knock here
-                          </span>
-                        ) : (
-                          <>
-                            {/* The canvas puts a person glyph in front of this
-                                count (`icon('users',14), householdCount(v)`).
-                                Ours was a bare numeral sitting one gap away
-                                from the stop's own numeral in its circle, so
-                                "3" beside "12" named neither quantity — and to
-                                a screen reader the row read "Stop 12, 3". */}
-                            <UsersIcon
-                              size={12}
-                              aria-hidden="true"
-                              className="shrink-0"
-                            />
-                            {/* Dots first, then the noun, in the canvas's own
-                                order (`dots, N + ' people'`). The dots are
-                                per-person status and decorative on a stop that
-                                expands, because the expanded rows label each
-                                one; on a one-resident stop nothing expands, so
-                                that dot's status is spelled out here instead of
-                                being left as an unlabelled colour the canvasser
-                                has to match against the legend three cards
-                                up. */}
-                            {stopKnockable(stop)
-                              .slice(0, STOP_DOT_LIMIT)
-                              .map((target) => (
-                                <span
-                                  key={target.stopTargetId}
-                                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                                  style={{
-                                    backgroundColor:
-                                      STATUS_DOT_COLORS[target.knockStatus],
-                                  }}
-                                />
-                              ))}
-                            {loneResidentStatus(stop) ?? (
-                              <span className="tabular-nums">
-                                {/* The noun is visible, as in the canvas
-                                    (`N + ' people'`): "3" alone was a quantity
-                                    of nothing on screen and only had a noun in
-                                    the sr-only text. */}
-                                {stopKnockable(stop).length === 1
-                                  ? '1 person'
-                                  : `${stopKnockable(stop).length} people`}
-                                <span className="sr-only">{' to knock'}</span>
-                              </span>
+                      <span className="min-w-0 flex-1">
+                        {/* The address, and not the first resident's name. The
+                            design's row is an address with a count of the
+                            people behind it, which is the shape of the decision
+                            a canvasser makes from the pavement; a name led the
+                            row on a household of four with no way to tell which
+                            of the four it was. Every name is one tap away in
+                            the expansion, labelled. */}
+                        <span className="block truncate text-sm font-medium">
+                          {stop.displayAddress}
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            {/* A block of flats is one stop and many doors, so
+                                the glyph says which of those two this row is —
+                                the design's own swap at `doors.length>1`. */}
+                            {doors.length > 1 ? (
+                              <Building2Icon size={14} aria-hidden="true" />
+                            ) : (
+                              <HouseIcon size={14} aria-hidden="true" />
                             )}
-                          </>
-                        )}
-                        {/* On the collapsed row, because a single-resident stop
-                            opens the sheet instead of expanding — without this,
-                            the common case shows an ordinary dot and the
-                            canvasser walks up to the door. Distinct markers
-                            only: three deceased residents is one thing to
-                            read. */}
-                        {stopMarkers(stop).map((marker) => (
-                          <span
-                            key={marker}
-                            className="font-medium text-warning"
-                          >
-                            {marker}
-                          </span>
-                        ))}
-                      </span>
-                    </span>
-                    {/* The canvas draws this in its action blue with the
-                        mode's own glyph in front (`icon(walk?'footprints':
-                        'car',14)`), which is what separates a travel time from
-                        the four other muted-grey numbers on the row. The word
-                        stays — the glyph and the word say the same thing, and
-                        the glyph alone is a guess at 14px. */}
-                    {stop.legSeconds > 0 && (
-                      <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-info">
-                        {routeQuery.data.route.mode === 'walk' ? (
-                          <FootprintsIcon size={14} aria-hidden="true" />
-                        ) : (
-                          <CarIcon size={14} aria-hidden="true" />
-                        )}
-                        {formatDuration(stop.legSeconds)}{' '}
-                        {routeQuery.data.route.mode === 'walk'
-                          ? 'walk'
-                          : 'drive'}
-                      </span>
-                    )}
-                    {targetsForStop(stop).length > 1 &&
-                    openStopId === stop.id ? (
-                      <ChevronDownIcon size={16} className="shrink-0" />
-                    ) : (
-                      <ChevronRightIcon size={16} className="shrink-0" />
-                    )}
-                  </button>
-                  {/* The canvas's expanded door: a tinted well under the stop,
-                      one row per resident, each led by a person glyph sitting
-                      exactly where the stop's own name begins — so the
-                      residents read as belonging to the address above them
-                      rather than as four more stops — and closed by a bordered
-                      status pill on the right. Ours had the indent and nothing
-                      else: no glyph, no rules between the rows, and a bare dot
-                      and label floating where the pill goes, which at three or
-                      four residents ran together into one block of grey. */}
-                  {openStopId === stop.id && (
-                    // A plain container and not a nested list: the stop rows
-                    // are the only list on this surface, and an expanded door
-                    // that quietly inserted `listitem`s between them would make
-                    // "the third row" mean two different things depending on
-                    // what happened to be open.
-                    <div className="flex flex-col bg-muted/40">
-                      {targetsForStop(stop).map((target) => (
-                        <button
-                          key={target.stopTargetId}
-                          type="button"
-                          className="flex w-full items-center gap-2 border-t border-border py-2.5 pl-14 pr-4 text-left text-sm hover:bg-muted/70"
-                          onClick={() =>
-                            openSheet(
-                              stop.id,
-                              targetsForStop(stop).map((t) => t.stopTargetId),
-                              target.stopTargetId,
-                            )
-                          }
-                        >
-                          <UserIcon
-                            size={16}
-                            aria-hidden="true"
-                            className="shrink-0 text-muted-foreground"
-                          />
-                          <span className="min-w-0 flex-1 truncate">
-                            {target.name ?? 'Name unavailable'}
-                          </span>
-                          {/* ADR 0007 and 0008. Read before walking up, not
-                              after opening the sheet, so the marker replaces
-                              the knock status rather than sitting beside it. */}
-                          {targetMarker(target) ? (
-                            <span className="shrink-0 rounded-full border border-warning px-2 py-0.5 text-xs font-medium text-warning">
-                              {targetMarker(target)}
+                            <span className="tabular-nums">
+                              {doors.length === 1
+                                ? '1 door'
+                                : `${doors.length} doors`}
                             </span>
-                          ) : (
-                            <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                              <span
-                                className="h-2 w-2 rounded-full"
-                                style={{
-                                  backgroundColor:
-                                    STATUS_DOT_COLORS[target.knockStatus],
-                                }}
-                              />
-                              {STATUS_LABELS[target.knockStatus]}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <UsersIcon size={14} aria-hidden="true" />
+                            {/* Knockable people, like every people figure in
+                                this feature (routeCounts): ADR 0007 and 0008
+                                residents are dropped, so this and the progress
+                                bar's denominator are the same population. */}
+                            <span className="tabular-nums">
+                              {stopKnockable(stop).length === 1
+                                ? '1 person'
+                                : `${stopKnockable(stop).length} people`}
+                            </span>
+                          </span>
+                          {/* ADR 0007 and 0008. A stop with nobody left says so
+                              outright rather than reading as an empty house —
+                              its rollup colour is the same grey as
+                              still-to-knock, and this is the only thing that
+                              tells those two apart. Distinct markers only:
+                              three deceased residents is one thing to read. */}
+                          {!stopIsKnockable(stop) && (
+                            <span className="font-medium text-warning">
+                              Nobody to knock here
                             </span>
                           )}
-                          <ChevronRightIcon size={16} className="shrink-0" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </li>
-              ))}
+                          {stopMarkers(stop).map((marker) => (
+                            <span
+                              key={marker}
+                              className="font-medium text-warning"
+                            >
+                              {marker}
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2 self-center">
+                        {/* From the second stop on, as in the design: the first
+                            stop has no leg because there is nothing before it.
+                            Only the GLYPH is tinted `info` — the design's own
+                            split — which is what separates a travel time from
+                            the muted numbers beside it without making the whole
+                            phrase louder than the address above it. */}
+                        {index > 0 && (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+                            {routeQuery.data.route.mode === 'walk' ? (
+                              <FootprintsIcon
+                                size={14}
+                                aria-hidden="true"
+                                className="text-info"
+                              />
+                            ) : (
+                              <CarIcon
+                                size={14}
+                                aria-hidden="true"
+                                className="text-info"
+                              />
+                            )}
+                            {formatLeg(stop.legSeconds)}{' '}
+                            {routeQuery.data.route.mode === 'walk'
+                              ? 'walk'
+                              : 'drive'}
+                          </span>
+                        )}
+                        <ChevronDownIcon
+                          size={16}
+                          className={cn(
+                            'shrink-0 text-muted-foreground transition-transform duration-150',
+                            expanded && 'rotate-180',
+                          )}
+                        />
+                      </span>
+                    </button>
+                    {/* The design's two-level expansion, in a tinted well under
+                        the stop. A block of flats opens to its doors and each
+                        door opens to the people behind it; a house opens
+                        straight to its residents, because the one door in
+                        between would be a row that only said the address again.
+
+                        A plain container and not a nested list: the stop rows
+                        are the only list on this surface, and an expansion that
+                        quietly inserted `listitem`s between them would make
+                        "the third row" mean two different things depending on
+                        what happened to be open. */}
+                    {expanded && (
+                      <div className="flex flex-col bg-muted/40">
+                        {doors.length > 1
+                          ? doors.map((door) => {
+                              const doorOpen = openDoorKey === door.addressKey
+                              const doorPeople =
+                                door.targets.filter(isKnockable)
+                              return (
+                                <div key={door.addressKey}>
+                                  <button
+                                    type="button"
+                                    aria-expanded={doorOpen}
+                                    className="flex w-full items-center gap-2.5 border-t border-border bg-primary/[0.04] py-2.5 pr-4 pl-[52px] text-left text-sm hover:bg-primary/10"
+                                    onClick={() =>
+                                      setOpenDoorKey(
+                                        doorOpen ? null : door.addressKey,
+                                      )
+                                    }
+                                  >
+                                    <DoorClosedIcon
+                                      size={16}
+                                      aria-hidden="true"
+                                      className="shrink-0 text-muted-foreground"
+                                    />
+                                    <span className="min-w-0 flex-1 truncate">
+                                      {door.address} ·{' '}
+                                      {doorPeople.length === 1
+                                        ? '1 person'
+                                        : `${doorPeople.length} people`}
+                                    </span>
+                                    <ChevronDownIcon
+                                      size={16}
+                                      className={cn(
+                                        'shrink-0 text-muted-foreground transition-transform duration-150',
+                                        doorOpen && 'rotate-180',
+                                      )}
+                                    />
+                                  </button>
+                                  {doorOpen &&
+                                    door.targets.map((target) => (
+                                      <ResidentRow
+                                        key={target.stopTargetId}
+                                        target={target}
+                                        onOpen={() =>
+                                          openSheet(
+                                            stop.id,
+                                            targetsForStop(stop).map(
+                                              (t) => t.stopTargetId,
+                                            ),
+                                            target.stopTargetId,
+                                          )
+                                        }
+                                      />
+                                    ))}
+                                </div>
+                              )
+                            })
+                          : targetsForStop(stop).map((target) => (
+                              <ResidentRow
+                                key={target.stopTargetId}
+                                target={target}
+                                onOpen={() =>
+                                  openSheet(
+                                    stop.id,
+                                    targetsForStop(stop).map(
+                                      (t) => t.stopTargetId,
+                                    ),
+                                    target.stopTargetId,
+                                  )
+                                }
+                              />
+                            ))}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
             </ol>
           </div>
+
+          {/* The design's one button under the list, and the design's own
+              label. What it does is set out on `TurfLifecycleAction`'s
+              `completeAndArchive`: the list is finished AND shelved, because
+              the label stands for both halves of a thing this product keeps
+              apart and the design has no second button for the other half. */}
+          <Button
+            variant="outline"
+            className="w-full"
+            loading={archivePending}
+            onClick={onMoveToArchive}
+          >
+            Move to archive
+          </Button>
         </div>
       )}
       {sheetStop && sheet && (

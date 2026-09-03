@@ -33,6 +33,13 @@ interface DoorKnockingPageGateProps {
   // `?listId=` off the page. Only the native arm has a create flow to open on
   // it; the eCanvasser dashboard has no audience step to preselect.
   preselectedListId?: number
+  // `?walkTurfId=` and `?outreachId=` — the outreach hub's "Continue
+  // knocking". Native-only for the same reason: eCanvasser has no walk.
+  walkTurfId?: number
+  fromOutreachId?: number
+  // `?create=1` — the hub's tile opening the create flow on arrival. Native
+  // only, for the same reason as the two above.
+  openCreateFlow?: boolean
 }
 
 // Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
@@ -95,6 +102,9 @@ export default function DoorKnockingPageGate({
   campaign,
   summary,
   preselectedListId,
+  walkTurfId,
+  fromOutreachId,
+  openCreateFlow,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
   const { data: electedOffice, isPending: isElectedOfficePending } =
@@ -134,6 +144,9 @@ export default function DoorKnockingPageGate({
         pathname={pathname}
         campaign={campaign}
         preselectedListId={preselectedListId}
+        walkTurfId={walkTurfId}
+        fromOutreachId={fromOutreachId}
+        openCreateFlow={openCreateFlow}
       />
     )
   }

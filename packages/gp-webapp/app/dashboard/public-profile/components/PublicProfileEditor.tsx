@@ -20,11 +20,25 @@ import { AccomplishmentsEditor, RecentExperienceEditor } from './ListEditors'
 import PrioritiesPublicationEditor, {
   type PriorityRow,
 } from './PrioritiesPublicationEditor'
+import {
+  FIELD_LABELS,
+  fieldErrorsFromApiError,
+  fieldLabel,
+  normalizeUrl,
+  summarize,
+  URL_FIELDS,
+  validateContact,
+  type FieldErrors,
+} from './publicProfileValidation'
 
 const toNull = (value: string): string | null => {
   const trimmed = value.trim()
   return trimmed === '' ? null : trimmed
 }
+
+// Row order is meaningful to the reader, so a reorder counts as a change.
+const sameList = (a: unknown[], b: unknown[]): boolean =>
+  JSON.stringify(a) === JSON.stringify(b)
 
 // Local, all-string mirror of the editable overlay surface (nulls become '').
 interface FormState {
@@ -43,6 +57,25 @@ interface FormState {
   twitterUrl: string
   linkedinUrl: string
 }
+
+// Exported so a test can hold the label map to the same set: a field added here
+// without a label reports as its column name when the server rejects it.
+export const FORM_KEYS = [
+  'displayName',
+  'roleTitleOverride',
+  'bioOverride',
+  'whyRunning',
+  'publicEmail',
+  'publicPhone',
+  'officePhone',
+  'websiteUrl',
+  'governmentWebsiteUrl',
+  'instagramUrl',
+  'tiktokUrl',
+  'facebookUrl',
+  'twitterUrl',
+  'linkedinUrl',
+] as const satisfies readonly (keyof FormState)[]
 
 const toForm = (p: PersonProfile): FormState => ({
   displayName: p.displayName ?? '',
@@ -173,6 +206,22 @@ function LoadedEditor({
 }): JSX.Element {
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [form, setForm] = useState<FormState>(() => toForm(profile))
+  // Which fields the owner actually edited. Membership here, not a value
+  // comparison, is what makes a field eligible to be sent: normalizing adds
+  // `https://` to a scheme-less link, so comparing a normalized form against a
+  // raw baseline would make a stored `instagram.com/jane` look edited and drag
+  // it into a save the owner never asked for.
+  const [touched, setTouched] = useState<ReadonlySet<keyof FormState>>(
+    () => new Set(),
+  )
+  // Last known server state. Saves send only what differs from this, so a field
+  // this editor never touched cannot be overwritten by a stale snapshot — the
+  // form is captured once at mount and is not otherwise reconciled.
+  const [baseline, setBaseline] = useState<FormState>(() => toForm(profile))
+  const [baselineLists, setBaselineLists] = useState(() => ({
+    recentExperience: profile.recentExperience ?? [],
+    accomplishments: profile.accomplishments ?? [],
+  }))
   const [experience, setExperience] = useState<
     PersonProfileRecentExperienceItem[]
   >(profile.recentExperience ?? [])
@@ -182,6 +231,7 @@ function LoadedEditor({
   const [priorityRows, setPriorityRows] = useState<PriorityRow[]>(() =>
     buildPriorityRows(priorities, profile),
   )
+  const [errors, setErrors] = useState<FieldErrors>({})
   const [saving, setSaving] = useState(false)
   const [savingIssues, setSavingIssues] = useState(false)
   const [togglingPublish, setTogglingPublish] = useState(false)
@@ -191,36 +241,129 @@ function LoadedEditor({
 
   const isPublished = Boolean(profile.publishedAt) && !profile.deletedAt
 
-  const setField = (key: keyof FormState, value: string): void =>
+  const setField = (key: keyof FormState, value: string): void => {
     setForm((prev) => ({ ...prev, [key]: value }))
+    setTouched((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
+    // Clear as they type, so the message tracks the field's current contents
+    // rather than lingering from the last attempt.
+    setErrors((prev) => {
+      if (prev[key] === undefined) return prev
+      const { [key]: _fixed, ...rest } = prev
+      return rest
+    })
+  }
+
+  // On blur rather than at save time, so the `https://` that will actually be
+  // stored is visible while they are still looking at the field. Only for a
+  // field they edited — merely tabbing through a stored link must not rewrite
+  // it, or the displayed value stops matching what is on the server.
+  const normalizeUrlField = (key: keyof FormState): void => {
+    if (!touched.has(key)) return
+    setForm((prev) => ({ ...prev, [key]: normalizeUrl(prev[key]) }))
+  }
 
   const handleSave = async (): Promise<void> => {
+    // Blur normally does this first; repeated here for a save triggered without
+    // one, and confined to edited fields for the same reason blur is.
+    const normalized: FormState = { ...form }
+    for (const key of URL_FIELDS) {
+      if (touched.has(key)) normalized[key] = normalizeUrl(normalized[key])
+    }
+    setForm(normalized)
+
+    // Only what the owner edited, and only where it actually differs. Sending
+    // the whole form made every save a last-write-wins overwrite of a
+    // mount-time snapshot, so editing one section silently blanked anything set
+    // elsewhere since the page loaded.
+    const changed = FORM_KEYS.filter(
+      (key) => touched.has(key) && normalized[key] !== baseline[key],
+    )
+
+    // Validated per changed field rather than over the whole form. The columns
+    // carry no DB constraint, so a value the rule would reject can be stored by
+    // any path that skips the schema; validating the whole form would let such
+    // a value block edits to every other field, with no way for the owner to
+    // clear it. It is not being sent, so it is not our business here. A
+    // malformed *edit* still withholds the request, since the server would
+    // reject the payload and retrying could never succeed.
+    const invalid = validateContact(
+      Object.fromEntries(changed.map((key) => [key, normalized[key]])),
+    )
+    const [firstInvalid] = Object.keys(invalid)
+    if (firstInvalid !== undefined) {
+      setErrors(invalid)
+      errorSnackbar(summarize(invalid, product))
+      document.getElementById(firstInvalid)?.focus()
+      return
+    }
+
+    // Ahead of the no-op check rather than after it: a fresh attempt supersedes
+    // the last one's errors whether or not it turns out to have anything to
+    // send, and that shouldn't rest on an argument about which states are
+    // reachable.
+    setErrors({})
+
+    // Untitled rows are dropped below, which is right for a row the owner never
+    // filled in and wrong for one they did. A row holding an organization or a
+    // description is something they wrote, so it is worth stopping for rather
+    // than discarding on their behalf — the whole point of this change. `source`
+    // is bookkeeping, not content: every new experience row carries it, so
+    // counting it would stop the save on an empty row.
+    const untitledExperience = experience.some(
+      (r) =>
+        r.title.trim() === '' &&
+        ((r.organization ?? '').trim() !== '' || (r.term ?? '').trim() !== ''),
+    )
+    const untitledAccomplishment = accomplishments.some(
+      (r) =>
+        r.title.trim() === '' &&
+        ((r.description ?? '').trim() !== '' || (r.date ?? '').trim() !== ''),
+    )
+    if (untitledExperience || untitledAccomplishment) {
+      errorSnackbar(
+        untitledExperience
+          ? 'Give your experience entry a title, or remove the row.'
+          : 'Give your accomplishment a title, or remove the row.',
+      )
+      return
+    }
+
+    const body: UpsertPersonProfileRequest = {}
+    for (const key of changed) body[key] = toNull(normalized[key])
+    const nextExperience = experience.filter((r) => r.title.trim() !== '')
+    if (!sameList(nextExperience, baselineLists.recentExperience)) {
+      body.recentExperience = nextExperience
+    }
+    const nextAccomplishments = accomplishments.filter(
+      (r) => r.title.trim() !== '',
+    )
+    if (!sameList(nextAccomplishments, baselineLists.accomplishments)) {
+      body.accomplishments = nextAccomplishments
+    }
+
+    if (Object.keys(body).length === 0) {
+      successSnackbar('No changes to save.')
+      return
+    }
+
     setSaving(true)
     try {
-      const body: UpsertPersonProfileRequest = {
-        displayName: toNull(form.displayName),
-        roleTitleOverride: toNull(form.roleTitleOverride),
-        bioOverride: toNull(form.bioOverride),
-        whyRunning: toNull(form.whyRunning),
-        publicEmail: toNull(form.publicEmail),
-        publicPhone: toNull(form.publicPhone),
-        officePhone: toNull(form.officePhone),
-        websiteUrl: toNull(form.websiteUrl),
-        governmentWebsiteUrl: toNull(form.governmentWebsiteUrl),
-        instagramUrl: toNull(form.instagramUrl),
-        tiktokUrl: toNull(form.tiktokUrl),
-        facebookUrl: toNull(form.facebookUrl),
-        twitterUrl: toNull(form.twitterUrl),
-        linkedinUrl: toNull(form.linkedinUrl),
-        recentExperience: experience.filter((r) => r.title.trim() !== ''),
-        accomplishments: accomplishments.filter((r) => r.title.trim() !== ''),
-      }
       const { data } = await clientRequest('PUT /v1/person-profiles/mine', body)
       onProfile(data)
+      setBaseline(toForm(data))
+      setTouched(new Set())
+      setBaselineLists({
+        recentExperience: data.recentExperience ?? [],
+        accomplishments: data.accomplishments ?? [],
+      })
       successSnackbar('Profile saved.')
     } catch (err) {
       reportErrorToSentry(err, { context: 'PublicProfileEditor.save' })
-      errorSnackbar("Couldn't save your profile. Please try again.")
+      // The rejection body names the field it refused; showing that beats
+      // asking someone to retry a value the server will never accept.
+      const fieldErrors = fieldErrorsFromApiError(err)
+      setErrors(fieldErrors)
+      errorSnackbar(summarize(fieldErrors, product))
     } finally {
       setSaving(false)
     }
@@ -295,18 +438,24 @@ function LoadedEditor({
 
   const contactFields = useMemo(
     () =>
-      [
-        ['publicEmail', 'Public email', 'you@example.com'],
-        ['publicPhone', 'Phone', '(555) 123-4567'],
-        ['officePhone', 'Office phone', '(555) 987-6543'],
-        ['websiteUrl', 'Personal website', 'https://…'],
-        ['governmentWebsiteUrl', 'Government website', 'https://…'],
-        ['instagramUrl', 'Instagram', 'https://instagram.com/…'],
-        ['tiktokUrl', 'TikTok', 'https://tiktok.com/@…'],
-        ['facebookUrl', 'Facebook', 'https://facebook.com/…'],
-        ['twitterUrl', 'X / Twitter', 'https://x.com/…'],
-        ['linkedinUrl', 'LinkedIn', 'https://linkedin.com/in/…'],
-      ] as Array<[keyof FormState, string, string]>,
+      (
+        [
+          ['publicEmail', 'you@example.com'],
+          ['publicPhone', '(555) 123-4567'],
+          ['officePhone', '(555) 987-6543'],
+          ['websiteUrl', 'https://…'],
+          ['governmentWebsiteUrl', 'https://…'],
+          ['instagramUrl', 'https://instagram.com/…'],
+          ['tiktokUrl', 'https://tiktok.com/@…'],
+          ['facebookUrl', 'https://facebook.com/…'],
+          ['twitterUrl', 'https://x.com/…'],
+          ['linkedinUrl', 'https://linkedin.com/in/…'],
+        ] as const
+      ).map(([key, placeholder]) => ({
+        key,
+        label: FIELD_LABELS[key],
+        placeholder,
+      })),
     [],
   )
 
@@ -353,17 +502,19 @@ function LoadedEditor({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             id="displayName"
-            label="Display name"
+            label={FIELD_LABELS.displayName}
             hint="Overrides the name from public records."
             value={form.displayName}
             placeholder="Jane Doe"
+            error={errors.displayName}
             onChange={(v) => setField('displayName', v)}
           />
           <Field
             id="roleTitleOverride"
-            label="Role / title"
+            label={FIELD_LABELS.roleTitleOverride}
             value={form.roleTitleOverride}
             placeholder="City Council Member, Ward 3"
+            error={errors.roleTitleOverride}
             onChange={(v) => setField('roleTitleOverride', v)}
           />
         </div>
@@ -372,32 +523,28 @@ function LoadedEditor({
       {/* About */}
       <Card className="flex flex-col gap-4 p-5 sm:p-6">
         <h2 className="text-lg font-semibold">About</h2>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bioOverride">About me</Label>
-          <Textarea
-            id="bioOverride"
-            rows={5}
-            value={form.bioOverride}
-            placeholder="Tell people who you are and what you care about."
-            onChange={(e) => setField('bioOverride', e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="whyRunning">
-            {product === 'serve' ? 'Why I serve' : "Why I'm running"}
-          </Label>
-          <Textarea
-            id="whyRunning"
-            rows={4}
-            value={form.whyRunning}
-            placeholder={
-              product === 'serve'
-                ? 'What drives your work in office.'
-                : "What you'll fight for and why."
-            }
-            onChange={(e) => setField('whyRunning', e.target.value)}
-          />
-        </div>
+        <TextareaField
+          id="bioOverride"
+          label={FIELD_LABELS.bioOverride}
+          rows={5}
+          value={form.bioOverride}
+          placeholder="Tell people who you are and what you care about."
+          error={errors.bioOverride}
+          onChange={(v) => setField('bioOverride', v)}
+        />
+        <TextareaField
+          id="whyRunning"
+          label={fieldLabel('whyRunning', product)}
+          rows={4}
+          value={form.whyRunning}
+          placeholder={
+            product === 'serve'
+              ? 'What drives your work in office.'
+              : "What you'll fight for and why."
+          }
+          error={errors.whyRunning}
+          onChange={(v) => setField('whyRunning', v)}
+        />
       </Card>
 
       {/* Top Priorities (Serve only — Win campaign issues live on the website) */}
@@ -451,14 +598,20 @@ function LoadedEditor({
       <Card className="flex flex-col gap-4 p-5 sm:p-6">
         <h2 className="text-lg font-semibold">Contact & links</h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          {contactFields.map(([key, label, placeholder]) => (
+          {contactFields.map(({ key, label, placeholder }) => (
             <Field
               key={key}
               id={key}
               label={label}
               value={form[key]}
               placeholder={placeholder}
+              error={errors[key]}
               onChange={(v) => setField(key, v)}
+              onBlur={
+                (URL_FIELDS as readonly string[]).includes(key)
+                  ? () => normalizeUrlField(key)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -479,14 +632,18 @@ function Field({
   value,
   placeholder,
   hint,
+  error,
   onChange,
+  onBlur,
 }: {
   id: string
   label: string
   value: string
   placeholder?: string
   hint?: string
+  error?: string
   onChange: (value: string) => void
+  onBlur?: () => void
 }): JSX.Element {
   return (
     <div className="flex flex-col gap-1.5">
@@ -495,9 +652,62 @@ function Field({
         id={id}
         value={value}
         placeholder={placeholder}
+        aria-invalid={error !== undefined}
+        aria-describedby={error !== undefined ? `${id}-error` : undefined}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+      />
+      {error !== undefined ? (
+        <p id={`${id}-error`} role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="text-xs text-gray-500">{hint}</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * `Field`'s multi-line counterpart. The server can reject a bio or a why-running
+ * as readily as an email, and the snackbar naming it goes away — without this
+ * the only lasting record of which box to fix was a toast the owner may have
+ * already dismissed.
+ */
+function TextareaField({
+  id,
+  label,
+  value,
+  rows,
+  placeholder,
+  error,
+  onChange,
+}: {
+  id: string
+  label: string
+  value: string
+  rows: number
+  placeholder?: string
+  error?: string
+  onChange: (value: string) => void
+}): JSX.Element {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Textarea
+        id={id}
+        rows={rows}
+        value={value}
+        placeholder={placeholder}
+        aria-invalid={error !== undefined}
+        aria-describedby={error !== undefined ? `${id}-error` : undefined}
         onChange={(e) => onChange(e.target.value)}
       />
-      {hint && <p className="text-xs text-gray-500">{hint}</p>}
+      {error !== undefined && (
+        <p id={`${id}-error`} role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
