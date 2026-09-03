@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
 import {
@@ -23,11 +22,7 @@ import { SocialFlow } from './social/SocialFlow'
 import { RobocallFlow } from './robocall/RobocallFlow'
 import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { SmsFlow } from './sms/SmsFlow'
-import { SmsEditFlow, type SmsEditTarget } from './sms/SmsEditFlow'
-import {
-  outreachDetailQueryKey,
-  useSeedOutreachDetail,
-} from './useOutreachDetail'
+import { useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 
 export interface OutreachHubPageProps {
@@ -56,9 +51,7 @@ const OutreachHubContent = ({
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
-  const [smsEditTarget, setSmsEditTarget] = useState<SmsEditTarget | null>(null)
   const seedOutreachDetail = useSeedOutreachDetail()
-  const queryClient = useQueryClient()
 
   // The save response is the created row: seed the detail cache (so the
   // drawer and the "N platforms" metric never refetch it) and prepend it to
@@ -151,18 +144,7 @@ const OutreachHubContent = ({
         open={smsFlowOpen}
         onClose={() => setSmsFlowOpen(false)}
         onScheduled={refetchOutreaches}
-      />
-      <SmsEditFlow
-        open={smsEditTarget !== null}
-        target={smsEditTarget}
-        onClose={() => setSmsEditTarget(null)}
-        onSaved={async (id) => {
-          // The drawer's cached detail now holds the pre-edit script/date.
-          await queryClient.invalidateQueries({
-            queryKey: outreachDetailQueryKey(id),
-          })
-          await refetchOutreaches()
-        }}
+        tcrCompliance={tcrCompliance}
       />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
@@ -176,7 +158,6 @@ const OutreachHubContent = ({
         onOpenChange={(open) => {
           if (!open) setDetailsRow(null)
         }}
-        onEdit={setSmsEditTarget}
       />
     </div>
   )

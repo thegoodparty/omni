@@ -177,6 +177,7 @@ export interface TcrCompliance {
   ein: string
   postalAddress: string
   committeeName: string
+  candidateName?: string | null
   websiteDomain: string
   filingUrl: string
   phone: string

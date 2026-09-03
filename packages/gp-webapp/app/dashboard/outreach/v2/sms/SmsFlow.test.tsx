@@ -5,6 +5,7 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { SmsDraftRequest } from '@goodparty_org/contracts'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
+import type { TcrCompliance } from 'helpers/types'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -130,7 +131,14 @@ const attachImage = async () => {
 const openFlow = () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
-  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
+  render(
+    <SmsFlow
+      open
+      onClose={onClose}
+      onScheduled={onScheduled}
+      tcrCompliance={TCR_FIXTURE}
+    />,
+  )
   return { onClose, onScheduled }
 }
 
@@ -155,6 +163,21 @@ const dayName = (daysFromNow: number) => {
       `${target.getDate()}(?!\\d)`,
   )
 }
+
+const TCR_FIXTURE = {
+  id: 'tcr-1',
+  ein: '84-3917265',
+  postalAddress: '1 Main St, Austin, TX 78634',
+  committeeName: 'Friends of Jane',
+  candidateName: 'Jane Doe',
+  websiteDomain: '',
+  filingUrl: 'https://example.org/filing',
+  phone: '15551234567',
+  email: 'jane@example.org',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  campaignId: 1,
+} satisfies TcrCompliance
 
 describe('SmsFlow', () => {
   beforeEach(() => {
@@ -219,7 +242,9 @@ describe('SmsFlow', () => {
     expect(
       screen.getByText(/this is Jane, candidate for City Council\./),
     ).toBeInTheDocument()
-    expect(screen.getByText('Reply STOP to opt out.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Paid for by Friends of Jane\./),
+    ).toBeInTheDocument()
 
     // Continue blocked until the required image is attached.
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()

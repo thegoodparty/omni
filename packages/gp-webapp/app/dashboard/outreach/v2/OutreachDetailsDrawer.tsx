@@ -39,7 +39,6 @@ import {
   PhoneIcon,
   RadioIcon,
   CircleSlashIcon,
-  PencilIcon,
   ReceiptIcon,
   Trash2Icon,
   UserMinusIcon,
@@ -57,7 +56,6 @@ import {
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
-import type { SmsEditTarget } from './sms/SmsEditFlow'
 import { shortOutreachDate } from './outreachDate.util'
 import {
   fetchOutreachDetail,
@@ -138,9 +136,7 @@ const lifecycleOf = (
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
   onOpenChange: (open: boolean) => void
-  // Cancel-window SMS rows offer Edit campaign; the hub opens SmsEditFlow
   // with the drawer's already-fetched detail.
-  onEdit?: (target: SmsEditTarget) => void
   // Detail fetch for this row. Defaults to Win's campaign-scoped read; the
   // Serve caller threads its org-scoped sibling the same bound-function way
   // SocialFlow's `surface` does, so this drawer never forks per surface.
@@ -156,7 +152,6 @@ interface DetailRow extends HistoryRow {
 export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
-  onEdit,
   detailFetcher = fetchOutreachDetail,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
@@ -371,52 +366,21 @@ export const OutreachDetailsDrawer = ({
   // footer vocabulary (its `automatic` predates cancel/delete existing for a
   // paid send), so these rows render their own footer node in the shared
   // footer's container anatomy.
-  const detail = detailQuery.data
-  const canEditSms =
-    isCancelableSms &&
-    onEdit !== undefined &&
-    detail !== undefined &&
-    detail.script !== null &&
-    detail.date !== null
-  const handleEdit = () => {
-    if (!canEditSms || !detail) return
-    onEdit({
-      id: detail.id,
-      name: detail.name ?? row?.name ?? '',
-      date: new Date(detail.date as Date),
-      script: detail.script as string,
-      imageUrl: detail.imageUrl,
-      contactCount: detail.textCount ?? detail.billableTextCount ?? 0,
-      audienceName: voterFileFilter?.name ?? null,
-    })
-    onOpenChange(false)
-  }
-
   const smsFooter = isCancelableSms ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        {/* Design edit-mode pair: Cancel is the compact ghost destructive
-            action (like the done-footer Delete), Edit takes the width. With
-            no edit handler, Cancel keeps the full-width outline treatment. */}
+        {/* Editing was removed (product decision 2026-09-02): the campaign
+            success team fixes messages; the candidate's only action on a
+            scheduled send is cancel, until the send time. */}
         <Button
-          variant={canEditSms ? 'ghost' : 'outline'}
-          className={
-            canEditSms
-              ? 'shrink-0 text-destructive hover:bg-destructive/10'
-              : 'flex-1 border-destructive text-destructive hover:bg-destructive/10'
-          }
+          variant="outline"
+          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
           disabled={cancelMutation.isPending}
           onClick={() => setCancelConfirmOpen(true)}
         >
           <CircleSlashIcon className="size-4" />
           Cancel campaign
         </Button>
-        {canEditSms && (
-          <Button className="flex-1" onClick={handleEdit}>
-            <PencilIcon className="size-4" />
-            Edit campaign
-          </Button>
-        )}
       </div>
     </div>
   ) : isCanceled ? (
