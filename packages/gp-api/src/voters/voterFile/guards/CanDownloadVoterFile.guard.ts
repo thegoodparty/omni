@@ -1,5 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { OrganizationRole } from 'src/generated/prisma'
+import { OrganizationMembershipService } from 'src/organizations/services/organizationMembership.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../../shared/services/voterFileDownloadAccess.service'
 
@@ -9,6 +11,7 @@ export class CanDownloadVoterFileGuard implements CanActivate {
     private campaignsService: CampaignsService,
     private voterFileDownloadAccess: VoterFileDownloadAccessService,
     private organizationsService: OrganizationsService,
+    private organizationMembership: OrganizationMembershipService,
   ) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const { user, headers } = context.switchToHttp().getRequest<{
@@ -22,15 +25,20 @@ export class CanDownloadVoterFileGuard implements CanActivate {
     const slug = headers['x-organization-slug']
     if (typeof slug !== 'string') return false
 
-    const [org, campaign] = await Promise.all([
-      this.campaignsService.client.organization.findFirst({
-        where: { slug, ownerId: user.id },
-      }),
-      this.campaignsService.findFirst({
-        where: { organizationSlug: slug, userId: user.id },
-      }),
-    ])
-    if (!org || !campaign) return false
+    const resolved = await this.organizationMembership.resolveRole(
+      slug,
+      user.id,
+    )
+    if (!resolved) return false
+
+    // Fail closed regardless of plan: a volunteer never gets the file, even
+    // on a download-eligible campaign.
+    if (resolved.role === OrganizationRole.volunteer) return false
+
+    const campaign = await this.campaignsService.findFirst({
+      where: { organizationSlug: slug },
+    })
+    if (!campaign) return false
 
     const { district, ballotLevel } = campaign.organizationSlug
       ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(

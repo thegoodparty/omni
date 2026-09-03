@@ -110,6 +110,11 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
   ],
   exports: [
     CampaignsService,
+    // UseCampaignGuard (and its own consumers, scattered across most
+    // feature modules) needs OrganizationMembershipService for role
+    // resolution; re-exporting the module — CampaignsModule is @Global —
+    // avoids adding OrganizationsModule to every one of those modules.
+    OrganizationsModule,
     CampaignUpdateHistoryService,
     CrmCampaignsService,
     CampaignTcrComplianceService,

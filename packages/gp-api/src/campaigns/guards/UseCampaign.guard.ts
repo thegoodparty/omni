@@ -5,9 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, OrganizationRole } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 
+import { OrganizationMembershipService } from '@/organizations/services/organizationMembership.service'
 import {
   REQUIRE_CAMPAIGN_META_KEY,
   RequireCampaignMetadata,
@@ -17,13 +18,15 @@ import { CampaignsService } from '../services/campaigns.service'
 /**
  * Guard that resolves a Campaign and attaches it to the request.
  *
- * Requires the `X-Organization-Slug` header. Looks up the Organization by slug
- * and owner, then fetches the associated campaign.
+ * Requires the `X-Organization-Slug` header. Resolves a role for the org
+ * (owner fallback, else a membership row), then fetches the associated
+ * campaign.
  */
 @Injectable()
 export class UseCampaignGuard implements CanActivate {
   constructor(
     private campaignsService: CampaignsService,
+    private organizationMembership: OrganizationMembershipService,
     private reflector: Reflector,
     private readonly logger: PinoLogger,
   ) {
@@ -34,6 +37,7 @@ export class UseCampaignGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>
       campaign?: Campaign
+      organizationRole?: OrganizationRole
       user: { id: number }
     }>()
 
@@ -46,25 +50,26 @@ export class UseCampaignGuard implements CanActivate {
     const userId = request.user.id
     const include = campaignInclude ?? {}
     let campaign: Campaign | null = null
+    let role: OrganizationRole | undefined
 
     const slug = request.headers['x-organization-slug']
     if (typeof slug === 'string') {
-      const [org, cam] = await Promise.all([
-        this.campaignsService.client.organization.findFirst({
-          where: { slug, ownerId: userId },
-        }),
-        this.campaignsService.findFirst({
-          where: { organizationSlug: slug, userId },
+      const resolved = await this.organizationMembership.resolveRole(
+        slug,
+        userId,
+      )
+      if (resolved) {
+        campaign = await this.campaignsService.findFirst({
+          where: { organizationSlug: slug },
           include,
-        }),
-      ])
-      if (org && cam) {
-        campaign = cam
+        })
+        role = resolved.role
       }
     }
 
     if (campaign) {
       request.campaign = campaign
+      request.organizationRole = role
       return true
     } else if (continueIfNotFound === true) {
       return true

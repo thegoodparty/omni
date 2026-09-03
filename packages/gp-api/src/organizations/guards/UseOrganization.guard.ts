@@ -5,13 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { Organization } from '../../generated/prisma'
+import { Organization, OrganizationRole } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import {
   REQUIRE_ORGANIZATION_META_KEY,
   RequireOrganizationMetadata,
 } from '../decorators/UseOrganization.decorator'
-import { OrganizationsService } from '../services/organizations.service'
+import { OrganizationMembershipService } from '../services/organizationMembership.service'
 
 /**
  * Guard that resolves an Organization from the `X-Organization-Slug` header.
@@ -22,8 +22,9 @@ import { OrganizationsService } from '../services/organizations.service'
  *
  * Resolution:
  * 1. Read `X-Organization-Slug` header.
- * 2. Look up the organization by slug + ownership (`ownerId = userId`).
- * 3. Attach to request for `@ReqOrganization()`.
+ * 2. Resolve a role for the org: owner fallback, else a membership row.
+ * 3. Attach the organization + role to the request for `@ReqOrganization()`
+ *    / `@ReqOrganizationRole()`.
  *
  * Metadata options (set via `@UseOrganization()`):
  * - `continueIfNotFound` — if true, allows the request to proceed without an organization.
@@ -31,7 +32,7 @@ import { OrganizationsService } from '../services/organizations.service'
 @Injectable()
 export class UseOrganizationGuard implements CanActivate {
   constructor(
-    private readonly organizationsService: OrganizationsService,
+    private readonly organizationMembership: OrganizationMembershipService,
     private readonly reflector: Reflector,
     private readonly logger: PinoLogger,
   ) {
@@ -43,6 +44,7 @@ export class UseOrganizationGuard implements CanActivate {
       headers: Record<string, string | undefined>
       user?: { id: number }
       organization?: Organization
+      organizationRole?: OrganizationRole
     }>()
 
     const { continueIfNotFound } =
@@ -63,12 +65,11 @@ export class UseOrganizationGuard implements CanActivate {
       throw new NotFoundException('Organization not found')
     }
 
-    const organization = await this.organizationsService.findFirst({
-      where: { slug, ownerId: userId },
-    })
+    const resolved = await this.organizationMembership.resolveRole(slug, userId)
 
-    if (organization) {
-      request.organization = organization
+    if (resolved) {
+      request.organization = resolved.organization
+      request.organizationRole = resolved.role
       return true
     } else if (continueIfNotFound) {
       return true

@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { describe, expect, it } from 'vitest'
+import { OrganizationRole } from '../../generated/prisma'
 
 const service = useTestService()
 
@@ -100,6 +101,39 @@ describe('UseCampaign guard (integration)', () => {
       })
 
       expect(result.status).toBe(404)
+    })
+
+    it('resolves the campaign for a campaignAdmin member, not just the owner', async () => {
+      // The owner (not service.user) owns both the org and the campaign —
+      // proves the campaign lookup dropped its userId predicate, not just
+      // the org's, since Campaign.userId here is the owner's id.
+      const owner = await service.prisma.user.create({
+        data: { email: 'campaign-owner-member-test@goodparty.org' },
+      })
+      const org = await service.prisma.organization.create({
+        data: { slug: 'campaign-org-member-test', ownerId: owner.id },
+      })
+      const campaign = await service.prisma.campaign.create({
+        data: {
+          userId: owner.id,
+          slug: 'test-campaign-member-test',
+          organizationSlug: org.slug,
+        },
+      })
+      await service.prisma.organizationMembership.create({
+        data: {
+          organizationSlug: org.slug,
+          userId: service.user.id,
+          role: OrganizationRole.campaignAdmin,
+        },
+      })
+
+      const result = await service.client.get('/v1/campaigns/mine', {
+        headers: { 'x-organization-slug': org.slug },
+      })
+
+      expect(result.status).toBe(200)
+      expect(result.data.slug).toBe(campaign.slug)
     })
 
     it('returns 404 when org belongs to another user', async () => {

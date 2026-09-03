@@ -1,4 +1,4 @@
-import { User } from '../generated/prisma'
+import { OrganizationRole, User } from '../generated/prisma'
 import { VerifiedM2MToken } from '@/authentication/interfaces/auth-provider.interface'
 
 export interface IncomingRequest extends Request {
@@ -8,4 +8,5 @@ export interface IncomingRequest extends Request {
   actorSub?: string
   m2mToken?: VerifiedM2MToken
   agentToken?: boolean
+  organizationRole?: OrganizationRole
 }

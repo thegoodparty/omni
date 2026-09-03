@@ -13,6 +13,7 @@ import { ComplianceStateService } from './services/complianceState.service'
 import { ComplianceStage } from '@goodparty_org/contracts'
 import { UsersService } from '../../users/services/users.service'
 import { CampaignsService } from '../services/campaigns.service'
+import { OrganizationMembershipService } from '@/organizations/services/organizationMembership.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   createMockUser,
@@ -117,6 +118,7 @@ describe('CampaignTcrComplianceController', () => {
           useValue: mockComplianceStateService,
         },
         { provide: CampaignsService, useValue: mockCampaignsService },
+        { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
         CampaignTcrComplianceController,

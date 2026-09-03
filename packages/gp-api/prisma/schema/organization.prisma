@@ -25,6 +25,7 @@ model Organization {
   peerlyPhoneLists                PeerlyPhoneList[]
   contactStatusEvents             ContactStatusEvent[]
   contactCurrentStatuses          ContactCurrentStatus[]
+  memberships                     OrganizationMembership[]
 
   @@index([ownerId])
   @@map("organization")

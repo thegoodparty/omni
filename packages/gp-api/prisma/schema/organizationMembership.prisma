@@ -1,0 +1,21 @@
+enum OrganizationRole {
+  owner
+  campaignAdmin
+  volunteer
+}
+
+model OrganizationMembership {
+  id               Int              @id @default(autoincrement())
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at")
+  organizationSlug String           @map("organization_slug")
+  organization     Organization     @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  userId           Int              @map("user_id")
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role             OrganizationRole
+  invitedByUserId  Int?             @map("invited_by_user_id")
+
+  @@unique([organizationSlug, userId])
+  @@index([userId])
+  @@map("organization_membership")
+}
