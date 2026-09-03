@@ -48,6 +48,11 @@ import {
   type DbxEvaluateRow,
   type DbxResidentRow,
 } from './databricksVoterSql.util'
+import type { FilterData } from '../schemas/filters.schema'
+import {
+  buildRankPrecinctsSql,
+  MAX_RANKED_PRECINCTS,
+} from '../../recommendedLists/recommendedListsSql.util'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
@@ -276,6 +281,55 @@ export class DatabricksVoterService {
       voters: Number(row[2] ?? 0),
     }))
     return PeoplePrecinctsResponseSchema.parse({ options, truncated })
+  }
+
+  // A recommended-list variant's own count, scoped to a resolved district.
+  // Callers already have `district` -- the recommended-lists endpoint fans
+  // out several of these plus a districtTotal concurrently against one
+  // resolved district, so resolving it again per variant would be wasted work.
+  async countForFilter(
+    district: DbxDistrict,
+    filters: FilterData,
+  ): Promise<number> {
+    const { rows } = await this.run(buildCountSql({ district, filters }))
+    return Number(rows[0]?.[0] ?? 0)
+  }
+
+  async districtTotal(district: DbxDistrict): Promise<number> {
+    return this.countForFilter(district, EMPTY_FILTERS)
+  }
+
+  // The door-knocking precinct picker: the variant's matching voters ranked
+  // by precinct, taken in ranked order until the cumulative count reaches
+  // doorTarget. Widening N when a district falls short of doorTarget, and
+  // omitting the recommendation entirely if the district-wide total still
+  // doesn't reach it, are both decisions for the caller -- this just ranks
+  // and cuts.
+  async rankPrecincts(
+    district: DbxDistrict,
+    filters: FilterData,
+    doorTarget: number,
+  ): Promise<Array<{ county: string; precinct: string; voters: number }>> {
+    const { rows } = await this.run(
+      buildRankPrecinctsSql({
+        district,
+        filters,
+        limit: MAX_RANKED_PRECINCTS,
+      }),
+    )
+    const selected: Array<{
+      county: string
+      precinct: string
+      voters: number
+    }> = []
+    let cumulative = 0
+    for (const row of rows) {
+      if (cumulative >= doorTarget) break
+      const voters = Number(row[2] ?? 0)
+      selected.push({ county: row[0] ?? '', precinct: row[1] ?? '', voters })
+      cumulative += voters
+    }
+    return selected
   }
 
   async findPeople(dto: ListPeopleDTO) {

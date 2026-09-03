@@ -11,7 +11,9 @@ import {
   listPeopleSchema,
   overlapCountSchema,
 } from '../schemas/people.schema'
+import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import { DatabricksVoterService } from './databricksVoter.service'
+import type { DbxDistrict } from './databricksVoterSql.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
@@ -447,6 +449,80 @@ describe('DatabricksVoterService', () => {
       await expect(
         service.findPerson('voter-1', STATE_DISTRICT_ID),
       ).rejects.toThrow('Person with ID voter-1 not found')
+    })
+  })
+
+  describe('recommended-lists aggregates', () => {
+    const DISTRICT: DbxDistrict = {
+      districtId: DISTRICT_ID,
+      state: 'CA',
+      districtType: 'US_Congressional_District',
+      districtName: '29',
+      useVoterOnlyPath: false,
+    }
+    const noFilters = (): FilterData => filtersSchema.parse({})
+
+    it('countForFilter takes a resolved district, no lookup', async () => {
+      query.mockResolvedValueOnce({ columns: ['voter_count'], rows: [['42']] })
+
+      const count = await service.countForFilter(DISTRICT, noFilters())
+
+      expect(count).toBe(42)
+      expect(findDistrictById).not.toHaveBeenCalled()
+    })
+
+    it('districtTotal counts the scope with no filter applied', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['voter_count'],
+        rows: [['123456']],
+      })
+
+      const total = await service.districtTotal(DISTRICT)
+
+      expect(total).toBe(123456)
+      expect(query).toHaveBeenCalledOnce()
+    })
+
+    it('stops once cumulative voters hit doorTarget', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['county', 'precinct', 'voters'],
+        rows: [
+          ['Los Angeles', '001', '9000'],
+          ['Los Angeles', '002', '4000'],
+          ['Los Angeles', '003', '3000'],
+        ],
+      })
+
+      const precincts = await service.rankPrecincts(
+        DISTRICT,
+        noFilters(),
+        10000,
+      )
+
+      // 9000 alone is under target; +4000 reaches it, so the third precinct
+      // (already ranked lower) is never needed.
+      expect(precincts).toEqual([
+        { county: 'Los Angeles', precinct: '001', voters: 9000 },
+        { county: 'Los Angeles', precinct: '002', voters: 4000 },
+      ])
+    })
+
+    it('returns all rows when the target is never reached', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['county', 'precinct', 'voters'],
+        rows: [
+          ['Campti', '001', '200'],
+          ['Campti', '002', '120'],
+        ],
+      })
+
+      const precincts = await service.rankPrecincts(
+        DISTRICT,
+        noFilters(),
+        10000,
+      )
+
+      expect(precincts).toHaveLength(2)
     })
   })
 })
