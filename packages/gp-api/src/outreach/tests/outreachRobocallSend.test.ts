@@ -9,13 +9,11 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { OutreachMaterializationService } from '@/outreach/services/outreachMaterialization.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
-import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
-import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
+import { ROBOCALL_VENDOR } from '@/outreach/vendor/robocallVendor'
+import { ROBOCALL_BROADCAST_STATUS } from '@/outreach/vendor/robocallVendor.types'
 import { ZodError } from 'zod'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
-import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -38,24 +36,17 @@ let filterId: number
 const piWith = (status: string) =>
   ({ id: 'pi_1', status }) as unknown as Stripe.Response<Stripe.PaymentIntent>
 
-// getCampaignStatus returns the campaign plus a label; reconcile reads `.status`.
-const vbWith = (status: number) =>
-  ({
-    url: 'https://callhub/v1/voice_broadcasts/vb_1/',
-    name: 'vb',
-    status,
-    statusLabel: 'x',
-  }) as unknown as VoiceBroadcastCampaignStatus
-
 beforeEach(async () => {
   send = service.app.get(OutreachRobocallSendService)
 
+  // launchBroadcast returns void — a clean resolve means the launch was
+  // accepted; the vendor adapter throws on any non-2xx.
   launchSpy = vi
-    .spyOn(service.app.get(CallhubCampaignService), 'launchVoiceBroadcast')
-    .mockResolvedValue({ pk_str: 'vb_1', status: 1 })
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'launchBroadcast')
+    .mockResolvedValue(undefined)
   statusSpy = vi
-    .spyOn(service.app.get(CallhubCampaignReportService), 'getCampaignStatus')
-    .mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'getBroadcastStatus')
+    .mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
   retrieveSpy = vi
     .spyOn(service.app.get(StripeService), 'retrievePaymentIntent')
     .mockResolvedValue(piWith('requires_capture'))
@@ -155,11 +146,12 @@ describe('OutreachRobocallSendService.startCampaign', () => {
 
     expect(retrieveSpy).toHaveBeenCalledWith('pi_1')
     expect(launchSpy).toHaveBeenCalledTimes(1)
-    // pk_str is carried as a STRING end-to-end, never coerced to a number.
-    const pkArg = launchSpy.mock.calls[0]?.[0]
-    expect(pkArg).toBe('vb_1')
-    expect(typeof pkArg).toBe('string')
-    // A successful launch needs no status reconciliation.
+    // The campaign ref is carried as a STRING end-to-end, never coerced.
+    const refArg = launchSpy.mock.calls[0]?.[0]
+    expect(refArg).toBe('vb_1')
+    expect(typeof refArg).toBe('string')
+    // A launch that resolves cleanly is trusted (the void return has no status
+    // to distrust), so it commits dialed without a status reconciliation.
     expect(statusSpy).not.toHaveBeenCalled()
 
     const satellite = await readSatellite(outreachId)
@@ -167,30 +159,30 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(satellite.dialedAt).not.toBeNull()
   })
 
-  it('surfaces a PERMANENT launch rejection as send_failed once CallHub confirms PAUSED', async () => {
+  it('surfaces a PERMANENT launch rejection as send_failed once the vendor confirms not-dialing', async () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue()
-    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+    launchSpy.mockRejectedValueOnce(new VendorPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
 
     await send.startCampaign(outreachId)
 
-    // Confirmed never STARTED (still PAUSED) + permanent → fail the send.
+    // Confirmed never dialed (not-dialing) + permanent → fail the send.
     expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
     // The marker is persisted BEFORE failSend, so a failSend that could not
     // commit still leaves the stale sweep able to fail (not relaunch) the row.
     expect((await readSatellite(outreachId)).permanentSendFailure).toBe(true)
   })
 
-  it('does NOT fail a permanently-errored launch that CallHub reports STARTED (it dialed)', async () => {
+  it('does NOT fail a permanently-errored launch that the vendor reports dialing (it dialed)', async () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue()
-    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+    launchSpy.mockRejectedValueOnce(new VendorPermanentError('bad campaign'))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.DIALING)
 
     await send.startCampaign(outreachId)
 
@@ -207,12 +199,12 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue()
-    launchSpy.mockRejectedValueOnce(new CallhubPermanentError('bad campaign'))
+    launchSpy.mockRejectedValueOnce(new VendorPermanentError('bad campaign'))
     statusSpy.mockRejectedValue(new BadGatewayException('status read down'))
 
     await send.startCampaign(outreachId)
 
-    // A permanent 4xx guarantees the campaign never STARTED, so a failed status
+    // A permanent 4xx guarantees the campaign never dialed, so a failed status
     // read adds no uncertainty — fail the send now instead of leaving the row
     // `dialing` for the stale sweep, which retries WITHOUT the permanent flag and
     // would relaunch into another permanent reject forever.
@@ -223,16 +215,16 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     )
   })
 
-  it('fails a SHAPE-error launch (unparseable response) once CallHub confirms PAUSED', async () => {
+  it('fails a SHAPE-error launch (unparseable response) once the vendor confirms not-dialing', async () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue()
     // A ZodError = the launch response body could not be parsed. The dial state
     // is unknown from the launch alone, but the status read authoritatively
-    // confirms PAUSED (never dialed), so failing the send is money-safe.
+    // confirms not-dialing (never dialed), so failing the send is money-safe.
     launchSpy.mockRejectedValueOnce(new ZodError([]))
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
 
     await send.startCampaign(outreachId)
 
@@ -246,7 +238,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue()
     // Unlike a 4xx, an unparseable launch body does NOT guarantee the campaign
-    // never STARTED. With an unresolved status read the dial state is unknown, so
+    // never dialed. With an unresolved status read the dial state is unknown, so
     // it must be LEFT dialing for the stale sweep — never voided on a guess.
     launchSpy.mockRejectedValueOnce(new ZodError([]))
     statusSpy.mockRejectedValue(new BadGatewayException('status read down'))
@@ -259,16 +251,16 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(satellite.permanentSendFailure).toBe(false)
   })
 
-  it('NEVER dials twice: a lost launch that CallHub reports STARTED commits dialed, no re-launch', async () => {
+  it('NEVER dials twice: a lost launch that the vendor reports dialing commits dialed, no re-launch', async () => {
     const outreachId = await createDraft()
-    // The PUT reached CallHub and started the broadcast, but the response was
-    // lost (502). A blind retry would re-dial the whole audience.
+    // The launch reached the vendor and started the broadcast, but the response
+    // was lost (502). A blind retry would re-dial the whole audience.
     launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.DIALING)
 
     await send.startCampaign(outreachId)
 
-    // The STARTED read concludes the dial happened — NO second launch, and the
+    // The dialing read concludes the dial happened — NO second launch, and the
     // row commits to dialed idempotently.
     expect(launchSpy).toHaveBeenCalledTimes(1)
     expect(statusSpy).toHaveBeenCalledWith('vb_1')
@@ -277,35 +269,14 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(satellite.dialedAt).not.toBeNull()
   })
 
-  it('a lost launch that CallHub reports PAUSED reverts to authorized (retryable)', async () => {
+  it('a lost launch that the vendor reports not-dialing reverts to authorized (retryable)', async () => {
     const outreachId = await createDraft()
     launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
 
     await send.startCampaign(outreachId)
 
-    // PAUSED proves the START never took — safe to revert and retry next sweep.
-    const satellite = await readSatellite(outreachId)
-    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
-    expect(satellite.dialedAt).toBeNull()
-  })
-
-  it('does NOT commit dialed when the launch 200 reads back a non-STARTED status', async () => {
-    const outreachId = await createDraft()
-    // A CallHub 200 that echoes PAUSE (or null/{}) parses through the nullish
-    // schema — trusting the 2xx would record `dialed` on a still-PAUSED campaign.
-    launchSpy.mockResolvedValue({
-      pk_str: 'vb_1',
-      status: CALLHUB_VB_STATUS.PAUSE,
-    })
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
-
-    await send.startCampaign(outreachId)
-
-    // Reconcile re-reads the real status (PAUSED) and reverts — not committed
-    // dialed, and the launch is not re-sent.
-    expect(launchSpy).toHaveBeenCalledTimes(1)
-    expect(statusSpy).toHaveBeenCalledWith('vb_1')
+    // Not-dialing proves the launch never took — safe to revert and retry.
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
     expect(satellite.dialedAt).toBeNull()
@@ -411,7 +382,7 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     )
   })
 
-  it('skips a draft that is not staged (no CallHub campaign)', async () => {
+  it('skips a draft that is not staged (no vendor campaign)', async () => {
     const outreachId = await createDraft({ staged: false })
 
     await send.startCampaign(outreachId)
@@ -454,14 +425,13 @@ describe('OutreachRobocallSendService.startCampaign', () => {
   it('logs a CRITICAL alert and does not un-launch when the commit misses', async () => {
     const outreachId = await createDraft()
     const errorSpy = loggerErrorSpy()
-    // A concurrent actor advances the draft out of `dialing` while CallHub is
+    // A concurrent actor advances the draft out of `dialing` while the vendor is
     // launching, so the commit CAS matches 0 rows.
     launchSpy.mockImplementationOnce(async () => {
       await service.prisma.outreachRobocall.updateMany({
         where: { outreachId },
         data: { settleState: RobocallSettleState.authorized },
       })
-      return { pk_str: 'vb_1', status: 1 }
     })
 
     await send.startCampaign(outreachId)
@@ -546,10 +516,10 @@ describe('OutreachRobocallSendService.startCampaign — recipient materializatio
     expect(rows.every((r) => r.outreachId === outreachId)).toBe(true)
   })
 
-  it('materializes on the reconciled-STARTED path too (a lost launch that dialed)', async () => {
+  it('materializes on the reconciled-dialing path too (a lost launch that dialed)', async () => {
     const outreachId = await createDraft()
     launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.DIALING)
     vi.spyOn(
       service.app.get(ContactsService),
       'findContactsForFilter',
@@ -649,12 +619,12 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     )
   })
 
-  it('recovers a stale dialing row: CallHub STARTED commits dialed', async () => {
+  it('recovers a stale dialing row: a dialing read commits dialed', async () => {
     const outreachId = await createDraft({
       settleState: RobocallSettleState.dialing,
     })
     await ageDialingRow(outreachId, 30)
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.DIALING)
 
     await send.sweepRobocallSend()
 
@@ -666,14 +636,14 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     expect(satellite.dialedAt).not.toBeNull()
   })
 
-  it('recovers a stale dialing row: CallHub ENDED commits dialed', async () => {
+  it('recovers a stale dialing row: a completed read commits dialed', async () => {
     // A small list finishes dialing before the stale read, so it reads back
-    // END, not START. END means it dialed — resolve to dialed, never re-dial.
+    // completed, not dialing. Completed means it dialed — resolve to dialed.
     const outreachId = await createDraft({
       settleState: RobocallSettleState.dialing,
     })
     await ageDialingRow(outreachId, 30)
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.END))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.COMPLETED)
 
     await send.sweepRobocallSend()
 
@@ -683,15 +653,15 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     expect(satellite.dialedAt).not.toBeNull()
   })
 
-  it('recovers a stale dialing row: CallHub ABORTED commits dialed', async () => {
-    // ABORT (manual stop, or a partial run) also means the campaign left
-    // PAUSED and dialed — resolve to dialed, never re-dial. How much to bill is
-    // the completion/capture slice's concern, not a reason to re-dial here.
+  it('recovers a stale dialing row: an aborted read commits dialed', async () => {
+    // ABORTED (manual stop, or a partial run) also means the campaign left its
+    // non-dialing state and dialed — resolve to dialed, never re-dial. How much
+    // to bill is the completion/capture slice's concern.
     const outreachId = await createDraft({
       settleState: RobocallSettleState.dialing,
     })
     await ageDialingRow(outreachId, 30)
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.ABORT))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.ABORTED)
 
     await send.sweepRobocallSend()
 
@@ -701,12 +671,12 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     expect(satellite.dialedAt).not.toBeNull()
   })
 
-  it('recovers a stale dialing row: CallHub PAUSED reverts to authorized', async () => {
+  it('recovers a stale dialing row: a not-dialing read reverts to authorized', async () => {
     const outreachId = await createDraft({
       settleState: RobocallSettleState.dialing,
     })
     await ageDialingRow(outreachId, 30)
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
 
     await send.sweepRobocallSend()
 
@@ -720,7 +690,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     // A permanent launch reject was confirmed but failSend could not commit, so
     // the marker is set on the still-`dialing` row. The stale sweep must FAIL the
     // send off the persisted marker — never revert to `authorized` and relaunch
-    // into the same 4xx, even though the status still reads PAUSED.
+    // into the same 4xx, even though the status still reads not-dialing.
     const outreachId = await createDraft({
       settleState: RobocallSettleState.dialing,
     })
@@ -732,7 +702,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue()
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
 
     await send.sweepRobocallSend()
 
@@ -747,7 +717,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     const outreachId = await createDraft({
       settleState: RobocallSettleState.dialing,
     })
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.DIALING)
 
     await send.sweepRobocallSend()
 
@@ -759,13 +729,13 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
     )
   })
 
-  it('a PAUSED lost-launch reverts, then a subsequent sweep dials it', async () => {
+  it('a not-dialing lost-launch reverts, then a subsequent sweep dials it', async () => {
     const outreachId = await createDraft({ sendInHours: -1 })
     launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
 
     await send.sweepRobocallSend()
-    // First pass: launch threw, CallHub PAUSED → reverted to authorized.
+    // First pass: launch threw, vendor not-dialing → reverted to authorized.
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
     )
@@ -780,11 +750,11 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
   it('continues past a failing draft and dials the rest', async () => {
     const a = await createDraft({ sendInHours: -1 })
     const b = await createDraft({ sendInHours: -1 })
-    // One launch fails outright; its status read is PAUSED so it reverts.
+    // One launch fails outright; its status read is not-dialing so it reverts.
     launchSpy
       .mockRejectedValueOnce(new BadGatewayException('boom'))
-      .mockResolvedValue({ pk_str: 'vb_ok', status: 1 })
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+      .mockResolvedValue(undefined)
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.PAUSED)
 
     await send.sweepRobocallSend()
 

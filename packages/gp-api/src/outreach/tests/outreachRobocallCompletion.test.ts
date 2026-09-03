@@ -6,40 +6,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ZodError } from 'zod'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
-import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
-import { CallhubCreditsService } from '@/vendors/callhub/services/callhubCredits.service'
-import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
-import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
+import { ROBOCALL_VENDOR } from '@/outreach/vendor/robocallVendor'
+import { ROBOCALL_BROADCAST_STATUS } from '@/outreach/vendor/robocallVendor.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 const service = useTestService()
 
 let completion: OutreachRobocallCompletionService
 let statusSpy: ReturnType<typeof vi.spyOn>
-let usageSpy: ReturnType<typeof vi.spyOn>
+let countSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
 let filterId: number
 
-// getCampaignStatus returns the campaign plus a label; the poll reads `.status`.
-const vbWith = (status: number) =>
-  ({
-    url: 'https://callhub/v1/voice_broadcasts/vb_1/',
-    name: 'vb',
-    status,
-    statusLabel: 'x',
-  }) as unknown as VoiceBroadcastCampaignStatus
-
 beforeEach(async () => {
   completion = service.app.get(OutreachRobocallCompletionService)
 
   statusSpy = vi
-    .spyOn(service.app.get(CallhubCampaignReportService), 'getCampaignStatus')
-    .mockResolvedValue(vbWith(CALLHUB_VB_STATUS.END))
-  usageSpy = vi
-    .spyOn(service.app.get(CallhubCreditsService), 'getVoiceCampaignUsage')
-    .mockResolvedValue({ voice_calls: 100, voice_billsec: 4200 })
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'getBroadcastStatus')
+    .mockResolvedValue(ROBOCALL_BROADCAST_STATUS.COMPLETED)
+  countSpy = vi
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'getCompletedCount')
+    .mockResolvedValue({ connectedCount: 100, billableSeconds: 4200 })
 
   const campaignId = 997
   orgSlug = `campaign-${campaignId}`
@@ -108,8 +97,8 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
   it('settles a completed run with a stable count and records it, no money op', async () => {
     const outreachId = await createDraft()
 
-    // First poll (END, count 100): no prior snapshot, so it records the count
-    // and waits — a single pass never settles a still-moving count.
+    // First poll (COMPLETED, count 100): no prior snapshot, so it records the
+    // count and waits — a single pass never settles a still-moving count.
     await completion.pollCompletion(outreachId, 'vb_1')
     const afterFirst = await readSatellite(outreachId)
     expect(afterFirst.settleState).toBe(RobocallSettleState.dialed)
@@ -119,13 +108,13 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
     // Confirming poll reads the same 100 → settle.
     await completion.pollCompletion(outreachId, 'vb_1')
 
-    // pk_str is carried as a STRING end-to-end, never coerced to a number.
+    // The campaign ref is carried as a STRING end-to-end, never coerced.
     const statusArg = statusSpy.mock.calls[0]?.[0]
     expect(statusArg).toBe('vb_1')
     expect(typeof statusArg).toBe('string')
-    const usageArg = usageSpy.mock.calls[0]?.[0]
-    expect(usageArg).toBe('vb_1')
-    expect(typeof usageArg).toBe('string')
+    const countArg = countSpy.mock.calls[0]?.[0]
+    expect(countArg).toBe('vb_1')
+    expect(typeof countArg).toBe('string')
 
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.settling)
@@ -141,13 +130,13 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
 
   it('stays dialed and reads no count while the run is still dialing', async () => {
     const outreachId = await createDraft()
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.DIALING)
 
     await completion.pollCompletion(outreachId, 'vb_1')
 
-    // Not finished: no count read (spare the rate-limited vendor a POST), no
+    // Not finished: no count read (spare the rate-limited vendor a call), no
     // snapshot, no settle.
-    expect(usageSpy).not.toHaveBeenCalled()
+    expect(countSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.dialed)
     expect(satellite.completedCallCount).toBeNull()
@@ -171,9 +160,9 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
   it('waits while the count is still moving, then settles once it stabilizes', async () => {
     const outreachId = await createDraft()
     // The count climbs across polls (reporting lag), then holds steady.
-    usageSpy
-      .mockResolvedValueOnce({ voice_calls: 40, voice_billsec: 1000 })
-      .mockResolvedValue({ voice_calls: 100, voice_billsec: 4200 })
+    countSpy
+      .mockResolvedValueOnce({ connectedCount: 40, billableSeconds: 1000 })
+      .mockResolvedValue({ connectedCount: 100, billableSeconds: 4200 })
 
     await completion.pollCompletion(outreachId, 'vb_1')
     expect((await readSatellite(outreachId)).completedCallCount).toBe(40)
@@ -191,27 +180,37 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
     expect(satellite.completedCallCount).toBe(100)
   })
 
-  it('does NOT settle at 0 when CallHub has not reported the count (null)', async () => {
+  it('parks a delivered run uncollectable + CRITICAL when the vendor reports no connected count (FINDING B)', async () => {
     const outreachId = await createDraft()
-    // END, but the count has not populated yet — a null voice_calls means
-    // "unknown", NOT zero. Settling here would capture nothing on a run that
-    // actually dialed.
-    usageSpy.mockResolvedValue({ voice_calls: null, voice_billsec: null })
+    // The vendor port returns a genuine number or throws — it never returns a
+    // "not reported yet" null. A terminal broadcast with an ABSENT connected
+    // count is a PERMANENT anomaly (FINDING B), not a transient wait: a silent
+    // null-and-retry would re-poll forever. The run DIALED, so park it
+    // `uncollectable` (never send_failed — never void a delivered run).
+    countSpy.mockRejectedValue(
+      new Error('CallFire stats missing callsLiveAnswer'),
+    )
+    const errorSpy = vi.spyOn(
+      (completion as unknown as { logger: PinoLogger }).logger,
+      'error',
+    )
 
     await completion.pollCompletion(outreachId, 'vb_1')
-    await completion.pollCompletion(outreachId, 'vb_1')
 
-    const satellite = await readSatellite(outreachId)
-    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
-    // Never recorded as a real 0 — left null to poll again.
-    expect(satellite.completedCallCount).toBeNull()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.uncollectable,
+    )
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId, campaignPkStr: 'vb_1' }),
+      expect.stringContaining('CRITICAL'),
+    )
   })
 
   it('settles at a genuine numeric 0 (a real all-suppressed run)', async () => {
     const outreachId = await createDraft()
     // A real 0 (every number suppressed) is a valid, stable count — distinct
-    // from a not-yet-reported null.
-    usageSpy.mockResolvedValue({ voice_calls: 0, voice_billsec: 0 })
+    // from a permanent missing-count anomaly.
+    countSpy.mockResolvedValue({ connectedCount: 0, billableSeconds: 0 })
 
     await completion.pollCompletion(outreachId, 'vb_1')
     expect((await readSatellite(outreachId)).completedCallCount).toBe(0)
@@ -250,10 +249,10 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
 
   it('records an aborted run partial count and settles it, not discarded', async () => {
     const outreachId = await createDraft()
-    // ABORT = a manual/partial stop. The partially-dialed count must still be
+    // ABORTED = a manual/partial stop. The partially-dialed count must still be
     // recorded and settled, never discarded.
-    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.ABORT))
-    usageSpy.mockResolvedValue({ voice_calls: 42, voice_billsec: 1800 })
+    statusSpy.mockResolvedValue(ROBOCALL_BROADCAST_STATUS.ABORTED)
+    countSpy.mockResolvedValue({ connectedCount: 42, billableSeconds: 1800 })
 
     await completion.pollCompletion(outreachId, 'vb_1')
     await completion.pollCompletion(outreachId, 'vb_1')
@@ -269,15 +268,15 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
 
     await completion.pollCompletion(outreachId, 'vb_1')
 
-    expect(usageSpy).not.toHaveBeenCalled()
+    expect(countSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
     )
   })
 
-  it('leaves the row dialed on a TRANSIENT credits failure, logged as a retry (not CRITICAL)', async () => {
+  it('leaves the row dialed on a TRANSIENT count failure, logged as a retry (not CRITICAL)', async () => {
     const outreachId = await createDraft()
-    usageSpy.mockRejectedValue(new BadGatewayException('credits down'))
+    countSpy.mockRejectedValue(new BadGatewayException('vendor down'))
     const errorSpy = vi.spyOn(
       (completion as unknown as { logger: PinoLogger }).logger,
       'error',
@@ -299,13 +298,12 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
 
   it('parks a delivered run uncollectable + CRITICAL on a permanent schema mismatch', async () => {
     const outreachId = await createDraft()
-    // A ZodError = the credits_usage response shape is wrong for real CallHub
-    // data (the UNVERIFIED-shape release-gate concern). It is PERMANENT — a
-    // silent null-and-retry would re-poll forever. The run has DIALED, so it may
-    // owe money for connected calls we can no longer count: park it
-    // `uncollectable` (fresh-charge / manual review settles it), NOT send_failed
-    // (which voids the hold — never void a delivered run).
-    usageSpy.mockRejectedValue(new ZodError([]))
+    // A ZodError = the vendor stats response shape is wrong for real data. It is
+    // PERMANENT — a silent null-and-retry would re-poll forever. The run has
+    // DIALED, so it may owe money for connected calls we can no longer count:
+    // park it `uncollectable` (fresh-charge / manual review settles it), NOT
+    // send_failed (which voids the hold — never void a delivered run).
+    countSpy.mockRejectedValue(new ZodError([]))
     const errorSpy = vi.spyOn(
       (completion as unknown as { logger: PinoLogger }).logger,
       'error',
@@ -324,7 +322,7 @@ describe('OutreachRobocallCompletionService.pollCompletion', () => {
 
   it('emits CRITICAL even when the uncollectable park itself fails', async () => {
     const outreachId = await createDraft()
-    usageSpy.mockRejectedValue(new ZodError([]))
+    countSpy.mockRejectedValue(new ZodError([]))
     const errorSpy = vi.spyOn(
       (completion as unknown as { logger: PinoLogger }).logger,
       'error',

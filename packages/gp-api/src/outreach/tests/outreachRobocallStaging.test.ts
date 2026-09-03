@@ -8,10 +8,9 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { RobocallPhonebookService } from '@/outreach/services/robocallPhonebook.service'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
-import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
-import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { ROBOCALL_VENDOR } from '@/outreach/vendor/robocallVendor'
+import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { ZodError } from 'zod'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
@@ -33,9 +32,8 @@ let campaign: Campaign
 let orgSlug: string
 let filterId: number
 
-const vbResult = (pkStr: string) => ({
-  pk_str: pkStr,
-  name: 'Robocall jane-doe',
+const vbResult = (campaignRef: string) => ({
+  campaignRef,
   startingDate: new Date('2026-09-16T13:18:21Z'),
   expirationDate: new Date('2026-09-23T13:18:21Z'),
 })
@@ -45,12 +43,12 @@ beforeEach(async () => {
 
   loadAudienceSpy = vi
     .spyOn(service.app.get(RobocallPhonebookService), 'loadAudienceToPhonebook')
-    .mockResolvedValue({ phonebookPkStr: 'pb_1', importedCount: 100 })
+    .mockResolvedValue({ audienceRef: 'list_1', loadedCount: 100 })
   uploadMediaSpy = vi
-    .spyOn(service.app.get(CallhubMediaService), 'uploadMedia')
-    .mockResolvedValue({ media_file_id: 'media_1' })
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'uploadMedia')
+    .mockResolvedValue({ mediaId: 'media_1' })
   createVbSpy = vi
-    .spyOn(service.app.get(CallhubCampaignService), 'createVoiceBroadcast')
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'createBroadcast')
     .mockResolvedValue(vbResult('vb_1'))
   getBytesSpy = vi
     .spyOn(service.app.get(S3Service), 'getFileBytesWithContentType')
@@ -148,11 +146,11 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
 
     expect(loadAudienceSpy).toHaveBeenCalledTimes(1)
     expect(createVbSpy).toHaveBeenCalledTimes(1)
-    // pk_str is carried as a STRING end-to-end, never coerced to a number.
+    // The campaign ref is carried as a STRING end-to-end, never coerced.
     const vbArgs = createVbSpy.mock.calls[0]?.[0]
     expect(vbArgs).toMatchObject({
-      phonebookPkStr: 'pb_1',
-      mediaFileId: 'media_1',
+      audienceRef: 'list_1',
+      mediaId: 'media_1',
       callerId: '+15125550123',
     })
 
@@ -191,8 +189,8 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
       expect.any(Buffer),
       MimeTypes.AUDIO_WEBM,
     )
-    // The mp3 bytes, tagged audio/mpeg, reach CallHub — not the raw webm — and
-    // the filename is swapped to .mp3 so CallHub doesn't reject a
+    // The mp3 bytes, tagged audio/mpeg, reach the vendor — not the raw webm —
+    // and the filename is swapped to .mp3 so the vendor doesn't reject a
     // filename/MIME mismatch.
     const uploadArgs = uploadMediaSpy.mock.calls[0]?.[0]
     expect(uploadArgs).toMatchObject({ mimeType: MimeTypes.AUDIO_MPEG })
@@ -201,8 +199,8 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     expect(uploadArgs?.fileName).not.toMatch(/\.webm$/)
   })
 
-  it('uploads a CallHub-accepted recording without transcoding', async () => {
-    // Default S3 stub returns audio/mpeg, already in CALLHUB_MEDIA_MIME_TYPES.
+  it('uploads a vendor-accepted recording without transcoding', async () => {
+    // Default S3 stub returns audio/mpeg, already in CALLFIRE_SOUND_MIME_TYPES.
     const outreachId = await createDraft()
 
     await staging.stageCampaign(outreachId)
@@ -239,14 +237,12 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     expect(satellite.callhubCampaignPkStr).toBeNull()
   })
 
-  it('surfaces a PERMANENT CallHub failure as send_failed, not a retry', async () => {
+  it('surfaces a PERMANENT vendor failure as send_failed, not a retry', async () => {
     const outreachId = await createDraft()
     const failSpy = vi
       .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
       .mockResolvedValue()
-    createVbSpy.mockRejectedValueOnce(
-      new CallhubPermanentError('bad caller id'),
-    )
+    createVbSpy.mockRejectedValueOnce(new VendorPermanentError('bad caller id'))
 
     await staging.stageCampaign(outreachId)
 
@@ -262,7 +258,7 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
   })
 
   it('surfaces a ZodError from the create response as send_failed', async () => {
-    // A create-response shape mismatch (a ZodError parsing createVoiceBroadcast)
+    // A create-response shape mismatch (a ZodError parsing createBroadcast)
     // is permanent — a retry can't fix a wrong response shape — and staging never
     // dials, so failing the send is money-safe. It must NOT revert-and-retry
     // forever the way a transient error does.

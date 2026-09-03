@@ -1,12 +1,14 @@
-import { Injectable } from '@nestjs/common'
+import { BadGatewayException, Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { ZodError } from 'zod'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
-import { CallhubCreditsService } from '@/vendors/callhub/services/callhubCredits.service'
-import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { RobocallSettleState } from '../../generated/prisma'
+import { ROBOCALL_VENDOR, RobocallVendor } from '../vendor/robocallVendor'
+import {
+  ROBOCALL_BROADCAST_STATUS,
+  RobocallBroadcastStatus,
+} from '../vendor/robocallVendor.types'
+import { VendorPermanentError } from '../vendor/vendorPermanentError'
 
 // Every 10 minutes, offset :09 so the sweep neither joins the top-of-hour herd
 // nor collides with the sibling robocall crons (send :04,…, staging :07,…) or
@@ -17,7 +19,7 @@ const ROBOCALL_COMPLETION_SWEEP_JOB = 'robocallCompletionSweep'
 
 // The completion-detection half of settlement (the read/record half; the actual
 // capture is the NEXT slice). For a robocall run left in `dialed` by the send
-// slice, poll CallHub to detect the broadcast finished, record the ACTUAL
+// slice, poll the vendor to detect the broadcast finished, record the ACTUAL
 // completed/billable call count, and move the draft to `settling` — the handoff
 // state the capture slice consumes. NO money movement here: this NEVER captures,
 // voids, or touches a PaymentIntent. The capture slice reads the recorded
@@ -27,8 +29,7 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
   constructor(
-    private readonly campaignReport: CallhubCampaignReportService,
-    private readonly credits: CallhubCreditsService,
+    @Inject(ROBOCALL_VENDOR) private readonly vendor: RobocallVendor,
   ) {
     super()
   }
@@ -72,26 +73,27 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   }
 
   async pollCompletion(outreachId: number, pkStr: string): Promise<void> {
-    const status = await this.readVbStatus(outreachId, pkStr)
-    // Not finished: START = still dialing, PAUSE = mid-run, and a read failure
-    // (null) or any unrecognized code is unresolved. Leave the row in `dialed`
-    // for a later pass and do NOT read the count — spare the rate-limited vendor
-    // a POST until the run is actually done.
+    const status = await this.readBroadcastStatus(outreachId, pkStr)
+    // Not finished: DIALING = still placing calls, PAUSED/PENDING = mid-run or
+    // not yet dialing, and a read failure (null) or UNKNOWN code is unresolved.
+    // Leave the row in `dialed` for a later pass and do NOT read the count —
+    // spare the rate-limited vendor a call until the run is actually done.
     if (
-      status !== CALLHUB_VB_STATUS.END &&
-      status !== CALLHUB_VB_STATUS.ABORT
+      status !== ROBOCALL_BROADCAST_STATUS.COMPLETED &&
+      status !== ROBOCALL_BROADCAST_STATUS.ABORTED
     ) {
       return
     }
-    // END = the broadcast drained; ABORT = a manual/partial stop. Both finished
-    // dialing, so both settle — an aborted run's partially-dialed count is
-    // recorded, never discarded.
-    const aborted = status === CALLHUB_VB_STATUS.ABORT
+    // COMPLETED = the broadcast drained; ABORTED = a manual/partial stop. Both
+    // finished dialing, so both settle — an aborted run's partially-dialed count
+    // is recorded, never discarded.
+    const aborted = status === ROBOCALL_BROADCAST_STATUS.ABORTED
 
-    // null = unknown (read failed, or CallHub has not reported the count yet):
-    // leave the run in `dialed` and poll again — never settle on an unknown
-    // count. A number (including a genuine 0) proceeds through the stability
-    // gate below.
+    // null = a TRANSIENT read failure: leave the run in `dialed` and poll again.
+    // A permanent read failure (a wrong shape, or a missing count) is NOT null —
+    // it parks the delivered run `uncollectable` inside readCompletedCount, and
+    // this returns to a row no longer `dialed`. A number (including a genuine 0)
+    // proceeds through the stability gate below.
     const count = await this.readCompletedCount(outreachId, pkStr)
     if (count == null) return
 
@@ -111,74 +113,78 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     await this.settle(outreachId, count, aborted, pkStr)
   }
 
-  // Reads the CallHub campaign's lifecycle status (a GET, no side effect).
-  // Returns null when the read itself fails so the caller treats "unknown"
-  // distinctly from a definitive END/ABORT and leaves the row for a later pass.
-  private async readVbStatus(
+  // Reads the vendor campaign's lifecycle status (a GET, no side effect) as the
+  // neutral enum. Returns null when the read itself fails so the caller treats
+  // "unknown" distinctly from a definitive COMPLETED/ABORTED and leaves the row
+  // for a later pass.
+  private async readBroadcastStatus(
     outreachId: number,
     pkStr: string,
-  ): Promise<number | null> {
+  ): Promise<RobocallBroadcastStatus | null> {
     try {
-      return (await this.campaignReport.getCampaignStatus(pkStr)).status
+      return await this.vendor.getBroadcastStatus(pkStr)
     } catch (err) {
-      await this.handleCallhubReadFailure(err, outreachId, pkStr, 'status')
+      await this.handleReadFailure(err, outreachId, pkStr, 'status')
       return null
     }
   }
 
-  // Reads the actual completed/billable call count for the finished run. Uses
-  // credits_usage `voice_calls` (dialed calls) scoped per-campaign by the
-  // campaign pk_str — the billable-count source the send-chain notes name, and
-  // what the capture slice charges. Returns null in two "unknown" cases so the
-  // caller leaves the row in `dialed` to poll again: a read failure, AND a
-  // null/absent voice_calls, which means CallHub has NOT reported the count yet
-  // — NOT zero completed calls. Settling a really-dialed run at 0 would capture
-  // nothing and never bill the candidate's real dials. A genuine numeric 0 (an
+  // Reads the actual connected/billable call count for the finished run — the
+  // billable-count source the capture slice charges. The vendor port returns a
+  // genuine number (including a real 0), never a "not reported yet" null: a
+  // terminal broadcast has its count, so an ABSENT count is a permanent anomaly,
+  // not a transient wait. Returns null ONLY on a TRANSIENT read failure so the
+  // caller leaves the row in `dialed` to poll again; a permanent failure (a
+  // wrong shape, or a missing count — FINDING B) is parked `uncollectable` in
+  // handleReadFailure below, never retried forever. A genuine numeric 0 (an
   // all-suppressed run) IS a real count and passes through to settle.
   private async readCompletedCount(
     outreachId: number,
     pkStr: string,
   ): Promise<number | null> {
     try {
-      const usage = await this.credits.getVoiceCampaignUsage(pkStr)
-      return usage.voice_calls ?? null
+      const { connectedCount } = await this.vendor.getCompletedCount(pkStr)
+      return connectedCount
     } catch (err) {
-      await this.handleCallhubReadFailure(
-        err,
-        outreachId,
-        pkStr,
-        'credits_usage',
-      )
+      await this.handleReadFailure(err, outreachId, pkStr, 'completed_count')
       return null
     }
   }
 
-  // Both readers return null → the caller leaves the run `dialed` and polls
-  // again. That is right for a TRANSIENT vendor/network error (a 502 from the
-  // http wrapper). But a ZodError is PERMANENT: the credits_usage/status
-  // response shape is wrong for real CallHub data (e.g. a DRF `results[]`
-  // wrapper we have not confirmed). A plain null-and-retry there would re-hit
-  // CallHub every sweep forever, silently, never settling. The run has DIALED,
-  // so it may owe money for connected calls we can no longer count — park it in
-  // `uncollectable` (the fresh-charge recovery / manual review settles it), NOT
-  // `send_failed` (which voids the hold — we must never void a delivered run).
-  // The CRITICAL alert surfaces the schema bug to ops.
-  private async handleCallhubReadFailure(
+  // Classifies a vendor read failure and, when PERMANENT, parks the delivered
+  // run `uncollectable`. TRANSIENT (a plain BadGatewayException — a 429/5xx/
+  // network blip) leaves the run `dialed` to poll again. PERMANENT is anything
+  // else: a ZodError (the response shape is wrong for real vendor data), a
+  // VendorPermanentError (a 4xx), or the adapter's missing-count Error (FINDING
+  // B — a terminal broadcast with no connected count). A silent null-and-retry
+  // on a permanent failure would re-hit the vendor every sweep forever, never
+  // settling. The run has DIALED, so it may owe money for connected calls we can
+  // no longer count — park it `uncollectable` (the fresh-charge recovery /
+  // manual review settles it), NOT `send_failed` (which voids the hold — we must
+  // never void a delivered run). The CRITICAL alert surfaces the bug to ops.
+  private isPermanentReadFailure(err: unknown): boolean {
+    // VendorPermanentError extends BadGatewayException, so it must be checked
+    // first — only a PLAIN BadGatewayException is the transient case.
+    if (err instanceof VendorPermanentError) return true
+    return !(err instanceof BadGatewayException)
+  }
+
+  private async handleReadFailure(
     err: unknown,
     outreachId: number,
     pkStr: string,
     source: string,
   ): Promise<void> {
-    if (err instanceof ZodError) {
+    if (this.isPermanentReadFailure(err)) {
       // Emit the CRITICAL alert UNCONDITIONALLY, before the state transition: a
       // DB error on the updateMany must not swallow the only signal that a
-      // delivered run was stranded by a permanent schema bug. The transition then
-      // has its own guard so its failure is logged and retried next sweep rather
-      // than escaping to the generic per-record catch.
+      // delivered run was stranded by a permanent read failure. The transition
+      // then has its own guard so its failure is logged and retried next sweep
+      // rather than escaping to the generic per-record catch.
       this.logger.error(
         { err, outreachId, campaignPkStr: pkStr },
-        `CRITICAL robocall CallHub ${source} schema mismatch; delivered run ` +
-          'parked uncollectable for manual settlement — response shape is wrong',
+        `CRITICAL robocall vendor ${source} read is permanently unreadable; ` +
+          'delivered run parked uncollectable for manual settlement',
       )
       try {
         await this.model.updateMany({
@@ -189,14 +195,14 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
         this.logger.error(
           { err: dbErr, outreachId, campaignPkStr: pkStr },
           'robocall: failed to park delivered run uncollectable after a ' +
-            'schema mismatch; retry next sweep',
+            'permanent vendor read failure; retry next sweep',
         )
       }
       return
     }
     this.logger.error(
       { err, outreachId, campaignPkStr: pkStr },
-      `robocall CallHub ${source} read failed while polling; retry next sweep`,
+      `robocall vendor ${source} read failed while polling; retry next sweep`,
     )
   }
 

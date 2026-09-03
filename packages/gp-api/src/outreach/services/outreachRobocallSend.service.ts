@@ -1,18 +1,20 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
-import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
-import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { ROBOCALL_VENDOR, RobocallVendor } from '../vendor/robocallVendor'
+import {
+  ROBOCALL_BROADCAST_STATUS,
+  RobocallBroadcastStatus,
+} from '../vendor/robocallVendor.types'
+import { VendorPermanentError } from '../vendor/vendorPermanentError'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 
@@ -26,8 +28,8 @@ const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
 // A `dialing` row whose updatedAt is older than this is assumed stranded — a
 // process that died between winning the dial claim and committing/reverting, or
 // a launch whose outcome the status read could not yet resolve — and is
-// recovered by a later sweep via a fresh CallHub status read. It MUST comfortably
-// exceed a healthy startCampaign's dialing window (a single launch PUT + commit,
+// recovered by a later sweep via a fresh vendor status read. It MUST comfortably
+// exceed a healthy startCampaign's dialing window (a single launch call + commit,
 // seconds) AND the sweep interval, so a merely-in-flight healthy run is never
 // reclaimed and reconciled underneath itself. 15 min is many times the healthy
 // window while still recovering a stranded hold long before it matters.
@@ -42,25 +44,26 @@ const isRobocallSendEnabled = (): boolean =>
   process.env.ROBOCALL_SEND_ENABLED === 'true'
 
 // Why a launch attempt did not cleanly commit `dialed`, which decides how a
-// reconcile treats a PAUSED / unresolved status read (see `reconcileDialing`):
-//   - `permanent`: a definitive 4xx reject — the START was refused, so the
-//     campaign is guaranteed still PAUSED (never dialed) whatever the status
-//     read says. Safe to fail on ANY read.
+// reconcile treats a not-dialing (paused/pending) / unresolved status read (see
+// `reconcileDialing`):
+//   - `permanent`: a definitive 4xx reject — the launch was refused, so the
+//     campaign is guaranteed never dialed whatever the status read says. Safe to
+//     fail on ANY read.
 //   - `shape`: the launch response could not be parsed (a ZodError — a garbage /
 //     unexpected body), so the dial state is UNKNOWN. Safe to fail ONLY when a
-//     status read CONFIRMS PAUSED; an unresolved read must not fail (it may have
-//     dialed).
-//   - `transient`: a lost/5xx response or a non-STARTED 200 — retry via the
-//     status read (revert on PAUSED, leave dialing on unresolved).
+//     status read CONFIRMS not-dialing; an unresolved read must not fail (it may
+//     have dialed).
+//   - `transient`: a lost/5xx response — retry via the status read (revert on a
+//     not-dialing read, leave dialing on unresolved).
 type LaunchOutcome = 'permanent' | 'shape' | 'transient'
 
-// The send-time dial slice: STARTs a staged, still-paid robocall's CallHub
+// The send-time dial slice: launches a staged, still-paid robocall's
 // voice-broadcast campaign once its send time has arrived. THIS is the step that
 // dials real phones and spends the authorized hold, so it guards two invariants
 // absolutely: NEVER dial an unpaid run (a fresh Stripe re-read of the hold gates
 // the launch), and NEVER dial the same run twice (a single-owner claim CAS
-// elects one dialer, and a launch whose response is lost is resolved by a CallHub
-// status read — never a blind retry). No capture, no void, no CallHub completion
+// elects one dialer, and a launch whose response is lost is resolved by a vendor
+// status read — never a blind retry). No capture, no void, no vendor completion
 // poll, no compliance table — those are other slices; this only READS the hold
 // and STARTs the campaign.
 @Injectable()
@@ -68,8 +71,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
   constructor(
-    private readonly campaigns: CallhubCampaignService,
-    private readonly campaignReport: CallhubCampaignReportService,
+    @Inject(ROBOCALL_VENDOR) private readonly vendor: RobocallVendor,
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
     private readonly hold: OutreachRobocallHoldService,
@@ -129,7 +131,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // stranded claim (a crashed run, or a launch whose outcome was left
     // unresolved). It is invisible to the dial claim above (which matches only
     // `authorized`) and its hold is live, so it must be reconciled — never
-    // re-launched blind — via a CallHub status read.
+    // re-launched blind — via a vendor status read.
     const staleCutoff = subMinutes(now, ROBOCALL_DIALING_STALE_MINUTES)
     const stale = await this.model.findMany({
       where: {
@@ -155,9 +157,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
 
   async startCampaign(outreachId: number): Promise<void> {
     // DIAL CLAIM (never dial twice): elect exactly one dialer. Only a staged,
-    // paid draft (authorized AND a CallHub campaign already created) can
+    // paid draft (authorized AND a vendor campaign already created) can
     // transition to `dialing`; a row already dialing/dialed, or one not yet
-    // staged (pk_str null), or in any other state fails the predicate and yields
+    // staged (ref null), or in any other state fails the predicate and yields
     // count 0 → not ours, return without dialing.
     const claim = await this.model.updateMany({
       where: {
@@ -226,33 +228,33 @@ export class OutreachRobocallSendService extends createPrismaBase(
       return
     }
 
-    // LAUNCH (outside any DB transaction): START the PAUSED campaign so it dials.
-    // pk_str stays a STRING end-to-end.
-    let launchStatus: number | null | undefined
+    // LAUNCH (outside any DB transaction): start the non-dialing campaign so it
+    // dials. campaignRef stays a STRING end-to-end.
     try {
-      launchStatus = (await this.campaigns.launchVoiceBroadcast(pkStr)).status
+      await this.vendor.launchBroadcast(pkStr)
     } catch (err) {
       // The launch response was lost (502 / timeout / reset), so we do NOT know
-      // whether the START reached CallHub. NEVER blind-retry — a second START
-      // could re-dial the entire audience. Reconcile against CallHub's actual
-      // status: only an explicit PAUSED authorizes a retry; only an explicit
-      // STARTED commits dialed; anything unresolved is left in `dialing` for the
-      // stale-dialing sweep. Log the launch error for the record.
+      // whether the launch reached the vendor. NEVER blind-retry — a second
+      // launch could re-dial the entire audience. Reconcile against the vendor's
+      // actual status: only an explicit not-dialing read authorizes a retry;
+      // only a dialing/completed/aborted read commits dialed; anything
+      // unresolved is left in `dialing` for the stale-dialing sweep. Log the
+      // launch error for the record.
       this.logger.error(
         { err, outreachId, dialingCampaignPkStr: pkStr },
-        'robocall launch failed; reconciling against CallHub status',
+        'robocall launch failed; reconciling against vendor status',
       )
       // Classify why the launch failed so reconcile knows how far to trust an
-      // unresolved status read. A 4xx reject (`permanent`) never STARTs → fail on
-      // any read. A ZodError parsing the launch response (`shape`) leaves the dial
-      // state unknown → fail only on a CONFIRMED PAUSED read, never on an
-      // unresolved one. Anything else is `transient` → reconcile + retry. Either
-      // way we NEVER blind-retry (a second START could re-dial) and NEVER fail a
-      // campaign that reads STARTED — reconcile commits that to dialed.
+      // unresolved status read. A 4xx reject (`permanent`) never dials → fail on
+      // any read. A ZodError parsing the launch response (`shape`) leaves the
+      // dial state unknown → fail only on a CONFIRMED not-dialing read, never on
+      // an unresolved one. Anything else is `transient` → reconcile + retry.
+      // Either way we NEVER blind-retry (a second launch could re-dial) and NEVER
+      // fail a campaign that reads dialing — reconcile commits that to dialed.
       await this.reconcileDialing(
         outreachId,
         pkStr,
-        err instanceof CallhubPermanentError
+        err instanceof VendorPermanentError
           ? 'permanent'
           : err instanceof ZodError
             ? 'shape'
@@ -261,26 +263,18 @@ export class OutreachRobocallSendService extends createPrismaBase(
       return
     }
 
-    // A 200 is not proof of a START: CallHub can echo PAUSE / null / {} (all of
-    // which parse through the nullish response schema). Only an explicit STARTED
-    // status commits dialed. Anything else re-reads the real status and resolves
-    // exactly as the lost-response path does, rather than trusting the 2xx.
-    if (launchStatus !== CALLHUB_VB_STATUS.START) {
-      this.logger.error(
-        { outreachId, dialingCampaignPkStr: pkStr, launchStatus },
-        'robocall launch did not read back STARTED; reconciling',
-      )
-      await this.reconcileDialing(outreachId, pkStr)
-      return
-    }
-
+    // The launch was accepted. Its void return carries no status to distrust
+    // (unlike CallHub's echoed status), and the vendor adapter throws on any
+    // non-2xx, so a clean return means the campaign will dial — commit dialed. A
+    // reconcile here would risk reverting an accepted launch that had not yet
+    // reported `dialing`, and relaunching it would re-dial the audience.
     await this.commitDialed(outreachId, pkStr)
   }
 
   // Recovers a `dialing` row stranded past the stale window. First re-claims it
   // with a stale-guarded CAS (writing `dialing` bumps @updatedAt, so a concurrent
   // recoverer finds updatedAt no longer < cutoff and loses — electing exactly one
-  // reconciler), then reconciles it against CallHub's status. Only the winner
+  // reconciler), then reconciles it against the vendor's status. Only the winner
   // touches the row, so reconcile's own commit/revert CAS never races a sibling.
   // Reads the persisted `permanentSendFailure` marker and passes it through: a
   // row stranded by a permanent launch reject (whose failSend could not commit)
@@ -304,10 +298,10 @@ export class OutreachRobocallSendService extends createPrismaBase(
       select: { permanentSendFailure: true },
     })
     // A marked row was already confirmed not-dialed when the marker was set
-    // (either a 4xx, or a `shape` failure whose status read was PAUSED), so it is
-    // safe to fail on any read → `permanent`. An unmarked stale row is treated as
-    // `transient`: reconcile against a fresh status read, which re-derives the
-    // real outcome on the next launch attempt.
+    // (either a 4xx, or a `shape` failure whose status read was not-dialing), so
+    // it is safe to fail on any read → `permanent`. An unmarked stale row is
+    // treated as `transient`: reconcile against a fresh status read, which
+    // re-derives the real outcome on the next launch attempt.
     await this.reconcileDialing(
       outreachId,
       pkStr,
@@ -342,44 +336,49 @@ export class OutreachRobocallSendService extends createPrismaBase(
     await this.hold.failSend(outreachId, 'send')
   }
 
-  // Resolves a `dialing` row against CallHub's actual campaign status — the ONLY
-  // safe way to conclude a launch whose response was lost, garbage, or rejected.
-  // STARTED means the dial DID happen → commit `dialed` idempotently (no re-dial),
-  // regardless of `outcome`. What a PAUSED or unresolved read does depends on WHY
-  // the launch didn't cleanly succeed (`outcome`, see the type above):
-  //   - `permanent` (a 4xx reject): fail the send on BOTH a PAUSED read AND an
-  //     unresolved read — a 4xx never dialed whatever the read says.
+  // Resolves a `dialing` row against the vendor's actual campaign status — the
+  // ONLY safe way to conclude a launch whose response was lost, garbage, or
+  // rejected. A dialing/completed/aborted read means the dial DID happen →
+  // commit `dialed` idempotently (no re-dial), regardless of `outcome`. What a
+  // not-dialing (paused/pending) or unresolved read does depends on WHY the
+  // launch didn't cleanly succeed (`outcome`, see the type above):
+  //   - `permanent` (a 4xx reject): fail the send on BOTH a not-dialing read AND
+  //     an unresolved read — a 4xx never dialed whatever the read says.
   //   - `shape` (an unparseable launch body, dial state UNKNOWN): fail ONLY on a
-  //     confirmed PAUSED read; on an unresolved read leave it `dialing`, because
-  //     the run MIGHT have dialed and we must never void a live run on a guess.
-  //   - `transient` (lost/5xx, or a non-STARTED 200): revert on PAUSED to
-  //     relaunch; leave `dialing` on an unresolved read.
-  // Invariants throughout: never relaunch without a PAUSED read, never mark dialed
-  // without a STARTED read, and never fail on an unresolved read unless the launch
-  // was a definitive 4xx.
+  //     confirmed not-dialing read; on an unresolved read leave it `dialing`,
+  //     because the run MIGHT have dialed and we must never void a live run on a
+  //     guess.
+  //   - `transient` (lost/5xx): revert on a not-dialing read to relaunch; leave
+  //     `dialing` on an unresolved read.
+  // Invariants throughout: never relaunch without a not-dialing read, never mark
+  // dialed without a dialing/completed/aborted read, and never fail on an
+  // unresolved read unless the launch was a definitive 4xx.
   private async reconcileDialing(
     outreachId: number,
     pkStr: string,
     outcome: LaunchOutcome = 'transient',
   ): Promise<void> {
-    const status = await this.readVbStatus(pkStr)
-    // PAUSE is the ONLY status that means the START never took effect, so it is
-    // the only one safe to relaunch. START = still dialing; ABORT/END = the
-    // campaign already left PAUSED and dialed (a small list can finish before we
-    // read it), so both resolve to dialed — we never un-dial. Only a failed read
-    // (null) or an unrecognized code stays in dialing for stale recovery.
+    const status = await this.readBroadcastStatus(pkStr)
+    // DIALING = still placing calls; COMPLETED/ABORTED = the campaign already
+    // left its non-dialing state and dialed (a small list can finish, or be
+    // stopped, before we read it), so all three resolve to dialed — we never
+    // un-dial. Only PAUSED/PENDING (never dialed) or UNKNOWN (a failed read /
+    // unmapped code) are handled below.
     if (
-      status === CALLHUB_VB_STATUS.START ||
-      status === CALLHUB_VB_STATUS.ABORT ||
-      status === CALLHUB_VB_STATUS.END
+      status === ROBOCALL_BROADCAST_STATUS.DIALING ||
+      status === ROBOCALL_BROADCAST_STATUS.COMPLETED ||
+      status === ROBOCALL_BROADCAST_STATUS.ABORTED
     ) {
       await this.commitDialed(outreachId, pkStr)
       return
     }
-    if (status === CALLHUB_VB_STATUS.PAUSE) {
-      // Confirmed the START never took effect (no calls dialed). A launch that
+    if (
+      status === ROBOCALL_BROADCAST_STATUS.PAUSED ||
+      status === ROBOCALL_BROADCAST_STATUS.PENDING
+    ) {
+      // Confirmed the launch never took effect (no calls dialed). A launch that
       // can't be retried into success — a 4xx reject (`permanent`) OR an
-      // unreadable response body (`shape`) — is failed here: the PAUSED read
+      // unreadable response body (`shape`) — is failed here: the not-dialing read
       // authoritatively confirms no dial, so voiding the hold is money-safe even
       // when the launch body itself was garbage. A `transient` failure just
       // releases the claim to relaunch next sweep.
@@ -390,14 +389,14 @@ export class OutreachRobocallSendService extends createPrismaBase(
       await this.revertClaim(outreachId)
       return
     }
-    // Unresolved status (a failed/garbage status read, or an unrecognized code).
-    // ONLY a definitive 4xx (`permanent`) is failed here: a 4xx guarantees the
-    // campaign never STARTED, so an unresolved read introduces no uncertainty —
-    // it did not dial. Fail via the marker-persisting path so a failSend that
-    // can't commit still leaves the stale sweep able to fail it (rather than
-    // reverting + relaunching into the same 4xx). A `shape` or `transient` failure
-    // with an unresolved read leaves the dial state UNKNOWN — the run may have
-    // dialed — so it stays `dialing` for the stale sweep, never failed on a guess.
+    // UNKNOWN status (a failed/garbage status read, or an unmapped code). ONLY a
+    // definitive 4xx (`permanent`) is failed here: a 4xx guarantees the campaign
+    // never dialed, so an unresolved read introduces no uncertainty — it did not
+    // dial. Fail via the marker-persisting path so a failSend that can't commit
+    // still leaves the stale sweep able to fail it (rather than reverting +
+    // relaunching into the same 4xx). A `shape` or `transient` failure with an
+    // unresolved read leaves the dial state UNKNOWN — the run may have dialed —
+    // so it stays `dialing` for the stale sweep, never failed on a guess.
     if (outcome === 'permanent') {
       await this.failPermanentSend(outreachId)
       return
@@ -408,18 +407,20 @@ export class OutreachRobocallSendService extends createPrismaBase(
     )
   }
 
-  // Reads the CallHub campaign's lifecycle status (a GET, no side effect).
-  // Returns null when the read itself fails so the caller can treat "unknown"
-  // distinctly from a definitive STARTED/PAUSED.
-  private async readVbStatus(pkStr: string): Promise<number | null> {
+  // Reads the vendor campaign's lifecycle status (a GET, no side effect) as the
+  // neutral enum. Returns UNKNOWN when the read itself fails so the caller can
+  // treat "unknown" distinctly from a definitive dialing/paused read.
+  private async readBroadcastStatus(
+    pkStr: string,
+  ): Promise<RobocallBroadcastStatus> {
     try {
-      return (await this.campaignReport.getCampaignStatus(pkStr)).status
+      return await this.vendor.getBroadcastStatus(pkStr)
     } catch (err) {
       this.logger.error(
         { err, dialingCampaignPkStr: pkStr },
-        'robocall CallHub status read failed while reconciling dialing',
+        'robocall vendor status read failed while reconciling dialing',
       )
-      return null
+      return ROBOCALL_BROADCAST_STATUS.UNKNOWN
     }
   }
 
@@ -432,12 +433,12 @@ export class OutreachRobocallSendService extends createPrismaBase(
     })
     if (commit.count === 0) {
       // The draft moved out of `dialing` while we launched/reconciled, so the
-      // campaign may be dialing at CallHub with no `dialed` record. There is no
-      // safe un-dial — do NOT attempt to un-launch; log a CRITICAL alert with the
-      // pk_str for manual reconciliation. FORWARD NOTE: when the cancel/void
+      // campaign may be dialing at the vendor with no `dialed` record. There is
+      // no safe un-dial — do NOT attempt to un-launch; log a CRITICAL alert with
+      // the ref for manual reconciliation. FORWARD NOTE: when the cancel/void
       // slice lands it must not silently move a `dialing` row (a live dial with
       // no dialed record) — it must block during dialing or reconcile via the
-      // CallHub status read, or it will orphan exactly this case.
+      // vendor status read, or it will orphan exactly this case.
       this.logger.error(
         { outreachId, dialingCampaignPkStr: pkStr },
         'CRITICAL robocall launched but commit matched no row; campaign may be ' +
@@ -494,8 +495,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
   }
 
   // Releases the dialing claim back to authorized so a retry (or a later sweep)
-  // can dial the still-PAUSED campaign — the money-safe rollback when CallHub
-  // confirms (PAUSED) or infra confirms (pre-launch) that no dial happened.
+  // can dial the still-undialed campaign — the money-safe rollback when the
+  // vendor confirms (not-dialing) or infra confirms (pre-launch) that no dial
+  // happened.
   private async revertClaim(outreachId: number): Promise<void> {
     await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.dialing },

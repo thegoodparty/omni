@@ -9,7 +9,7 @@ import { EmailModule } from 'src/email/email.module'
 import { PurchaseType } from 'src/payments/purchase.types'
 import { PurchaseService } from 'src/payments/services/purchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
-import { CallhubModule } from 'src/vendors/callhub/callhub.module'
+import { CallfireModule } from 'src/vendors/callfire/callfire.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
@@ -88,7 +88,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OrganizationsModule,
     ElectedOfficeModule,
     ContactInteractionModule,
-    CallhubModule,
+    CallfireModule,
     // For DoorKnockingTurfCountsService, behind the detail read's doorKnocking
     // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
     // loops back here, the same cycle the ContactsModule edge above defers.

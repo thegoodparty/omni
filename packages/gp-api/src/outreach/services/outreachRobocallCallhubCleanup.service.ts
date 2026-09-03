@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { PinoLogger } from 'nestjs-pino'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { ROBOCALL_VENDOR, RobocallVendor } from '../vendor/robocallVendor'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 
 // A slot away from the CallHub-heavy staging (:07) / send (:04) bursts, since
@@ -23,7 +23,7 @@ const ROBOCALL_CALLHUB_CLEANUP_JOB = 'robocallCallhubCleanupSweep'
 export class OutreachRobocallCallhubCleanupService {
   constructor(
     private readonly orphans: RobocallOrphanedCampaignService,
-    private readonly callhubCampaign: CallhubCampaignService,
+    @Inject(ROBOCALL_VENDOR) private readonly vendor: RobocallVendor,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallCallhubCleanupService.name)
@@ -46,10 +46,10 @@ export class OutreachRobocallCallhubCleanupService {
       try {
         // ABORT is idempotent enough for retry: a campaign already ABORTed/ENDed
         // either no-ops or 502s, and a 502 just leaves abortedAt null to retry.
-        await this.callhubCampaign.abortVoiceBroadcast(orphan.campaignPkStr)
+        await this.vendor.abortBroadcast(orphan.campaignPkStr)
         await this.orphans.markAborted(orphan.id)
       } catch (err) {
-        // Per-record isolation: one campaign's CallHub failure must not abort the
+        // Per-record isolation: one campaign's vendor failure must not abort the
         // rest of the sweep. The row stays unaborted and retries next pass.
         this.logger.error(
           { err, campaignPkStr: orphan.campaignPkStr },

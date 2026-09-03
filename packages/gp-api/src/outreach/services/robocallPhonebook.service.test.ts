@@ -1,13 +1,12 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { CallhubBulkImportService } from '@/vendors/callhub/services/callhubBulkImport.service'
-import { CallhubPhonebookService } from '@/vendors/callhub/services/callhubPhonebook.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { Campaign } from '@/generated/prisma'
+import { RobocallVendor } from '../vendor/robocallVendor'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 
 const campaign = { id: 7, slug: 'jane-for-mayor', organizationSlug: 'org-1' }
@@ -23,11 +22,7 @@ describe('RobocallPhonebookService', () => {
   let voterFileFilterService: {
     findByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
   }
-  let phonebooks: {
-    createPhonebook: ReturnType<typeof vi.fn>
-    getContactCount: ReturnType<typeof vi.fn>
-  }
-  let bulkImport: { importContacts: ReturnType<typeof vi.fn> }
+  let vendor: { loadAudience: ReturnType<typeof vi.fn> }
   let s3: {
     uploadFile: ReturnType<typeof vi.fn>
     getSignedUrlForViewing: ReturnType<typeof vi.fn>
@@ -44,11 +39,11 @@ describe('RobocallPhonebookService', () => {
         .fn()
         .mockResolvedValue({ id: 99, organizationSlug: 'org-1' }),
     }
-    phonebooks = {
-      createPhonebook: vi.fn().mockResolvedValue({ pk_str: 'pb-1' }),
-      getContactCount: vi.fn(),
+    vendor = {
+      loadAudience: vi
+        .fn()
+        .mockResolvedValue({ audienceRef: 'list_1', loadedCount: 3 }),
     }
-    bulkImport = { importContacts: vi.fn().mockResolvedValue({}) }
     s3 = {
       uploadFile: vi.fn().mockResolvedValue('ignored'),
       getSignedUrlForViewing: vi
@@ -60,25 +55,15 @@ describe('RobocallPhonebookService', () => {
       contacts as unknown as ContactsService,
       organizations as unknown as OrganizationsService,
       voterFileFilterService as unknown as VoterFileFilterService,
-      phonebooks as unknown as CallhubPhonebookService,
-      bulkImport as unknown as CallhubBulkImportService,
+      vendor as unknown as RobocallVendor,
       s3 as unknown as S3Service,
       createMockLogger(),
     )
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+  const run = () => service.loadAudienceToPhonebook(campaign as Campaign, 99)
 
-  const run = async () => {
-    vi.useFakeTimers()
-    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
-    await vi.runAllTimersAsync()
-    return promise
-  }
-
-  it('loads the deduped, normalized 10-digit landlines into a fresh phonebook', async () => {
+  it('resolves the deduped, normalized landlines and hands the vendor the CSV', async () => {
     contacts.findContactsForFilter.mockResolvedValue(
       peoplePage([
         '(202) 555-0100', // 10 digits
@@ -89,7 +74,6 @@ describe('RobocallPhonebookService', () => {
         null,
       ]),
     )
-    phonebooks.getContactCount.mockResolvedValue(3)
 
     const result = await run()
 
@@ -109,26 +93,24 @@ describe('RobocallPhonebookService', () => {
       { contentType: 'text/csv' },
     )
 
-    // Phonebook created, then bulk import fired with the presigned URL + the
-    // calling-number mapping.
-    expect(phonebooks.createPhonebook).toHaveBeenCalledOnce()
-    expect(bulkImport.importContacts).toHaveBeenCalledWith({
-      phonebookPkStr: 'pb-1',
+    // The neutral audience load is fired with the presigned URL; the adapter
+    // owns the CSV-column mapping and the async-validation poll.
+    expect(vendor.loadAudience).toHaveBeenCalledWith({
+      name: expect.stringContaining('Robocall jane-for-mayor filter 99'),
       csvUrl: 'https://s3.example/audience.csv?sig=abc',
-      mapping: { 0: 0 },
       countryIso: 'US',
     })
 
-    expect(result).toEqual({ phonebookPkStr: 'pb-1', importedCount: 3 })
+    // The neutral audience handle is returned verbatim.
+    expect(result).toEqual({ audienceRef: 'list_1', loadedCount: 3 })
   })
 
   it('pages until hasNextPage is false', async () => {
     contacts.findContactsForFilter
       .mockResolvedValueOnce(peoplePage(['2025550001'], true))
       .mockResolvedValueOnce(peoplePage(['2025550002'], false))
-    phonebooks.getContactCount.mockResolvedValue(2)
 
-    const result = await run()
+    await run()
 
     expect(contacts.findContactsForFilter).toHaveBeenCalledTimes(2)
     expect(s3.uploadFile).toHaveBeenCalledWith(
@@ -137,121 +119,56 @@ describe('RobocallPhonebookService', () => {
       expect.any(String),
       { contentType: 'text/csv' },
     )
-    expect(result.importedCount).toBe(2)
-  })
-
-  it('polls the count until it reaches the expected total', async () => {
-    contacts.findContactsForFilter.mockResolvedValue(
-      peoplePage(['2025550001', '2025550002']),
-    )
-    phonebooks.getContactCount
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(2)
-
-    const result = await run()
-
-    expect(phonebooks.getContactCount).toHaveBeenCalledTimes(3)
-    expect(result.importedCount).toBe(2)
-  })
-
-  it('tolerates a transient poll error and keeps polling', async () => {
-    contacts.findContactsForFilter.mockResolvedValue(peoplePage(['2025550001']))
-    phonebooks.getContactCount
-      .mockRejectedValueOnce(new BadGatewayException('throttled'))
-      .mockResolvedValue(1)
-
-    const result = await run()
-
-    expect(phonebooks.getContactCount).toHaveBeenCalledTimes(2)
-    expect(result.importedCount).toBe(1)
-  })
-
-  it('propagates a non-transient poll error immediately', async () => {
-    contacts.findContactsForFilter.mockResolvedValue(peoplePage(['2025550001']))
-    phonebooks.getContactCount.mockRejectedValue(new BadRequestException('bad'))
-
-    vi.useFakeTimers()
-    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
-    const assertion =
-      expect(promise).rejects.toBeInstanceOf(BadRequestException)
-    await vi.runAllTimersAsync()
-    await assertion
-    expect(phonebooks.getContactCount).toHaveBeenCalledTimes(1)
-  })
-
-  it('throws when the import never reaches the expected count', async () => {
-    contacts.findContactsForFilter.mockResolvedValue(
-      peoplePage(['2025550001', '2025550002']),
-    )
-    phonebooks.getContactCount.mockResolvedValue(1)
-
-    vi.useFakeTimers()
-    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
-    const assertion =
-      expect(promise).rejects.toBeInstanceOf(BadGatewayException)
-    await vi.runAllTimersAsync()
-    await assertion
   })
 
   it('rejects when the list resolves to no landlines', async () => {
     contacts.findContactsForFilter.mockResolvedValue(peoplePage([null, '']))
 
-    await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
-    ).rejects.toBeInstanceOf(BadRequestException)
-    expect(phonebooks.createPhonebook).not.toHaveBeenCalled()
+    await expect(run()).rejects.toBeInstanceOf(BadRequestException)
+    expect(vendor.loadAudience).not.toHaveBeenCalled()
   })
 
   it('rejects a missing organization', async () => {
     organizations.findFirst.mockResolvedValue(null)
 
-    await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    await expect(run()).rejects.toBeInstanceOf(BadRequestException)
   })
 
   it('rejects a missing voter list', async () => {
     voterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(null)
 
-    await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    await expect(run()).rejects.toBeInstanceOf(BadRequestException)
   })
 
-  it('propagates a CallHub failure as a 502', async () => {
+  it('propagates a vendor load failure as a 502', async () => {
     contacts.findContactsForFilter.mockResolvedValue(peoplePage(['2025550001']))
-    phonebooks.createPhonebook.mockRejectedValue(
-      new BadGatewayException('CallHub down'),
+    vendor.loadAudience.mockRejectedValue(
+      new BadGatewayException('vendor down'),
     )
 
-    await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
-    ).rejects.toBeInstanceOf(BadGatewayException)
+    await expect(run()).rejects.toBeInstanceOf(BadGatewayException)
   })
 
   describe('ROBOCALL_TEST_OVERRIDE_NUMBER (live-test harness)', () => {
     it('loads ONLY the override number and never resolves the real audience', async () => {
       process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '804-222-1111'
-      phonebooks.getContactCount.mockResolvedValue(1)
 
       const result = await run()
 
       // The real audience is never touched: no voter is resolved or dialed.
       expect(contacts.findContactsForFilter).not.toHaveBeenCalled()
-      // Exactly the normalized override number is loaded into the phonebook.
+      // Exactly the normalized override number is loaded into the audience.
       expect(s3.uploadFile).toHaveBeenCalledWith(
         'robocall-audio-test',
         'phone\n8042221111\n',
         expect.any(String),
         { contentType: 'text/csv' },
       )
-      expect(result).toEqual({ phonebookPkStr: 'pb-1', importedCount: 1 })
+      expect(result).toEqual({ audienceRef: 'list_1', loadedCount: 3 })
     })
 
     it('normalizes a leading US country code and formatting', async () => {
       process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '+1 (804) 222-1111'
-      phonebooks.getContactCount.mockResolvedValue(1)
 
       await run()
 
@@ -266,11 +183,9 @@ describe('RobocallPhonebookService', () => {
     it('fails closed on a malformed override, never touching the real audience', async () => {
       process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '555-1234' // 7 digits
 
-      await expect(
-        service.loadAudienceToPhonebook(campaign as Campaign, 99),
-      ).rejects.toBeInstanceOf(BadRequestException)
+      await expect(run()).rejects.toBeInstanceOf(BadRequestException)
       expect(contacts.findContactsForFilter).not.toHaveBeenCalled()
-      expect(phonebooks.createPhonebook).not.toHaveBeenCalled()
+      expect(vendor.loadAudience).not.toHaveBeenCalled()
     })
   })
 })

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { RobocallOrphanedCampaignService } from '@/outreach/services/robocallOrphanedCampaign.service'
-import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { ROBOCALL_VENDOR } from '@/outreach/vendor/robocallVendor'
 
 const service = useTestService()
 
@@ -14,7 +14,7 @@ beforeEach(() => {
   cleanup = service.app.get(OutreachRobocallCallhubCleanupService)
   orphans = service.app.get(RobocallOrphanedCampaignService)
   abortSpy = vi
-    .spyOn(service.app.get(CallhubCampaignService), 'abortVoiceBroadcast')
+    .spyOn(service.app.get(ROBOCALL_VENDOR), 'abortBroadcast')
     .mockResolvedValue(undefined)
 })
 
