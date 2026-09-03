@@ -122,12 +122,26 @@ export class OrganizationsService extends createPrismaBase(
     return this.applyPatch(org, updates)
   }
 
+  // Reports the pre-patch waypoint override alongside the updated row, because
+  // the controller's audit line is the only durable record that someone moved
+  // an organization's Geoapify spending limit and it has to name the value this
+  // patch actually replaced. Read here, off the very row `applyPatch` computes
+  // its write from, rather than by a second lookup in the controller: a
+  // concurrent admin PATCH landing between that lookup and this one would make
+  // the line name a previous value that was never overwritten, and — worse —
+  // when the two happened to agree it would suppress the line for a change that
+  // did happen.
   async adminPatchOrganization(
     slug: string,
     updates: AdminPatchOrganizationDto,
   ) {
     const org = await this.adminGetOrganization(slug)
-    return this.applyPatch(org, updates)
+    const previousLimit = org.overrideDoorKnockingWaypointLimit
+
+    return {
+      organization: await this.applyPatch(org, updates),
+      previousLimit,
+    }
   }
 
   private async applyPatch(
