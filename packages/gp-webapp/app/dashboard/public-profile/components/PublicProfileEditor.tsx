@@ -310,12 +310,17 @@ function LoadedEditor({
       body.accomplishments = nextAccomplishments
     }
 
+    // Ahead of the no-op check rather than after it: a fresh attempt supersedes
+    // the last one's errors whether or not it turns out to have anything to
+    // send, and that shouldn't rest on an argument about which states are
+    // reachable.
+    setErrors({})
+
     if (Object.keys(body).length === 0) {
       successSnackbar('No changes to save.')
       return
     }
 
-    setErrors({})
     setSaving(true)
     try {
       const { data } = await clientRequest('PUT /v1/person-profiles/mine', body)

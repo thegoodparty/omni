@@ -79,6 +79,11 @@ beforeEach(() => {
 const save = async (): Promise<void> =>
   userEvent.click(screen.getAllByRole('button', { name: /save changes/i })[0]!)
 
+const putPayloads = (): Array<Record<string, unknown>> =>
+  mockedRequest.mock.calls
+    .filter(([endpoint]) => endpoint === 'PUT /v1/person-profiles/mine')
+    .map(([, body]) => body as Record<string, unknown>)
+
 const putPayload = (): Record<string, unknown> | undefined =>
   mockedRequest.mock.calls.find(
     ([endpoint]) => endpoint === 'PUT /v1/person-profiles/mine',
@@ -504,6 +509,64 @@ describe('PublicProfileEditor — partial saves', () => {
         'Check Why I serve and save again.',
       ),
     )
+  })
+
+  // The lists are diffed after the blank-row filter, so a half-started row the
+  // owner left behind is neither sent nor mistaken for a change on every save
+  // that follows. It stays on screen, because it is still theirs to finish.
+  it('does not resend a list because of a blank row left in the form', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /add experience/i }),
+    )
+    await userEvent.type(screen.getByLabelText('Display name'), '!')
+    await save()
+    await waitFor(() => expect(putPayloads()).toHaveLength(1))
+    expect('recentExperience' in putPayloads()[0]!).toBe(false)
+
+    await userEvent.type(screen.getByLabelText('Instagram'), 'https://x.com/a')
+    await save()
+
+    await waitFor(() => expect(putPayloads()).toHaveLength(2))
+    expect(Object.keys(putPayloads()[1]!)).toEqual(['instagramUrl'])
+  })
+
+  it('does not resend a stored list after a save that round-trips it', async () => {
+    const withExperience = profile({
+      recentExperience: [{ title: 'Teacher', organization: 'Ward 3 Schools' }],
+    })
+    mockedRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: withExperience,
+    } as never)
+
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={withExperience}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText('Display name'), '!')
+    await save()
+    await waitFor(() => expect(putPayloads()).toHaveLength(1))
+
+    await userEvent.type(screen.getByLabelText('Instagram'), 'https://x.com/a')
+    await save()
+
+    await waitFor(() => expect(putPayloads()).toHaveLength(2))
+    expect(Object.keys(putPayloads()[1]!)).toEqual(['instagramUrl'])
   })
 
   it('has a label for every field it can send', () => {
