@@ -34,7 +34,6 @@ vi.mock('./createFlow/CreateListFlow', () => ({
     onShowAddresses: () => void
     onHideAddresses: () => void
     onStepChange: (step: CreateFlowStep) => void
-    onSaved: (drawAnother: boolean) => void
     onSelectedListChange: (listId: number | null) => void
   }) => {
     flowProps.current = props
@@ -51,9 +50,6 @@ vi.mock('./createFlow/CreateListFlow', () => ({
         </button>
         <button type="button" onClick={() => props.onStepChange('filters')}>
           back to filters
-        </button>
-        <button type="button" onClick={() => props.onSaved(true)}>
-          save and draw another
         </button>
       </div>
     )
@@ -72,7 +68,15 @@ const mockPreview = () => {
     previewCalls.bodies.push(body as Record<string, unknown>)
     return {
       status: 200,
-      data: { stops: 1, doors: 2, people: 2, locations: [] },
+      // `waypointsRemaining` rides the same response so the draw step can
+      // block Build route before the paid press rather than after it.
+      data: {
+        stops: 1,
+        doors: 2,
+        people: 2,
+        locations: [],
+        waypointsRemaining: 500,
+      },
     }
   })
 }
@@ -100,7 +104,7 @@ const ringA: PolygonRing = [
 ]
 
 const onStepChange = vi.fn()
-const onSaved = vi.fn()
+const onListCreated = vi.fn()
 
 const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
   <CreateListSurface
@@ -112,12 +116,14 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     districtHouseholds={0}
     ring={ringA}
     turfStats={null}
+    drawFullScreen={false}
+    onDrawFullScreenChange={vi.fn()}
+    onRestartDrawing={vi.fn()}
     drawPointCount={3}
     onUndoPoint={vi.fn()}
-    onClearPoints={vi.fn()}
     color="#2563eb"
-    onColorChange={vi.fn()}
-    onSaved={onSaved}
+    drawnStops={null}
+    onListCreated={onListCreated}
     isElectedOfficial={false}
     unpreviewableKeys={[]}
     {...overrides}
@@ -129,7 +135,7 @@ describe('CreateListSurface seam', () => {
     testQueryClient.clear()
     flowProps.current = null
     onStepChange.mockClear()
-    onSaved.mockClear()
+    onListCreated.mockClear()
     mockPreview()
   })
 
@@ -248,22 +254,6 @@ describe('CreateListSurface seam', () => {
     expect(filters.precincts).toBeUndefined()
   })
 
-  it('drops the panel after a save that draws another', async () => {
-    render(surface())
-
-    fireEvent.click(screen.getByRole('button', { name: 'show addresses' }))
-    await waitFor(() =>
-      expect(flowProps.current?.addressPreview?.doors).toBe(2),
-    )
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'save and draw another' }),
-    )
-
-    await waitFor(() => expect(flowProps.current?.addressPreview).toBeNull())
-    expect(onSaved).toHaveBeenCalledWith(true)
-  })
-
   // The who step's picker, counted against the same pack the map is drawn
   // from. Both reads are the page's own query keys, which is the point: the
   // saved lists are already warm and the pack is emphatically not this
@@ -315,8 +305,8 @@ describe('CreateListSurface seam', () => {
 // the orchestrator because the canvas outlives the flow, so the contract is the
 // hook's return shape rather than a prop list.
 describe('useCreateListDraw', () => {
-  const Probe = ({ step }: { step: CreateFlowStep | null }) => {
-    const draw = useCreateListDraw(step)
+  const Probe = () => {
+    const draw = useCreateListDraw()
     return (
       <div
         data-testid="draw"
@@ -324,31 +314,25 @@ describe('useCreateListDraw', () => {
         data-clear={String(draw.clearDrawToken)}
         data-undo={String(draw.undoDrawToken)}
         data-points={String(draw.pointCount)}
-        data-hint={String(draw.hintVisible)}
         data-color={draw.drawColor}
         data-frame={String(draw.frameDrawToken)}
         data-frame-bottom={String(draw.frameDrawBottomPct)}
+        data-full={String(draw.fullScreen)}
       >
         <button type="button" onClick={draw.startDrawing}>
           start
         </button>
-        <button type="button" onClick={draw.frameDrawing}>
-          frame
+        <button type="button" onClick={() => draw.setFullScreen(true)}>
+          open the map
         </button>
-        <button type="button" onClick={() => draw.onDrawColorChange('#16a34a')}>
-          pick green
-        </button>
-        <button type="button" onClick={draw.clearPoints}>
-          clear points
+        <button type="button" onClick={() => draw.setFullScreen(false)}>
+          leave the map
         </button>
         <button type="button" onClick={draw.clearDrawing}>
           clear drawing
         </button>
         <button type="button" onClick={draw.undoPoint}>
           undo
-        </button>
-        <button type="button" onClick={draw.dismissHint}>
-          dismiss
         </button>
         <button type="button" onClick={() => draw.onPointCount(1)}>
           place a point
@@ -357,83 +341,61 @@ describe('useCreateListDraw', () => {
     )
   }
 
-  it('turns Clear into a restarted session, not an emptied one', () => {
-    render(<Probe step="draw" />)
+  // Whether the map is uncovered is a fact about the CANVAS, which outlives
+  // the flow — the same rule the draw tokens follow. The windowed preview on
+  // the draw step and the drawing surface are one map in two states, so the
+  // component that switches between them cannot be the one that remembers.
+  it('holds whether the map is uncovered, and clears it with the shape', () => {
+    render(<Probe />)
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-full', 'false')
 
-    fireEvent.click(screen.getByRole('button', { name: 'clear points' }))
+    fireEvent.click(screen.getByRole('button', { name: 'open the map' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-full', 'true')
 
-    // A restarted drawing session (empty ring, still in draw mode) is exactly
-    // the state Clear returns to; bumping the clear token too would run
-    // deleteAll after draw_polygon is entered and kill the fresh session.
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-start', '1')
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-clear', '0')
+    // Leaving the flow entirely puts the surface back down, which a component
+    // that was unmounted would get for free.
+    fireEvent.click(screen.getByRole('button', { name: 'clear drawing' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-full', 'false')
   })
 
-  it('leaves the coach mark dismissed after a Clear, and brings it back on a new draw', () => {
-    render(<Probe step="draw" />)
+  // Uncovering the map is what asks for the shape back in view: the camera has
+  // not moved, but a candidate who has been reading a form for a minute has no
+  // idea where their boundary is. Not fired by the ring changing — while they
+  // draw, the canvasser is the one aiming the camera.
+  it('asks for a fit on the way onto the map, and not on the way off it', () => {
+    render(<Probe />)
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '0')
 
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'true')
-    fireEvent.click(screen.getByRole('button', { name: 'dismiss' }))
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'open the map' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'clear points' }))
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'false')
-
-    fireEvent.click(screen.getByRole('button', { name: 'start' }))
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'leave the map' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '1')
   })
 
-  it('hides the coach mark once a point exists, and off the draw step', () => {
-    const { rerender } = render(<Probe step="draw" />)
+  // Nothing covers the map on the drawing surface in 2.0 — the chrome floats
+  // over it rather than taking a band of it — so the ring is fitted into the
+  // whole of the map rather than into whatever a sheet left uncovered.
+  it('pads the fit against the whole map', () => {
+    render(<Probe />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'place a point' }))
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'false')
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-points', '1')
-
-    rerender(<Probe step="confirm" />)
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-hint', 'false')
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame-bottom', '0')
   })
 
-  // The colour lives here rather than in the confirm step because the CANVAS
-  // draws the ring in it, and the canvas outlives the flow — the same rule the
-  // draw tokens follow. Leaving the flow has to put it back by hand, which is
-  // what the unmounted `useState` used to do for free.
-  it('holds the chosen colour, and resets it when the flow is left', () => {
-    render(<Probe step="confirm" />)
+  // The colour is auto-assigned rather than picked — the confirm step is a
+  // single name field now — but it is still the map's to know, because the
+  // canvas tints the boundary with it while the shape is being cut. Leaving
+  // the flow has to put it back by hand, for the same reason the surface does.
+  it('holds the assigned colour, and resets it when the flow is left', () => {
+    render(<Probe />)
     expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#2563eb')
-
-    fireEvent.click(screen.getByRole('button', { name: 'pick green' }))
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#16a34a')
-
-    // Clear is a restarted drawing session, so the colour survives it — the
-    // candidate is still cutting the same list.
-    fireEvent.click(screen.getByRole('button', { name: 'clear points' }))
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#16a34a')
 
     fireEvent.click(screen.getByRole('button', { name: 'clear drawing' }))
     expect(screen.getByTestId('draw')).toHaveAttribute('data-color', '#2563eb')
   })
 
-  // The framing is a request, not a reaction to the ring: the canvasser is the
-  // one aiming the camera while they draw, and only a step that has just covered
-  // the map needs the shape put back in view.
-  it('asks for a fit only when a step asks, and states what it covers', () => {
-    render(<Probe step="confirm" />)
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '0')
-    // The confirm sheet uncovers the top 30%, so 70% of the map is what the
-    // camera has to pad around. Derived from the sheet's own constant, so the
-    // two cannot drift.
-    expect(screen.getByTestId('draw')).toHaveAttribute(
-      'data-frame-bottom',
-      '70',
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'frame' }))
-    expect(screen.getByTestId('draw')).toHaveAttribute('data-frame', '1')
-  })
-
-  it('bumps undo and clear-drawing on their own tokens', () => {
-    render(<Probe step="draw" />)
+  it('bumps undo, start and clear-drawing on their own tokens', () => {
+    render(<Probe />)
 
     fireEvent.click(screen.getByRole('button', { name: 'undo' }))
     fireEvent.click(screen.getByRole('button', { name: 'clear drawing' }))
@@ -441,5 +403,20 @@ describe('useCreateListDraw', () => {
     expect(screen.getByTestId('draw')).toHaveAttribute('data-undo', '1')
     expect(screen.getByTestId('draw')).toHaveAttribute('data-clear', '1')
     expect(screen.getByTestId('draw')).toHaveAttribute('data-start', '0')
+
+    // A fresh drawing session is its own request, never a side effect of one
+    // of the others: bumping start alongside clear would run deleteAll after
+    // draw_polygon was entered and kill the session it had just opened.
+    fireEvent.click(screen.getByRole('button', { name: 'start' }))
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-start', '1')
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-clear', '1')
+  })
+
+  it('reports the point count the canvas hands it', () => {
+    render(<Probe />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'place a point' }))
+
+    expect(screen.getByTestId('draw')).toHaveAttribute('data-points', '1')
   })
 })

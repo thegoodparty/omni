@@ -31,10 +31,21 @@ import {
 // over-long note is trimmed in the field rather than 400'd on save.
 const NOTE_MAX_LENGTH = 2_000
 
-// Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
-// — same selected-state convention, sized for the walk view's dense form.
+// The canvas's own `pill` helper in `renderPanel`: 34px tall, 12px of side
+// padding, 14px at weight 500, fully round, `tertiary-dark` on
+// `tertiary-foreground` when it is the chosen answer and a plain border when it
+// is not. It had drifted to a 12px chip at weight 400 — a third of a thumb
+// smaller than the design, on the one control in this product that is tapped
+// one-handed at a doorstep.
 const PILL_ITEM_CLASSNAME =
-  'rounded-full border border-components-input-border bg-transparent px-3 py-1 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
+  'h-[34px] whitespace-nowrap rounded-full border border-components-input-border bg-transparent px-3 text-sm font-medium text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
+
+// The canvas's `label` helper, shared by every question in the ladder and by
+// the note beneath them: 12px, weight 600, uppercase with 0.03em of tracking,
+// muted. Uppercase is what separates a question from the answers under it
+// without a rule or a heading level.
+const QUESTION_LABEL_CLASSNAME =
+  'text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground'
 
 interface RecordKnockFormProps {
   target: RoutePayloadTarget
@@ -55,8 +66,8 @@ const ChoiceRow = <T extends string>({
   value: T | undefined
   onChange: (value: T | undefined) => void
 }) => (
-  <div className="flex flex-col gap-1">
-    <span className="text-xs font-medium text-muted-foreground">{label}</span>
+  <div>
+    <span className={QUESTION_LABEL_CLASSNAME}>{label}</span>
     <ToggleGroup
       type="single"
       // Always a defined value: `''` is how this expresses "nothing chosen",
@@ -66,7 +77,8 @@ const ChoiceRow = <T extends string>({
       // opened — the correction a canvasser reaches for after a mis-tap.
       onValueChange={(next) => onChange((next || undefined) as T | undefined)}
       aria-label={label}
-      className="flex flex-wrap justify-start gap-1.5"
+      // The canvas's `group` helper: 8px between pills, 8px under the label.
+      className="mt-2 flex flex-wrap justify-start gap-2"
     >
       {options.map(([option, optionLabel]) => (
         <ToggleGroupItem
@@ -183,7 +195,11 @@ export default function RecordKnockForm({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+    // No card of its own. The canvas draws the ladder straight into the sticky
+    // log bar with 16px between groups — the bordered box around it read as a
+    // ninth card in a panel whose eight cards are all reference material, when
+    // this is the only thing on the surface a canvasser acts on.
+    <div className="flex flex-col gap-4">
       <ChoiceRow
         label={OUTCOME_QUESTION}
         options={ANSWER_OPTIONS}
@@ -256,17 +272,19 @@ export default function RecordKnockForm({
           overruled. Never required: `complete` doesn't consult it, so Save is
           live the moment the questions are done. */}
       {complete && (
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-muted-foreground">
-            {NOTE_QUESTION}
-          </span>
-          <div className="relative">
+        <div>
+          <span className={QUESTION_LABEL_CLASSNAME}>{NOTE_QUESTION}</span>
+          <div className="relative mt-2">
             <Textarea
               value={note}
               maxLength={NOTE_MAX_LENGTH}
-              placeholder="Notes (optional)"
-              rows={2}
-              className="pr-12"
+              // The canvas's placeholder. It asks for the thing worth writing
+              // down and promises the tidying-up, which is what gets a sentence
+              // typed one-handed at a door; "Notes (optional)" only named the
+              // field and told the canvasser they could skip it.
+              placeholder="What did they say? We'll clean it up."
+              rows={3}
+              className="min-h-20 pr-12"
               onChange={(e) => setNote(e.target.value)}
             />
             <DictationMicButton
@@ -286,15 +304,20 @@ export default function RecordKnockForm({
         </p>
       )}
 
+      {/* The canvas's `panelActions`: a full-width default Save stacked above a
+          full-width outline Cancel, 8px apart. Stacked and not side by side —
+          Save is the whole point of the panel and a two-up row halves the target
+          it presents to a thumb; the canvas draws the same pair the same way in
+          its note editor. */}
       {complete && (
         <div className="flex flex-col gap-2">
-          <Button size="small" disabled={record.isPending} onClick={save}>
+          <Button className="w-full" disabled={record.isPending} onClick={save}>
             {record.isPending ? 'Saving…' : 'Save'}
           </Button>
           {/* Clears the walkthrough without closing the door's sheet — the way
               back from three taps down the wrong branch. */}
           <Button
-            size="small"
+            className="w-full"
             variant="outline"
             disabled={record.isPending}
             onClick={reset}

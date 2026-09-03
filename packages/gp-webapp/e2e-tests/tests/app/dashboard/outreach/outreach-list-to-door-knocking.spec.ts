@@ -23,15 +23,16 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 // gp-api/src/doorKnocking/tests/outreachListHandoff.test.ts, where it costs a
 // Prisma call instead of a browser.
 //
-// What this deliberately does not cover: drawing the polygon and saving, which
-// would prove the turf appears. Drawing means synthesizing pointer events on a
-// deck.gl/WebGL canvas — the coin-flip interaction every other door-knocking
-// spec avoids (see the note on `seedTurf` in src/helpers/door-knocking-e2e.ts).
+// What this deliberately does not cover: drawing the polygon and pressing Build
+// route, which would prove the turf appears. Two reasons, either sufficient —
+// drawing means synthesizing pointer events on a deck.gl/WebGL canvas, and
+// since 3.0 that press buys a real Geoapify route (see the note in
+// src/helpers/door-knocking-e2e.ts).
 //
 // Not @dev-only: setupProCampaignUser provisions Pro without the Stripe
 // webhook, and a per-PR preview's gp-api serves the same real Cheyenne voter
-// data as dev — which this spec needs, because "Create list" is disabled until
-// GET /v1/door-knocking/pack decodes.
+// data as dev — which this spec needs, because the who step's Continue carries
+// a count that only exists once GET /v1/door-knocking/pack decodes.
 test.describe('outreach list handoff to door knocking', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
@@ -120,28 +121,16 @@ test.describe('outreach list handoff to door knocking', () => {
     await expect(nativeShellHeading(page)).toBeVisible({ timeout: 60_000 })
 
     // --- The answer to the question. Arriving from Send outreach has created
-    // no door-knocking saved list: the rail is still in its first-run empty
-    // state, whose copy names the missing half — the streets to walk. ---
-    await expect(
-      page.getByText(
-        /No lists yet\. Pick who you want to reach and draw the streets you want to walk/,
-      ),
-    ).toBeVisible({ timeout: 30_000 })
-    await expect(
-      page.getByRole('heading', { name: /^Saved lists \(/ }),
-    ).toHaveCount(0)
-
-    // --- The create flow: Create list is disabled until the voter pack
-    // decodes, so this waits on the button's own enabled state rather than on
-    // the pack response. A pack served from cache produces no request at all,
-    // and the button is the condition the flow actually reads. ---
-    const createList = page.getByRole('button', { name: 'Create list' }).first()
-    await expect(createList).toBeEnabled({ timeout: 120_000 })
-    await createList.click()
-
+    // no door-knocking saved list, which since 3.0 is visible in the surface
+    // itself: an org with no lists has the create flow opened for it, so
+    // landing on the purpose step IS the assertion that the rail is empty. ---
     await expect(
       page.getByRole('heading', { name: 'What do you want to do?' }),
-    ).toBeVisible({ timeout: 30_000 })
+    ).toBeVisible({ timeout: 120_000 })
+    await expect(
+      page.getByRole('heading', { name: /^Saved lists/ }),
+    ).toHaveCount(0)
+
     await page.getByRole('button', { name: /Introduce myself/ }).click()
 
     // --- The who step opens on the carried list ---
@@ -165,16 +154,14 @@ test.describe('outreach list handoff to door knocking', () => {
     )
 
     // And the flow is still only a flow — reaching the who step with the list
-    // picked has written nothing. The next step is Draw, which is where a
-    // saved list actually comes from.
+    // picked has written nothing. Two steps remain before anything is: the
+    // polygon, and then the route step's Build route, which is the single
+    // transaction that writes the turf, the route and the outreach envelope.
     //
-    // The CTA is the bare word: no Continue button in this flow carries a
-    // count any more. This still waits for the pack rather than racing it —
-    // until a count exists the button reads `No matching households`, so the
-    // name being matched at all is the same signal the old `/^Continue \(/`
-    // was waiting for.
+    // The CTA carries the filtered audience's size, which is also what makes
+    // this wait for the pack rather than race it.
     await expect(
-      page.getByRole('button', { name: 'Continue', exact: true }),
+      page.getByRole('button', { name: /^Continue \(/ }),
     ).toBeEnabled({ timeout: 30_000 })
 
     const { data: turfs } = await client.get<unknown[]>(

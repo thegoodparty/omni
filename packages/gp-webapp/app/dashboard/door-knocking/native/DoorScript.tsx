@@ -1,7 +1,5 @@
-'use client'
-
-import { useState } from 'react'
-import { ChevronDownIcon, ChevronUpIcon } from '@styleguide'
+import { MessageSquareIcon } from '@styleguide'
+import SheetSectionHeader from './SheetSectionHeader'
 import type { ScriptIssue } from './doorScriptContent'
 
 interface DoorScriptProps {
@@ -9,45 +7,49 @@ interface DoorScriptProps {
   issues: ScriptIssue[]
 }
 
-// Collapsed by default: a canvasser who knows their own issues shouldn't have to
-// scroll past them to reach the answer pills, and the sheet is a phone screen.
+// The canvas's first card in the panel body: `panelCard('Talking points',
+// 'message-square', …)` — an intro line, then one bulleted line per issue, each
+// a 6px dot against a 14px sentence.
+//
+// It used to be a collapsed disclosure pinned in the footer above the form,
+// titled "Your talking points". Both are gone: the canvas draws this as a card
+// at the top of the scrolling body with its section header like every other
+// card, and a script behind a tap is a script nobody opens at a door. The
+// footer keeps only what a canvasser ACTS on, which is the question ladder.
+//
+// **The canvas's own caption is deliberately not here.** It reads
+// "AI-generated from this voter's profile and your candidate info.", and
+// nothing in this product generates these lines: they are the candidate's own
+// issue stances, assembled by `doorScriptContent.ts` from what they already
+// wrote in the issues editor. Printing the canvas's sentence would describe the
+// feature as something it isn't, on the one surface a canvasser reads out loud.
 export default function DoorScript({ intro, issues }: DoorScriptProps) {
-  const [open, setOpen] = useState(false)
-
   // Nothing the candidate wrote, so nothing to say. An empty card would read as
   // a broken feature; the issues editor is where this gets fixed, not here.
   if (!intro && issues.length === 0) return null
 
   return (
-    <section className="rounded-md border border-border">
-      <button
-        type="button"
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-        onClick={() => setOpen((previous) => !previous)}
-      >
-        <span className="text-xs font-semibold uppercase tracking-wide text-info">
-          Your talking points
-        </span>
-        {open ? <ChevronUpIcon size={16} /> : <ChevronDownIcon size={16} />}
-      </button>
-      {open && (
-        <div className="flex flex-col gap-3 border-t border-border px-3 py-3 text-sm">
-          {intro && <p>{intro}</p>}
-          {/* Two stances can hang off one top issue, so the title is not a
-              unique key. The list is static for the length of a walk — it is
-              built once from the campaign, never reordered or spliced — so the
-              position is a safe tiebreak. */}
-          {issues.map((issue, index) => (
-            <div key={`${issue.title}-${index}`}>
-              <p className="text-xs font-medium text-muted-foreground">
-                {issue.title}
-              </p>
-              <p>{issue.body}</p>
-            </div>
-          ))}
-        </div>
-      )}
+    <section className="mb-4 rounded-xl border border-border">
+      <SheetSectionHeader icon={MessageSquareIcon} title="Talking points" />
+      <div className="flex flex-col gap-4 p-4 text-sm">
+        {intro && <p>{intro}</p>}
+        {issues.length > 0 && (
+          <ul className="flex list-none flex-col gap-2 p-0">
+            {/* Two stances can hang off one top issue, so the title is not a
+                unique key. The list is static for the length of a walk — it is
+                built once from the campaign, never reordered or spliced — so the
+                position is a safe tiebreak. */}
+            {issues.map((issue, index) => (
+              <li className="flex gap-2" key={`${issue.title}-${index}`}>
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />
+                <span>
+                  {issue.title} — {issue.body}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   )
 }

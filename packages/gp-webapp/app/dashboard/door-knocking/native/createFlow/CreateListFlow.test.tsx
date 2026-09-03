@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactElement } from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -48,10 +48,12 @@ const baseProps = {
   },
   drawPointCount: 3,
   onUndoPoint: vi.fn(),
-  onClearPoints: vi.fn(),
+  drawFullScreen: false,
+  onDrawFullScreenChange: vi.fn(),
+  onRestartDrawing: vi.fn(),
   color: '#2563eb',
-  onColorChange: vi.fn(),
-  onSaved: vi.fn(),
+  drawnStops: null,
+  onListCreated: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
   addressPreview: null,
@@ -63,9 +65,16 @@ const baseProps = {
   onRetryAddresses: vi.fn(),
 }
 
+// `waypointsRemaining` defaults to a whole day's allowance, so a test has to
+// opt in to being near the quota rather than tripping over it.
 const preview = (
   locations: Array<{ doors: Array<{ address: string; people: number }> }>,
-  totals?: { stops: number; doors: number; people: number },
+  totals?: {
+    stops: number
+    doors: number
+    people: number
+    waypointsRemaining?: number
+  },
 ) => ({
   locations,
   stops: totals?.stops ?? locations.length,
@@ -79,10 +88,12 @@ const preview = (
         sum + location.doors.reduce((doors, door) => doors + door.people, 0),
       0,
     ),
+  waypointsRemaining: totals?.waypointsRemaining ?? 500,
 })
 
-// What gp-api hands back for a created turf. Only the request bodies matter to
-// the tests that use it; the response is here to satisfy the mock's contract.
+// What gp-api hands back for a created turf. Every count is a real number
+// because the route exists by the time this response is written — the create
+// transaction buys it — so there is no shape of turf with nothing to report.
 const savedTurf = {
   id: 5,
   voterFileFilterId: 21,
@@ -92,19 +103,36 @@ const savedTurf = {
     type: 'Polygon' as const,
     coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
   },
-  locked: false,
-  doorCount: null,
-  peopleCount: null,
-  loggedCount: null,
-  completedAt: null,
+  doorCount: 9,
+  peopleCount: 22,
+  loggedCount: 0,
+  knockedDoorCount: 0,
+  routeSeconds: 1860,
+  completed: false,
   archivedAt: null,
   createdAt: new Date('2026-08-20T00:00:00Z'),
   updatedAt: new Date('2026-08-20T00:00:00Z'),
 }
 
-// The flow opens on the goal cards, and all three pre-draw stages live inside
-// the orchestrator's single `filters` step — so a test about the filters walks
-// through a goal card to reach them, exactly as a candidate does.
+// Reaching the last step means having been on the one before it, because the
+// campaign name the route step's title says is typed there. Two moves, exactly
+// as a candidate makes them, and the rerender is the page's own `step` prop
+// catching up with the advance the flow asked for.
+const advanceToRoute = (
+  rerender: (ui: ReactElement) => void,
+  props: Partial<ComponentProps<typeof CreateListFlow>> = {},
+  campaignName = 'Tuesday evening',
+) => {
+  fireEvent.change(screen.getByLabelText('Campaign name'), {
+    target: { value: campaignName },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  rerender(<CreateListFlow {...baseProps} {...props} step="route" />)
+}
+
+// The flow opens on the goal cards, and both pre-draw stages live inside the
+// orchestrator's single `filters` step — so a test about the audience walks
+// through a goal card to reach it, exactly as a candidate does.
 const renderAtWho = (
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
 ) => {
@@ -115,13 +143,51 @@ const renderAtWho = (
   return view
 }
 
+// The control the who step opens on: one row naming the audience and its door
+// count, labelled by the eyebrow above it.
+const audiencePicker = () => screen.getByRole('combobox', { name: 'All lists' })
+
+// Choosing a list is open-then-pick. The rows only exist in the document while
+// the panel is open, which is what leaves the step room for anything else.
+const openPicker = () => fireEvent.click(audiencePicker())
+
+const pickList = async (name: RegExp | string) => {
+  openPicker()
+  fireEvent.click(await screen.findByRole('option', { name }))
+}
+
+// The filter pills are the step's second face, behind the picker's "Create a
+// new list" row: cutting an audience by hand is the alternative to picking one
+// somebody already cut, not a way out of the flow.
+const buildNewList = () => {
+  openPicker()
+  fireEvent.click(screen.getByRole('button', { name: /Create a new list/ }))
+}
+
+// Drawing happens on the uncovered map, not on the step that frames it: the
+// step behind carries the counts and the warnings, and this surface carries
+// the shape and the way forward from it.
+const drawingSurface = (
+  props: Partial<ComponentProps<typeof CreateListFlow>> = {},
+) => <CreateListFlow {...baseProps} step="draw" drawFullScreen {...props} />
+
+// The step heading is said twice on purpose — once sr-only as the sheet's
+// accessible title, once in the body as the intro block — so a test that
+// means the visible one has to say so.
+const heading = (name: string) =>
+  screen.getByRole('heading', { level: 3, name })
+
 describe('CreateListFlow', () => {
   beforeEach(() => {
     testQueryClient.clear()
     vi.clearAllMocks()
   })
 
-  it('creates the voter list from the filter draft, then the turf', async () => {
+  // The one write in the whole flow, and it happens at the very end. Every
+  // step before Build route is client state: the filter POST that precedes it
+  // is the reusable audience, and the turf POST is turf, route, stops and the
+  // outreach envelope in one transaction on the far side.
+  it('creates the voter list from the filter draft, then buys the route', async () => {
     const calls: Array<{ kind: string; body: unknown }> = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       calls.push({ kind: 'filter', body })
@@ -131,43 +197,32 @@ describe('CreateListFlow', () => {
       calls.push({ kind: 'turf', body })
       return {
         status: 200,
-        data: {
-          id: 5,
-          voterFileFilterId: 77,
-          name: 'Lakeview blitz',
-          color: '#2563eb',
-          geoPoly: {
-            type: 'Polygon',
-            coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
-          },
-          locked: false,
-          doorCount: null,
-          peopleCount: null,
-          loggedCount: null,
-          completedAt: null,
-          archivedAt: null,
-          createdAt: new Date('2026-07-21T00:00:00Z'),
-          updatedAt: new Date('2026-07-21T00:00:00Z'),
-        },
+        data: { ...savedTurf, id: 5, voterFileFilterId: 77 },
       }
     })
-    const onSaved = vi.fn()
+    const onListCreated = vi.fn()
+    const props = {
+      filters: { partyDemocrat: true },
+      onListCreated,
+    }
 
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        filters={{ partyDemocrat: true }}
-        onSaved={onSaved}
-      />,
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
     )
 
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Lakeview blitz' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    // Nothing has been written by the time the confirm step is done with —
+    // Save is a move, not a save, which is what the single atomic commit at
+    // the end of the flow costs this step's label in honesty.
+    advanceToRoute(rerender, props, 'Lakeview blitz')
+    expect(calls).toHaveLength(0)
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(onListCreated).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 5 }),
+      ),
+    )
     expect(calls.map((call) => call.kind)).toEqual(['filter', 'turf'])
     expect(calls[0]?.body).toMatchObject({
       name: 'Lakeview blitz',
@@ -177,6 +232,11 @@ describe('CreateListFlow', () => {
     expect(calls[1]?.body).toMatchObject({
       voterFileFilterId: 77,
       name: 'Lakeview blitz',
+      // The route options this step exists to collect, sent with the turf
+      // rather than to a second endpoint: they are what the vendor is paid to
+      // plan, so they cannot arrive after the purchase.
+      mode: 'walk',
+      loop: true,
       geoPoly: {
         type: 'Polygon',
         coordinates: [
@@ -189,17 +249,19 @@ describe('CreateListFlow', () => {
         ],
       },
     })
-    // The list is only created once BOTH writes land, so the event belongs to
-    // the turf POST rather than the filter POST that precedes it.
+    // One event for one transaction. The `RouteBuilt` that used to follow it
+    // described a second press that no longer exists.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
       stops: 14,
       people: 22,
       filterCount: 1,
-      drawAnother: false,
+      mode: 'walk',
+      loop: true,
+      suggestedMode: null,
     })
   })
 
-  it('reuses the created filter when the turf save is retried', async () => {
+  it('reuses the created filter when the route purchase is retried', async () => {
     let filterPosts = 0
     let turfPosts = 0
     api.mock('POST /v1/voters/voter-file/filter', () => {
@@ -212,141 +274,279 @@ describe('CreateListFlow', () => {
       expect(body).toMatchObject({ voterFileFilterId: 88 })
       return {
         status: 200,
-        data: {
-          id: 6,
-          voterFileFilterId: 88,
-          name: 'Retry turf',
-          color: '#2563eb',
-          geoPoly: {
-            type: 'Polygon',
-            coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
-          },
-          locked: false,
-          doorCount: null,
-          peopleCount: null,
-          loggedCount: null,
-          completedAt: null,
-          archivedAt: null,
-          createdAt: new Date('2026-07-21T00:00:00Z'),
-          updatedAt: new Date('2026-07-21T00:00:00Z'),
-        },
+        data: { ...savedTurf, id: 6, voterFileFilterId: 88 },
       }
     })
-    const onSaved = vi.fn()
+    const onListCreated = vi.fn()
 
-    render(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        onListCreated={onListCreated}
+      />,
+    )
+    advanceToRoute(rerender, { onListCreated }, 'Retry turf')
 
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Retry turf' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
     await waitFor(() =>
-      expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Building the route failed/,
+      ),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
     // One list total across both attempts — no orphan per retry.
     expect(filterPosts).toBe(1)
     expect(turfPosts).toBe(2)
   })
 
-  it('gates the draw step on a drawn shape under the cap', () => {
+  // The rollback is a database rollback, not a loss of the candidate's work.
+  // The flow is client state right up to the commit, so a failed purchase
+  // leaves the polygon, the filters, the name, the colour, the mode and the
+  // loop exactly where they were, and the retry above is one press away.
+  it('keeps the step standing when the purchase fails', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', {
+      status: 400,
+      data: { message: 'No matching voters inside this turf — widen the area' },
+    })
+    const onListCreated = vi.fn()
+
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
-        step="draw"
-        ring={null}
-        turfStats={null}
-        drawPointCount={0}
+        step="confirm"
+        onListCreated={onListCreated}
       />,
     )
-    expect(
-      screen.getByRole('button', { name: /Tap 3 points to continue/ }),
-    ).toBeDisabled()
+    advanceToRoute(rerender, { onListCreated })
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        ring={OPEN_RING}
-        turfStats={turfStats(151, 140)}
-      />,
+    // A 4xx is something the candidate can act on and arrives with its own
+    // instruction, so it is shown rather than swallowed by "try again in a
+    // moment" — that advice belongs to a 5xx, where waiting really is the fix.
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No matching voters inside this turf — widen the area',
     )
-    // The cap is on stops (the router's unit), so 151 stops holding 140 doors
-    // is over it and says so — beside a button that no longer counts anything.
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-    expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        ring={OPEN_RING}
-        turfStats={turfStats(14, 9)}
-      />,
+    expect(onListCreated).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Build route' })).toBeEnabled()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.DoorKnocking.RouteBuildFailed,
+      { mode: 'walk', loop: true, status: 400 },
     )
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  // The canvas has no Done: it closes the shape itself and only reports a ring
-  // from three points. A tester who placed two and went looking for a confirm
-  // button found a dead Continue and nothing on screen naming the rule.
-  it('says how many more points the disabled Continue is waiting for', () => {
-    const drawing = (drawPointCount: number) => (
+  // The route step is the only step that spends money, and these two controls
+  // are the whole of what it spends it on. The mode rides to the vendor as the
+  // travel profile; the loop decides whether the tour closes.
+  it('sends the travel mode and the loop the route step collected', async () => {
+    let turfBody: unknown = null
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    const onListCreated = vi.fn()
+
+    const { rerender } = render(
       <CreateListFlow
         {...baseProps}
-        step="draw"
-        ring={null}
-        turfStats={null}
-        drawPointCount={drawPointCount}
-      />
-    )
-    const { rerender } = render(drawing(1))
-    expect(
-      screen.getByRole('button', { name: '2 more points to continue' }),
-    ).toBeDisabled()
-
-    rerender(drawing(2))
-    expect(
-      screen.getByRole('button', { name: '1 more point to continue' }),
-    ).toBeDisabled()
-
-    // Third point placed: the shape exists, so the same button turns into the
-    // finish gesture rather than staying dead with no explanation.
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        ring={OPEN_RING}
-        turfStats={turfStats(14, 9)}
-        drawPointCount={3}
+        step="confirm"
+        onListCreated={onListCreated}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    advanceToRoute(rerender, { onListCreated })
+
+    fireEvent.click(screen.getByRole('radio', { name: /Driving/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /End where I start/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    expect(turfBody).toMatchObject({ mode: 'drive', loop: false })
   })
 
-  // The other way to a disabled Continue with three points down: a shape drawn
-  // somewhere with nothing in it.
-  it('says when the drawn shape holds no doors', () => {
+  // Every stop within a five-minute walk of the next is what makes a list
+  // walkable, and the drawn shape is the only thing that knows. It only tags a
+  // radio — the selected mode stays the candidate's, so a suggestion that
+  // decodes late cannot move a choice already made.
+  it('suggests driving for a spread-out shape, without overruling a pick', async () => {
+    let turfBody: unknown = null
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 3 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    const onListCreated = vi.fn()
+    // Two stops a couple of kilometres apart: nobody walks that between doors.
+    const props = {
+      onListCreated,
+      drawnStops: [
+        [-87.65, 41.9],
+        [-87.62, 41.93],
+      ] as Array<[number, number]>,
+    }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+    )
+    advanceToRoute(rerender, props)
+
+    expect(screen.getByRole('radio', { name: /Driving/ })).toBeChecked()
+    expect(screen.getByText(/more than a 5-minute walk/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('radio', { name: /Walking/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    // Overruled, and the analytics record both halves so the suggestion's
+    // accuracy is readable rather than assumed.
+    expect(turfBody).toMatchObject({ mode: 'walk' })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.DoorKnocking.ListCreated,
+      expect.objectContaining({ mode: 'walk', suggestedMode: 'drive' }),
+    )
+  })
+
+  // The fourth way the purchase can fail, and the only one whose remedy is
+  // waiting out a rolling 24-hour window — which in-memory state cannot
+  // survive. So it is discovered at the draw step, where the shape can still
+  // be made smaller, rather than at the paid press with a shape and a name
+  // that a reload would lose.
+  it('blocks the drawn shape when the daily routing allowance cannot cover it', () => {
     render(
       <CreateListFlow
         {...baseProps}
         step="draw"
-        ring={OPEN_RING}
-        turfStats={turfStats(0, 0)}
+        turfStats={turfStats(60, 55)}
+        addressPreview={preview([], {
+          stops: 60,
+          doors: 55,
+          people: 90,
+          waypointsRemaining: 20,
+        })}
       />,
     )
 
     expect(
-      screen.getByRole('button', { name: 'No doors in this area' }),
-    ).toBeDisabled()
+      screen.getByText(
+        'This route needs 60 stops and only 20 of your daily stops are left. ' +
+          'Draw a smaller area, or build this route tomorrow.',
+      ),
+    ).toBeInTheDocument()
   })
 
-  // The regression this footer shipped with: households came from a
-  // district-wide pass while the door count beside it was in-polygon, so the
-  // two numbers at the moment of commitment described different areas.
-  it('reports in-polygon households on the draw step, not the district total', () => {
+  it('holds Build route shut while the allowance is short', async () => {
+    const props = {
+      turfStats: turfStats(60, 55),
+      addressPreview: preview([], {
+        stops: 60,
+        doors: 55,
+        people: 90,
+        waypointsRemaining: 20,
+      }),
+    }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+    )
+    advanceToRoute(rerender, props)
+
+    expect(screen.getByRole('button', { name: 'Build route' })).toBeDisabled()
+    expect(screen.getByText(/only 20 of your daily stops/)).toBeInTheDocument()
+  })
+
+  // An audience cut by hand used to be filed here, from a step that named it
+  // and ended the flow. Door knocking has no ending that skips the boundary and
+  // the route, so the who step writes nothing at all: the list is minted lazily
+  // by the create transaction, under the campaign's own name. A flow abandoned
+  // before Build route therefore leaves no half-made list in the CRM.
+  it('writes nothing when a hand-cut audience continues to the draw step', async () => {
+    let filterPosts = 0
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      filterPosts += 1
+      return { status: 200, data: { id: 44 } }
+    })
+    const onStepChange = vi.fn()
+
+    renderAtWho({ filters: { partyDemocrat: true }, onStepChange })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+
+    // Waited out rather than read straight back, so a POST that was fired and
+    // is merely still in flight fails this rather than passing it.
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('draw'))
+    expect(filterPosts).toBe(0)
+  })
+
+  it('gates the drawing surface on a drawn shape under the cap', () => {
+    const { rerender } = render(
+      drawingSurface({ ring: null, turfStats: null, drawPointCount: 0 }),
+    )
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    rerender(drawingSurface({ turfStats: turfStats(151, 140) }))
+    // The cap is on stops (the router's unit), so 151 stops holding 140 doors
+    // is over it — and the pill beside the dead button is the only thing on
+    // this surface counting anything.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByText('151 selected')).toBeInTheDocument()
+
+    rerender(drawingSurface({ turfStats: turfStats(14, 9) }))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  // The limit itself is stated on the step behind the map, where the rest of
+  // what the shape costs an evening is stated: the drawing surface is the map
+  // and the way forward from it, so a candidate over the cap reads why there.
+  it('names the stop limit on the step framing the map', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(151, 140)}
+      />,
+    )
+
+    expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
+  })
+
+  // The button is the design's bare word in every state, including all three
+  // of its dead ones. It used to rename itself — counting the points still
+  // needed, then announcing an empty shape — which put a running commentary in
+  // the one control on the surface. What it is waiting for is said around it
+  // instead: the centred hint names the gesture until the first point lands,
+  // and the count pill reads the shape from there.
+  it('keeps the drawing surface’s button on one word through every dead state', () => {
+    const unfinished = (drawPointCount: number) =>
+      drawingSurface({ ring: null, turfStats: null, drawPointCount })
+    const { rerender } = render(unfinished(1))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    rerender(unfinished(2))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // Three points down but nothing inside them: still Continue, still dead.
+    rerender(drawingSurface({ turfStats: turfStats(0, 0) }))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    rerender(drawingSurface({ turfStats: turfStats(14, 9), drawPointCount: 3 }))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  // The regression this line shipped with: two counts side by side, one
+  // district-wide and one in-polygon, with nothing saying which was which. The
+  // step still reports both — a candidate cutting turf needs to know how much
+  // of the audience the boundary has taken — so each carries its own noun.
+  it('names the district total and the in-polygon count apart on the draw step', () => {
     render(
       <CreateListFlow
         {...baseProps}
@@ -356,88 +556,58 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    // 61 households inside the ring are 61 doors across 84 stops, holding 168
-    // people — every figure in-polygon, none of them the district's 12,000.
     // The counts sit in their own spans, so this matches the paragraph's whole
-    // text rather than a single node. Stops lead, as they do on the walk sheet,
-    // the PDF and the walk itself.
+    // text rather than a single node.
     expect(
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          /84 stops · 61 doors · 168 people/.test(element.textContent ?? ''),
+          /12,000 matching households · 61 selected households/.test(
+            element.textContent ?? '',
+          ),
       ),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/12,000/)).toBeNull()
-  })
-
-  // The confirm step is the same three numbers one step later, so it reads them
-  // in the same order — the step that commits a shape is the last place the
-  // triple should reshuffle itself.
-  it('keeps the draw step’s order when the confirm step restates the counts', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        turfStats={turfStats(84, 61)}
-      />,
-    )
-
-    expect(
-      screen.getByText('84 stops · 61 doors · 168 voters'),
     ).toBeInTheDocument()
   })
 
   // The count in this button was the canvas's shape too ("Add to saved lists
   // (N)"), and the product owner asked for it out on 2026-08-26. It can go
-  // because it was never the only place the number was said: the stats line
-  // renders unconditionally, so it is on screen in every state this button is
-  // live in — which is the whole condition for removing it.
-  it('leaves the door count to the stats line rather than the Continue button', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        ring={OPEN_RING}
-        turfStats={turfStats(14, 9)}
-      />,
-    )
+  // because it was never the only place the number was said: the pill sits
+  // right above it and counts the same shape, in the unit the cap is stated in.
+  it('leaves the count to the pill rather than the drawing surface’s Continue', () => {
+    render(drawingSurface({ turfStats: turfStats(14, 9) }))
 
     const advance = screen.getByRole('button', { name: 'Continue' })
     expect(advance).toBeEnabled()
     expect(advance.textContent).not.toMatch(/\d/)
-    expect(
-      screen.getByText(
-        (_, element) =>
-          element?.tagName === 'P' &&
-          /14 stops · 9 doors · 28 people/.test(element.textContent ?? ''),
-      ),
-    ).toBeInTheDocument()
+    expect(screen.getByText('14 selected')).toBeInTheDocument()
   })
 
-  // The estimate is denominated in doors, not the stops the router plans, so a
-  // block of flats reads as the several doors it actually is.
-  it('estimates the walk from doors, before the route exists', () => {
-    const { rerender } = render(
+  // The design draws nothing under its preview, so neither do we: the knocking
+  // estimate this step used to print is a metric in the details drawer, where
+  // it can be stated against a real route rather than against a guess.
+  it('keeps the draw step to the counts the design states', () => {
+    render(
       <CreateListFlow
         {...baseProps}
         step="draw"
-        turfStats={turfStats(90, 70)}
+        turfStats={{
+          stops: 90,
+          people: 150,
+          households: 70,
+          partyMix: [
+            { label: 'Democratic', people: 50 },
+            { label: 'Republican', people: 30 },
+          ],
+          ageMix: [],
+        }}
       />,
     )
-    // 70 doors at 45 an hour.
-    expect(
-      screen.getByText(/About 1 hr 33 min of knocking/),
-    ).toBeInTheDocument()
 
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(15, 12)}
-      />,
-    )
-    expect(screen.getByText(/About 16 min of knocking/)).toBeInTheDocument()
+    expect(
+      screen.getByText('matching households', { exact: false }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/of knocking/)).toBeNull()
+    expect(screen.queryByText(/50 Democratic/)).toBeNull()
   })
 
   // Soft warning informs; only the 150 cap blocks.
@@ -461,7 +631,6 @@ describe('CreateListFlow', () => {
     expect(
       screen.getByText(/Over 100 stops is a long evening/),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
 
     // Past the hard cap only the blocking message stands.
     rerender(
@@ -473,83 +642,32 @@ describe('CreateListFlow', () => {
     )
     expect(screen.queryByText(/long evening/)).toBeNull()
     expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
-  })
 
-  it('breaks the drawn turf down by party', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={{
-          stops: 40,
-          people: 90,
-          households: 38,
-          partyMix: [
-            { label: 'Democratic', people: 50 },
-            { label: 'Republican', people: 30 },
-            { label: 'Unknown', people: 10 },
-          ],
-          ageMix: [],
-        }}
-      />,
-    )
-
-    expect(
-      screen.getByText('50 Democratic · 30 Republican · 10 Unknown'),
-    ).toBeInTheDocument()
-  })
-
-  it('resets the filter draft, and offers nothing to reset when it is empty', () => {
-    const onFiltersChange = vi.fn()
-    const { rerender } = renderAtWho({ onFiltersChange })
-    expect(screen.getByRole('button', { name: 'Reset filters' })).toBeDisabled()
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="filters"
-        filters={{ partyDemocrat: true }}
-        onFiltersChange={onFiltersChange}
-      />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }))
-    expect(onFiltersChange).toHaveBeenCalledWith({})
-  })
-
-  // The CTA is the bare word on this step too, per the product owner's
-  // 2026-08-26 call against counts in this flow's Continue buttons. The count
-  // itself does NOT leave the step — unlike the draw step there is no stats
-  // bar to fall back on, so it returns to the line beside the button, which is
-  // where it lived before the canvas moved it into the CTA. The qualifier
-  // travels with it: a bare district-wide count on the one step with no
-  // polygon is the exact confusion the two-denominator rule exists for.
-  it('leaves the matching count to the line beside a bare Continue, still district-wide', () => {
-    renderAtWho({ districtHouseholds: 12000 })
-
+    // Informing is all it does: the shape is still finishable at 101 stops,
+    // which is the whole difference between this warning and the cap.
+    rerender(drawingSurface({ turfStats: turfStats(101, 80) }))
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  // The who step's Continue carries the audience it is about to continue with.
+  // It is the one number on the step that moves as a pill is toggled — the
+  // picker's own door count is the unfiltered universe and stands still — so
+  // reading the CTA as the picker's count would be reading the district as the
+  // list.
+  it('counts the filtered audience in the who step’s Continue, not the whole universe', () => {
+    renderAtWho({ districtHouseholds: 1500, allContactsHouseholds: 12000 })
+
     expect(
-      screen.queryByRole('button', { name: /households/ }),
-    ).not.toBeInTheDocument()
-    // Matched on the paragraph's whole text because the number sits in its own
-    // `<span>`, and by element because "12,000" is also the picker's unfiltered
-    // `All contacts` count — which is the very reason this line has to exist.
-    expect(
-      screen.getByText(
-        (_, element) =>
-          element?.tagName === 'P' &&
-          /12,000 matching households across your whole district/.test(
-            element.textContent ?? '',
-          ),
-      ),
-    ).toBeInTheDocument()
+      screen.getByRole('button', { name: 'Continue (1,500)' }),
+    ).toBeEnabled()
+    expect(audiencePicker()).toHaveTextContent('All contacts')
+    expect(audiencePicker()).toHaveTextContent('12,000 doors')
   })
 
   it('refuses to continue from an audience holding nobody', () => {
     renderAtWho({ districtHouseholds: 0 })
 
-    expect(
-      screen.getByRole('button', { name: 'No matching households' }),
-    ).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Continue (0)' })).toBeDisabled()
   })
 
   // CHANGED DELIBERATELY: the flow no longer opens on the filters. `filters`
@@ -564,7 +682,7 @@ describe('CreateListFlow', () => {
     // nothing about it — it only needs to know when a shape is being cut.
     expect(onStepChange).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
   })
 
@@ -583,6 +701,7 @@ describe('CreateListFlow', () => {
     expect(partyLabel).toBeTruthy()
 
     renderAtWho()
+    buildNewList()
 
     expect(screen.getByLabelText(contactsMadeLabel as string)).toBeTruthy()
     expect(screen.getByLabelText(partyLabel as string)).toBeTruthy()
@@ -591,13 +710,33 @@ describe('CreateListFlow', () => {
   // Every group visible by scrolling, which is the decision that keeps door
   // knocking off the SMS picker: no popover, no filter-builder sub-step, and
   // no "Add condition" button in front of pills that are already on screen.
+  // The one press in front of them chooses between two audiences rather than
+  // revealing a group — it is how a candidate says "none of my lists".
   it('shows every filter group at once, with nothing to press to reveal them', () => {
     renderAtWho()
+    buildNewList()
 
     for (const field of filterSections.flatMap((section) => section.fields)) {
       expect(screen.getByLabelText(field.label)).toBeTruthy()
     }
     expect(screen.queryByRole('button', { name: /Add condition/i })).toBeNull()
+  })
+
+  // The filters are a face of the who step, not a screen of its own: leaving
+  // them puts the picker back with the flow still on step two, so a candidate
+  // who opened them by mistake is one press from the lists rather than one
+  // press from the start of the flow.
+  it('returns from the filter pills to the list picker without leaving the step', () => {
+    renderAtWho()
+    buildNewList()
+    expect(
+      screen.getByLabelText(fieldLabel('political_party') as string),
+    ).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to lists' }))
+
+    expect(audiencePicker()).toBeInTheDocument()
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
   })
 
   // The canvas puts Top issue first in the shared filter pool. We hold no
@@ -608,6 +747,7 @@ describe('CreateListFlow', () => {
   // in this flow by accident.
   it('offers no top-issue filter', () => {
     renderAtWho()
+    buildNewList()
 
     expect(screen.queryByLabelText(/top issue/i)).toBeNull()
   })
@@ -696,60 +836,136 @@ describe('CreateListFlow', () => {
 
   // The mis-tap fix: a stray vertex was previously only draggable somewhere
   // harmless, and a turf's polygon freezes permanently once it is knocked.
-  it('offers Undo only once a point exists, and Clear throughout', () => {
+  it('offers Undo only once a point exists', () => {
     const onUndoPoint = vi.fn()
-    const onClearPoints = vi.fn()
     const { rerender } = render(
+      drawingSurface({
+        ring: null,
+        turfStats: null,
+        drawPointCount: 0,
+        onUndoPoint,
+      }),
+    )
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+
+    rerender(
+      drawingSurface({
+        ring: null,
+        turfStats: null,
+        drawPointCount: 1,
+        onUndoPoint,
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(onUndoPoint).toHaveBeenCalledTimes(1)
+  })
+
+  // Leaving the map is how a half-drawn shape gets thrown away, and there is
+  // no way back to it. Its own question, not the shell's "Discard changes?":
+  // that one is about abandoning the whole flow, and answering it here would
+  // offer to lose the audience along with the boundary.
+  it('asks before leaving the drawing surface with a shape on it', () => {
+    const onDrawFullScreenChange = vi.fn()
+    const { rerender } = render(
+      drawingSurface({
+        ring: null,
+        turfStats: null,
+        drawPointCount: 0,
+        onDrawFullScreenChange,
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onDrawFullScreenChange).toHaveBeenCalledWith(false)
+    expect(screen.queryByText('Discard this turf?')).toBeNull()
+
+    rerender(drawingSurface({ drawPointCount: 2, onDrawFullScreenChange }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onDrawFullScreenChange).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Discard this turf?')).toBeInTheDocument()
+    expect(
+      screen.getByText('The boundaries you drew will not be saved.'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onDrawFullScreenChange).toHaveBeenCalledTimes(2)
+    expect(onDrawFullScreenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  // The dialog above says the boundary will not be saved, and it has to be
+  // true by the time the next screen is read. Closing the overlay alone left
+  // the ring on the canvas, still feeding the step's selected-household count —
+  // a sentence the very next screen contradicted. It restarts the session
+  // rather than clearing it, because the canvas keeps drawing live behind the
+  // draw step's shield and a cleared map is one the next Draw boundaries lands
+  // on with nothing able to place a point.
+  it('throws the boundary away when the discard is confirmed', () => {
+    const onRestartDrawing = vi.fn()
+    render(drawingSurface({ drawPointCount: 2, onRestartDrawing }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Keep drawing' }))
+    expect(onRestartDrawing).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onRestartDrawing).toHaveBeenCalledTimes(1)
+  })
+
+  // The draw step is the one step rendered outside `OutreachFlowShell`, so its
+  // X is the one X not already wired to the shell's confirm — and it is the
+  // step standing over a drawn boundary. Left bare it closed the flow and
+  // dropped the shape without asking, on the screen with the most to lose.
+  it('asks the shell’s own question before the draw step’s X closes the flow', () => {
+    const onClose = vi.fn()
+    render(
       <CreateListFlow
         {...baseProps}
         step="draw"
         ring={null}
         turfStats={null}
         drawPointCount={0}
-        onUndoPoint={onUndoPoint}
-        onClearPoints={onClearPoints}
+        onClose={onClose}
       />,
     )
-    expect(
-      screen.queryByRole('button', { name: 'Undo last boundary point' }),
-    ).toBeNull()
-    expect(
-      screen.getByRole('button', { name: 'Clear the boundary' }),
-    ).toBeDisabled()
 
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        ring={null}
-        turfStats={null}
-        drawPointCount={1}
-        onUndoPoint={onUndoPoint}
-        onClearPoints={onClearPoints}
-      />,
-    )
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Undo last boundary point' }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Clear the boundary' }))
-    expect(onUndoPoint).toHaveBeenCalledTimes(1)
-    expect(onClearPoints).toHaveBeenCalledTimes(1)
+    // Nothing drawn and nothing chosen: the X is not a question.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  // The draw chrome is a pointer-events-none overlay so taps reach the map
-  // underneath. Only the control cluster re-enables them — miss that and
+  it('confirms before the draw step’s X drops a drawn boundary', () => {
+    const onClose = vi.fn()
+    render(<CreateListFlow {...baseProps} step="draw" onClose={onClose} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).not.toHaveBeenCalled()
+    // The shell's words, not the drawing surface's — this abandons the whole
+    // flow, audience and all, rather than just the shape.
+    expect(screen.getByText('Discard changes?')).toBeInTheDocument()
+    expect(
+      screen.getByText('Your draft and selections will be lost.'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  // The drawing chrome is a pointer-events-none overlay so taps reach the map
+  // underneath. Only the controls themselves re-enable them — miss that and
   // pressing Undo also drops a boundary point where the button was.
   it('keeps the draw controls from leaking a click through to the map', () => {
-    render(<CreateListFlow {...baseProps} step="draw" drawPointCount={2} />)
+    render(drawingSurface({ drawPointCount: 2 }))
 
-    const undo = screen.getByRole('button', {
-      name: 'Undo last boundary point',
-    })
-    const cluster = undo.parentElement
-    expect(cluster).toHaveClass('pointer-events-auto')
-    // The row around the cluster stays click-through, so the map keeps the
-    // full width of the band it was given.
-    expect(cluster?.parentElement).not.toHaveClass('pointer-events-auto')
+    const undo = screen.getByRole('button', { name: 'Undo' })
+    expect(undo).toHaveClass('pointer-events-auto')
+    // The cluster the controls sit in stays click-through, so the map keeps
+    // the full width of the band it was given.
+    expect(undo.parentElement).not.toHaveClass('pointer-events-auto')
   })
 
   // The gap the walkthrough reported: the draw step stated a door count and
@@ -800,17 +1016,22 @@ describe('CreateListFlow', () => {
   // so it REPLACES the pack's estimate — and the hedges that estimate needed
   // go with it, because they explain a shortfall these counts don't have.
   it('reports the preview counts and retires the estimate that stood in', () => {
+    const estimate = {
+      stops: 14,
+      people: 22,
+      households: 9,
+      partyMix: [],
+      ageMix: [],
+    }
+    const answered = preview(
+      [{ doors: [{ address: '14 N Oak Ave', people: 3 }] }],
+      { stops: 6, doors: 7, people: 12 },
+    )
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
         step="draw"
-        turfStats={{
-          stops: 14,
-          people: 22,
-          households: 9,
-          partyMix: [],
-          ageMix: [],
-        }}
+        turfStats={estimate}
         unpreviewableKeys={['age65Plus']}
       />,
     )
@@ -822,33 +1043,26 @@ describe('CreateListFlow', () => {
       <CreateListFlow
         {...baseProps}
         step="draw"
-        turfStats={{
-          stops: 14,
-          people: 22,
-          households: 9,
-          partyMix: [],
-          ageMix: [],
-        }}
+        turfStats={estimate}
         unpreviewableKeys={['age65Plus']}
-        addressPreview={preview(
-          [{ doors: [{ address: '14 N Oak Ave', people: 3 }] }],
-          { stops: 6, doors: 7, people: 12 },
-        )}
+        addressPreview={answered}
       />,
     )
 
-    // The pack's 9 doors / 14 stops / 22 people are gone from the bar, not
-    // beside it.
+    // The pack's 9 doors are gone from the count line, not sitting beside the
+    // preview's 7.
     expect(screen.getByText('7')).toBeInTheDocument()
-    expect(screen.getByText('6')).toBeInTheDocument()
-    expect(screen.getByText('12')).toBeInTheDocument()
     expect(screen.queryByText('9')).toBeNull()
-    expect(screen.queryByText('14')).toBeNull()
-    expect(screen.queryByText('22')).toBeNull()
     expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
     // What the preview does still owe the reader: these are suppressed
     // already, so a shorter walk than this is not the expectation.
     expect(screen.getByText(/already out/)).toBeInTheDocument()
+
+    // The same replacement one surface over: the pill counts the preview's
+    // stops rather than the pack's 14.
+    rerender(drawingSurface({ turfStats: estimate, addressPreview: answered }))
+    expect(screen.getByText('6 selected')).toBeInTheDocument()
+    expect(screen.queryByText('14 selected')).toBeNull()
   })
 
   // A ring over half a district holds more stops than a route can and more
@@ -984,30 +1198,64 @@ describe('CreateListFlow', () => {
     ).toBeNull()
   })
 
-  // CHANGED DELIBERATELY (Voter Outreach 2.0): the canvas makes "Save and draw
-  // another" the primary and "Save and exit" the outline one beside it, and we
-  // were exactly inverted. Both buttons do the same two things either way;
-  // which one leads is the flow's claim about the expected next move, and the
-  // canvas assumes a candidate cutting several evenings in one sitting.
-  it('leads the confirm step with Save and draw another', () => {
-    render(<CreateListFlow {...baseProps} step="confirm" />)
+  // One full-width Save, because there is one thing this step can do: name the
+  // campaign and go on to the route. The pair it replaced — "Save and draw
+  // another" beside "Save and exit" — both wrote a turf here, which is the
+  // write that moved to the end of the flow.
+  it('gives the confirm step a single Save that advances rather than writes', async () => {
+    let posts = 0
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      posts += 1
+      return { status: 200, data: { id: 3 } }
+    })
+    const onStepChange = vi.fn()
 
-    const [first, second] = screen.getAllByRole('button', { name: /^Save and/ })
-    expect(first).toHaveTextContent('Save and draw another')
-    expect(second).toHaveTextContent('Save and exit')
-    // The pairing is a filled primary against the styleguide's `outline`, not
-    // its `secondary` — `secondary` is a filled tonal button, so the two would
-    // read as equally weighted and the swap would have said nothing.
-    expect(first).toHaveClass('bg-primary')
-    expect(second).toHaveClass('bg-transparent')
-    expect(second).not.toHaveClass('bg-secondary')
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        onStepChange={onStepChange}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /^Save and/ })).toBeNull()
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onStepChange).toHaveBeenCalledWith('route')
+    expect(posts).toBe(0)
   })
 
-  // Both buttons run the same mutation, so `isPending` cannot say which. The
-  // label belongs to the button that was PRESSED rather than to whichever one
-  // leads: a candidate who chose to exit would otherwise watch the other button
-  // claim their write.
-  it('says Saving… on the button that was pressed', async () => {
+  // The last step names the list it is about to buy a route for, so a
+  // candidate reading it knows which of the evening's turfs they are spending
+  // on. And the whole of what the press does is said under the title, because
+  // it is the one press in the flow that cannot be undone.
+  it('names the walk on the route step and says what Build route buys', () => {
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Lakeview blitz')
+
+    expect(heading('Knock Lakeview blitz walk')).toBeInTheDocument()
+    expect(
+      screen.getByText(/This builds the route and locks the turf/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/frozen so everyone works from the same plan/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/You only do this once per turf/),
+    ).toBeInTheDocument()
+  })
+
+  // The one press that spends money, so it says so while it is spending and
+  // cannot be pressed twice.
+  it('says Building route… while the purchase is in flight', async () => {
     let release: () => void
     const held = new Promise<void>((resolve) => {
       release = resolve
@@ -1020,58 +1268,32 @@ describe('CreateListFlow', () => {
       await held
       return { status: 200 as const, data: savedTurf }
     })
-    const onSaved = vi.fn()
+    const onListCreated = vi.fn()
 
-    render(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    const exit = screen.getByRole('button', { name: 'Save and exit' })
-    fireEvent.click(exit)
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        onListCreated={onListCreated}
+      />,
+    )
+    advanceToRoute(rerender, { onListCreated })
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
-    await waitFor(() => expect(exit).toHaveTextContent('Saving…'))
-    // The primary keeps its own label and goes dead with it: one write is in
-    // flight, and it is not this one.
-    const primary = screen.getByRole('button', {
-      name: 'Save and draw another',
+    const building = await screen.findByRole('button', {
+      name: 'Building route…',
     })
-    expect(primary).toBeDisabled()
+    expect(building).toBeDisabled()
 
     release!()
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
   })
 
-  // The defect this closes: the confirm sheet was opaque and full height, so a
-  // candidate picked the colour their list would be drawn in with the map — and
-  // the boundary they had just drawn — hidden behind it.
-  it('opens the confirm step over a band of the map', () => {
-    const { rerender } = renderAtWho()
-
-    // The who step still opens covered; pulling it down is the candidate's own
-    // gesture there.
-    expect(
-      screen.getByRole('button', { name: 'Pull down to see the map' })
-        .parentElement,
-    ).toHaveStyle({ top: '0%' })
-    expect(document.getElementById('confirm-map-band')).toBeNull()
-
-    rerender(<CreateListFlow {...baseProps} step="confirm" />)
-
-    expect(
-      screen.getByRole('button', { name: 'Expand the list details' })
-        .parentElement,
-    ).toHaveStyle({ top: '30%' })
-    // The uncovered strip is a picture and not a canvas: the drawing session is
-    // still live on this step, so a tap that reached the map would splice a
-    // vertex into the shape being confirmed, with no Undo here to take it back.
-    expect(document.getElementById('confirm-map-band')).toHaveStyle({
-      height: '30%',
-    })
-  })
-
-  // The colour is the page's now, because the shared canvas draws the ring in
-  // it — the swatch is a request, the same shape Undo and Clear have.
-  it('reports the colour pick upward, and saves the one it is handed', async () => {
+  // The colour a list is drawn in is auto-assigned rather than asked for: the
+  // confirm step is one name field, and the colour stays editable in
+  // `EditTurfDialog`, which is where a candidate looking at the map is when
+  // they discover two rings they want to tell apart.
+  it('saves the colour it is handed rather than asking for one', async () => {
     let turfBody: unknown = null
     api.mock('POST /v1/voters/voter-file/filter', {
       status: 200,
@@ -1081,49 +1303,19 @@ describe('CreateListFlow', () => {
       turfBody = body
       return { status: 200, data: savedTurf }
     })
-    const onColorChange = vi.fn()
-    const onSaved = vi.fn()
+    const onListCreated = vi.fn()
+    const props = { color: '#16a34a', onListCreated }
+
     const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        onColorChange={onColorChange}
-        onSaved={onSaved}
-      />,
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
     )
 
-    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Green' }))
-    expect(onColorChange).toHaveBeenCalledWith('#16a34a')
-    // Nothing moved here: the flow holds no colour of its own, so the tick is
-    // still on Blue until the page hands the pick back down.
-    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    expect(screen.queryByRole('button', { name: 'Green' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Blue' })).toBeNull()
 
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        color="#16a34a"
-        onColorChange={onColorChange}
-        onSaved={onSaved}
-      />,
-    )
-    expect(screen.getByRole('button', { name: 'Green' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    advanceToRoute(rerender, props)
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
     // The colour the map was tinted with is the colour the turf is filed under.
     expect(turfBody).toMatchObject({ color: '#16a34a' })
   })
@@ -1133,17 +1325,22 @@ describe('CreateListFlow', () => {
   // ever surface as a failed knock.
   it('hides the contacts-made group from an elected official', () => {
     const contactsMadeLabel = fieldLabel('contacts_made')
+    const partyLabel = fieldLabel('political_party')
 
     renderAtWho({ isElectedOfficial: true })
+    buildNewList()
 
     expect(screen.queryByLabelText(contactsMadeLabel as string)).toBeNull()
+    // Its neighbours are still there, so the absence above is the Win-only
+    // rule rather than a face of the step that never opened.
+    expect(screen.getByLabelText(partyLabel as string)).toBeTruthy()
   })
 })
 
-// The step machinery the canvas asks for: four steps, or five when the draft
-// needs saving as a reusable list first. Everything here is about the stepper
-// being COMPUTED — a constant `of 4` under the five-step path is wrong on the
-// one screen nobody scrolls back from.
+// The step machinery the canvas asks for: one path of five steps to a bought
+// route. Everything here is about the stepper being FIXED — door knocking has
+// no ending that skips the boundary and the route, so no choice of audience
+// may renumber the flow underneath the candidate making it.
 describe('CreateListFlow steps', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -1166,102 +1363,95 @@ describe('CreateListFlow steps', () => {
     expect(
       screen.getByText('Hear what neighbors care about most.'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
 
     fireEvent.click(
       screen.getByRole('button', { name: /Discover local issues/ }),
     )
-    expect(screen.getByText('Who do you want to reach?')).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 4')).toBeInTheDocument()
+    expect(heading('Who do you want to reach?')).toBeInTheDocument()
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
   })
 
-  // The conditional step, and the whole reason totalSteps is computed. Filters
-  // cut against the whole contact universe have no saved list behind them.
-  it('inserts the name step, and grows the stepper with it, once the draft is filtered', () => {
-    const { rerender } = renderAtWho()
-    expect(screen.getByText('Step 2 of 4')).toBeInTheDocument()
+  // The reported defect, walked end to end at the step it was reported from:
+  // totalSteps was derived from the audience, so touching a single filter pill
+  // renumbered the flow underneath the candidate — "Step 2 of 5" became
+  // "Step 2 of 3", promising an ending that saved a list and stopped. Both
+  // audiences are walked because the old branch keyed off exactly the
+  // difference between them.
+  it('stays five steps long whether the audience is picked or cut by hand', async () => {
+    const onStepChange = vi.fn()
+    const props = { ...baseProps, savedLists, onStepChange }
 
+    const { rerender } = renderAtWho(props)
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+
+    await pickList(/Super voters/)
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+
+    // The other audience: pills cut against the whole contact universe, with
+    // no saved list behind them to shorten anything.
+    buildNewList()
     rerender(
       <CreateListFlow
-        {...baseProps}
+        {...props}
         step="filters"
         filters={{ partyDemocrat: true }}
       />,
     )
     expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(screen.getByText('Name your list')).toBeInTheDocument()
+    // And it really does continue to the map rather than to an ending of its
+    // own — the stepper's promise and the flow's behaviour are the same claim.
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    expect(onStepChange).toHaveBeenLastCalledWith('draw')
+
+    rerender(
+      <CreateListFlow
+        {...props}
+        step="draw"
+        filters={{ partyDemocrat: true }}
+      />,
+    )
     expect(screen.getByText('Step 3 of 5')).toBeInTheDocument()
-    // Still inside the orchestrator's `filters` step — a step it never learns
-    // about is exactly what lets this flow grow one.
-    expect(baseProps.onStepChange).not.toHaveBeenCalled()
   })
 
-  it('numbers the draw and confirm steps around the conditional one', () => {
+  // One name per pass through the flow, and it is the campaign's. A hand-cut
+  // audience used to be named on a step of its own between the who step and
+  // the map; it is now filed by the create transaction under the campaign
+  // name, so nothing before the confirm step asks for one.
+  it('asks for the campaign’s name and no other, however the audience was cut', () => {
+    const { rerender } = renderAtWho({ filters: { partyDemocrat: true } })
+
+    expect(screen.queryByLabelText('List name')).toBeNull()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        filters={{ partyDemocrat: true }}
+      />,
+    )
+    expect(screen.getByLabelText('Campaign name')).toBeInTheDocument()
+    expect(screen.queryByLabelText('List name')).toBeNull()
+  })
+
+  it('numbers the draw, confirm and route steps as the last three of five', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="draw" filters={{}} />,
     )
-    expect(screen.getByText('Step 3 of 4')).toBeInTheDocument()
+    expect(screen.getByText('Step 3 of 5')).toBeInTheDocument()
 
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        filters={{ partyDemocrat: true }}
-      />,
-    )
+    rerender(<CreateListFlow {...baseProps} step="confirm" filters={{}} />)
+    expect(screen.getByText('Step 4 of 5')).toBeInTheDocument()
+
+    rerender(<CreateListFlow {...baseProps} step="route" filters={{}} />)
     expect(screen.getByText('Step 5 of 5')).toBeInTheDocument()
-  })
-
-  it('names the saved list and the route separately when both were asked for', async () => {
-    const bodies: Array<{ kind: string; name: unknown }> = []
-    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
-      bodies.push({ kind: 'filter', name: (body as { name: string }).name })
-      return { status: 200, data: { id: 21 } }
-    })
-    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
-      bodies.push({ kind: 'turf', name: (body as { name: string }).name })
-      return { status: 200, data: savedTurf }
-    })
-    const onSaved = vi.fn()
-
-    const { rerender } = renderAtWho({ filters: { partyDemocrat: true } })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(screen.getByLabelText('List name'), {
-      target: { value: 'Precinct 2 homeowners' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        filters={{ partyDemocrat: true }}
-        onSaved={onSaved}
-      />,
-    )
-    // The route name arrives seeded from the list the candidate just named,
-    // then they rename the route without renaming the audience behind it.
-    expect(screen.getByLabelText('Route name')).toHaveValue(
-      'Precinct 2 homeowners',
-    )
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
-
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
-    expect(bodies).toEqual([
-      { kind: 'filter', name: 'Precinct 2 homeowners' },
-      { kind: 'turf', name: 'Tuesday evening' },
-    ])
   })
 
   // The #1385 lesson: a card label doubling as a default title renamed live
   // records. The suggestion is its own record, so it reads as a list name
   // rather than as the goal it came from.
-  it('seeds the route name from the purpose when no list was named', () => {
+  it('seeds the campaign name from the purpose when no list was named', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="filters" />,
     )
@@ -1270,40 +1460,49 @@ describe('CreateListFlow steps', () => {
     )
     rerender(<CreateListFlow {...baseProps} step="confirm" />)
 
-    expect(screen.getByLabelText('Route name')).toHaveValue('Turnout walk')
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('Turnout walk')
   })
 
-  // The canvas's counts-in-parentheses: door knocking shows the overall count
-  // beside every list, which is why it does not repeat one per row elsewhere.
-  it('counts every list in the picker, and drops the name step when one is chosen', () => {
+  // Every row is a name over its own door count, in the unit the walk is
+  // measured in, so how big each audience is can be read without picking it.
+  // The whole contact universe leads, because it is what the flow starts on.
+  it('counts every list in the picker, in doors, under its name', async () => {
     const onFiltersChange = vi.fn()
     renderAtWho({
       savedLists,
       allContactsHouseholds: 12_000,
-      filters: { partyDemocrat: true },
       onFiltersChange,
     })
 
+    openPicker()
+    const rows = await screen.findAllByRole('option')
+    // The whole contact universe leads, because it is the audience the flow
+    // opens on and the one every saved list is a narrowing of.
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toHaveTextContent('All contacts')
     expect(
-      screen.getByRole('radio', { name: /All contacts \(12,000\)/ }),
-    ).toBeTruthy()
+      screen.getByRole('option', { name: /All contacts/ }),
+    ).toHaveTextContent('12,000 doors')
     expect(
-      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
-    ).toBeTruthy()
-    // Filtered against the whole universe, so the flow is offering to save it.
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+      screen.getByRole('option', { name: /Precinct 2 homeowners/ }),
+    ).toHaveTextContent('820 doors')
+    expect(
+      screen.getByRole('option', { name: /Super voters/ }),
+    ).toHaveTextContent('1,240 doors')
 
-    fireEvent.click(
-      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
-    )
+    fireEvent.click(screen.getByRole('option', { name: /Super voters/ }))
 
-    // Starting from a named list is the alternative to naming one, so the
-    // fifth step goes away and the draft becomes the list's own filters.
-    expect(screen.getByText('Step 2 of 4')).toBeInTheDocument()
+    // Picking a row closes the panel onto it, and lifts that list's own
+    // filters into the draft.
+    expect(audiencePicker()).toHaveTextContent('Super voters')
+    expect(audiencePicker()).toHaveTextContent('1,240 doors')
     expect(onFiltersChange).toHaveBeenCalledWith({})
   })
 
-  it('renders a list with no count yet rather than hiding it', () => {
+  // The counts come from the pack, which decodes on its own schedule, so a row
+  // waiting for one is the ordinary first frame rather than a broken list. It
+  // is still pickable — the count is what the audience is, not whether it is.
+  it('renders a list with no count yet rather than hiding it', async () => {
     renderAtWho({
       savedLists: [
         { id: 4, name: 'Precinct 2', households: null, filters: {} },
@@ -1311,8 +1510,11 @@ describe('CreateListFlow steps', () => {
       allContactsHouseholds: null,
     })
 
-    expect(screen.getByRole('radio', { name: /^Precinct 2/ })).toBeTruthy()
-    expect(screen.getByRole('radio', { name: /^All contacts/ })).toBeTruthy()
+    openPicker()
+    expect(
+      await screen.findByRole('option', { name: 'Precinct 2' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'All contacts' })).toBeTruthy()
   })
 
   // The reported defect, at the step it was reported from. A persuasion list
@@ -1321,7 +1523,7 @@ describe('CreateListFlow steps', () => {
   // button and said nothing about why. The count itself cannot be fixed here
   // (the map genuinely cannot shade that clause), so the step has to say so:
   // an undisclosed superset is what made this read as the list being ignored.
-  it('discloses, on the who step, a picked list’s unshadeable clauses', () => {
+  it('discloses, on the who step, a picked list’s unshadeable clauses', async () => {
     const { rerender } = renderAtWho({
       savedLists,
       districtHouseholds: 12_000,
@@ -1332,9 +1534,7 @@ describe('CreateListFlow steps', () => {
     // Pick the row for real rather than posting the lifted draft in as props:
     // the sentence names the picked list, so a test that never picks one is
     // asserting wording the flow cannot actually reach.
-    fireEvent.click(
-      screen.getByRole('radio', { name: /Precinct 2 homeowners/ }),
-    )
+    await pickList(/Precinct 2 homeowners/)
     rerender(
       <CreateListFlow
         {...baseProps}
@@ -1346,18 +1546,11 @@ describe('CreateListFlow steps', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
-    // The count left the CTA on 2026-08-26 for the line beside it. It is still
-    // the whole district here, which is the thing the sentence below discloses.
+    // The CTA's count is still the whole district here, which is the thing the
+    // sentence below discloses.
     expect(
-      screen.getByText(
-        (_, element) =>
-          element?.tagName === 'P' &&
-          /12,000 matching households across your whole district/.test(
-            element.textContent ?? '',
-          ),
-      ),
-    ).toBeInTheDocument()
+      screen.getByRole('button', { name: 'Continue (12,000)' }),
+    ).toBeEnabled()
     expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
       'The map can’t yet shade by Support status, so these counts include ' +
         'people that filter will exclude. Your saved list still applies it ' +
@@ -1389,7 +1582,7 @@ describe('CreateListFlow steps', () => {
   // one is what the preview reads. A list whose only narrowing is a clause the
   // draft cannot hold must still arrive marked, or the who step has nothing to
   // disclose and the map shades the district.
-  it('lifts a picked list’s whole draft, marks and all', () => {
+  it('lifts a picked list’s whole draft, marks and all', async () => {
     const onFiltersChange = vi.fn()
     renderAtWho({
       savedLists: [
@@ -1403,7 +1596,7 @@ describe('CreateListFlow steps', () => {
       onFiltersChange,
     })
 
-    fireEvent.click(screen.getByRole('radio', { name: /Persuasion walk list/ }))
+    await pickList(/Persuasion walk list/)
 
     expect(onFiltersChange).toHaveBeenCalledWith({ supportStatus: true })
   })
@@ -1419,21 +1612,23 @@ describe('CreateListFlow steps', () => {
       filters: { supportStatus: true, partyDemocrat: true },
       onFiltersChange,
     })
+    buildNewList()
 
     fireEvent.click(screen.getByRole('button', { name: 'Republican' }))
 
-    expect(onFiltersChange).toHaveBeenCalledWith(
-      expect.not.objectContaining({ supportStatus: expect.anything() }),
-    )
-    expect(onFiltersChange.mock.calls.at(-1)?.[0]).toMatchObject({
+    // The draft the pill wrote, not any of the writes that reached the filters
+    // in the first place — an earlier call carrying no marks would satisfy a
+    // looser assertion while the pill went on preserving them.
+    const edited = onFiltersChange.mock.calls.at(-1)?.[0]
+    expect(edited).not.toHaveProperty('supportStatus')
+    expect(edited).toMatchObject({
       partyDemocrat: true,
       partyRepublican: true,
     })
   })
 
-  // What adopting OutreachFlowShell would have bought, built here instead:
-  // closing a flow someone has put work into asks first, and a pristine one
-  // still closes on the first press.
+  // What OutreachFlowShell buys this flow: closing one someone has put work
+  // into asks first, and a pristine one still closes on the first press.
   it('confirms a discard only once there is something to discard', () => {
     const onClose = vi.fn()
     // Pristine means no shape either — a ring is work, however it got there.
@@ -1447,7 +1642,7 @@ describe('CreateListFlow steps', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(1)
 
     rerender(
@@ -1460,67 +1655,18 @@ describe('CreateListFlow steps', () => {
         onClose={onClose}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Discard this list?')).toBeInTheDocument()
+    expect(screen.getByText('Discard changes?')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(onClose).toHaveBeenCalledTimes(2)
   })
 
-  // The audience survives a "draw another" on purpose — the page keeps the
-  // filters across it too — so from the second turf on it is saved work, and
-  // an X pressed before a single point is placed has nothing to ask about.
-  it('closes without a question on the turf after a save', async () => {
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 3 },
-    })
-    api.mock('POST /v1/door-knocking/turfs', {
-      status: 200,
-      data: savedTurf,
-    })
-    const onClose = vi.fn()
-    const onSaved = vi.fn()
-
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        filters={{ partyDemocrat: true }}
-        onClose={onClose}
-        onSaved={onSaved}
-      />,
-    )
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save and draw another' }),
-    )
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true))
-
-    // What the page hands back: a fresh drawing session on the same audience.
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        filters={{ partyDemocrat: true }}
-        ring={null}
-        drawPointCount={0}
-        onClose={onClose}
-        onSaved={onSaved}
-      />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
-    expect(onClose).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText('Discard this list?')).toBeNull()
-  })
-
   // A list picked on the who step already IS a `voter-file/filter`, and its id
   // is the one a turf attaches by. Filing a copy per shape would leave the CRM
   // holding a near-identical list for every turf cut from the same audience,
-  // and the details drawer resolving turfs to lists nobody made.
+  // and the details sheet resolving turfs to lists nobody made.
   it('attaches the turf to the list that was picked, without copying it', async () => {
     let filterPosts = 0
     let turfBody: unknown = null
@@ -1539,22 +1685,18 @@ describe('CreateListFlow steps', () => {
       deletes()
       return { status: 200, data: {} }
     })
-    const onSaved = vi.fn()
-    const props = { ...baseProps, savedLists, onSaved }
+    const onListCreated = vi.fn()
+    const props = { ...baseProps, savedLists, onListCreated }
 
     const { rerender } = renderAtWho(props)
-    fireEvent.click(
-      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await pickList(/Super voters/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
     rerender(<CreateListFlow {...props} step="confirm" />)
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    advanceToRoute(rerender, props)
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
     expect(filterPosts).toBe(0)
     expect(turfBody).toMatchObject({
       voterFileFilterId: 9,
@@ -1563,151 +1705,85 @@ describe('CreateListFlow steps', () => {
     expect(deletes).not.toHaveBeenCalled()
   })
 
-  // The audience survives a draw-another; the voter list does not — this flow
-  // mints a fresh `voter-file/filter` per turf. Carrying the last one's name
-  // into the name step files the second list under a name already taken, from
-  // a step the candidate can walk straight past.
-  it('does not carry the saved list’s name into the next turf', async () => {
-    const filterNames: unknown[] = []
-    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
-      filterNames.push((body as { name: string }).name)
-      return { status: 200, data: { id: 3 } }
-    })
-    api.mock('POST /v1/door-knocking/turfs', { status: 200, data: savedTurf })
-    const onSaved = vi.fn()
-    const props = {
-      ...baseProps,
-      filters: { partyDemocrat: true },
-      onSaved,
-    }
-
-    const { rerender } = renderAtWho(props)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(screen.getByLabelText('List name'), {
-      target: { value: 'Homeowners' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    rerender(<CreateListFlow {...props} step="confirm" />)
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save and draw another' }),
-    )
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true))
-    expect(filterNames).toEqual(['Homeowners'])
-
-    // Back to the name step for the second turf.
-    rerender(<CreateListFlow {...props} step="filters" />)
-    expect(screen.getByLabelText('List name')).toHaveValue('')
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-  })
-
-  // The name box follows the list's name until it is typed in, so renaming
-  // the list and coming back brings the new name rather than the first seed.
-  it('re-seeds the route name when the list is renamed, and never over a typed one', () => {
-    const props = { ...baseProps, filters: { partyDemocrat: true } }
-    const { rerender } = renderAtWho(props)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(screen.getByLabelText('List name'), {
-      target: { value: 'Homeowners' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    rerender(<CreateListFlow {...props} step="confirm" />)
-    expect(screen.getByLabelText('Route name')).toHaveValue('Homeowners')
-
-    // Back to the name step, rename, forward again.
-    rerender(<CreateListFlow {...props} step="filters" />)
-    fireEvent.change(screen.getByLabelText('List name'), {
-      target: { value: 'Precinct 2 homeowners' },
-    })
-    rerender(<CreateListFlow {...props} step="confirm" />)
-    expect(screen.getByLabelText('Route name')).toHaveValue(
-      'Precinct 2 homeowners',
-    )
-
-    // One keystroke and the box is theirs: a third rename upstream leaves it.
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    rerender(<CreateListFlow {...props} step="filters" />)
-    fireEvent.change(screen.getByLabelText('List name'), {
-      target: { value: 'Renamed again' },
-    })
-    rerender(<CreateListFlow {...props} step="confirm" />)
-    expect(screen.getByLabelText('Route name')).toHaveValue('Tuesday evening')
-  })
-
-  it('opens the next turf’s name box empty rather than reusing the one just saved', async () => {
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 3 },
-    })
-    api.mock('POST /v1/door-knocking/turfs', {
-      status: 200,
-      data: savedTurf,
-    })
-    const onSaved = vi.fn()
-
+  // The suggestion follows the goal while the box is untouched, and stops the
+  // moment it is typed in. #1385: a card label doubling as a default title is
+  // how a copy correction renamed live campaigns.
+  it('re-seeds the campaign name from a new goal, and never over a typed one', () => {
     const { rerender } = render(
-      <CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />,
+      <CreateListFlow {...baseProps} step="filters" />,
     )
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save and draw another' }),
-    )
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true))
-
-    rerender(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
-    expect(screen.getByLabelText('Route name')).toHaveValue('')
-    expect(screen.getByRole('button', { name: 'Save and exit' })).toBeDisabled()
-
-    // A different goal is a different suggestion, so the blank box is the
-    // same suggestion not being re-offered — not suggestions being over.
-    rerender(<CreateListFlow {...baseProps} step="filters" onSaved={onSaved} />)
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    rerender(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
-    expect(screen.getByLabelText('Route name')).toHaveValue('Turnout walk')
+    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('Turnout walk')
+
+    // Back to the goal cards, pick another, forward again.
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Discover local issues/ }),
+    )
+    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    expect(screen.getByLabelText('Campaign name')).not.toHaveValue(
+      'Turnout walk',
+    )
+
+    // One keystroke and the box is theirs: a third goal upstream leaves it.
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Turn out my supporters/ }),
+    )
+    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Tuesday evening',
+    )
   })
 
-  it('returns from the draw step to whichever pre-draw step was left', () => {
+  // Back from the draw step returns to the audience, which is the step
+  // immediately in front of the map on the only path there is — and the page
+  // hears `filters` for it, which is what resets the address panel.
+  it('returns from the draw step to the who step', () => {
     const onStepChange = vi.fn()
-    const { rerender } = renderAtWho({
-      filters: { partyDemocrat: true },
-      onStepChange,
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(screen.getByLabelText('List name'), {
-      target: { value: 'Homeowners' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    const savedLists = [
+      { id: 4, name: 'Precinct 2 homeowners', households: 820, filters: {} },
+    ]
+    const props = { ...baseProps, savedLists, onStepChange }
+
+    const { rerender } = renderAtWho(props)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
 
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        filters={{ partyDemocrat: true }}
-        onStepChange={onStepChange}
-      />,
-    )
+    rerender(<CreateListFlow {...props} step="draw" />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     // The page hears `filters`, which is what resets the address panel; the
-    // flow remembers it was the name step and puts the typed name back.
+    // flow remembers which of the two pre-draw stages it was on.
     expect(onStepChange).toHaveBeenLastCalledWith('filters')
 
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="filters"
-        filters={{ partyDemocrat: true }}
-        onStepChange={onStepChange}
-      />,
+    rerender(<CreateListFlow {...props} step="filters" />)
+    expect(heading('Who do you want to reach?')).toBeInTheDocument()
+  })
+
+  // Back from the route step returns to the confirm step, which is the last
+  // place the campaign's name can still be changed before it is bought.
+  it('returns from the route step to the campaign name', () => {
+    const onStepChange = vi.fn()
+    const props = { onStepChange }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
     )
-    expect(screen.getByLabelText('List name')).toHaveValue('Homeowners')
+    advanceToRoute(rerender, props, 'Lakeview blitz')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(onStepChange).toHaveBeenLastCalledWith('confirm')
+
+    rerender(<CreateListFlow {...baseProps} {...props} step="confirm" />)
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('Lakeview blitz')
   })
 })
 
@@ -1736,18 +1812,15 @@ describe('CreateListFlow preselected list', () => {
     const onFiltersChange = vi.fn()
     renderAtWho({ savedLists, preselectedListId: 9, onFiltersChange })
 
-    expect(
-      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
-    ).toBeChecked()
-    expect(
-      screen.getByRole('radio', { name: /All contacts/ }),
-    ).not.toBeChecked()
+    const picker = audiencePicker()
+    expect(picker).toHaveTextContent('Super voters')
+    expect(picker).toHaveTextContent('1,240 doors')
     // Seeded exactly as a click on the row seeds it — the pills and the map
     // say what the list says, not what the draft happened to hold.
     expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
-    // And starting from a named list is the alternative to naming one, so the
-    // conditional name step is gone for the same reason it is after a click.
-    expect(screen.getByText('Step 2 of 4')).toBeInTheDocument()
+    // Arriving with the audience already chosen skips no step of the flow:
+    // the boundary and the route are still ahead of it.
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
   })
 
   // The four ways a query param can be wrong that survive the parser — an id
@@ -1763,9 +1836,12 @@ describe('CreateListFlow preselected list', () => {
       onFiltersChange,
     })
 
-    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+    const picker = audiencePicker()
+    expect(picker).toHaveTextContent('All contacts')
+    expect(picker).toHaveTextContent('12,000 doors')
     expect(onFiltersChange).not.toHaveBeenCalled()
-    // Unfiltered by a list, so the flow still offers to save the draft as one.
+    // A missed preselection is the ordinary flow and nothing else — same
+    // audience the flow opens on, same five steps in front of it.
     expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
   })
 
@@ -1773,7 +1849,7 @@ describe('CreateListFlow preselected list', () => {
     const onFiltersChange = vi.fn()
     renderAtWho({ savedLists, onFiltersChange })
 
-    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+    expect(audiencePicker()).toHaveTextContent('All contacts')
     expect(onFiltersChange).not.toHaveBeenCalled()
   })
 
@@ -1807,31 +1883,25 @@ describe('CreateListFlow preselected list', () => {
       <CreateListFlow {...props} step="filters" savedLists={[]} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
-    expect(screen.getByRole('radio', { name: /All contacts/ })).toBeChecked()
+    expect(audiencePicker()).toHaveTextContent('All contacts')
 
     rerender(
       <CreateListFlow {...props} step="filters" savedLists={savedLists} />,
     )
 
-    expect(
-      screen.getByRole('radio', { name: /Super voters \(1,240\)/ }),
-    ).toBeChecked()
+    expect(audiencePicker()).toHaveTextContent('Super voters')
     expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
   })
 
   // A seed, not a binding: the arrival is spent once applied, so a refetch
   // that hands back a fresh array cannot put the candidate's own pick back.
-  it('does not re-apply over a list the candidate picked instead', () => {
+  it('does not re-apply over a list the candidate picked instead', async () => {
     const props = { ...baseProps, savedLists, preselectedListId: 9 }
     const { rerender } = render(<CreateListFlow {...props} step="filters" />)
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
 
-    fireEvent.click(
-      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
-    )
-    expect(
-      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
-    ).toBeChecked()
+    await pickList(/Precinct 2 homeowners/)
+    expect(audiencePicker()).toHaveTextContent('Precinct 2 homeowners')
 
     rerender(
       <CreateListFlow
@@ -1841,9 +1911,8 @@ describe('CreateListFlow preselected list', () => {
       />,
     )
 
-    expect(
-      screen.getByRole('radio', { name: /Precinct 2 homeowners \(820\)/ }),
-    ).toBeChecked()
+    expect(audiencePicker()).toHaveTextContent('Precinct 2 homeowners')
+    expect(audiencePicker()).not.toHaveTextContent('Super voters')
   })
 
   // The whole point of carrying it: the turf attaches to the list the
@@ -1859,19 +1928,22 @@ describe('CreateListFlow preselected list', () => {
       turfBody = body
       return { status: 200, data: savedTurf }
     })
-    const onSaved = vi.fn()
-    const props = { ...baseProps, savedLists, preselectedListId: 9, onSaved }
+    const onListCreated = vi.fn()
+    const props = {
+      ...baseProps,
+      savedLists,
+      preselectedListId: 9,
+      onListCreated,
+    }
 
     const { rerender } = renderAtWho(props)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
     rerender(<CreateListFlow {...props} step="confirm" />)
-    fireEvent.change(screen.getByLabelText('Route name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    advanceToRoute(rerender, props)
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
     expect(filterPosts).toBe(0)
     expect(turfBody).toMatchObject({ voterFileFilterId: 9 })
   })

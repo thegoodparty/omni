@@ -2,13 +2,19 @@
  * The printed walk sheet, as a stylesheet rather than utility classes.
  *
  * Three reasons this is not Tailwind. `@page` has no utility and is the rule
- * that makes the sheet landscape at all. The design handoff is specified in
- * exact px — 10.5px names, 8.5px column heads, 0.04em tracking, a 1.5px mark
- * box at 2px radius — and as arbitrary-value utilities every one of those
- * numbers would be unreadable at the call site and impossible to diff against
- * the spec. And a print document is the one surface where the CSS *is* the
- * design: a reviewer checking this against the handoff should be able to read
- * the values in one place, in the same units the designer wrote them.
+ * that makes the sheet landscape at all. The design template is specified in
+ * exact px — 11px names, 8px column heads, 0.06em tracking, a 1.5px mark box at
+ * 3px radius — and as arbitrary-value utilities every one of those numbers would
+ * be unreadable at the call site and impossible to diff against the template.
+ * And a print document is the one surface where the CSS *is* the design: a
+ * reviewer checking this against `Walk Sheet.dc.html` should be able to read the
+ * values in one place, in the same units the designer wrote them.
+ *
+ * Every size, weight, colour role and rule weight below is quoted from that
+ * file's own `<style>` block. Where a selector here has no counterpart there it
+ * is because the template renders flow content inside a paged-media component
+ * and a browser gives us only `thead` and `tfoot` to repeat — see
+ * `WalkSheet.tsx`.
  *
  * Colours are tokens, never literals, so the sheet follows the brand's
  * foreground the way every other surface does — but every one carries the
@@ -31,9 +37,9 @@
 }
 
 /* Header. Inside the table's `<thead>`, which is what makes it repeat on every
-   printed page the way the handoff asks — see `WalkSheet.tsx`. The banner cell
-   itself contributes nothing; the padding below belongs to this block, so a
-   repeated header looks identical on every page. */
+   printed page the way the template's paged-media header slot does — see
+   `WalkSheet.tsx`. The banner cell itself contributes nothing; the padding below
+   belongs to this block, so a repeated header looks identical on every page. */
 .ws-table thead .ws-banner {
   padding: 0;
   border: none;
@@ -49,14 +55,16 @@
 
 .ws-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .ws-desc {
   margin: 4px 0 0;
   font-size: 12px;
+  line-height: 1.4;
   color: var(--color-muted-foreground, #64748b);
 }
 
@@ -64,20 +72,24 @@
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
-  font-size: 12px;
+  gap: 20px;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--color-muted-foreground, #64748b);
   white-space: nowrap;
 }
 
+/* The rules a canvasser writes on. Foreground rather than muted, and a normal
+   weight: this is a blank to be filled in, not a value already stated. */
 .ws-meta b {
   color: var(--color-foreground, #020817);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .ws-legend {
-  margin: 0 0 12px;
-  font-size: 11px;
+  margin: 0 0 10px;
+  font-size: 10px;
+  line-height: 1.4;
   color: var(--color-muted-foreground, #64748b);
 }
 
@@ -88,33 +100,58 @@
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 10.5px;
 }
 
 .ws-table th,
 .ws-table td {
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: middle;
   overflow-wrap: break-word;
 }
 
+/* The two outer columns run to the page's own margin rather than carrying a
+   gutter inside it. */
+.ws-table th:first-child,
+.ws-table td:first-child {
+  padding-left: 0;
+}
+
+.ws-table th:last-child,
+.ws-table td:last-child {
+  padding-right: 0;
+}
+
+/* The support column. There are no vertical rules on this grid — it is ruled
+   horizontally only — so the gap between two runs of boxes is the only thing
+   saying where one question ends and the next begins, and at the 6px body
+   padding it is narrower than the gap between two boxes inside one question. */
+.ws-table th:nth-child(7),
+.ws-table td:nth-child(7) {
+  padding-left: 34px;
+}
+
 .ws-table thead .ws-cols th {
-  padding: 0 4px 6px;
+  padding-bottom: 7px;
   border-bottom: 1px solid var(--color-foreground, #020817);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-muted-foreground, #64748b);
-  text-align: left;
   white-space: nowrap;
 }
 
 .ws-table tbody td {
-  padding: 5px 4px;
-  vertical-align: middle;
   background: #fff;
-  /* The heavier rule is the boundary between households, so a shared front
-     door reads as one door however many people answer it. */
-  border-top: 1px solid var(--color-foreground, #020817);
+  /* Hairline, and it is the household boundary: a shared front door reads as
+     one door however many people answer it. */
+  border-top: 0.5px solid var(--color-foreground, #020817);
+}
+
+.ws-table tbody tr:last-child td {
+  border-bottom: 0.5px solid var(--color-foreground, #020817);
 }
 
 /* A second or third person behind the same door: dotted, and the stop number
@@ -131,23 +168,23 @@
 
 .ws-seq,
 .ws-age {
-  font-size: 9.5px;
+  font-size: 9px;
   color: var(--color-muted-foreground, #64748b);
   font-variant-numeric: tabular-nums;
 }
 
 .ws-seq {
-  padding-left: 4px;
   /* A stop number is never worth breaking over two lines, and a route that
-     somehow outgrew its column should overflow visibly rather than print "1"
-     above "5" above "0". */
+     outgrew the template's 2% column should overflow visibly rather than print
+     "1" above "5" above "0" — a route here is capped at 150 stops, where the
+     template's own fixture renders 40. */
   white-space: nowrap;
 }
 
 .ws-name {
-  padding-left: 0;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
 /* Same left edge as the primary member, no indent — the dotted rule is what
@@ -157,8 +194,18 @@
 }
 
 .ws-address {
-  padding-left: 2px;
-  font-size: 9.5px;
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--color-muted-foreground, #64748b);
+}
+
+/* The number to try when nobody answers. Tabular and unwrapped, so a column of
+   them reads as a column and an area code never lands on its own line. */
+.ws-phone {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-muted-foreground, #64748b);
 }
 
 /* The first line of a cell that has several — the name, the address. A span
@@ -171,106 +218,98 @@
 /* The muted lines under a name or an address — party, travel time, who else
    lives here, when this resident was last contacted. Block, so each is its own
    line, and back to a normal weight inside the 600 name cell.
-   
-   A step below the type scale's 9.5px, at the 8.5px it gives column heads: these
-   are the lines that decide how tall a row is, and the longest of them ("Last
-   contact: September 2026 · Door knock: Refused to engage") has to stay on one,
-   or the sheet grows by a page every few households. */
+
+   A step below the 9px body numerics: these are the lines that decide how tall a
+   row is, and the longest of them ("Last contact: September 2026 · Door knock:
+   Refused to engage") has to stay on one, or the sheet grows by a page every few
+   households. */
 .ws-sub {
   display: block;
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 400;
+  line-height: 1.35;
   color: var(--color-muted-foreground, #64748b);
 }
 
-/* Mark boxes. Outlined and never filled: printers drop background colours by
-   default, so every mark on this page is a border or a glyph. */
-/* The three columns of mark boxes. Wider side padding than the 4px the handoff
-   gives a body cell, because the handoff has one column of boxes and this sheet
-   has three side by side: at 4px the gap between two columns of options is
-   narrower than the 10px gap between options inside one, so eleven boxes read
-   as one run rather than as three questions. There are no vertical rules to
-   separate them — the design rules the grid horizontally only — so the space
-   has to do it. */
-.ws-marks {
-  padding-left: 8px;
-  padding-right: 8px;
-}
-
-/* One non-wrapping row of options per column, per the handoff. The `Answered`
-   column is sized to the 226px five of them measure so that stays true here,
-   where the handoff had only three to fit. */
+/* The boxes under a question. A grid of equal columns rather than a flex row:
+   the options in one column are alternatives to each other, so they get equal
+   room and the run stays the same width whether its longest label is "Unsure"
+   or "Inaccessible". */
 .ws-boxes {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-start;
-  gap: 10px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+  align-items: start;
 }
 
 .ws-opt {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
+  min-width: 0;
 }
 
+/* Outlined and never filled: printers drop background colours by default, so
+   every mark on this page is a border or a glyph. */
 .ws-box {
   display: block;
+  flex: none;
   width: 12px;
   height: 12px;
+  box-sizing: border-box;
   border: 1.5px solid var(--color-foreground, #020817);
-  border-radius: 2px;
+  border-radius: 3px;
   background: #fff;
 }
 
-.ws-opt span {
+.ws-opt > span:last-child {
   font-size: 7px;
-  font-weight: 700;
-  line-height: 1;
+  line-height: 1.15;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--color-muted-foreground, #64748b);
-  /* The handoff's labels are one short word each and it sets them `nowrap`.
-     Ours include "Refused to engage", and holding five of those on one line
-     would cost the `Answered` column another 6% of the page. Wrapping the label
-     inside its own option keeps the row of boxes unwrapped, which is the part of
-     the rule that matters — a canvasser scanning for the third box counts
-     boxes, not lines. */
-  white-space: normal;
+  text-align: center;
+  /* A label may wrap inside its own equal-width column; it may not be broken
+     mid-word by a hyphen, which at 7px reads as part of the answer. */
+  hyphens: none;
 }
 
 /* What replaces the boxes when there is nothing to ask: a flagged resident, or
    one already logged in the app. */
 .ws-instruction {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 600;
 }
 
 .ws-logged {
-  font-size: 9.5px;
+  font-size: 9px;
   font-style: italic;
   color: var(--color-muted-foreground, #64748b);
 }
 
 .ws-empty {
   margin: 12px 0 0;
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
-/* The footer's own cell contributes nothing: the rule and the 20px gap below it
-   belong to `.ws-foot`, so a repeated footer looks the same on every page. */
+/* The footer's own cell contributes nothing: the space above the signature
+   belongs to `.ws-foot`, so a repeated footer looks the same on every page. */
 .ws-table tfoot td {
   padding: 0;
 }
 
+/* No rule above it. The grid's own last row is closed by a hairline border and a
+   second line 16px under it reads as an empty row of the table. */
 .ws-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--color-border, #e2e8f0);
+  margin-top: 16px;
+  padding: 0;
+  border-top: none;
 }
 
 .ws-logo {
@@ -280,8 +319,9 @@
 }
 
 .ws-tagline {
-  font-size: 12px;
+  font-size: 11px;
   font-style: italic;
+  color: var(--color-muted-foreground, #64748b);
 }
 
 /* On screen this page is a preview of paper, so it keeps the sheet's own

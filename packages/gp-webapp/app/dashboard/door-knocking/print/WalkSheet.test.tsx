@@ -115,7 +115,10 @@ describe('WalkSheet', () => {
     ).toBeInTheDocument()
   })
 
-  it('rules the columns the handoff asks for, and heads them', () => {
+  // The design template's own eight headings, in its own order. The two answer
+  // columns are headed with the app's own questions rather than with nouns, so
+  // the sheet asks what the form a canvasser transcribes it back into asks.
+  it('rules the columns the design asks for, and heads them', () => {
     renderSheet([stop()])
 
     const heads = screen
@@ -126,10 +129,31 @@ describe('WalkSheet', () => {
       'Name',
       'Age',
       'Address',
-      'Answered',
-      'Support',
-      'Will vote',
+      'Phone',
+      'Did they answer?',
+      'Do they support you?',
       'Notes',
+    ])
+  })
+
+  // Quoted from the template's `<th style="width:…">`, and shared with the PDF
+  // through `walkFacts` so the two formats of one artifact cannot come out ruled
+  // differently. `table-layout: fixed` makes them binding rather than advisory.
+  it('gives each column the share of the page the design rules', () => {
+    renderSheet([stop()])
+
+    const widths = Array.from(document.querySelectorAll('colgroup col')).map(
+      (col) => (col as HTMLElement).style.width,
+    )
+    expect(widths).toEqual([
+      '2%',
+      '15%',
+      '4%',
+      '13%',
+      '10%',
+      '17%',
+      '25%',
+      '13%',
     ])
   })
 
@@ -283,41 +307,18 @@ describe('WalkSheet', () => {
 
   // The whole point of the sheet: somewhere to write the answers that the
   // in-app form will later ask for, in the same words.
-  it('gives every unknocked person the same options the app offers', () => {
-    renderSheet([stop()])
-
-    const row = rowFor('Dorian Fen')
-    // All five outcomes, because paper cannot branch the way the app's
-    // walkthrough does — every ending has to be offered at once.
-    for (const label of [
-      'Answered',
-      'Not home',
-      'Inaccessible',
-      'Refused to engage',
-      'Not a voter',
-    ]) {
-      expect(within(row).getByText(label)).toBeInTheDocument()
-    }
-    // Support and will-vote are three-way in the app and three-way here, so
-    // each of the three labels appears once per question.
-    for (const label of ['Yes', 'No', 'Unsure']) {
-      expect(within(row).getAllByText(label)).toHaveLength(2)
-    }
-  })
-
-  // The handoff's Support column offers Strong / Lean / Undec / No and its
-  // Answered column offers a "Moved". Both contradict the Voter Outreach 2.0
-  // canvas as well as our enum — the canvas ticks `Yes / No / Unsure` for both
-  // follow-ups, has no "Moved" door outcome, and its only "Strong" is a value of
-  // a voter's CRM support attribute — so they are an error in the handoff. What
-  // this pins is that the boxes stay generated from the form's own constants,
-  // because a box on paper the form cannot accept is an answer nobody can file.
   //
-  // Asserted as the exact set of labels rather than as words the page must not
-  // contain, because the page legitimately says "may have moved" and "Moved
-  // away — skip this resident" elsewhere. What must not appear is a *box*
-  // offering an answer, so the boxes are what this reads.
-  it('offers no answer the app has no value for', () => {
+  // The exact set of labels, in order, rather than words the page must not
+  // contain — the page legitimately says "may have moved" and "Moved away —
+  // skip this resident" elsewhere, so what must not appear is a *box* offering
+  // an answer the form has no value for.
+  //
+  // Two questions, seven boxes. "Did they answer?" is the app's first question
+  // whole; "Do they support you?" is the app's third with the one engagement
+  // answer a canvasser still has to be able to write down in front of it,
+  // because paper cannot branch the way the app's walkthrough does. Order is not
+  // cosmetic: paper is transcribed back into that form.
+  it('offers the boxes the design rules, from the form’s own values', () => {
     renderSheet([stop()])
 
     // `:not(.ws-box)` because the box is a span too — an empty one, since a
@@ -330,36 +331,90 @@ describe('WalkSheet', () => {
       'Answered',
       'Not home',
       'Inaccessible',
-      'Refused to engage',
-      'Not a voter',
-      'Yes',
-      'No',
-      'Unsure',
+      'Refused',
       'Yes',
       'No',
       'Unsure',
     ])
+    expect(rowFor('Dorian Fen').querySelectorAll('.ws-box')).toHaveLength(7)
   })
 
-  // Phones are on the route payload for the app's person sheet, but paper
-  // leaves the building and is not access-controlled once it does. The sheet
-  // omits them deliberately — this asserts the omission rather than trusting it,
-  // since the fixture above carries a cell number. The handoff rules an 11%
-  // Phone column; see the `### Paper` section of AGENTS.md for why it is not
-  // implemented.
-  it('never prints a phone number, whatever column the handoff rules', () => {
+  // The will-vote column merged away with the design template, which asks two
+  // questions where the sheet used to ask three. Pinned because the boxes are
+  // generated from the form's constants and `WILL_VOTE_OPTIONS` is still one of
+  // them — a third `MarkBoxes` would reappear silently otherwise.
+  it('asks two questions, not the three it used to', () => {
     renderSheet([stop()])
 
-    const page = document.body.textContent ?? ''
-    expect(page).not.toMatch(/555-0101/)
-    expect(page).not.toMatch(/phone/i)
-    expect(page).not.toMatch(/landline/i)
+    expect(screen.queryByText(/will vote/i)).toBeNull()
+    expect(document.querySelectorAll('.ws-boxes')).toHaveLength(2)
   })
 
-  // The same rule as the phone numbers above, applied to a larger disclosure:
-  // the eleven-attribute demographic profile is screen-only, because a printed
-  // profile of a named voter stops being access-controlled the moment it leaves
-  // the building. The fixture carries all eleven, so this asserts the omission.
+  // The template rules a Phone column and this is the field that fills it — the
+  // one screen-side value that crossed onto paper, and deliberately the only
+  // one. Cell first with the landline as the fallback, which is the order
+  // `PersonSheet` lists them in and the order a canvasser would try them.
+  it('prints the number to try when nobody answers', () => {
+    renderSheet([stop()])
+
+    const cells = Array.from(rowFor('Dorian Fen').querySelectorAll('td')).map(
+      (cell) => cell.textContent,
+    )
+    expect(cells[4]).toBe('(312) 555-0101')
+  })
+
+  it('falls back to the landline, and prints nothing when there is neither', () => {
+    const resident = {
+      personId: 'person-1',
+      name: 'Dorian Fen',
+      age: 31,
+      politicalParty: 'Independent' as const,
+      knockStatus: 'unknown' as const,
+      mayHaveMoved: false,
+      doNotKnock: false,
+    }
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              {
+                ...resident,
+                stopTargetId: 21,
+                cellPhone: null,
+                landline: '(312) 555-0103',
+              },
+              {
+                ...resident,
+                stopTargetId: 22,
+                personId: 'person-2',
+                name: 'Marisol Vega',
+                cellPhone: null,
+                landline: null,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const phone = (name: string) =>
+      rowFor(name).querySelectorAll('td')[4]?.textContent
+    expect(phone('Dorian Fen')).toBe('(312) 555-0103')
+    // Empty rather than a dash, for the reason the age cell is: a canvasser
+    // reads anything in that cell as a fact about the person.
+    expect(phone('Marisol Vega')).toBe('')
+  })
+
+  // The Phone column above is the *only* screen-side field the design brought
+  // onto paper, and this is the rule it is an exception to rather than a repeal
+  // of: the eleven-attribute demographic profile stays screen-only, because a
+  // printed profile of a named voter stops being access-controlled the moment it
+  // leaves the building. The fixture carries all eleven, so this asserts the
+  // omission.
   //
   // Asserted against the page's whole text rather than field by field, since a
   // leak would most likely arrive as a new block nobody thought to name here.
@@ -699,53 +754,63 @@ describe('WalkSheet', () => {
   })
 
   // Nothing on paper reaches the voter records by itself, and a canvasser who
-  // assumes otherwise loses the day's work. Above the grid, in the words both
-  // paper surfaces quote from `walkFacts`.
-  it('says the sheet has to be logged in the app', () => {
+  // assumes otherwise loses the day's work. It is no longer on the sheet: the
+  // design rules one legend line, so the notice moved into the screen-only
+  // preamble that tells someone to press Ctrl+P — a block paper has no
+  // equivalent of and the template therefore has no opinion about.
+  it('says the sheet has to be logged in the app, on screen only', () => {
     renderSheet([stop()])
 
-    expect(
-      screen.getAllByText(/Log these doors in the app when you.re back online/)
-        .length,
-    ).toBeGreaterThan(0)
+    const notice = screen.getByText(
+      /Log these doors in the app when you.re back online/,
+    )
+    expect(notice.closest('.print\\:hidden')).not.toBeNull()
   })
 
-  it('says how to fill the sheet in', () => {
+  // The design's legend, and the whole of it: one sentence, and no second
+  // clause riding along behind it.
+  it('says how to fill the sheet in, and nothing else in the legend', () => {
     renderSheet([stop()])
 
-    expect(
-      screen.getByText(/Circle or tick a box, write short notes/),
-    ).toBeInTheDocument()
+    const legend = document.querySelector('.ws-legend')
+    expect(legend?.textContent).toBe(
+      'Mark each door by hand. Circle or tick a box, write short notes in the last column.',
+    )
   })
 
   // The sheet renders in Node, whose clock is UTC, so any date it stamps
   // itself is tomorrow's for an evening print anywhere in the US. The
-  // canvasser writes the date instead — and, for want of a counter a browser
-  // will resolve in flow content, the page number too.
-  it('leaves the date and the page number to the canvasser', () => {
+  // canvasser writes the date instead.
+  it('leaves the date to the canvasser, and rules no page counter', () => {
     renderSheet([stop()])
 
     expect(screen.getByText(/^Date/)).toBeInTheDocument()
     expect(screen.getByText(/^Canvasser/)).toBeInTheDocument()
-    expect(screen.getByText(/^Page/)).toBeInTheDocument()
     expect(screen.queryByText(/Printed/)).toBeNull()
-    // Chrome resolves `counter(pages)` to nothing outside an `@page` margin
-    // box, which prints as "Page 0 of 0" — worse than a blank, because it
-    // looks like a number.
-    expect(document.body.textContent).not.toMatch(/Page 0 of 0/)
+    // The `Page ____ of ____` blank went with the design rather than moving.
+    // A print dialog numbers the pages itself, and Chrome resolves
+    // `counter(pages)` to nothing outside an `@page` margin box — which prints
+    // as "Page 0 of 0", worse than a blank because it looks like a number.
+    const page = document.body.textContent ?? ''
+    expect(page).not.toMatch(/Page \d+ of \d+/)
+    expect(page).not.toMatch(/Page ____/)
   })
 
   // A route is sixteen sheets and they get separated, so the signature belongs
   // on every one. `tfoot` is the region print engines repeat per page; a block
   // after the table prints once, on the last.
+  //
+  // Two things in it and nothing else: the logo on the left, the tagline on the
+  // right, quoted from `walkFacts` so the PDF cannot be signed differently.
   it('signs every page from the table footer', () => {
     renderSheet([stop()])
 
     const logo = screen.getByAltText('GoodParty.org')
     expect(logo.closest('tfoot')).not.toBeNull()
-    expect(
-      screen.getByText('Empowering people to run, win, and serve'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('empowering Independents')).toBeInTheDocument()
+    expect(document.querySelector('.ws-foot')?.textContent).toBe(
+      'empowering Independents',
+    )
   })
 
   it('handles a route with no stops', () => {
@@ -813,7 +878,7 @@ describe('WalkSheet', () => {
     const line = 'Last contact: June 2026 · Door knock: Answered'
     expect(within(rowFor('Dorian Fen')).getByText(line)).toBeInTheDocument()
     // Still gets boxes: unsure support is a door worth re-asking.
-    expect(rowFor('Dorian Fen').querySelectorAll('.ws-box').length).toBe(11)
+    expect(rowFor('Dorian Fen').querySelectorAll('.ws-box').length).toBe(7)
     // And the flagged housemate keeps their instruction beside the same line.
     const mate = rowFor('Marisol Vega')
     expect(within(mate).getByText(line)).toBeInTheDocument()

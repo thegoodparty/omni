@@ -1,5 +1,7 @@
+import { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import WalkSurface, {
@@ -17,7 +19,7 @@ const walkViewProps: {
     openStopRequest: OpenStopRequest | null
     selectedStopId: number | null
     liveLocation: LiveLocation
-    liveLocationEnabled: boolean
+    archivePending: boolean
   } | null
 } = { current: null }
 vi.mock('./WalkView', () => ({
@@ -29,15 +31,15 @@ vi.mock('./WalkView', () => ({
     onSelectStop: (stopId: number) => void
     onKnockRecorded?: () => void
     liveLocation: LiveLocation
-    liveLocationEnabled: boolean
-    onToggleLiveLocation: (next: boolean) => void
+    onMoveToArchive: () => void
+    archivePending: boolean
   }) => {
     walkViewProps.current = {
       turfId: props.turfId,
       openStopRequest: props.openStopRequest ?? null,
       selectedStopId: props.selectedStopId,
       liveLocation: props.liveLocation,
-      liveLocationEnabled: props.liveLocationEnabled,
+      archivePending: props.archivePending,
     }
     return (
       <div data-testid="walk-view">
@@ -47,8 +49,8 @@ vi.mock('./WalkView', () => ({
         <button type="button" onClick={() => props.onSelectStop(12)}>
           mark stop 12
         </button>
-        <button type="button" onClick={() => props.onToggleLiveLocation(true)}>
-          show my location
+        <button type="button" onClick={props.onMoveToArchive}>
+          move to archive
         </button>
       </div>
     )
@@ -297,40 +299,49 @@ describe('WalkSurface seam', () => {
     walkViewProps.current = null
   })
 
+  const surface = (
+    overrides: Partial<ComponentProps<typeof WalkSurface>> = {},
+  ) => (
+    <WalkSurface
+      turfId={3}
+      turfName="Riverside loop"
+      onExit={vi.fn()}
+      onMoveToArchive={vi.fn()}
+      archivePending={false}
+      onMapControlsOffsetChange={vi.fn()}
+      openStopRequest={{ stopId: 11, token: 2 }}
+      selectedStopId={11}
+      onSelectStop={vi.fn()}
+      onKnockRecorded={vi.fn()}
+      liveLocation={{
+        status: 'tracking',
+        fix: { lng: -86.78, lat: 36.16, accuracyMeters: 9 },
+        approximate: false,
+      }}
+      {...overrides}
+    />
+  )
+
   it('passes the walk its turf, the map’s open request and the marked stop', () => {
     const onKnockRecorded = vi.fn()
     const onSelectStop = vi.fn()
-    const onToggleLiveLocation = vi.fn()
-    render(
-      <WalkSurface
-        turfId={3}
-        openStopRequest={{ stopId: 11, token: 2 }}
-        selectedStopId={11}
-        onSelectStop={onSelectStop}
-        onKnockRecorded={onKnockRecorded}
-        liveLocation={{
-          status: 'tracking',
-          fix: { lng: -86.78, lat: 36.16, accuracyMeters: 9 },
-          approximate: false,
-        }}
-        liveLocationEnabled
-        onToggleLiveLocation={onToggleLiveLocation}
-      />,
-    )
+    render(surface({ onKnockRecorded, onSelectStop }))
 
     expect(walkViewProps.current).toEqual({
       turfId: 3,
       openStopRequest: { stopId: 11, token: 2 },
       selectedStopId: 11,
-      // The page owns the watch, because the map draws the dot and outlives
-      // the walk; the control that turns it on is the walk's, so the reading
-      // and the switch both cross the seam unchanged.
+      // The READING crosses the seam; the switch does not. The watch is the
+      // page's either way — the map draws the dot and the canvas outlives the
+      // walk — and the button that turns it on is the map cluster's now, so
+      // what the walk still needs is the one part of the reading a map control
+      // cannot report: a refused permission, or a fix too coarse to trust.
       liveLocation: {
         status: 'tracking',
         fix: { lng: -86.78, lat: 36.16, accuracyMeters: 9 },
         approximate: false,
       },
-      liveLocationEnabled: true,
+      archivePending: false,
     })
 
     // The other direction of the same value: the walk decides where the mark
@@ -340,9 +351,48 @@ describe('WalkSurface seam', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'record a knock' }))
     expect(onKnockRecorded).toHaveBeenCalled()
+  })
 
-    // And the third direction: the pill is behind the seam, the watch is not.
-    fireEvent.click(screen.getByRole('button', { name: 'show my location' }))
-    expect(onToggleLiveLocation).toHaveBeenCalledWith(true)
+  // Archiving outlives the walk it shelves, and leaving is the page's gesture,
+  // so the write is the page's and this surface only reports the press.
+  it('reports the archive press without performing it', () => {
+    const onMoveToArchive = vi.fn()
+    render(surface({ onMoveToArchive }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'move to archive' }))
+
+    expect(onMoveToArchive).toHaveBeenCalled()
+  })
+
+  // The list being walked is named on the sheet rather than in the page's
+  // title row, which is what makes the header readable at `peek` — the snap
+  // where the sheet is all there is of the walk.
+  it('names the list on the sheet, and offers one way out of the walk', async () => {
+    const onExit = vi.fn()
+    render(surface({ onExit }))
+
+    expect(screen.getByText('Riverside loop')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(onExit).toHaveBeenCalled()
+  })
+
+  // Everything below the header comes down at `peek`, so a canvasser reading
+  // the street has the map and the list's name and nothing else. The header
+  // itself never does — it is what they drag back up by.
+  it('drops the stop list at the peek snap, keeping the header', () => {
+    render(surface())
+    expect(screen.getByTestId('walk-view')).toBeInTheDocument()
+
+    // The grip cycles peek → half → full, and opens on half, so two presses
+    // come round to peek. Keyed rather than clicked: a pointer press on the
+    // grip is a cycle of its own, so a click would count twice.
+    const grip = screen.getByRole('button', { name: /the route/ })
+    fireEvent.keyDown(grip, { key: 'Enter' })
+    fireEvent.keyDown(grip, { key: 'Enter' })
+
+    expect(screen.queryByTestId('walk-view')).toBeNull()
+    expect(screen.getByText('Riverside loop')).toBeInTheDocument()
   })
 })

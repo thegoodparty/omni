@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { IconButton, XMarkIcon } from '@styleguide'
 import { routeQueryOptions } from './turfQueries'
 import { rollupStopStatus, stopIsKnockable } from './statusPresentation'
 import type { LiveLocation } from './useLiveLocation'
 import type { RoutePin } from './VoterMapCanvas'
+import { useSheetControlsOffset, useSheetSnap } from './useSheetSnap'
 import WalkView from './WalkView'
 
 // A stop the canvasser asked to open, from the map rather than from the list.
@@ -140,6 +142,23 @@ export const WalkMapHint = ({ visible }: { visible: boolean }) => {
 // on screen.
 export interface WalkSurfaceProps {
   turfId: number
+  // The name in the sheet's own header. The walk is a sheet over a full-bleed
+  // map now, so the list being walked is named on the sheet rather than in the
+  // page's title row — which is where the design puts it, and which is what
+  // makes the header readable at the `peek` snap where nothing else renders.
+  turfName: string
+  // The X beside that name. The same exit the page's own chrome offers, so
+  // there is one way out of a walk and not two that could end it differently.
+  onExit: () => void
+  // `Move to archive`, the one button under the stop list. The write is the
+  // orchestrator's because it outlives the walk it shelves (`useWalkArchive`),
+  // and because leaving is the orchestrator's gesture — this surface only knows
+  // that the button was pressed.
+  onMoveToArchive: () => void
+  archivePending: boolean
+  // How far up the map this sheet reaches, so the zoom cluster can clear it.
+  // Only the sheet knows, and only at its current snap.
+  onMapControlsOffsetChange: (offsetPx: number | null) => void
   openStopRequest: OpenStopRequest | null
   // Which stop is marked. Both directions of it cross this seam, because the
   // list and the map each draw it and only one of them is behind here: the
@@ -148,18 +167,12 @@ export interface WalkSurfaceProps {
   // so the ringed pin and the marked row cannot come apart.
   selectedStopId: number | null
   onSelectStop: (stopId: number) => void
-  // "My live location". The canvas keeps this switch in the walk's control row
-  // and nowhere else, so the control is behind this seam — but the dot it turns
-  // on is drawn by the map, which the orchestrator owns and which outlives the
-  // walk. So the watch is read up there and both halves cross: the reading, so
-  // the pill can say a permission was blocked, and the switch.
-  //
-  // A third direction across the seam rather than a second copy of the state,
-  // for the same reason `selectedStopId` is: the pill and the dot are one fact
-  // drawn twice, and two `useState`s would let them disagree.
+  // "My live location" — the READING only, now that the switch is the map
+  // cluster's third button where the design puts it. The watch is the
+  // orchestrator's either way (the map draws the dot and the canvas outlives
+  // the walk), so what crosses is the one part of it a map control cannot
+  // report: a permission that was refused, or a fix too coarse to trust.
   liveLocation: LiveLocation
-  liveLocationEnabled: boolean
-  onToggleLiveLocation: (next: boolean) => void
   // Lets the page refetch the voter pack after the walk: the landing map's
   // statuses are baked into the cached pack, so new knocks are invisible there
   // until it reloads.
@@ -168,24 +181,77 @@ export interface WalkSurfaceProps {
 
 export default function WalkSurface({
   turfId,
+  turfName,
+  onExit,
+  onMoveToArchive,
+  archivePending,
+  onMapControlsOffsetChange,
   openStopRequest,
   selectedStopId,
   onSelectStop,
   liveLocation,
-  liveLocationEnabled,
-  onToggleLiveLocation,
   onKnockRecorded,
 }: WalkSurfaceProps) {
+  // The same three snaps and the same grip the manage rail uses, because they
+  // are the same sheet at two moments of one job: a canvasser who learned to
+  // drag it open on the list of routes has learned it here.
+  const { snap, cycle, gripHandlers, heightClass, sheetRef } = useSheetSnap()
+  useSheetControlsOffset(sheetRef, snap, onMapControlsOffsetChange, undefined)
+
   return (
-    <WalkView
-      turfId={turfId}
-      onKnockRecorded={onKnockRecorded}
-      openStopRequest={openStopRequest}
-      selectedStopId={selectedStopId}
-      onSelectStop={onSelectStop}
-      liveLocation={liveLocation}
-      liveLocationEnabled={liveLocationEnabled}
-      onToggleLiveLocation={onToggleLiveLocation}
-    />
+    <aside
+      ref={sheetRef}
+      data-snap={snap}
+      // Over the map at every width, unlike the manage rail — a walk is one
+      // route and the map under it is the street being walked, so there is no
+      // desktop arrangement where the two sit side by side.
+      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-card shadow-lg transition-[height] duration-[260ms] ease-out ${heightClass}`}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={snap !== 'peek'}
+        aria-label={snap === 'full' ? 'Collapse the route' : 'Expand the route'}
+        className="mx-auto flex w-full max-w-[608px] shrink-0 cursor-grab touch-none flex-col gap-2.5 px-4 pt-2 pb-3"
+        {...gripHandlers}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            cycle()
+          }
+        }}
+      >
+        <span className="mx-auto h-2 w-[120px] shrink-0 rounded-full bg-border" />
+        <div className="mt-1.5 flex items-center justify-between gap-3">
+          <span className="truncate text-[15px] font-semibold">{turfName}</span>
+          {/* The pointer events are stopped rather than the click: the grip
+              around this button is driven by pointer handlers, so a press that
+              did not stop them would drag the sheet under the finger closing
+              it. */}
+          <IconButton
+            variant="ghost"
+            aria-label="Close"
+            className="shrink-0"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onClick={onExit}
+          >
+            <XMarkIcon size={18} />
+          </IconButton>
+        </div>
+      </div>
+      {snap !== 'peek' && (
+        <WalkView
+          turfId={turfId}
+          onKnockRecorded={onKnockRecorded}
+          openStopRequest={openStopRequest}
+          selectedStopId={selectedStopId}
+          onSelectStop={onSelectStop}
+          liveLocation={liveLocation}
+          onMoveToArchive={onMoveToArchive}
+          archivePending={archivePending}
+        />
+      )}
+    </aside>
   )
 }

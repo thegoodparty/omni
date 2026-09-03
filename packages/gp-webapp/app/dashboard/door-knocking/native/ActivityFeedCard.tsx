@@ -1,5 +1,5 @@
 import { RouteTargetActivity } from '@goodparty_org/contracts'
-import { HistoryIcon } from '@styleguide'
+import { TrendingUpIcon } from '@styleguide'
 import {
   DoorKnockActivityRow,
   PhoneBankingActivityRow,
@@ -64,8 +64,11 @@ export default function ActivityFeedCard({
   history: RouteTargetActivity[]
 }) {
   return (
-    <section className="mb-4 rounded-lg border border-border">
-      <SheetSectionHeader icon={HistoryIcon} title="Activity feed" />
+    // `trending-up` and "Activity Feed" with the canvas's own capital F
+    // (`panelCard('Activity Feed','trending-up', …)`), which is also the
+    // capitalisation the CRM person view gives the section these rows come from.
+    <section className="mb-4 rounded-xl border border-border">
+      <SheetSectionHeader icon={TrendingUpIcon} title="Activity Feed" />
       <div className="p-4 text-sm">
         {history.length === 0 ? (
           // Named as a fact about this resident, not the household: the

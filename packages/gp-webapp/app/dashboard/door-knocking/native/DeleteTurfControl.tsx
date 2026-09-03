@@ -9,29 +9,18 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfirmDeleteDialog } from 'app/dashboard/shared/ConfirmDeleteDialog'
-import { turfsQueryOptions } from './turfQueries'
+import { TURFS_QUERY_KEY } from './turfQueries'
 
-// What the lock still costs, now that delete is not one of the things it
-// refuses. gp-api's `delete` used to run `assertNotLocked`; it no longer does —
-// an unlocked turf is hard-deleted and a locked one is tombstoned, so the
-// confirmation dialog is the guard and the trigger is live at every stage.
-//
-// The sentence stays because the lock is still real: `update` asserts it, so a
-// knocked list cannot be renamed, recoloured or redrawn. It is exported because
-// the details sheet prints it beside its own (hidden) Edit control, and a rule
-// met in two wordings reads as two rules. It is also the snackbar for a 409,
-// which this client should never see against a current gp-api and would only
-// see against one deployed behind it — permanent from the browser's point of
-// view either way, which is why that path closes the confirm.
-export const LOCKED_TURF_MESSAGE =
-  'This list has already been knocked, so its route and drawn area are frozen and can no longer be changed.'
+// A gp-api deployed behind this client, still running the `assertNotLocked`
+// that `delete` used to carry. No current server can produce it: a routed turf
+// is tombstoned rather than refused, and every turf is routed. Kept as the
+// snackbar for that one deployment skew, because a 409 is permanent from the
+// browser's point of view and needs a sentence rather than "Try again".
+const STALE_SERVER_DELETE_MESSAGE =
+  'This list has already been knocked, so it can no longer be deleted.'
 
 interface DeleteTurfControlProps {
   turf: DoorKnockingTurf
-  // Read from the LIVE row by both callers, never from a captured snapshot.
-  // It no longer gates the trigger — it decides what the confirmation says is
-  // about to happen, because the two deletes destroy very different amounts.
-  locked: boolean
   // The page holds its own references to this turf (map scope, camera focus),
   // which would otherwise keep masking the map to a list that no longer
   // exists.
@@ -52,7 +41,6 @@ interface DeleteTurfControlProps {
 
 export default function DeleteTurfControl({
   turf,
-  locked,
   onDeleted,
   trigger = 'button',
   open,
@@ -75,7 +63,7 @@ export default function DeleteTurfControl({
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: turfsQueryOptions.queryKey,
+        queryKey: TURFS_QUERY_KEY,
       })
       trackEvent(EVENTS.DoorKnocking.ListDeleted, { turfId: turf.id })
       successSnackbar('List deleted')
@@ -84,15 +72,14 @@ export default function DeleteTurfControl({
     },
     onError: async (error) => {
       if (error instanceof FetchError && error.status === 409) {
-        // A server that still refuses a knocked list — a gp-api deployed behind
-        // this client. It will refuse the retry too, so the confirm closes
-        // rather than leaving a Delete that can only 409 again, and the reason
-        // goes to a snackbar that outlives the dialog.
+        // It will refuse the retry too, so the confirm closes rather than
+        // leaving a Delete that can only 409 again, and the reason goes to a
+        // snackbar that outlives the dialog.
         setConfirmOpen(false)
         setDeleteError(null)
-        errorSnackbar(LOCKED_TURF_MESSAGE, { autoHideDuration: 6000 })
+        errorSnackbar(STALE_SERVER_DELETE_MESSAGE, { autoHideDuration: 6000 })
         await queryClient.invalidateQueries({
-          queryKey: turfsQueryOptions.queryKey,
+          queryKey: TURFS_QUERY_KEY,
         })
         return
       }
@@ -143,17 +130,12 @@ export default function DeleteTurfControl({
           if (!next) setDeleteError(null)
         }}
         title={`Delete ${turf.name}?`}
-        // The dialog is the guard now, so it has to say which delete is about
-        // to run: an unknocked list is a drawing and really does go, while a
-        // knocked one keeps the route someone was billed for and the walk in
-        // outreach history — it only leaves this rail. Describing both as
-        // "removed for good" would over-warn on one and under-warn on the
-        // other.
-        description={
-          locked
-            ? 'This list leaves your rail for good. The route you paid for, the doors it froze and the walk in your outreach history are all kept, and no logged knocks are affected.'
-            : 'The drawn area and its filters are removed for good. The saved list stays in Contacts, and no logged knocks are affected.'
-        }
+        // One sentence rather than two, because there is one delete now: a
+        // list is born with the route it was billed for, so deleting it is
+        // always a tombstone and never destroys the route, the frozen doors or
+        // the walk in outreach history. The hard-delete branch — a drawing
+        // nobody had paid for yet — has no state left to describe.
+        description="This list leaves your rail for good. The route you paid for, the doors it froze and the walk in your outreach history are all kept, and no logged knocks are affected."
         onConfirm={() => deleteTurf.mutate()}
         confirming={deleteTurf.isPending}
         errorMessage={deleteError}

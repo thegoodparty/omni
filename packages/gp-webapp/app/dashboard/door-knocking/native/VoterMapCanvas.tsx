@@ -7,16 +7,31 @@ import { ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers'
 import {
+  PathStyleExtension,
+  type PathStyleExtensionProps,
+} from '@deck.gl/extensions'
+import {
   DOOR_KNOCK_STATUSES,
   DoorKnockingTurf,
   DoorKnockStatus,
   RoutePathGeometry,
 } from '@goodparty_org/contracts'
+import {
+  IconButton,
+  LocateFixedIcon,
+  LocateOffIcon,
+  MinusIcon,
+  PlusIcon,
+} from '@styleguide'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
-import { LiveLocation, LiveLocationFix } from './useLiveLocation'
+import {
+  LiveLocation,
+  LiveLocationFix,
+  liveLocationMessage,
+} from './useLiveLocation'
 
 // Dots and legend chips share one palette (statusPresentation.ts) so they
 // cannot disagree; indexes match DOOR_KNOCK_STATUSES order (the status
@@ -29,6 +44,14 @@ const UNMATCHED_COLOR: [number, number, number, number] = [190, 195, 200, 60]
 // the saved rings it is being cut alongside.
 const DRAW_LINE_ALPHA = 255
 const DRAW_FILL_ALPHA = 40
+// The unclosed edge's dashes, as multiples of the path's own width — which is
+// what the extension measures them in. The width is in pixels, so the dashes
+// are too, and they hold their size as the canvasser zooms rather than
+// stretching and collapsing the way a world-unit dash would.
+// Instantiated once at module scope: a new extension object every render makes
+// deck.gl treat the layer as a different one and rebuild its model each time.
+const DRAW_DASH: [number, number] = [6, 4]
+const DASH_EXTENSION = new PathStyleExtension({ dash: true })
 // Breathing room around a framed shape, in pixels — a ring flush against the
 // edge of the band reads as a shape running off the map.
 const FRAME_MARGIN = 24
@@ -42,6 +65,10 @@ const LOCATION_BLUE_APPROX: [number, number, number, number] = [
   19, 81, 216, 120,
 ]
 const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
+// How far the location notice clears the control cluster it belongs to: the
+// cluster is three 40px buttons and two 8px gaps, so this sits the line just
+// above the topmost one rather than over the button that produced it.
+const LOCATION_NOTICE_GAP_PX = 152
 // Slop in pixels around a route pin's own 11-14px radius. The whole feature is
 // used one-handed on a phone in the street, so the tap target has to clear the
 // ~44px a thumb needs rather than the ~24px the pin is drawn at.
@@ -154,17 +181,28 @@ interface VoterMapCanvasProps {
   // when the token bumps, not on its own: dragging the sheet further open must
   // uncover more map, not re-aim the camera mid-gesture.
   frameDrawBottomPct: number
-  // Whether the zoom and compass buttons are worth offering. A step that shows
-  // a band of the map as a picture shields it from taps, and a shielded "+" is
-  // a control that answers nothing — so the step that puts the shield up takes
-  // the buttons down with it.
+  // Whether the control cluster is worth offering. A step that shows a band of
+  // the map as a picture shields it from taps, and a shielded "+" is a control
+  // that answers nothing — so the step that puts the shield up takes the
+  // buttons down with it.
   controlsHidden?: boolean
+  // How far off the bottom edge the cluster sits, in pixels. The phone's
+  // manage sheet and the walk's sheet both rise from the bottom over the map,
+  // so the cluster has to be told where the uncovered map ends; every other
+  // surface leaves it at the design's 16px edge.
+  controlsBottomPx?: number
   // Where the canvasser is, when they have asked to be shown. A reading and not
-  // a switch: this canvas draws the dot, the walk owns the control that turns it
-  // on (the canvas prototype puts "My live location" in the walk's control row
-  // and offers it on no other surface), and the page holds the watch because it
-  // is the one thing that outlives both.
+  // a switch: this canvas draws the dot, and the page holds the watch because
+  // it is the one thing that outlives every surface. The SWITCH is the third
+  // button of the cluster below, which is why the pair beneath it is here too.
   location: LiveLocation
+  liveLocationEnabled?: boolean
+  onToggleLiveLocation?: (next: boolean) => void
+  // Whether this canvas is the one that has to report the watch's state in
+  // words. Off by default: the walk sets it false because its sheet already
+  // carries the line, and two copies of "Location is blocked" on one screen is
+  // worse than none.
+  locationNotice?: boolean
   onPolygonChange: (ring: PolygonRing | null) => void
   // Fires with the vertex count as points are placed (0 on start/clear) —
   // the page uses it to dismiss the draw instructions on the first click.
@@ -404,7 +442,11 @@ export default function VoterMapCanvas({
   frameDrawToken,
   frameDrawBottomPct,
   controlsHidden = false,
+  controlsBottomPx = 16,
   location,
+  liveLocationEnabled = false,
+  onToggleLiveLocation,
+  locationNotice = false,
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
@@ -462,6 +504,7 @@ export default function VoterMapCanvas({
   const frameBottomPctRef = useRef(frameDrawBottomPct)
   frameBottomPctRef.current = frameDrawBottomPct
   const locationFix = location.fix
+  const locationMessage = locationNotice ? liveLocationMessage(location) : null
 
   useEffect(() => {
     if (!containerRef.current || !hasTilesKey) return
@@ -476,17 +519,18 @@ export default function VoterMapCanvas({
       attributionControl: false,
     })
     mapRef.current = map
-    // Left, because the right half of this map is spoken for. The manage
-    // surface floats its rail over the map as an inset card pinned
-    // `lg:inset-y-4 lg:right-4 lg:w-96`, so every corner on the right is
-    // behind it above `lg` — all three zoom-stack buttons were drawn, looked
-    // pressable, and could not be clicked at 1024px or wider, and the
-    // attribution was covered with them. The left half is the only part of
-    // the map nothing floats over at any width.
-    map.addControl(new maplibregl.NavigationControl(), 'top-left')
+    // No `NavigationControl`. The design puts zoom on the bottom LEFT as a
+    // three-button cluster whose third button is a location toggle maplibre's
+    // stack has no equivalent of, so the cluster is rendered below in React
+    // and maplibre's own would only be a second, differently-styled pair of
+    // zoom buttons under the rail that now occupies the top-left corner.
+    //
+    // Attribution goes bottom-RIGHT for the same reason it was moved off there
+    // before: the corner it used to share is the cluster's now. Nothing floats
+    // over the bottom-right on any of the three surfaces.
     map.addControl(
       new maplibregl.AttributionControl({ compact: true }),
-      'bottom-left',
+      'bottom-right',
     )
 
     // osm-liberty ships transit overlays and 3D building extrusions we
@@ -750,6 +794,25 @@ export default function VoterMapCanvas({
           getRadius: 5,
           pickable: false,
         }),
+        // Two points are not a polygon yet, so the shape in progress is a bare
+        // segment and the PolygonLayer below has nothing to draw. The design
+        // still draws the edge, dashed — an unclosed boundary that shows
+        // nothing between its first two corners reads as a tap that missed.
+        // From the third point the solid polygon takes over, which is the same
+        // switch the design makes.
+        new PathLayer<PolygonRing, PathStyleExtensionProps<PolygonRing>>({
+          id: 'draw-draft-edge',
+          data: drawPoints.length === 2 ? [drawPoints] : [],
+          getPath: (ring) => ring,
+          getColor: drawLine,
+          widthUnits: 'pixels',
+          getWidth: 2.5,
+          widthMinPixels: 2.5,
+          getDashArray: DRAW_DASH,
+          dashJustified: true,
+          extensions: [DASH_EXTENSION],
+          pickable: false,
+        }),
         new PolygonLayer<PolygonRing>({
           id: 'draw-preview',
           data: drawPoints.length >= 3 ? [drawPoints] : [],
@@ -763,12 +826,17 @@ export default function VoterMapCanvas({
           id: 'draw-vertices',
           data: drawPoints,
           getPosition: (point) => point,
-          // The vertices wear the pick too: they are corners of the same
-          // boundary, and a blue handle on a green ring reads as two shapes.
-          getFillColor: drawLine,
-          getLineColor: [255, 255, 255, 255],
+          // A ring of the boundary's colour around a hollow centre, which is
+          // the design's handle. The filled disc this replaced read as a
+          // placed dot rather than a grab point, and at the density a street
+          // is drawn at it was indistinguishable from the voter pins under it.
+          // The hue is still the ring's, so a handle can't belong to a
+          // different shape than the line it corners.
+          getFillColor: [255, 255, 255, 255],
+          getLineColor: drawLine,
           stroked: true,
-          lineWidthMinPixels: 1.5,
+          filled: true,
+          lineWidthMinPixels: 2.5,
           radiusMinPixels: 5,
           radiusMaxPixels: 8,
           getRadius: 6,
@@ -1101,18 +1169,78 @@ export default function VoterMapCanvas({
   }
 
   return (
-    // maplibre owns the navigation stack's DOM, so it goes away by CSS rather
-    // than by not being added — dropping and re-adding the control on a step
-    // change would rebuild it mid-session. The rule rides this wrapper and not
-    // the map container below it: maplibre writes its own classes onto that
-    // node after mount, and a className React rewrites on every flip of
-    // `controlsHidden` would take `maplibregl-map` with it.
-    <div
-      className={`relative h-full w-full ${
-        controlsHidden ? '[&_.maplibregl-ctrl-top-left]:hidden' : ''
-      }`}
-    >
+    <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      {/* The design's cluster: bottom left, vertical, 8px apart, each an
+          outline icon button on a card background so it reads against both
+          the pale street fill and the dark park fill it can sit over.
+          Rendered here rather than by each surface because it drives the map
+          and the map is this component's. */}
+      {!controlsHidden && (
+        <div
+          className="absolute left-4 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out"
+          style={{ bottom: controlsBottomPx }}
+        >
+          <IconButton
+            type="button"
+            variant="outline"
+            aria-label="Zoom in"
+            className="bg-card"
+            onClick={() => mapRef.current?.zoomIn()}
+          >
+            <PlusIcon className="size-[18px]" />
+          </IconButton>
+          <IconButton
+            type="button"
+            variant="outline"
+            aria-label="Zoom out"
+            className="bg-card"
+            onClick={() => mapRef.current?.zoomOut()}
+          >
+            <MinusIcon className="size-[18px]" />
+          </IconButton>
+          {/* Only where something can act on it. Turning the watch on is what
+              asks the browser for permission, so a surface with no handler
+              would offer a button that could only produce a prompt and then
+              nothing to show for it. */}
+          {onToggleLiveLocation && (
+            <IconButton
+              type="button"
+              variant="outline"
+              aria-label={
+                liveLocationEnabled ? 'Hide my location' : 'Show my location'
+              }
+              aria-pressed={liveLocationEnabled}
+              className="bg-card"
+              onClick={() => onToggleLiveLocation(!liveLocationEnabled)}
+            >
+              {liveLocationEnabled ? (
+                <LocateFixedIcon className="size-[18px]" />
+              ) : (
+                <LocateOffIcon className="size-[18px]" />
+              )}
+            </IconButton>
+          )}
+        </div>
+      )}
+      {/* The switch is an icon, and the two ways it can fail look exactly like
+          the two ways it can succeed: a refused permission and a fix that never
+          arrives both leave a pressed button and an empty map. The walk says so
+          on its sheet, so this is for the surfaces that have no sheet — without
+          it the drawing step answers a tap by asking the browser for permission
+          and then showing nothing, with no way to tell "still looking" from
+          "macOS is not going to give this to you". Live, because the states it
+          reports arrive seconds after the tap. */}
+      {locationNotice && locationMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute left-4 right-4 z-20 mx-auto max-w-xs rounded-md bg-card/95 px-3 py-2 text-center text-sm shadow-md transition-[bottom] duration-200 ease-out"
+          style={{ bottom: controlsBottomPx + LOCATION_NOTICE_GAP_PX }}
+        >
+          {locationMessage}
+        </div>
+      )}
     </div>
   )
 }

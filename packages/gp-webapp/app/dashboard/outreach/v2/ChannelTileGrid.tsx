@@ -167,6 +167,11 @@ export const ChannelTileGrid = ({
       // ignores anything else, so a stale id costs the preselection and
       // nothing more.
       //
+      // `?create=1` because this tile asks to START a walk, not to look at
+      // the map. Landing on the rail and making the candidate find Create
+      // list was a step the other channels don't charge — pressing Email
+      // opens the email flow, so pressing Door knocking opens this one.
+      //
       // Consumed on the way out, exactly as the flows that close do it: this
       // channel is now one of the ones that APPLIES the preselect, and the
       // instance can outlive the navigation in the App Router's soft-nav
@@ -178,8 +183,8 @@ export const ChannelTileGrid = ({
       lastSyncedPropListIdRef.current = undefined
       router.push(
         listId === undefined
-          ? '/dashboard/door-knocking'
-          : `/dashboard/door-knocking?listId=${listId}`,
+          ? '/dashboard/door-knocking?create=1'
+          : `/dashboard/door-knocking?create=1&listId=${listId}`,
       )
       return
     }
