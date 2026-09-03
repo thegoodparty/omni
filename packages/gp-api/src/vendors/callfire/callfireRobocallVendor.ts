@@ -14,6 +14,7 @@ import {
   UploadMediaInput,
   UploadedMedia,
 } from '@/outreach/vendor/robocallVendor.types'
+import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { sleep } from '@/shared/util/sleep.util'
 import { CallfireBroadcastService } from './services/callfireBroadcast.service'
 import {
@@ -55,10 +56,31 @@ export class CallfireRobocallVendor implements RobocallVendor {
     this.logger.setContext(CallfireRobocallVendor.name)
   }
 
+  // The port contract guarantees that a defined area code with no CallFire
+  // inventory DEGRADES to a national (no-prefix) rental rather than failing the
+  // request. So attempt the area-code rental and, only on the no-inventory
+  // BadGatewayException, retry once nationally. A VendorPermanentError (a 4xx a
+  // national retry can't fix, and which may already have placed a real order)
+  // and any national-retry failure still propagate.
   async rentNumber(input: RentNumberInput): Promise<RentedNumber> {
-    const rented = await this.numbers.rentNumber({
-      areaCode: input.areaCode ?? '',
+    const areaCode = input.areaCode ?? ''
+    let rented = await this.numbers.rentNumber({ areaCode }).catch((err) => {
+      if (
+        areaCode &&
+        err instanceof BadGatewayException &&
+        !(err instanceof VendorPermanentError)
+      ) {
+        return null
+      }
+      throw err
     })
+    if (!rented) {
+      this.logger.warn(
+        { areaCode },
+        'No CallFire inventory for area code; renting a national number',
+      )
+      rented = await this.numbers.rentNumber({ areaCode: '' })
+    }
     return {
       phoneNumber: rented.phoneNumber,
       region: rented.region ?? null,

@@ -146,6 +146,54 @@ describe('CallfireBroadcastService', () => {
         BadGatewayException,
       )
     })
+
+    it('aborts the just-created broadcast and rethrows when the attach fails', async () => {
+      http.post
+        .mockResolvedValueOnce({ id: 44001 }) // create
+        .mockRejectedValueOnce(
+          createAxiosError({ message: 'attach boom' }, 500),
+        )
+        .mockResolvedValueOnce({}) // abort /stop
+
+      await expect(service.createBroadcast(params)).rejects.toThrow(
+        'CallFire broadcast contact-list attach failed',
+      )
+
+      // The orphaned broadcast is stopped with its own campaign ref.
+      const stopCalls = http.post.mock.calls.filter(([p]) =>
+        String(p).endsWith('/stop'),
+      )
+      expect(stopCalls).toHaveLength(1)
+      expect(stopCalls[0]?.[0]).toBe('/calls/broadcasts/44001/stop')
+    })
+
+    it('rethrows the original attach error even when the abort also fails', async () => {
+      http.post
+        .mockResolvedValueOnce({ id: 44001 }) // create
+        .mockRejectedValueOnce(
+          createAxiosError({ message: 'attach boom' }, 500),
+        )
+        .mockRejectedValueOnce(createAxiosError({ message: 'stop boom' }, 500))
+
+      // A failed abort must not mask the original attach failure.
+      await expect(service.createBroadcast(params)).rejects.toThrow(
+        'CallFire broadcast contact-list attach failed',
+      )
+    })
+
+    it('does not abort when the attach succeeds', async () => {
+      http.post
+        .mockResolvedValueOnce({ id: 44001 }) // create
+        .mockResolvedValueOnce({ id: 90001 }) // attach
+
+      const result = await service.createBroadcast(params)
+
+      expect(result.campaignRef).toBe('44001')
+      const stopCalls = http.post.mock.calls.filter(([p]) =>
+        String(p).endsWith('/stop'),
+      )
+      expect(stopCalls).toHaveLength(0)
+    })
   })
 
   describe('abortBroadcast', () => {

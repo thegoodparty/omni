@@ -137,11 +137,32 @@ export class CallfireBroadcastService {
     const campaignRef = String(id)
 
     if (params.contactListId) {
-      await this.attachContactList(
-        campaignRef,
-        params.name,
-        params.contactListId,
-      )
+      try {
+        await this.attachContactList(
+          campaignRef,
+          params.name,
+          params.contactListId,
+        )
+      } catch (error) {
+        // The broadcast already exists at CallFire; a failed attach would
+        // otherwise orphan it (no audience, no persisted ref for any sweep to
+        // reclaim, and every staging retry would create ANOTHER). Best-effort
+        // stop it so it can never dial, then rethrow the ORIGINAL failure so
+        // the caller reverts the row to authorized and retries cleanly.
+        this.logger.error(
+          { err: error, campaignRef },
+          'CallFire contact-list attach failed; aborting orphaned broadcast',
+        )
+        try {
+          await this.abortBroadcast(campaignRef)
+        } catch (abortError) {
+          this.logger.error(
+            { err: abortError, campaignRef },
+            'Failed to abort orphaned CallFire broadcast after attach failure',
+          )
+        }
+        throw error
+      }
     }
 
     return { campaignRef, startingDate, expirationDate }

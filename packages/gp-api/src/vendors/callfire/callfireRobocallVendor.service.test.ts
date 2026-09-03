@@ -1,6 +1,7 @@
 import { BadGatewayException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROBOCALL_BROADCAST_STATUS } from '@/outreach/vendor/robocallVendor.types'
+import { VendorPermanentError } from '@/outreach/vendor/vendorPermanentError'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CallfireRobocallVendor } from './callfireRobocallVendor'
 import { CallfireBroadcastService } from './services/callfireBroadcast.service'
@@ -82,6 +83,57 @@ describe('CallfireRobocallVendor', () => {
 
       expect(numbers.rentNumber).toHaveBeenCalledWith({ areaCode: '512' })
       expect(result).toEqual({ phoneNumber: '+18005551234', region: null })
+    })
+
+    it('falls back to a national number when the area code has no inventory', async () => {
+      numbers.rentNumber
+        .mockRejectedValueOnce(
+          new BadGatewayException('No CallFire local number available'),
+        )
+        .mockResolvedValueOnce({ phoneNumber: '+18885559999', region: 'CA' })
+
+      const result = await vendor.rentNumber({ areaCode: '512' })
+
+      // First tries the prefix, then degrades to a no-prefix national rental.
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(2)
+      expect(numbers.rentNumber).toHaveBeenNthCalledWith(1, { areaCode: '512' })
+      expect(numbers.rentNumber).toHaveBeenNthCalledWith(2, { areaCode: '' })
+      expect(result).toEqual({ phoneNumber: '+18885559999', region: 'CA' })
+    })
+
+    it('propagates a permanent 4xx failure without a national retry', async () => {
+      numbers.rentNumber.mockRejectedValue(
+        new VendorPermanentError('bad prefix'),
+      )
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(VendorPermanentError)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
+    })
+
+    it('propagates a national-retry failure', async () => {
+      numbers.rentNumber
+        .mockRejectedValueOnce(
+          new BadGatewayException('No CallFire local number available'),
+        )
+        .mockRejectedValueOnce(new BadGatewayException('national exhausted'))
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry when the area-code rental succeeds', async () => {
+      numbers.rentNumber.mockResolvedValue({
+        phoneNumber: '+18005551234',
+        region: 'TX',
+      })
+
+      await vendor.rentNumber({ areaCode: '512' })
+
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(1)
     })
   })
 
