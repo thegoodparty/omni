@@ -481,6 +481,7 @@ function LoadedEditor({
             hint="Overrides the name from public records."
             value={form.displayName}
             placeholder="Jane Doe"
+            error={errors.displayName}
             onChange={(v) => setField('displayName', v)}
           />
           <Field
@@ -488,6 +489,7 @@ function LoadedEditor({
             label={FIELD_LABELS.roleTitleOverride}
             value={form.roleTitleOverride}
             placeholder="City Council Member, Ward 3"
+            error={errors.roleTitleOverride}
             onChange={(v) => setField('roleTitleOverride', v)}
           />
         </div>
@@ -496,32 +498,28 @@ function LoadedEditor({
       {/* About */}
       <Card className="flex flex-col gap-4 p-5 sm:p-6">
         <h2 className="text-lg font-semibold">About</h2>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bioOverride">{FIELD_LABELS.bioOverride}</Label>
-          <Textarea
-            id="bioOverride"
-            rows={5}
-            value={form.bioOverride}
-            placeholder="Tell people who you are and what you care about."
-            onChange={(e) => setField('bioOverride', e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="whyRunning">
-            {fieldLabel('whyRunning', product)}
-          </Label>
-          <Textarea
-            id="whyRunning"
-            rows={4}
-            value={form.whyRunning}
-            placeholder={
-              product === 'serve'
-                ? 'What drives your work in office.'
-                : "What you'll fight for and why."
-            }
-            onChange={(e) => setField('whyRunning', e.target.value)}
-          />
-        </div>
+        <TextareaField
+          id="bioOverride"
+          label={FIELD_LABELS.bioOverride}
+          rows={5}
+          value={form.bioOverride}
+          placeholder="Tell people who you are and what you care about."
+          error={errors.bioOverride}
+          onChange={(v) => setField('bioOverride', v)}
+        />
+        <TextareaField
+          id="whyRunning"
+          label={fieldLabel('whyRunning', product)}
+          rows={4}
+          value={form.whyRunning}
+          placeholder={
+            product === 'serve'
+              ? 'What drives your work in office.'
+              : "What you'll fight for and why."
+          }
+          error={errors.whyRunning}
+          onChange={(v) => setField('whyRunning', v)}
+        />
       </Card>
 
       {/* Top Priorities (Serve only — Win campaign issues live on the website) */}
@@ -640,6 +638,50 @@ function Field({
         </p>
       ) : (
         hint && <p className="text-xs text-gray-500">{hint}</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * `Field`'s multi-line counterpart. The server can reject a bio or a why-running
+ * as readily as an email, and the snackbar naming it goes away — without this
+ * the only lasting record of which box to fix was a toast the owner may have
+ * already dismissed.
+ */
+function TextareaField({
+  id,
+  label,
+  value,
+  rows,
+  placeholder,
+  error,
+  onChange,
+}: {
+  id: string
+  label: string
+  value: string
+  rows: number
+  placeholder?: string
+  error?: string
+  onChange: (value: string) => void
+}): JSX.Element {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Textarea
+        id={id}
+        rows={rows}
+        value={value}
+        placeholder={placeholder}
+        aria-invalid={error !== undefined}
+        aria-describedby={error !== undefined ? `${id}-error` : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {error !== undefined && (
+        <p id={`${id}-error`} role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
       )}
     </div>
   )

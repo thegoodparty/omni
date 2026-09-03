@@ -569,6 +569,70 @@ describe('PublicProfileEditor — partial saves', () => {
     expect(Object.keys(putPayloads()[1]!)).toEqual(['instagramUrl'])
   })
 
+  // Everything else about normalization is asserted through a save, which
+  // re-normalizes on the way out — so those tests would still pass with the blur
+  // handler deleted. These two are the only cover the blur path has.
+  it('shows the scheme it will store while the owner is still on the field', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    const instagram = screen.getByLabelText('Instagram')
+    await userEvent.type(instagram, 'instagram.com/jane')
+    await userEvent.tab()
+
+    expect(instagram).toHaveValue('https://instagram.com/jane')
+    expect(putPayload()).toBeUndefined()
+  })
+
+  it('leaves a stored link alone when the owner only tabs through it', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ instagramUrl: 'instagram.com/jane' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    const instagram = screen.getByLabelText('Instagram')
+    await userEvent.click(instagram)
+    await userEvent.tab()
+
+    expect(instagram).toHaveValue('instagram.com/jane')
+  })
+
+  it('marks a server-rejected textarea, so the field is findable after the toast goes', async () => {
+    mockedRequest.mockRejectedValue({
+      data: { errors: [{ path: ['bioOverride'], message: 'Too long' }] },
+    })
+
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText('About me'), 'Hi')
+    await save()
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('Too long'),
+    )
+    expect(screen.getByLabelText('About me')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+  })
+
   it('has a label for every field it can send', () => {
     const missing = FORM_KEYS.filter(
       (key) => fieldLabel(key, 'win') === (key as string),
