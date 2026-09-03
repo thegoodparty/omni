@@ -44,6 +44,7 @@ model User {
   phoneBankingCalls       ContactInteractionPhoneBanking[]
   contactNotes            ContactNote[]
   organizationMemberships OrganizationMembership[]
+  invitedMemberships      OrganizationMembership[] @relation("OrganizationMembershipInvitedBy")
   doorKnockInteractions   ContactInteractionDoorKnock[]
 
   @@index([firstName])

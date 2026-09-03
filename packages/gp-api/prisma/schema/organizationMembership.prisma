@@ -14,6 +14,7 @@ model OrganizationMembership {
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   role             OrganizationRole
   invitedByUserId  Int?             @map("invited_by_user_id")
+  invitedBy        User?            @relation("OrganizationMembershipInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([organizationSlug, userId])
   @@index([userId])

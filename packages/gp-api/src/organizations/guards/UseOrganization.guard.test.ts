@@ -120,6 +120,27 @@ describe('UseOrganizationGuard', () => {
       await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
     })
 
+    // Fail closed: this guard backs write routes across most feature
+    // modules, so a volunteer must not get in even though nothing creates
+    // volunteer memberships yet.
+    it('throws NotFoundException for a volunteer membership row', async () => {
+      mockMetadata()
+      vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+        role: OrganizationRole.volunteer,
+        organization: mockOrg,
+      })
+
+      const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+
+      await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+      const req = ctx.switchToHttp().getRequest() as {
+        organization?: Organization
+        organizationRole?: OrganizationRole
+      }
+      expect(req.organization).toBeUndefined()
+      expect(req.organizationRole).toBeUndefined()
+    })
+
     it('returns true without org when continueIfNotFound', async () => {
       mockMetadata({ continueIfNotFound: true })
       vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue(null)

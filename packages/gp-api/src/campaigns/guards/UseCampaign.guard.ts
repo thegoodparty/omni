@@ -58,7 +58,11 @@ export class UseCampaignGuard implements CanActivate {
         slug,
         userId,
       )
-      if (resolved) {
+      // Fail closed: volunteer memberships don't exist yet, but this guard
+      // backs write routes across most feature modules, so a future
+      // volunteer row must not get in here by default (Phase 1.5 grants
+      // specific surfaces deliberately).
+      if (resolved && resolved.role !== OrganizationRole.volunteer) {
         campaign = await this.campaignsService.findFirst({
           where: { organizationSlug: slug },
           include,

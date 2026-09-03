@@ -116,6 +116,22 @@ describe('UseCampaignGuard', () => {
     expect(req.organizationRole).toBe(OrganizationRole.campaignAdmin)
   })
 
+  // Fail closed: this guard backs write routes across most feature
+  // modules, so a volunteer must not get in even though nothing creates
+  // volunteer memberships yet.
+  it('throws NotFoundException for a volunteer membership row', async () => {
+    mockMetadata()
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.volunteer,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
+    })
+
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+    expect(campaignsService.findFirst).not.toHaveBeenCalled()
+  })
+
   it('throws NotFoundException when role resolution fails (non-member)', async () => {
     mockMetadata()
     vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue(null)

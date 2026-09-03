@@ -1,4 +1,3 @@
-
 -- CreateEnum
 CREATE TYPE "OrganizationRole" AS ENUM ('owner', 'campaignAdmin', 'volunteer');
 
@@ -26,4 +25,7 @@ ALTER TABLE "organization_membership" ADD CONSTRAINT "organization_membership_or
 
 -- AddForeignKey
 ALTER TABLE "organization_membership" ADD CONSTRAINT "organization_membership_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "organization_membership" ADD CONSTRAINT "organization_membership_invited_by_user_id_fkey" FOREIGN KEY ("invited_by_user_id") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 

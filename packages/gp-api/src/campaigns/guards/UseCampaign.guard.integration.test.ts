@@ -136,6 +136,35 @@ describe('UseCampaign guard (integration)', () => {
       expect(result.data.slug).toBe(campaign.slug)
     })
 
+    it('returns 404 for a volunteer membership row (fail closed)', async () => {
+      const owner = await service.prisma.user.create({
+        data: { email: 'campaign-owner-volunteer-test@goodparty.org' },
+      })
+      const org = await service.prisma.organization.create({
+        data: { slug: 'campaign-org-volunteer-test', ownerId: owner.id },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          userId: owner.id,
+          slug: 'test-campaign-volunteer-test',
+          organizationSlug: org.slug,
+        },
+      })
+      await service.prisma.organizationMembership.create({
+        data: {
+          organizationSlug: org.slug,
+          userId: service.user.id,
+          role: OrganizationRole.volunteer,
+        },
+      })
+
+      const result = await service.client.get('/v1/campaigns/mine', {
+        headers: { 'x-organization-slug': org.slug },
+      })
+
+      expect(result.status).toBe(404)
+    })
+
     it('returns 404 when org belongs to another user', async () => {
       const otherUser = await service.prisma.user.create({
         data: { email: 'other@goodparty.org' },
