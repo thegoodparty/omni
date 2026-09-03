@@ -89,7 +89,14 @@ export class CallfireRobocallVendor implements RobocallVendor {
         { areaCode },
         'No CallFire inventory for area code; renting a national number',
       )
-      rented = await this.numbers.rentNumber({ areaCode: '' })
+      rented = await this.numbers.rentNumber({ areaCode: '' }).catch((err) => {
+        if (err instanceof NoInventoryError) {
+          throw new BadGatewayException(
+            'No CallFire national number available for rental',
+          )
+        }
+        throw err
+      })
     }
     return {
       phoneNumber: rented.phoneNumber,

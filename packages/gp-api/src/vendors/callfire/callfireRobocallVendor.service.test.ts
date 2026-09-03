@@ -141,6 +141,24 @@ describe('CallfireRobocallVendor', () => {
       expect(numbers.rentNumber).toHaveBeenCalledTimes(2)
     })
 
+    it('surfaces a national-retry NoInventoryError as a clean BadGatewayException', async () => {
+      // The national fallback rental must also convert a NoInventoryError into
+      // a caller-facing BadGatewayException — the internal sentinel must never
+      // leak out of the port method.
+      numbers.rentNumber
+        .mockRejectedValueOnce(
+          new NoInventoryError('No CallFire local number available'),
+        )
+        .mockRejectedValueOnce(
+          new NoInventoryError('No CallFire national number available'),
+        )
+
+      await expect(
+        vendor.rentNumber({ areaCode: '512' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(numbers.rentNumber).toHaveBeenCalledTimes(2)
+    })
+
     it('does not retry when the area-code rental succeeds', async () => {
       numbers.rentNumber.mockResolvedValue({
         phoneNumber: '+18005551234',
