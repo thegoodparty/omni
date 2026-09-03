@@ -105,6 +105,29 @@ describe('readCsvChunkBody', () => {
     )
   })
 
+  // The signed query string is a credential for a slice of voter data, and it
+  // outlives its own TTL once it is sitting in log storage.
+  it('logs the chunk it recovered without its signature', async () => {
+    const signed =
+      'https://bucket.s3.amazonaws.com/chunk-7.csv' +
+      '?X-Amz-Signature=deadbeef&X-Amz-Security-Token=sensitive'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValueOnce(socketClosed()).mockResolvedValue(ok('r')),
+    )
+
+    await read(signed)
+
+    const logged = logger.warn.mock.calls[0]?.[0]
+    expect(logged).toEqual(
+      expect.objectContaining({
+        link: 'https://bucket.s3.amazonaws.com/chunk-7.csv',
+      }),
+    )
+    expect(JSON.stringify(logged)).not.toContain('deadbeef')
+    expect(JSON.stringify(logged)).not.toContain('sensitive')
+  })
+
   it.each([500, 502, 503, 429])('retries a %d', async (code) => {
     const fetchMock = vi
       .fn()

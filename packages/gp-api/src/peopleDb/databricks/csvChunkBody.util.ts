@@ -35,6 +35,26 @@ const describeError = (err: unknown): string => {
     : err.message
 }
 
+// A chunk link is presigned, so the query string IS the authorization for a
+// slice of the voter projection -- signature, credential and session token in
+// the clear. `redactLine` does not catch them: its rule matches `token` and
+// `key` only immediately after `?` or `&`, so `X-Amz-Security-Token` misses on
+// the leading dash and `X-Amz-Signature` is not a name it knows at all.
+//
+// The TTL is not the reason to care. Log-read access is wider than voter-data
+// access and log retention outlives any presigned window, so leaving it whole
+// turns "can read logs" into "can read voter PII" -- on a line that fires
+// exactly when people are grepping through an incident. The path still says
+// which chunk this was, which is all the log needed it for.
+const redactLink = (link: string): string => {
+  try {
+    const url = new URL(link)
+    return `${url.origin}${url.pathname}`
+  } catch {
+    return '[unparseable link]'
+  }
+}
+
 type RetryLogger = { warn: (obj: object, msg: string) => void }
 
 // Download one chunk's body from its presigned link, retrying the ways it can
@@ -67,7 +87,10 @@ export const readCsvChunkBody = async (
           // per-chunk failure rate is holding steady or climbing is the thing
           // worth knowing BEFORE it exhausts the attempts and takes a pack
           // down again.
-          logger.warn({ link, attempt }, 'CSV chunk fetch recovered on retry')
+          logger.warn(
+            { link: redactLink(link), attempt },
+            'CSV chunk fetch recovered on retry',
+          )
         }
         return body
       }
