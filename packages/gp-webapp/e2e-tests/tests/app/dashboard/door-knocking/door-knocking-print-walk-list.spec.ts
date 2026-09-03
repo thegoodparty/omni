@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
+import { setupProCampaignUser } from 'src/helpers/organizations'
 import { printWalkListPath } from 'src/helpers/door-knocking-e2e'
 
 // The printable walk list is the feature's offline story: a server component
@@ -42,12 +43,19 @@ test.describe('printable door-knocking walk list', () => {
     expect(url.searchParams.get('redirect_url')).toBe(target)
   })
 
-  // Needs no authenticated user either, for the same reason as the bounce
-  // above: middleware.ts sends a signed-out visitor to login before the page
-  // runs, and this asserts the step BEFORE that — the page short-circuits a
-  // hand-mangled id rather than asking gp-api about it, because gp-api parses
-  // the param with ParseIntPipe and would answer 400 rather than 404.
+  // This one DOES need an authenticated user, unlike the bounce above and for
+  // exactly the reason that test proves: middleware.ts intercepts every
+  // `/dashboard/**` URL, so a signed-out visitor asking for a mangled id is
+  // redirected to login and served a 200 login page — the refusal asserted here
+  // is the page's, and the page never runs. No turf is seeded though, which is
+  // the whole saving: the id is rejected before gp-api is asked about it, since
+  // gp-api parses the param with ParseIntPipe and would answer 400 rather than
+  // 404. So this costs one Clerk bootstrap and no Geoapify credits.
   test('404s a print URL whose id names nothing', async ({ page }) => {
+    test.setTimeout(3 * 60 * 1000)
+
+    await setupProCampaignUser(page)
+
     const mangled = await page.goto(printWalkListPath('not-a-turf'), {
       waitUntil: 'domcontentloaded',
     })

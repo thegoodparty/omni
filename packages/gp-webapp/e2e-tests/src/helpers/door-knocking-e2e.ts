@@ -65,10 +65,28 @@ export const gotoDoorKnocking = async (page: Page): Promise<void> => {
 // cross-service half that no mock can confirm has its own gp-api suite in
 // src/doorKnocking/tests/doorKnocking.routes.test.ts.
 
-// The native shell's header — present as soon as NativeDoorKnockingPage mounts,
-// independent of the voter pack and of whether the WebGL canvas came up.
+// The native shell's page name — present as soon as NativeDoorKnockingPage
+// mounts, independent of the voter pack and of whether the WebGL canvas came up.
+//
+// It is the route's `sr-only` `h1` since 3.0 drew the map edge to edge and took
+// the visible header with it. Nothing here relies on that being invisible:
+// Playwright counts `sr-only` (a 1px box, clipped) as visible, and the point of
+// the anchor is unchanged — it commits with the gate's native branch, before
+// anything WebGL.
 export const nativeShellHeading = (page: Page): Locator =>
   page.getByRole('heading', { name: 'Door knocking', exact: true })
+
+// A create-flow step, by the title a canvasser reads at the top of it.
+//
+// `OutreachFlowShell` draws that title twice: once as the `sr-only`
+// `DrawerTitle` that gives the dialog its accessible name, and once as the
+// visible `h3` `Intro` renders in the step body. So an unqualified
+// `getByRole('heading', { name })` is a strict-mode violation on every step of
+// every v2 outreach flow, not only this one. Pinned to the visible `h3` — the
+// thing the step actually shows; the sr-only twin is covered where it matters,
+// as the dialog's name.
+export const createFlowStepHeading = (page: Page, name: string): Locator =>
+  page.getByRole('heading', { name, exact: true, level: 3 })
 
 export const legacyDashboardHeading = (page: Page): Locator =>
   page.getByRole('heading', { name: 'Interactions', exact: true })

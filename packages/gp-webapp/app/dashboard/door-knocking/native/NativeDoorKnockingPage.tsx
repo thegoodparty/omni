@@ -553,15 +553,23 @@ export default function NativeDoorKnockingPage({
         hideMenu
       >
         <div className="flex h-full w-full flex-col">
-          {/* No page header. The design draws door knocking as a bare map with
-            the current surface floating over it, and every title this row used
-            to carry is already on that surface: the create flow names its own
-            step, and the walk names its list on its sheet at the `peek` snap.
-            The walk's compact PDF link went with it, and nothing was lost:
-            `WalkView` already renders the design's own full-width `Export this
-            list to PDF` above the stop list, from the same
+          {/* No VISIBLE page header. The design draws door knocking as a bare
+            map with the current surface floating over it, and every title this
+            row used to carry is already on that surface: the create flow names
+            its own step, and the walk names its list on its sheet at the `peek`
+            snap. The walk's compact PDF link went with it, and nothing was
+            lost: `WalkView` already renders the design's own full-width `Export
+            this list to PDF` above the stop list, from the same
             `ExportWalkSheetButton` — so the canvasser who walks out of signal
-            still has paper, from the surface they are actually on. */}
+            still has paper, from the surface they are actually on.
+
+            The name stays, `sr-only`: dropping the header dropped this route's
+            only `h1`, and a bare WebGL canvas announces nothing, so a screen
+            reader landing here had no way to know which page it was on or to
+            find it by heading. Same answer `OutreachFlowShell` already gives
+            for a design with no visible title — an accessible name that costs
+            no pixels. */}
+          <h1 className="sr-only">Door knocking</h1>
           {/* One arrangement for both modes: a full-bleed map with
             whatever surface is current floating over it. The walk used to split
             this column — a 40% map band above a scrolling list — which is the

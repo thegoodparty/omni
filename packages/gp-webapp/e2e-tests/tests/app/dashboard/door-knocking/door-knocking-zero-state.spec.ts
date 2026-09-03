@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
+  createFlowStepHeading,
   enableNativeDoorKnockingFlag,
   gotoDoorKnocking,
 } from 'src/helpers/door-knocking-e2e'
@@ -48,7 +49,7 @@ test.describe('native door-knocking zero state', () => {
     // `GET /v1/door-knocking/turfs` has actually answered, so a 401, a 403
     // from the Pro gate or a 500 all leave the map bare instead.
     await expect(
-      page.getByRole('heading', { name: 'What do you want to do?' }),
+      createFlowStepHeading(page, 'What do you want to do?'),
     ).toBeVisible({ timeout: 60_000 })
     await expect(page.getByText('Step 1 of 5')).toBeVisible()
 

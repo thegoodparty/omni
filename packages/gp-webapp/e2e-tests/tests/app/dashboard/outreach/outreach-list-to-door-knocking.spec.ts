@@ -3,7 +3,10 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { gotoCrmContacts, listCard } from 'src/helpers/crm-contacts-e2e'
-import { nativeShellHeading } from 'src/helpers/door-knocking-e2e'
+import {
+  createFlowStepHeading,
+  nativeShellHeading,
+} from 'src/helpers/door-knocking-e2e'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // The cross-feature journey a candidate takes when they press "Send outreach"
@@ -110,8 +113,9 @@ test.describe('outreach list handoff to door knocking', () => {
       .click({ timeout: 15_000 })
 
     // --- The handoff: the list travels as ?listId=, and is NOT stripped here.
-    // The door-knocking create flow opens on a Create list press rather than on
-    // mount, so the param has to survive until the candidate opens it. ---
+    // Since 3.0 the create flow opens itself for an org with no lists, so the
+    // param is read by the flow on the same frame it mounts rather than waiting
+    // on a press — it still has to survive the navigation to be read at all. ---
     await page.waitForURL(
       (url) =>
         url.pathname === '/dashboard/door-knocking' &&
@@ -125,7 +129,7 @@ test.describe('outreach list handoff to door knocking', () => {
     // itself: an org with no lists has the create flow opened for it, so
     // landing on the purpose step IS the assertion that the rail is empty. ---
     await expect(
-      page.getByRole('heading', { name: 'What do you want to do?' }),
+      createFlowStepHeading(page, 'What do you want to do?'),
     ).toBeVisible({ timeout: 120_000 })
     await expect(
       page.getByRole('heading', { name: /^Saved lists/ }),
@@ -135,23 +139,21 @@ test.describe('outreach list handoff to door knocking', () => {
 
     // --- The who step opens on the carried list ---
     await expect(
-      page.getByRole('heading', { name: 'Who do you want to reach?' }),
+      createFlowStepHeading(page, 'Who do you want to reach?'),
     ).toBeVisible({ timeout: 30_000 })
 
-    // Keyed on the row's id rather than its title: the title carries a
-    // household count once the pack has decoded, so matching on the list's name
-    // alone would be a race against that number appearing.
-    const carriedRow = page.locator(`#create-list-audience-${list.id}`)
-    await expect(carriedRow).toHaveAttribute('data-state', 'checked', {
-      timeout: 30_000,
-    })
-    // Asserted as a pair: "the row is checked" is only meaningful alongside the
-    // default it displaced. Without this, a picker that checked every row would
-    // pass.
-    await expect(page.locator('#create-list-audience-all')).toHaveAttribute(
-      'data-state',
-      'unchecked',
-    )
+    // Read where a candidate reads it: the 3.0 picker is a single collapsed
+    // combobox whose displayed value IS the selection, not a set of rows with
+    // checked state. Matching on the name is not a race against the pack
+    // decoding either — the household count is the `sub` line under it
+    // (`doorCount`), so the name itself never changes once rendered.
+    const audience = page.getByRole('combobox', { name: 'All lists' })
+    await expect(audience).toContainText(listName, { timeout: 30_000 })
+    // Asserted as a pair: "it shows the carried list" only means something
+    // alongside the default it displaced. Without this, a picker that ignored
+    // `?listId=` and sat on its default would still have to be caught by the
+    // name above — but a picker that showed BOTH would not.
+    await expect(audience).not.toContainText('All contacts')
 
     // And the flow is still only a flow — reaching the who step with the list
     // picked has written nothing. Two steps remain before anything is: the
