@@ -335,7 +335,7 @@ shape plus everything the card displays:
 | `filter`           | the unsaved `VoterFileFilter` shape                         |
 | `count`            | contactable size after the channel refinement               |
 | `districtShare`    | `count` over the district total                             |
-| `estimatedCost`    | channel unit price × count                                  |
+| `estimatedCost` | **Deferred.** channel unit price x count, but the unit prices have no resolved source yet — see Open items. Omit the field until that is closed rather than guessing a price. |
 | `copy`             | `{ title, criteriaSummary }` with placeholders filled       |
 | `existingFilterId` | set when this recommendation already exists as a saved list |
 
@@ -438,11 +438,16 @@ Listed so nobody helpfully reimplements them.
   signal. Fixing it changes an API response's meaning, so it needs its own
   decision: keep it and accept that it means "everyone", or drop the channel
   from the tile.
-- **Two district totals disagree.** The mart's own voter count and
-  `m_election_api__district.registered_voters` differ by under 0.5% usually,
-  but 2.2% for CA statewide (23,348,065 vs 22,847,425) and 0.6% for IN-1. Pick
-  one as the `districtShare` denominator before the number reaches candidates,
-  or it won't match the district-stats panel.
+- **Two district totals disagree, so pick the mart's.** The mart's own voter
+  count and `m_election_api__district.registered_voters` differ by under 0.5%
+  usually, but 2.2% for CA statewide (23,348,065 vs 22,847,425) and 0.6% for
+  IN-1. **Use the mart's own count** — `COUNT(*)` over `gp_api_voters` scoped to
+  the district — as the `districtShare` denominator. Two reasons: it is already
+  computed as part of the fan-out, and every list count in the numerator is a
+  mart count, so any other denominator makes the share inconsistent with its own
+  numerator. If the district-stats panel uses `registered_voters`, the two
+  surfaces will disagree by up to 2.2%; aligning that panel is a follow-up, not
+  a reason to pick the wrong denominator here.
 - **Precinct granularity isn't comparable across states.** IN-1 has 523
   precincts for 518k voters (~990 each); MD-2 has 244 for 547k (~2,240 each). A
   fixed N buys twice the doors in Maryland. If N is ever user-visible, express
@@ -453,7 +458,8 @@ Listed so nobody helpfully reimplements them.
 
 ## Open items
 
-- Where per-channel unit pricing lives, for `estimatedCost`.
+- Where per-channel unit pricing lives, for `estimatedCost`. Until this is
+  answered the field is omitted from the response, not guessed.
 - Reconciliation with Nigel's revised model once he lands the AND-only rewrite.
   The propensity-band narrowing (dropping `Unreliable` from `reliable`), the
   precinct-count metric, and dropping event geography all need his sign-off.
