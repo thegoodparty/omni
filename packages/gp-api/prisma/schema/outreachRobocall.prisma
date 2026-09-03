@@ -55,6 +55,17 @@ enum RobocallSettleState {
   // completion-poll failure on a dialed run goes there, never here. Appended for
   // the same append-only ADD VALUE reason.
   send_failed
+  // CONTINGENCY upfront-charge billing (robocall-estimate-billing branch, never
+  // main). `paid` is the success terminal for a robocall whose ESTIMATE was
+  // charged in full up front (no hold, no capture-actual): it is what the staging
+  // and send sweeps key on to stage + dial on this branch, exactly where the
+  // hold model keyed on `authorized`. `charge_failed` is the declined-card
+  // terminal (mirrors `hold_failed`). Both appended for the same append-only ADD
+  // VALUE reason. Estimate-billed rows never enter the hold/settlement states
+  // (hold_pending/authorized/settling/capturing/uncollectable/…), so the
+  // capture-side sweeps no-op on them.
+  paid
+  charge_failed
 }
 
 model OutreachRobocall {

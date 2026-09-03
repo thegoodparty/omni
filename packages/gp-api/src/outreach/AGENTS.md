@@ -102,6 +102,28 @@ the satellite carries the Stripe (customer / payment-method / authorization &
 charge intent / captured amount) and CallHub (campaign / dial-window) fields the
 later slices fill.
 
+**CONTINGENCY: upfront-estimate billing (flag-gated, reversible).** A break-glass
+alternative billing model lives behind `ROBOCALL_ESTIMATE_BILLING_ENABLED`
+(`isRobocallEstimateBillingEnabled`, default OFF). The single pay endpoint
+(`POST .../authorize`) BRANCHES on it: OFF → the hold model below, completely
+unchanged; ON → `OutreachRobocallChargeService.chargeEstimate`, which CHARGES the
+server-re-derived estimate in full up front (`StripeService.createOffSessionCharge`,
+automatic capture, idempotency key `robocall-estimate-charge-<outreachId>`, kind
+`robocall_estimate_charge`) — no hold, no capture-actual. The draft settles to the
+`paid` terminal (or the `charge_failed` decline terminal + a `ChargeFailed` email;
+mirror of `hold_failed`). Same money invariants: a single-owner charge CAS
+(`pending_payment` + no charge intent → `paid`) charges once, the stable key makes
+a retry replay, the `$500` ceiling 409s, a decline is a terminal (not a 502), a
+transient infra error reverts to `pending_payment` for a same-key retry. The
+STAGING and SEND sweeps accept BOTH `authorized` and `paid` (a `paid` draft is
+gated on `chargeIntentId IS NOT NULL` — never-dial-unpaid — and is released back to
+`paid`, not `authorized`, so the send slice re-checks the charge, not a hold); the
+completion sweep requires `authorizationIntentId IS NOT NULL`, so an estimate-billed
+`dialed` row never enters settling/capturing (which would double-charge). Nothing
+in the hold path is deleted; flip the flag OFF to restore it exactly. The response
+is `RobocallPayResponseSchema` (the union of the hold and charge shapes). The admin
+records flow for an estimate-billed run that never dialed is a later slice.
+
 **Hold placement (pay time).** `POST /outreach/robocall/:outreachId/authorize`
 (`OutreachRobocallHoldService.authorizeHold`, Pro-gated + campaign-scoped like
 the siblings; body `{ paymentMethodId }`) places the manual-capture Stripe hold.

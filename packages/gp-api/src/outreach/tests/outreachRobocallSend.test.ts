@@ -95,6 +95,7 @@ const createDraft = async ({
   authorizedAmountInCents,
   withCaptureBefore = false,
   compliancePassed = true,
+  chargeIntentId,
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
@@ -103,6 +104,7 @@ const createDraft = async ({
   authorizedAmountInCents?: number
   withCaptureBefore?: boolean
   compliancePassed?: boolean
+  chargeIntentId?: string
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -124,9 +126,12 @@ const createDraft = async ({
       settleState,
       ...(compliancePassed ? { compliancePassedAt: new Date() } : {}),
       ...(staged ? { callhubCampaignPkStr: 'vb_1' } : {}),
+      // An upfront-charge (paid) row carries a chargeIntentId and NO
+      // authorizationIntentId; pass authorizationIntentId: null to model it.
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(authorizedAmountInCents != null ? { authorizedAmountInCents } : {}),
       ...(withCaptureBefore ? { captureBefore: addDays(new Date(), 5) } : {}),
+      ...(chargeIntentId ? { chargeIntentId } : {}),
     },
   })
   return spine.id
@@ -835,5 +840,66 @@ describe('OutreachRobocallSendService.sweepRobocallSend guards', () => {
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
     )
+  })
+})
+
+// CONTINGENCY upfront-charge model: a staged `paid` draft dials just like a
+// staged `authorized` hold draft, but the money re-check verifies the CHARGE
+// (chargeIntentId → succeeded) rather than a live hold, and a revert releases
+// back to `paid`, not `authorized`.
+describe('OutreachRobocallSendService.startCampaign — paid (upfront) model', () => {
+  const paidDraft = () =>
+    createDraft({
+      settleState: RobocallSettleState.paid,
+      authorizationIntentId: null,
+      chargeIntentId: 'pi_charge_1',
+    })
+
+  it('dials a paid draft once when the charge reads back succeeded', async () => {
+    const outreachId = await paidDraft()
+    retrieveSpy.mockResolvedValue(piWith('succeeded'))
+
+    await send.startCampaign(outreachId)
+
+    // The charge PI (not a hold) is what is re-read before dialing.
+    expect(retrieveSpy).toHaveBeenCalledWith('pi_charge_1')
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
+  it('does NOT dial when the charge is not succeeded; reverts to paid and alerts', async () => {
+    const outreachId = await paidDraft()
+    retrieveSpy.mockResolvedValue(piWith('canceled'))
+    const errorSpy = loggerErrorSpy()
+
+    await send.startCampaign(outreachId)
+
+    expect(launchSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    // No hold_failed on this path — the money is already collected; the row goes
+    // back to `paid` and a CRITICAL alert fires for manual review.
+    expect(satellite.settleState).toBe(RobocallSettleState.paid)
+    expect(satellite.dialedAt).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ outreachId, chargeStatus: 'canceled' }),
+      expect.stringContaining('CRITICAL'),
+    )
+  })
+
+  it('reverts a paid draft to paid (not authorized) on a PAUSED lost launch', async () => {
+    const outreachId = await paidDraft()
+    retrieveSpy.mockResolvedValue(piWith('succeeded'))
+    launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
+
+    await send.startCampaign(outreachId)
+
+    // PAUSED proves the START never took; the money-safe rollback releases the
+    // dial claim back to the row's ORIGINAL paid-state, not `authorized`.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.paid)
+    expect(satellite.dialedAt).toBeNull()
   })
 })

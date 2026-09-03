@@ -93,12 +93,14 @@ const createDraft = async ({
   callhubCampaignPkStr,
   audioExt = 'mp3',
   complianceAudioEtag = STAGE_ETAG,
+  chargeIntentId,
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
   callhubCampaignPkStr?: string
   audioExt?: string
   complianceAudioEtag?: string | null
+  chargeIntentId?: string
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -120,6 +122,7 @@ const createDraft = async ({
       settleState,
       complianceAudioEtag,
       ...(callhubCampaignPkStr ? { callhubCampaignPkStr } : {}),
+      ...(chargeIntentId ? { chargeIntentId } : {}),
     },
   })
   return spine.id
@@ -626,5 +629,55 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging guard', () => {
         process.env.OTEL_SERVICE_ENVIRONMENT = original
       }
     }
+  })
+})
+
+// CONTINGENCY upfront-charge model: a `paid` draft (estimate charged up front,
+// chargeIntentId set) stages exactly like an `authorized` hold draft, but is
+// RELEASED back to `paid` — never `authorized` — so the send slice re-checks the
+// charge, not a (non-existent) hold.
+describe('OutreachRobocallStagingService.stageCampaign — paid (upfront) model', () => {
+  it('stages a paid charged draft and releases back to paid with the campaign', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.paid,
+      chargeIntentId: 'pi_charge_1',
+    })
+
+    await staging.stageCampaign(outreachId)
+
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBe('vb_1')
+    expect(satellite.settleState).toBe(RobocallSettleState.paid)
+    expect(satellite.callhubStartingDate).not.toBeNull()
+  })
+
+  it('reverts a paid draft to paid (not authorized) on a transient failure', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.paid,
+      chargeIntentId: 'pi_charge_1',
+    })
+    loadAudienceSpy.mockRejectedValueOnce(new BadGatewayException('boom'))
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toThrow()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.paid)
+    expect(satellite.callhubCampaignPkStr).toBeNull()
+  })
+
+  it('does NOT stage a paid draft whose charge has not committed (no charge intent)', async () => {
+    // The sub-second window after the charge claim but before the charge commit:
+    // `paid` with no chargeIntentId must never stage (never-stage-unpaid).
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.paid,
+    })
+
+    await staging.stageCampaign(outreachId)
+
+    expect(createVbSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBeNull()
+    expect(satellite.settleState).toBe(RobocallSettleState.paid)
   })
 })

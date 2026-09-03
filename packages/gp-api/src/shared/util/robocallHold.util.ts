@@ -1,3 +1,14 @@
+// CONTINGENCY billing switch (robocall-estimate-billing branch, NEVER main).
+// Default OFF: the robocall pay endpoint keeps the hold-then-capture-actual model
+// unchanged. When set to 'true', the pay endpoint instead CHARGES the estimate in
+// full up front (no manual-capture hold, no capture-actual) and the draft settles
+// to `paid`. One env var toggles between the two billing models; nothing is
+// deleted, and flipping it back OFF restores the exact hold behavior. Only the pay
+// endpoint reads this flag — the staging/send sweeps accept BOTH `authorized` and
+// `paid` so dialing works under either model without consulting it.
+export const isRobocallEstimateBillingEnabled = (): boolean =>
+  process.env.ROBOCALL_ESTIMATE_BILLING_ENABLED === 'true'
+
 // Per-run money ceiling for a robocall authorization hold, in cents ($500).
 // TESTING safeguard while real runs are validated — no single robocall we place
 // a hold for should exceed this. Raise or remove once real runs have validated

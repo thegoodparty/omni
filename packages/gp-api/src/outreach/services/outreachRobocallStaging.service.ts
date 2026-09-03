@@ -113,10 +113,29 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         callhubCampaignPkStr: null,
         outreach: { outreachType: OutreachType.robocall },
         OR: [
-          // In-window authorized drafts: stage close to send, since the rented
-          // caller-ID number gets spam-flagged if it sits idle too long.
+          // In-window HOLD drafts (default model): stage close to send, since the
+          // rented caller-ID number gets spam-flagged if it sits idle too long.
           {
             settleState: RobocallSettleState.authorized,
+            outreach: {
+              date: {
+                gte: now,
+                lte: addHours(now, ROBOCALL_STAGING_LEAD_HOURS),
+              },
+            },
+          },
+          // In-window PAID drafts (CONTINGENCY upfront-charge model, gated by
+          // ROBOCALL_ESTIMATE_BILLING_ENABLED at pay time): the estimate was
+          // charged up front, so `paid` is the ready-to-stage state where the hold
+          // model uses `authorized`. `chargeIntentId IS NOT NULL` is the
+          // NEVER-STAGE-UNPAID guard: it excludes the sub-second window where the
+          // charge service has claimed `paid` but not yet committed its intent id.
+          // Both models coexist; a draft is in exactly one of these states
+          // depending on how it was paid, so this sweep stages either without
+          // reading the flag.
+          {
+            settleState: RobocallSettleState.paid,
+            chargeIntentId: { not: null },
             outreach: {
               date: {
                 gte: now,
@@ -171,14 +190,28 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     const voterFileFilterId = outreach.voterFileFilterId
     if (!sendAt || voterFileFilterId == null) return
 
+    // The state to release back to on commit/revert: `paid` for an upfront-charge
+    // (CONTINGENCY) draft, `authorized` for a hold draft. Discriminated by
+    // chargeIntentId, which the upfront charge sets and the hold model leaves null
+    // until post-delivery settlement (never at staging time). Staging must return
+    // the row to its ORIGINAL paid-state so the send slice re-checks the right
+    // payment (a hold re-read for `authorized`, the committed charge for `paid`) —
+    // releasing an estimate row to `authorized` would make the send slice treat it
+    // as a hold row and fail it. Read from the pre-claim draft; chargeIntentId is
+    // never mutated while staging/dialing, so it cannot flip under us.
+    const releaseState = draft.chargeIntentId
+      ? RobocallSettleState.paid
+      : RobocallSettleState.authorized
+
     // CLAIM: elect exactly one stager. Eligible = an unstaged draft that is
-    // either `authorized` (the normal path) OR a `staging` row gone stale (a
-    // crashed run's stranded claim, reclaimed). A single CAS guards double-
-    // staging (a set pk_str fails the null predicate), staging an ineligible
-    // draft (any other state fails both branches), AND double-driving a healthy
-    // in-flight run (its fresh updatedAt fails the stale predicate). count 0 →
-    // not ours. Setting staging bumps @updatedAt, so a concurrent reclaim of the
-    // same stale row finds updatedAt no longer < cutoff and loses.
+    // `authorized` (hold model) OR `paid` with a committed charge (upfront-charge
+    // model) OR a `staging` row gone stale (a crashed run's stranded claim,
+    // reclaimed). A single CAS guards double-staging (a set pk_str fails the null
+    // predicate), staging an ineligible draft (any other state fails all
+    // branches), AND double-driving a healthy in-flight run (its fresh updatedAt
+    // fails the stale predicate). count 0 → not ours. Setting staging bumps
+    // @updatedAt, so a concurrent reclaim of the same stale row finds updatedAt no
+    // longer < cutoff and loses.
     const staleCutoff = subMinutes(new Date(), ROBOCALL_STAGING_STALE_MINUTES)
     const claim = await this.model.updateMany({
       where: {
@@ -186,6 +219,10 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         callhubCampaignPkStr: null,
         OR: [
           { settleState: RobocallSettleState.authorized },
+          {
+            settleState: RobocallSettleState.paid,
+            chargeIntentId: { not: null },
+          },
           {
             settleState: RobocallSettleState.staging,
             updatedAt: { lt: staleCutoff },
@@ -284,16 +321,17 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         await this.failStagingPermanent(outreachId)
         return
       }
-      await this.revertClaim(outreachId)
+      await this.revertClaim(outreachId, releaseState)
       throw err
     }
 
     // COMMIT: persist the CallHub handle + the computed dial window and release
-    // the claim, only if the draft is still the staging row we own.
+    // the claim back to its original paid-state, only if the draft is still the
+    // staging row we own.
     const commit = await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.staging },
       data: {
-        settleState: RobocallSettleState.authorized,
+        settleState: releaseState,
         callhubCampaignPkStr: created.pk_str,
         callhubStartingDate: created.startingDate,
         callhubExpirationDate: created.expirationDate,
@@ -369,10 +407,17 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     }
   }
 
-  private async revertClaim(outreachId: number): Promise<void> {
+  // Releases the staging claim back to the row's original paid-state — `paid` for
+  // an upfront-charge draft, `authorized` for a hold draft (the caller computes it
+  // from chargeIntentId). A PAUSED CallHub campaign charges nothing, so reverting
+  // after a placed campaign is money-safe.
+  private async revertClaim(
+    outreachId: number,
+    releaseState: RobocallSettleState,
+  ): Promise<void> {
     await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.staging },
-      data: { settleState: RobocallSettleState.authorized },
+      data: { settleState: releaseState },
     })
   }
 
