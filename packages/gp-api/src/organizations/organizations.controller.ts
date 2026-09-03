@@ -286,20 +286,15 @@ export class OrganizationsController {
     @Req() req: IncomingRequest,
     @Body() updates: AdminPatchOrganizationDto,
   ): Promise<AdminOrganizationDetail> {
-    // Read before the write, and only when the patch names the field: an org
-    // edit that leaves the spending limit alone should neither pay for the
-    // lookup nor emit a spend-control line into the log.
+    // The previous limit comes back from the patch itself rather than from a
+    // read taken here: it is then the value that this write replaced, and not
+    // one a concurrent admin PATCH could have already overwritten in between.
+    const { organization: org, previousLimit } =
+      await this.organizationsService.adminPatchOrganization(slug, updates)
+
+    // Only when the patch names the field — an org edit that leaves the
+    // spending limit alone should not emit a spend-control line into the log.
     const touchesWaypointLimit = 'overrideDoorKnockingWaypointLimit' in updates
-    const previousLimit = touchesWaypointLimit
-      ? ((await this.organizationsService.findUnique({ where: { slug } }))
-          ?.overrideDoorKnockingWaypointLimit ?? null)
-      : null
-
-    const org = await this.organizationsService.adminPatchOrganization(
-      slug,
-      updates,
-    )
-
     const newLimit = updates.overrideDoorKnockingWaypointLimit ?? null
     if (touchesWaypointLimit && newLimit !== previousLimit) {
       // There is no audit table anywhere in gp-api, and AdminAuditInterceptor

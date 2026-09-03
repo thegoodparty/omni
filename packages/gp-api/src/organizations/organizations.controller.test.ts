@@ -1758,6 +1758,78 @@ describe('PATCH /v1/organizations/admin/:slug', () => {
     expect(updated?.overrideDoorKnockingWaypointLimit).toBe(2000)
   })
 
+  // An explicit null is how an admin puts an organization back on the default
+  // allowance, and it has to be distinguishable from the field being absent
+  // (the test below) — the two reach Prisma as null and undefined, and only one
+  // of them is supposed to write.
+  it('clears overrideDoorKnockingWaypointLimit when an admin sends null', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-waypoint-clear@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-509',
+        ownerId: otherUser.id,
+        overrideDoorKnockingWaypointLimit: 2000,
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-509',
+      { overrideDoorKnockingWaypointLimit: null },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.overrideDoorKnockingWaypointLimit).toBeNull()
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-509' },
+    })
+    expect(updated?.overrideDoorKnockingWaypointLimit).toBeNull()
+  })
+
+  // Spending authority must not be revoked as a side effect of an unrelated
+  // admin edit. The patch names one field and the override is not it, so the
+  // org keeps the allowance it was granted.
+  it('leaves an existing waypoint override alone when the patch omits it', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'admin-waypoint-untouched@goodparty.org' },
+    })
+
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-510',
+        ownerId: otherUser.id,
+        overrideDoorKnockingWaypointLimit: 2500,
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-510',
+      { customPositionName: 'Water Commissioner' },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.overrideDoorKnockingWaypointLimit).toBe(2500)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-510' },
+    })
+    expect(updated?.overrideDoorKnockingWaypointLimit).toBe(2500)
+    expect(updated?.customPositionName).toBe('Water Commissioner')
+  })
+
   // The ceiling is the whole account's assumed daily pool, so a larger number
   // is unspendable for anyone rather than merely generous to this org — which
   // is why it is refused here instead of at the vendor.
