@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
 import { Alert } from './alerts.types'
+import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
 
 // Mirrors grafana.ts's `alert.timeRangeSeconds ?? 600` — the window the
 // alerting engine actually fetches when an alert does not pin its own.
@@ -119,5 +120,83 @@ describe('evaluation intervals', () => {
 
       expect(forSeconds % alert.evaluationIntervalSeconds!).toEqual(0)
     }
+  })
+})
+
+describe('geoapify daily budget tiers', () => {
+  const tiers = GLOBAL_ALERTS.filter((a) =>
+    a.slug.startsWith('geoapify-daily-budget-'),
+  )
+
+  it('registers one rule per tier', () => {
+    expect(tiers.map((a) => a.slug)).toEqual([
+      'geoapify-daily-budget-60',
+      'geoapify-daily-budget-80',
+      'geoapify-daily-budget-90',
+      'geoapify-daily-budget-95',
+    ])
+  })
+
+  it('keeps every range vector inside the window the engine fetches', () => {
+    for (const alert of tiers) {
+      const fetched = alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+      expect(widestRangeSeconds(alert.expr)).toBeLessThanOrEqual(fetched)
+    }
+  })
+
+  it('promises the reader the window it actually queried', () => {
+    for (const alert of tiers) {
+      expect(promisedSeconds(alert.message)).toEqual(
+        widestRangeSeconds(alert.expr),
+      )
+    }
+  })
+
+  // The escalation only means anything if the thresholds are the stated
+  // fractions of the pool. A tier whose number drifted off its own percentage
+  // would page under a name that misdescribes it.
+  //
+  // Rounds on the expected side too, as the implementation does. 50,000
+  // divides evenly by all four percentages so the two agree today, but the
+  // pool is a hand-maintained constant that exists to be corrected — a plan
+  // upgrade landing on a figure that does not divide evenly would otherwise
+  // fail this against a fractional expectation the implementation is right
+  // not to produce.
+  it('sets each threshold to its percentage of the daily pool', () => {
+    expect(tiers.map((a) => a.threshold)).toEqual(
+      [60, 80, 90, 95].map((p) =>
+        Math.round((GEOAPIFY_DAILY_CREDIT_POOL * p) / 100),
+      ),
+    )
+  })
+
+  // Stated separately from the arithmetic above so that rounding cannot be
+  // dropped from the implementation to satisfy it. A fractional threshold is
+  // a credit count that cannot exist, and it reaches Grafana as one.
+  it('gives the alerting engine whole credits', () => {
+    for (const alert of tiers) {
+      expect(Number.isInteger(alert.threshold)).toBe(true)
+    }
+  })
+
+  // Identical text is what lets Loki's result cache serve tiers 2-4 from the
+  // work tier 1 did — the reason four rules cost about what one does.
+  it('shares one expression across the tiers', () => {
+    expect(new Set(tiers.map((a) => a.expr)).size).toBe(1)
+  })
+
+  // Below the fast-burn ceiling a runaway would trip first, so the two alerts
+  // stay in their intended order rather than racing.
+  it('sits above the 6h fast-burn ceiling it complements', () => {
+    const ceiling = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'door-knocking-route-planner-spend-ceiling',
+    )
+    expect(Math.min(...tiers.map((a) => a.threshold))).toBeGreaterThan(
+      ceiling!.threshold,
+    )
+  })
+
+  it('pages the team that owns door knocking', () => {
+    for (const alert of tiers) expect(alert.notify).toBe('win-bugs')
   })
 })
