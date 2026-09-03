@@ -166,15 +166,22 @@ describe('buildDoorKnockingResidentsSql', () => {
   // NULL for every voter. DATA-2372 populated them, so reading them back here
   // would compose a key matching nothing a route ever stored, and a canvasser
   // on a pre-switch list would be served an empty door.
+  //
+  // The mixed request is covered as well as the pure legacy one: it composes
+  // the legacy key a second time, in the ELSE arm of the projected CASE, so a
+  // direction column reappearing anywhere in that statement means some arm
+  // read it rather than pinning it.
   it('pins the legacy key direction segments empty rather than reading them', () => {
-    const { sql } = build([LEGACY_KEY])
-    for (const column of LEGACY_PINNED_EMPTY) {
-      expect(sql).not.toContain(column)
+    for (const addressKeys of [[LEGACY_KEY], [CURRENT_KEY, LEGACY_KEY]]) {
+      const { sql } = build(addressKeys)
+      for (const column of LEGACY_PINNED_EMPTY) {
+        expect(sql).not.toContain(column)
+      }
+      // The segment following the house number is the prefix direction.
+      expect(sql).toContain(
+        "upper(trim(coalesce(cast(v.`Residence_Addresses_HouseNumber` AS STRING), ''))), ''",
+      )
     }
-    // The segment following the house number is the prefix direction.
-    expect(sql).toContain(
-      "upper(trim(coalesce(cast(v.`Residence_Addresses_HouseNumber` AS STRING), ''))), ''",
-    )
   })
 
   it('rejects rather than truncates, via LIMIT cap + 1', () => {
