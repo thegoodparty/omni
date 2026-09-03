@@ -1,9 +1,21 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ListDetailReachability } from '@goodparty_org/contracts'
+import type {
+  ListDetailReachability,
+  RecommendedList,
+  RecommendedListChannel,
+  RecommendedListFilter,
+  RecommendedListIntent,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
+import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
+import {
+  useWinRecommendedListsFlag,
+  WIN_RECOMMENDED_LISTS_FLAG_KEY,
+} from '@shared/experiments/winRecommendedListsFlag'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import type {
@@ -20,6 +32,35 @@ import {
 } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useListWizardCount } from 'app/dashboard/contacts/crm/wizard/useListWizardCount'
 import type { OutreachAudienceMode } from './OutreachAudienceStep'
+
+// Voter_Status band values (docs/features/recommended-lists.md) as they
+// arrive on a RecommendedListFilter, mapped onto the builder's voter-file
+// boolean keys (filters.config.ts). Kept here rather than a shared util —
+// this is the one place a recommendation's filter becomes a builder filter.
+const VOTER_STATUS_TO_BUILDER_KEY: Record<string, string> = {
+  Super: 'audienceSuperVoters',
+  Likely: 'audienceLikelyVoters',
+  Unreliable: 'audienceUnreliableVoters',
+  Unlikely: 'audienceUnlikelyVoters',
+  Unknown: 'audienceUnknown',
+}
+
+const builderFiltersFromRecommendation = (
+  filter: RecommendedListFilter,
+): VoterFileFilters => {
+  const result: VoterFileFilters = {}
+  for (const status of filter.voterStatus ?? []) {
+    const key = VOTER_STATUS_TO_BUILDER_KEY[status]
+    if (key) result[key] = true
+  }
+  if (filter.independentAffinity) result.independentAffinity = true
+  if (filter.ideologyLiberal) result.ideologyLiberal = true
+  if (filter.ideologyModerate) result.ideologyModerate = true
+  if (filter.ideologyConservative) result.ideologyConservative = true
+  if (filter.hasCellPhone) result.hasCellPhone = true
+  if (filter.hasAnyPhone) result.hasAnyPhone = true
+  return result
+}
 
 // The reachability leaf that matches the feature's channel: SMS/polls read the
 // cell-phone count, robocall/phoneBanking the landline count, doorKnocking the
@@ -48,6 +89,11 @@ interface UseOutreachAudienceParams {
   // — the list stays general so other features can reuse it; the overlay (and
   // the equivalent server-side reachability leaf) re-applies per send.
   countOverlay?: Record<string, unknown>
+  // The outreach purpose's mapped intent (docs/features/recommended-lists.md).
+  // Null/undefined means "no recommendations for this purpose" (custom, or a
+  // channel that hasn't wired a purpose->intent mapping yet) — the
+  // recommendations query simply never fires.
+  recommendedListIntent?: RecommendedListIntent | null
 }
 
 export interface OutreachAudience {
@@ -102,6 +148,19 @@ export interface OutreachAudience {
   resetBuilder: () => void
   // Full reset for flow open.
   reset: () => void
+  // Ready+on: whether the picker should render the recommendations block at
+  // all. False renders the picker byte-identical to pre-recommendations.
+  recommendedListsEnabled: boolean
+  recommendations: RecommendedList[]
+  recommendationsLoading: boolean
+  recommendationsError: boolean
+  // The channel the recommendations were requested for — a recommendation
+  // carries no channel of its own (it's the query param, one per request).
+  recommendedListsChannel: RecommendedListChannel
+  // Prefills the builder from a recommendation and lands on the name step.
+  // Only for a recommendation with no existingFilterId — a caller with one
+  // should call onSelect(existingFilterId) instead of this.
+  applyRecommendation: (recommendation: RecommendedList) => void
 }
 
 export const useOutreachAudience = ({
@@ -109,6 +168,7 @@ export const useOutreachAudience = ({
   active,
   reachabilityKey,
   countOverlay,
+  recommendedListIntent = null,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
@@ -118,6 +178,15 @@ export const useOutreachAudience = ({
   >([])
   const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
   const [builderName, setBuilderName] = useState('')
+  // Provenance of the current builder selection, when it originated from a
+  // recommendation (Task 7 persists these on the created filter, and diffs
+  // the submitted filter against the recommendation to set
+  // recommendedModified — this is just the carrier).
+  const [recommendedMeta, setRecommendedMeta] = useState<{
+    variant: RecommendedListVariant
+    channel: RecommendedListChannel
+    intent: RecommendedListIntent
+  } | null>(null)
 
   const { data: electedOffice } = useElectedOffice()
   const isElectedOfficial = !!electedOffice
@@ -135,6 +204,43 @@ export const useOutreachAudience = ({
   // ['custom-segments', orgSlug] scoping).
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
+
+  // Read without exposure: the picker branch below is the actual treatment
+  // surface, not this hook's mount — the flow host stays mounted and toggles
+  // `open`/`active`, so an exposure read here would count every step render.
+  const recommendedListsFlag = useWinRecommendedListsFlag(false)
+  const { exposure } = useFeatureFlags()
+  useEffect(() => {
+    if (!open || !active || !recommendedListsFlag.ready) return
+    if (mode !== 'picker') return
+    exposure(WIN_RECOMMENDED_LISTS_FLAG_KEY)
+  }, [open, active, mode, recommendedListsFlag.ready, exposure])
+
+  const recommendationsQuery = useQuery({
+    queryKey: [
+      'outreach-audience-recommendations',
+      orgSlug,
+      reachabilityKey,
+      recommendedListIntent,
+    ],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: reachabilityKey,
+          // Guarded by `enabled` below.
+          intent: recommendedListIntent ?? undefined,
+        },
+      )
+      return data
+    },
+    enabled:
+      open &&
+      recommendedListsFlag.ready &&
+      recommendedListsFlag.enabled &&
+      recommendedListIntent !== null,
+    staleTime: 0,
+  })
 
   const listsQuery = useQuery({
     queryKey: outreachAudienceListsKey(orgSlug),
@@ -245,7 +351,21 @@ export const useOutreachAudience = ({
     mutationFn: async () => {
       const { data } = await clientRequest(
         'POST /v1/voters/voter-file/filter',
-        { name: builderName.trim(), ...createPayload },
+        {
+          name: builderName.trim(),
+          ...createPayload,
+          // Forward-compatible with Task 7's persistence columns: gp-api's
+          // create schema currently strips unrecognized keys silently (it
+          // isn't `.strict()`), so sending these today is a no-op until that
+          // task lands the fields — not a 400.
+          ...(recommendedMeta
+            ? {
+                recommendedVariant: recommendedMeta.variant,
+                recommendedChannel: recommendedMeta.channel,
+                recommendedIntent: recommendedMeta.intent,
+              }
+            : {}),
+        },
       )
       return data
     },
@@ -267,6 +387,7 @@ export const useOutreachAudience = ({
     setBuilderSupportStatus([])
     setBuilderPrecincts([])
     setBuilderName('')
+    setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])
 
@@ -277,10 +398,33 @@ export const useOutreachAudience = ({
     setBuilderSupportStatus([])
     setBuilderPrecincts([])
     setBuilderName('')
+    setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])
 
   const startBuilder = useCallback(() => setMode('filters'), [])
+
+  // Only for a recommendation whose existingFilterId is null — the caller is
+  // expected to route that case at onSelect(existingFilterId) instead, since
+  // that path already carries each flow's own side effects (e.g. SmsFlow
+  // clearing a stale phone-list token on audience change).
+  const applyRecommendation = useCallback(
+    (recommendation: RecommendedList) => {
+      setBuilderFilters(builderFiltersFromRecommendation(recommendation.filter))
+      setBuilderSupportStatus(recommendation.filter.supportStatus ?? [])
+      setBuilderPrecincts(recommendation.filter.precincts ?? [])
+      setBuilderName(recommendation.copy.title)
+      setRecommendedMeta({
+        variant: recommendation.variant,
+        channel: reachabilityKey,
+        // Only called while recommendations are loaded, which only happens
+        // with a non-null intent (the query's own `enabled` gate).
+        intent: recommendedListIntent as RecommendedListIntent,
+      })
+      setMode('name')
+    },
+    [reachabilityKey, recommendedListIntent],
+  )
 
   const createList = useCallback(async (): Promise<SegmentResponse> => {
     const created = await runCreateList()
@@ -337,5 +481,12 @@ export const useOutreachAudience = ({
     clearCreateError: resetCreateMutation,
     resetBuilder,
     reset,
+    recommendedListsEnabled:
+      recommendedListsFlag.ready && recommendedListsFlag.enabled,
+    recommendations: recommendationsQuery.data ?? [],
+    recommendationsLoading: recommendationsQuery.isLoading,
+    recommendationsError: recommendationsQuery.isError,
+    recommendedListsChannel: reachabilityKey,
+    applyRecommendation,
   }
 }

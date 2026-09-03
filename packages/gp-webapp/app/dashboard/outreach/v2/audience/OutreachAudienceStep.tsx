@@ -11,6 +11,10 @@ import {
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import type {
+  RecommendedList,
+  RecommendedListChannel,
+} from '@goodparty_org/contracts'
+import type {
   SegmentResponse,
   SupportStatusRollup,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
@@ -19,6 +23,7 @@ import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/us
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
+import { RecommendedListCard } from './RecommendedListCard'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 
@@ -64,6 +69,20 @@ interface OutreachAudienceStepProps {
   selectedId: number | null
   onSelect: (id: number) => void
   onStartBuilder: () => void
+  // Recommended lists (docs/features/recommended-lists.md), rendered above
+  // "All lists" in picker mode only. `recommendedListsEnabled` reflects the
+  // win-recommended-lists flag — false renders the picker with none of this,
+  // byte-identical to before the feature existed.
+  recommendedListsEnabled: boolean
+  recommendations: RecommendedList[]
+  recommendationsLoading: boolean
+  recommendationsError: boolean
+  recommendedListsChannel: RecommendedListChannel
+  // A recommendation with an existingFilterId selects that list (reusing
+  // this step's own onSelect, with whatever side effects the caller already
+  // attaches to it) rather than creating a duplicate; only a recommendation
+  // with none reaches this.
+  onSelectRecommendation: (recommendation: RecommendedList) => void
   // The saved list's reachable count for THIS channel (reachability[key] from
   // the list detail): null while loading or when the aggregate failed
   // server-side, in which case we show "couldn't count" rather than zero.
@@ -109,6 +128,12 @@ export const OutreachAudienceStep = ({
   selectedId,
   onSelect,
   onStartBuilder,
+  recommendedListsEnabled,
+  recommendations,
+  recommendationsLoading,
+  recommendationsError,
+  recommendedListsChannel,
+  onSelectRecommendation,
   reachableCount,
   reachableLoading,
   selectedListTotal = null,
@@ -180,6 +205,48 @@ export const OutreachAudienceStep = ({
         title={copy.pickerTitle}
         body={copy.pickerBody}
       />
+
+      {recommendedListsEnabled &&
+        (recommendationsLoading ||
+          recommendationsError ||
+          recommendations.length > 0) && (
+          <div className="space-y-2">
+            <p className="text-xs font-bold uppercase text-primary">
+              Recommended for you
+            </p>
+            {recommendationsLoading ? (
+              <div
+                data-testid="recommended-lists-loading"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground"
+              >
+                <Loader2Icon className="size-3.5 animate-spin" />
+                Finding your best audiences…
+              </div>
+            ) : recommendationsError ? (
+              <p
+                data-testid="recommended-lists-error"
+                className="text-sm text-destructive"
+              >
+                We couldn&apos;t load recommendations right now.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recommendations.map((recommendation) => (
+                  <RecommendedListCard
+                    key={recommendation.variant}
+                    recommendation={recommendation}
+                    channel={recommendedListsChannel}
+                    onSelect={() =>
+                      recommendation.existingFilterId !== null
+                        ? onSelect(recommendation.existingFilterId)
+                        : onSelectRecommendation(recommendation)
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase text-primary">All lists</p>

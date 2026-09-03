@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
+  RecommendedListIntent,
   SmsDraftRequest,
   SmsPurpose,
   SocialTone,
@@ -77,6 +78,22 @@ const PRICE_PER_MESSAGE =
 // the in-flow builder count. Count-only — the saved list stays general (see
 // useOutreachAudience).
 const SMS_COUNT_OVERLAY = { hasCellPhone: true }
+
+// The recommended-lists intent a purpose slug maps onto
+// (docs/features/recommended-lists.md): "custom" and the removed
+// "issue_update" get no recommendation. SMS's own purpose vocabulary is the
+// canonical one every channel shares, so this map is safe to reuse verbatim
+// once robocall/phone banking wire the same feature.
+const PURPOSE_TO_RECOMMENDED_INTENT: Record<
+  Exclude<SmsPurpose, 'custom'>,
+  RecommendedListIntent
+> = {
+  introduce_myself: 'introduce',
+  persuade_voters: 'persuade',
+  event_invite: 'event',
+  early_voting: 'earlyVote',
+  election_day_turnout: 'electionDay',
+}
 
 const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
   pickerTitle: 'Who do you want to reach?',
@@ -282,11 +299,17 @@ export const SmsFlow = ({
 
   const draftRequestRef = useRef(0)
 
+  const recommendedListIntent: RecommendedListIntent | null =
+    purpose && purpose !== 'custom'
+      ? PURPOSE_TO_RECOMMENDED_INTENT[purpose]
+      : null
+
   const audience = useOutreachAudience({
     open,
     active: stepId === 'audience',
     reachabilityKey: 'sms',
     countOverlay: SMS_COUNT_OVERLAY,
+    recommendedListIntent,
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -787,6 +810,12 @@ export const SmsFlow = ({
               setPhoneListError(false)
               audience.startBuilder()
             }}
+            recommendedListsEnabled={audience.recommendedListsEnabled}
+            recommendations={audience.recommendations}
+            recommendationsLoading={audience.recommendationsLoading}
+            recommendationsError={audience.recommendationsError}
+            recommendedListsChannel={audience.recommendedListsChannel}
+            onSelectRecommendation={audience.applyRecommendation}
             reachableCount={reachableCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_MESSAGE}
