@@ -1,37 +1,26 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ExecutionContext, NotFoundException } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, OrganizationRole } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { OrganizationMembershipService } from '@/organizations/services/organizationMembership.service'
 import { RequireCampaignMetadata } from '../decorators/UseCampaign.decorator'
 import { CampaignsService } from '../services/campaigns.service'
 import { UseCampaignGuard } from './UseCampaign.guard'
 
-const mockCampaign = {
-  id: 100,
-  slug: 'my-campaign',
-  userId: 1,
-} as unknown as Campaign
+const mockCampaign = { id: 10, organizationSlug: 'campaign-100' } as Campaign
 
 describe('UseCampaignGuard', () => {
   let guard: UseCampaignGuard
   let campaignsService: CampaignsService
+  let organizationMembership: OrganizationMembershipService
   let reflector: Reflector
-  let mockOrgFindFirst: ReturnType<typeof vi.fn>
 
-  function buildContext({
-    headers = {},
+  function buildContext(
+    headers: Record<string, string> = {},
     userId = 1,
-  }: {
-    headers?: Record<string, string>
-    userId?: number
-  } = {}): ExecutionContext {
-    const req = {
-      headers,
-      params: {},
-      user: { id: userId },
-      campaign: undefined,
-    }
+  ): ExecutionContext {
+    const req = { headers, user: { id: userId }, campaign: undefined }
     return {
       switchToHttp: () => ({ getRequest: () => req }),
       getHandler: () => ({}),
@@ -44,131 +33,167 @@ describe('UseCampaignGuard', () => {
   }
 
   beforeEach(() => {
-    mockOrgFindFirst = vi.fn()
-
-    campaignsService = {
-      findFirst: vi.fn(),
-      client: {
-        organization: {
-          findFirst: mockOrgFindFirst,
-        },
-      },
-    } as unknown as CampaignsService
-
+    campaignsService = { findFirst: vi.fn() } as unknown as CampaignsService
+    organizationMembership = {
+      resolveRole: vi.fn(),
+    } as unknown as OrganizationMembershipService
     reflector = {
       getAllAndOverride: vi.fn().mockReturnValue({}),
     } as unknown as Reflector
 
     guard = new UseCampaignGuard(
       campaignsService,
+      organizationMembership,
       reflector,
       createMockLogger(),
     )
   })
 
-  describe('step 1: organization header', () => {
-    it('resolves campaign via org header', async () => {
-      mockMetadata()
-      mockOrgFindFirst.mockResolvedValue({ slug: 'campaign-100', ownerId: 1 })
-      vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(mockCampaign)
-
-      const ctx = buildContext({
-        headers: { 'x-organization-slug': 'campaign-100' },
-      })
-      const result = await guard.canActivate(ctx)
-
-      expect(result).toBe(true)
-      expect(mockOrgFindFirst).toHaveBeenCalledWith({
-        where: { slug: 'campaign-100', ownerId: 1 },
-      })
-      expect(campaignsService.findFirst).toHaveBeenCalledWith({
-        where: { organizationSlug: 'campaign-100', userId: 1 },
-        include: {},
-      })
-      const req = ctx.switchToHttp().getRequest() as {
-        campaign?: Campaign
-      }
-      expect(req.campaign).toEqual(mockCampaign)
+  it('attaches the campaign and owner role once role resolution succeeds', async () => {
+    mockMetadata()
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.owner,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
     })
+    vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(mockCampaign)
 
-    it('uses custom include when specified', async () => {
-      const include = { organization: true, user: true }
-      mockMetadata({ include })
-      mockOrgFindFirst.mockResolvedValue({ slug: 'campaign-100', ownerId: 1 })
-      vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(mockCampaign)
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' })
+    const result = await guard.canActivate(ctx)
 
-      const ctx = buildContext({
-        headers: { 'x-organization-slug': 'campaign-100' },
-      })
-      await guard.canActivate(ctx)
-
-      expect(campaignsService.findFirst).toHaveBeenCalledWith({
-        where: { organizationSlug: 'campaign-100', userId: 1 },
-        include: { organization: true, user: true },
-      })
+    expect(result).toBe(true)
+    // The campaign lookup keys on organizationSlug alone — a member's
+    // userId is never Campaign.userId, so any userId predicate here would
+    // 404 every campaign-scoped route for a member.
+    expect(campaignsService.findFirst).toHaveBeenCalledWith({
+      where: { organizationSlug: 'campaign-100' },
+      include: {},
     })
+    const req = ctx.switchToHttp().getRequest() as {
+      campaign?: Campaign
+      organizationRole?: OrganizationRole
+    }
+    expect(req.campaign).toEqual(mockCampaign)
+    expect(req.organizationRole).toBe(OrganizationRole.owner)
+  })
 
-    it('throws NotFoundException when org has no campaign', async () => {
-      mockMetadata()
-      mockOrgFindFirst.mockResolvedValue({ slug: 'campaign-100', ownerId: 1 })
-      vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(null)
-
-      const ctx = buildContext({
-        headers: { 'x-organization-slug': 'campaign-100' },
-      })
-
-      await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+  it('passes a custom include through to the campaign lookup', async () => {
+    const include = { organization: true, user: true }
+    mockMetadata({ include })
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.owner,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
     })
+    vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(mockCampaign)
 
-    it('throws NotFoundException when org not found', async () => {
-      mockMetadata()
-      mockOrgFindFirst.mockResolvedValue(null)
-      vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(null)
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' })
+    await guard.canActivate(ctx)
 
-      const ctx = buildContext({
-        headers: { 'x-organization-slug': 'nonexistent' },
-      })
-
-      await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
-    })
-
-    it('throws NotFoundException when ownerId does not match', async () => {
-      mockMetadata()
-      mockOrgFindFirst.mockResolvedValue(null)
-      vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(null)
-
-      const ctx = buildContext({
-        headers: { 'x-organization-slug': 'campaign-100' },
-        userId: 999,
-      })
-
-      await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
-      expect(mockOrgFindFirst).toHaveBeenCalledWith({
-        where: { slug: 'campaign-100', ownerId: 999 },
-      })
+    expect(campaignsService.findFirst).toHaveBeenCalledWith({
+      where: { organizationSlug: 'campaign-100' },
+      include: { organization: true, user: true },
     })
   })
 
-  describe('no header behavior', () => {
-    it('throws NotFoundException when no header and no continueIfNotFound', async () => {
-      mockMetadata()
+  it('admits a campaignAdmin member and attaches their role', async () => {
+    mockMetadata()
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.campaignAdmin,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
+    })
+    vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(mockCampaign)
 
-      const ctx = buildContext()
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+    const result = await guard.canActivate(ctx)
 
-      await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+    expect(result).toBe(true)
+    expect(organizationMembership.resolveRole).toHaveBeenCalledWith(
+      'campaign-100',
+      2,
+    )
+    const req = ctx.switchToHttp().getRequest() as {
+      organizationRole?: OrganizationRole
+    }
+    expect(req.organizationRole).toBe(OrganizationRole.campaignAdmin)
+  })
+
+  // Fail closed: this guard backs write routes across most feature
+  // modules, so a volunteer must not get in even though nothing creates
+  // volunteer memberships yet.
+  it('throws NotFoundException for a volunteer membership row', async () => {
+    mockMetadata()
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.volunteer,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
     })
 
-    it('returns true when continueIfNotFound and no header', async () => {
-      mockMetadata({ continueIfNotFound: true })
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
 
-      const ctx = buildContext()
-      const result = await guard.canActivate(ctx)
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+    expect(campaignsService.findFirst).not.toHaveBeenCalled()
+  })
 
-      expect(result).toBe(true)
-      const req = ctx.switchToHttp().getRequest() as {
-        campaign?: Campaign
-      }
-      expect(req.campaign).toBeUndefined()
+  it('throws NotFoundException when role resolution fails (non-member)', async () => {
+    mockMetadata()
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue(null)
+
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' })
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+    expect(campaignsService.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('throws NotFoundException when role resolves but there is no campaign', async () => {
+    mockMetadata()
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.owner,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
     })
+    vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(null)
+
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' })
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+  })
+
+  it('returns true without a campaign when continueIfNotFound', async () => {
+    mockMetadata({ continueIfNotFound: true })
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue(null)
+
+    const ctx = buildContext({ 'x-organization-slug': 'nonexistent' })
+    const result = await guard.canActivate(ctx)
+
+    expect(result).toBe(true)
+  })
+
+  // Symmetric with UseOrganizationGuard: a volunteer under continueIfNotFound
+  // passes through exactly like a non-member — no campaign lookup, no role on
+  // the request, no throw.
+  it('passes a volunteer through unenriched when continueIfNotFound', async () => {
+    mockMetadata({ continueIfNotFound: true })
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.volunteer,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
+    })
+
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+    const result = await guard.canActivate(ctx)
+
+    expect(result).toBe(true)
+    expect(campaignsService.findFirst).not.toHaveBeenCalled()
+    const req = ctx.switchToHttp().getRequest() as {
+      campaign?: unknown
+      organizationRole?: unknown
+    }
+    expect(req.campaign).toBeUndefined()
+    expect(req.organizationRole).toBeUndefined()
+  })
+
+  it('throws NotFoundException when no header is present', async () => {
+    mockMetadata()
+
+    const ctx = buildContext()
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+    expect(organizationMembership.resolveRole).not.toHaveBeenCalled()
   })
 })

@@ -7,43 +7,45 @@ enum UserRole {
 }
 
 model User {
-  id                    Int                     @id @default(autoincrement())
-  createdAt             DateTime                @default(now()) @map("created_at")
-  updatedAt             DateTime                @updatedAt @map("updated_at")
-  firstName             String?                 @default("") @map("first_name")
-  lastName              String?                 @default("") @map("last_name")
-  name                  String?
-  avatar                String?
-  password              String?
-  hasPassword           Boolean                 @default(false) @map("has_password")
+  id                      Int                              @id @default(autoincrement())
+  createdAt               DateTime                         @default(now()) @map("created_at")
+  updatedAt               DateTime                         @updatedAt @map("updated_at")
+  firstName               String?                          @default("") @map("first_name")
+  lastName                String?                          @default("") @map("last_name")
+  name                    String?
+  avatar                  String?
+  password                String?
+  hasPassword             Boolean                          @default(false) @map("has_password")
   /// Also unique case-insensitively via a raw-SQL expression index
   /// (user_email_lower_unique on LOWER(email)) that schema.prisma can't declare.
-  email                 String                  @unique
-  clerkId               String?                 @unique @map("clerk_id")
+  email                   String                           @unique
+  clerkId                 String?                          @unique @map("clerk_id")
   // Canonical civics person id (= election-api gp_candidate_id). Null until the
   // data team's entity resolution mints a Person and reverse-ETL sets it here;
   // required before this user can own a public PersonProfile.
-  personId              String?                 @unique @map("person_id")
-  phone                 String?
-  zip                   String?
-  roles                 UserRole[]              @default([])
+  personId                String?                          @unique @map("person_id")
+  phone                   String?
+  zip                     String?
+  roles                   UserRole[]                       @default([])
   /// [UserMetaData]
-  metaData              Json?                   @map("meta_data") @db.JsonB
-  campaignUpdateHistory CampaignUpdateHistory[]
-  organizations         Organization[]
-  campaigns             Campaign[] //TODO: Pretty sure this is supposed to be a 1-to-1 relation here
-  passwordResetToken    String?                 @map("password_reset_token")
-  aiChats               AiChat[]
-  electedOffices        ElectedOffice[]
-  annotations           Annotation[]
-  chatConversations     ChatConversation[]
-  artifactFeedbacks     ArtifactFeedback[]
-  userAgendaUploads     UserAgendaUpload[]
-  personProfile         PersonProfile?
-  contactStatusEvents   ContactStatusEvent[]
-  phoneBankingCalls     ContactInteractionPhoneBanking[]
-  contactNotes          ContactNote[]
-  doorKnockInteractions ContactInteractionDoorKnock[]
+  metaData                Json?                            @map("meta_data") @db.JsonB
+  campaignUpdateHistory   CampaignUpdateHistory[]
+  organizations           Organization[]
+  campaigns               Campaign[] //TODO: Pretty sure this is supposed to be a 1-to-1 relation here
+  passwordResetToken      String?                          @map("password_reset_token")
+  aiChats                 AiChat[]
+  electedOffices          ElectedOffice[]
+  annotations             Annotation[]
+  chatConversations       ChatConversation[]
+  artifactFeedbacks       ArtifactFeedback[]
+  userAgendaUploads       UserAgendaUpload[]
+  personProfile           PersonProfile?
+  contactStatusEvents     ContactStatusEvent[]
+  phoneBankingCalls       ContactInteractionPhoneBanking[]
+  contactNotes            ContactNote[]
+  organizationMemberships OrganizationMembership[]
+  invitedMemberships      OrganizationMembership[] @relation("OrganizationMembershipInvitedBy")
+  doorKnockInteractions   ContactInteractionDoorKnock[]
 
   @@index([firstName])
   @@index([lastName])

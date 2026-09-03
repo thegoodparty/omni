@@ -1,5 +1,5 @@
 import { useTestService } from '@/test-service'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, OrganizationRole } from '../../generated/prisma'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 const service = useTestService()
@@ -88,6 +88,38 @@ describe('UseElectedOffice guard (integration)', () => {
       })
 
       // Org lookup fails (wrong ownerId), no fallback EO exists → 404
+      expect(result.status).toBe(404)
+    })
+
+    // ENG-10818/ENG-11025: Serve stays owner-only in Phase 1 by deliberate
+    // choice, asserted here rather than assumed — this guard is untouched
+    // by the membership work, so a member row must still grant nothing.
+    it('returns 404 for a campaignAdmin membership row on the eo- org (Serve stays owner-only)', async () => {
+      const otherUser = await service.prisma.user.create({
+        data: { email: 'eo-member-owner@goodparty.org' },
+      })
+      const otherOrg = await service.prisma.organization.create({
+        data: { slug: `eo-member-${Date.now()}`, ownerId: otherUser.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: otherUser.id,
+          campaignId: campaign.id,
+          organizationSlug: otherOrg.slug,
+        },
+      })
+      await service.prisma.organizationMembership.create({
+        data: {
+          organizationSlug: otherOrg.slug,
+          userId: service.user.id,
+          role: OrganizationRole.campaignAdmin,
+        },
+      })
+
+      const result = await service.client.get('/v1/polls/has-polls', {
+        headers: { 'x-organization-slug': otherOrg.slug },
+      })
+
       expect(result.status).toBe(404)
     })
   })

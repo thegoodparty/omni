@@ -21,6 +21,7 @@ import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { FileUpload } from 'src/files/files.types'
 import { WebsiteViewsService } from '../services/websiteViews.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { OrganizationMembershipService } from 'src/organizations/services/organizationMembership.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   createMockUser,
@@ -120,6 +121,7 @@ describe('WebsitesController', () => {
         { provide: S3Service, useValue: mockS3Service },
         { provide: WebsiteViewsService, useValue: {} },
         { provide: CampaignsService, useValue: {} },
+        { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
         WebsitesController,

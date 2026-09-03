@@ -21,7 +21,7 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                           |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                          |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                          |
-| `util/effectiveUser.util.ts`             | Resolves the "acting as" user when admins impersonate                                           |
+| `util/effectiveUser.util.ts`             | Resolves the acting human (the admin, when impersonating) for global-role checks                |
 
 ## Patterns
 
@@ -29,12 +29,30 @@ Auth state is enforced globally via three guards registered in order. Most route
 - **`@PublicAccess()` is the only escape hatch.** Don't conditionally skip auth inside a guard — opt out at the route level.
 - **Absence of `@Roles()` = "any authenticated user".** `routeIsPublicAndNoRoles.util.ts` is what makes that work; don't rely on the decorator being present to imply auth.
 - Password resets issue a **short-lived JWT**, not a DB-stored token. Side effects after consumption must be done in the same request.
+- **Org-scoping guards resolve `request.user.id`, never `effectiveUser`.** Four
+  of the five guards behind `X-Organization-Slug` — `UseOrganization`,
+  `UseCampaign`, `UseEngagementContext`, `CanDownloadVoterFile` — resolve a
+  role for the org through `OrganizationMembershipService.resolveRole`:
+  owner fallback (`organization.ownerId === user.id`) first, else an
+  `OrganizationMembership` row, else 404/deny with no org-existence leak.
+  Every one of them denies a `volunteer` role (fail-closed; Phase 1.5 opens
+  specific surfaces deliberately via a later guard, not by loosening these).
+  `UseElectedOffice` is untouched — it still does the old ownerId-only
+  lookup and never calls `resolveRole`, so Serve stays owner-only regardless
+  of any membership row. Switching resolution to `effectiveUser` would
+  authorize the impersonating admin instead of the impersonated subject,
+  404ing every org-scoped route for admins mid-impersonation — `RolesGuard`/
+  `AdminOrM2MGuard` use `effectiveUser` deliberately because they check the
+  acting human's *global* roles, a different question from org membership.
 
 ## Gotchas
 
 - `AUTH_SECRET` must be set at boot — module throws otherwise. No fallback path.
 - ADR for the M2M flow is `docs/adr/0004-clerk-m2m-auth.md` — read before adding new M2M-callable endpoints.
-- `effectiveUser.util.ts` returns the **impersonated** user, not the admin doing the impersonation. Audit logging needs both — pull the real admin from the request, not from `effectiveUser`.
+- `effectiveUser.util.ts` returns `req.actorUser ?? req.user` — **the admin**
+  when an actor claim is present, not the impersonated user. Audit logging
+  needs both — pull the real admin from `effectiveUser`, the impersonated
+  subject from `req.user`.
 - `AdminAudit.interceptor.ts` only fires when explicitly applied — it is **not** global. Routes that mutate user data should opt in.
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
 - **`SessionGuard` calls Clerk only to verify the session token.** Identity
