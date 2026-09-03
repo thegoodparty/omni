@@ -24,7 +24,11 @@ describe('buildRankPrecinctsSql', () => {
       limit: MAX_RANKED_PRECINCTS,
     })
     expect(sql).toMatch(/Precinct`\s+IS NOT NULL/)
-    expect(sql).toMatch(/length\(trim\(/)
+    // Pins the comparison direction, not just that length(trim(...)) is
+    // called: a flipped `= 0` would INCLUDE empty-precinct voters instead of
+    // excluding them, and a bare `length\(trim\(/` match would stay green
+    // through that flip.
+    expect(sql).toMatch(/length\(trim\(\S*Precinct\S*\)\) > 0/)
   })
 
   it('groups by county and precinct, not precinct alone', () => {
