@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { createHash } from 'node:crypto'
+import { NoObjectGeneratedError } from 'ai'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { LlmService } from '@/llm/services/llm.service'
 import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
@@ -12,6 +13,12 @@ import {
   CandidateIdeologyInput,
   IdeologyClassificationResponseSchema,
 } from '../campaignIdeology.prompt'
+
+type Classification = {
+  bucket: IdeologyBucket | null
+  evidence: string
+  model: string
+}
 
 @Injectable()
 export class CampaignIdeologyService extends createPrismaBase(
@@ -30,6 +37,8 @@ export class CampaignIdeologyService extends createPrismaBase(
   // than breaking the caller.
   async bucketForCampaign(campaignId: number): Promise<IdeologyBucket | null> {
     const input = await this.buildInput(campaignId)
+    if (!input) return null
+
     const inputText = [input.issues, input.bio, input.background]
       .filter((text): text is string => Boolean(text))
       .join('\n\n')
@@ -72,15 +81,17 @@ export class CampaignIdeologyService extends createPrismaBase(
 
   // Returns null (and logs) rather than throwing on any failure — a
   // transient LLM/infra failure should never persist, so the next request
-  // gets a fresh attempt instead of a cached failure.
+  // gets a fresh attempt instead of a cached failure. The one exception is
+  // NoObjectGeneratedError: the AI SDK throws that when the model's output
+  // doesn't parse as JSON or doesn't validate against the schema, which per
+  // the brief is treated as the classifier declining to place cleanly — an
+  // abstention, not an infra error — so it IS persisted (a campaign whose
+  // text keeps confusing the model shouldn't get re-classified on every
+  // request either).
   private async classify(
     input: CandidateIdeologyInput,
     campaignId: number,
-  ): Promise<{
-    bucket: IdeologyBucket | null
-    evidence: string
-    model: string
-  } | null> {
+  ): Promise<Classification | null> {
     try {
       const result = await this.llmService.jsonCompletion({
         messages: buildCandidateIdeologyMessages(input),
@@ -90,6 +101,17 @@ export class CampaignIdeologyService extends createPrismaBase(
       })
       return { ...result.object, model: result.model }
     } catch (error) {
+      if (NoObjectGeneratedError.isInstance(error)) {
+        this.logger.warn(
+          { err: error, campaignId },
+          'Candidate ideology model output did not parse; treating as abstention',
+        )
+        return {
+          bucket: null,
+          evidence: 'Model output could not be parsed.',
+          model: CAMPAIGN_IDEOLOGY_MODELS.join(','),
+        }
+      }
       this.logger.error(
         { err: error, campaignId },
         'Candidate ideology classification failed',
@@ -106,23 +128,37 @@ export class CampaignIdeologyService extends createPrismaBase(
   // RaceOpponentService is resolved lazily via ModuleRef rather than
   // imported: RaceOpponentModule pulls in CampaignStrategyModule ->
   // WebsitesModule, and closing that back into this module risks the same
-  // module-cycle failure PaymentEventsService avoids the same way.
+  // module-cycle failure PaymentEventsService avoids the same way. The
+  // resolution and both reads are wrapped in one try/catch, matching
+  // PaymentEventsService's own lazy-resolution call site, so a ModuleRef
+  // miss or a DB blip returns null (and logs) like every other failure mode
+  // here instead of throwing out of bucketForCampaign.
   private async buildInput(
     campaignId: number,
-  ): Promise<CandidateIdeologyInput> {
-    const raceOpponent = this.moduleRef.get(RaceOpponentService, {
-      strict: false,
-    })
-    const platform = await raceOpponent.buildCandidatePlatform(campaignId)
-    const story = await this.client.campaignStory.findUnique({
-      where: { campaignId },
-      select: { background: true },
-    })
+  ): Promise<CandidateIdeologyInput | null> {
+    try {
+      const raceOpponent = this.moduleRef.get(RaceOpponentService, {
+        strict: false,
+      })
+      const platform = await raceOpponent.buildCandidatePlatform(campaignId)
+      const story = await this.client.campaignStory.findUnique({
+        where: { campaignId },
+        select: { background: true },
+      })
 
-    return {
-      issues: platform?.issues ? serializeWebsiteIssues(platform.issues) : null,
-      bio: platform?.bio?.trim() ? platform.bio : null,
-      background: story?.background?.trim() ? story.background : null,
+      return {
+        issues: platform?.issues
+          ? serializeWebsiteIssues(platform.issues)
+          : null,
+        bio: platform?.bio?.trim() ? platform.bio : null,
+        background: story?.background?.trim() ? story.background : null,
+      }
+    } catch (error) {
+      this.logger.error(
+        { err: error, campaignId },
+        'Candidate ideology input read failed',
+      )
+      return null
     }
   }
 }

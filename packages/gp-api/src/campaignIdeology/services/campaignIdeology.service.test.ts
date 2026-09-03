@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NoObjectGeneratedError } from 'ai'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { Campaign } from '../../generated/prisma'
 import { CampaignIdeologyService } from './campaignIdeology.service'
 
@@ -42,6 +44,31 @@ const llmResult = (
   outputTokens: 5,
   model: 'claude-sonnet-4-6',
 })
+
+// The AI SDK throws this when the model's output can't be parsed as JSON
+// or doesn't validate against the schema — the real-world "Zod parse
+// failure" the brief calls out to treat as an abstention, not an error.
+const unparseableModelError = () =>
+  new NoObjectGeneratedError({
+    text: 'not valid json',
+    response: {
+      id: 'resp_1',
+      timestamp: new Date(),
+      modelId: 'claude-sonnet-4-6',
+    },
+    usage: {
+      inputTokens: 10,
+      inputTokenDetails: {
+        noCacheTokens: 10,
+        cacheReadTokens: undefined,
+        cacheWriteTokens: undefined,
+      },
+      outputTokens: 5,
+      outputTokenDetails: { textTokens: 5, reasoningTokens: undefined },
+      totalTokens: 15,
+    },
+    finishReason: 'stop',
+  })
 
 const createWebsiteAbout = (about: {
   bio?: string
@@ -152,5 +179,38 @@ describe('CampaignIdeologyService.bucketForCampaign', () => {
       where: { campaignId: campaign.id },
     })
     expect(row).toBeNull()
+  })
+
+  // Brief: "Validate with Zod and treat a parse failure as an abstention,
+  // not an error." Unlike a transient LLM failure, this IS persisted, so a
+  // campaign whose text keeps producing unparseable output isn't
+  // re-classified (and re-billed) on every request.
+  it('treats an unparseable model response as an abstention and persists it', async () => {
+    await createWebsiteAbout({ bio: 'Why I am running for city council.' })
+    jsonCompletion.mockRejectedValue(unparseableModelError())
+
+    const first = await ideologyService.bucketForCampaign(campaign.id)
+    const second = await ideologyService.bucketForCampaign(campaign.id)
+
+    expect(first).toBeNull()
+    expect(second).toBeNull()
+    expect(jsonCompletion).toHaveBeenCalledTimes(1)
+    const row = await service.prisma.campaignIdeology.findUnique({
+      where: { campaignId: campaign.id },
+    })
+    expect(row).toMatchObject({ bucket: null })
+    expect(row?.inputHash).toBeTruthy()
+  })
+
+  it('returns null rather than throwing when the input read fails', async () => {
+    const raceOpponentSvc = service.app.get(RaceOpponentService)
+    vi.spyOn(raceOpponentSvc, 'buildCandidatePlatform').mockRejectedValue(
+      new Error('platform read failed'),
+    )
+
+    const result = await ideologyService.bucketForCampaign(campaign.id)
+
+    expect(result).toBeNull()
+    expect(jsonCompletion).not.toHaveBeenCalled()
   })
 })
