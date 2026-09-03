@@ -74,8 +74,14 @@ const stripOnce = (
 ): string | null => {
   if (!apartment) return null
 
+  // Trimmed before matching, not just after. The pattern is anchored on the
+  // end of the line, and `displayAddress` is frozen from a bare
+  // `nvl(AddressLine, '')` — no `trim`, unlike the key's own segments — so a
+  // source row with a trailing space would otherwise never match and would
+  // keep the unit this exists to remove.
+  const subject = line.trim()
   const unit = escapeRegExp(apartment)
-  const stripped = line
+  const stripped = subject
     .replace(
       new RegExp(
         requireDesignator
@@ -87,7 +93,7 @@ const stripOnce = (
     )
     .trim()
 
-  if (stripped === line.trim()) return null
+  if (stripped === subject) return null
   // What is left is not an address, so the line was never more than its own
   // unit — report a miss and let another attempt, or the original, stand.
   return ONLY_A_DESIGNATOR.test(stripped) ? null : stripped

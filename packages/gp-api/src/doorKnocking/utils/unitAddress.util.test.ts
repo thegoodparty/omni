@@ -227,13 +227,31 @@ describe('streetLineOfStop', () => {
     ).toBe('3400 County Road 12')
   })
 
-  // One removal, because a frozen line carries one unit. Two doors whose units
-  // both appear on the line is not a real address, but it is the shape that
-  // proves the fold is gone.
-  it('takes off at most one unit', () => {
+  // The Utah grid, which is the cohort the unit key changed format to serve.
+  // Its directions are bare trailing tokens too, so the fold ate them a
+  // segment at a time: "1234 S 5678 W" could come back as "1234 S" from one
+  // door order and "1234 S 5678" from another.
+  it.each([
+    ['5678', '3B'],
+    ['3B', '5678'],
+  ])('keeps a grid address whole, doors in %s/%s order', (first, second) => {
     expect(
-      streetLineOfStop('12 Apt 5', [key('12 APT 5', '5'), key('12', '12')]),
-    ).toBe('12')
+      streetLineOfStop('1234 S 5678 W Apt 3B', [
+        key('1234 S 5678 W APT 3B', first),
+        key('1234 S 5678 W APT 3B', second),
+      ]),
+    ).toBe('1234 S 5678 W')
+  })
+
+  // `displayAddress` is frozen from a bare nvl(AddressLine, '') with no trim,
+  // unlike the key's own segments — and the pattern is anchored on the end of
+  // the line, so a trailing space used to mean the unit stayed on.
+  it('strips a unit off a line the file left untrimmed', () => {
+    expect(
+      streetLineOfStop('205 Benton Dr Apt 8309  ', [
+        key('205 BENTON DR APT 8309', '8309'),
+      ]),
+    ).toBe('205 Benton Dr')
   })
 
   // Keeps the frozen line's casing, which is the whole reason the stop's line
