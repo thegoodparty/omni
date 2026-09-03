@@ -406,7 +406,7 @@ Read them with:
 ```
 gh api graphql -f query='
 {{
-  repository(owner: "thegoodparty", name: "omni") {{
+  repository(owner: "{repo_owner}", name: "{repo_name}") {{
     pullRequest(number: {pr_number}) {{
       reviewThreads(first: 100) {{
         nodes {{
@@ -1696,6 +1696,13 @@ def handle_ci_fix(event: dict) -> dict:
             print(f"ERROR: CI fix request refused: unknown repo {repo!r}")
             return {"statusCode": 400, "body": json.dumps({"error": "invalid ci fix payload"})}
         base_branch = BASE_BRANCH_BY_REPO[repo]
+        # The findings instruction asks GitHub's GraphQL API for the PR's review
+        # threads, and that API wants the owner and the name as separate
+        # arguments rather than the one `owner/name` string every other line
+        # uses. Split here rather than in the template, which has no way to.
+        # Safe because `repo` is an allowlist key by this point, never a
+        # caller's string, so it is known to have exactly this shape.
+        repo_owner, repo_name = repo.split("/", 1)
 
         # Bounds concurrent launches for one ticket the same way every other
         # trigger is bounded. Losing the race is the guard working, not a
@@ -1712,7 +1719,13 @@ def handle_ci_fix(event: dict) -> dict:
 
         result = trigger_fargate_task(
             task_id,
-            instruction.format(pr_number=pr_number, repo=repo, base_branch=base_branch),
+            instruction.format(
+                pr_number=pr_number,
+                repo=repo,
+                base_branch=base_branch,
+                repo_owner=repo_owner,
+                repo_name=repo_name,
+            ),
             run_label,
             "opus",
             # The caller is a workflow step waiting on the response, not ClickUp

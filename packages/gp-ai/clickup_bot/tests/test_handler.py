@@ -3620,6 +3620,37 @@ def test_a_ci_fix_is_told_the_branch_that_repo_actually_merges_into(fake_clickup
     assert "origin/main" not in instruction
 
 
+@pytest.mark.parametrize("mode", sorted(handler.CI_FIX_MODES))
+def test_no_mode_still_mentions_omni_when_the_run_is_about_another_repo(mode, fake_clickup, fake_ecs, ecs_env):
+    """The general form of a bug the per-field tests missed.
+
+    Parameterising these templates by hand left `name: "omni"` behind inside the
+    findings instruction's GraphQL query, where a search for the `owner/name`
+    form could not see it. A findings run on a marketing PR would have asked
+    GitHub for that PR number in omni, got no threads back, and reported that
+    there was nothing to resolve — a wrong answer that looks like a right one.
+
+    Asserting the absence of the word across every mode is what catches the
+    class. Naming the new repo only proves the lines someone remembered to
+    change, which is exactly what the earlier tests proved.
+    """
+    handler.handler(ci_fix_event(mode=mode, repo=handler.MARKETING_REPO), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+    assert "omni" not in instruction
+    assert "gp-marketing" in instruction
+
+
+def test_the_graphql_query_asks_about_the_right_repository(fake_clickup, fake_ecs, ecs_env):
+    # GitHub's GraphQL API wants owner and name as separate arguments, so this
+    # is the one place the `owner/name` string has to be taken apart — and so
+    # the one place a repo can be half-changed and still look right.
+    handler.handler(ci_fix_event(mode="findings", repo=handler.MARKETING_REPO), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+    assert 'repository(owner: "thegoodparty", name: "gp-marketing")' in instruction
+
+
 def test_an_unknown_repo_launches_nothing(fake_clickup, fake_ecs, ecs_env, capsys):
     # Refused, not defaulted to omni. The whole value of naming the repo is lost
     # if an unrecognised one quietly becomes omni, and this run pushes commits:
