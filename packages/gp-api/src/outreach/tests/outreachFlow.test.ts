@@ -327,6 +327,25 @@ describe('Outreach submission flow — single API call contract', () => {
   })
 
   describe('failure cases — Slack still fires', () => {
+    it('launch switch on: a non-compliant script is rejected at scheduling', async () => {
+      vi.stubEnv('SMS_COMPLIANCE_V2_ENABLED', 'true')
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'Vote for me. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain(
+        'does not meet texting compliance standards',
+      )
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
+      vi.unstubAllEnvs()
+    })
+
     it('invalid image MIME (HEIC) → 400, no DB row, FAILURE Slack with step=validation', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,

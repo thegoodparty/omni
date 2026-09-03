@@ -22,7 +22,12 @@ import { SocialFlow } from './social/SocialFlow'
 import { RobocallFlow } from './robocall/RobocallFlow'
 import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { SmsFlow } from './sms/SmsFlow'
-import { useSeedOutreachDetail } from './useOutreachDetail'
+import { useQueryClient } from '@tanstack/react-query'
+import { SmsEditFlow, type SmsEditTarget } from './sms/SmsEditFlow'
+import {
+  outreachDetailQueryKey,
+  useSeedOutreachDetail,
+} from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 
 export interface OutreachHubPageProps {
@@ -51,6 +56,8 @@ const OutreachHubContent = ({
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
+  const queryClient = useQueryClient()
+  const [smsEditTarget, setSmsEditTarget] = useState<SmsEditTarget | null>(null)
   const seedOutreachDetail = useSeedOutreachDetail()
 
   // The save response is the created row: seed the detail cache (so the
@@ -146,6 +153,18 @@ const OutreachHubContent = ({
         onScheduled={refetchOutreaches}
         tcrCompliance={tcrCompliance}
       />
+      <SmsEditFlow
+        open={smsEditTarget !== null}
+        target={smsEditTarget}
+        onClose={() => setSmsEditTarget(null)}
+        onSaved={async (id) => {
+          // The drawer's cached detail now holds the pre-edit script/date.
+          await queryClient.invalidateQueries({
+            queryKey: outreachDetailQueryKey(id),
+          })
+          await refetchOutreaches()
+        }}
+      />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
       </Suspense>
@@ -158,6 +177,7 @@ const OutreachHubContent = ({
         onOpenChange={(open) => {
           if (!open) setDetailsRow(null)
         }}
+        onEdit={setSmsEditTarget}
       />
     </div>
   )

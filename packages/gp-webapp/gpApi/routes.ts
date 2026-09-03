@@ -514,6 +514,10 @@ export const apiRoutes = {
       path: '/outreach',
       method: 'POST',
     },
+    update: {
+      path: '/outreach/:id',
+      method: 'PATCH',
+    },
     list: {
       path: '/outreach',
       method: 'GET',

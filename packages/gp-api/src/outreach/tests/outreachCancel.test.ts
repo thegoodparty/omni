@@ -120,7 +120,8 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(deleteJob).not.toHaveBeenCalled()
   })
 
-  it('rejects a cancel at or past the scheduled send time', async () => {
+  it('rejects a cancel at or past the scheduled send time (launch switch on)', async () => {
+    vi.stubEnv('SMS_COMPLIANCE_V2_ENABLED', 'true')
     const row = await seedOutreach({
       date: new Date(Date.now() - 60_000),
     })
@@ -130,6 +131,7 @@ describe('POST /v1/outreach/:id/cancel', () => {
       where: { id: row.id },
     })
     expect(unchanged.status).toBe(OutreachStatus.pending)
+    vi.unstubAllEnvs()
   })
 
   it('rejects canceling a robocall (lifecycle runs off the satellite)', async () => {

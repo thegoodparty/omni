@@ -2,6 +2,9 @@ import { ReqFile } from '@/files/decorators/ReqFiles.decorator'
 import { FileUpload } from '@/files/files.types'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
+  Patch,
+  ParseIntPipe,
+  Param,
   BadRequestException,
   Body,
   Controller,
@@ -22,6 +25,7 @@ import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
 import { CampaignTcrComplianceService } from '../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CreateOutreachSchema } from './schemas/createOutreachSchema'
+import { UpdateOutreachSchema } from './schemas/updateOutreachSchema'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import {
   OutreachService,
@@ -120,6 +124,64 @@ export class OutreachController {
       createOutreachDto,
       imageUrl,
       p2pImage,
+    )
+  }
+
+  // Edit-before-send for a scheduled P2P campaign: name, script, send date,
+  // and optionally a replacement image — never the audience (frozen and
+  // priced at checkout; that path is cancel-and-recreate). Same multipart
+  // shape as create so the image rides the same interceptor. Retired once
+  // the 2026-09-02 compliance launch switch is on (the service rejects).
+  @Patch(':id')
+  @UseCampaign()
+  @UseInterceptors(
+    FilesInterceptor('file', {
+      mode: 'buffer',
+      mimeTypes: [
+        MimeTypes.IMAGE_JPEG,
+        MimeTypes.IMAGE_GIF,
+        MimeTypes.IMAGE_PNG,
+      ],
+    }),
+  )
+  async update(
+    @ReqCampaign() campaign: Campaign,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateOutreachDto: UpdateOutreachSchema,
+    @ReqFile() image?: FileUpload,
+  ) {
+    let newImage: (P2pOutreachImageInput & { url: string }) | undefined
+    if (image) {
+      if (!image.filename || !image.mimetype) {
+        throw new BadRequestException(
+          'Image filename and MIME type are required',
+        )
+      }
+      const url = await this.s3.uploadFile(
+        ASSET_DOMAIN,
+        image.data,
+        this.s3.buildKey(
+          `scheduled-campaign/${campaign.slug}/${OutreachType.p2p}/${updateOutreachDto.date}`,
+          image.filename,
+        ),
+        {
+          contentType: image.mimetype,
+          cacheControl: `${CacheControls.MAX_AGE}=${31_536_000}`,
+          baseUrl: `https://${ASSET_DOMAIN}`,
+        },
+      )
+      newImage = {
+        url,
+        stream: image.data,
+        filename: image.filename,
+        mimetype: image.mimetype,
+      }
+    }
+    return this.outreachService.updateScheduledOutreach(
+      campaign,
+      id,
+      updateOutreachDto,
+      newImage,
     )
   }
 

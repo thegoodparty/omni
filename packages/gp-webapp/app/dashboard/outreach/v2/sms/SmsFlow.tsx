@@ -10,6 +10,7 @@ import type {
   SocialTone,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
+import { useSmsComplianceV2Flag } from '@shared/experiments/smsComplianceV2Flag'
 import {
   checkSmsStandards,
   SMS_COMPOSED_MAX_LENGTH,
@@ -45,7 +46,11 @@ import { SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
-import { composeScript, identificationIntro } from './smsCompose.util'
+import {
+  composeScript,
+  hasIdentification,
+  identificationIntro,
+} from './smsCompose.util'
 
 type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
 const STEP_ORDER: StepId[] = [
@@ -342,16 +347,27 @@ export const SmsFlow = ({
       user?.firstName ?? '',
       campaign?.details?.normalizedOffice ?? '',
     )
-  const committeeName = tcrCompliance?.committeeName ?? null
+  // Launch switch (voter-outreach-sms-compliance): off keeps the exact
+  // pre-launch composer — opt-out-only footer and the prototype's
+  // identification warning; on adds the paid-for-by line and the five-rule
+  // blocking check.
+  const { enabled: complianceV2 } = useSmsComplianceV2Flag()
+  const committeeName = complianceV2
+    ? (tcrCompliance?.committeeName ?? null)
+    : null
   const composedMessage = composeScript(body, committeeName)
   const composedLength = composedMessage.length
   const accountName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
-  const standards = checkSmsStandards(composedMessage, {
-    candidateNames: [accountName, tcrCompliance?.candidateName].filter(
-      (name): name is string => !!name,
-    ),
-    committeeName,
-  })
+  const standards = complianceV2
+    ? checkSmsStandards(composedMessage, {
+        candidateNames: [accountName, tcrCompliance?.candidateName].filter(
+          (name): name is string => !!name,
+        ),
+        committeeName,
+      })
+    : hasIdentification(body, user?.firstName ?? '')
+      ? { passed: true, failures: [] }
+      : { passed: false, failures: ['candidate_name' as const] }
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
