@@ -80,6 +80,9 @@ export type OutreachConstituentActivity = z.infer<
   typeof OutreachConstituentActivitySchema
 >
 
+// actorName/actorUserId follow the phone-banking pattern above: the writer's
+// display name (null for a legacy row logged before ENG-10824), and the raw
+// user id so the viewer can render "You" instead of their own name.
 export const DoorKnockConstituentActivitySchema = z.object({
   type: z.literal(ConstituentActivityTypeSchema.enum.DOOR_KNOCK),
   date: z.string(),
@@ -89,6 +92,8 @@ export const DoorKnockConstituentActivitySchema = z.object({
     supportAnswer: SupportAnswerSchema.nullable(),
     note: z.string().nullable(),
     manual: z.boolean(),
+    actorName: z.string().nullable(),
+    actorUserId: z.number().nullable(),
   }),
 })
 export type DoorKnockConstituentActivity = z.infer<

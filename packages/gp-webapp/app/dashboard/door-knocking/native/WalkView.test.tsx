@@ -1037,6 +1037,8 @@ describe('WalkView not-a-voter reason', () => {
       supportAnswer: null,
       note: null,
       manual: false,
+      actorName: null,
+      actorUserId: null,
     },
   }
 
@@ -1703,6 +1705,8 @@ describe('WalkView auto-advance', () => {
                           supportAnswer: null,
                           note: null,
                           manual: false,
+                          actorName: null,
+                          actorUserId: null,
                         },
                       },
                     ],

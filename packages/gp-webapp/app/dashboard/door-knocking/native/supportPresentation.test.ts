@@ -33,6 +33,8 @@ const knock = (
     supportAnswer,
     note: null,
     manual: false,
+    actorName: null,
+    actorUserId: null,
   },
 })
 

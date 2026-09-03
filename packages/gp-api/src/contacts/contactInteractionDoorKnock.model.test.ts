@@ -27,4 +27,31 @@ describe('ContactInteractionDoorKnock model', () => {
 
     expect(isUniqueConstraintError(await secondCreate)).toBe(true)
   })
+
+  it('nulls actorUserId on user deletion without dropping the row', async () => {
+    const org = await service.prisma.organization.create({
+      data: { slug: 'crm-dk-actor-setnull', ownerId: service.user.id },
+    })
+    const actor = await service.prisma.user.create({
+      data: { clerkId: 'dk-actor-to-delete', email: 'dk-actor@goodparty.org' },
+    })
+    const row = await service.prisma.contactInteractionDoorKnock.create({
+      data: {
+        organizationSlug: org.slug,
+        personId: 'person-1',
+        occurredAt: new Date(),
+        outcome: DoorKnockOutcome.answered,
+        supportAnswer: SupportAnswer.supporter,
+        actorUserId: actor.id,
+      },
+    })
+
+    await service.prisma.user.delete({ where: { id: actor.id } })
+
+    const after =
+      await service.prisma.contactInteractionDoorKnock.findUniqueOrThrow({
+        where: { id: row.id },
+      })
+    expect(after.actorUserId).toBeNull()
+  })
 })

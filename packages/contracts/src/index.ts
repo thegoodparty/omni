@@ -413,6 +413,14 @@ export {
   type ListCampaignsPagination,
 } from './campaigns/ListCampaignsPagination.schema'
 
+export {
+  TEAM_INVITE_ROLE_VALUES,
+  type TeamInviteRole,
+  TeamInviteRoleSchema,
+  TeamInviteMetadataSchema,
+  type TeamInviteMetadata,
+} from './campaigns/TeamInviteMetadata.schema'
+
 export * from './campaigns/compliance'
 
 export {

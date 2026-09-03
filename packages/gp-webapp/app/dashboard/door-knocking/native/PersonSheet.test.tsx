@@ -534,6 +534,8 @@ describe('PersonSheet activity feed', () => {
       supportAnswer: null,
       note: null,
       manual: false,
+      actorName: null,
+      actorUserId: null,
     },
   })
 
@@ -662,6 +664,8 @@ describe('PersonSheet voter support', () => {
       supportAnswer,
       note: null,
       manual: false,
+      actorName: null,
+      actorUserId: null,
     },
   })
 

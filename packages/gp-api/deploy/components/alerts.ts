@@ -1,5 +1,6 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerting/alerts.types'
+import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 
 /** Map of slack group to controllers */
 export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
@@ -194,14 +195,15 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'log',
-    // The waypoint quota caps 500 waypoints (5,000 credits) per organization
-    // per rolling 24h and nothing sums across organizations, so the total bill
-    // scales with how many orgs hold the flag. This is that missing global
-    // view: a ceiling that pages rather than a hard cap, because one org's
-    // spend must not be able to fail another org's knock.
+    // The waypoint quota allows 500 waypoints per organization per rolling
+    // 24h by default — an admin can raise a single org past that —
+    // and nothing sums across organizations, so the total bill scales with how
+    // many orgs hold the flag. This is that missing global view: a ceiling
+    // that pages rather than a hard cap, because one org's spend must not be
+    // able to fail another org's knock.
     //
     // Reads the DoorKnockingSpend log line rather than
-    // geoapify_route_planner_credits_total: the log is exact and immune to the
+    // geoapify_credits_total: the log is exact and immune to the
     // counter resets a deploy causes, and it's the same source as the per-org
     // spend queries in docs/door-knocking.md.
     //
@@ -220,10 +222,14 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| unwrap credits',
       '[6h]))',
     ].join(' '),
-    // Two organizations' entire daily allowance (2 x 500 waypoints) inside six
-    // hours — 1,000 stops routed, roughly ten maximum-size turfs. No
-    // legitimate pilot morning reaches that; a loop or an unintended rollout
-    // does, and it still leaves most of Geoapify's ~50k daily pool to react in.
+    // Roughly 900 stops routed inside six hours — about six maximum-size
+    // turfs, and close enough to two organizations' entire default daily
+    // allowance to serve as one. A stop costs a little over ten credits all
+    // in, so the two allowances are nearer 11,000; the round number stays
+    // because moving a fast-burn threshold on arithmetic alone buys nothing,
+    // and the direction it errs in is early. No legitimate pilot morning
+    // reaches that; a loop or an unintended rollout does, and it still leaves
+    // most of Geoapify's ~50k daily pool to react in.
     threshold: 10000,
     for: '5m',
     // The [6h] range vector needs a matching fetch window; the default 600s
@@ -236,12 +242,19 @@ export const GLOBAL_ALERTS: Alert[] = [
     // Geoapify daily pool this threshold leaves most of intact anyway.
     evaluationIntervalSeconds: 300,
     message: [
-      'Door-knocking has burned more than 10,000 Geoapify Route Planner credits in the last 6 hours — two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
+      'Door-knocking has burned more than 10,000 Geoapify credits in the last 6 hours — roughly two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
       'Click *View in Grafana* to see the DoorKnockingSpend lines, then group by organizationSlug (`sum by (organizationSlug) (sum_over_time(... | unwrap credits [24h]))`) to find which organizations are driving it. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
       'If the spend is legitimate growth, raise the threshold deliberately. If one org is looping, pull its flag — there is no global cap in the code, so this alert is the only thing standing between a runaway and the Geoapify bill.',
     ].join('\n\n'),
     notify: 'win-bugs',
   },
+  // The budget half of the same question, at 60/80/90/95% of the account's
+  // daily allowance over 24h. The ceiling above measures RATE and fires first
+  // on a runaway; these measure how much of the pool is left, which is what
+  // decides whether the next knock gets a route at all. Generated rather than
+  // written out four times so the four share one expression — see the file for
+  // why that matters to the read cost.
+  ...geoapifyBudgetAlerts,
   {
     slug: 'door-knocking-pack-build-failed',
     name: '[Win] Door-knocking pack build failed mid-response',

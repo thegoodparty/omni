@@ -2730,6 +2730,60 @@ describe('door-knocking routes', () => {
       })
     })
 
+    it('stamps the sync with the authenticated canvasser (ENG-10824)', async () => {
+      const target = await knockAndGetTarget()
+
+      const res = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+      })
+
+      expect(res.status).toBe(201)
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+          where: { organizationSlug: orgSlug },
+        })
+      expect(row.actorUserId).toBe(service.user.id)
+    })
+
+    it('a re-sync of the same clientKey does not clear an existing stamp', async () => {
+      const target = await knockAndGetTarget()
+      const originalActor = await service.prisma.user.create({
+        data: { clerkId: 'original-canvasser', email: 'orig@goodparty.org' },
+      })
+
+      const first = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+      })
+      expect(first.status).toBe(201)
+      // Simulate the stamp having been set by a different canvasser than
+      // whoever re-syncs this clientKey — the harness authenticates every
+      // request as the same test user, so the row is mutated directly to
+      // prove the update branch leaves an existing stamp alone rather than
+      // overwriting it with the re-syncing caller's id.
+      await service.prisma.contactInteractionDoorKnock.updateMany({
+        where: { organizationSlug: orgSlug, sourceId: CLIENT_KEY },
+        data: { actorUserId: originalActor.id },
+      })
+
+      const replay = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'not_home',
+      })
+      expect(replay.status).toBe(201)
+
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, sourceId: CLIENT_KEY },
+        })
+      expect(row.outcome).toBe('not_home')
+      expect(row.actorUserId).toBe(originalActor.id)
+    })
+
     it('accepts the extended vocabulary end to end', async () => {
       const target = await knockAndGetTarget()
 

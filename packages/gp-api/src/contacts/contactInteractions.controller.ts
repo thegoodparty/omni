@@ -15,6 +15,7 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
+import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
@@ -25,6 +26,7 @@ import {
   ContactInteractionRobocall,
   ContactInteractionText,
   Organization,
+  User,
 } from '../generated/prisma'
 import { LogContactInteractionParamsDTO } from './schemas/logInteraction.schema'
 import { ContactsService } from './services/contacts.service'
@@ -92,6 +94,7 @@ export class ContactInteractionsController {
     @Body(new ZodValidationPipe(LogContactInteractionInputSchema))
     body: LogContactInteractionInput,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
   ): Promise<LogContactInteractionResponse> {
     await this.contactsService.assertProAccess(organization)
     // Every read path on this surface (findPerson/findContacts) resolves the
@@ -114,6 +117,7 @@ export class ContactInteractionsController {
         note: body.note ?? null,
         sourceId: null,
         manual: true,
+        actorUserId: user.id,
       })
       return toDoorKnockApi(row)
     }

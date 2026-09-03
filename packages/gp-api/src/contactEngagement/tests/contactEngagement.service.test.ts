@@ -598,6 +598,8 @@ describe('ContactEngagementService', () => {
           supportAnswer: 'supporter',
           note: 'Friendly chat',
           manual: true,
+          actorUserId: null,
+          actor: null,
         },
       ])
       mockContactInteractionTextService.findMany.mockResolvedValue([
@@ -651,6 +653,7 @@ describe('ContactEngagementService', () => {
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
         orderBy: expectedOrderBy,
         take: 21,
+        include: { actor: { select: { firstName: true, lastName: true } } },
       })
       expect(mockContactInteractionTextService.findMany).toHaveBeenCalledWith({
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
@@ -721,6 +724,8 @@ describe('ContactEngagementService', () => {
             supportAnswer: 'supporter',
             note: 'Friendly chat',
             manual: true,
+            actorName: null,
+            actorUserId: null,
           },
         },
       ])
