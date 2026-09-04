@@ -11,12 +11,6 @@ import {
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 
-// The card-update hold retry reserves REAL MONEY off-session (the candidate is
-// not necessarily present for THIS robocall when they update a card), so it is
-// gated behind the same switch as the deferred off-session sweep. Default OFF.
-const isOffSessionHoldEnabled = () =>
-  process.env.ROBOCALL_DEFERRED_HOLD_ENABLED === 'true'
-
 // The robocall settle states in which no call has been placed yet: a hold may be
 // reserved (authorized / hold_pending / staging) or the card merely persisted
 // (pending_payment), but nothing has dialed. A detached card cancels ONLY these.
@@ -162,9 +156,6 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
     customerId: string,
     paymentMethodId: string,
   ): Promise<void> {
-    if (!isOffSessionHoldEnabled()) {
-      return
-    }
     const now = new Date()
     const drafts = await this.model.findMany({
       where: {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { addDays } from 'date-fns'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
 import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
@@ -286,11 +286,9 @@ describe('OutreachRobocallWebhookService', () => {
   describe('retryHoldFailedForAttachedCard', () => {
     const CUSTOMER = 'cus_1'
     const NEW_PM = 'pm_new'
-    const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
     let authorizeSpy: ReturnType<typeof vi.spyOn>
 
     beforeEach(() => {
-      process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = 'true'
       authorizeSpy = vi
         .spyOn(service.app.get(OutreachRobocallHoldService), 'authorizeHold')
         .mockResolvedValue({
@@ -298,13 +296,6 @@ describe('OutreachRobocallWebhookService', () => {
           settleState: RobocallSettleState.authorized,
           authorizedAmountInCents: 450,
         })
-    })
-    afterEach(() => {
-      if (originalFlag === undefined) {
-        delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-      } else {
-        process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
-      }
     })
 
     it('retries the hold for an in-window hold_failed draft with the new card', async () => {
@@ -368,18 +359,6 @@ describe('OutreachRobocallWebhookService', () => {
     it('skips a draft that is not hold_failed', async () => {
       await createDraft({
         settleState: RobocallSettleState.authorized,
-        stripeCustomerId: CUSTOMER,
-      })
-
-      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
-
-      expect(authorizeSpy).not.toHaveBeenCalled()
-    })
-
-    it('no-ops when the off-session hold kill-switch is unset', async () => {
-      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-      await createDraft({
-        settleState: RobocallSettleState.hold_failed,
         stripeCustomerId: CUSTOMER,
       })
 

@@ -36,9 +36,8 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     super()
   }
 
-  // No CronLockService / whole-job lock, and no separate kill-switch (unlike the
-  // capture sweep's ROBOCALL_CAPTURE_ENABLED): this sweep dials nothing and moves
-  // no money — its only write is an idempotent per-record CAS advancing a
+  // No CronLockService / whole-job lock: this sweep dials nothing and moves no
+  // money — its only write is an idempotent per-record CAS advancing a
   // run-window-elapsed run to `settling`, elected single-owner behind that CAS,
   // so two replicas racing settle each row once. It naturally no-ops when nothing
   // is `dialed`. The prod-only guard is the sole gate it needs — the best-effort

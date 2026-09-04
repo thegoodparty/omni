@@ -234,24 +234,6 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     )
   })
 
-  it('recovers even with ROBOCALL_DEFERRED_HOLD_ENABLED unset (not kill-switch-gated)', async () => {
-    const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-    delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-    const outreachId = await createDraft()
-    await strand(outreachId, 30)
-    findHoldsSpy.mockResolvedValue(['pi_orphan'])
-
-    await recovery.sweepStaleHoldPending()
-
-    expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.pending_payment,
-    )
-    if (originalFlag === undefined)
-      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-    else process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
-  })
-
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     const outreachId = await createDraft()

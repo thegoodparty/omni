@@ -20,9 +20,9 @@ const ROBOCALL_HOLD_RECONCILE_JOB = 'robocallHoldReconcileSweep'
 // nothing to do; a read/cancel failure leaves the row to retry next sweep. It
 // only ever touches intent ids recorded at a real void site (never an
 // account-wide scan), so it can NEVER void a hold a live run still needs. Never
-// captures — only voids (releases money) — so prod-only but deliberately NOT
-// kill-switch-gated: an orphan can arise whenever a void fails, regardless of
-// whether dialing/capture are enabled, and stranded reserved money is the harm.
+// captures — only voids (releases money), the safe direction — so it needs no
+// gate beyond prod-only: an orphan can arise whenever a void fails, and
+// stranded reserved money is the harm.
 @Injectable()
 export class OutreachRobocallHoldReconcileService {
   constructor(

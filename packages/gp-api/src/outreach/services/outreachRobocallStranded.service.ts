@@ -23,11 +23,9 @@ const ROBOCALL_STRANDED_SWEEP_JOB = 'robocallStrandedAuthorizedSweep'
 // which voids/releases the hold, marks send_failed + the spine failed, emails
 // the candidate, and fires the CRITICAL alert. It only ever fails a
 // definitively-undeliverable, never-staged, past-due draft (the safe
-// direction) and only releases money, so — like the deferred-cancel and
-// hold-reconcile sweeps — it is prod-only but deliberately NOT kill-switch-
-// gated: a strand can occur regardless of ROBOCALL_SEND_ENABLED /
-// ROBOCALL_CAPTURE_ENABLED (staging is not switch-gated), so gating it would
-// leave the reserved money stranded during the supervised rollout.
+// direction) and only releases money — like the deferred-cancel and
+// hold-reconcile sweeps, it is prod-only and gated by nothing beyond the prod
+// guard.
 @Injectable()
 export class OutreachRobocallStrandedService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -52,10 +50,10 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
     const candidates = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.authorized,
-        // Never staged: a staged past-due draft still dials when the send switch
-        // is on, so it is the send sweep's concern — failing it here would kill
-        // the deliberately switch-gated staged backlog. `staging` (in-flight),
-        // `pending_payment` and `hold_failed` are owned by other sweeps.
+        // Never staged: a staged past-due draft still dials via the send sweep,
+        // so it is the send sweep's concern — failing it here would kill the
+        // staged backlog. `staging` (in-flight), `pending_payment` and
+        // `hold_failed` are owned by other sweeps.
         callhubCampaignPkStr: null,
         outreach: {
           outreachType: OutreachType.robocall,

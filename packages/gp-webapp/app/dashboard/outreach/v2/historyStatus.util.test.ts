@@ -63,6 +63,18 @@ describe('getHistoryStatusLabel — robocall', () => {
     )
   })
 
+  it('labels an in_progress robocall In progress, not Scheduled', () => {
+    expect(getHistoryStatusLabel(robocallRow({ status: 'in_progress' }))).toBe(
+      'In progress',
+    )
+  })
+
+  it('labels a completed robocall Done, reading Scheduled → In progress → Done', () => {
+    expect(getHistoryStatusLabel(robocallRow({ status: 'completed' }))).toBe(
+      'Done',
+    )
+  })
+
   it('labels a canceled robocall Canceled', () => {
     expect(getHistoryStatusLabel(robocallRow({ status: 'canceled' }))).toBe(
       'Canceled',

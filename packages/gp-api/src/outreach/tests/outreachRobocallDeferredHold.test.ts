@@ -249,20 +249,13 @@ describe('authorize defers and persists the chosen card', () => {
 
 describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
 
   beforeEach(() => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = 'true'
   })
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalFlag === undefined) {
-      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-    } else {
-      process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
-    }
   })
 
   it('places a hold for an in-window draft with a persisted card', async () => {
@@ -528,36 +521,14 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds (prod)', () => 
 
 describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds guard', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
 
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalFlag === undefined) {
-      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-    } else {
-      process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
-    }
   })
 
-  it('no-ops off prod even with the flag on', async () => {
+  it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
-    process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = 'true'
-    await createDraft({
-      sendInDays: 2,
-      paymentMethodId: 'pm_1',
-      stripeCustomerId: 'cus_test',
-    })
-
-    await deferred.sweepDeferredHolds()
-
-    expect(authorizeSpy).not.toHaveBeenCalled()
-    expect(paymentIntentsCreate).not.toHaveBeenCalled()
-  })
-
-  it('no-ops on prod when the kill-switch is off', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
     await createDraft({
       sendInDays: 2,
       paymentMethodId: 'pm_1',
@@ -573,26 +544,16 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds guard', () => {
 
 describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
 
   beforeEach(() => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    // Deliberately leave ROBOCALL_DEFERRED_HOLD_ENABLED unset: the cancel-
-    // cleanup must run even with placement disabled (that is when the leak
-    // happens).
-    delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
   })
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalFlag === undefined) {
-      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-    } else {
-      process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
-    }
   })
 
-  it('cancels a deferred draft whose send passed, even with placement off', async () => {
+  it('cancels a deferred draft whose send passed', async () => {
     const outreachId = await createDraft({
       sendInDays: -1,
       paymentMethodId: 'pm_1',
