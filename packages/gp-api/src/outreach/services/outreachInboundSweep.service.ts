@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule'
 import {
   addDays,
   format,
+  getHours,
   isBefore,
   isValid,
   parse,
@@ -37,6 +38,17 @@ const OUTREACH_INBOUND_SWEEP_CRON = '30 * * * *'
 // completion predicate is known-unreliable (ENG-10727) — a job whose status
 // never reaches `completed` still ages out of the sweep.
 export const INBOUND_SWEEP_WINDOW_DAYS = 14
+
+// Peerly asked us to cut re-export volume (2026-09-04): most replies land in
+// the first couple days after a send, so only jobs younger than this poll
+// every hourly pass — the rest of the 14-day tail backs off to
+// INBOUND_SWEEP_AGED_HOUR_INTERVAL.
+export const INBOUND_SWEEP_FRESH_WINDOW_DAYS = 2
+
+// An aged job is only swept on hours divisible by this (4x/day) instead of
+// every hourly pass — cuts a dead job's remaining ~12 days of re-exports by
+// ~6x while still catching a late opt-out same-day.
+export const INBOUND_SWEEP_AGED_HOUR_INTERVAL = 6
 
 // The only Direction value observed in dev (ENG-10727). No dev job has
 // inbound traffic, so the inbound literal is unverified — any non-outbound
@@ -87,6 +99,8 @@ interface SweepCounters {
   jobsPolled: number
   jobsFailed: number
   jobsWithoutCapture: number
+  jobsSkippedAgedCadence: number
+  jobsSkippedInFlight: number
   repliesApplied: number
   optOutsApplied: number
   skippedDuplicate: number
@@ -107,6 +121,12 @@ type SweepableOutreach = Outreach & {
 export class OutreachInboundSweepService extends createPrismaBase(
   MODELS.Outreach,
 ) {
+  // Cross-pass overlap guard: a slow report export can still be running
+  // when the next hourly cron tick fires. Single writer per process — one
+  // gp-api scheduler instance runs per env, so no cross-replica lock is
+  // needed.
+  private readonly jobsInFlight = new Set<string>()
+
   constructor(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
@@ -141,6 +161,8 @@ export class OutreachInboundSweepService extends createPrismaBase(
       jobsPolled: 0,
       jobsFailed: 0,
       jobsWithoutCapture: 0,
+      jobsSkippedAgedCadence: 0,
+      jobsSkippedInFlight: 0,
       repliesApplied: 0,
       optOutsApplied: 0,
       skippedDuplicate: 0,
@@ -150,8 +172,32 @@ export class OutreachInboundSweepService extends createPrismaBase(
       inboundRowsSeen: 0,
     }
     let agedJobsPolled = 0
+    const currentHour = getHours(now)
 
     for (const outreach of candidates) {
+      const jobId = outreach.projectId!
+      const sendAnchor = outreach.date ?? outreach.createdAt
+      const isAged = isBefore(
+        sendAnchor,
+        subDays(now, INBOUND_SWEEP_FRESH_WINDOW_DAYS),
+      )
+      if (isAged && currentHour % INBOUND_SWEEP_AGED_HOUR_INTERVAL !== 0) {
+        counters.jobsSkippedAgedCadence += 1
+        continue
+      }
+      if (this.jobsInFlight.has(jobId)) {
+        // The previous pass's fetch for this job hasn't resolved yet —
+        // never issue a second concurrent report request for the same job.
+        counters.jobsSkippedInFlight += 1
+        this.logger.warn(
+          { outreachId: outreach.id, jobId },
+          '[Outreach Inbound] job still in flight from a previous sweep ' +
+            'pass; skipping',
+        )
+        continue
+      }
+
+      this.jobsInFlight.add(jobId)
       try {
         const polled = await this.sweepOutreach(
           {
@@ -167,8 +213,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
           continue
         }
         counters.jobsPolled += 1
-        const sendAnchor = outreach.date ?? outreach.createdAt
-        if (isBefore(sendAnchor, subDays(now, 1))) {
+        if (isAged) {
           agedJobsPolled += 1
         }
       } catch (err) {
@@ -179,6 +224,8 @@ export class OutreachInboundSweepService extends createPrismaBase(
           { err, outreachId: outreach.id, projectId: outreach.projectId },
           '[Outreach Inbound] job sweep failed; will retry next sweep',
         )
+      } finally {
+        this.jobsInFlight.delete(jobId)
       }
     }
 
@@ -186,9 +233,9 @@ export class OutreachInboundSweepService extends createPrismaBase(
     if (agedJobsPolled > 0 && counters.inboundRowsSeen === 0) {
       this.logger.warn(
         { agedJobsPolled, jobsPolled: counters.jobsPolled },
-        '[Outreach Inbound] sends older than a day produced zero inbound ' +
-          'events — possible ingestion gap (unverified CDR Direction ' +
-          'literal, or a Peerly report format change)',
+        '[Outreach Inbound] sends past the fresh window produced zero ' +
+          'inbound events — possible ingestion gap (unverified CDR ' +
+          'Direction literal, or a Peerly report format change)',
       )
     }
   }

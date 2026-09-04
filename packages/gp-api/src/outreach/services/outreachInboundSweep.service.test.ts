@@ -1,6 +1,7 @@
 import { BadGatewayException } from '@nestjs/common'
-import { subDays } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { addDays, set, subDays } from 'date-fns'
+import { PinoLogger } from 'nestjs-pino'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { useTestService } from '@/test-service'
 import {
@@ -12,7 +13,11 @@ import {
   PeerlyReportDateWindow,
 } from '@/vendors/peerly/services/peerlyJobResults.service'
 import { Campaign, OutreachType } from '../../generated/prisma'
-import { OutreachInboundSweepService } from './outreachInboundSweep.service'
+import {
+  INBOUND_SWEEP_AGED_HOUR_INTERVAL,
+  INBOUND_SWEEP_FRESH_WINDOW_DAYS,
+  OutreachInboundSweepService,
+} from './outreachInboundSweep.service'
 
 const service = useTestService()
 
@@ -461,5 +466,93 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     expect(person4.respondedAt).not.toBeNull()
     expect(person3.sourceEventId).toBeNull()
     expect(person4.sourceEventId).toBeNull()
+  })
+})
+
+describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight guard', () => {
+  // Fixed send anchor so the fresh/aged math below is deterministic
+  // regardless of when the suite runs.
+  const SEND_TIME = new Date('2026-07-01T00:00:00.000Z')
+  const atHour = (date: Date, hours: number) =>
+    set(date, { hours, minutes: 0, seconds: 0, milliseconds: 0 })
+
+  const setOutreachDate = (outreachId: number, date: Date) =>
+    service.prisma.$executeRaw`
+      UPDATE outreach SET date = ${date} WHERE id = ${outreachId}
+    `
+
+  const loggerInfoSpy = () =>
+    vi.spyOn((sweepService as unknown as { logger: PinoLogger }).logger, 'info')
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('sweeps a fresh job every hourly pass, even on an hour not divisible by the aged interval', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, SEND_TIME)
+
+    // One day after send — inside the fresh window — at an hour that is
+    // NOT a multiple of the aged interval.
+    vi.useFakeTimers({ now: atHour(addDays(SEND_TIME, 1), 1) })
+
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
+  })
+
+  it('skips an aged job outside its reduced-cadence hour, and sweeps it once that hour arrives', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, SEND_TIME)
+    const logSpy = loggerInfoSpy()
+
+    // Past the fresh window, at an hour NOT divisible by the aged interval.
+    const agedDate = addDays(SEND_TIME, INBOUND_SWEEP_FRESH_WINDOW_DAYS + 1)
+    vi.useFakeTimers({ now: atHour(agedDate, 1) })
+
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchCdrRows).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsSkippedAgedCadence: 1 }),
+      expect.any(String),
+    )
+
+    // Same aged job, an hour divisible by the aged interval — now sweeps.
+    vi.setSystemTime(atHour(agedDate, INBOUND_SWEEP_AGED_HOUR_INTERVAL))
+
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
+  })
+
+  it('skips a job whose previous fetch is still in flight, and sweeps it again once that fetch resolves', async () => {
+    await createSweepableOutreach()
+    let resolveFirstFetch!: (rows: PeerlyCdrCsvRow[]) => void
+    const firstFetch = new Promise<PeerlyCdrCsvRow[]>((resolve) => {
+      resolveFirstFetch = resolve
+    })
+    fetchCdrRows.mockReturnValueOnce(firstFetch)
+    const logSpy = loggerInfoSpy()
+
+    const firstPass = sweepService.sweepInboundEvents()
+    await vi.waitFor(() => expect(fetchCdrRows).toHaveBeenCalledTimes(1))
+
+    // A second pass fires while the first job's fetch is still outstanding
+    // — it must not issue a second concurrent report request for the job.
+    await sweepService.sweepInboundEvents()
+    expect(fetchCdrRows).toHaveBeenCalledTimes(1)
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsSkippedInFlight: 1 }),
+      expect.any(String),
+    )
+
+    resolveFirstFetch([])
+    await firstPass
+
+    // The first pass's fetch has now resolved, so the job is no longer in
+    // flight and the next pass polls it again.
+    await sweepService.sweepInboundEvents()
+    expect(fetchCdrRows).toHaveBeenCalledTimes(2)
   })
 })
