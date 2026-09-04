@@ -1,19 +1,31 @@
 import { ElectionsModule } from '@/elections/elections.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { EmailModule } from '@/email/email.module'
+import { FeaturesModule } from '@/features/features.module'
+import { UsersModule } from '@/users/users.module'
 import { Module } from '@nestjs/common'
 import { UseOrganizationGuard } from './guards/UseOrganization.guard'
 import { OrganizationsController } from './organizations.controller'
+import { TeamController } from './team.controller'
 import { OrganizationMembershipService } from './services/organizationMembership.service'
+import { OrganizationTeamService } from './services/organizationTeam.service'
 import { OrganizationsService } from './services/organizations.service'
 
 @Module({
-  imports: [ElectionsModule, ClerkModule],
+  imports: [
+    ElectionsModule,
+    ClerkModule,
+    EmailModule,
+    FeaturesModule,
+    UsersModule,
+  ],
   providers: [
     OrganizationsService,
     OrganizationMembershipService,
+    OrganizationTeamService,
     UseOrganizationGuard,
   ],
-  controllers: [OrganizationsController],
+  controllers: [OrganizationsController, TeamController],
   exports: [
     OrganizationsService,
     OrganizationMembershipService,
