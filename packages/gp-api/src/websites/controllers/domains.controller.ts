@@ -34,6 +34,7 @@ import {
   UserRole,
 } from '../../generated/prisma'
 import { IncomingRequest } from '@/authentication/authentication.types'
+import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { Roles } from 'src/authentication/decorators/Roles.decorator'
 import { WebsitesService } from '../services/websites.service'
 import {
@@ -60,6 +61,19 @@ export class DomainsController {
   @Roles(UserRole.admin)
   async domainDetails(@Query() { domain }: SearchDomainSchema) {
     return this.domains.getDomainDetails(domain)
+  }
+
+  // Lets support staff service a candidate's "transfer my domain out" request
+  // without needing personal Owner access to the GoodParty Vercel team.
+  @Get('auth-code')
+  @Roles(UserRole.admin)
+  async domainAuthCode(
+    @ReqUser() user: User,
+    @Query() { domain }: SearchDomainSchema,
+  ): Promise<{ authCode: string }> {
+    return {
+      authCode: await this.domains.getDomainTransferAuthCode(domain, user),
+    }
   }
 
   @Get('search')
