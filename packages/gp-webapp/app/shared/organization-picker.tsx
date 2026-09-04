@@ -11,6 +11,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
+import type { OrganizationRole } from '@goodparty_org/contracts'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
@@ -38,6 +39,9 @@ const SHARED_PATHS = [
   '/dashboard/profile',
   '/dashboard/campaign-details',
   '/dashboard/account',
+  // Org-scoped but valid under any org: the team query keys on the org slug
+  // and refetches on switch, so stay put instead of bouncing to /dashboard.
+  '/dashboard/team',
 ]
 
 interface OrganizationContextValue {
@@ -55,6 +59,15 @@ export const useOrganization = (): Organization | undefined => {
   }
   return ctx.selected
 }
+
+// The viewer's own role in the selected org (owner via ownerId match, else
+// their membership role — see gp-api's OrganizationMembershipService). Only
+// GET /v1/organizations (the list this provider is seeded from) sends role,
+// so it's undefined only when there's no selected org at all (e.g. signed in
+// with no organizations yet) — never for a resolved org, where the server
+// always answers 'owner' for a solo user.
+export const useOrganizationRole = (): OrganizationRole | undefined =>
+  useOrganization()?.role
 
 export const useSetOrganizationSlug = () => {
   const ctx = useContext(OrganizationContext)
@@ -196,6 +209,14 @@ export const OrganizationPicker = () => {
       toStatus: org.status,
       isElectedOfficeOrg: Boolean(org.electedOfficeId),
     })
+    // Team accounts (ENG-10816): scoped to the DESTINATION org's role only —
+    // not "does the viewer have a non-owner role anywhere" (delegate review,
+    // PR #1688). That broader check fired for every switch an owner made
+    // between their own owned orgs, as long as they were a manager on some
+    // unrelated third org, which isn't what this event is meant to measure.
+    if (org.role && org.role !== 'owner') {
+      trackEvent(EVENTS.Team.CampaignSwitched)
+    }
     setSelectedSlug(org.slug)
 
     const isOnSharedPage = SHARED_PATHS.some((p) => pathname?.startsWith(p))

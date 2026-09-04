@@ -194,6 +194,24 @@ describe('POST /v1/organizations/team/invites', () => {
     expect(result.status).toBe(404)
   })
 
+  // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal): a
+  // membership row on an eo- org would half-work, since no Serve surface
+  // checks for anything but ownership.
+  it('rejects an eo- (elected-office) organization even when the flag is on', async () => {
+    const EO_SLUG = 'eo-team-org'
+    await service.prisma.organization.create({
+      data: { slug: EO_SLUG, ownerId: service.user.id },
+    })
+
+    const result = await service.client.post(
+      INVITES_PATH,
+      { email: 'new@example.com', name: 'New Person', role: 'campaignAdmin' },
+      { headers: { [ORG_SLUG_HEADER]: EO_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+  })
+
   it('a campaignAdmin member can invite', async () => {
     await createOrg()
     const admin = await createMemberUser({

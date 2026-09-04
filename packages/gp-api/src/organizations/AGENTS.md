@@ -51,6 +51,21 @@ other route is left ungated on purpose: without any membership rows the
 flag being off makes them inert, and gating `accept` would strand an
 in-flight invitee if the flag ramps back down after an invite went out.
 
+**Team accounts are Win-only in Phase 1.** Serve staff accounts are an
+explicit non-goal — every elected-office surface stays owner-only via
+`UseElectedOfficeGuard`. `createInvite` rejects an `eo-` organization slug
+with a 400 before the flag check, since a membership row on an eo- org
+would half-work (org-scoped routes would admit the member, but no Serve
+surface actually checks for anything but ownership). This is the only
+enforcement point because invite is the only route that can create a
+membership row.
+
+**Invite and revoke are manager+, not owner-only.** "A manager can invite
+other managers" is a stated ENG-10816 goal, so neither `createInvite` nor
+`revokeInvite` carries `@OwnerOnly()` — any resolved role (owner or
+`campaignAdmin`) may invite or revoke a pending invite. Only member
+management (`PATCH`/`DELETE team/members/:userId`) is owner-only.
+
 **Invite branches on whether the email has a local account** (never a
 Clerk-only check): a known email gets added directly + emailed
 (`EmailService.sendTeamMemberAddedEmail`); an unknown email gets a Clerk
