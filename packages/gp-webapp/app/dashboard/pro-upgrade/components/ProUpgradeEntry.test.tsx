@@ -59,8 +59,8 @@ describe('ProUpgradeEntry', () => {
 
     render(<ProUpgradeEntry />)
 
-    // LoadingAnimation renders a "POWERED BY" marker.
-    expect(screen.getByText(/powered by/i)).toBeInTheDocument()
+    // Spinner renders role="status" aria-label="Loading".
+    expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument()
     expect(router.replace).not.toHaveBeenCalled()
   })
 
@@ -72,7 +72,7 @@ describe('ProUpgradeEntry', () => {
 
     render(<ProUpgradeEntry />)
 
-    expect(screen.getByText(/powered by/i)).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument()
     expect(router.replace).not.toHaveBeenCalled()
   })
 
@@ -83,7 +83,9 @@ describe('ProUpgradeEntry', () => {
 
     // No canonical state → first incomplete step is the value-prop intro.
     expect(container).toBeEmptyDOMElement()
-    expect(screen.queryByText(/powered by/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('status', { name: /loading/i }),
+    ).not.toBeInTheDocument()
     expect(router.replace).toHaveBeenCalledWith(
       '/dashboard/pro-upgrade/value-prop',
     )
@@ -170,7 +172,7 @@ describe('ProUpgradeEntry', () => {
 
     render(<ProUpgradeEntry />)
 
-    expect(screen.getByText(/powered by/i)).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument()
     expect(router.replace).not.toHaveBeenCalled()
   })
 

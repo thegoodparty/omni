@@ -43,7 +43,7 @@ import { OutreachType } from 'gpApi/types/outreach.types'
 import { useQueryClient } from '@tanstack/react-query'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { clientRequest } from 'gpApi/typed-request'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 
 interface TaskFlowState extends FlowState {
   step: number
@@ -559,8 +559,8 @@ const TaskFlow = ({
           />
         )}
         {stepName === STEPS.purchase && !draftOutreachId && (
-          <div className="p-4 w-[80vw] max-w-xl">
-            <LoadingAnimation {...{}} />
+          <div className="flex w-[80vw] max-w-xl justify-center p-4">
+            <Spinner />
           </div>
         )}
         {stepName === STEPS.purchase && draftOutreachId && (

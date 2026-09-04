@@ -4,7 +4,7 @@ import {
   PurchaseType,
   PurchaseState,
 } from 'helpers/purchaseTypes'
-import LoadingAnimationModal from '@shared/utils/LoadingAnimationModal'
+import { Spinner } from '@styleguide'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 import PurchaseSuccess from 'app/dashboard/purchase/components/PurchaseSuccess'
 
@@ -22,7 +22,9 @@ export const PaymentInterstitials = ({
   const { error, isLoading } = useCheckoutSession()
   const inErrorState = purchaseState === PURCHASE_STATE.ERROR || error
   return isLoading ? (
-    <LoadingAnimationModal title="Initializing purchase form..." />
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+      <Spinner />
+    </div>
   ) : inErrorState ? (
     <PurchaseError error={error || undefined} />
   ) : purchaseState === PURCHASE_STATE.SUCCESS ? (
