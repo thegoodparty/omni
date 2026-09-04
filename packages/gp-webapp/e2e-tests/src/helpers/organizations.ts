@@ -210,7 +210,14 @@ export const switchOrganization = async (
 ) => {
   await openOrgSwitcher(page)
 
-  const item = page.getByRole('menuitem', { name: orgNameSubstring })
+  // Scope to the name span so the secondary "owner · office" line
+  // (ENG-11041) can't widen the match — callers pass office-flavored
+  // substrings (polls-onboarding passes district.office) that now also
+  // appear in other entries' secondary lines. The click bubbles to the
+  // menuitem.
+  const item = page
+    .getByTestId('org-picker-item-name')
+    .filter({ hasText: orgNameSubstring })
   await item.click()
 
   await page.waitForLoadState('domcontentloaded')
