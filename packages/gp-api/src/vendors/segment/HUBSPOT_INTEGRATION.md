@@ -120,11 +120,14 @@ unaffected by the single-send cutover.
 A robocall-services refactor (`outreachRobocallCompletion.service.ts`
 consolidation, `callhubCredits` removal) landed between the inventory draft
 and this cutover and shifted every line number below; re-verified against
-`git blame` at cutover time. All six firing methods route through one of two
-shared `emitMilestone` chokepoints (`outreachRobocallHold.service.ts` for
-HoldPlaced/HoldFailed/SendFailed, `outreachRobocallHoldFailure.service.ts`
-for Reminder/Canceled), so the single-send call was added there once per
-file rather than at every individual site.
+`git blame` at cutover time. Three of the seven events route through a
+shared `emitMilestone` in `outreachRobocallHold.service.ts`
+(HoldPlaced/HoldFailed/SendFailed) and two more through a shared
+`emitMilestone` in `outreachRobocallHoldFailure.service.ts`
+(Reminder/Canceled), so the single-send call was added there once per file
+rather than at every individual site; Scheduled and Receipt each have their
+own `emit*` method (Receipt's is duplicated across the capture and
+fresh-charge services, one per settlement path).
 
 | Event                     | Fired from                                                                                                     | Single-send env var                       | Recipient         |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | ------------------- |
@@ -424,9 +427,10 @@ The seven robocall payment/receipt milestones (ENG-11035, see the
 "Robocall payment / receipt" table above) are the second batch cut over,
 via the shared `OutreachRobocallSingleSendService`. Same shape: each
 Segment event keeps firing unchanged, each asset id env var is unset today,
-and a HubSpot failure is logged and swallowed rather than thrown — several
-of these fire from an SQS consumer or alongside a payment capture, where a
-thrown error would redeliver a queue message or fail a completed capture.
+and a HubSpot failure is logged and swallowed rather than thrown — these
+fire from an HTTP authorize call, a payment capture/charge, or a `@Cron`
+sweep transition, where a thrown error would fail an already-committed
+money operation or abort a sweep's remaining rows.
 
 ## HubSpot Workflow Configuration
 
