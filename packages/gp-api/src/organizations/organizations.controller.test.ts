@@ -2,6 +2,7 @@ import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { MAX_DAILY_CAMPAIGN_LIMIT } from '@/doorKnocking/utils/campaignQuota.util'
 import { describe, expect, it, vi } from 'vitest'
+import { OrganizationRole } from '../generated/prisma'
 
 const service = useTestService()
 
@@ -13,6 +14,54 @@ describe('GET /v1/organizations', () => {
       status: 200,
       data: { organizations: [] },
     })
+  })
+
+  it('shows role: owner on a solo-owned org (regression, unchanged shape)', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-solo-owner', ownerId: service.user.id },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toEqual([
+      expect.objectContaining({
+        slug: 'campaign-solo-owner',
+        role: 'owner',
+      }),
+    ])
+  })
+
+  it('shows an owned org and a member org, each with the viewer role', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-owned', ownerId: service.user.id },
+    })
+    const otherOwner = await service.prisma.user.create({
+      data: { email: 'other-org-owner@example.com' },
+    })
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-member-of', ownerId: otherOwner.id },
+    })
+    await service.prisma.organizationMembership.create({
+      data: {
+        organizationSlug: 'campaign-member-of',
+        userId: service.user.id,
+        role: OrganizationRole.campaignAdmin,
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slug: 'campaign-owned', role: 'owner' }),
+        expect.objectContaining({
+          slug: 'campaign-member-of',
+          role: 'campaignAdmin',
+        }),
+      ]),
+    )
   })
 
   it('returns organizations with name from campaign electionDate', async () => {

@@ -4,10 +4,13 @@ import { getDashboardMenuItems } from './DashboardMenu'
 const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
+  showTeamItem = false,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
-} = {}) => getDashboardMenuItems(isElectedOffice, isElectedOfficeLoading)
+  showTeamItem?: boolean
+} = {}) =>
+  getDashboardMenuItems(isElectedOffice, isElectedOfficeLoading, showTeamItem)
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -190,6 +193,30 @@ describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
     expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
       false,
     )
+  })
+})
+
+describe('getDashboardMenuItems — Team nav item (win-team-accounts)', () => {
+  it('is absent by default (flag off)', () => {
+    const items = links()
+    expect(items.some((i) => i.id === 'team-dashboard')).toBe(false)
+  })
+
+  it('shows the Team item for a Win campaign when the flag is on', () => {
+    const items = links({ isElectedOffice: false, showTeamItem: true })
+    const team = items.find((i) => i.id === 'team-dashboard')
+    expect(team).toBeDefined()
+    expect(team?.link).toBe('/dashboard/team')
+    expect(team?.v2Category).toBe('campaign')
+  })
+
+  // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal: Serve staff
+  // accounts are out of scope). Delegate review (PR #1688) flagged the
+  // TeamPage heading hardcoding "campaign" for a page Serve orgs could
+  // reach — the fix is to exclude Serve here rather than reword the copy.
+  it('does not show the Team item for a Serve (elected-office) org, even when the flag is on', () => {
+    const items = links({ isElectedOffice: true, showTeamItem: true })
+    expect(items.some((i) => i.id === 'team-dashboard')).toBe(false)
   })
 })
 

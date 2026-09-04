@@ -8,6 +8,7 @@ import UserAvatar from '@shared/user/UserAvatar'
 import { useHandleLogOut } from '@shared/user/handleLogOut'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { User } from 'helpers/types'
+import { useOrganizationRole } from '@shared/organization-picker'
 
 interface NavLink {
   id: string
@@ -18,22 +19,22 @@ interface NavLink {
   external?: boolean
 }
 
-const links: NavLink[] = [
-  {
-    id: 'profile',
-    label: 'Profile',
-    href: '/dashboard/profile',
-    icon: <FaUserCircle />,
-    onClick: () =>
-      trackEvent(EVENTS.Navigation.Top.AvatarDropdown.ClickProfile),
-  },
-  {
-    id: 'account',
-    label: 'Account Settings',
-    href: '/dashboard/account',
-    icon: <Settings size={16} />,
-  },
-]
+const PROFILE_LINK: NavLink = {
+  id: 'profile',
+  label: 'Profile',
+  href: '/dashboard/profile',
+  icon: <FaUserCircle />,
+  onClick: () => trackEvent(EVENTS.Navigation.Top.AvatarDropdown.ClickProfile),
+}
+
+// ENG-10829: hidden for a campaignAdmin (manager), same as
+// DashboardMenu.tsx's accountManagementMenuItems.account.
+const ACCOUNT_LINK: NavLink = {
+  id: 'account',
+  label: 'Account Settings',
+  href: '/dashboard/account',
+  icon: <Settings size={16} />,
+}
 
 interface ProfileDropdownProps {
   open: boolean
@@ -47,6 +48,11 @@ const ProfileDropdown = ({
   user,
 }: ProfileDropdownProps): React.JSX.Element => {
   const handleLogOut = useHandleLogOut()
+  const organizationRole = useOrganizationRole()
+  const isManager = organizationRole === 'campaignAdmin'
+  const links: NavLink[] = isManager
+    ? [PROFILE_LINK]
+    : [PROFILE_LINK, ACCOUNT_LINK]
 
   useEffect(() => {
     if (user) {

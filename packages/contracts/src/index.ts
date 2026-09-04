@@ -80,6 +80,9 @@ export {
   type SocialAssetKind,
   SOCIAL_ASSET_KIND_VALUES,
   SocialAssetKindSchema,
+  type OrganizationRole,
+  ORGANIZATION_ROLE_VALUES,
+  OrganizationRoleSchema,
 } from './generated/enums'
 
 export {
@@ -420,6 +423,19 @@ export {
   TeamInviteMetadataSchema,
   type TeamInviteMetadata,
 } from './campaigns/TeamInviteMetadata.schema'
+
+export {
+  TeamMemberSchema,
+  type TeamMember,
+  PendingInviteSchema,
+  type PendingInvite,
+  TeamResponseSchema,
+  type TeamResponse,
+  InviteMemberResponseSchema,
+  type InviteMemberResponse,
+  AcceptInviteResponseSchema,
+  type AcceptInviteResponse,
+} from './campaigns/Team.schema'
 
 export * from './campaigns/compliance'
 

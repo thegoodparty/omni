@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useUser as useClerkUser } from '@clerk/nextjs'
+import { TeamInviteMetadataSchema } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import {
@@ -192,19 +193,31 @@ const PostAuthRedirectPage = () => {
           }
         }
 
+        // Nothing client-side is trusted for the accept itself — gp-api
+        // re-reads Clerk at accept time — but a successful schema parse is
+        // enough to justify a routing detour, so a malformed/absent
+        // publicMetadata value can never hijack sign-in routing.
+        const hasPendingTeamInvite = TeamInviteMetadataSchema.safeParse(
+          clerkUser?.publicMetadata,
+        ).success
+
         const resolvedPath = resolvePostAuthRedirectPath(
           user,
           campaignStatus,
           hasElectedOffice,
           electedOfficeOnboardingComplete,
+          hasPendingTeamInvite,
         )
         // Honor the explicit deep-link destination now that the org slug cookie
-        // is set and the session is established. Re-derive a same-origin
+        // is set and the session is established — unless a pending team invite
+        // demands the acceptance screen: an unaccepted invite must win over any
+        // `?next=` a marketing link appended, or the invitee silently lands in
+        // a dashboard they aren't a member of yet. Re-derive a same-origin
         // relative path before navigating: `safeNext` is already validated, but
         // rebuilding from `URL().pathname` strips any host an attacker could
         // smuggle in, keeping the redirect provably same-origin.
         const destination = new URL(
-          safeNext ?? resolvedPath,
+          hasPendingTeamInvite ? resolvedPath : (safeNext ?? resolvedPath),
           window.location.origin,
         )
         // Hard nav so the destination renders with fresh auth'd server
