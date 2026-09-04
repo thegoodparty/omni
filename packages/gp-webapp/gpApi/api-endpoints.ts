@@ -66,6 +66,7 @@ import type {
   PeoplePrecinctsResponse,
   SmsDraftRequest,
   SmsDraftResponse,
+  AcceptInviteResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -498,6 +499,15 @@ export type APIEndpoints = {
   'GET /v1/organizations/:slug': {
     Request: {}
     Response: Organization
+  }
+
+  // Idempotent: a double-accept (revisit, double-click) reads back the
+  // membership the first accept created rather than erroring. gp-api reads
+  // the invite payload from the signed-in user's own Clerk publicMetadata —
+  // no body — and 404s when there's no pending invite left to accept.
+  'POST /v1/organizations/team/invites/accept': {
+    Request: {}
+    Response: AcceptInviteResponse
   }
 
   'PATCH /v1/organizations/:slug': {

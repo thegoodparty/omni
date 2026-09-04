@@ -18,6 +18,12 @@ export const WIN_ONBOARDING_PATH = '/onboarding/office-selection'
 /** Public candidate magic-link redemption landing page (ticket sign-in). */
 export const WIN_WELCOME_PATH = '/win/welcome'
 
+/**
+ * Team invitation acceptance screen. Must match the `redirectUrl` gp-api
+ * sends when creating the Clerk invitation (`organizationTeam.service.ts`).
+ */
+export const TEAM_INVITE_PATH = '/team-invite'
+
 export const resolvePostAuthRedirectPath = (
   user: { roles?: string[] } | null,
   campaignStatus: CampaignStatus | null,
@@ -26,9 +32,19 @@ export const resolvePostAuthRedirectPath = (
   // keep landing on /dashboard. Only an elected official whose serve onboarding
   // hasn't completed is routed into the EO onboarding flow.
   electedOfficeOnboardingComplete = true,
+  // Set by the caller only after independently validating the signed-in
+  // user's Clerk publicMetadata against TeamInviteMetadataSchema — this
+  // function trusts the flag, not the metadata itself. Checked right after
+  // the sales branch (an internal role that must keep landing sales reps on
+  // their own tool) but ahead of every candidate/onboarding branch, so a
+  // stranded invitee is never routed anywhere else first.
+  hasPendingTeamInvite = false,
 ): string => {
   if (user?.roles?.includes('sales')) {
     return '/sales/add-campaign'
+  }
+  if (hasPendingTeamInvite) {
+    return TEAM_INVITE_PATH
   }
   if (campaignStatus?.status === 'candidate') {
     return '/dashboard'
