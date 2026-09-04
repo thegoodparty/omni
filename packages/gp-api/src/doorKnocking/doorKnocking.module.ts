@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { CronModule } from '@/cron/cron.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
@@ -13,6 +14,7 @@ import { DoorKnockingCreateService } from './services/doorKnockingCreate.service
 import { DoorKnockingNotesService } from './services/doorKnockingNotes.service'
 import { DoorKnockingPeopleApiService } from './services/doorKnockingPeopleApi.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
+import { DoorKnockingStatsService } from './services/doorKnockingStats.service'
 import { DoorKnockingStatusService } from './services/doorKnockingStatus.service'
 import { DoorKnockingTurfCountsService } from './services/doorKnockingTurfCounts.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
@@ -28,6 +30,9 @@ import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
     // aggregate: Contacts → Campaigns → Peerly → Outreach now loops back here,
     // so this edge is inside a module cycle rather than at the end of a chain.
     forwardRef(() => ContactsModule),
+    // The canvassing-totals sweep's daily claim, so two ECS replicas firing
+    // the same @Cron emit one rollup per org rather than two.
+    CronModule,
     // For the serve/turfs sibling's @UseElectedOffice() guard.
     ElectedOfficeModule,
     OrganizationsModule,
@@ -43,6 +48,7 @@ import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
     DoorKnockingNotesService,
     DoorKnockingPeopleApiService,
     DoorKnockingServeService,
+    DoorKnockingStatsService,
     DoorKnockingStatusService,
     DoorKnockingInteractionService,
     DoorKnockingPackService,

@@ -33,6 +33,7 @@ import RecordKnockForm from './RecordKnockForm'
 import { SUPPORT_OPTIONS } from './knockQuestions'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import DoNotKnockControl from './DoNotKnockControl'
 import NotAVoterControl from './NotAVoterControl'
 import ActivityFeedCard from './ActivityFeedCard'
@@ -207,6 +208,11 @@ interface PersonSheetProps {
   // in this header for the same reason it puts it on the pin: it is how a
   // canvasser says where they are.
   stopSeq: number
+  // Which surface this walk belongs to, off the route payload's own `isServe`
+  // rather than the page's context: this sheet is mounted by tests and by
+  // surfaces with no organization provider above them, and the payload is the
+  // one thing every reader of a served route already holds.
+  isServe: boolean
 }
 
 // The demo's person sheet: a right panel on desktop, a bottom sheet on
@@ -273,6 +279,7 @@ export default function PersonSheet({
   onOpenPreviousStop,
   onOpenNextStop,
   stopSeq,
+  isServe,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   // The chevrons move the sheet from door to door without unmounting it, so the
@@ -288,6 +295,10 @@ export default function PersonSheet({
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [stop.id])
   const script = useDoorScript()
+  // Talking points are built from the campaign and its issue positions, both
+  // meaningless for an elected official — withheld outright rather than left
+  // to self-hide on the empty fields a Serve org happens to produce.
+  const serveMode = useDoorKnockingServeMode()
   const target =
     targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
     targets[0]
@@ -471,7 +482,10 @@ export default function PersonSheet({
 
         {/* `renderPanel`'s card sequence, in its order: Talking points, Contact
             information, Household, Voter demographics, Voter support,
-            Demographic information, Notes, Activity Feed.
+            Demographic information, Notes, Activity Feed. That is the Win
+            order — in serve mode Talking points is withheld outright (see
+            `serveMode` above) and the panel opens on Contact information,
+            with the rest unchanged.
 
             **Notes moving to seventh reverses a position ADR 0011 recorded.**
             The ADR argued it second, above the profile, because it is the only
@@ -487,8 +501,10 @@ export default function PersonSheet({
           {/* First in the body, where the canvas draws it — it used to be a
               collapsed disclosure pinned above the form. Withheld for a flagged
               resident, by the same `flagControl` predicate the support card
-              reads: a door nobody should knock has nothing to open with. */}
-          {flagControl === null && (
+              reads: a door nobody should knock has nothing to open with. Withheld
+              outright in serve mode — see `serveMode` above — because there is no
+              campaign or issue positions to build a script from at all. */}
+          {flagControl === null && !serveMode && (
             <DoorScript intro={script.intro} issues={script.issues} />
           )}
 
@@ -610,7 +626,7 @@ export default function PersonSheet({
           <FactCard
             icon={ClipboardListIcon}
             title="Voter demographics"
-            facts={voterDemographicFacts(target)}
+            facts={voterDemographicFacts(target, isServe)}
           />
 
           {flagControl === null && (

@@ -8,6 +8,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CreateListFlow from './CreateListFlow'
 import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
+import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -57,7 +58,7 @@ const baseProps = {
   color: '#2563eb',
   drawnStops: null,
   onListCreated: vi.fn(),
-  isElectedOfficial: false,
+  isServeOrg: false,
   unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
@@ -1318,20 +1319,29 @@ describe('CreateListFlow', () => {
     expect(turfBody).toMatchObject({ color: '#16a34a' })
   })
 
-  // gp-api 400s a contacts-made selection from an elected-office org
-  // (assertNoContactsMadeFilterForElectedOffice), so offering it would only
-  // ever surface as a failed knock.
-  it('hides the contacts-made group from an elected official', () => {
-    const contactsMadeLabel = fieldLabel('contacts_made')
-    const partyLabel = fieldLabel('political_party')
+  // The three Win-only groups, and each one is a real 400 rather than a
+  // preference: gp-api rejects a contacts-made selection
+  // (`assertNoContactsMadeFilterForElectedOffice`) and a party filter
+  // (`assertNoPartyFilterForElectedOffice`) from an `eo-` org outright, so
+  // offering either only ever surfaces as a failed knock — an address preview
+  // that never answers, then a create that cannot buy its route, with nothing
+  // on screen naming the pill responsible.
+  //
+  // Voter likelihood joins them for the product reason rather than a licensing
+  // one: it is turnout propensity for a contested election, which is not a
+  // question an office holder has.
+  it('hides the Win-only groups from an elected official', () => {
+    const genderLabel = fieldLabel('gender')
 
-    renderAtWho({ isElectedOfficial: true })
+    renderAtWho({ isServeOrg: true })
     buildNewList()
 
-    expect(screen.queryByLabelText(contactsMadeLabel as string)).toBeNull()
-    // Its neighbours are still there, so the absence above is the Win-only
-    // rule rather than a face of the step that never opened.
-    expect(screen.getByLabelText(partyLabel as string)).toBeTruthy()
+    for (const key of ['contacts_made', 'political_party', 'voter_likely']) {
+      expect(screen.queryByLabelText(fieldLabel(key) as string)).toBeNull()
+    }
+    // A neighbour that stays, so the absences above are the Win-only rule
+    // rather than a face of the step that never opened.
+    expect(screen.getByLabelText(genderLabel as string)).toBeTruthy()
   })
 })
 
@@ -1359,9 +1369,6 @@ describe('CreateListFlow steps', () => {
     // equivalent on a channel that sends a message.
     expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
     expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
-    expect(
-      screen.getByText('Remind supporters to vote before election day.'),
-    ).toBeInTheDocument()
     expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
 
     fireEvent.click(
@@ -1945,5 +1952,93 @@ describe('CreateListFlow preselected list', () => {
     await waitFor(() => expect(onListCreated).toHaveBeenCalled())
     expect(filterPosts).toBe(0)
     expect(turfBody).toMatchObject({ voterFileFilterId: 9 })
+  })
+})
+
+// The goal cards are the shared outreach step (outreach/v2/PurposeStep), and
+// door knocking is ONE route for both rails — so which vocabulary they carry
+// is the surface's answer, not the route's.
+describe('CreateListFlow purpose step', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  const renderPurpose = (serveMode: boolean) =>
+    render(
+      <DoorKnockingSurfaceProvider value={serveMode}>
+        <CreateListFlow {...baseProps} step="filters" />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+  it('shows the Win goals on the Win surface', () => {
+    renderPurpose(false)
+
+    expect(screen.getByText('Persuade undecided voters')).toBeInTheDocument()
+    expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
+    expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+  })
+
+  it('shows the Serve goals on the Serve surface', () => {
+    renderPurpose(true)
+
+    expect(screen.getByText('Explain a recent decision')).toBeInTheDocument()
+    expect(screen.getByText('Ask for community input')).toBeInTheDocument()
+    expect(screen.getByText('Share a resource or service')).toBeInTheDocument()
+    // The three election-mechanics goals have no Serve meaning at all.
+    expect(screen.queryByText('Persuade undecided voters')).toBeNull()
+    expect(screen.queryByText('Encourage early voting')).toBeNull()
+    expect(screen.queryByText('Turn out my supporters')).toBeNull()
+  })
+
+  // The per-card second line is gone with the bespoke card: no other channel
+  // has one, and the step is now literally the other channels' component.
+  it('draws a card as a label alone', () => {
+    renderPurpose(false)
+
+    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Meet voters who do not know you yet.'),
+    ).toBeNull()
+    expect(
+      screen.queryByText('Talk with voters who could still swing your way.'),
+    ).toBeNull()
+  })
+
+  // The flow renders the intro block once for the whole flow, so importing a
+  // step that draws its own would say the stage title twice.
+  it('draws the intro block once', () => {
+    renderPurpose(false)
+
+    expect(
+      screen.getAllByRole('heading', {
+        level: 3,
+        name: 'What do you want to do?',
+      }),
+    ).toHaveLength(1)
+  })
+
+  // The confirm step's suggested name follows the surface too — a Serve goal
+  // has no Win name suggestion to fall back on.
+  it('suggests the Serve name for a Serve goal', () => {
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step="filters" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /Explain a recent decision/ }),
+    )
+
+    rerender(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step="confirm" />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Decision update walk',
+    )
   })
 })

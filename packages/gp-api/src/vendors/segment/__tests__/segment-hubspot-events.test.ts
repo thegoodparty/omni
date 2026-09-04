@@ -58,6 +58,14 @@ describe('Segment → HubSpot Event Names', () => {
     })
   })
 
+  describe('Door Knocking Events', () => {
+    it('should have the correct CanvassingTotalsUpdated event name for HubSpot', () => {
+      expect(EVENTS.DoorKnocking.CanvassingTotalsUpdated).toBe(
+        'Door Knocking - Canvassing Totals Updated',
+      )
+    })
+  })
+
   describe('Person Profile Events', () => {
     it('should have the correct CompletionRequested event name for HubSpot', () => {
       expect(EVENTS.PersonProfiles.CompletionRequested).toBe(

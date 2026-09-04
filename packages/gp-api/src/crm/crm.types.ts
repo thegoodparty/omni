@@ -28,6 +28,9 @@ export type CRMContactProperties = {
   // /people profile. Written on the candidate's own contact, not the
   // submitter's. Number-typed in HubSpot; the API takes it as a string.
   candidate_profile_requests?: string
+  // Set only on create and 409-adoption; HubSpot ignores backward stage
+  // moves, so it can't regress an existing contact's stage.
+  lifecyclestage?: 'opportunity'
 }
 
 /** Properties for a team member's HubSpot contact (ENG-10826). */

@@ -744,6 +744,9 @@ export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
   type OutreachPurpose,
+  SERVE_OUTREACH_PURPOSE_VALUES,
+  ServeOutreachPurposeSchema,
+  type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
 export {
   SOCIAL_PURPOSE_VALUES,
@@ -901,6 +904,8 @@ export {
   type ApproveSmsOutreachRequest,
   DenySmsOutreachRequestSchema,
   type DenySmsOutreachRequest,
+  CancelSmsOutreachRequestSchema,
+  type CancelSmsOutreachRequest,
   EditSmsOutreachRequestSchema,
   type EditSmsOutreachRequest,
   SmsTestMessageRequestSchema,

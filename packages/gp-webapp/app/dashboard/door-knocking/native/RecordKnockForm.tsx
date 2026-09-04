@@ -15,6 +15,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import {
   ANSWER_OPTIONS,
   ENGAGEMENT_OPTIONS,
@@ -98,6 +99,9 @@ export default function RecordKnockForm({
   clientKey,
   onRecorded,
 }: RecordKnockFormProps) {
+  // A Serve org (an elected official) has no election on the calendar for a
+  // resident to vote in, so the question — and the answer — never exist here.
+  const serveMode = useDoorKnockingServeMode()
   // Two steps, two pieces of state, because the contract's five-way outcome is
   // a flattening of the tree the canvasser walks: `answered` in step one only
   // means "keep asking", and step two is what the door actually ends as.
@@ -155,9 +159,13 @@ export default function RecordKnockForm({
   // which was only ever the branch into it.
   const finalOutcome = opened ? engagement : outcome
   // Every branch has an ending, and the buttons appear when the canvasser
-  // reaches one. An engaged door isn't finished until both answers are in.
+  // reaches one. An engaged door isn't finished until both answers are in —
+  // except in serve mode, where will-vote is never asked, so support alone
+  // finishes the branch.
   const complete = engaged
-    ? Boolean(supportAnswer && willVote)
+    ? serveMode
+      ? Boolean(supportAnswer)
+      : Boolean(supportAnswer && willVote)
     : Boolean(finalOutcome)
 
   const reset = () => {
@@ -181,7 +189,7 @@ export default function RecordKnockForm({
       // canvasser who backed out of the engaged branch can't ship the answers
       // they had picked inside it.
       ...(engaged && supportAnswer ? { supportAnswer } : {}),
-      ...(engaged && willVote ? { willVote } : {}),
+      ...(engaged && willVote && !serveMode ? { willVote } : {}),
       // The note is deliberately NOT guarded the same way. Support and
       // will-vote are answers to questions this door was never asked, but a
       // note is text a person wrote, and the contract takes one on any outcome
@@ -253,7 +261,7 @@ export default function RecordKnockForm({
         />
       )}
 
-      {engaged && supportAnswer && (
+      {engaged && supportAnswer && !serveMode && (
         <ChoiceRow
           label={WILL_VOTE_QUESTION}
           options={WILL_VOTE_OPTIONS}

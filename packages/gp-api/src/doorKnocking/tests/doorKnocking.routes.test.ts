@@ -26,6 +26,7 @@ import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.
 import { DoorKnockingCreateService } from '../services/doorKnockingCreate.service'
 import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
 import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
+import { DoorKnockingStatsService } from '../services/doorKnockingStats.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
 import {
   Campaign,
@@ -2316,6 +2317,81 @@ describe('door-knocking routes', () => {
       })
     })
 
+    // The party-leak suite, on the last door-knocking surface that had one.
+    // The system-wide invariant is that a party value in any `eo-` response is
+    // a bug (src/contacts/AGENTS.md), and this route was outside it: the
+    // people-api read hands back a live party for every resident, and the
+    // payload copied it straight through to a canvasser's phone, the printed
+    // walk sheet and the PDF.
+    //
+    // Asserted against the SAME live residents the Win case above is served —
+    // two of them carrying a real party — so this cannot pass by the fixture
+    // happening to be empty.
+    describe('political party exposure (Win vs Serve)', () => {
+      const serveTurf = async (label: string) => {
+        stubVendors({ residents: liveResidents })
+        const { filterId, headers } = await serveOrg(label)
+        const created = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO party turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        expect(created.status).toBe(201)
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${created.data.id}/route`,
+          { ...headers, validateStatus: () => true },
+        )
+        return res
+      }
+
+      type ServedStops = Array<{
+        addresses: Array<{ targets: Array<{ politicalParty: string | null }> }>
+      }>
+
+      const servedParties = (stops: ServedStops) =>
+        stops
+          .flatMap((stop) => stop.addresses)
+          .flatMap((address) => address.targets)
+          .map((target) => target.politicalParty)
+
+      it('nulls politicalParty on every target for a Serve (eo-) org', async () => {
+        const res = await serveTurf('party')
+
+        expect(res.status).toBe(200)
+        const parties = servedParties(res.data.stops as ServedStops)
+        expect(parties.length).toBeGreaterThan(0)
+        expect(parties.every((party) => party === null)).toBe(true)
+      })
+
+      // The other half, and the reason the assertion above is not vacuous: the
+      // same fixture served to a Win org still carries the parties it holds.
+      it('keeps politicalParty for a Win org', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(servedParties(res.data.stops as ServedStops)).toContain(
+          'Democratic',
+        )
+      })
+
+      // The flag every downstream surface reads instead of re-deriving the
+      // `eo-` prefix four times — the walk, the person sheet, the printed
+      // sheet and the PDF. The two paper surfaces render server-side with no
+      // organization provider above them, so this field is the only way they
+      // can know.
+      it('declares the surface on the payload', async () => {
+        expect((await serveTurf('flag')).data.isServe).toBe(true)
+        expect((await knockAndServe()).res.data.isServe).toBe(false)
+      })
+    })
+
     // The routeless turf this used to guard against no longer exists — a turf
     // is born with its route — so the only 404 left on this path is an id that
     // names nothing.
@@ -4118,6 +4194,56 @@ describe('door-knocking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.data).toEqual([])
+    })
+  })
+
+  // The rollup's two list-lifecycle firing points. What each event CARRIES is
+  // covered against a real database in doorKnockingStats.service.test.ts; what
+  // matters here is that the two routes reach it at all, and with the user who
+  // pressed the button rather than the org's owner.
+  describe('canvassing totals rollup', () => {
+    const spyOnEmit = () =>
+      vi
+        .spyOn(
+          service.app.get(DoorKnockingStatsService),
+          'emitCanvassingTotals',
+        )
+        .mockResolvedValue(undefined)
+
+    it('fires from a turf create', async () => {
+      const emit = spyOnEmit()
+
+      await createTurf()
+
+      expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
+    })
+
+    it('fires from a turf complete', async () => {
+      const turf = await createTurf()
+      const emit = spyOnEmit()
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${turf.id}/complete`,
+        {},
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
+    })
+
+    // Telemetry must never fail a canvasser's write: the create has already
+    // paid Geoapify by the time this fires, and the complete has already
+    // written the envelope.
+    it('still succeeds when the rollup throws', async () => {
+      vi.spyOn(
+        service.app.get(DoorKnockingStatsService),
+        'emitCanvassingTotals',
+      ).mockRejectedValue(new Error('segment is down'))
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
     })
   })
 })

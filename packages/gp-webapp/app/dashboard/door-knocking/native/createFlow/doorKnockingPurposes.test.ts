@@ -33,12 +33,6 @@ describe('DOOR_KNOCKING_PURPOSES', () => {
     })
   })
 
-  it('gives every card a second line', () => {
-    for (const purpose of DOOR_KNOCKING_PURPOSES) {
-      expect(purpose.description.length).toBeGreaterThan(0)
-    }
-  })
-
   it('falls back for a slug it does not know', () => {
     expect(doorKnockingPurposeLabel('election_day_turnout')).toBe(
       'Turn out my supporters',

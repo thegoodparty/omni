@@ -187,12 +187,14 @@ export class OutreachSocialController {
   @Post(':id/cancel')
   @ResponseSchema(CancelOutreachResponseSchema)
   async cancel(
+    @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<CancelOutreachResponse> {
     const { outreach, refunded } = await this.outreachService.cancelOutreach(
       id,
       campaign.id,
+      { canceledBy: user.email, byAdmin: false },
     )
     // Campaign-scoped cancel only ever matches a Win row (organizationSlug
     // is metadata here, not the scope path), so campaignId is always set.

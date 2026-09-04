@@ -70,7 +70,7 @@ const baseProps = {
   color: '#2563eb',
   drawnStops: null,
   onListCreated: vi.fn(),
-  isElectedOfficial: false,
+  isServeOrg: false,
   unpreviewableKeys: [],
   // A settled pack: recommendations are about what the who step offers, not
   // about the district figure beside it.

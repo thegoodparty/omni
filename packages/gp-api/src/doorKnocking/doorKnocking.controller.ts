@@ -92,6 +92,7 @@ export class DoorKnockingController {
   async createTurf(
     @ReqOrganization() organization: Organization,
     @ReqCampaign() campaign: Campaign | null,
+    @ReqUser() user: User,
     @Body(new ZodValidationPipe(CreateDoorKnockingTurfSchema))
     input: CreateDoorKnockingTurf,
   ) {
@@ -105,6 +106,7 @@ export class DoorKnockingController {
           }
         : { campaignId: null, organizationSlug: organization.slug },
       input,
+      user.id,
     )
   }
 
@@ -129,6 +131,7 @@ export class DoorKnockingController {
   async createServeTurf(
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
     @Body(new ZodValidationPipe(CreateDoorKnockingTurfSchema))
     input: CreateDoorKnockingTurf,
   ) {
@@ -137,6 +140,7 @@ export class DoorKnockingController {
       organization,
       { campaignId: null, organizationSlug: electedOffice.organizationSlug },
       input,
+      user.id,
     )
   }
 
@@ -219,9 +223,10 @@ export class DoorKnockingController {
   async deleteTurf(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
+    @ReqUser() { id: userId }: User,
   ) {
     await this.contacts.assertProAccess(organization)
-    await this.turfService.delete(id, organization.slug)
+    await this.turfService.delete(id, organization.slug, userId)
   }
 
   // POST, not PATCH: "end the session" and "shelve the list" are events, not
@@ -235,9 +240,10 @@ export class DoorKnockingController {
   async completeTurf(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.turfService.complete(id, organization.slug)
+    return this.turfService.complete(id, organization.slug, user.id)
   }
 
   // One route with a body rather than archive/unarchive as a pair: the client

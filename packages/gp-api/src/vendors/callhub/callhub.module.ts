@@ -3,7 +3,6 @@ import { Module } from '@nestjs/common'
 import { CallhubBulkImportService } from './services/callhubBulkImport.service'
 import { CallhubCampaignService } from './services/callhubCampaign.service'
 import { CallhubCampaignReportService } from './services/callhubCampaignReport.service'
-import { CallhubCreditsService } from './services/callhubCredits.service'
 import { CallhubDncService } from './services/callhubDnc.service'
 import { CallhubErrorHandlingService } from './services/callhubErrorHandling.service'
 import { CallhubHttpService } from './services/callhubHttp.service'
@@ -26,7 +25,6 @@ import { CallhubPhonebookService } from './services/callhubPhonebook.service'
     CallhubDncService,
     CallhubCampaignService,
     CallhubCampaignReportService,
-    CallhubCreditsService,
   ],
   exports: [
     CallhubNumbersService,
@@ -36,7 +34,6 @@ import { CallhubPhonebookService } from './services/callhubPhonebook.service'
     CallhubDncService,
     CallhubCampaignService,
     CallhubCampaignReportService,
-    CallhubCreditsService,
   ],
 })
 export class CallhubModule {}

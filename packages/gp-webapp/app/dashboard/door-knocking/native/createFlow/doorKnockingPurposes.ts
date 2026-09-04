@@ -39,25 +39,9 @@ export const DOOR_KNOCKING_PURPOSE_LABELS: Record<DoorKnockingPurpose, string> =
     custom: 'Something else',
   }
 
-// A second line on the card, which phone banking has no equivalent of: a
-// door-knocking goal decides how a candidate spends an evening on foot, and
-// the one-liner is what separates "persuade" from "turn out" before the who
-// step asks them to express the difference in an audience.
-export const DOOR_KNOCKING_PURPOSE_DESCRIPTIONS: Record<
-  DoorKnockingPurpose,
-  string
-> = {
-  introduce_myself: 'Meet voters who do not know you yet.',
-  persuade_voters: 'Talk with voters who could still swing your way.',
-  event_invite: 'Promote a town hall or meet and greet.',
-  early_voting: 'Remind supporters to vote before election day.',
-  election_day_turnout: 'Remind likely supporters to vote.',
-  custom: 'Build a list from scratch with your own filters.',
-}
-
 const FALLBACK_NAME = 'Door knocking list'
 
-// Deliberately a third record rather than a derivation of the labels above —
+// Deliberately a second record rather than a derivation of the labels above —
 // the #1385 lesson, arrived at by renaming live campaigns. A label is copy on
 // a card, phrased as a goal ("Turn out my supporters"); a name suggestion is a
 // default title for a saved list in the rail ("Turnout walk"). Collapsing them
@@ -79,11 +63,9 @@ export const DOOR_KNOCKING_PURPOSE_NAME_SUGGESTIONS: Record<
 export const DOOR_KNOCKING_PURPOSES: {
   id: DoorKnockingPurpose
   label: string
-  description: string
 }[] = DOOR_KNOCKING_PURPOSE_VALUES.map((id) => ({
   id,
   label: DOOR_KNOCKING_PURPOSE_LABELS[id],
-  description: DOOR_KNOCKING_PURPOSE_DESCRIPTIONS[id],
 }))
 
 export const doorKnockingPurposeLabel = (purpose: string): string =>

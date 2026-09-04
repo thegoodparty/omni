@@ -203,12 +203,30 @@ describe('ActivityStep — campaign chip row (completed + channel)', () => {
     expect(lastConditions[0]?.outreachName).toBe('GOTV blast')
     expect(lastConditions[0]?.actions).toEqual(['responded'])
 
-    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
+    await user.click(screen.getByRole('radio', { name: 'Phone Banking' }))
 
-    expect(lastConditions[0]?.outreachType).toBe('robocall')
+    expect(lastConditions[0]?.outreachType).toBe('phoneBanking')
     expect(lastConditions[0]?.outreachId).toBeNull()
     expect(lastConditions[0]?.outreachName).toBeNull()
     expect(lastConditions[0]?.actions).toEqual([])
+  })
+
+  it('does not offer Robocall as a selectable activity channel', () => {
+    // Robocall is hidden from the activity filter under the new billing model
+    // (no per-contact ContactInteractionRobocall rows to match) — see
+    // SELECTABLE_ACTIVITY_CONDITION_CHANNELS.
+    setWinContext(true)
+    api.mock('GET /v1/outreach', { status: 200, data: [] })
+
+    render(<ActivityStepHarness />)
+
+    expect(
+      screen.queryByRole('radio', { name: 'Robocall' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Text' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', { name: 'Phone Banking' }),
+    ).toBeInTheDocument()
   })
 })
 
@@ -220,14 +238,14 @@ describe('ActivityStep — progressive outcome reveal', () => {
 
     render(<ActivityStepHarness />)
 
-    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
+    await user.click(screen.getByRole('radio', { name: 'Phone Banking' }))
 
     expect(screen.queryByText('Answered')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
 
     expect(screen.getByText('Answered')).toBeInTheDocument()
-    expect(screen.getByText('Voicemail Left')).toBeInTheDocument()
+    expect(screen.getByText('Voicemail')).toBeInTheDocument()
     expect(screen.getByText('No Answer')).toBeInTheDocument()
     expect(screen.queryByText('Not Home')).not.toBeInTheDocument()
   })
@@ -239,7 +257,7 @@ describe('ActivityStep — progressive outcome reveal', () => {
 
     render(<ActivityStepHarness />)
 
-    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
+    await user.click(screen.getByRole('radio', { name: 'Phone Banking' }))
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Answered'))
     expect(lastConditions[0]?.actions).toEqual(['answered'])
@@ -266,8 +284,8 @@ describe('ActivityStep — progressive outcome reveal', () => {
       screen.getByRole('button', { name: 'Remove condition 1' }),
     ).toBeDisabled()
 
-    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
-    expect(lastConditions[0]?.outreachType).toBe('robocall')
+    await user.click(screen.getByRole('radio', { name: 'Phone Banking' }))
+    expect(lastConditions[0]?.outreachType).toBe('phoneBanking')
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
 

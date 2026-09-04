@@ -152,7 +152,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     color="#2563eb"
     drawnStops={null}
     onListCreated={onListCreated}
-    isElectedOfficial={false}
+    isServeOrg={false}
     unpreviewableKeys={[]}
     orgSlug="campaign-9"
     {...overrides}
