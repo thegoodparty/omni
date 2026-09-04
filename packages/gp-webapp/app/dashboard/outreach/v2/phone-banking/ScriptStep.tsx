@@ -100,7 +100,6 @@ export const ScriptStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="phoneBanking"
         title="Write your call script"
         body="This is the script your volunteers will read on the phone. Edit it to sound like you."
       />

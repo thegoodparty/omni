@@ -62,7 +62,6 @@ export const SheetCountStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="phoneBanking"
         title="How many call sheets would you like me to create?"
         body="Creating multiple call sheets makes it simpler to share with volunteers, friends, and family."
       />

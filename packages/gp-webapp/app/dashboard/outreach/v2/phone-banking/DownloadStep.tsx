@@ -33,7 +33,6 @@ export const DownloadStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="phoneBanking"
         title={
           isZip ? 'Your call sheets are ready' : 'Your call sheet is ready'
         }

@@ -734,7 +734,9 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to lists' }))
 
     expect(audiencePicker()).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '2')
   })
 
   // The canvas puts Top issue first in the shared filter pool. We hold no
@@ -1353,22 +1355,24 @@ describe('CreateListFlow steps', () => {
   it('opens on door knocking’s own goal cards, and picking one advances', () => {
     render(<CreateListFlow {...baseProps} step="filters" />)
 
-    // Door knocking's own wording for the shared outreach purpose vocabulary
-    // (docs/features/recommended-lists.md), not social's or phone banking's:
-    // these goals are about a conversation on a doorstep and have no
-    // equivalent on a channel that sends a message.
+    // Unified with the other Win outreach flows on the same slugs and
+    // strings (docs/features/recommended-lists.md); the second-line
+    // descriptions were dropped as part of the same unification.
     expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
-    expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
     expect(
-      screen.getByText('Remind supporters to vote before election day.'),
+      screen.getByText('Encourage voters to vote on election day'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '1')
 
     fireEvent.click(
       screen.getByRole('button', { name: /Encourage early voting/ }),
     )
     expect(heading('Who do you want to reach?')).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '2')
   })
 
   // The reported defect, walked end to end at the step it was reported from:
@@ -1382,10 +1386,14 @@ describe('CreateListFlow steps', () => {
     const props = { ...baseProps, savedLists, onStepChange }
 
     const { rerender } = renderAtWho(props)
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '2')
 
     await pickList(/Super voters/)
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '2')
 
     // The other audience: pills cut against the whole contact universe, with
     // no saved list behind them to shorten anything.
@@ -1397,7 +1405,9 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '2')
 
     // And it really does continue to the map rather than to an ending of its
     // own — the stepper's promise and the flow's behaviour are the same claim.
@@ -1411,7 +1421,9 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expect(screen.getByText('Step 3 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '3')
   })
 
   // One name per pass through the flow, and it is the campaign's. A hand-cut
@@ -1438,13 +1450,19 @@ describe('CreateListFlow steps', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="draw" filters={{}} />,
     )
-    expect(screen.getByText('Step 3 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '3')
 
     rerender(<CreateListFlow {...baseProps} step="confirm" filters={{}} />)
-    expect(screen.getByText('Step 4 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '4')
 
     rerender(<CreateListFlow {...baseProps} step="route" filters={{}} />)
-    expect(screen.getByText('Step 5 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '5')
   })
 
   // The #1385 lesson: a card label doubling as a default title renamed live
@@ -1455,7 +1473,9 @@ describe('CreateListFlow steps', () => {
       <CreateListFlow {...baseProps} step="filters" />,
     )
     fireEvent.click(
-      screen.getByRole('button', { name: /Turn out my supporters/ }),
+      screen.getByRole('button', {
+        name: /Encourage voters to vote on election day/,
+      }),
     )
     rerender(<CreateListFlow {...baseProps} step="confirm" />)
 
@@ -1641,7 +1661,7 @@ describe('CreateListFlow steps', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Exit' }))
     expect(onClose).toHaveBeenCalledTimes(1)
 
     rerender(
@@ -1654,7 +1674,7 @@ describe('CreateListFlow steps', () => {
         onClose={onClose}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Exit' }))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(screen.getByText('Discard changes?')).toBeInTheDocument()
 
@@ -1712,7 +1732,9 @@ describe('CreateListFlow steps', () => {
       <CreateListFlow {...baseProps} step="filters" />,
     )
     fireEvent.click(
-      screen.getByRole('button', { name: /Turn out my supporters/ }),
+      screen.getByRole('button', {
+        name: /Encourage voters to vote on election day/,
+      }),
     )
     rerender(<CreateListFlow {...baseProps} step="confirm" />)
     expect(screen.getByLabelText('Campaign name')).toHaveValue('Turnout walk')
@@ -1735,7 +1757,9 @@ describe('CreateListFlow steps', () => {
     rerender(<CreateListFlow {...baseProps} step="filters" />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     fireEvent.click(
-      screen.getByRole('button', { name: /Turn out my supporters/ }),
+      screen.getByRole('button', {
+        name: /Encourage voters to vote on election day/,
+      }),
     )
     rerender(<CreateListFlow {...baseProps} step="confirm" />)
     expect(screen.getByLabelText('Campaign name')).toHaveValue(
@@ -1819,7 +1843,9 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
     // Arriving with the audience already chosen skips no step of the flow:
     // the boundary and the route are still ahead of it.
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '2')
   })
 
   // The four ways a query param can be wrong that survive the parser — an id
@@ -1841,7 +1867,9 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).not.toHaveBeenCalled()
     // A missed preselection is the ordinary flow and nothing else — same
     // audience the flow opens on, same five steps in front of it.
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '2')
   })
 
   it('leaves the flow untouched with no list carried in', () => {

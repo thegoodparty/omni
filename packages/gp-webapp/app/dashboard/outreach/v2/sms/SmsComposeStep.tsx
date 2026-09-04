@@ -143,7 +143,6 @@ export const SmsComposeStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="text"
         title="What do you want to say?"
         body="Start from a draft, dictate your own, or improve with AI. We add the greeting and the opt-out line automatically."
       />

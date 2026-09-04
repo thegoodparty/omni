@@ -127,7 +127,6 @@ export const RobocallComposeStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="robocall"
         title="What do you want to say?"
         body="Read the script below into your microphone. We'll play it for your recipients."
       />

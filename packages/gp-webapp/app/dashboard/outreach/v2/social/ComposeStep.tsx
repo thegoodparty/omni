@@ -86,7 +86,6 @@ export const ComposeStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="socialMedia"
         title="What do you want to say?"
         body="Confirm the message. We'll adapt this draft to each platform's voice and length in the next steps."
       />

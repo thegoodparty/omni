@@ -87,7 +87,6 @@ export const RobocallReviewStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="robocall"
         title="Review your campaign"
         body="Check the details below, then continue to payment to schedule your calls."
       />

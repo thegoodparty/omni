@@ -431,12 +431,16 @@ describe('RobocallFlow', () => {
   it('advances to the audience step when a purpose is selected', async () => {
     mockSavedLists()
     await gotoAudience()
+    // The visible h3 on the audience step — targeted by role/level so it
+    // does not collide with the sr-only DrawerTitle that shares the string.
     expect(
-      screen.getByText(/We recommend reaching all your supporters/),
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'Who do you want to reach?',
+      }),
     ).toBeInTheDocument()
-    // The reachable-count note under the picker (design flowWho).
     expect(
-      screen.getByText(/may change based on the mode of outreach/),
+      screen.getByText(/Lists include all voters with a landline/),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('Introduce myself to voters'),
@@ -697,7 +701,7 @@ describe('RobocallFlow', () => {
     // Advance off the purpose step so a resume would be observable.
     fireEvent.click(screen.getByText('Persuade likely voters'))
     expect(
-      await screen.findByText(/We recommend reaching all your supporters/),
+      await screen.findByText(/Lists include all voters with a landline/),
     ).toBeInTheDocument()
 
     // Close (cancel), then reopen — the open effect must reset the flow.
@@ -706,7 +710,7 @@ describe('RobocallFlow', () => {
 
     expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(
-      screen.queryByText(/We recommend reaching all your supporters/),
+      screen.queryByText(/Lists include all voters with a landline/),
     ).not.toBeInTheDocument()
   })
 

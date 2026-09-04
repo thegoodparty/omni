@@ -127,8 +127,13 @@ const openToAudience = async () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
-  await userEvent.click(screen.getByText('Introduce myself'))
-  expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
+  await userEvent.click(screen.getByText('Introduce myself to voters'))
+  expect(
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'Who do you want to reach?',
+    }),
+  ).toBeInTheDocument()
 }
 
 describe('SmsFlow — recommended lists', () => {

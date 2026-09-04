@@ -23,6 +23,7 @@ import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
   OutreachAudienceStep,
@@ -50,7 +51,7 @@ const STEP_ORDER: StepId[] = ['purpose', 'who', 'script', 'sheets', 'download']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
-  who: 'Who are you calling?',
+  who: 'Who do you want to reach?',
   script: 'Write your call script',
   sheets: 'How many call sheets would you like me to create?',
   // Deliberately distinct from DownloadStep's own dynamic (singular/plural)
@@ -75,8 +76,9 @@ const PRICE_PER_CONTACT =
 // dimension (VoterFileStep) instead of the four PhoneBankingFiltersSchema
 // used to restrict it to.
 const WIN_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
-  pickerTitle: 'Who are you calling?',
-  pickerBody: 'We recommend reaching all voters to increase awareness.',
+  pickerTitle: 'Who do you want to reach?',
+  pickerBody:
+    'Select a list or create a new one. Lists include all voters with a phone number.',
   filtersTitle: 'Build a voter list',
   filtersBody: 'Pick filters to define who this campaign reaches.',
   // ENG-10948: phone banking dials whichever number a voter has (cell first,
@@ -100,12 +102,12 @@ const WIN_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
 // Serve's constituent-framed variant (ENG-10970) — same structure, same
 // ENG-10948/10957 intent, "voters"/"campaign" swapped for "constituents"/
 // "list". reachableOfTotalLine is voter-neutral ("contacts") already and is
-// shared as-is, and so is pickerTitle ("Who are you calling?" is channel
-// framing — a phone call on both surfaces — not voter framing; the ticket
-// pins the serve overrides to the five voter/campaign-framed strings).
+// shared as-is, and so is pickerTitle ("Who do you want to reach?" is
+// channel-neutral on both surfaces).
 const SERVE_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   ...WIN_PHONE_BANKING_AUDIENCE_COPY,
-  pickerBody: 'We recommend reaching all constituents to increase awareness.',
+  pickerBody:
+    'Select a list or create a new one. Lists include all constituents with a phone number.',
   filtersTitle: 'Build a constituent list',
   filtersBody: 'Pick filters to define who this list reaches.',
   filtersHint:
@@ -620,6 +622,7 @@ export const PhoneBankingFlow = ({
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
+      headerBadge={<ChannelBadge type="nativePhoneBanking" />}
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
       onBack={stepIndex > 0 && !saved ? handleBack : undefined}

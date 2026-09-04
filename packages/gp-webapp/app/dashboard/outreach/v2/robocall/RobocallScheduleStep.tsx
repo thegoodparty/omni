@@ -76,7 +76,6 @@ export const RobocallScheduleStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="robocall"
         title="When do you want to send it?"
         body="We recommend mid-morning or early evening for higher engagement."
       />

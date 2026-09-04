@@ -24,6 +24,7 @@ import {
   useWinRecommendedListsFlag,
   WIN_RECOMMENDED_LISTS_FLAG_KEY,
 } from '@shared/experiments/winRecommendedListsFlag'
+import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
@@ -240,11 +241,12 @@ const STAGE_META: Record<
 > = {
   purpose: {
     title: 'What do you want to do?',
-    caption: 'Pick a goal so we can shape the right door knocking list.',
+    caption: 'This helps us tailor your door knocking script and list.',
   },
   who: {
     title: 'Who do you want to reach?',
-    caption: 'Select a list or create a new list.',
+    caption:
+      'Select a list or create a new one. Lists include all voters with a residential address.',
   },
   draw: {
     title: 'Draw your door knocking boundaries',
@@ -997,6 +999,7 @@ export default function CreateListFlow({
       open
       onClose={onClose}
       title={title}
+      headerBadge={<ChannelBadge type="nativeDoorKnocking" />}
       currentStep={currentStep}
       totalSteps={totalSteps}
       onBack={previousStage(stage) ? back : undefined}

@@ -444,7 +444,6 @@ export const RobocallPayStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="robocall"
         title="Payment"
         body="We save your card and authorize the estimated cost now. You are not charged yet. Once your calls go out we charge the final amount, and only for the calls we actually place."
       />

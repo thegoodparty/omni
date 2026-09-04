@@ -5,7 +5,6 @@ import { Card, cn, Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import {
   CheckIcon,
   ChevronDownIcon,
-  FilterIcon,
   Loader2Icon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
@@ -271,7 +270,10 @@ export const OutreachAudienceStep = ({
             <Card
               role="button"
               tabIndex={0}
-              className="cursor-pointer flex-row items-center justify-between gap-3 p-4 transition-colors hover:border-primary/50"
+              className={cn(
+                'cursor-pointer flex-row items-center justify-between gap-3 p-4 transition-colors',
+                active ? 'border-primary' : 'hover:border-primary/50',
+              )}
             >
               <div className="min-w-0">
                 <p className="truncate font-medium text-foreground">
@@ -363,7 +365,7 @@ export const OutreachAudienceStep = ({
                     }}
                     className={cn(
                       'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
-                      on && 'bg-muted',
+                      on && 'bg-primary/10',
                     )}
                   >
                     <span className="block min-w-0 truncate font-medium text-foreground">
@@ -378,13 +380,6 @@ export const OutreachAudienceStep = ({
             </div>
           </PopoverContent>
         </Popover>
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <FilterIcon className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            The number of reachable voters in each list may change based on the
-            mode of outreach you select.
-          </span>
-        </p>
       </div>
       {pricePerContact > 0 && (
         <p className="text-sm text-muted-foreground">

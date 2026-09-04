@@ -26,7 +26,6 @@ export const PurposeStep = ({
 }: PurposeStepProps) => (
   <div className="space-y-6">
     <Intro
-      channel="phoneBanking"
       title="What do you want to do?"
       body="This helps us tailor your script and who to call."
     />

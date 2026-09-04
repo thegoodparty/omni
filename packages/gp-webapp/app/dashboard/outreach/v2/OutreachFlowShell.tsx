@@ -11,11 +11,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  ArrowLeftIcon,
   Button,
   DrawerTitle,
-  IconButton,
   Stepper,
+  XMarkIcon,
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
 
@@ -43,6 +42,11 @@ interface OutreachFlowShellProps {
   open: boolean
   onClose: () => void
   title: string
+  // Left header slot — the flow's identity label (e.g. a channel badge or a
+  // custom eyebrow). Optional so callers can adopt it incrementally; when
+  // omitted the header's left half is empty and the Exit button sits alone
+  // on the right.
+  headerBadge?: ReactNode
   // 1-based; totalSteps 0 marks the success screen: the stepper hides and
   // the whole visible header is replaced (per the prototype), keeping only
   // the sr-only accessible title.
@@ -50,7 +54,8 @@ interface OutreachFlowShellProps {
   totalSteps: number
   onBack?: () => void
   // Shell-owned, step-keyed footer CTA; null renders no footer (e.g. the
-  // purpose step, where selecting a card advances the flow).
+  // purpose step, where selecting a card advances the flow). Back on its
+  // own also renders the footer, so a step with only a Back stays reachable.
   cta: FlowShellCta | null
   // Any user input diverging from the initial state: closing asks "Discard
   // changes?"; a pristine (or completed) flow closes silently.
@@ -59,13 +64,16 @@ interface OutreachFlowShellProps {
 }
 
 // The generalized channel-flow chrome (phase 1 TDD): OutreachSheet anatomy +
-// sticky header with back + bar stepper, flat client flow state owned by the
-// flow component, dirty-close confirm, fresh state on reopen. Step bodies
-// stay dumb value/onChange components.
+// sticky header with a badge/eyebrow on the left and an Exit control on the
+// right (the sheet's own corner X is suppressed so there is one close), the
+// bar Stepper below, Back moved into the footer beside the primary, flat
+// client flow state owned by the flow component, dirty-close confirm, fresh
+// state on reopen. Step bodies stay dumb value/onChange components.
 export const OutreachFlowShell = ({
   open,
   onClose,
   title,
+  headerBadge,
   currentStep,
   totalSteps,
   onBack,
@@ -97,6 +105,8 @@ export const OutreachFlowShell = ({
     onClose()
   }
 
+  const showFooter = cta !== null || Boolean(onBack)
+
   return (
     <>
       <OutreachSheet
@@ -104,61 +114,86 @@ export const OutreachFlowShell = ({
         onOpenChange={requestClose}
         bodyRef={bodyRef}
         headerless={totalSteps === 0}
+        hideClose
         header={
           <>
-            {/* Prototype full-mode header anatomy: no visible title, no close
-                here (the sheet's absolute corner X is the close). One Back
-                button, responsive: pinned to the panel's top-left corner on
-                mobile (the header's 64px top padding clears that strip),
-                sitting in an always-reserved row above the stepper on
-                desktop — one element so jsdom/a11y see a single Back. */}
-            <div className="flex h-0 items-center lg:mb-4 lg:h-10">
-              {onBack && (
-                <IconButton
-                  type="button"
-                  variant="outline"
-                  aria-label="Back"
-                  onClick={onBack}
-                  className="absolute top-4 left-4 z-30 border-border text-foreground lg:static"
-                >
-                  <ArrowLeftIcon className="size-4" />
-                </IconButton>
-              )}
+            {/* Header row: badge/eyebrow on the left, Exit on the right.
+                Back has moved to the footer, so the header's left slot
+                answers "what am I working on" instead of "how do I go
+                back". The Exit button carries the word rather than a bare
+                X — the spec calls out that it is not an icon-only
+                control. */}
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">{headerBadge}</div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="small"
+                aria-label="Exit"
+                onClick={() => requestClose(false)}
+              >
+                <XMarkIcon className="size-[18px]" />
+                Exit
+              </Button>
             </div>
             <DrawerTitle className="sr-only">{title}</DrawerTitle>
             {totalSteps > 0 && (
+              // Segmented bar stepper — the "Step X of Y" reading is
+              // suppressed (the DrawerTitle carries the flow's identity;
+              // the bars carry position). `barClassName` bumps each
+              // segment a touch beyond the styleguide default so it reads
+              // as chunky bars rather than a thin rule.
               <Stepper
                 variant="bar"
                 currentStep={currentStep}
                 totalSteps={totalSteps}
-                labelClassName="text-xs"
+                showLabel={false}
+                barClassName="h-2.5"
               />
             )}
           </>
         }
         footer={
-          cta ? (
-            // Prototype footer stacking: primary on top on mobile (column),
-            // primary on the right on desktop (row-reverse).
-            <div className="flex w-full flex-col gap-3 lg:flex-row-reverse lg:items-center">
-              <Button
-                type="button"
-                className="w-full text-sm lg:w-auto lg:flex-1"
-                onClick={cta.onClick}
-                disabled={cta.disabled}
-                loading={cta.loading}
-              >
-                {cta.label}
-              </Button>
-              {cta.secondary && (
+          showFooter ? (
+            // Prototype footer: row-reverse with the primary on the right
+            // and Back on the left. Both stay on one row at every width;
+            // do not stack on mobile.
+            <div
+              className={`flex w-full flex-row-reverse items-center gap-3 ${
+                onBack ? 'justify-between' : ''
+              }`}
+            >
+              {cta && (
+                <Button
+                  type="button"
+                  className="min-w-0 flex-1 text-sm lg:min-w-[240px] lg:flex-none"
+                  onClick={cta.onClick}
+                  disabled={cta.disabled}
+                  loading={cta.loading}
+                >
+                  {cta.label}
+                </Button>
+              )}
+              {cta?.secondary && (
                 <Button
                   type="button"
                   variant={cta.secondary.variant ?? 'ghost'}
-                  className="w-full text-sm lg:w-auto lg:flex-1"
+                  className="min-w-0 flex-1 text-sm lg:min-w-[240px] lg:flex-none"
                   disabled={cta.secondary.disabled}
                   onClick={cta.secondary.onClick}
                 >
                   {cta.secondary.label}
+                </Button>
+              )}
+              {onBack && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-label="Back"
+                  className="shrink-0 text-sm lg:min-w-[140px]"
+                  onClick={onBack}
+                >
+                  Back
                 </Button>
               )}
             </div>
@@ -178,6 +213,7 @@ export const OutreachFlowShell = ({
           <AlertDialogFooter>
             <AlertDialogCancel>Keep editing</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={() => {
                 setConfirmOpen(false)
                 onClose()

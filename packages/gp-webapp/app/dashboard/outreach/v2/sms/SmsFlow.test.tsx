@@ -220,10 +220,15 @@ describe('SmsFlow', () => {
     const { onScheduled } = openFlow()
 
     // Purpose
-    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
 
     // Audience: auto-filter hides the auto-generated list.
-    expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'Who do you want to reach?',
+      }),
+    ).toBeInTheDocument()
     await userEvent.click(screen.getByText('Choose a voter list'))
     expect(
       screen.queryByText('Text outreach — Aug 1, 2026'),
@@ -307,7 +312,7 @@ describe('SmsFlow', () => {
     })
     openFlow()
 
-    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Likely voters'))
     await userEvent.click(
@@ -350,7 +355,7 @@ describe('SmsFlow', () => {
     }))
     openFlow()
 
-    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Create a new list'))
 
@@ -384,7 +389,12 @@ describe('SmsFlow', () => {
     mockDraft()
     openFlow()
     await userEvent.click(screen.getByText('Persuade likely voters'))
-    expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'Who do you want to reach?',
+      }),
+    ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 })

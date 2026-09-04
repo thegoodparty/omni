@@ -1,19 +1,17 @@
-import type { OutreachType } from 'gpApi/types/outreach.types'
-import { ChannelBadge } from '../channelMeta'
-
-// The channel pill replaces the header title as the flow's channel context
-// (the sheet header carries only back/close + stepper, per the prototype).
+// Step intro block: title + body copy. The channel identity used to sit
+// here as a `ChannelBadge` and has moved to the shell's header row, so a
+// step body no longer restates the channel — `channel` is retained as an
+// accepted-but-ignored prop only so callers can be updated in a follow-up
+// sweep rather than every step file at once.
 export const Intro = ({
-  channel,
   title,
   body,
 }: {
-  channel: OutreachType
   title: string
   body: string
+  channel?: string
 }) => (
   <div className="space-y-2">
-    <ChannelBadge type={channel} />
     <h3 className="text-xl font-semibold text-foreground">{title}</h3>
     <p className="text-base text-muted-foreground">{body}</p>
   </div>

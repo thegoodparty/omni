@@ -280,7 +280,12 @@ export const WhoStep = ({
               onOpenChange(!open)
             }
           }}
-          className="cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4"
+          className={cn(
+            'cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4 transition-colors',
+            selectedListId !== null
+              ? 'border-primary'
+              : 'hover:border-primary/50',
+          )}
         >
           <span className="min-w-0">
             <span className="block truncate font-medium">
@@ -340,7 +345,10 @@ export const WhoStep = ({
                       onSelectList(option.listId)
                       onOpenChange(false)
                     }}
-                    className={cn(ROW_CLASSNAME, selected && 'bg-muted')}
+                    className={cn(
+                      ROW_CLASSNAME,
+                      selected && 'bg-primary/10 hover:bg-primary/10',
+                    )}
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">

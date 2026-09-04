@@ -36,7 +36,6 @@ export const ShareStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="socialMedia"
         title="Your assets are ready"
         body="Copy the post text or read the script on camera. Free to share — no ad spend required."
       />

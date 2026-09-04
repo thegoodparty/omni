@@ -34,13 +34,8 @@ export const PurposeStep = ({ selected, onSelect }: PurposeStepProps) => (
             : 'hover:border-primary/50',
         )}
       >
-        <span className="min-w-0 flex-1">
-          <span className="block font-medium text-foreground">
-            {purpose.label}
-          </span>
-          <span className="block text-sm text-muted-foreground">
-            {purpose.description}
-          </span>
+        <span className="min-w-0 flex-1 font-medium text-foreground">
+          {purpose.label}
         </span>
         <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" />
       </Card>

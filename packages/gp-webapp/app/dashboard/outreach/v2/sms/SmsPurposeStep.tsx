@@ -14,7 +14,6 @@ interface SmsPurposeStepProps {
 export const SmsPurposeStep = ({ selected, onSelect }: SmsPurposeStepProps) => (
   <div className="space-y-6">
     <Intro
-      channel="text"
       title="What do you want to do?"
       body="This helps us generate the best message for your campaign."
     />

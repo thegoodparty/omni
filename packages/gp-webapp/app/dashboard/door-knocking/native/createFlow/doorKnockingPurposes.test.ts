@@ -24,24 +24,18 @@ describe('DOOR_KNOCKING_PURPOSES', () => {
       'custom',
     ])
     expect(DOOR_KNOCKING_PURPOSE_LABELS).toEqual({
-      introduce_myself: 'Introduce myself',
-      persuade_voters: 'Persuade undecided voters',
-      event_invite: 'Invite people to an event',
+      introduce_myself: 'Introduce myself to voters',
+      persuade_voters: 'Persuade likely voters',
+      event_invite: 'Invite voters to a local event',
       early_voting: 'Encourage early voting',
-      election_day_turnout: 'Turn out my supporters',
-      custom: 'Something else',
+      election_day_turnout: 'Encourage voters to vote on election day',
+      custom: 'Build from scratch',
     })
-  })
-
-  it('gives every card a second line', () => {
-    for (const purpose of DOOR_KNOCKING_PURPOSES) {
-      expect(purpose.description.length).toBeGreaterThan(0)
-    }
   })
 
   it('falls back for a slug it does not know', () => {
     expect(doorKnockingPurposeLabel('election_day_turnout')).toBe(
-      'Turn out my supporters',
+      'Encourage voters to vote on election day',
     )
     expect(doorKnockingPurposeLabel('not-a-purpose')).toBe('Door knocking list')
   })

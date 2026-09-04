@@ -112,7 +112,7 @@ const openFlow = (onSaved?: (outreachId: number, name: string) => void) => {
 const advanceToWho = async () => {
   await user.click(screen.getByText('Introduce myself to voters'))
   expect(
-    (await screen.findAllByText('Who are you calling?')).length,
+    (await screen.findAllByText('Who do you want to reach?')).length,
   ).toBeGreaterThan(0)
 }
 
@@ -192,7 +192,7 @@ describe('PhoneBankingFlow', () => {
 
     // 10 reachable voters, no cost line — phone banking is free.
     expect(
-      screen.getByText(/may change based on the mode of outreach/),
+      screen.getByText(/Lists include all voters with a phone number/),
     ).toBeInTheDocument()
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Likely Dems'))
@@ -1138,7 +1138,7 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByText('Introduce myself to voters'))
 
     expect(
-      (await screen.findAllByText('Who are you calling?')).length,
+      (await screen.findAllByText('Who do you want to reach?')).length,
     ).toBeGreaterThan(0)
     expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()

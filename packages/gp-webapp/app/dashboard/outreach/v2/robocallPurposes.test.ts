@@ -12,7 +12,7 @@ describe('ROBOCALL_PURPOSES', () => {
       { id: 'introduce_myself', label: 'Introduce myself to voters' },
       { id: 'persuade_voters', label: 'Persuade likely voters' },
       { id: 'event_invite', label: 'Invite voters to a local event' },
-      { id: 'early_voting', label: 'Encourage voters to vote early' },
+      { id: 'early_voting', label: 'Encourage early voting' },
       {
         id: 'election_day_turnout',
         label: 'Encourage voters to vote on election day',

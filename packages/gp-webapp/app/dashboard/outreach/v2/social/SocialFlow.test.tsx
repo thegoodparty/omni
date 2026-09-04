@@ -146,7 +146,7 @@ const awaitComposeDraft = async (expected: string) => {
 }
 
 const advanceToPlatforms = async () => {
-  await user.click(screen.getByText('Introduce myself'))
+  await user.click(screen.getByText('Introduce myself to voters'))
   await awaitComposeDraft(
     draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
   )
@@ -325,7 +325,7 @@ describe('SocialFlow', () => {
     expect(screen.queryByText('Discard changes?')).not.toBeInTheDocument()
 
     // Dirty: purpose picked → confirm appears; Keep editing stays open.
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
     await user.keyboard('{Escape}')
     expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
 
@@ -365,7 +365,7 @@ describe('SocialFlow', () => {
   it('shows Undo only after manual typing is replaced by a tone draft, never from presets alone', async () => {
     const draftCalls = mockDraft()
     openFlow()
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
     await awaitComposeDraft(
       draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     )
@@ -405,7 +405,7 @@ describe('SocialFlow', () => {
   it('restores previously generated tones from memory; only Regenerate refetches', async () => {
     const draftCalls = mockDraft()
     openFlow()
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
     await awaitComposeDraft(
       draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     )
@@ -471,7 +471,7 @@ describe('SocialFlow', () => {
   it('surfaces a draft failure inline with retry, and typing clears it', async () => {
     api.mock('POST /v1/outreach/social/draft', { status: 500, data: {} })
     openFlow()
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
 
     expect(
       await screen.findByText(/couldn't draft your message/),
@@ -494,7 +494,7 @@ describe('SocialFlow', () => {
   it('lets the user type manually after a draft failure, clearing the error', async () => {
     api.mock('POST /v1/outreach/social/draft', { status: 500, data: {} })
     openFlow()
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
 
     expect(
       await screen.findByText(/couldn't draft your message/),
@@ -511,7 +511,7 @@ describe('SocialFlow', () => {
   it('shows Improve with AI only after manual typing; improving replaces with Undo + tone memory', async () => {
     const draftCalls = mockDraft()
     openFlow()
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
     await awaitComposeDraft(
       draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     )
@@ -577,7 +577,7 @@ describe('SocialFlow', () => {
   it('treats dictation as manual input: clears errors, shows Improve, and improves the dictated text', async () => {
     api.mock('POST /v1/outreach/social/draft', { status: 500, data: {} })
     openFlow()
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
     expect(
       await screen.findByText(/couldn't draft your message/),
     ).toBeInTheDocument()
@@ -613,7 +613,7 @@ describe('SocialFlow', () => {
   it('feeds dictated text into per-tone memory on switch-away', async () => {
     const draftCalls = mockDraft()
     openFlow()
-    await user.click(screen.getByText('Introduce myself'))
+    await user.click(screen.getByText('Introduce myself to voters'))
     await awaitComposeDraft(
       draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     )

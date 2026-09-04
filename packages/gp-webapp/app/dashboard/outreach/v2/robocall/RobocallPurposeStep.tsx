@@ -18,7 +18,6 @@ export const RobocallPurposeStep = ({
 }: RobocallPurposeStepProps) => (
   <div className="space-y-6">
     <Intro
-      channel="robocall"
       title="What do you want to do?"
       body="This helps us tailor the script your voters will hear."
     />

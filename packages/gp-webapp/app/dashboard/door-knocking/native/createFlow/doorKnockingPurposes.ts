@@ -23,37 +23,20 @@ export type DoorKnockingPurpose = OutreachPurpose
 
 export const DOOR_KNOCKING_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
 
-// Door knocking's own wording for the shared slugs — deliberately NOT
-// social's copy, and not phone banking's either: this channel's goals are
-// about a conversation on a doorstep, so the phrasing stays door-knocking's
-// own. Robocall and phone banking both shipped with social's labels
-// copy-pasted and had to be corrected (#1379) — the correction is cheaper
-// than the copy-paste.
+// Unified with the other Win outreach flows' verbose "…voters…" style; the
+// only per-channel variance is `custom`, which reads "Build from scratch"
+// here because a custom door-knocking is filter-building, not writing text
+// (unlike social/SMS's "Write my own message" or robocall/phone-banking's
+// "Write my own script").
 export const DOOR_KNOCKING_PURPOSE_LABELS: Record<DoorKnockingPurpose, string> =
   {
-    introduce_myself: 'Introduce myself',
-    persuade_voters: 'Persuade undecided voters',
-    event_invite: 'Invite people to an event',
+    introduce_myself: 'Introduce myself to voters',
+    persuade_voters: 'Persuade likely voters',
+    event_invite: 'Invite voters to a local event',
     early_voting: 'Encourage early voting',
-    election_day_turnout: 'Turn out my supporters',
-    custom: 'Something else',
+    election_day_turnout: 'Encourage voters to vote on election day',
+    custom: 'Build from scratch',
   }
-
-// A second line on the card, which phone banking has no equivalent of: a
-// door-knocking goal decides how a candidate spends an evening on foot, and
-// the one-liner is what separates "persuade" from "turn out" before the who
-// step asks them to express the difference in an audience.
-export const DOOR_KNOCKING_PURPOSE_DESCRIPTIONS: Record<
-  DoorKnockingPurpose,
-  string
-> = {
-  introduce_myself: 'Meet voters who do not know you yet.',
-  persuade_voters: 'Talk with voters who could still swing your way.',
-  event_invite: 'Promote a town hall or meet and greet.',
-  early_voting: 'Remind supporters to vote before election day.',
-  election_day_turnout: 'Remind likely supporters to vote.',
-  custom: 'Build a list from scratch with your own filters.',
-}
 
 const FALLBACK_NAME = 'Door knocking list'
 
@@ -79,11 +62,9 @@ export const DOOR_KNOCKING_PURPOSE_NAME_SUGGESTIONS: Record<
 export const DOOR_KNOCKING_PURPOSES: {
   id: DoorKnockingPurpose
   label: string
-  description: string
 }[] = DOOR_KNOCKING_PURPOSE_VALUES.map((id) => ({
   id,
   label: DOOR_KNOCKING_PURPOSE_LABELS[id],
-  description: DOOR_KNOCKING_PURPOSE_DESCRIPTIONS[id],
 }))
 
 export const doorKnockingPurposeLabel = (purpose: string): string =>
