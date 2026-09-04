@@ -23,8 +23,6 @@ import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { SlackChannel } from 'src/vendors/slack/slackService.types'
 
 const queueInclude = {
   campaign: { include: { user: true } },
@@ -70,7 +68,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
-    private readonly slack: SlackService,
   ) {
     super()
   }
@@ -225,7 +222,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     })
 
     const registrations = await this.registrationsByCampaign([updated])
-    await this.tryNotifyDecision(updated, 'approved', input.approvedBy)
     if (updated.campaign?.user) {
       await this.tryTrack(
         updated.campaign.user.id,
@@ -273,7 +269,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       include: queueInclude,
     })
     const registrations = await this.registrationsByCampaign([updated])
-    await this.tryNotifyDecision(updated, 'denied', input.deniedBy)
     return this.toQueueItem(
       updated,
       registrations.get(updated.campaignId ?? -1),
@@ -525,32 +520,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (job?.canvassers_schedule?.approved) return 'peerly_approved'
     if (row.canvassRequestedAt) return 'canvass_requested'
     return 'awaiting_review'
-  }
-
-  // Approve/deny only — staff edits are routine fixes and deliberately
-  // don't post (product decision 2026-09-03).
-  private async tryNotifyDecision(
-    row: QueueRow,
-    decision: 'approved' | 'denied',
-    actor: string,
-  ) {
-    try {
-      await this.slack.message(
-        {
-          text:
-            `SMS campaign ${decision}: "${row.name ?? row.id}" ` +
-            `(${row.campaign?.slug ?? 'unknown campaign'}, ` +
-            `${row.billableTextCount ?? row.textCount ?? '?'} texts, ` +
-            `send ${row.scheduledLocalDate ?? 'unscheduled'}) by ${actor}`,
-        },
-        SlackChannel.casClickupTasks,
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, outreachId: row.id },
-        'CAS decision Slack notification failed',
-      )
-    }
   }
 
   private async tryTrack(

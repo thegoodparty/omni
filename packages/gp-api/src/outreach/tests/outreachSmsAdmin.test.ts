@@ -194,7 +194,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
   })
 
   describe('POST /v1/outreach/admin/sms/:id/approve', () => {
-    it('requests canvassers, stamps the row, notifies, and tracks', async () => {
+    it('requests canvassers, stamps the row, and tracks', async () => {
       const row = await seedOutreach()
 
       const res = await service.client.post(
@@ -213,7 +213,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.approvedBy).toBe('cas@goodparty.org')
       expect(updated.approvedAt).not.toBeNull()
       expect(updated.canvassRequestedAt).not.toBeNull()
-      expect(slackMessage).toHaveBeenCalled()
+      expect(slackMessage).not.toHaveBeenCalled()
       expect(track).toHaveBeenCalledWith(
         service.user.id,
         'Voter Outreach - Campaign Approved',
