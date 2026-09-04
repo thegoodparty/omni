@@ -18,6 +18,7 @@ import { AxiosError, isAxiosError } from 'axios'
 import { FilterOperatorEnum } from '@hubspot/api-client/lib/codegen/crm/contacts'
 import { PinoLogger } from 'nestjs-pino'
 import { WrapperType } from 'src/shared/types/utility.types'
+import { extractExistingContactId } from '../../crm/util/hubspotErrors.util'
 
 @Injectable()
 export class CrmUsersService {
@@ -112,7 +113,6 @@ export class CrmUsersService {
 
   private async findCrmContactIdByEmail(email: string) {
     this.logger.debug({ email }, 'Looking up contact by email:')
-    let crmContactId: string
     try {
       const searchResultObj =
         await this.hubspot.client.crm.contacts.searchApi.doSearch({
@@ -135,17 +135,25 @@ export class CrmUsersService {
       const firstResult = results[0]
       if (!total || !firstResult) {
         throw new Error(`No contacts found for email: ${email}`)
-      } else {
-        crmContactId = firstResult.id
-        const {
-          properties: { email: crmContactEmail },
-        } = firstResult
-        if (crmContactEmail !== email) {
-          throw new Error('Email mismatch on CRM contact lookup!')
-        }
       }
 
-      return crmContactId
+      const {
+        properties: { email: crmContactEmail },
+      } = firstResult
+      if (crmContactEmail !== email) {
+        // A search-by-email hit whose primary email differs is the merge-
+        // survivor shape: the data team's contact merge folds the searched-
+        // for email in as a secondary email on a contact whose primary email
+        // is now something else. That is a success, not a mismatch — adopt
+        // the survivor rather than falling through to a create that would
+        // 409 against this same contact.
+        this.logger.debug(
+          { email, crmContactEmail, crmContactId: firstResult.id },
+          'CRM contact primary email differs from lookup email (merged contact) — adopting survivor',
+        )
+      }
+
+      return firstResult.id
     } catch (e) {
       this.logger.debug(
         { e },
@@ -314,8 +322,18 @@ export class CrmUsersService {
         },
       })
     } catch (e) {
-      this.logger.error({ e }, 'error creating contact')
-      return undefined
+      const existingId = extractExistingContactId(e)
+      if (!existingId) {
+        this.logger.error({ e }, 'error creating contact')
+        return undefined
+      }
+      // The email already belongs to an existing (possibly merged) contact.
+      // Adopt it and apply the properties there instead of dropping the sync.
+      this.logger.debug(
+        { existingId },
+        'contact create conflicted with an existing contact — adopting',
+      )
+      return await this.updateCrmContact(existingId, crmContactProperties)
     }
   }
 }

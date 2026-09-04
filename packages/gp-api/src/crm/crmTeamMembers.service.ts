@@ -6,6 +6,7 @@ import { AssociationTypes } from '@hubspot/api-client'
 import { OrganizationRole } from '../generated/prisma'
 import { HubspotService } from './hubspot.service'
 import { CRMTeamMemberContactProperties, HubSpot } from './crm.types'
+import { extractExistingContactId } from './util/hubspotErrors.util'
 
 const ROLE_TO_TEAM_ROLE: Record<OrganizationRole, HubSpot.TeamRole> = {
   owner: HubSpot.TeamRole.OWNER,
@@ -105,20 +106,46 @@ export class CrmTeamMembersService {
     const existingId = await this.findContactIdByEmail(email)
     try {
       if (existingId) {
-        const updated = await this.hubspot.client.crm.contacts.basicApi.update(
-          existingId,
-          { properties },
-        )
-        return updated?.id
+        return await this.updateContact(existingId, properties)
       }
       const created = await this.hubspot.client.crm.contacts.basicApi.create({
         properties,
       })
       return created?.id
     } catch (err) {
+      const adoptedId = extractExistingContactId(err)
+      if (!adoptedId) {
+        this.logger.error(
+          { err, email },
+          'error upserting HubSpot contact for team member',
+        )
+        return undefined
+      }
+      // A race between the search above and this create — another caller
+      // (or a merge) created/owns the contact between the two. Adopt it
+      // instead of dropping the team_role sync.
+      this.logger.debug(
+        { adoptedId, email },
+        'team member contact create conflicted with an existing contact — adopting',
+      )
+      return await this.updateContact(adoptedId, properties)
+    }
+  }
+
+  private async updateContact(
+    contactId: string,
+    properties: CRMTeamMemberContactProperties,
+  ) {
+    try {
+      const updated = await this.hubspot.client.crm.contacts.basicApi.update(
+        contactId,
+        { properties },
+      )
+      return updated?.id
+    } catch (err) {
       this.logger.error(
-        { err, email },
-        'error upserting HubSpot contact for team member',
+        { err, contactId },
+        'error updating HubSpot contact for team member',
       )
       return undefined
     }

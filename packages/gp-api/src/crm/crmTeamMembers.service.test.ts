@@ -1,4 +1,5 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { ApiException } from '@hubspot/api-client/lib/codegen/crm/contacts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationRole } from '../generated/prisma'
 import { CrmTeamMembersService } from './crmTeamMembers.service'
@@ -178,6 +179,61 @@ describe('CrmTeamMembersService', () => {
       }),
     ).resolves.toBeUndefined()
 
+    expect(logger.error).toHaveBeenCalled()
+  })
+
+  // ENG-11029: a race between findContactIdByEmail (miss) and create — another
+  // caller, or a merge, gave the email a contact in between. Create 409s and
+  // must adopt the survivor rather than dropping the team_role sync.
+  it('adopts the existing contact id when create 409s, and applies team_role to it', async () => {
+    doSearch.mockResolvedValue({ total: 0, results: [] })
+    create.mockRejectedValue(
+      new ApiException(
+        409,
+        'Conflict',
+        { message: 'Contact already exists. Existing ID: 424242' },
+        {},
+      ),
+    )
+    update.mockResolvedValue({ id: '424242' })
+
+    await service.syncTeamMember({
+      email: 'raced@example.com',
+      name: 'Raced Person',
+      role: OrganizationRole.campaignAdmin,
+      crmCompanyId: 'company-9',
+    })
+
+    expect(update).toHaveBeenCalledWith('424242', {
+      properties: {
+        email: 'raced@example.com',
+        firstname: 'Raced',
+        lastname: 'Person',
+        team_role: 'campaign manager',
+      },
+    })
+    expect(associationsCreate).toHaveBeenCalledWith(
+      '0-2',
+      '0-1',
+      expect.objectContaining({
+        inputs: [expect.objectContaining({ to: { id: '424242' } })],
+      }),
+    )
+  })
+
+  it('does not adopt on a non-409 create failure (logged, undefined, no association)', async () => {
+    doSearch.mockResolvedValue({ total: 0, results: [] })
+    create.mockRejectedValue(new Error('hubspot down'))
+
+    await service.syncTeamMember({
+      email: 'nonconflict@example.com',
+      name: 'No Conflict',
+      role: OrganizationRole.campaignAdmin,
+      crmCompanyId: 'company-9',
+    })
+
+    expect(update).not.toHaveBeenCalled()
+    expect(associationsCreate).not.toHaveBeenCalled()
     expect(logger.error).toHaveBeenCalled()
   })
 })
