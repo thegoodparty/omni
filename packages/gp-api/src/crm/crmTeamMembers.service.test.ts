@@ -130,6 +130,23 @@ describe('CrmTeamMembersService', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  // A failed search must propagate (fire-and-forget caller logs it) rather
+  // than fall through to create: creating an existing contact 409s and the
+  // team_role update + company association are silently lost.
+  it('rejects when the contact search fails instead of mis-creating', async () => {
+    doSearch.mockRejectedValue(new Error('hubspot 500'))
+
+    await expect(
+      service.syncTeamMember({
+        email: 'member@example.com',
+        name: 'Member',
+        role: OrganizationRole.campaignAdmin,
+        crmCompanyId: '901',
+      }),
+    ).rejects.toThrow('hubspot 500')
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('does not throw when the HubSpot contact create call rejects', async () => {
     // Mocks the dependency to throw what production would throw on a
     // HubSpot outage — asserts syncTeamMember's own try/catch, not a mock

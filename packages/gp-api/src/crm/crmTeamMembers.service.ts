@@ -84,12 +84,17 @@ export class CrmTeamMembersService {
           ],
         })
       return total && results[0] ? results[0].id : undefined
-    } catch (error) {
-      this.logger.debug(
-        { error, email },
+    } catch (err) {
+      // Propagate: returning undefined here would send an EXISTING contact
+      // down the create branch, whose 409 skips the team_role update and
+      // company association — the sync would be silently lost. The
+      // fire-and-forget caller owns failure handling; a transient search
+      // error should abort this sync attempt loudly, not mis-create.
+      this.logger.warn(
+        { err, email },
         'error searching HubSpot contact by email for team member sync',
       )
-      return undefined
+      throw err
     }
   }
 
@@ -110,9 +115,9 @@ export class CrmTeamMembersService {
         properties,
       })
       return created?.id
-    } catch (error) {
+    } catch (err) {
       this.logger.error(
-        { error, email },
+        { err, email },
         'error upserting HubSpot contact for team member',
       )
       return undefined
@@ -146,9 +151,9 @@ export class CrmTeamMembersService {
           ],
         },
       )
-    } catch (error) {
+    } catch (err) {
       this.logger.error(
-        { error, crmCompanyId, crmContactId },
+        { err, crmCompanyId, crmContactId },
         'error associating team member contact with company',
       )
     }
