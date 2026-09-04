@@ -5,6 +5,7 @@ import {
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
+import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 
 // The three ways a saved list narrows that the voter pack has no plane for at
 // all. This is a harder gap than 65+'s: there the pack holds an `age` dim and
@@ -29,6 +30,57 @@ export const UNSHADEABLE_LIST_CRITERIA = [
 
 type UnshadeableListCriterion = (typeof UNSHADEABLE_LIST_CRITERIA)[number]
 
+// The filter fields an elected official never sees, named by their
+// `filters.config.ts` keys — the same set the CRM wizard's `VoterFileStep`
+// strips, for the same reasons. gp-api 400s a party filter for an `eo-` org
+// outright and rejects contacts-made the same way; voter likelihood is a
+// turnout-propensity model for a contested election that an office holder does
+// not have.
+//
+// Exported because door knocking has three surfaces that must agree about it —
+// the create flow's pill groups, this file's re-expansion of a saved list, and
+// the details drawer's read-back — and a field hidden in one of them while
+// another still speaks its keys is exactly the leak below. `contacts_made`
+// lives here rather than beside the group it hides for that reason: it was
+// hidden in the create flow first and named only there, so both of the other
+// two readers went on speaking its keys.
+export const WIN_ONLY_FILTER_FIELD_KEYS = [
+  'political_party',
+  'voter_likely',
+  'contacts_made',
+]
+
+// Those fields' option keys, derived from the config rather than written out
+// again, so a party value added to the catalog cannot arrive un-stripped.
+//
+// This is the back door a hidden control leaves open. `savedListFilterKeys`
+// re-expands EVERY boolean column on a saved row, so a list cut on the Win
+// surface — or before this gate existed — hands a Serve create flow a draft
+// carrying `partyDemocrat: true`: the pills re-check themselves in a group
+// that is no longer rendered, the map shades to a party cut nobody can see or
+// clear, and the create then 400s on a filter the official never picked.
+// Stripping at the re-expansion closes it for all three readers at once, since
+// they share this function precisely so they cannot disagree about what a list
+// carries.
+//
+// **This narrows the DRAFT, never the saved row, and one case is left open on
+// purpose.** Picking a list sends its `voterFileFilterId`, and gp-api resolves
+// that row itself — so an `eo-` org whose saved list genuinely carries a party
+// column still meets `assertNoPartyFilterForElectedOffice` at
+// `POST /door-knocking/address-preview` and again at create. That 400 is the
+// server being right: the list really is cut by party, and the alternative is
+// buying a route against criteria the official cannot see. What this file
+// removes is only the phantom — pills re-checked in a hidden group and a map
+// shaded by them. Making such a list PICKABLE for Serve would mean copying it
+// minus its Win-only columns at create, which is a product decision about
+// whose list it then is, and no surface asks for it today.
+const WIN_ONLY_FILTER_KEYS = new Set(
+  filterSections
+    .flatMap((section) => section.fields)
+    .filter((field) => WIN_ONLY_FILTER_FIELD_KEYS.includes(field.key))
+    .flatMap((field) => field.options.map((option) => option.key)),
+)
+
 const criterionValues = (
   list: SegmentResponse | undefined,
   criterion: UnshadeableListCriterion,
@@ -48,12 +100,20 @@ const criterionValues = (
 // about which filters a list carries. `undefined` yields `{}` here, which
 // every consumer reads as "no filters at all" — so resolve the list before
 // calling this, never after.
+//
+// `isServe` drops the Win-only keys above. It defaults to Win because that is
+// what every existing caller means, and because a wrong default here shows a
+// candidate one filter too few rather than showing an elected official one
+// they may not have.
 export const savedListFilterKeys = (
   list: SegmentResponse | undefined,
+  isServe = false,
 ): Record<string, boolean> => {
   const keys = Object.fromEntries(
     Object.entries(list ?? {}).filter(
-      ([, value]) => typeof value === 'boolean',
+      ([key, value]) =>
+        typeof value === 'boolean' &&
+        !(isServe && WIN_ONLY_FILTER_KEYS.has(key)),
     ),
   ) as Record<string, boolean>
   const rangeToKey = Object.fromEntries(

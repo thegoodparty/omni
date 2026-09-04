@@ -189,13 +189,13 @@ interface CreateListFlowProps {
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
-  isElectedOfficial: boolean
+  isServeOrg: boolean
   // Selected filter option keys the map preview can't narrow by, so the drawn
   // shape shows more people than the list will target.
   unpreviewableKeys: string[]
   // The organization the recommendations are asked for, purely as a cache-key
   // segment. A prop rather than a `useOrganization()` read for the same
-  // reason as `isElectedOfficial` above.
+  // reason as `isServeOrg` above.
   orgSlug: string | undefined
   // A saved list the candidate arrived on `?listId=` with, from the outreach
   // hub's door-knocking tile. Undefined is the ordinary flow.
@@ -300,7 +300,7 @@ export default function CreateListFlow({
   onRestartDrawing,
   color,
   onListCreated,
-  isElectedOfficial,
+  isServeOrg,
   unpreviewableKeys,
   orgSlug,
   preselectedListId,
@@ -1112,7 +1112,7 @@ export default function CreateListFlow({
               allContactsHouseholds={allContactsHouseholds}
               selectedListId={savedListId}
               onSelectList={selectList}
-              isElectedOfficial={isElectedOfficial}
+              isServeOrg={isServeOrg}
               building={buildingList}
               onBuildingChange={(next) => {
                 // Opening the filter pills leaves the named list behind: what

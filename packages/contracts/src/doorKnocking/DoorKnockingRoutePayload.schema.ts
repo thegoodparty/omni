@@ -312,6 +312,23 @@ export const DoorKnockingRoutePayloadSchema = z.object({
   route: DoorKnockingRouteHeaderSchema,
   pathGeometry: RoutePathGeometrySchema.nullable(),
   stops: z.array(RoutePayloadStopSchema),
+  // The owning org's surface (the `eo-` slug prefix, the system-wide Win/Serve
+  // invariant — see gp-api's `src/contacts/AGENTS.md`), riding the payload for
+  // the same reason `PhoneBankingListSchema` carries it: door knocking has ONE
+  // route for both surfaces, so nothing in the URL distinguishes them.
+  //
+  // The webapp has a context (`doorKnockingSurface.tsx`) and could re-derive
+  // this while the create flow is open, but the surfaces that read a served
+  // route cannot: the printable walk sheet and the PDF render server-side from
+  // this payload alone, with no organization provider above them. Deriving it
+  // once here is also what keeps the walk, the person sheet and the two paper
+  // formats from arriving at four answers about one list.
+  //
+  // Optional, like `history` and `notes` above and for the identical reason: a
+  // service worker's pre-ship snapshot carries no such key and has to keep
+  // parsing on a phone that cannot refetch. Absent reads as Win, which is the
+  // surface every route frozen before this shipped belonged to.
+  isServe: z.boolean().optional(),
 })
 
 export type DoorKnockingRoutePayload = z.infer<

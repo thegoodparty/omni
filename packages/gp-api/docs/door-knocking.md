@@ -639,6 +639,30 @@ target's own recent outreach history and saved contact notes (see below), no
 `navigate` block (phone builds deep links from lat/lng + a per-route
 locale), and is snapshotted offline on the phone.
 
+### Win and Serve on one route
+
+The payload carries `isServe`, set from the `eo-` org-slug prefix — the
+system-wide Win/Serve signal (`src/contacts/AGENTS.md`), the same check
+`phoneBankingList.service.ts` makes on its own list read. Door knocking has ONE
+route for both surfaces, so nothing in the URL distinguishes them, and the two
+paper surfaces (`print/[turfId]` and its PDF sibling) render server-side with
+no organization context above them at all — this field is the only way they can
+know which product they are printing for.
+
+**`politicalParty` is null on every target for an `eo-` org.** A party value in
+any `eo-` response is a bug, and this route was the last door-knocking surface
+leaking one — to four consumers at once, since the walk, the person sheet, the
+printed sheet and the PDF all read that field. Nulled on the payload rather
+than filtered out of the people-api read, because the residents response is
+shared with the pack's own district-scoped `party` dim; the choke point is what
+reaches a canvasser's phone. Covered by the `political party exposure (Win vs
+Serve)` block in `doorKnocking.routes.test.ts`.
+
+The pack's `party` dim is deliberately untouched. It is district-scoped and
+cacheable, nothing on the Serve surface can select it once the filter control
+and the saved-list re-expansion are gated webapp-side, and removing it would
+fork the district cache. `PACK_FORMAT_REVISION` does not move.
+
 ## Previous outreach, at the door
 
 Each target carries `history`: its own recent outreach, newest first, capped
