@@ -46,7 +46,7 @@ import DoorNotesCard from './DoorNotesCard'
 import { seedDoorNotes } from './doorNotes'
 import {
   STATUS_DOT_COLORS,
-  STATUS_LABELS,
+  statusLabel,
   targetMarker,
 } from './statusPresentation'
 import {
@@ -509,7 +509,7 @@ export default function PersonSheet({
             ) : (
               <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
                 <StatusDot status={statusFor(target)} />
-                Last: {STATUS_LABELS[statusFor(target)]}
+                Last: {statusLabel(statusFor(target), isServe)}
               </span>
             ))}
         </div>
@@ -619,7 +619,7 @@ export default function PersonSheet({
                     ) : (
                       <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                         <StatusDot status={statusFor(member)} />
-                        {STATUS_LABELS[statusFor(member)]}
+                        {statusLabel(statusFor(member), isServe)}
                       </span>
                     )}
                   </div>

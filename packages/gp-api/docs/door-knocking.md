@@ -706,6 +706,21 @@ No CRM write path changes. A Serve row carries a null `supportAnswer`, so it
 contributes nothing to `supportStatus.service.ts`, and the ENG-10841
 `willVote -> voter_likelihood` mapping never fires — both because `willVote` is
 null on such a row and because the writer already refuses `eo-` orgs outright.
+The contract refuses `followUp` beside `willVote` for the second reason rather
+than the first: the event was already unreachable on an `eo-` org, but a stored
+`willVote` on a follow-up knock is an answer to a question the canvasser was
+never shown, and every later reader of the interaction table would read it as
+one that was given.
+
+**Two derivations read this history and they have to agree.**
+`DoorKnockingStatusService.latestKnockStatuses` colours the row a canvasser taps
+and `DoorKnockingPackService` colours the pin they tapped it from, so both take
+the same preference over a person's rows: newest first, but the newest
+**answer-bearing** row wins over a newer one without an answer. A later "not
+home" is a failed re-attempt, not a retraction. The pack used to take the newest
+row outright, which was the same divergence on `supportAnswer`; the Serve answer
+is what made it reachable in a single evening, since returning to a door is the
+whole point of a follow-up.
 
 ## Previous outreach, at the door
 

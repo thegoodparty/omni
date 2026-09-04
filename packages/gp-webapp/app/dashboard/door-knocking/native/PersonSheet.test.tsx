@@ -101,9 +101,11 @@ const stop = (
 const Harness = ({
   targets,
   door,
+  isServe,
 }: {
   targets: RoutePayloadTarget[]
   door?: { address: string; unit: string }
+  isServe: boolean
 }) => {
   const [residents, setResidents] = useState(targets)
   const [selectedTargetId, setSelectedTargetId] = useState(
@@ -124,7 +126,7 @@ const Harness = ({
     <PersonSheet
       stop={stop(residents, door)}
       stopSeq={7}
-      isServe={false}
+      isServe={isServe}
       onOpenPreviousStop={null}
       onOpenNextStop={null}
       selectedTargetId={selectedTargetId}
@@ -154,8 +156,11 @@ const renderSheet = (
   serveMode = false,
 ) =>
   render(
+    // The two flags are one fact in production — a Serve org's route carries
+    // `isServe` and its surface context reads the same `eo-` prefix — so the
+    // harness refuses to let them disagree.
     <DoorKnockingSurfaceProvider value={serveMode}>
-      <Harness targets={targets} door={door} />
+      <Harness targets={targets} door={door} isServe={serveMode} />
     </DoorKnockingSurfaceProvider>,
   )
 

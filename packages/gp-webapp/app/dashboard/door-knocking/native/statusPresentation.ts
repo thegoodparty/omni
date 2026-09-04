@@ -27,6 +27,31 @@ export const STATUS_LABELS: Record<DoorKnockStatus, string> = {
   needs_follow_up: 'Needs follow-up',
 }
 
+// The Serve surface's overrides, sparse on purpose: every status whose wording
+// survives the change of vocabulary keeps one definition, so a copy correction
+// to "Not home" cannot land on one surface and not the other.
+//
+// `unknown` is the only one that has to move. It carries two meanings at once —
+// never knocked, and knocked without an answer — and Win names it after the
+// second because a support answer is what a Win door is for. Serve never asks
+// for a stance, so "Support unknown" would name a question nobody was asked;
+// "Not yet contacted" names the first meaning instead, which is what the bucket
+// is on a Serve walk for all but the pilot rows described under
+// `progressLegendOrder`.
+const SERVE_STATUS_LABELS: Partial<Record<DoorKnockStatus, string>> = {
+  unknown: 'Not yet contacted',
+}
+
+// Every surface that prints a status word goes through this rather than
+// indexing `STATUS_LABELS` directly, so a Serve reader cannot pick up a Win
+// label by forgetting to check. The two print surfaces need it as much as the
+// screen does: a walk sheet is the only thing a canvasser has at the door.
+export const statusLabel = (
+  status: DoorKnockStatus,
+  isServe: boolean,
+): string =>
+  (isServe ? SERVE_STATUS_LABELS[status] : undefined) ?? STATUS_LABELS[status]
+
 // THE status palette — the map dots (deck.gl RGBA) and every legend chip
 // (CSS hex) derive from these same numbers, so they cannot drift apart.
 // The vocabulary is the demo's: unknown grey, not home yellow, supporter

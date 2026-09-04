@@ -6,7 +6,7 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { skipInstruction, STATUS_LABELS } from '../native/statusPresentation'
+import { skipInstruction, statusLabel } from '../native/statusPresentation'
 import {
   ANSWER_COLUMN_KEYS,
   ANSWERED_BOXES,
@@ -151,7 +151,7 @@ const ResidentRow = ({
         </td>
       ) : recorded ? (
         <td className="ws-logged" colSpan={ANSWER_COLUMN_KEYS.length}>
-          Already logged: {STATUS_LABELS[target.knockStatus]}
+          Already logged: {statusLabel(target.knockStatus, isServe)}
         </td>
       ) : (
         <>

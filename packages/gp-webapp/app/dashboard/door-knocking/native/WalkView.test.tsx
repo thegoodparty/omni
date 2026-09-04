@@ -2839,4 +2839,31 @@ describe('WalkView notes', () => {
 
     expect(screen.getByText('Come back Saturday')).toBeInTheDocument()
   })
+
+  // The surface flag comes off the route rather than off the org, so a walk
+  // renders in the vocabulary of the list it was frozen from. Everything a
+  // Serve canvasser reads on this screen goes through one accessor, and the
+  // assertion worth making is the negative one: the word "support" does not
+  // survive anywhere on the walk.
+  it('reads a Serve walk in the Serve vocabulary', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: { ...routePayload, isServe: true },
+    })
+
+    render(<WalkHarness turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+
+    expect(legendCount('Not yet contacted')).toBe('1')
+    expect(legendCount('Support unknown')).toBeUndefined()
+    expect(legendCount('Spoke with')).toBe('0')
+    // The unlogged resident's pill, one level down from the legend and off the
+    // same accessor — the two used to be able to disagree.
+    await userEvent.click(screen.getByText('105 Elm St'))
+    expect(screen.getAllByText('Not yet contacted').length).toBeGreaterThan(1)
+    expect(screen.queryByText('Support unknown')).toBeNull()
+  })
 })

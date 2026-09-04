@@ -411,9 +411,9 @@ interface WalkListPdfProps {
 // printable page, ruled into a grid a canvasser fills in and someone else
 // transcribes. Deliberately rendered on the server — see the route handler.
 export const WalkListPdf = ({ turfName, payload }: WalkListPdfProps) => {
-  const rows = walkListRows(payload.stops)
   // Absent reads as Win, for the reason the printable page's does.
   const isServe = Boolean(payload.isServe)
+  const rows = walkListRows(payload.stops, isServe)
 
   return (
     <Document title={turfName} author="GoodParty.org" subject="Walk list">

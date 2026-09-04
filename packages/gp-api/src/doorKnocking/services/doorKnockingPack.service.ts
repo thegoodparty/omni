@@ -89,14 +89,39 @@ export class DoorKnockingPackService extends createPrismaBase(
     // `null` (over the cap) becomes absent, not empty — the contract's two
     // states differ, and empty would assert nobody has been contacted.
     const contactsMade = buckets ?? undefined
+    // The same two-map preference `DoorKnockingStatusService.latestKnockStatuses`
+    // applies, and for the same reason: rows arrive newest-first, so the first
+    // row per person is the latest and the first answer-bearing one is the
+    // latest answer. A later "not home" is a failed re-attempt, not a
+    // retraction of the answer already given.
+    //
+    // This map colours the pin and that one colours the row a tap later, so a
+    // person reading first-seen here would show `not_home` on the map and
+    // `needs_follow_up` in the walk — one door, two answers, and no way for the
+    // canvasser to tell which is lying. It used to be first-seen, which was the
+    // same divergence on `supportAnswer`; the Serve answer is what made it
+    // reachable in a single evening, since returning to a door is the whole
+    // point of a follow-up.
     const knockStatuses: DoorKnockingPackRequest['knockStatuses'] = []
-    const seen = new Set<string>()
+    const latest = new Map<string, (typeof interactions)[number]>()
+    const latestAnswered = new Map<string, (typeof interactions)[number]>()
     for (const interaction of interactions) {
-      if (seen.has(interaction.personId)) continue
-      seen.add(interaction.personId)
+      if (!latest.has(interaction.personId)) {
+        latest.set(interaction.personId, interaction)
+      }
+      if (
+        (interaction.supportAnswer !== null || interaction.followUp !== null) &&
+        !latestAnswered.has(interaction.personId)
+      ) {
+        latestAnswered.set(interaction.personId, interaction)
+      }
+    }
+    for (const personId of latest.keys()) {
       knockStatuses.push({
-        personId: interaction.personId,
-        status: deriveKnockStatus(interaction),
+        personId,
+        status: deriveKnockStatus(
+          latestAnswered.get(personId) ?? latest.get(personId)!,
+        ),
       })
     }
 

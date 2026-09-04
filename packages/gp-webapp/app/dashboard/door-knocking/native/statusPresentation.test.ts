@@ -13,6 +13,8 @@ import {
   progressLegendOrder,
   rollupStopStatus,
   skipInstruction,
+  STATUS_LABELS,
+  statusLabel,
   STATUS_RGB,
   stopIsKnockable,
   surfaceStatuses,
@@ -391,6 +393,30 @@ describe('the two vocabularies', () => {
     ] as DoorKnockStatus[]) {
       expect(surfaceStatuses(true)).toContain(shared)
       expect(surfaceStatuses(false)).toContain(shared)
+    }
+  })
+})
+
+// The Serve overrides are sparse, so the interesting assertion is not what
+// moves but what does not: a second copy of "Not home" is how the two surfaces
+// end up disagreeing about a door neither of them asks anything different at.
+describe('statusLabel', () => {
+  it('renames only the unknown bucket on Serve', () => {
+    expect(statusLabel('unknown', false)).toBe('Support unknown')
+    expect(statusLabel('unknown', true)).toBe('Not yet contacted')
+
+    for (const status of DOOR_KNOCK_STATUSES.filter((s) => s !== 'unknown')) {
+      expect(statusLabel(status, true)).toBe(STATUS_LABELS[status])
+      expect(statusLabel(status, false)).toBe(STATUS_LABELS[status])
+    }
+  })
+
+  // The word a Serve canvasser must never read, in the one bucket that used to
+  // carry it. Asserted against the whole Serve vocabulary and not just
+  // `unknown`, because the next status added is the one that reintroduces it.
+  it('never says support anywhere in the Serve vocabulary', () => {
+    for (const status of surfaceStatuses(true)) {
+      expect(statusLabel(status, true).toLowerCase()).not.toContain('support')
     }
   })
 })

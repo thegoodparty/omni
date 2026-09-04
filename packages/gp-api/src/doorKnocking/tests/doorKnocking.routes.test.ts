@@ -3784,6 +3784,51 @@ describe('door-knocking routes', () => {
       expect(packRequest?.districtId).toBe(DISTRICT_ID)
     })
 
+    // The pin and the row a tap later are two derivations of one history, and
+    // they have to agree. Both prefer the newest ANSWER-bearing row over a
+    // newer row without one — a later "not home" is a failed re-attempt, not a
+    // retraction — and the pack used to take the newest row outright, which
+    // showed a returned-to Serve door as `not_home` on the map while the walk
+    // still read `needs_follow_up`.
+    it('colors a pin from the newest answer, not the newest knock', async () => {
+      const personId = '77777777-2222-2222-2222-222222222222'
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId,
+            occurredAt: new Date('2026-07-10T10:00:00Z'),
+            outcome: 'answered' as const,
+            followUp: 'yes' as const,
+          },
+          {
+            organizationSlug: orgSlug,
+            personId,
+            occurredAt: new Date('2026-07-11T10:00:00Z'),
+            outcome: 'not_home' as const,
+          },
+        ],
+      })
+      let packRequest: DoorKnockingPackRequest | undefined
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockImplementation((request: DoorKnockingPackRequest) => {
+        packRequest = request
+        return Promise.resolve(packBytes)
+      })
+
+      await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(packRequest?.knockStatuses).toEqual([
+        { personId, status: 'needs_follow_up' },
+      ])
+    })
+
     // Absent, not empty: an empty array is an organization that has contacted
     // nobody, which the map CAN shade. This org has contacted somebody and
     // gp-api simply could not describe them all, which it must not silently
