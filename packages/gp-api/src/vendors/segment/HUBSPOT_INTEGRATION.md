@@ -89,6 +89,12 @@ Reason: one-time notice that a specific poll's results are ready, addressed by
 a link (`path`) into that poll — no ongoing personalization, no merge-clobber
 exposure.
 
+**Cut over (ENG-11035).** `QueueConsumerService.sendPollResultsSingleSend`
+sends via `HubspotSingleSendService`, gated on `HUBSPOT_POLL_RESULTS_EMAIL_ID`
+— unset (every environment today, pending the Ops-created asset) skips the
+single-send call with no behavior change; the Segment event above keeps
+firing unchanged.
+
 ### Meeting briefing ready — MOVE
 
 | Event                              | Fired from                              | HubSpot asset       | Single-send asset to create                       | Recipient |
@@ -109,6 +115,14 @@ later reuse (the way `Campaign Plan - Weekly Tasks Digest` documented below
 does). If the portal spot-check finds this event actually populates a
 persistent contact field, move this row into the personalization-gap
 section instead — it would have the same merge-clobber exposure.
+
+**Cut over (ENG-11035), pending the caveat above.**
+`MeetingBriefingsService.sendAgendaCreatedSingleSend` sends via
+`HubspotSingleSendService`, gated on `HUBSPOT_BRIEFING_READY_EMAIL_ID` —
+unset (every environment today) skips the single-send call with no behavior
+change. If the Ops portal spot-check finds this event actually populates a
+persistent contact field, Ops simply never sets the env var and this stays
+on the workflow path; no code change needed either way.
 
 ### Robocall payment / receipt — MOVE
 
@@ -402,6 +416,10 @@ is the first path cut over. It still fires `CompliancePinSent` /
 for non-email actions); only the email leg moved. The asset id is
 `HUBSPOT_PIN_SENT_EMAIL_ID` — unset (every environment today, pending the
 Ops-created asset) skips the single-send call with no behavior change.
+
+Poll results ready and meeting briefing ready (ENG-11035) follow the same
+pattern — see the Poll results / Meeting briefing ready sections above for
+their asset ids and per-email notes.
 
 ## HubSpot Workflow Configuration
 

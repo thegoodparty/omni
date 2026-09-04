@@ -35,6 +35,7 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { BriefingItemLinksService } from './briefingItemLinks.service'
 
 const parseBriefingArtifact = (
@@ -72,6 +73,19 @@ const extractElectedOfficeId = (params: unknown): string | null => {
 // Maximum prose length we persist for a discovered location hint. Mirrors the
 // runbooks manifests so the DB row matches what the schema validator allows.
 const DISCOVERED_LOCATION_MAX = 2000
+
+// Unset in every environment today — Ops has not yet created the briefing
+// ready single-send email asset in HubSpot (ENG-11035), and the inventory
+// flags this email for an Ops portal check before it's confirmed a durable
+// MOVE (HUBSPOT_INTEGRATION.md § Meeting briefing ready). Read live rather
+// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID. Until
+// it's set, the existing Segment-event -> HubSpot workflow email path is
+// unchanged.
+const getBriefingReadySingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_BRIEFING_READY_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
 
 const readStringField = (obj: unknown, key: string): string | null => {
   if (
@@ -184,6 +198,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly cronLock: CronLockService,
     private readonly dashboardCards: DashboardCardsService,
     private readonly briefingItemLinks: BriefingItemLinksService,
+    private readonly hubspotSingleSend: HubspotSingleSendService,
   ) {
     super()
   }
@@ -1346,6 +1361,66 @@ export class MeetingBriefingsService extends createPrismaBase(
       this.logger.error(
         { err, userId },
         '[SEGMENT] Failed to track Briefing Assistant - Agenda Created',
+      )
+    }
+
+    await this.sendAgendaCreatedSingleSend(userId, {
+      meetingDate: dateString,
+      meetingTime,
+      meetingTimezone,
+      meetingPlace: artifact.location ?? '',
+      meetingType,
+      execSummary,
+      ...flattenTopAgendaItems(topItems),
+    })
+  }
+
+  // The email leg of this notification moves to a direct HubSpot single-send
+  // call (ENG-11035) — recipient is the elected official the briefing is
+  // for, not whatever email a HubSpot workflow would resolve off the contact
+  // record. The Segment event above keeps firing unchanged for non-email
+  // consumers. Unlike the other move-list emails, this one carries real
+  // per-meeting content rather than a bare link — HUBSPOT_INTEGRATION.md
+  // classifies it MOVE only on the assumption Ops's workflow personalizes
+  // straight from this event rather than persisting it onto the contact
+  // record; if the portal check finds otherwise, Ops simply never sets
+  // HUBSPOT_BRIEFING_READY_EMAIL_ID and it stays on the workflow path with
+  // no code change. A single-send failure must never fail this call — it
+  // runs inline in the SQS-driven onExperimentRunCompleted path, and this
+  // method already reports its own errors rather than throwing.
+  private async sendAgendaCreatedSingleSend(
+    userId: number,
+    customProperties: Record<string, string>,
+  ): Promise<void> {
+    const emailId = getBriefingReadySingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_BRIEFING_READY_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this notification',
+      )
+      return
+    }
+    try {
+      const user = await this.client.user.findUnique({
+        where: { id: userId },
+      })
+      if (!user) {
+        this.logger.warn(
+          { userId },
+          'Briefing Ready single-send skipped: user not found',
+        )
+        return
+      }
+      await this.hubspotSingleSend.sendSingleSend({
+        emailId,
+        to: user.email,
+        customProperties,
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, userId },
+        'HubSpot single-send failed for Briefing Ready; the workflow email ' +
+          'path still fires from the Segment event',
       )
     }
   }

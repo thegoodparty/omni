@@ -157,6 +157,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       {} as never,
       ordinanceCodePersist as never,
       {} as never,
+      {} as never,
       logger,
     )
   })

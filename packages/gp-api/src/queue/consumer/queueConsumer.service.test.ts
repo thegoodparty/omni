@@ -19,6 +19,7 @@ import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/week
 import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -32,10 +33,11 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { DomainsService } from '@/websites/services/domains.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import type { Message } from '@aws-sdk/client-sqs'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PollsService } from 'src/polls/services/polls.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import type { PollResponseJsonRow } from '../queue.types'
 import { QueueType } from '../queue.types'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -138,10 +140,13 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     identify: ReturnType<typeof vi.fn>
     track: ReturnType<typeof vi.fn>
   }
+  let usersService: { findUnique: ReturnType<typeof vi.fn> }
+  let hubspotSingleSend: { sendSingleSend: ReturnType<typeof vi.fn> }
 
   const pollId = 'poll-123'
   const electedOfficeId = 'office-1'
   const officeUserId = 1
+  const officeUserEmail = 'official@example.com'
   const personId = 'person-1'
   const phoneNumber = '+15551234567'
 
@@ -219,6 +224,14 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       identify: vi.fn().mockResolvedValue(undefined),
       track: vi.fn().mockResolvedValue(undefined),
     }
+    usersService = {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue({ id: officeUserId, email: officeUserEmail }),
+    }
+    hubspotSingleSend = {
+      sendSingleSend: vi.fn().mockResolvedValue(undefined),
+    }
 
     service = new QueueConsumerService(
       {} as never,
@@ -236,6 +249,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      usersService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -249,7 +263,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
+      hubspotSingleSend as never,
       createMockLogger(),
     )
   })
@@ -950,6 +964,81 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(deleteWhere.id.in).toHaveLength(1)
     expect(mockTx.pollIndividualMessage.createMany).toHaveBeenCalled()
   })
+
+  describe('HubSpot single-send (ENG-11035)', () => {
+    beforeEach(() => {
+      const json = createPollAnalysisJson([
+        {
+          phoneNumber,
+          receivedAt: '2024-01-15T10:00:00Z',
+          originalMessage: 'A response',
+          clusterId: 1,
+        },
+      ])
+      s3Service.getFile.mockResolvedValue(json)
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('does not call HubSpot single-send when HUBSPOT_POLL_RESULTS_EMAIL_ID is unset', async () => {
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      await service.processMessage(message)
+
+      expect(usersService.findUnique).not.toHaveBeenCalled()
+      expect(hubspotSingleSend.sendSingleSend).not.toHaveBeenCalled()
+    })
+
+    it('sends to the office account email with the poll content once configured', async () => {
+      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      await service.processMessage(message)
+
+      expect(usersService.findUnique).toHaveBeenCalledWith({
+        where: { id: officeUserId },
+      })
+      expect(hubspotSingleSend.sendSingleSend).toHaveBeenCalledWith({
+        emailId: 555111,
+        to: officeUserEmail,
+        customProperties: {
+          poll_id: pollId,
+          path: `/dashboard/polls/${pollId}`,
+        },
+      })
+      // The Segment event keeps firing unchanged alongside the single-send.
+      expect(analytics.track).toHaveBeenCalledWith(
+        officeUserId,
+        EVENTS.Polls.ResultsSynthesisCompleted,
+        expect.objectContaining({ pollId }),
+      )
+    })
+
+    it('logs and does not requeue the message when the single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
+      hubspotSingleSend.sendSingleSend.mockRejectedValueOnce(
+        new Error('HubSpot down'),
+      )
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      const result = await service.processMessage(message)
+
+      expect(result).toBe(true)
+    })
+
+    it('skips the single-send when the office user cannot be found', async () => {
+      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
+      usersService.findUnique.mockResolvedValueOnce(null)
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      const result = await service.processMessage(message)
+
+      expect(result).toBe(true)
+      expect(hubspotSingleSend.sendSingleSend).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
@@ -989,6 +1078,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       domainsService as unknown as DomainsService,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1203,6 +1293,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1380,6 +1471,10 @@ describe('QueueConsumerService - message type routing', () => {
         {
           provide: AnnotationAttachmentService,
           useValue: { runOcr: vi.fn() },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
@@ -1844,6 +1939,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
           useValue: { handleStep: vi.fn() },
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn() },
+        },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -1964,6 +2063,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       { handleStep } as never,
+      {} as never,
       createMockLogger(),
     )
 
