@@ -27,18 +27,6 @@ The two most consequential constraints driving those cuts:
    `VoterFileFilter` has no size column. So any sizing rule expressed as "the
    top N voters by propensity" is computable but unstorable.
 
-**A prerequisite, not history.** An earlier, unrelated `recommendedLists`
-module is still live in `gp-api` on `main`: `RecommendedListsModule` is
-registered in `app.module.ts`, and its controller owns
-`GET campaigns/mine/recommended-lists` — the **identical route** this feature's
-endpoint uses. It serves door-knocking aggregates from Win's
-`mart_win_agents.win_agent_voters` warehouse behind an async snapshot, has no
-webapp consumer, and shares no code with this feature.
-
-PR #1648 deletes it in full. **That PR must merge before this feature's
-endpoint is wired**, or the two collide at module registration. Don't resurrect
-the old module, and don't build around it.
-
 ## Verified data facts
 
 Every recommendation resolves against
@@ -150,21 +138,26 @@ mail and need no encouragement) or promoting `hf_likely_vbm` into the mart.
 The channel never changes the universe. It only adds a contactability filter,
 and for door knocking a precinct restriction.
 
-| Channel       | Refinement                                              |
-| ------------- | ------------------------------------------------------- |
-| SMS           | `hasCellPhone`                                          |
-| Robocall      | `hasAnyPhone`                                           |
-| Phone banking | `hasAnyPhone`                                           |
-| Door knocking | `hasAddress`, plus the top-N precincts for that variant |
+| Channel       | Refinement                           |
+| ------------- | ------------------------------------ |
+| SMS           | `hasCellPhone`                       |
+| Robocall      | `hasAnyPhone`                        |
+| Phone banking | `hasAnyPhone`                        |
+| Door knocking | The top-N precincts for that variant |
+
+Door knocking carries no contactability refinement: every voter has an address
+on file, so a filter on one narrows nothing. The precinct restriction is the
+whole of its channel refinement.
 
 Email is not a channel — the product doesn't support email outreach, and there
 is no email column in L2 or in the mart. Social and "write my own message" get
 no recommendation.
 
-The intent arrives as the outreach flow's **purpose** slug. Those were three
-divergent per-channel vocabularies (SMS and robocall shared one, phone banking
-had its own, door knocking had none at all), so this feature consolidates them
-onto the SMS list — `introduce_myself`, `persuade_voters`, `event_invite`,
+The intent arrives as the outreach flow's **purpose** slug. Those were four
+divergent per-channel vocabularies (SMS and robocall shared one; phone banking
+and door knocking each had their own, door knocking's being webapp-local and
+feeding only a name suggestion), so this feature consolidates them onto the
+SMS list — `introduce_myself`, `persuade_voters`, `event_invite`,
 `early_voting`, `election_day_turnout`, `custom` — and maps that one list to
 the five intents. `custom` and social's `issue_update` map to no intent and
 therefore get no recommendation.
@@ -175,12 +168,10 @@ Measured yield: SMS retains 58%–74% of a list, phone 70%–85%.
 so is expressible. It is **not** the same as setting `hasCellPhone` and
 `hasLandline` together, which ANDs to "has both."
 
-**`hasAnyPhone` only became persistable in the filter-dimensions PR (#1678).**
-On `main` it is a count-only wire filter, deliberately absent from
-`voterFilterBaseSchema`, so a robocall or phone-banking recommendation has no
-storable representation of "cell OR landline" until that PR lands. It adds
-`has_any_phone` to `voterFileFilter.prisma` alongside affinity and ideology.
-Another reason #1678 gates this work.
+`hasAnyPhone` is persistable: the filter-dimensions PR (#1678) added
+`has_any_phone` to `voterFileFilter.prisma` alongside affinity and ideology, so
+a robocall or phone-banking recommendation has a storable representation of
+"cell OR landline".
 
 ## Door-knocking precinct selection
 
@@ -397,9 +388,24 @@ the submitted filter against what we recommended.
 Reuse tracking is already free — `firstUsedForOutreachAt` exists, and the
 `Outreach` rows pointing at a filter give the return count.
 
-Fire an analytics event on select/continue carrying the variant, count,
-district share, and accepted-as-is vs accepted-and-edited. Follow the
-`instrument-analytics-event` skill.
+`Voter Outreach - Recommended List Accepted` carries the variant, channel,
+intent, count, district share, `modified` (gp-api's own diff, so
+accepted-as-is vs accepted-and-edited) and `reusedExistingList`.
+
+**It fires from two places per channel, and both are load-bearing.** A
+brand-new list fires it once the create response is in hand, because
+`modified` is knowable nowhere earlier. A recommendation that resolved to a
+list the candidate already has never reaches that create at all — it selects
+the saved list instead — so it fires its own event with `modified: false` and
+`reusedExistingList: true`. Counting only the first biases the accepted
+population to first-time accepts.
+
+The exposure (`win-recommended-lists`) is recorded on reaching the picker for
+BOTH arms, and only where a card could structurally appear: a `custom` purpose
+and every Serve surface record none, since neither could ever be treated.
+
+The event's Amplitude registration is a manual step and has not been done —
+see the PR body.
 
 ## Copy
 
@@ -431,11 +437,12 @@ Listed so nobody helpfully reimplements them.
 
 ## Gotchas
 
-- **`hasAddress` narrows nothing.** `Residence_Addresses_AddressLine` is 100%
-  populated — zero null or empty rows across 30.6M voters in CA, MD and LA —
-  and a door-knocking refinement on it was a no-op in all 390 measured eval
-  cells. Only the precinct restriction narrows a door list. Don't derive a
-  "reachable by door" number from it; it will always read 100%.
+- **`hasAddress` narrows nothing, and was dropped entirely.**
+  `Residence_Addresses_AddressLine` is 100% populated — zero null or empty rows
+  across 30.6M voters in CA, MD and LA — and a door-knocking refinement on it
+  was a no-op in all 390 measured eval cells. There is no such column, contract
+  field or catalog entry. Only the precinct restriction narrows a door list.
+  Don't derive a "reachable by door" number; it will always read 100%.
 - **Two district totals disagree.** The mart's own voter count and
   `m_election_api__district.registered_voters` differ by under 0.5% usually,
   but 2.2% for CA statewide (23,348,065 vs 22,847,425) and 0.6% for IN-1. Pick
@@ -448,14 +455,24 @@ Listed so nobody helpfully reimplements them.
 - **The filter UI is flag-gated but `filterDimensions.catalog.ts` is not**, so
   the AI assistant will advertise affinity and ideology before the wizard shows
   them.
+- **An outage must refuse, not empty.** `recommend()` rethrows the first sizing
+  failure when no draft survived — peopleDb already maps unavailable to 502 and
+  timeout to 504 with candidate-facing bodies, so it is rethrown rather than
+  re-coded. The condition is "no draft succeeded", NOT "every draft failed":
+  three of the five intents have a support-status variant that returns null
+  from a Postgres answer an outage never touches, so the equality form let a
+  real outage render as "you have no recommendations". Every surface that shows
+  cards renders a distinct error state for it, separate from the empty state.
 
 ## Open items
 
-- Whether to ship `hasAddress` as a user-facing filter at all, given it cannot
-  narrow anything.
-- Win vs Serve gating for the ideology dimension. Affinity is Win-only
-  (electoral behavior toward independents); ideology could reasonably be
-  visible to Serve.
+- Where the door-knocking who step should offer the affinity / ideology /
+  any-phone groups. A recommendation writes those keys into the pill draft,
+  but that step renders `filters.config.ts` directly rather than through
+  `VoterFileStep`, so it can neither show them nor clear them — the criteria
+  stay active and invisible. The outreach channels are fixed (their filters
+  step passes `showRecommendedListFilters`); adding three groups to the
+  door-knocking design is a product call.
 - Where per-channel unit pricing lives, for `estimatedCost`.
 - Reconciliation with Nigel's revised model once he lands the AND-only rewrite.
   The propensity-band narrowing (dropping `Unreliable` from `reliable`), the

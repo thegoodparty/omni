@@ -341,6 +341,10 @@ export default function CreateListFlow({
     variant: RecommendedListVariant
     intent: RecommendedListIntent
     filter: RecommendedListFilter
+    // Reported on the accept event rather than re-derived: these are the
+    // figures the candidate actually saw on the card.
+    count: number
+    districtShare?: number
   } | null>(null)
   const clearRecommendedDraft = useCallback(() => {
     setRecommendedPrecincts([])
@@ -375,6 +379,19 @@ export default function CreateListFlow({
   const applyRecommendation = useCallback(
     (recommendation: RecommendedList) => {
       if (recommendation.existingFilterId !== null) {
+        // This branch never reaches the create below, so without its own
+        // event an accept of a recommendation the candidate has taken
+        // before is invisible. `modified` is false by construction —
+        // nothing was submitted, so gp-api has nothing to diff.
+        trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+          variant: recommendation.variant,
+          channel: 'doorKnocking',
+          intent: recommendedListIntent as RecommendedListIntent,
+          count: recommendation.count,
+          districtShare: recommendation.districtShare,
+          modified: false,
+          reusedExistingList: true,
+        })
         selectList(recommendation.existingFilterId)
         return
       }
@@ -401,6 +418,8 @@ export default function CreateListFlow({
         // which requires a non-null intent.
         intent: recommendedListIntent as RecommendedListIntent,
         filter: recommendation.filter,
+        count: recommendation.count,
+        districtShare: recommendation.districtShare,
       })
     },
     [onFiltersChange, selectList, recommendedListIntent],
@@ -616,11 +635,11 @@ export default function CreateListFlow({
       // It must never reach `createdFilterIdRef`, whose cleanup DELETES what
       // it holds: that ref means "a list this flow minted and may still have
       // to clean up", and the candidate's own saved list is neither.
-      const filterId =
-        savedListId ??
-        createdFilterIdRef.current ??
-        (
-          await clientRequest('POST /v1/voters/voter-file/filter', {
+      let filterId = savedListId ?? createdFilterIdRef.current
+      if (filterId === null) {
+        const { data: created } = await clientRequest(
+          'POST /v1/voters/voter-file/filter',
+          {
             // The audience the candidate cut by hand, filed at the moment it
             // is first needed rather than at the who step: a flow abandoned
             // before this point leaves no list behind. A candidate who PICKED
@@ -650,8 +669,27 @@ export default function CreateListFlow({
                   recommendedFilter: recommendedMeta.filter,
                 }
               : {}),
+          },
+        )
+        filterId = created.id
+        // Fired here rather than in `onSuccess`, because this is the moment
+        // the recommendation was accepted: the list exists from now on even
+        // if the paid route below fails, and a retry short-circuits on
+        // `createdFilterIdRef` so it cannot fire twice. `recommendedModified`
+        // is gp-api's own diff of the recommendation against what was
+        // actually submitted, and is knowable nowhere earlier.
+        if (recommendedMeta) {
+          trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+            variant: recommendedMeta.variant,
+            channel: 'doorKnocking',
+            intent: recommendedMeta.intent,
+            count: recommendedMeta.count,
+            districtShare: recommendedMeta.districtShare,
+            modified: created.recommendedModified ?? false,
+            reusedExistingList: false,
           })
-        ).data.id
+        }
+      }
       if (savedListId === null) createdFilterIdRef.current = filterId
       const closedRing: PolygonRing =
         ring[0]?.[0] !== ring[ring.length - 1]?.[0] ||
@@ -1011,6 +1049,7 @@ export default function CreateListFlow({
               }
               recommendations={recommendations}
               recommendationsLoading={recommendationsQuery.isLoading}
+              recommendationsError={recommendationsQuery.isError}
               onSelectRecommendation={applyRecommendation}
             />
             {/* The count in the CTA is the pack's, and the pack cannot shade

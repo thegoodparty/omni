@@ -36,6 +36,7 @@ const baseProps = {
   recommendedListsEnabled: true,
   recommendations: [],
   recommendationsLoading: false,
+  recommendationsError: false,
   onSelectRecommendation: vi.fn(),
 }
 
@@ -65,6 +66,20 @@ describe('WhoStep — recommended lists', () => {
 
     expect(screen.getByTestId('recommended-lists-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
+  })
+
+  // A 502/504 from the endpoint is deliberate — the service refuses rather
+  // than emptying when the warehouse is down — so it must not render as the
+  // empty state, which says the candidate has no recommendations.
+  it('shows an error state distinct from the empty state', () => {
+    render(<WhoStep {...baseProps} recommendationsError />)
+
+    expect(screen.getByTestId('recommended-lists-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('recommended-lists-loading')).toBeNull()
+    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
+    expect(
+      screen.getByRole('combobox', { name: 'All lists' }),
+    ).toBeInTheDocument()
   })
 
   it('renders a card per recommendation and selects on click', () => {

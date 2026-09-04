@@ -57,6 +57,10 @@ interface WhoStepProps {
   recommendedListsEnabled: boolean
   recommendations: RecommendedList[]
   recommendationsLoading: boolean
+  // A warehouse outage is a deliberate 502/504 from the endpoint, not an
+  // empty answer, and rendering nothing for it tells a candidate they have
+  // no recommendations. Same distinction OutreachAudienceStep draws.
+  recommendationsError: boolean
   // A recommendation that already exists as a saved list is routed to that
   // list by the caller (reusing `onSelectList`'s own side effects) rather
   // than creating a duplicate; this fires for every card regardless.
@@ -110,6 +114,7 @@ export const WhoStep = ({
   recommendedListsEnabled,
   recommendations,
   recommendationsLoading,
+  recommendationsError,
   onSelectRecommendation,
 }: WhoStepProps) => {
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -224,7 +229,9 @@ export const WhoStep = ({
   return (
     <>
       {recommendedListsEnabled &&
-        (recommendationsLoading || recommendations.length > 0) && (
+        (recommendationsLoading ||
+          recommendationsError ||
+          recommendations.length > 0) && (
           <div className="flex flex-col gap-2">
             <Eyebrow>Recommended for you</Eyebrow>
             {recommendationsLoading ? (
@@ -235,6 +242,13 @@ export const WhoStep = ({
                 <Loader2Icon className="size-3.5 animate-spin" />
                 Finding your best audiences…
               </div>
+            ) : recommendationsError ? (
+              <p
+                data-testid="recommended-lists-error"
+                className="text-sm text-destructive"
+              >
+                We couldn&apos;t load recommendations right now.
+              </p>
             ) : (
               <div className="flex flex-col gap-2">
                 {recommendations.map((recommendation) => (

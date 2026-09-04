@@ -212,7 +212,31 @@ describe('SmsFlow — recommended lists', () => {
       count: 19000,
       districtShare: 0.48,
       modified: true,
+      reusedExistingList: false,
     })
+  })
+
+  // The recommendation's own criteria are real filter keys on the draft
+  // (recommendedListMapping.util.ts) and the transform persists them by key,
+  // not by what is rendered — so a filters step that does not render their
+  // groups leaves them active and with no control to clear them.
+  it('renders the recommendation’s own criteria on the filters step behind Back', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [RECOMMENDATION],
+    })
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
+    await openToAudience()
+
+    await userEvent.click(await screen.findByTestId('recommended-list-card'))
+    await screen.findByText('Name your list')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByText('Build a voter list')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Open to Independents' }),
+    ).toHaveAttribute('data-state', 'on')
   })
 
   it('selects the existing list instead of creating a duplicate', async () => {
@@ -255,6 +279,20 @@ describe('SmsFlow — recommended lists', () => {
     expect(screen.queryByText('Name your list')).not.toBeInTheDocument()
     expect(filterCalls).toHaveLength(0)
     expect(await screen.findByText(/Message 15,000 voters/)).toBeInTheDocument()
+
+    // Still an accept, and still measured — this branch bypasses createList,
+    // so without its own event the population would be biased to
+    // first-time accepts. `reusedExistingList` keeps the two separable.
+    expect(acceptedCalls()).toHaveLength(1)
+    expect(acceptedCalls()[0]?.[1]).toEqual({
+      variant: 'persuadeUndecided',
+      channel: 'sms',
+      intent: 'introduce',
+      count: 19000,
+      districtShare: 0.48,
+      modified: false,
+      reusedExistingList: true,
+    })
   })
 
   it('renders the picker unchanged when there are no recommendations', async () => {

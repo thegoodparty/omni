@@ -649,6 +649,7 @@ export const PhoneBankingFlow = ({
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
             onSelectRecommendation={audience.applyRecommendation}
+            onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
             selectedListTotal={audience.selectedListTotal}

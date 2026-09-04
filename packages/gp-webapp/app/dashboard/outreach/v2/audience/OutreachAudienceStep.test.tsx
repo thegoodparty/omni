@@ -57,6 +57,7 @@ const baseProps = () => ({
   recommendationsError: false,
   recommendedListsChannel: 'sms' as const,
   onSelectRecommendation: vi.fn(),
+  onRecommendationReused: vi.fn(),
   reachableCount: null,
   reachableLoading: false,
   pricePerContact: 0.035,
@@ -158,12 +159,14 @@ describe('OutreachAudienceStep — recommended lists', () => {
   it('selects the existing list when the recommendation already exists', async () => {
     const user = userEvent.setup()
     const onSelectRecommendation = vi.fn()
+    const onRecommendationReused = vi.fn()
     const onSelect = vi.fn()
     render(
       <OutreachAudienceStep
         {...baseProps()}
         recommendations={[EXISTING_RECOMMENDATION]}
         onSelectRecommendation={onSelectRecommendation}
+        onRecommendationReused={onRecommendationReused}
         onSelect={onSelect}
       />,
     )
@@ -172,5 +175,8 @@ describe('OutreachAudienceStep — recommended lists', () => {
 
     expect(onSelect).toHaveBeenCalledWith(501)
     expect(onSelectRecommendation).not.toHaveBeenCalled()
+    // This branch never reaches createList, so it is where the accept has
+    // to be reported from or reuse goes uncounted.
+    expect(onRecommendationReused).toHaveBeenCalledWith(EXISTING_RECOMMENDATION)
   })
 })

@@ -83,6 +83,10 @@ interface OutreachAudienceStepProps {
   // attaches to it) rather than creating a duplicate; only a recommendation
   // with none reaches this.
   onSelectRecommendation: (recommendation: RecommendedList) => void
+  // Fired instead, on that same existingFilterId branch, so an accept of a
+  // recommendation the candidate has taken before is still measured — it
+  // never reaches `createList`, which is where the other kind is counted.
+  onRecommendationReused: (recommendation: RecommendedList) => void
   // The saved list's reachable count for THIS channel (reachability[key] from
   // the list detail): null while loading or when the aggregate failed
   // server-side, in which case we show "couldn't count" rather than zero.
@@ -134,6 +138,7 @@ export const OutreachAudienceStep = ({
   recommendationsError,
   recommendedListsChannel,
   onSelectRecommendation,
+  onRecommendationReused,
   reachableCount,
   reachableLoading,
   selectedListTotal = null,
@@ -193,6 +198,14 @@ export const OutreachAudienceStep = ({
           onPrecinctsChange={onBuilderPrecinctsChange}
           precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
+          // Back from the name step lands here, and an accepted
+          // recommendation writes independentAffinity / ideology* /
+          // hasAnyPhone into the draft. Without this those criteria are
+          // active and invisible — the transform is key-driven, not
+          // render-driven, so they persist onto the created list and the
+          // candidate has no control to clear them with. Same flag the cards
+          // above are gated on.
+          showRecommendedListFilters={recommendedListsEnabled}
         />
       </div>
     )
@@ -236,11 +249,14 @@ export const OutreachAudienceStep = ({
                     key={recommendation.variant}
                     recommendation={recommendation}
                     channel={recommendedListsChannel}
-                    onSelect={() =>
-                      recommendation.existingFilterId !== null
-                        ? onSelect(recommendation.existingFilterId)
-                        : onSelectRecommendation(recommendation)
-                    }
+                    onSelect={() => {
+                      if (recommendation.existingFilterId === null) {
+                        onSelectRecommendation(recommendation)
+                        return
+                      }
+                      onRecommendationReused(recommendation)
+                      onSelect(recommendation.existingFilterId)
+                    }}
                   />
                 ))}
               </div>

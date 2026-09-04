@@ -322,6 +322,29 @@ describe('RecommendedListsService.recommend', () => {
     ).rejects.toBe(outage)
   })
 
+  // The near miss the equality check let through. `event` has a
+  // support-status variant that resolves to nobody (a Postgres answer, which
+  // an outage does not touch), so a failure count of one against two drafts
+  // is still a total warehouse failure — there is nothing to show.
+  it('rethrows when the only surviving draft was a Postgres null', async () => {
+    const outage = new BadGatewayException('Voter data is unavailable')
+    // eventSupporters asks for supporters and nobody else, so a campaign
+    // with no logged support answers resolves it to nobody; eventAffinity's
+    // support clause is an exclusion and still resolves.
+    resolveSavedFilterForQuery.mockImplementation(
+      async (_organization: Organization, filter: VoterFilterBase) =>
+        filter.supportStatus?.length === 1 &&
+        filter.supportStatus[0] === 'supporter'
+          ? { filters: {}, empty: true }
+          : { filters: convertVoterFileFilterToFilters(filter), empty: false },
+    )
+    countForFilter.mockRejectedValue(outage)
+
+    await expect(
+      service.recommend(organization, CAMPAIGN_ID, 'sms', 'event'),
+    ).rejects.toBe(outage)
+  })
+
   it('still empties when every variant is merely too small', async () => {
     bucketForCampaign.mockResolvedValue('progressive')
     countForFilter.mockResolvedValue(RECOMMENDED_LIST_SIZE_FLOOR - 1)

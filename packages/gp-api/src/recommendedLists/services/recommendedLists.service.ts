@@ -131,19 +131,25 @@ export class RecommendedListsService {
       ),
     ])
 
-    // Every draft failing is an outage, not an empty result set. Returning
-    // [] here would tell a candidate they have no recommendations while the
+    // Nothing surviving is an outage, not an empty result set. Returning []
+    // here would tell a candidate they have no recommendations while the
     // warehouse is down, with a warn line as the only trace. The first
     // failure already carries the peopleDb layer's own status — 502 for an
     // unavailable warehouse, 504 for a timeout — so it is rethrown rather
     // than re-coded into a third status for the same condition.
-    const [firstFailure, ...restFailures] = sized.filter(
+    //
+    // The condition is "no draft succeeded", not "every draft failed". Those
+    // differ whenever a variant returned null from `resolved.empty` — a
+    // Postgres answer that an outage does not touch — and three of the five
+    // intents have such a variant, so requiring equality left `event`,
+    // `earlyVote` and `electionDay` returning [] mid-outage for any campaign
+    // with no logged support answers, which is most of them. A genuinely
+    // all-too-small result still returns [], because it has no failure.
+    const firstFailure = sized.find(
       (outcome): outcome is SizeFailure =>
         outcome !== null && !isSized(outcome),
     )
-    if (firstFailure && restFailures.length + 1 === drafts.length) {
-      throw firstFailure.error
-    }
+    if (firstFailure && !sized.some(isSized)) throw firstFailure.error
 
     // variantsForIntent already returns registry display order and neither
     // the map nor the filter above disturbs it.

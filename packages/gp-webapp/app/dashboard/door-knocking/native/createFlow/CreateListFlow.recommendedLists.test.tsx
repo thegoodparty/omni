@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { WIN_RECOMMENDED_LISTS_FLAG_KEY } from '@shared/experiments/winRecommendedListsFlag'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import CreateListFlow from './CreateListFlow'
@@ -166,6 +167,13 @@ beforeEach(() => {
 const exposureCalls = () =>
   exposure.mock.calls.filter(([key]) => key === WIN_RECOMMENDED_LISTS_FLAG_KEY)
 
+const acceptedCalls = () =>
+  vi
+    .mocked(trackEvent)
+    .mock.calls.filter(
+      ([name]) => name === EVENTS.Outreach.RecommendedList.Accepted,
+    )
+
 describe('CreateListFlow — recommended lists', () => {
   it('records the exposure once the who step renders', () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
@@ -289,7 +297,16 @@ describe('CreateListFlow — recommended lists', () => {
     const filterCalls: Record<string, unknown>[] = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       filterCalls.push(body)
-      return { status: 200, data: { id: 88, name: body.name as string } }
+      return {
+        status: 200,
+        // gp-api's own diff of the recommendation against what was
+        // submitted; the conversion event reports it verbatim.
+        data: {
+          id: 88,
+          name: body.name as string,
+          recommendedModified: true,
+        },
+      }
     })
     const onFiltersChange = vi.fn()
     const { rerender } = renderAtWho({ onFiltersChange })
@@ -342,6 +359,19 @@ describe('CreateListFlow — recommended lists', () => {
       audienceSuperVoters: true,
       audienceLikelyVoters: true,
     })
+
+    // The experiment's numerator on this channel. Knowable no earlier than
+    // the create response, which is what carries `recommendedModified`.
+    expect(acceptedCalls()).toHaveLength(1)
+    expect(acceptedCalls()[0]?.[1]).toEqual({
+      variant: 'introNeverIded',
+      channel: 'doorKnocking',
+      intent: 'introduce',
+      count: 4200,
+      districtShare: 0.28,
+      modified: true,
+      reusedExistingList: false,
+    })
   })
 
   it('selects the existing list instead of creating a duplicate', async () => {
@@ -388,5 +418,18 @@ describe('CreateListFlow — recommended lists', () => {
     await waitFor(() => expect(turfBody).not.toBeNull())
     expect(filterCalls).toHaveLength(0)
     expect(turfBody).toMatchObject({ voterFileFilterId: 501 })
+
+    // Still an accept, and it never reaches the create above, so it needs
+    // its own event or reuse is invisible in the funnel.
+    expect(acceptedCalls()).toHaveLength(1)
+    expect(acceptedCalls()[0]?.[1]).toEqual({
+      variant: 'persuadeAffinity',
+      channel: 'doorKnocking',
+      intent: 'introduce',
+      count: 4200,
+      districtShare: 0.28,
+      modified: false,
+      reusedExistingList: true,
+    })
   })
 })

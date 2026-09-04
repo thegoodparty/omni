@@ -2,7 +2,6 @@ import {
   RECOMMENDED_LIST_VARIANT_VALUES,
   type RecommendedListIntent,
   type RecommendedListVariant,
-  type SocialPurpose,
 } from '@goodparty_org/contracts'
 
 // The three propensity bands every universe is built from. `Unknown` is
@@ -29,25 +28,6 @@ interface RecommendedListRegistryEntry {
   requiresIdeologyBucket: boolean
   copy: { title: string; criteriaSummary: string }
 }
-
-// `custom` and social's `issue_update` map to no intent and get no
-// recommendation.
-const PURPOSE_TO_INTENT: Record<
-  Exclude<SocialPurpose, 'issue_update'>,
-  RecommendedListIntent | null
-> = {
-  introduce_myself: 'introduce',
-  persuade_voters: 'persuade',
-  event_invite: 'event',
-  early_voting: 'earlyVote',
-  election_day_turnout: 'electionDay',
-  custom: null,
-}
-
-export const intentForPurpose = (
-  purpose: SocialPurpose,
-): RecommendedListIntent | null =>
-  purpose === 'issue_update' ? null : PURPOSE_TO_INTENT[purpose]
 
 export const RECOMMENDED_LISTS_REGISTRY: Record<
   RecommendedListVariant,

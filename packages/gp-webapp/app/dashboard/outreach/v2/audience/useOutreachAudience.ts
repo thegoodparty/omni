@@ -139,6 +139,11 @@ export interface OutreachAudience {
   // Only for a recommendation with no existingFilterId — a caller with one
   // should call onSelect(existingFilterId) instead of this.
   applyRecommendation: (recommendation: RecommendedList) => void
+  // The conversion event for a recommendation that resolved to a list the
+  // candidate already has. `applyRecommendation` deliberately does not
+  // handle that case (each flow attaches its own side effects to selecting
+  // a list), so the accept has to be reported from the same branch.
+  trackRecommendationReused: (recommendation: RecommendedList) => void
 }
 
 export const useOutreachAudience = ({
@@ -434,6 +439,30 @@ export const useOutreachAudience = ({
     [reachabilityKey, recommendedListIntent],
   )
 
+  // The other half of the conversion measurement. A recommendation the
+  // candidate has already taken once resolves to an existing saved list, so
+  // it is selected rather than created — which routes around `createList`
+  // entirely and, unmeasured, biased the accepted population to first-time
+  // accepts. `modified` is false by construction: nothing was submitted, so
+  // there is nothing for gp-api to diff. `reusedExistingList` is what keeps
+  // the two kinds of accept separable in the funnel rather than conflated.
+  const trackRecommendationReused = useCallback(
+    (recommendation: RecommendedList) => {
+      trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+        variant: recommendation.variant,
+        channel: reachabilityKey,
+        // Only reachable while recommendations are rendered, which requires
+        // a non-null intent (the query's own `enabled` gate).
+        intent: recommendedListIntent as RecommendedListIntent,
+        count: recommendation.count,
+        districtShare: recommendation.districtShare,
+        modified: false,
+        reusedExistingList: true,
+      })
+    },
+    [reachabilityKey, recommendedListIntent],
+  )
+
   const createList = useCallback(async (): Promise<SegmentResponse> => {
     const created = await runCreateList()
     // Only knowable now: whether the candidate accepted the recommendation
@@ -448,6 +477,7 @@ export const useOutreachAudience = ({
         count: recommendedMeta.count,
         districtShare: recommendedMeta.districtShare,
         modified: created.recommendedModified ?? false,
+        reusedExistingList: false,
       })
     }
     await queryClient.invalidateQueries({
@@ -510,5 +540,6 @@ export const useOutreachAudience = ({
     recommendationsError: recommendationsQuery.isError,
     recommendedListsChannel: reachabilityKey,
     applyRecommendation,
+    trackRecommendationReused,
   }
 }
