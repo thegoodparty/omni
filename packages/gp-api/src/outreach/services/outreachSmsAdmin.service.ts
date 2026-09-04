@@ -10,7 +10,6 @@ import {
   type DenySmsOutreachRequest,
   type EditSmsOutreachRequest,
   type SmsAdminDetailResponse,
-  type SmsAdminJobStats,
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
 } from '@goodparty_org/contracts'
@@ -116,16 +115,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // the timebox) must not 404 or hang the row. Parallel: neither read
     // depends on the other.
     const [job, stats] = await Promise.all([
-      timeboxed(this.peerlyP2pJobService.getJob(row.projectId)).catch(
-        (err: Error): PeerlyJob | null => {
-          this.logger.warn(
-            { err, outreachId },
-            'Admin detail: live job read failed; rendering without it',
-          )
-          return null
-        },
+      this.timedVendorRead(
+        'live_job',
+        { outreachId },
+        this.peerlyP2pJobService.getJob(row.projectId),
       ),
-      timeboxed(
+      this.timedVendorRead(
+        'detailed_stats',
+        { outreachId },
         // Scoped to the row's lifetime: Peerly scans the requested span
         // server-side, and the default THIS_YEAR over a busy account is
         // what stalled this read for minutes. Window mirrors the inbound
@@ -136,13 +133,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
           startDate: format(subDays(row.date ?? row.createdAt, 1), DATE_FMT),
           endDate: format(addDays(new Date(), 1), DATE_FMT),
         }),
-      ).catch((err: Error): SmsAdminJobStats | null => {
-        this.logger.warn(
-          { err, outreachId },
-          'Admin detail: job stats read failed; rendering without them',
-        )
-        return null
-      }),
+      ),
     ])
 
     return {
@@ -436,24 +427,60 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // Parallel so the queue waits one timebox total, not one per identity.
     const reads = await Promise.all(
       identityIds.map((identityId) =>
-        timeboxed(this.peerlyP2pJobService.getJobsByIdentityId(identityId))
-          .then((jobs) => ({ identityId, jobs }))
-          .catch((err: Error) => {
-            this.logger.warn(
-              { err, identityId },
-              'Admin queue: live job read failed for identity; ' +
-                'rendering rows without it',
-            )
-            return { identityId, jobs: [] as PeerlyJob[] }
-          }),
+        this.timedVendorRead(
+          'jobs_by_identity',
+          { identityId },
+          this.peerlyP2pJobService.getJobsByIdentityId(identityId),
+        ),
       ),
     )
-    for (const { jobs } of reads) {
-      for (const job of jobs) {
+    for (const jobs of reads) {
+      for (const job of jobs ?? []) {
         byProjectId.set(job.id, job)
       }
     }
     return byProjectId
+  }
+
+  /**
+   * Every vendor read on the console goes through here so prod slowness
+   * is diagnosable from Loki alone: one line per read with its label,
+   * elapsed ms, and outcome — success included, since a read creeping
+   * toward the timebox is invisible in the request's total time. The
+   * vendor layer's own per-request logs are debug-level, which prod
+   * does not emit.
+   */
+  private async timedVendorRead<T>(
+    read: string,
+    context: Record<string, number | string>,
+    vendorRead: Promise<T>,
+  ): Promise<T | null> {
+    const startedAt = performance.now()
+    try {
+      const result = await timeboxed(vendorRead)
+      this.logger.info(
+        {
+          ...context,
+          read,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          outcome: 'ok',
+        },
+        'Admin console vendor read',
+      )
+      return result
+    } catch (err) {
+      this.logger.warn(
+        {
+          err,
+          ...context,
+          read,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          outcome: 'failed',
+        },
+        'Admin console vendor read failed; rendering without it',
+      )
+      return null
+    }
   }
 
   private toQueueItem(
