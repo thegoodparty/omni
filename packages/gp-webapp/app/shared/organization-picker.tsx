@@ -39,6 +39,9 @@ const SHARED_PATHS = [
   '/dashboard/profile',
   '/dashboard/campaign-details',
   '/dashboard/account',
+  // Org-scoped but valid under any org: the team query keys on the org slug
+  // and refetches on switch, so stay put instead of bouncing to /dashboard.
+  '/dashboard/team',
 ]
 
 interface OrganizationContextValue {
