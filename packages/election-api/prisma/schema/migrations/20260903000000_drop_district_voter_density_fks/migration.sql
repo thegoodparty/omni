@@ -17,8 +17,13 @@
 -- moment the constraint was doing real work, since nothing writes these tables
 -- between loads — the API only reads them.
 
--- DropForeignKey
-ALTER TABLE "District_Voter_Density" DROP CONSTRAINT "District_Voter_Density_district_id_fkey";
+-- IF EXISTS because the nightly sync above may already have cascaded these
+-- away: on any database where a District swap has run since
+-- 20260831000000 was applied, the constraints are gone and an unguarded
+-- DROP would throw here and block the deploy.
 
 -- DropForeignKey
-ALTER TABLE "District_Voter_Density_Meta" DROP CONSTRAINT "District_Voter_Density_Meta_district_id_fkey";
+ALTER TABLE "District_Voter_Density" DROP CONSTRAINT IF EXISTS "District_Voter_Density_district_id_fkey";
+
+-- DropForeignKey
+ALTER TABLE "District_Voter_Density_Meta" DROP CONSTRAINT IF EXISTS "District_Voter_Density_Meta_district_id_fkey";
