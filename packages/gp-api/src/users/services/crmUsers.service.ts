@@ -335,10 +335,13 @@ export class CrmUsersService {
       )
       // Fall back to a bare { id } when the follow-up update fails, so
       // trackContact still persists hubspotId and the adoption isn't lost.
+      // lifecyclestage matches the create path; HubSpot ignores backward
+      // stage moves, so this can't regress an adopted contact's stage.
       return (
-        (await this.updateCrmContact(existingId, crmContactProperties)) ?? {
-          id: existingId,
-        }
+        (await this.updateCrmContact(existingId, {
+          ...crmContactProperties,
+          lifecyclestage: 'opportunity',
+        })) ?? { id: existingId }
       )
     }
   }

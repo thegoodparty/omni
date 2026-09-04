@@ -230,6 +230,7 @@ describe('CrmUsersService - merge-tolerant contact lookups (ENG-11029)', () => {
       expect.objectContaining({
         properties: expect.objectContaining({
           email: 'survivor-search@example.com',
+          lifecyclestage: 'opportunity',
         }),
       }),
     )

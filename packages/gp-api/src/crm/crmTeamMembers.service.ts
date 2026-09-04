@@ -106,7 +106,9 @@ export class CrmTeamMembersService {
     const existingId = await this.findContactIdByEmail(email)
     try {
       if (existingId) {
-        return await this.updateContact(existingId, properties)
+        // Keep the known id even when the property update fails, so the
+        // company association isn't silently dropped with it.
+        return (await this.updateContact(existingId, properties)) ?? existingId
       }
       const created = await this.hubspot.client.crm.contacts.basicApi.create({
         properties,
