@@ -6,6 +6,7 @@ import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CALLHUB_MEDIA_MIME_TYPES } from '@/vendors/callhub/schemas/callhubMedia.schema'
@@ -114,12 +115,17 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         outreach: { outreachType: OutreachType.robocall },
         OR: [
           // In-window authorized drafts: stage close to send, since the rented
-          // caller-ID number gets spam-flagged if it sits idle too long.
+          // caller-ID number gets spam-flagged if it sits idle too long. The
+          // lower bound reaches ROBOCALL_STAGING_GRACE_MINUTES BEFORE now, not
+          // just now, so a run whose send passed during a deploy/restart/missed
+          // tick still stages (and dials a few minutes late) instead of stranding
+          // — the stranded sweep only fails runs older than this same
+          // `now - grace` boundary, so the two never contend for one draft.
           {
             settleState: RobocallSettleState.authorized,
             outreach: {
               date: {
-                gte: now,
+                gte: subMinutes(now, ROBOCALL_STAGING_GRACE_MINUTES),
                 lte: addHours(now, ROBOCALL_STAGING_LEAD_HOURS),
               },
             },

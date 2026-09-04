@@ -26,6 +26,26 @@ export const ROBOCALL_RUN_HOURS = 48
 // capture_before, or the hold is unusable and is voided at placement.
 export const ROBOCALL_SETTLE_MARGIN_HOURS = 24
 
+// Grace period for a robocall that misses its exact staging window. The staging
+// sweep only stages FUTURE sends and the stranded-authorized sweep fails any
+// past-due unstaged draft, so a validly-scheduled run whose send passes DURING a
+// deploy / process restart / missed staging tick can never stage and is wrongly
+// failed. This grace lets staging still pick up (and the stranded sweep leave
+// alone) a run up to this many minutes past its send: staging's lower bound and
+// the stranded sweep's past-due threshold BOTH pivot on `now - grace`, so a run
+// in `[now - grace, now]` is staging-eligible (rescued) and only a run older than
+// `now - grace` is stranded-eligible (failed) — one boundary, never both, never
+// neither. 30 min absorbs a deploy/restart/missed-cron so a just-late run still
+// stages and dials a few minutes late, which is well inside the hold/capture
+// window; short enough that a robocall never fires meaningfully late — a longer
+// outage correctly falls through to fail + notify. Timing budget: the
+// capture-window fit reserves `send + ROBOCALL_RUN_HOURS (48) +
+// ROBOCALL_SETTLE_MARGIN_HOURS (24) = 3d` inside a `captureBefore` ~6-7d out, and
+// the completion sweep force-settles a run within SETTLE_MARGIN (24h) of its
+// captureBefore regardless, so 30 min of dial lateness (dwarfed by that 24h
+// safety valve) never threatens captureBefore.
+export const ROBOCALL_STAGING_GRACE_MINUTES = 30
+
 // A draft stranded in hold_pending past this window is a crashed placement — a
 // process that won the pending_payment -> hold_pending claim but died before the
 // commit / decline / revert that moves it back out. No other sweep touches
