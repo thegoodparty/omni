@@ -124,7 +124,7 @@ describe('DashboardLayout election-result redirect', () => {
 // stand-in harness — the wiring under test (ref callback -> state -> context ->
 // portal, plus the mounted-action count) lives in DashboardLayout itself.
 describe('DashboardLayout nav header CTA', () => {
-  const navHeader = { icon: 'book', label: 'Your story' } as const
+  const navHeader = { icon: 'book', label: 'Your Story' } as const
   const bar = () =>
     document.querySelector('[data-slot="nav-header-action"]')?.parentElement
 

@@ -55,14 +55,14 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
   })
 })
 
-describe('getDashboardMenuItems: "Your story" sidebar item', () => {
-  it('always renders "Your story" just above the tracker', () => {
+describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
+  it('always renders "Your Story" just above the tracker', () => {
     const items = links()
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
 
     expect(storyIdx).toBeGreaterThanOrEqual(0)
-    expect(items[storyIdx]?.label).toBe('Your story')
+    expect(items[storyIdx]?.label).toBe('Your Story')
     // It sits directly above the Campaign Tracker tab.
     expect(planIdx).toBe(storyIdx + 1)
   })

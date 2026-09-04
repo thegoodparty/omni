@@ -39,7 +39,7 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 // they clicked in the left rail. Same single-source rule as contactsLabels.ts.
 export const NAV_LABELS = {
   campaignManager: 'Campaign Manager',
-  campaignStory: 'Your story',
+  campaignStory: 'Your Story',
   campaignTracker: 'Campaign Tracker',
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',

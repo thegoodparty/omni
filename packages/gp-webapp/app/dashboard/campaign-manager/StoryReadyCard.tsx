@@ -10,9 +10,9 @@ import ManagerPromptCard from './ManagerPromptCard'
 const STORY_READY_DISMISSED_KEY = 'campaign-manager-story-ready-dismissed'
 
 // Shown on the manager home once the Campaign Story is complete — whether the
-// candidate finished it here in the chat or on the "Your story" page — to point
+// candidate finished it here in the chat or on the "Your Story" page — to point
 // them at the generated tracker + plan (this replaces the toast that used to sit
-// at the bottom of the "Your story" page). Renders nothing while the story is
+// at the bottom of the "Your Story" page). Renders nothing while the story is
 // incomplete (the PersonalizeStoryCard covers that state) or still loading, and
 // after it's been dismissed. Enabled unconditionally: only renders inside the
 // campaign-story cohort's manager home.
