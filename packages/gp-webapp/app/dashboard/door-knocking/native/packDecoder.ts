@@ -10,9 +10,13 @@ import {
 
 // A door logged on this device since the pack was built. It rides beside the
 // binary rather than inside it because there is no row in the binary to patch:
-// `buildPackSql` ships no person id — the client walks the arrays positionally
-// — so a knock, which gp-api joins in by person id at build time, has nothing
-// on this side to join to. The coordinate is the one handle both ends share:
+// the wire format carries no person id — the client walks the arrays
+// positionally — so a knock, which gp-api joins in by person id at build time,
+// has nothing on this side to join to. Don't go looking for the id in the
+// query: `buildPackSql` does select one and `PACK_CSV_COLUMNS` lists it, for
+// the `canvassStatus` and `contactsMade` joins server-side; `PackEncoder`
+// drops it, writing only positions, the two index arrays and the u8 planes.
+// The coordinate is the one handle both ends share:
 // `positions` and a route stop's lat/lng are the same people_db columns cast
 // the same way, so a stop lands on a dot exactly or on nothing.
 export interface LoggedKnock {
