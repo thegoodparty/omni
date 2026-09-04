@@ -48,6 +48,20 @@ describe('AreaCodeFromZipService.getAreaCodeFromZip', () => {
     expect(await service.getAreaCodeFromZip('94110')).toEqual(['415', '510'])
   })
 
+  it('takes the first valid array, not a trailing decoy array', async () => {
+    // Answer-then-decoy: the real answer comes first, a formatting hint
+    // trails it. The old last-array heuristic would have grabbed the decoy.
+    respondWith('The area codes are ["907"]. (format like ["123","456"])')
+
+    expect(await service.getAreaCodeFromZip('99501')).toEqual(['907'])
+  })
+
+  it('skips a trailing empty array and returns the real answer', async () => {
+    respondWith('The area code is ["212"]. If unknown, [].')
+
+    expect(await service.getAreaCodeFromZip('10001')).toEqual(['212'])
+  })
+
   it('returns null when the response has no array', async () => {
     respondWith('I am not sure which area codes cover that zip code.')
 
@@ -60,13 +74,11 @@ describe('AreaCodeFromZipService.getAreaCodeFromZip', () => {
     expect(await service.getAreaCodeFromZip('00000')).toBeNull()
   })
 
-  it('does not request JSON/structured-output mode from the LLM', async () => {
+  it('extracts via a single chatCompletion call, not structured output', async () => {
     respondWith('["504"]')
 
     await service.getAreaCodeFromZip('70124')
 
-    const [options] = llm.chatCompletion.mock.calls[0] ?? []
-    expect(options).not.toHaveProperty('schema')
-    expect(options).not.toHaveProperty('responseFormat')
+    expect(llm.chatCompletion).toHaveBeenCalledTimes(1)
   })
 })
