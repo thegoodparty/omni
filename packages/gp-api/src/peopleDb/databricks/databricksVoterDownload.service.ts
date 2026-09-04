@@ -12,6 +12,7 @@ import { once } from 'node:events'
 import { DownloadPeopleDTO } from '../schemas/people.schema'
 import { buildCsvSql } from './databricksVoterSql.util'
 import { DatabricksVoterService } from './databricksVoter.service'
+import { readCsvChunkBody } from './csvChunkBody.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
@@ -147,7 +148,7 @@ export class DatabricksVoterDownloadService {
     isAborted: () => boolean,
   ): Promise<void> {
     let chunk: PeopleDbxCsvChunk | null = first
-    let body = this.readChunk(chunk)
+    let body = readCsvChunkBody(chunk.externalLink, this.logger)
     let ahead: Promise<PeopleDbxCsvChunk> | null = null
     try {
       while (chunk && !isAborted()) {
@@ -160,7 +161,9 @@ export class DatabricksVoterDownloadService {
         }
         chunk = ahead ? await ahead : null
         ahead = null
-        body = chunk ? this.readChunk(chunk) : Promise.resolve(Buffer.alloc(0))
+        body = chunk
+          ? readCsvChunkBody(chunk.externalLink, this.logger)
+          : Promise.resolve(Buffer.alloc(0))
       }
     } finally {
       // Either read can still be in flight when the loop leaves early -- an
@@ -171,15 +174,5 @@ export class DatabricksVoterDownloadService {
       void body.catch(() => undefined)
       void ahead?.catch(() => undefined)
     }
-  }
-
-  private async readChunk(chunk: PeopleDbxCsvChunk): Promise<Buffer> {
-    const response = await fetch(chunk.externalLink)
-    if (!response.ok) {
-      throw new Error(
-        `Databricks CSV chunk fetch failed with ${response.status}`,
-      )
-    }
-    return Buffer.from(await response.arrayBuffer())
   }
 }
