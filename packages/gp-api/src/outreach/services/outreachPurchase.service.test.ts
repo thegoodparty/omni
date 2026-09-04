@@ -772,6 +772,46 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(stampOrder).toBeLessThan(redeemOrder)
     })
 
+    it('skips redemption and surfaces the error when the stamp fails', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockRejectedValueOnce(new Error('db write failed'))
+
+      await expect(
+        service.executePostPurchase('free_confirmed_stamp_fail', {
+          ...purchaseMetadata,
+          outreachId: '126',
+        }),
+      ).rejects.toThrow('db write failed')
+
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a redemption failure so the webhook retries', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(mockCampaignsService.redeemFreeTexts).mockRejectedValueOnce(
+        new Error('serialization conflict'),
+      )
+
+      await expect(
+        service.executePostPurchase('free_confirmed_redeem_fail', {
+          ...purchaseMetadata,
+          outreachId: '127',
+        }),
+      ).rejects.toThrow('serialization conflict')
+    })
+
     it('does not stamp consumption when no offer was redeemed', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
@@ -806,7 +846,7 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
     })
 
-    it('runs legacy redemption when metadata has no outreachId', async () => {
+    it('leaves the offer unredeemed for a legacy no-outreachId session', async () => {
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -816,7 +856,10 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(
         mockOutreachService.finalizeOutreachPurchase,
       ).not.toHaveBeenCalled()
-      expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
+      // Consuming the offer with no row to stamp would defeat the cancel
+      // path's restore — legacy sessions leave the offer with the candidate.
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
+      expect(mockOutreachService.markFreeTextsConsumed).not.toHaveBeenCalled()
     })
 
     it('does nothing for non-p2p outreachType even with an outreachId', async () => {

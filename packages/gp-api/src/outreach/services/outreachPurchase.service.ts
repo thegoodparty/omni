@@ -291,28 +291,38 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       const hasOffer =
         await this.campaignsService.checkFreeTextsEligibility(campaignId)
       if (hasOffer) {
-        // Stamp BEFORE redeeming: if the stamp fails, redemption is
-        // skipped, the offer stays live, and the webhook retry re-runs
-        // both — so the promo can never end up consumed with an
-        // unstamped row (which would silently defeat the cancel path's
-        // restore). The reverse failure (stamped, redeem lost) leaves
-        // the offer with the candidate — the safe direction.
         if (outreachId) {
+          // Stamp BEFORE redeeming, and let any failure propagate: the
+          // idempotency marker is then never written, Stripe redelivers,
+          // and the retry re-runs whatever is left. Ordering makes the
+          // invariant one-directional — a consumed promo always has a
+          // stamped row, so the cancel path's restore can trust the
+          // count. The reverse strand (stamped, redeem lost) leaves the
+          // offer with the candidate — the safe direction.
           await this.outreachService.markFreeTextsConsumed(
             outreachId,
             campaignId,
           )
+          await this.campaignsService.redeemFreeTexts(campaignId)
+          this.logger.info(
+            `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
+          )
+        } else {
+          // Pre-draft-first sessions carry no outreachId. Consuming the
+          // offer with no row to stamp would silently defeat the cancel
+          // path's restore, so the offer is left with the candidate.
+          this.logger.warn(
+            `Free texts offer left unredeemed for campaign ${campaignId}: ` +
+              `payment ${paymentIntentId} has no outreachId to stamp`,
+          )
         }
-        await this.campaignsService.redeemFreeTexts(campaignId)
-        this.logger.info(
-          `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
-        )
       }
     } catch (error) {
       this.logger.error(
         { error },
         `Failed to redeem free texts offer for campaign ${campaignId} after payment ${paymentIntentId}:`,
       )
+      throw error
     }
   }
 }
