@@ -96,9 +96,9 @@ The cron enqueues the window in the SQS message itself, so manual triggering jus
 ## Door Knocking Canvassing Totals
 
 `DoorKnockingStatsService` fires `Door Knocking - Canvassing Totals Updated`
-with the organization's nine canvassing running totals — on turf create, on
-turf complete, and from a daily sweep over orgs that recorded a knock in the
-last 24 hours.
+with the organization's nine canvassing running totals — on turf create, turf
+complete and turf delete, and from a daily sweep over orgs that recorded a
+knock in the last 24 hours.
 
 | Event Name                                  | HubSpot Target                                        | Fired From                                      |
 | ------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------- |

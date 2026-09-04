@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   ContactStatusField,
@@ -36,6 +37,12 @@ describe('DoorKnockingStatsService', () => {
     })
     filterId = filter.id
     stats = service.app.get(DoorKnockingStatsService)
+  })
+
+  // The services here are app singletons, so a spy on one outlives the test
+  // that set it up and would silently arm the next.
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   // A whole 1:1:1 chain, written the way the create transaction writes one:
@@ -623,6 +630,24 @@ describe('DoorKnockingStatsService', () => {
       expect(emit).toHaveBeenCalledTimes(1)
     })
 
+    // The job fires one tick a day, so a claim left open outlives every
+    // retry opportunity: the stale-takeover window closes long before the
+    // next tick and the day's sweep is lost without anyone noticing.
+    it('seals the daily lease even when selecting the active orgs throws', async () => {
+      const completed = vi.spyOn(
+        service.app.get(CronLockService),
+        'markCompleted',
+      )
+      vi.spyOn(
+        service.prisma.contactInteractionDoorKnock,
+        'groupBy',
+      ).mockRejectedValue(new Error('the database went away'))
+
+      await expect(stats.sweepCanvassingTotals()).resolves.toBeUndefined()
+
+      expect(completed).toHaveBeenCalled()
+    })
+
     it('keeps going when one org fails', async () => {
       const otherSlug = `dk-sweep-other-${Date.now()}`
       await service.prisma.organization.create({
@@ -638,6 +663,24 @@ describe('DoorKnockingStatsService', () => {
       await stats.sweepCanvassingTotals()
 
       expect(emit).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // A tombstone moves the turf-derived totals down, and HubSpot SETs rather
+  // than accumulates, so a delete that is never followed by other activity
+  // would otherwise leave the company holding the pre-delete numbers.
+  describe('firing from turf delete', () => {
+    it('emits so the lowered totals reach HubSpot', async () => {
+      const { turfId } = await seedTurf()
+      const emit = vi
+        .spyOn(stats, 'emitCanvassingTotals')
+        .mockResolvedValue(undefined)
+      const turfs = service.app.get(DoorKnockingTurfService)
+
+      await turfs.delete(turfId, orgSlug, service.user.id)
+
+      expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
+      expect((await stats.canvassingTotals(orgSlug)).uniqueTurfsCreated).toBe(0)
     })
   })
 

@@ -180,7 +180,11 @@ export class DoorKnockingTurfService extends createPrismaBase(
   // an unbought drawing has nothing left to match — 3.0 has no such turf, and
   // the migration removed the ones that predate it. The knock interactions
   // survive either way: they hang off the organization, not this chain.
-  async delete(id: number, organizationSlug: string): Promise<void> {
+  async delete(
+    id: number,
+    organizationSlug: string,
+    actorUserId: number,
+  ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const turf = await this.lockAndFind(tx, id, organizationSlug)
       await tx.doorKnockingTurf.update({
@@ -188,6 +192,15 @@ export class DoorKnockingTurfService extends createPrismaBase(
         data: { deletedAt: new Date() },
       })
     })
+
+    // A tombstone moves three of the rollup's totals DOWN — the turf-derived
+    // numbers all scope to live lists — and HubSpot SETs each property from
+    // the event rather than accumulating, so without this the company would
+    // hold the pre-delete values until the org's next create, complete or
+    // knock. An org that deletes a list and then stops has no next one.
+    void this.stats
+      .emitCanvassingTotals(actorUserId, organizationSlug)
+      .catch(() => undefined)
   }
 
   // "End knocking session", written straight onto the envelope, which is the

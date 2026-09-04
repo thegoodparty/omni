@@ -348,6 +348,11 @@ attribution.
 - **Turf create**, after the transaction commits (`doorKnockingCreate.service.ts`).
 - **Turf complete**, behind the same idempotence guard as the write, so a
   second tap on a finished list emits nothing (`doorKnockingTurf.service.ts`).
+- **Turf delete.** A tombstone moves the three turf-derived numbers _down_,
+  and the workflow SETs each property rather than accumulating, so the drop
+  has to be pushed. The sweep would not catch it: it is scoped to orgs that
+  recorded a knock, and an org that deletes a list and then stops has no next
+  event to correct the stale company record.
 - **A daily sweep** at 05:00 Eastern over every org that recorded a knock in
   the last 24 hours, behind `CronLockService` so two replicas emit once. The
   window is measured on `createdAt`, not `occurredAt`: it asks which rows
@@ -356,10 +361,10 @@ attribution.
 
 **Not fired per knock.** A canvasser logs dozens a session and each would
 trigger an org-wide aggregate, for properties nobody reads in real time. The
-sweep is what keeps the knock-driven numbers fresh between the two lifecycle
+sweep is what keeps the knock-driven numbers fresh between the lifecycle
 moments.
 
-The two lifecycle firings are attributed to the user who pressed the button;
+The three lifecycle firings are attributed to the user who pressed the button;
 the sweep is attributed to the organization's owner, because a volunteer's
 overnight sync should not move the candidate's numbers onto the volunteer's
 HubSpot contact. Segment identifies by user while the totals are the
