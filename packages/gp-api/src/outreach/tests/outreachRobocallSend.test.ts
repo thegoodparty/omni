@@ -4,11 +4,8 @@ import { addDays, addHours, subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
-import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
-import { OutreachMaterializationService } from '@/outreach/services/outreachMaterialization.service'
-import { ContactsService } from '@/contacts/services/contacts.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { CallhubCampaignReportService } from '@/vendors/callhub/services/callhubCampaignReport.service'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
@@ -19,7 +16,11 @@ import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubC
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import {
+  Campaign,
+  OutreachStatus,
+  RobocallSettleState,
+} from '../../generated/prisma'
 
 const service = useTestService()
 
@@ -473,147 +474,71 @@ describe('OutreachRobocallSendService.startCampaign', () => {
   })
 })
 
-describe('OutreachRobocallSendService.startCampaign — recipient materialization', () => {
-  const makePerson = (id: string): Person => ({
-    id,
-    lalVoterId: `lal-${id}`,
-    firstName: null,
-    middleName: null,
-    lastName: null,
-    nameSuffix: null,
-    age: null,
-    state: 'TX',
-    address: {
-      line1: null,
-      line2: null,
-      city: null,
-      state: null,
-      zip: null,
-      zipPlus4: null,
-      latitude: null,
-      longitude: null,
-    },
-    cellPhone: null,
-    landline: null,
-    gender: null,
-    politicalParty: 'Independent',
-    registeredVoter: 'Yes',
-    estimatedIncomeAmount: null,
-    voterStatus: null,
-    maritalStatus: null,
-    hasChildrenUnder18: null,
-    veteranStatus: null,
-    homeowner: null,
-    businessOwner: null,
-    levelOfEducation: null,
-    ethnicityGroup: null,
-    language: 'English',
-  })
-
-  const peoplePage = (ids: string[]): PeopleListResponse => ({
-    people: ids.map(makePerson),
-    pagination: {
-      totalResults: ids.length,
-      currentPage: 1,
-      pageSize: ids.length,
-      totalPages: 1,
-      hasNextPage: false,
-      hasPreviousPage: false,
-    },
-  })
-
+describe('OutreachRobocallSendService.startCampaign — spine + no per-contact rows', () => {
   const recipientRows = (outreachId: number) =>
     service.prisma.contactInteractionRobocall.findMany({
       where: { outreachId },
-      orderBy: { personId: 'asc' },
     })
 
-  it('writes one ContactInteractionRobocall row per recipient once the dial commits', async () => {
+  const readSpine = (outreachId: number) =>
+    service.prisma.outreach.findUniqueOrThrow({ where: { id: outreachId } })
+
+  const setSpineStatus = (outreachId: number, status: OutreachStatus) =>
+    service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { status },
+    })
+
+  it('advances the spine pending → in_progress and writes NO ContactInteractionRobocall rows', async () => {
     const outreachId = await createDraft()
-    vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    ).mockResolvedValue(peoplePage(['rc-1', 'rc-2']))
+    // The hold step moved the spine pending_payment → pending before the dial.
+    await setSpineStatus(outreachId, OutreachStatus.pending)
 
     await send.startCampaign(outreachId)
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
     )
-    const rows = await recipientRows(outreachId)
-    expect(rows.map((r) => r.personId)).toEqual(['rc-1', 'rc-2'])
-    expect(rows.every((r) => r.organizationSlug === orgSlug)).toBe(true)
-    expect(rows.every((r) => r.outreachId === outreachId)).toBe(true)
+    // "Sending" during the run window.
+    expect((await readSpine(outreachId)).status).toBe(
+      OutreachStatus.in_progress,
+    )
+    // This billing model does not know WHO was reached (CallHub reports no
+    // per-call disposition), so no per-person feed rows are written — only the
+    // aggregate count lives on the OutreachRobocall row.
+    expect(await recipientRows(outreachId)).toHaveLength(0)
   })
 
-  it('materializes on the reconciled-STARTED path too (a lost launch that dialed)', async () => {
+  it('advances the spine on the reconciled-STARTED path too (a lost launch that dialed)', async () => {
     const outreachId = await createDraft()
+    await setSpineStatus(outreachId, OutreachStatus.pending)
     launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
-    vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    ).mockResolvedValue(peoplePage(['rc-3']))
 
     await send.startCampaign(outreachId)
 
-    // The commit reached via reconcileDialing (not the happy launch path)
-    // still materializes — the calls dialed either way.
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
     )
-    expect((await recipientRows(outreachId)).map((r) => r.personId)).toEqual([
-      'rc-3',
-    ])
-  })
-
-  it('never fails the dial when materialization throws (best-effort, audit trail only)', async () => {
-    const outreachId = await createDraft()
-    const errorSpy = loggerErrorSpy()
-    vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    ).mockRejectedValue(new Error('people-api down'))
-
-    await send.startCampaign(outreachId)
-
-    // The dial itself is unaffected — money already moved, calls already
-    // launched. Only the audit rows are missing.
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.dialed,
+    expect((await readSpine(outreachId)).status).toBe(
+      OutreachStatus.in_progress,
     )
     expect(await recipientRows(outreachId)).toHaveLength(0)
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ outreachId }),
-      expect.stringContaining('materialization failed'),
-    )
   })
 
-  it('is idempotent: a repeat materialization call for the same dial does not duplicate or crash', async () => {
+  it('never flips a canceled spine to in_progress (guarded, idempotent)', async () => {
     const outreachId = await createDraft()
-    vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    ).mockResolvedValue(peoplePage(['rc-1', 'rc-2']))
+    await setSpineStatus(outreachId, OutreachStatus.canceled)
 
     await send.startCampaign(outreachId)
 
-    // Simulates materializeOutreach being invoked again for the same
-    // outreach — the CAS in commitDialed already makes this unreachable in
-    // practice (a second commit finds the row no longer `dialing`), but the
-    // (outreachId, personId) unique constraint's skipDuplicates write is the
-    // belt-and-suspenders guarantee this test exercises directly.
-    const outreach = await service.prisma.outreach.findUniqueOrThrow({
-      where: { id: outreachId },
-    })
-    await expect(
-      service.app
-        .get(OutreachMaterializationService)
-        .materializeOutreach(campaign, outreach),
-    ).resolves.not.toThrow()
-
-    const rows = await recipientRows(outreachId)
-    expect(rows.map((r) => r.personId)).toEqual(['rc-1', 'rc-2'])
+    // The dial commits (the claim CAS is on settleState, not spine status), but
+    // the spine CAS on `pending` leaves a canceled row canceled — never
+    // resurrected to in_progress.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.dialed,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 })
 

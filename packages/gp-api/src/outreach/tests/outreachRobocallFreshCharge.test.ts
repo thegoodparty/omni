@@ -141,7 +141,10 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     })
   })
 
-  it('INV-1: clamps an actual over the authorized amount to the authorized', async () => {
+  it('INV-1: never charges more than the authorized amount', async () => {
+    // A draft-time count whose calc (200 calls = 900c + 200c fee = 1100c) exceeds
+    // the amount actually authorized (450c): the fresh charge is the authorized
+    // amount directly, so it can never overbill above the estimate.
     const outreachId = await createDraft({
       completedCallCount: 200,
       authorizedAmountInCents: 450,
@@ -149,27 +152,38 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
 
     await freshCharge.chargeUncollectable(outreachId)
 
-    // 200 calls (900c) + 200c number fee = 1100c, clamped to the 450 authorized.
     expect(chargeSpy).toHaveBeenCalledWith(
       expect.objectContaining({ amountInCents: 450 }),
     )
     expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(450)
   })
 
-  it('undercharges a run with fewer calls than the estimate', async () => {
+  it('charges the FULL authorized estimate when the draft-time count is smaller than the authorize basis (audience grew)', async () => {
+    // DRIFT: completedCallCount is the DRAFT-time billableCount snapshot, but
+    // authorizedAmountInCents is re-derived at AUTHORIZE time (up to ~82 days
+    // later, on the deferred path). If the landline audience grew in that gap,
+    // calc(completedCallCount) is SMALLER than the amount held on the card and
+    // quoted. This lapsed-hold recovery must charge the FULL authorized estimate,
+    // never the smaller draft-count amount — a min(calc(count), authorized) clamp
+    // would undercharge below the estimate on the riskiest run.
     const outreachId = await createDraft({
-      completedCallCount: 50,
-      authorizedAmountInCents: 450,
+      completedCallCount: 60,
+      authorizedAmountInCents: calcRobocallTotalInCents(100),
     })
 
     await freshCharge.chargeUncollectable(outreachId)
 
-    // 50 calls (225c) + 200c number fee = 425c, under the 450 authorized.
+    // The full authorized estimate (650c) is charged, NOT the smaller calc(60).
     expect(chargeSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ amountInCents: calcRobocallTotalInCents(50) }),
+      expect.objectContaining({
+        amountInCents: calcRobocallTotalInCents(100),
+      }),
+    )
+    expect(chargeSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ amountInCents: calcRobocallTotalInCents(60) }),
     )
     expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(
-      calcRobocallTotalInCents(50),
+      calcRobocallTotalInCents(100),
     )
   })
 
@@ -216,11 +230,15 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
   })
 
   it('charges a tiny run because the number fee clears the Stripe minimum', async () => {
-    // 10 calls = 45c alone would be under Stripe's $0.50 minimum, but the flat
-    // number fee lifts every run above it, so it charges rather than being
-    // written off. (The sub-minimum write-off is now defensive/unreachable — a
-    // zero-connected run is voided at capture and never reaches fresh charge.)
-    const outreachId = await createDraft({ completedCallCount: 10 })
+    // A tiny authorized estimate (10 calls = 45c alone would be under Stripe's
+    // $0.50 minimum) still charges, because the flat number fee lifts every run's
+    // estimate above the minimum. (The sub-minimum write-off is now
+    // defensive/unreachable — a zero-connected run is voided at capture and never
+    // reaches fresh charge.)
+    const outreachId = await createDraft({
+      completedCallCount: 10,
+      authorizedAmountInCents: calcRobocallTotalInCents(10),
+    })
 
     await freshCharge.chargeUncollectable(outreachId)
 

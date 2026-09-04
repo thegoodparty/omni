@@ -19,6 +19,7 @@ import {
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import PersonSheet from './PersonSheet'
+import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 import {
   DoorNoteList,
   editServedNotes,
@@ -149,7 +150,13 @@ const Harness = ({
 const renderSheet = (
   targets: RoutePayloadTarget[],
   door?: { address: string; unit: string },
-) => render(<Harness targets={targets} door={door} />)
+  serveMode = false,
+) =>
+  render(
+    <DoorKnockingSurfaceProvider value={serveMode}>
+      <Harness targets={targets} door={door} />
+    </DoorKnockingSurfaceProvider>,
+  )
 
 const contactCard = () =>
   screen.getByRole('heading', { name: 'Contact information' }).parentElement!
@@ -389,6 +396,32 @@ describe('PersonSheet card order', () => {
       'Activity Feed',
     ])
   })
+
+  // Serve mode drops Talking points outright — it is built from the
+  // campaign and its issue positions, which an elected official has neither
+  // — so the remaining six cards keep their order with the first one gone
+  // rather than leaving a gap or reordering around it.
+  it('opens on Contact information in serve mode, with the rest unchanged', () => {
+    renderSheet([target()], undefined, true)
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    const headings = [...body.querySelectorAll('h3')].map(
+      (heading) => heading.textContent,
+    )
+
+    expect(headings).toEqual([
+      'Contact information',
+      'Household',
+      'Voter demographics',
+      'Demographic information',
+      'Notes',
+      'Activity Feed',
+    ])
+    expect(screen.queryByTestId('door-script')).toBeNull()
+    expect(body.firstElementChild).toBe(contactCard())
+  })
 })
 
 // `panelCard('Talking points','message-square', …)` is the canvas's first card
@@ -415,6 +448,22 @@ describe('PersonSheet talking points', () => {
 
     expect(screen.queryByTestId('door-script')).toBeNull()
     expect(screen.queryByTestId('record-knock-form')).toBeNull()
+  })
+
+  // The card is meaningless for an elected official — it is built from the
+  // candidate's campaign and their campaign issue positions, and a Serve org
+  // has neither. Withheld outright rather than left to self-hide on empty
+  // fields.
+  it('does not render in serve mode, where there is no campaign to script from', () => {
+    renderSheet([target()], undefined, true)
+
+    expect(screen.queryByTestId('door-script')).toBeNull()
+  })
+
+  it('still renders in win mode', () => {
+    renderSheet([target()], undefined, false)
+
+    expect(screen.getByTestId('door-script')).toBeInTheDocument()
   })
 })
 
