@@ -10,9 +10,9 @@ import type { FilterData } from '../schemas/filters.schema'
 
 // The recommended-lists reads, routed through the read log like every other
 // voter read. One recommendation request issues several of these at once —
-// a count per surviving variant, the district total, and a precinct ranking
-// for door knocking — so an unmeasured path here would be the busiest new
-// read in the feature and invisible to the latency tooling.
+// a count per surviving variant, plus a precinct ranking for door knocking
+// — so an unmeasured path here would be the busiest new read in the feature
+// and invisible to the latency tooling.
 @Injectable()
 export class VoterRecommendedListsService {
   constructor(
@@ -40,30 +40,15 @@ export class VoterRecommendedListsService {
     })
   }
 
-  districtTotal(district: DbxDistrict): Promise<number> {
-    return this.readLog.measure({
-      op: 'rec-district-total',
-      districtId: district.districtId,
-      read: () => this.databricks.districtTotal(district),
-    })
-  }
-
   rankPrecincts(
     district: DbxDistrict,
     filters: FilterData,
-    doorTarget: number,
     idOverrides?: IdOverrides,
   ): Promise<RankPrecinctsResult> {
     return this.readLog.measure({
       op: 'rec-rank-precincts',
       districtId: district.districtId,
-      read: () =>
-        this.databricks.rankPrecincts(
-          district,
-          filters,
-          doorTarget,
-          idOverrides,
-        ),
+      read: () => this.databricks.rankPrecincts(district, filters, idOverrides),
     })
   }
 }

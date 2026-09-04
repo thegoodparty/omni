@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { RECOMMENDED_LIST_VARIANT_VALUES } from '@goodparty_org/contracts'
 import {
   RECOMMENDED_LISTS_REGISTRY,
   fillCopy,
   variantsForIntent,
 } from './recommendedLists.registry'
+import { buildVariantFilter } from './recommendedListsUniverse.util'
 
 describe('variantsForIntent', () => {
   it('returns one variant for introduce', () => {
@@ -42,6 +44,41 @@ describe('RECOMMENDED_LISTS_REGISTRY copy', () => {
         'likely voter',
       )
       expect(entry.copy.title.toLowerCase()).not.toContain('likely voter')
+    }
+  })
+
+  // The three variants the vote-goal size floor exempts. Pinned by name
+  // because the flag is what the service reads, and cross-checked against
+  // each variant's own universe below so the two cannot drift apart.
+  it('marks exactly the three id-d supporter variants', () => {
+    const supporters = Object.entries(RECOMMENDED_LISTS_REGISTRY)
+      .filter(([, entry]) => entry.supporterBased)
+      .map(([key]) => key)
+      .sort()
+    expect(supporters).toEqual([
+      'earlyVoteSupporters',
+      'electionDaySupporters',
+      'eventSupporters',
+    ])
+  })
+
+  // The drift guard: `supporterBased` has to agree with what the variant
+  // actually asks for, which is `supportStatus` = supporter and nothing
+  // else. `eventAffinity` is the near miss — its support clause includes
+  // `supporter` among four values as an exclusion list, and a looser check
+  // (`includes('supporter')`) would call it supporter-based and hand it a
+  // floor exemption it has not earned.
+  it('agrees with each variant universe about who is a supporter list', () => {
+    for (const variant of RECOMMENDED_LIST_VARIANT_VALUES) {
+      const filter = buildVariantFilter(variant, 'sms', 'progressive')
+      const targetsSupportersOnly =
+        filter?.supportStatus?.length === 1 &&
+        filter.supportStatus[0] === 'supporter'
+      expect({ variant, targetsSupportersOnly }).toEqual({
+        variant,
+        targetsSupportersOnly:
+          RECOMMENDED_LISTS_REGISTRY[variant].supporterBased,
+      })
     }
   })
 

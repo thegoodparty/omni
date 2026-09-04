@@ -23,7 +23,6 @@ const idOverrides = { include: ['person-1'] }
 
 describe('VoterRecommendedListsService', () => {
   let countForFilter: ReturnType<typeof vi.fn>
-  let districtTotal: ReturnType<typeof vi.fn>
   let rankPrecincts: ReturnType<typeof vi.fn>
   let resolveDistrict: ReturnType<typeof vi.fn>
   let measure: ReturnType<typeof vi.fn>
@@ -31,18 +30,15 @@ describe('VoterRecommendedListsService', () => {
 
   beforeEach(() => {
     countForFilter = vi.fn().mockResolvedValue(400)
-    districtTotal = vi.fn().mockResolvedValue(9000)
     rankPrecincts = vi.fn().mockResolvedValue({
       precincts: [],
       totalVoters: 0,
-      reachedTarget: false,
     })
     resolveDistrict = vi.fn().mockResolvedValue(district)
     measure = vi.fn((args: { read: () => Promise<number> }) => args.read())
     service = new VoterRecommendedListsService(
       {
         countForFilter,
-        districtTotal,
         rankPrecincts,
         resolveDistrict,
       } as never,
@@ -61,19 +57,8 @@ describe('VoterRecommendedListsService', () => {
     expect(countForFilter).toHaveBeenCalledWith(district, filters, idOverrides)
   })
 
-  it('logs the district total under rec-district-total', async () => {
-    await expect(service.districtTotal(district)).resolves.toBe(9000)
-
-    expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        op: 'rec-district-total',
-        districtId: DISTRICT_ID,
-      }),
-    )
-  })
-
   it('logs the ranking under rec-rank-precincts', async () => {
-    await service.rankPrecincts(district, filters, 10_000, idOverrides)
+    await service.rankPrecincts(district, filters, idOverrides)
 
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -81,12 +66,7 @@ describe('VoterRecommendedListsService', () => {
         districtId: DISTRICT_ID,
       }),
     )
-    expect(rankPrecincts).toHaveBeenCalledWith(
-      district,
-      filters,
-      10_000,
-      idOverrides,
-    )
+    expect(rankPrecincts).toHaveBeenCalledWith(district, filters, idOverrides)
   })
 
   // District resolution is an election-api hop, not a warehouse read, so it

@@ -53,7 +53,8 @@ const sampleRecommendation: Recommendation = {
   variant: 'persuadeAffinity',
   filter: { voterStatus: ['Super', 'Likely'], independentAffinity: true },
   count: 4_200,
-  districtShare: 0.12,
+  voteGoalShare: 1.05,
+  estimatedCostCents: 14_700,
   copy: {
     title: 'Persuadable independent-leaning voters',
     criteriaSummary: 'Moderate to high propensity voters who lean independent.',
@@ -73,10 +74,30 @@ describe('GET /v1/campaigns/mine/recommended-lists', () => {
     })
 
     expect(res.status).toBe(200)
-    // Exact equality, not toMatchObject: a passing match here must not
-    // tolerate an extra key the schema doesn't declare (e.g. a stray
-    // estimatedCost would sneak past a partial match).
+    // Exact equality, not toMatchObject: the response schema strips keys it
+    // doesn't declare, so a partial match would stay green while a field
+    // the card needs was being silently dropped on the way out. The sample
+    // carries a share above 1 on purpose — a list can hold more people than
+    // the race needs votes, and a `.max(1)` on the schema would turn every
+    // such response into a 500.
     expect(res.data).toEqual([sampleRecommendation])
+  })
+
+  // The response schema is only worth having if it actually rejects. Zod's
+  // `z.object()` strips unknown keys rather than failing, so a "the guard
+  // works" test written against an extra key would pass no matter what —
+  // this uses a declared field with a violated constraint instead.
+  it('refuses to serve a negative estimated cost', async () => {
+    const slug = `win-${Date.now()}-badcost`
+    await seedWinOrg(slug)
+    mockRecommend([{ ...sampleRecommendation, estimatedCostCents: -1 }])
+
+    const res = await getRecommendedLists(slug, {
+      channel: 'sms',
+      intent: 'persuade',
+    })
+
+    expect(res.status).toBe(500)
   })
 
   it('rejects an unknown channel', async () => {

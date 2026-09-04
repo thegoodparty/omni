@@ -86,10 +86,15 @@ export const RecommendedListSchema = z.object({
   variant: RecommendedListVariantSchema,
   filter: RecommendedListFilterSchema,
   count: z.number().int().nonnegative(),
-  // Absent — not null — when the district total couldn't be read.
-  // `estimatedCost` is omitted entirely: no per-channel unit price exists
-  // yet, so there is nothing to validate here.
-  districtShare: z.number().min(0).max(1).optional(),
+  // `count` over the race's vote goal. Absent — not null — when the vote
+  // goal could not be resolved. Deliberately unbounded above: a list can
+  // hold several times the votes the race needs, and a `.max(1)` here
+  // would 500 the whole response for the districts where that is true.
+  voteGoalShare: z.number().nonnegative().optional(),
+  // Cents, matching the pricing utils that produce it, and absent for the
+  // volunteer-run channels (phone banking, door knocking) rather than zero
+  // — a zero reads as "free" where the truth is "not applicable".
+  estimatedCostCents: z.number().int().nonnegative().optional(),
   copy: z.object({
     title: z.string(),
     criteriaSummary: z.string(),

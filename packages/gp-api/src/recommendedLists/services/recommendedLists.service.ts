@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { z } from 'zod'
 import {
   encodePrecinctPair,
   type IdOverrides,
@@ -9,6 +10,7 @@ import {
 } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { CampaignIdeologyService } from '@/campaignIdeology/services/campaignIdeology.service'
+import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
 import {
@@ -16,8 +18,10 @@ import {
   type FilterData,
 } from '@/peopleDb/schemas/filters.schema'
 import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
+import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
-import type { Organization } from '../../generated/prisma'
+import type { Campaign, Organization } from '../../generated/prisma'
 import {
   fillCopy,
   variantsForIntent,
@@ -25,21 +29,17 @@ import {
 } from '../recommendedLists.registry'
 import { buildVariantFilter } from '../recommendedListsUniverse.util'
 import { findEquivalentFilter } from '../recommendedListsDedupe.util'
-import {
-  DOOR_TARGET_VOTERS,
-  DOOR_WIDENING_FACTOR,
-  MAX_DOOR_WIDENING_PASSES,
-  RECOMMENDED_LIST_SIZE_FLOOR,
-} from '../recommendedLists.consts'
+import { VOTE_GOAL_FLOOR_SHARE } from '../recommendedLists.consts'
 
 export type Recommendation = {
   variant: RecommendedListVariant
   filter: VoterFilterBase
   count: number
-  // Absent when the district total could not be read. `estimatedCost` is
-  // absent entirely: its per-channel unit price has no source yet, and a
-  // guessed dollar figure on a candidate's screen is worse than no figure.
-  districtShare?: number
+  // Both absent rather than null when they don't apply: the share when the
+  // race's vote goal could not be resolved, the cost on the two channels
+  // that have no per-contact price at all.
+  voteGoalShare?: number
+  estimatedCostCents?: number
   copy: { title: string; criteriaSummary: string }
   existingFilterId: number | null
 }
@@ -66,6 +66,77 @@ type ResolvedScope = {
   idOverrides?: IdOverrides
 }
 
+// Campaign.details is Prisma JSON, so its shadow type can't be trusted at
+// runtime. `.catch(null)` matters as much as the shape: without it one
+// off-shape value elsewhere in details fails the whole parse and a perfectly
+// good raceId reads as absent, which is the bug that bit
+// campaignStrategy.service.ts twice.
+const CampaignRaceSchema = z.object({
+  raceId: z.string().nullable().optional().catch(null),
+})
+
+// No floor at all, so any non-empty list qualifies.
+const NO_FLOOR = 0
+
+// What a variant's contactable count has to clear, and the three things that
+// exempt it from clearing anything. A flat sequence of exemptions rather
+// than one nested condition because they sit on three unrelated axes --
+// channel, variant family, and whether the race even has a resolved vote
+// goal -- and which one applied is exactly what a reader is here to work out.
+const sizeFloor = (
+  channel: RecommendedListChannel,
+  variant: RecommendedListVariant,
+  votesNeededToWin: number | null,
+): number => {
+  // Three precincts by construction (DOOR_PRECINCT_COUNT), so a door list
+  // is sized by precinct size and not by the race. Judging it against a
+  // whole race's vote goal would suppress nearly every one.
+  if (channel === 'doorKnocking') return NO_FLOOR
+  // Always offered beside a larger recommendation for the same intent, so a
+  // small supporter list is additive rather than the candidate's only
+  // option.
+  if (RECOMMENDED_LISTS_REGISTRY[variant].supporterBased) return NO_FLOOR
+  // Nothing to take a share of. The recommendation still ships; it is
+  // `voteGoalShare` that goes missing.
+  if (votesNeededToWin === null) return NO_FLOOR
+  return votesNeededToWin * VOTE_GOAL_FLOOR_SHARE
+}
+
+// A count of zero is dropped whatever the floor says, the two exempt
+// families included -- a card offering nobody is worse than no card. It is
+// not covered by the `resolved.empty` short-circuit below either: that only
+// catches a support status that resolved to no people at all, while a
+// campaign with real supporters can still count zero once the channel's
+// contactability filter is applied.
+const qualifies = (
+  count: number,
+  channel: RecommendedListChannel,
+  variant: RecommendedListVariant,
+  votesNeededToWin: number | null,
+): boolean =>
+  count > 0 && count >= sizeFloor(channel, variant, votesNeededToWin)
+
+// Per-contact only, and only on the two paid channels.
+//
+// Robocall's is the calls portion alone: the $2 caller-ID number fee is real
+// but is charged once per run rather than per contact, and no pre-purchase
+// screen puts it in an estimate either (RobocallReviewStep prices
+// reachCount x pricePerContact), so folding it in here would make this card
+// the one surface that disagrees with checkout.
+//
+// Phone banking and door knocking are volunteer-run and map to null, not to
+// a zero-cost function, so the field is omitted rather than rendering "$0"
+// -- which reads as "free" where the truth is "not applicable".
+const COST_IN_CENTS: Record<
+  RecommendedListChannel,
+  ((count: number) => number) | null
+> = {
+  sms: calcTextAmountInCents,
+  robocall: calcRobocallAmountInCents,
+  phoneBanking: null,
+  doorKnocking: null,
+}
+
 @Injectable()
 export class RecommendedListsService {
   constructor(
@@ -73,6 +144,7 @@ export class RecommendedListsService {
     private readonly ideology: CampaignIdeologyService,
     private readonly voterFileFilters: VoterFileFilterService,
     private readonly reads: VoterRecommendedListsService,
+    private readonly electionApi: ElectionApiService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(RecommendedListsService.name)
@@ -80,7 +152,7 @@ export class RecommendedListsService {
 
   async recommend(
     organization: Organization,
-    campaignId: number,
+    campaign: Campaign,
     channel: RecommendedListChannel,
     intent: RecommendedListIntent | null,
   ): Promise<Recommendation[]> {
@@ -109,18 +181,24 @@ export class RecommendedListsService {
       (variant) => RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket,
     )
 
-    const [districtId, ideologyBucket, savedFilters] = await Promise.all([
-      this.contacts.resolveEligibleDistrictId(organization),
-      // Never throws: a classification failure returns null, which hides
-      // the ideology variants. That is the common case, not the edge one.
-      needsIdeology ? this.ideology.bucketForCampaign(campaignId) : null,
-      // Loaded with `activityConditions` included, which the dedupe
-      // comparison reads straight off the row. Rows without the relation
-      // all look condition-free, so two lists differing only in their
-      // conditions would compare equal and the candidate would be handed
-      // someone else's audience.
-      this.voterFileFilters.findByOrganizationSlug(organization.slug),
-    ])
+    const [districtId, ideologyBucket, savedFilters, votesNeededToWin] =
+      await Promise.all([
+        this.contacts.resolveEligibleDistrictId(organization),
+        // Never throws: a classification failure returns null, which hides
+        // the ideology variants. That is the common case, not the edge one.
+        needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
+        // Loaded with `activityConditions` included, which the dedupe
+        // comparison reads straight off the row. Rows without the relation
+        // all look condition-free, so two lists differing only in their
+        // conditions would compare equal and the candidate would be handed
+        // someone else's audience.
+        this.voterFileFilters.findByOrganizationSlug(organization.slug),
+        // Once per request, and inside this fan-out rather than ahead of it:
+        // it gates the size floor so it has to land before the counts, but
+        // it is an election-api round-trip and nothing else here waits on
+        // it.
+        this.votesNeededToWin(campaign),
+      ])
 
     const district = await this.reads.resolveDistrict(districtId)
 
@@ -134,15 +212,18 @@ export class RecommendedListsService {
       .filter((draft): draft is VariantDraft => draft.filter !== null)
 
     // One request is several warehouse aggregates and they decide its
-    // latency, so every variant and the district total go out together.
-    const [districtTotal, sized] = await Promise.all([
-      this.districtTotal(district),
-      Promise.all(
-        drafts.map((draft) =>
-          this.sizeDraft(organization, district, channel, draft),
+    // latency, so every variant goes out together.
+    const sized = await Promise.all(
+      drafts.map((draft) =>
+        this.sizeDraft(
+          organization,
+          district,
+          channel,
+          draft,
+          votesNeededToWin,
         ),
       ),
-    ])
+    )
 
     // Nothing surviving is an outage, not an empty result set. Returning []
     // here would tell a candidate they have no recommendations while the
@@ -164,29 +245,47 @@ export class RecommendedListsService {
     )
     if (firstFailure && !sized.some(isSized)) throw firstFailure.error
 
+    const costInCents = COST_IN_CENTS[channel]
+
     // variantsForIntent already returns registry display order and neither
     // the map nor the filter above disturbs it.
     return sized.filter(isSized).map(({ variant, filter, count }) => ({
       variant,
       filter,
       count,
-      ...(districtTotal ? { districtShare: count / districtTotal } : {}),
+      ...(votesNeededToWin ? { voteGoalShare: count / votesNeededToWin } : {}),
+      ...(costInCents ? { estimatedCostCents: costInCents(count) } : {}),
       copy: fillCopy(variant, ideologyBucket ? { bucket: ideologyBucket } : {}),
       existingFilterId: findEquivalentFilter(filter, savedFilters),
     }))
   }
 
-  // The denominator is the mart's own count, not
-  // `m_election_api__district.registered_voters`: every numerator here is a
-  // mart count, and the two disagree by up to 2.2%.
-  private async districtTotal(district: DbxDistrict): Promise<number | null> {
+  // The race's vote goal, and null for every way it can fail to resolve — no
+  // raceId on the campaign, no Race row in election-api, an election-api
+  // outage, or a non-positive number. Null is a supported outcome, not an
+  // error: it drops `voteGoalShare` from the response and exempts the
+  // variants from the size floor, so a race we can't price still gets
+  // recommendations.
+  //
+  // `win_number_effective` ASSUMES A SINGLE SEAT, so an at-large or
+  // multi-seat race overstates it and the floor is correspondingly more
+  // permissive there. Known and accepted — see
+  // docs/features/recommended-lists.md.
+  private async votesNeededToWin(campaign: Campaign): Promise<number | null> {
+    const parsed = CampaignRaceSchema.safeParse(campaign.details)
+    const raceId = parsed.success ? (parsed.data.raceId ?? '').trim() : ''
+    if (raceId.length === 0) return null
+
     try {
-      const total = await this.reads.districtTotal(district)
-      return total > 0 ? total : null
+      const { winNumberEffective } =
+        await this.electionApi.getRaceContext(raceId)
+      return winNumberEffective && winNumberEffective > 0
+        ? winNumberEffective
+        : null
     } catch (error) {
       this.logger.warn(
-        { err: error, districtId: district.districtId },
-        'District total unavailable; omitting districtShare',
+        { err: error, campaignId: campaign.id, raceId },
+        'Vote goal unavailable; omitting voteGoalShare and its size floor',
       )
       return null
     }
@@ -197,6 +296,7 @@ export class RecommendedListsService {
     district: DbxDistrict,
     channel: RecommendedListChannel,
     draft: VariantDraft,
+    votesNeededToWin: number | null,
   ): Promise<SizeOutcome> {
     try {
       // The same resolution a saved list gets before it is queried.
@@ -217,7 +317,34 @@ export class RecommendedListsService {
       }
 
       if (channel === 'doorKnocking') {
-        return await this.sizeDoorDraft(district, draft, scope)
+        // The ranking's own total already IS the count of the restricted
+        // list, so a second count for the same population would only buy a
+        // number that can disagree with this one.
+        const ranked = await this.reads.rankPrecincts(
+          district,
+          scope.filters,
+          scope.idOverrides,
+        )
+        if (
+          !qualifies(
+            ranked.totalVoters,
+            channel,
+            draft.variant,
+            votesNeededToWin,
+          )
+        ) {
+          return null
+        }
+        return {
+          variant: draft.variant,
+          filter: {
+            ...draft.filter,
+            precincts: ranked.precincts.map(({ county, precinct }) =>
+              encodePrecinctPair(county, precinct),
+            ),
+          },
+          count: ranked.totalVoters,
+        }
       }
 
       const count = await this.reads.countForFilter(
@@ -225,7 +352,9 @@ export class RecommendedListsService {
         scope.filters,
         scope.idOverrides,
       )
-      return count >= RECOMMENDED_LIST_SIZE_FLOOR ? { ...draft, count } : null
+      return qualifies(count, channel, draft.variant, votesNeededToWin)
+        ? { ...draft, count }
+        : null
     } catch (error) {
       // One variant's failure costs that card, not the response — the
       // aggregates are independent and the survivors are still worth
@@ -240,70 +369,5 @@ export class RecommendedListsService {
         error: error instanceof Error ? error : new Error(String(error)),
       }
     }
-  }
-
-  // Door knocking is the one channel whose narrowing can be relaxed, so it
-  // is the one channel with a rescue path for an under-floor list. Three
-  // outcomes have to stay distinguishable:
-  //
-  //   1. the precinct-restricted list clears the floor -- keep it, with the
-  //      precincts attached;
-  //   2. the ranking has nothing left to give -- drop the precinct
-  //      restriction and size the district-wide list, which also picks up
-  //      the voters with no precinct on file that the ranking excludes;
-  //   3. even that is under the floor -- omit the variant.
-  //
-  // `reachedTarget` is what separates a ranking worth widening from one
-  // that is spent: false covers both "the district ran out of precincts"
-  // and "MAX_RANKED_PRECINCTS was consumed first", and in either case
-  // asking for a bigger door target returns the same set forever.
-  //
-  // With the shipped constants the retry never runs, because a ranking that
-  // stopped short of 10,000 voters is already exhausted and so cannot be
-  // holding back the 250 the floor wants. It is written as a loop anyway:
-  // both numbers are eval outputs declared tunable, and a floor raised
-  // above the door target would need it.
-  private async sizeDoorDraft(
-    district: DbxDistrict,
-    draft: VariantDraft,
-    scope: ResolvedScope,
-  ): Promise<SizedDraft | null> {
-    let doorTarget = DOOR_TARGET_VOTERS
-
-    for (let pass = 0; pass < MAX_DOOR_WIDENING_PASSES; pass++) {
-      const ranked = await this.reads.rankPrecincts(
-        district,
-        scope.filters,
-        doorTarget,
-        scope.idOverrides,
-      )
-      if (ranked.totalVoters >= RECOMMENDED_LIST_SIZE_FLOOR) {
-        return {
-          variant: draft.variant,
-          filter: {
-            ...draft.filter,
-            precincts: ranked.precincts.map(({ county, precinct }) =>
-              encodePrecinctPair(county, precinct),
-            ),
-          },
-          // The ranking counts the variant's own matching voters per
-          // precinct, so its total already IS the count of the restricted
-          // list. Issuing a second count for the same population would buy
-          // a number that can only disagree with this one.
-          count: ranked.totalVoters,
-        }
-      }
-      if (!ranked.reachedTarget) break
-      doorTarget *= DOOR_WIDENING_FACTOR
-    }
-
-    const districtWide = await this.reads.countForFilter(
-      district,
-      scope.filters,
-      scope.idOverrides,
-    )
-    return districtWide >= RECOMMENDED_LIST_SIZE_FLOOR
-      ? { ...draft, count: districtWide }
-      : null
   }
 }

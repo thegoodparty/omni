@@ -13,7 +13,6 @@ import {
 } from '../schemas/people.schema'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import { DatabricksVoterService } from './databricksVoter.service'
-import { MAX_RANKED_PRECINCTS } from './databricksRecommendedListsSql.util'
 import type { DbxDistrict } from './databricksVoterSql.util'
 import {
   PeopleDbxStatementClient,
@@ -472,19 +471,10 @@ describe('DatabricksVoterService', () => {
       expect(findDistrictById).not.toHaveBeenCalled()
     })
 
-    it('districtTotal counts the scope with no filter applied', async () => {
-      query.mockResolvedValueOnce({
-        columns: ['voter_count'],
-        rows: [['123456']],
-      })
-
-      const total = await service.districtTotal(DISTRICT)
-
-      expect(total).toBe(123456)
-      expect(query).toHaveBeenCalledOnce()
-    })
-
-    it('stops once cumulative voters hit doorTarget', async () => {
+    // The cut is the SQL's LIMIT, so this only has to sum what came back --
+    // but summing is exactly where a door list's count comes from, and the
+    // rows are strings off the wire.
+    it('sums the ranked precincts the query returns', async () => {
       query.mockResolvedValueOnce({
         columns: ['county', 'precinct', 'voters'],
         rows: [
@@ -494,67 +484,27 @@ describe('DatabricksVoterService', () => {
         ],
       })
 
-      const result = await service.rankPrecincts(DISTRICT, noFilters(), 10000)
+      const result = await service.rankPrecincts(DISTRICT, noFilters())
 
-      // 9000 alone is under target; +4000 reaches it, so the third precinct
-      // (already ranked lower) is never needed.
       expect(result).toEqual({
         precincts: [
           { county: 'Los Angeles', precinct: '001', voters: 9000 },
           { county: 'Los Angeles', precinct: '002', voters: 4000 },
+          { county: 'Los Angeles', precinct: '003', voters: 3000 },
         ],
-        totalVoters: 13000,
-        reachedTarget: true,
+        totalVoters: 16000,
       })
     })
 
-    it('flags reachedTarget false when precincts run out first', async () => {
+    it('reports an empty ranking as nobody rather than throwing', async () => {
       query.mockResolvedValueOnce({
         columns: ['county', 'precinct', 'voters'],
-        rows: [
-          ['Campti', '001', '200'],
-          ['Campti', '002', '120'],
-        ],
+        rows: [],
       })
 
-      const result = await service.rankPrecincts(DISTRICT, noFilters(), 10000)
+      const result = await service.rankPrecincts(DISTRICT, noFilters())
 
-      // Every fetched row is under target -- the district has nothing more
-      // to offer, not merely a slow accumulation, and reachedTarget has to
-      // say so rather than leave the caller to infer it from the row count.
-      expect(result).toEqual({
-        precincts: [
-          { county: 'Campti', precinct: '001', voters: 200 },
-          { county: 'Campti', precinct: '002', voters: 120 },
-        ],
-        totalVoters: 320,
-        reachedTarget: false,
-      })
-    })
-
-    // The other way reachedTarget can come back false: MAX_RANKED_PRECINCTS
-    // rows all came back (the query never signals "there could be more"), and
-    // even summing every one of them doesn't reach doorTarget. This is the
-    // branch a below-floor widening loop can never distinguish from a
-    // genuinely small district without this flag -- and the one that will
-    // otherwise go unexercised until a real large-and-fragmented district
-    // hits it in production.
-    it('flags reachedTarget false when the cap runs out first', async () => {
-      const rows = Array.from({ length: MAX_RANKED_PRECINCTS }, (_, i) => [
-        'Los Angeles',
-        String(i).padStart(3, '0'),
-        '10',
-      ])
-      query.mockResolvedValueOnce({
-        columns: ['county', 'precinct', 'voters'],
-        rows,
-      })
-
-      const result = await service.rankPrecincts(DISTRICT, noFilters(), 100000)
-
-      expect(result.precincts).toHaveLength(MAX_RANKED_PRECINCTS)
-      expect(result.totalVoters).toBe(MAX_RANKED_PRECINCTS * 10)
-      expect(result.reachedTarget).toBe(false)
+      expect(result).toEqual({ precincts: [], totalVoters: 0 })
     })
   })
 })

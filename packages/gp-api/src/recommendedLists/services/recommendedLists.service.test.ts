@@ -2,23 +2,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilter.utils'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import {
+  calcRobocallAmountInCents,
+  calcRobocallTotalInCents,
+} from '@/shared/util/robocallPricing.util'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
 import type { FilterData } from '@/peopleDb/schemas/filters.schema'
+import { DOOR_PRECINCT_COUNT } from '@/peopleDb/databricks/databricksRecommendedListsSql.util'
 import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
-import type { Organization } from '../../generated/prisma'
-import {
-  DOOR_TARGET_VOTERS,
-  DOOR_WIDENING_FACTOR,
-  RECOMMENDED_LIST_SIZE_FLOOR,
-} from '../recommendedLists.consts'
+import type { Campaign, Organization } from '../../generated/prisma'
+import { VOTE_GOAL_FLOOR_SHARE } from '../recommendedLists.consts'
 import { RecommendedListsService } from './recommendedLists.service'
 
 const DISTRICT_ID = '11111111-2222-3333-4444-555555555555'
-const DISTRICT_TOTAL = 100_000
-const CAMPAIGN_ID = 42
+const RACE_ID = 'br-race-hash'
+const VOTES_NEEDED = 4_000
+// The floor every non-exempt variant is held to, derived rather than
+// restated so a change to the share moves every expectation with it.
+const FLOOR = VOTES_NEEDED * VOTE_GOAL_FLOOR_SHARE
 
 const organization = { slug: 'win-org' } as Organization
 const electedOffice = { slug: 'eo-town-council' } as Organization
+const campaign = {
+  id: 42,
+  details: { raceId: RACE_ID },
+} as unknown as Campaign
 
 const district: DbxDistrict = {
   districtId: DISTRICT_ID,
@@ -35,6 +44,12 @@ const rankedPrecincts = (count: number) =>
     voters: 100,
   }))
 
+// A variant asking for supporters and nobody else — the shape the registry's
+// `supporterBased` flag marks, used here to key a mock on the id'd-supporter
+// universes without naming variants.
+const isSupporterUniverse = (filter: VoterFilterBase) =>
+  filter.supportStatus?.length === 1 && filter.supportStatus[0] === 'supporter'
+
 describe('RecommendedListsService.recommend', () => {
   let resolveEligibleDistrictId: ReturnType<typeof vi.fn>
   let resolveSavedFilterForQuery: ReturnType<typeof vi.fn>
@@ -42,8 +57,8 @@ describe('RecommendedListsService.recommend', () => {
   let findByOrganizationSlug: ReturnType<typeof vi.fn>
   let resolveDistrict: ReturnType<typeof vi.fn>
   let countForFilter: ReturnType<typeof vi.fn>
-  let districtTotal: ReturnType<typeof vi.fn>
   let rankPrecincts: ReturnType<typeof vi.fn>
+  let getRaceContext: ReturnType<typeof vi.fn>
   let service: RecommendedListsService
 
   beforeEach(() => {
@@ -59,13 +74,14 @@ describe('RecommendedListsService.recommend', () => {
     bucketForCampaign = vi.fn().mockResolvedValue(null)
     findByOrganizationSlug = vi.fn().mockResolvedValue([])
     resolveDistrict = vi.fn().mockResolvedValue(district)
-    countForFilter = vi.fn().mockResolvedValue(1000)
-    districtTotal = vi.fn().mockResolvedValue(DISTRICT_TOTAL)
+    countForFilter = vi.fn().mockResolvedValue(2_000)
     rankPrecincts = vi.fn().mockResolvedValue({
-      precincts: rankedPrecincts(4),
-      totalVoters: DOOR_TARGET_VOTERS,
-      reachedTarget: true,
+      precincts: rankedPrecincts(DOOR_PRECINCT_COUNT),
+      totalVoters: 100 * DOOR_PRECINCT_COUNT,
     })
+    getRaceContext = vi
+      .fn()
+      .mockResolvedValue({ winNumberEffective: VOTES_NEEDED })
 
     service = new RecommendedListsService(
       { resolveEligibleDistrictId, resolveSavedFilterForQuery } as never,
@@ -74,9 +90,9 @@ describe('RecommendedListsService.recommend', () => {
       {
         resolveDistrict,
         countForFilter,
-        districtTotal,
         rankPrecincts,
       } as never,
+      { getRaceContext } as never,
       createMockLogger(),
     )
   })
@@ -84,7 +100,7 @@ describe('RecommendedListsService.recommend', () => {
   it('omits ideology variants when the campaign has no bucket', async () => {
     const results = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'persuade',
     )
@@ -100,7 +116,7 @@ describe('RecommendedListsService.recommend', () => {
 
     const results = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'persuade',
     )
@@ -119,7 +135,7 @@ describe('RecommendedListsService.recommend', () => {
 
     const results = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'persuade',
     )
@@ -131,89 +147,415 @@ describe('RecommendedListsService.recommend', () => {
     ])
   })
 
-  it('omits a variant one voter under the size floor', async () => {
-    countForFilter.mockResolvedValue(RECOMMENDED_LIST_SIZE_FLOOR - 1)
+  describe('the vote-goal size floor', () => {
+    it('omits a variant one voter under a quarter of the vote goal', async () => {
+      countForFilter.mockResolvedValue(FLOOR - 1)
 
-    const results = await service.recommend(
-      organization,
-      CAMPAIGN_ID,
-      'sms',
-      'introduce',
-    )
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
 
-    expect(results).toEqual([])
+      expect(results).toEqual([])
+    })
+
+    it('keeps a variant sitting exactly on a quarter of the vote goal', async () => {
+      countForFilter.mockResolvedValue(FLOOR)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(results).toHaveLength(1)
+      expect(results[0]?.count).toBe(FLOOR)
+    })
+
+    // The case this change is for. 300 people cleared the old absolute floor
+    // of 250 and shipped a card; against a 4,000-vote goal it is 7.5% of what
+    // the race needs, and no longer worth one.
+    it('omits a list that is comfortably over 250 but under the share', async () => {
+      countForFilter.mockResolvedValue(300)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(results).toEqual([])
+    })
+
+    // A door list is three precincts, so precinct size sets how big it is
+    // and the race has nothing to say about it. Holding it to a race-wide
+    // goal would suppress nearly every one.
+    it('keeps a door list far under the share', async () => {
+      rankPrecincts.mockResolvedValue({
+        precincts: rankedPrecincts(3),
+        totalVoters: 300,
+      })
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'doorKnocking',
+        'introduce',
+      )
+
+      expect(first?.count).toBe(300)
+    })
+
+    // A supporter list is additive: it is always offered beside a bigger
+    // recommendation for the same intent, so a small one is still useful.
+    it('keeps a supporter variant far under the share', async () => {
+      resolveSavedFilterForQuery.mockImplementation(
+        async (_organization: Organization, filter: VoterFilterBase) => ({
+          filters: convertVoterFileFilterToFilters(filter),
+          empty: false,
+          // Carried through so the count mock below can tell the supporter
+          // universe apart from the exclusion-list one.
+          idOverrides: isSupporterUniverse(filter)
+            ? { include: ['supporter-1'] }
+            : undefined,
+        }),
+      )
+      countForFilter.mockImplementation(
+        (_district, _filters, idOverrides?: { include: string[] }) =>
+          Promise.resolve(idOverrides ? 300 : 2_000),
+      )
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'event',
+      )
+
+      expect(results.map((result) => [result.variant, result.count])).toEqual([
+        ['eventSupporters', 300],
+        ['eventAffinity', 2_000],
+      ])
+    })
+
+    // No floor is not the same as no minimum: an exempt variant with nobody
+    // in it is still dropped, because a card offering nobody is worse than
+    // no card. `resolved.empty` does not cover this — the campaign has
+    // supporters, none of whom carry a cell phone.
+    it('drops an exempt supporter variant that counts zero', async () => {
+      resolveSavedFilterForQuery.mockImplementation(
+        async (_organization: Organization, filter: VoterFilterBase) => ({
+          filters: convertVoterFileFilterToFilters(filter),
+          empty: false,
+          idOverrides: isSupporterUniverse(filter)
+            ? { include: ['supporter-1'] }
+            : undefined,
+        }),
+      )
+      countForFilter.mockImplementation(
+        (_district, _filters, idOverrides?: { include: string[] }) =>
+          Promise.resolve(idOverrides ? 0 : 2_000),
+      )
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'event',
+      )
+
+      expect(results.map((result) => result.variant)).toEqual(['eventAffinity'])
+    })
+
+    it('drops an exempt door variant with nobody in it', async () => {
+      rankPrecincts.mockResolvedValue({ precincts: [], totalVoters: 0 })
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'doorKnocking',
+        'introduce',
+      )
+
+      expect(results).toEqual([])
+    })
+
+    // Nothing to take a share of, so there is nothing to hold the list to.
+    // A race we cannot price still gets its recommendations.
+    it('applies no floor when the vote goal cannot be resolved', async () => {
+      getRaceContext.mockRejectedValue(new Error('election-api down'))
+      countForFilter.mockResolvedValue(3)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(results).toHaveLength(1)
+      expect(results[0]?.count).toBe(3)
+    })
+
+    it('applies no floor when the campaign has no raceId', async () => {
+      countForFilter.mockResolvedValue(3)
+
+      const results = await service.recommend(
+        organization,
+        { id: 42, details: {} } as unknown as Campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(getRaceContext).not.toHaveBeenCalled()
+      expect(results).toHaveLength(1)
+    })
+
+    // A zero or negative win number is not a vote goal, and treating it as
+    // one makes every list pass a floor of zero while reporting an infinite
+    // or negative share.
+    it('treats a non-positive win number as no vote goal', async () => {
+      getRaceContext.mockResolvedValue({ winNumberEffective: 0 })
+      countForFilter.mockResolvedValue(3)
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(first?.count).toBe(3)
+      expect(first).not.toHaveProperty('voteGoalShare')
+    })
+
+    it('still empties when every variant is merely too small', async () => {
+      bucketForCampaign.mockResolvedValue('progressive')
+      countForFilter.mockResolvedValue(FLOOR - 1)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'persuade',
+      )
+
+      expect(results).toEqual([])
+    })
   })
 
-  it('keeps a variant sitting exactly on the size floor', async () => {
-    countForFilter.mockResolvedValue(RECOMMENDED_LIST_SIZE_FLOOR)
+  describe('voteGoalShare', () => {
+    it('divides the count by the vote goal', async () => {
+      countForFilter.mockResolvedValue(2_500)
 
-    const results = await service.recommend(
-      organization,
-      CAMPAIGN_ID,
-      'sms',
-      'introduce',
-    )
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
 
-    expect(results).toHaveLength(1)
-    expect(results[0]?.count).toBe(RECOMMENDED_LIST_SIZE_FLOOR)
+      expect(getRaceContext).toHaveBeenCalledWith(RACE_ID)
+      expect(first?.voteGoalShare).toBeCloseTo(2_500 / VOTES_NEEDED, 10)
+    })
+
+    // A list can hold several times the votes a race needs, so the share is
+    // not a percentage of anything and must not be clamped.
+    it('reports a share above one rather than clamping it', async () => {
+      countForFilter.mockResolvedValue(VOTES_NEEDED * 3)
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(first?.voteGoalShare).toBe(3)
+    })
+
+    // Field-level rather than a partial match: `voteGoalShare` has to be
+    // absent, not null, and an extra key here is invisible to toMatchObject.
+    it('omits voteGoalShare entirely when the vote goal fails', async () => {
+      getRaceContext.mockRejectedValue(new Error('election-api down'))
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(Object.keys(first ?? {}).sort()).toEqual([
+        'copy',
+        'count',
+        'estimatedCostCents',
+        'existingFilterId',
+        'filter',
+        'variant',
+      ])
+    })
+
+    // One election-api round trip per request, not one per variant.
+    it('resolves the vote goal once for a three-variant intent', async () => {
+      bucketForCampaign.mockResolvedValue('progressive')
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'persuade',
+      )
+
+      expect(results).toHaveLength(3)
+      expect(getRaceContext).toHaveBeenCalledTimes(1)
+    })
   })
 
-  // The district total is part of the fan-out, not a step before it, so
-  // the counter it shares with the variant counts has to see all four in
-  // flight at once — three variants plus the total.
-  it('fans the counts and the district total out together', async () => {
-    bucketForCampaign.mockResolvedValue('progressive')
-    let inFlight = 0
-    let peak = 0
-    const track = async <Value>(value: Value): Promise<Value> => {
-      inFlight += 1
-      peak = Math.max(peak, inFlight)
-      await new Promise((resolve) => setTimeout(resolve, 1))
-      inFlight -= 1
-      return value
-    }
-    countForFilter.mockImplementation(() => track(1000))
-    districtTotal.mockImplementation(() => track(DISTRICT_TOTAL))
+  describe('estimatedCostCents', () => {
+    it('prices an sms list at the text rate the checkout charges', async () => {
+      countForFilter.mockResolvedValue(2_000)
 
-    await service.recommend(organization, CAMPAIGN_ID, 'sms', 'persuade')
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
 
-    expect(peak).toBe(4)
+      expect(first?.estimatedCostCents).toBe(calcTextAmountInCents(2_000))
+      expect(first?.estimatedCostCents).toBe(7_000)
+    })
+
+    // The calls portion alone. The $2 caller-ID number fee is charged once
+    // per run, not per contact, and no pre-purchase screen shows it in an
+    // estimate — so pricing off the total would make this card the only
+    // surface that disagrees with the robocall review step.
+    it('prices a robocall list per call, without the number fee', async () => {
+      countForFilter.mockResolvedValue(2_000)
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'robocall',
+        'introduce',
+      )
+
+      expect(first?.estimatedCostCents).toBe(calcRobocallAmountInCents(2_000))
+      expect(first?.estimatedCostCents).toBe(9_000)
+      expect(first?.estimatedCostCents).not.toBe(
+        calcRobocallTotalInCents(2_000),
+      )
+    })
+
+    // Volunteer-run, so there is no per-contact price to report. Absent
+    // rather than zero: a "$0" on the card reads as "free" where the truth
+    // is "not applicable". Key-level, because a zero would slip past a
+    // partial match.
+    it('omits the cost entirely for phone banking', async () => {
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'phoneBanking',
+        'introduce',
+      )
+
+      expect(Object.keys(first ?? {}).sort()).toEqual([
+        'copy',
+        'count',
+        'existingFilterId',
+        'filter',
+        'variant',
+        'voteGoalShare',
+      ])
+    })
+
+    it('omits the cost entirely for door knocking', async () => {
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'doorKnocking',
+        'introduce',
+      )
+
+      expect(Object.keys(first ?? {}).sort()).toEqual([
+        'copy',
+        'count',
+        'existingFilterId',
+        'filter',
+        'variant',
+        'voteGoalShare',
+      ])
+    })
+
+    // The count the price is computed from is the channel-refined one: the
+    // filter already carries `hasCellPhone`, so the number the candidate is
+    // quoted is what it costs to text the people who can be texted, not the
+    // whole universe.
+    it('prices the channel-refined count, not the raw universe', async () => {
+      countForFilter.mockImplementation((_district, filters: FilterData) =>
+        Promise.resolve(
+          filters.filters.includes('hasCellPhone') ? 1_000 : 9_999,
+        ),
+      )
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(first?.count).toBe(1_000)
+      expect(first?.estimatedCostCents).toBe(calcTextAmountInCents(1_000))
+    })
   })
 
-  it('divides the count by the mart district total for the share', async () => {
-    countForFilter.mockResolvedValue(2_500)
+  describe('the concurrent fan-out', () => {
+    // The vote goal gates the size floor, so it has to land before the
+    // counts — but it is an election-api round trip and nothing else in the
+    // first hop waits on it. Resolving it serially in front would show up
+    // here as a peak of one.
+    it('resolves the vote goal alongside the district lookup', async () => {
+      let inFlight = 0
+      let peak = 0
+      const track = async <Value>(value: Value): Promise<Value> => {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 1))
+        inFlight -= 1
+        return value
+      }
+      resolveEligibleDistrictId.mockImplementation(() => track(DISTRICT_ID))
+      getRaceContext.mockImplementation(() =>
+        track({ winNumberEffective: VOTES_NEEDED }),
+      )
 
-    const [first] = await service.recommend(
-      organization,
-      CAMPAIGN_ID,
-      'sms',
-      'introduce',
-    )
+      await service.recommend(organization, campaign, 'sms', 'introduce')
 
-    expect(districtTotal).toHaveBeenCalledWith(district)
-    expect(first?.districtShare).toBeCloseTo(2_500 / DISTRICT_TOTAL, 10)
-  })
+      expect(peak).toBe(2)
+    })
 
-  // Field-level: `estimatedCost` is deferred and must not appear at all,
-  // and `districtShare` must be absent rather than null when the total is
-  // unreadable. An extra key here is invisible to a partial match.
-  it('omits districtShare entirely when the district total fails', async () => {
-    districtTotal.mockRejectedValue(new Error('warehouse timeout'))
+    it('fans the variant counts out together', async () => {
+      bucketForCampaign.mockResolvedValue('progressive')
+      let inFlight = 0
+      let peak = 0
+      countForFilter.mockImplementation(async () => {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 1))
+        inFlight -= 1
+        return 2_000
+      })
 
-    const [first] = await service.recommend(
-      organization,
-      CAMPAIGN_ID,
-      'sms',
-      'introduce',
-    )
+      await service.recommend(organization, campaign, 'sms', 'persuade')
 
-    expect(Object.keys(first ?? {}).sort()).toEqual([
-      'copy',
-      'count',
-      'existingFilterId',
-      'filter',
-      'variant',
-    ])
+      expect(peak).toBe(3)
+    })
   })
 
   it('returns the existing filter id when the list exists', async () => {
@@ -231,7 +573,7 @@ describe('RecommendedListsService.recommend', () => {
 
     const [first] = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'introduce',
     )
@@ -258,7 +600,7 @@ describe('RecommendedListsService.recommend', () => {
 
     const [first] = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'introduce',
     )
@@ -285,7 +627,7 @@ describe('RecommendedListsService.recommend', () => {
 
     const [first] = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'introduce',
     )
@@ -305,7 +647,7 @@ describe('RecommendedListsService.recommend', () => {
 
     const [first] = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'introduce',
     )
@@ -320,12 +662,12 @@ describe('RecommendedListsService.recommend', () => {
     countForFilter.mockImplementation((_district, filters: FilterData) =>
       filters.filters.includes('independentAffinity')
         ? Promise.reject(new Error('warehouse timeout'))
-        : Promise.resolve(1000),
+        : Promise.resolve(2_000),
     )
 
     const results = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'persuade',
     )
@@ -345,7 +687,7 @@ describe('RecommendedListsService.recommend', () => {
     countForFilter.mockRejectedValue(outage)
 
     await expect(
-      service.recommend(organization, CAMPAIGN_ID, 'sms', 'persuade'),
+      service.recommend(organization, campaign, 'sms', 'persuade'),
     ).rejects.toBe(outage)
   })
 
@@ -360,30 +702,15 @@ describe('RecommendedListsService.recommend', () => {
     // support clause is an exclusion and still resolves.
     resolveSavedFilterForQuery.mockImplementation(
       async (_organization: Organization, filter: VoterFilterBase) =>
-        filter.supportStatus?.length === 1 &&
-        filter.supportStatus[0] === 'supporter'
+        isSupporterUniverse(filter)
           ? { filters: {}, empty: true }
           : { filters: convertVoterFileFilterToFilters(filter), empty: false },
     )
     countForFilter.mockRejectedValue(outage)
 
     await expect(
-      service.recommend(organization, CAMPAIGN_ID, 'sms', 'event'),
+      service.recommend(organization, campaign, 'sms', 'event'),
     ).rejects.toBe(outage)
-  })
-
-  it('still empties when every variant is merely too small', async () => {
-    bucketForCampaign.mockResolvedValue('progressive')
-    countForFilter.mockResolvedValue(RECOMMENDED_LIST_SIZE_FLOOR - 1)
-
-    const results = await service.recommend(
-      organization,
-      CAMPAIGN_ID,
-      'sms',
-      'persuade',
-    )
-
-    expect(results).toEqual([])
   })
 
   it('omits a variant whose support status resolves to nobody', async () => {
@@ -394,7 +721,7 @@ describe('RecommendedListsService.recommend', () => {
 
     const results = await service.recommend(
       organization,
-      CAMPAIGN_ID,
+      campaign,
       'sms',
       'introduce',
     )
@@ -407,32 +734,28 @@ describe('RecommendedListsService.recommend', () => {
   // use a bucket — so asking for one buys nothing on the intent every flow
   // opens on.
   it('does not classify ideology for an intent with no ideology variant', async () => {
-    await service.recommend(organization, CAMPAIGN_ID, 'sms', 'introduce')
+    await service.recommend(organization, campaign, 'sms', 'introduce')
 
     expect(bucketForCampaign).not.toHaveBeenCalled()
   })
 
   it('classifies ideology for an intent that has an ideology variant', async () => {
-    await service.recommend(organization, CAMPAIGN_ID, 'sms', 'persuade')
+    await service.recommend(organization, campaign, 'sms', 'persuade')
 
-    expect(bucketForCampaign).toHaveBeenCalledWith(CAMPAIGN_ID)
+    expect(bucketForCampaign).toHaveBeenCalledWith(campaign.id)
   })
 
   it('returns nothing for an intent with no variants', async () => {
-    const results = await service.recommend(
-      organization,
-      CAMPAIGN_ID,
-      'sms',
-      null,
-    )
+    const results = await service.recommend(organization, campaign, 'sms', null)
 
     expect(results).toEqual([])
     expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
+    expect(getRaceContext).not.toHaveBeenCalled()
   })
 
   it('refuses an elected-office org rather than emptying', async () => {
     await expect(
-      service.recommend(electedOffice, CAMPAIGN_ID, 'sms', 'introduce'),
+      service.recommend(electedOffice, campaign, 'sms', 'introduce'),
     ).rejects.toBeInstanceOf(BadRequestException)
 
     expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
@@ -441,14 +764,13 @@ describe('RecommendedListsService.recommend', () => {
   describe('door knocking', () => {
     it('takes the count from the ranking, not a second query', async () => {
       rankPrecincts.mockResolvedValue({
-        precincts: rankedPrecincts(4),
+        precincts: rankedPrecincts(3),
         totalVoters: 6_000,
-        reachedTarget: true,
       })
 
       const [first] = await service.recommend(
         organization,
-        CAMPAIGN_ID,
+        campaign,
         'doorKnocking',
         'introduce',
       )
@@ -458,78 +780,31 @@ describe('RecommendedListsService.recommend', () => {
         'ALLEGHENY|P0',
         'ALLEGHENY|P1',
         'ALLEGHENY|P2',
-        'ALLEGHENY|P3',
       ])
       expect(countForFilter).not.toHaveBeenCalled()
     })
 
-    it('widens the precinct set when a door list is short', async () => {
-      rankPrecincts
-        .mockResolvedValueOnce({
-          precincts: rankedPrecincts(3),
-          totalVoters: 100,
-          reachedTarget: true,
-        })
-        .mockResolvedValueOnce({
-          precincts: rankedPrecincts(6),
-          totalVoters: 400,
-          reachedTarget: true,
-        })
-
-      const [first] = await service.recommend(
-        organization,
-        CAMPAIGN_ID,
-        'doorKnocking',
-        'introduce',
-      )
-
-      expect(first?.filter.precincts).toHaveLength(6)
-      expect(first?.count).toBe(400)
-      expect(rankPrecincts.mock.calls.map((call) => call[2])).toEqual([
-        DOOR_TARGET_VOTERS,
-        DOOR_TARGET_VOTERS * DOOR_WIDENING_FACTOR,
-      ])
-    })
-
-    // The third outcome, and the one that would otherwise never run until a
-    // real district hit it: the ranking is spent, so widening cannot help
-    // and the district-wide list is what gets sized.
-    it('stops widening a spent ranking and sizes the district', async () => {
+    // The whole door rule, and the mutation it guards: a district-wide
+    // fallback, or any second read, would show up here as an extra call and
+    // hand a canvasser the district instead of three precincts.
+    it('reads the ranking once and never widens or falls back', async () => {
       rankPrecincts.mockResolvedValue({
-        precincts: rankedPrecincts(2),
+        precincts: rankedPrecincts(1),
         totalVoters: 100,
-        reachedTarget: false,
       })
-      countForFilter.mockResolvedValue(900)
 
       const [first] = await service.recommend(
         organization,
-        CAMPAIGN_ID,
+        campaign,
         'doorKnocking',
         'introduce',
       )
 
       expect(rankPrecincts).toHaveBeenCalledTimes(1)
-      expect(first?.count).toBe(900)
-      expect(first?.filter.precincts).toBeUndefined()
-    })
-
-    it('omits a door variant whose district-wide count is short', async () => {
-      rankPrecincts.mockResolvedValue({
-        precincts: rankedPrecincts(2),
-        totalVoters: 10,
-        reachedTarget: false,
-      })
-      countForFilter.mockResolvedValue(RECOMMENDED_LIST_SIZE_FLOOR - 1)
-
-      const results = await service.recommend(
-        organization,
-        CAMPAIGN_ID,
-        'doorKnocking',
-        'introduce',
-      )
-
-      expect(results).toEqual([])
+      expect(rankPrecincts.mock.calls[0]).toHaveLength(3)
+      expect(countForFilter).not.toHaveBeenCalled()
+      expect(first?.count).toBe(100)
+      expect(first?.filter.precincts).toEqual(['ALLEGHENY|P0'])
     })
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import {
   buildRankPrecinctsSql,
-  MAX_RANKED_PRECINCTS,
+  DOOR_PRECINCT_COUNT,
 } from './databricksRecommendedListsSql.util'
 import type { DbxDistrict } from './databricksVoterSql.util'
 
@@ -21,7 +21,6 @@ describe('buildRankPrecinctsSql', () => {
     const { sql } = buildRankPrecinctsSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
-      limit: MAX_RANKED_PRECINCTS,
     })
     expect(sql).toMatch(/Precinct`\s+IS NOT NULL/)
     // Pins the comparison direction, not just that length(trim(...)) is
@@ -35,7 +34,6 @@ describe('buildRankPrecinctsSql', () => {
     const { sql } = buildRankPrecinctsSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
-      limit: MAX_RANKED_PRECINCTS,
     })
     expect(sql).toMatch(/GROUP BY .*County.*Precinct/)
   })
@@ -44,28 +42,32 @@ describe('buildRankPrecinctsSql', () => {
     const { sql } = buildRankPrecinctsSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
-      limit: MAX_RANKED_PRECINCTS,
     })
     expect(sql).toMatch(/ORDER BY voters DESC/)
   })
 
-  it('bounds the row count with the given limit', () => {
+  // The whole door-list narrowing: the top three precincts by count and
+  // nothing else. Bound rather than interpolated, and asserted on the bound
+  // value rather than just the presence of a LIMIT -- a LIMIT of 500 would
+  // pass a `/LIMIT :p\d+/` match while handing a canvasser the district.
+  it('cuts the ranking to the fixed door precinct count', () => {
     const { sql, params } = buildRankPrecinctsSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
-      limit: 42,
     })
     expect(sql).toMatch(/LIMIT :p\d+$/)
     expect(
-      params.find((p) => p.value === '42' && p.type === 'INT'),
+      params.find(
+        (p) => p.value === String(DOOR_PRECINCT_COUNT) && p.type === 'INT',
+      ),
     ).toBeTruthy()
+    expect(DOOR_PRECINCT_COUNT).toBe(3)
   })
 
   it('binds the district name rather than interpolating it', () => {
     const { sql, params } = buildRankPrecinctsSql({
       district: { ...CONGRESSIONAL, districtName: "O'Brien County" },
       filters: noFilters(),
-      limit: MAX_RANKED_PRECINCTS,
     })
     expect(sql).not.toContain("O'Brien")
     expect(params.map((p) => p.value)).toContain("O'Brien County")
@@ -75,7 +77,6 @@ describe('buildRankPrecinctsSql', () => {
     const { sql, params } = buildRankPrecinctsSql({
       district: CONGRESSIONAL,
       filters: filtersSchema.parse({ hasCellPhone: true }),
-      limit: MAX_RANKED_PRECINCTS,
     })
     expect(sql).toContain('WHERE')
     expect(sql).toContain('VoterTelephones_CellPhoneFormatted')
