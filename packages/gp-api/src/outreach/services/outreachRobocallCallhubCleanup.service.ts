@@ -29,11 +29,11 @@ export class OutreachRobocallCallhubCleanupService {
     this.logger.setContext(OutreachRobocallCallhubCleanupService.name)
   }
 
-  // Prod-only (a real CallHub call, stubbed on dev/preview). Deliberately NOT
-  // kill-switch-gated: ABORT only ever makes a campaign LESS likely to dial, so
-  // it is safe to run unconditionally, and the orphans it clears accumulate
-  // regardless of whether dialing/capture are enabled. No CronLockService — the
-  // per-row markAborted CAS makes a double-run idempotent across replicas.
+  // Prod-only (a real CallHub call, stubbed on dev/preview): ABORT only ever
+  // makes a campaign LESS likely to dial, so it needs no gate beyond prod-only,
+  // and the orphans it clears accumulate independently of any run. No
+  // CronLockService — the per-row markAborted CAS makes a double-run idempotent
+  // across replicas.
   @Cron(ROBOCALL_CALLHUB_CLEANUP_CRON, {
     name: ROBOCALL_CALLHUB_CLEANUP_JOB,
     timeZone: EASTERN_TIMEZONE,

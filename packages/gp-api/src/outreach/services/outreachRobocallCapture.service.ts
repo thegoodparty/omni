@@ -35,12 +35,6 @@ const ROBOCALL_CAPTURE_SWEEP_JOB = 'robocallCaptureSweep'
 // double-charges.
 const ROBOCALL_CAPTURING_STALE_MINUTES = 15
 
-// Kill-switch, default OFF. Capture MOVES REAL MONEY off the hold; it must not
-// auto-run until deliberately enabled. Separate from ROBOCALL_SEND_ENABLED so
-// the actual charge is a distinct, second deliberate act from enabling dialing —
-// two switches guard the two money-moving steps of the supervised live test.
-const isCaptureEnabled = () => process.env.ROBOCALL_CAPTURE_ENABLED === 'true'
-
 // The capture half of settlement: for a robocall run the completion sweep left
 // in `settling` with a confirmed `completedCallCount`, capture the authorized
 // hold for the FULL authorized estimate (the amount held + quoted; INV-1 holds
@@ -66,15 +60,13 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
   // the `settling → capturing` claim, so two replicas racing both SELECT the
   // same candidates but only ONE wins each row's claim. @Cron (not @Interval) so
   // the schedule survives deploys and every replica fires on the same instant.
-  // Prod-only (a real charge; Stripe is stubbed on dev/preview) AND kill-switch-
-  // gated (default OFF — the deliberate enable for the actual capture).
+  // Prod-only (a real charge; Stripe is stubbed on dev/preview).
   @Cron(ROBOCALL_CAPTURE_SWEEP_CRON, {
     name: ROBOCALL_CAPTURE_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepCaptures(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
-    if (!isCaptureEnabled()) return
 
     // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
     // nearest their Stripe auto-expiry must capture first so none lapse

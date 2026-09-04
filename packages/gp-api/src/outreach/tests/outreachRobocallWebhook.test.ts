@@ -286,11 +286,13 @@ describe('OutreachRobocallWebhookService', () => {
   describe('retryHoldFailedForAttachedCard', () => {
     const CUSTOMER = 'cus_1'
     const NEW_PM = 'pm_new'
-    const originalFlag = process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
+    const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
     let authorizeSpy: ReturnType<typeof vi.spyOn>
 
     beforeEach(() => {
-      process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = 'true'
+      // This path reserves real money off-session, so it is prod-gated; the
+      // real-path tests below must run as prod.
+      process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
       authorizeSpy = vi
         .spyOn(service.app.get(OutreachRobocallHoldService), 'authorizeHold')
         .mockResolvedValue({
@@ -300,11 +302,23 @@ describe('OutreachRobocallWebhookService', () => {
         })
     })
     afterEach(() => {
-      if (originalFlag === undefined) {
-        delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-      } else {
-        process.env.ROBOCALL_DEFERRED_HOLD_ENABLED = originalFlag
-      }
+      if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+      else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
+    })
+
+    it('no-ops off prod: a would-be-retried draft is left untouched', async () => {
+      process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+      const outreachId = await createDraft({
+        settleState: RobocallSettleState.hold_failed,
+        stripeCustomerId: CUSTOMER,
+      })
+
+      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
+
+      expect(authorizeSpy).not.toHaveBeenCalled()
+      expect((await readSatellite(outreachId)).settleState).toBe(
+        RobocallSettleState.hold_failed,
+      )
     })
 
     it('retries the hold for an in-window hold_failed draft with the new card', async () => {
@@ -368,18 +382,6 @@ describe('OutreachRobocallWebhookService', () => {
     it('skips a draft that is not hold_failed', async () => {
       await createDraft({
         settleState: RobocallSettleState.authorized,
-        stripeCustomerId: CUSTOMER,
-      })
-
-      await webhooks.retryHoldFailedForAttachedCard(CUSTOMER, NEW_PM)
-
-      expect(authorizeSpy).not.toHaveBeenCalled()
-    })
-
-    it('no-ops when the off-session hold kill-switch is unset', async () => {
-      delete process.env.ROBOCALL_DEFERRED_HOLD_ENABLED
-      await createDraft({
-        settleState: RobocallSettleState.hold_failed,
         stripeCustomerId: CUSTOMER,
       })
 

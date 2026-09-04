@@ -391,17 +391,13 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
 
 describe('OutreachRobocallCaptureService.sweepCaptures', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalFlag = process.env.ROBOCALL_CAPTURE_ENABLED
 
   beforeEach(() => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    process.env.ROBOCALL_CAPTURE_ENABLED = 'true'
   })
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalFlag === undefined) delete process.env.ROBOCALL_CAPTURE_ENABLED
-    else process.env.ROBOCALL_CAPTURE_ENABLED = originalFlag
   })
 
   it('captures an arrived settling run, once across repeat sweeps', async () => {
@@ -458,18 +454,6 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
 
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
-    const outreachId = await createDraft({ completedCallCount: 100 })
-
-    await capture.sweepCaptures()
-
-    expect(captureSpy).not.toHaveBeenCalled()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.settling,
-    )
-  })
-
-  it('no-ops when the capture kill-switch is unset even on prod', async () => {
-    delete process.env.ROBOCALL_CAPTURE_ENABLED
     const outreachId = await createDraft({ completedCallCount: 100 })
 
     await capture.sweepCaptures()

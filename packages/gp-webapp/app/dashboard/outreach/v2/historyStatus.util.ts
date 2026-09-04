@@ -104,12 +104,23 @@ export const getHistoryStatusLabel = (row: HistoryRow): string | null => {
   ) {
     return 'In progress'
   }
-  // A robocall with spine `pending` is a paid, scheduled send awaiting its send
-  // date (the hold is placed; the send sweep dials it on the day), not a
-  // Political Assistant "In review" request — so read it as Scheduled, the
-  // sending-channel word, rather than the non-p2p map's default.
-  if (row.outreachType === 'robocall' && status === 'pending') {
-    return 'Scheduled'
+  // A robocall lifecycle reads Scheduled → In progress → Done. Spine `pending`
+  // is a paid, scheduled send awaiting its send date (the hold is placed; the
+  // send sweep dials it on the day) — read as Scheduled, the sending-channel
+  // word, not the non-p2p map's default nor a Political Assistant "In review".
+  // On dial the send sweep advances the spine to `in_progress`: the run is
+  // actively dialing, which is "In progress" (the same active-run meaning the
+  // native channels' branch above carries), not the non-p2p map's legacy
+  // "Scheduled". `completed` (at capture) reads "Done" off the map. Legacy text
+  // and social share that map but have no in_progress lifecycle, so the map is
+  // left untouched and only robocall is relabeled here.
+  if (row.outreachType === 'robocall') {
+    if (status === 'pending') {
+      return 'Scheduled'
+    }
+    if (status === 'in_progress') {
+      return 'In progress'
+    }
   }
   return nonP2pStatusLabels[status]
 }

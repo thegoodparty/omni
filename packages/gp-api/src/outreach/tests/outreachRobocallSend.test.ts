@@ -542,19 +542,15 @@ describe('OutreachRobocallSendService.startCampaign — spine + no per-contact r
   })
 })
 
-describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => {
+describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalEnabled = process.env.ROBOCALL_SEND_ENABLED
 
   beforeEach(() => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    process.env.ROBOCALL_SEND_ENABLED = 'true'
   })
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalEnabled === undefined) delete process.env.ROBOCALL_SEND_ENABLED
-    else process.env.ROBOCALL_SEND_ENABLED = originalEnabled
   })
 
   it('dials only arrived drafts, once across repeat sweeps', async () => {
@@ -727,31 +723,14 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod, enabled)', () => 
 
 describe('OutreachRobocallSendService.sweepRobocallSend guards', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalEnabled = process.env.ROBOCALL_SEND_ENABLED
 
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalEnabled === undefined) delete process.env.ROBOCALL_SEND_ENABLED
-    else process.env.ROBOCALL_SEND_ENABLED = originalEnabled
   })
 
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
-    process.env.ROBOCALL_SEND_ENABLED = 'true'
-    const outreachId = await createDraft({ sendInHours: -1 })
-
-    await send.sweepRobocallSend()
-
-    expect(launchSpy).not.toHaveBeenCalled()
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.authorized,
-    )
-  })
-
-  it('no-ops on prod when the kill-switch is off', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    delete process.env.ROBOCALL_SEND_ENABLED
     const outreachId = await createDraft({ sendInHours: -1 })
 
     await send.sweepRobocallSend()

@@ -40,10 +40,9 @@ const ROBOCALL_REMINDER_MIN_INTERVAL_HOURS = 23
 // single-owner `hold_failed → cancelled` CAS for the cancel — so two replicas
 // racing a sweep both SELECT the same candidates but only ONE wins each draft,
 // and the email fires once. No CronLockService (the per-record CAS is the
-// dedup) and no kill-switch: unlike the send sweep these neither dial nor
-// charge — cancel places/voids nothing (a declined hold reserved no money) —
-// so they mirror the staging/completion sweeps, which carry no kill-switch
-// either. @Cron (not @Interval) so the schedule survives deploys.
+// dedup): these neither dial nor charge — cancel places/voids nothing (a
+// declined hold reserved no money) — so the prod-only guard is all they need.
+// @Cron (not @Interval) so the schedule survives deploys.
 @Injectable()
 export class OutreachRobocallHoldFailureService extends createPrismaBase(
   MODELS.OutreachRobocall,
