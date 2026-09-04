@@ -267,6 +267,20 @@ describe('TeamInvitePage', () => {
     ).not.toBeDisabled()
   })
 
+  it('a signed-in user with no invite who opens someone else\u2019s invite link gets the neutral state, never the account form', async () => {
+    mockUser = { publicMetadata: {} }
+    mockSearchParams = new URLSearchParams({
+      __clerk_ticket: 'someone-elses-ticket',
+    })
+
+    render(<TeamInvitePage />)
+
+    expect(await screen.findByText('No pending invitation')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+    expect(mockSignUpCreate).not.toHaveBeenCalled()
+    expect(mockSignOut).not.toHaveBeenCalled()
+  })
+
   it('signed out with no ticket bounces to /login with the redirect_url the middleware used to set', async () => {
     mockUser = null
 

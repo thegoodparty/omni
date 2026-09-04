@@ -214,10 +214,11 @@ const TeamInvitePage = () => {
     setErrorMessage(null)
     setSubmitting(true)
     try {
-      // A stale session can be active here (this branch only renders when
-      // that session holds no invite) — clear it so the ticket's own account
-      // is the one activated. The no-op callback stops Clerk's default
-      // post-sign-out navigation from unloading the page mid-redemption.
+      // The form only renders signed-out, but a session can still appear
+      // mid-flight (another tab signing in) — clear it so the ticket's own
+      // account is the one activated. The no-op callback stops Clerk's
+      // default post-sign-out navigation from unloading the page
+      // mid-redemption.
       if (clerk.user) {
         try {
           await clerk.signOut(() => undefined)
@@ -299,13 +300,12 @@ const TeamInvitePage = () => {
 
   const invite: DisplayInvite | null = metadataInvite ?? fallbackInvite
   const showInviteCard = !!invite && !inviteGone
-  // Redeemable ticket: signed out with a ticket, or a session that holds no
-  // invite of its own landing on someone's invite link.
+  // Redeemable ticket: signed out only. A signed-in session with no invite
+  // of its own that lands on someone else's invite link gets the neutral
+  // state instead — redeeming would silently sign the current account out
+  // and replace it with the ticket's (delegate finding, PR #1692).
   const showTicketForm =
-    !showInviteCard &&
-    !inviteGone &&
-    !!ticket &&
-    (isSignedOut || fallbackChecked)
+    !showInviteCard && !inviteGone && !!ticket && isSignedOut
   // Redirecting to /login, or waiting on the pending-invite lookup.
   const showLoader =
     !showInviteCard &&
