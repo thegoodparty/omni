@@ -416,6 +416,86 @@ describe('OrganizationPicker', () => {
     )
   })
 
+  // ENG-11041: identical org names (e.g. two "2026 Campaign" entries for a
+  // multi-campaign member) must still be distinguishable in the dropdown.
+  it('renders a distinguishing secondary line for orgs sharing the same name', async () => {
+    const user = userEvent.setup()
+    const sameNameOrgs: Organization[] = [
+      {
+        slug: 'org-mine',
+        name: '2026 Campaign',
+        positionName: 'Mayor',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: 'Jane Candidate',
+      },
+      {
+        slug: 'org-invited',
+        name: '2026 Campaign',
+        positionName: 'City Council',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 2,
+        status: 'active',
+        ownerName: 'Alex Owner',
+      },
+    ]
+    renderPicker(sameNameOrgs)
+
+    await user.click(screen.getByText('2026 Campaign'))
+
+    expect(screen.getByText('Jane Candidate · Mayor')).toBeInTheDocument()
+    expect(screen.getByText('Alex Owner · City Council')).toBeInTheDocument()
+  })
+
+  it('falls back to office-only when the owner has no name on file', async () => {
+    const user = userEvent.setup()
+    const noOwnerNameOrgs: Organization[] = [
+      {
+        slug: 'org-one',
+        name: 'Organization One',
+        positionName: 'Mayor',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: null,
+      },
+    ]
+    renderPicker(noOwnerNameOrgs)
+
+    await user.click(screen.getByText('Organization One'))
+
+    expect(screen.getByText('Mayor')).toBeInTheDocument()
+  })
+
+  it('renders no secondary line when neither owner name nor office exists', async () => {
+    const user = userEvent.setup()
+    const bareOrgs: Organization[] = [
+      {
+        slug: 'org-one',
+        name: 'Organization One',
+        positionName: null,
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: null,
+      },
+    ]
+    renderPicker(bareOrgs)
+
+    await user.click(screen.getByText('Organization One'))
+
+    expect(screen.queryByText('·')).not.toBeInTheDocument()
+  })
+
   it('shows both run-for actions when eligible with a re-election office', async () => {
     const user = userEvent.setup()
     renderPicker(orgs, {
