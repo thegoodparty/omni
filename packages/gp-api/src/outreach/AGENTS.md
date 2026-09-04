@@ -183,7 +183,11 @@ ROBOCALL_SETTLE_MARGIN_HOURS (24)` must fit inside the hold's `capture_before`
   `<id>:send_failed`) is the send-failure email — emitted the same best-effort,
   deterministic way from `failSend` when a PERMANENT staging/dial failure surfaces
   (see "Send failures" below). Capture/deferred-sweep/reminder-retry-cancel are
-  later slices.
+  later slices. Every one of these milestones (plus Scheduled, Reminder,
+  Canceled, and Receipt elsewhere in this file) also runs a HubSpot single-send
+  email leg alongside the unchanged Segment event (ENG-11035,
+  `OutreachRobocallSingleSendService`) — see `HUBSPOT_INTEGRATION.md`'s
+  "Robocall payment / receipt" table.
 
 **Send (dial time).** `OutreachRobocallSendService.startCampaign` STARTs a
 staged, still-paid draft's PAUSED CallHub campaign — the step that DIALS REAL

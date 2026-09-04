@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { CrmModule } from '@/crm/crmModule'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { LlmModule } from '@/llm/llm.module'
@@ -64,6 +65,7 @@ import { OutreachServeComposeContextService } from './services/outreachServeComp
 import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
+import { OutreachRobocallSingleSendService } from './services/outreachRobocallSingleSend.service'
 
 @Module({
   imports: [
@@ -93,6 +95,9 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
     // loops back here, the same cycle the ContactsModule edge above defers.
     forwardRef(() => DoorKnockingModule),
+    // For HubspotSingleSendService, the robocall payment/receipt single-send
+    // cutover (ENG-11035).
+    CrmModule,
   ],
   controllers: [
     OutreachController,
@@ -142,6 +147,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
     OutreachMaterializationService,
+    OutreachRobocallSingleSendService,
   ],
   exports: [OutreachService, OutreachPurchaseHandlerService],
 })

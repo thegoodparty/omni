@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallHoldFailureService } from '@/outreach/services/outreachRobocallHoldFailure.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
@@ -11,6 +12,7 @@ const service = useTestService()
 
 let holdFailure: OutreachRobocallHoldFailureService
 let trackSpy: ReturnType<typeof vi.spyOn>
+let singleSendSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -21,6 +23,7 @@ const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 afterEach(() => {
   if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
   else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
+  vi.unstubAllEnvs()
 })
 
 beforeEach(async () => {
@@ -31,6 +34,9 @@ beforeEach(async () => {
 
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
+  singleSendSpy = vi
+    .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
 
   const campaignId = 997
@@ -93,6 +99,13 @@ const createDraft = async ({
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
+const readSendAt = async (outreachId: number) => {
+  const spine = await service.prisma.outreach.findUniqueOrThrow({
+    where: { id: outreachId },
+  })
+  return spine.date!.toISOString()
+}
+
 describe('OutreachRobocallHoldFailureService reminders', () => {
   it('reminds a future-dated hold_failed draft once and stamps lastReminderSentAt', async () => {
     const outreachId = await createDraft()
@@ -109,6 +122,29 @@ describe('OutreachRobocallHoldFailureService reminders', () => {
       `${outreachId}:reminder:${format(now, 'yyyy-MM-dd')}`,
     )
     expect((await readSatellite(outreachId)).lastReminderSentAt).not.toBeNull()
+    // HUBSPOT_ROBOCALL_REMINDER_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the Reminder single-send email with the scheduled send date, and still stamps the reminder if it fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_REMINDER_EMAIL_ID', '4246')
+    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
+    const outreachId = await createDraft()
+    const scheduledAt = await readSendAt(outreachId)
+
+    await holdFailure.sweepHoldFailureReminders()
+
+    // A HubSpot failure must not corrupt the already-committed reminder claim.
+    expect((await readSatellite(outreachId)).lastReminderSentAt).not.toBeNull()
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4246,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(outreachId),
+        scheduled_at: scheduledAt,
+      },
+    })
   })
 
   it('does not re-remind on a second same-day sweep', async () => {
@@ -182,6 +218,26 @@ describe('OutreachRobocallHoldFailureService cancel-at-deadline', () => {
       undefined,
       `${outreachId}:canceled`,
     )
+    // HUBSPOT_ROBOCALL_CANCELED_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the Canceled single-send email with the missed send date', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_CANCELED_EMAIL_ID', '4247')
+    const outreachId = await createDraft({ sendInHours: -1 })
+    const scheduledAt = await readSendAt(outreachId)
+
+    await holdFailure.sweepHoldFailureCancellations()
+
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4247,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(outreachId),
+        scheduled_at: scheduledAt,
+      },
+    })
   })
 
   it('does not cancel a future-dated hold_failed draft', async () => {

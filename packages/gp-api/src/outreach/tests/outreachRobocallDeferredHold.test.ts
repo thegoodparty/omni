@@ -12,6 +12,7 @@ import {
   RobocallCardError,
 } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
@@ -28,6 +29,11 @@ let deferred: OutreachRobocallDeferredHoldService
 let deriveSpy: ReturnType<typeof vi.spyOn>
 let authorizeSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
+let singleSendSpy: ReturnType<typeof vi.spyOn>
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 beforeEach(async () => {
   const stripe = service.app.get(StripeService)
@@ -53,6 +59,9 @@ beforeEach(async () => {
   )
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
+  singleSendSpy = vi
+    .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
 
   const campaignId = 996
@@ -617,6 +626,38 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred (prod)', () =
     expect(trackSpy).toHaveBeenCalledTimes(1)
     expect(trackSpy.mock.calls[0]?.[1]).toBe(EVENTS.Robocall.Canceled)
     expect(trackSpy.mock.calls[0]?.[4]).toBe(`${outreachId}:canceled`)
+    // HUBSPOT_ROBOCALL_CANCELED_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the Canceled single-send email with the missed send date, even if the send itself fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_CANCELED_EMAIL_ID', '4248')
+    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
+    const outreachId = await createDraft({
+      sendInDays: -1,
+      paymentMethodId: 'pm_1',
+      stripeCustomerId: 'cus_test',
+    })
+    const scheduledAt = (
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+    ).date!.toISOString()
+
+    await deferred.sweepExpiredDeferred()
+
+    // A HubSpot failure must not corrupt the already-committed cancel.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.cancelled)
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4248,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(outreachId),
+        scheduled_at: scheduledAt,
+      },
+    })
   })
 
   it('does not cancel a deferred draft still in the window', async () => {

@@ -6,6 +6,7 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // A failed hold (a declined or dead card) leaves the draft `hold_failed`. This
 // slice runs the two time-based follow-ups on that terminal: a daily "fix your
@@ -48,7 +49,10 @@ const ROBOCALL_REMINDER_MIN_INTERVAL_HOURS = 23
 export class OutreachRobocallHoldFailureService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
-  constructor(private readonly analytics: AnalyticsService) {
+  constructor(
+    private readonly analytics: AnalyticsService,
+    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
+  ) {
     super()
   }
 
@@ -166,6 +170,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
       outreachId,
       EVENTS.Robocall.Reminder,
       `${outreachId}:reminder:${format(now, 'yyyy-MM-dd')}`,
+      { scheduled_at: sendAt.toISOString() },
     )
   }
 
@@ -198,6 +203,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
       outreachId,
       EVENTS.Robocall.Canceled,
       `${outreachId}:canceled`,
+      { scheduled_at: sendAt.toISOString() },
     )
   }
 
@@ -211,6 +217,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     outreachId: number,
     event: string,
     messageId: string,
+    customProperties: Record<string, string> = {},
   ): Promise<void> {
     try {
       await this.analytics.track(
@@ -226,5 +233,12 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
         'robocall hold-failure milestone emit failed',
       )
     }
+
+    // Single-send email leg (ENG-11035) — best-effort, never throws; see
+    // OutreachRobocallSingleSendService.
+    await this.robocallSingleSend.send(event, userId, outreachId, {
+      outreach_id: String(outreachId),
+      ...customProperties,
+    })
   }
 }

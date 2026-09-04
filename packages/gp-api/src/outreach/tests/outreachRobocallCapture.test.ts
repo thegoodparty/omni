@@ -8,6 +8,7 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import {
   Campaign,
   OutreachStatus,
@@ -22,10 +23,15 @@ let retrieveSpy: ReturnType<typeof vi.spyOn>
 let captureSpy: ReturnType<typeof vi.spyOn>
 let voidSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
+let singleSendSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
 let filterId: number
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 // retrievePaymentIntent returns the full Stripe.Response<PaymentIntent>; capture
 // branches on `.status` and, when succeeded, `.amount_received`.
@@ -50,6 +56,9 @@ beforeEach(async () => {
     .mockResolvedValue(undefined)
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
+  singleSendSpy = vi
+    .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
 
   const campaignId = 998
@@ -155,6 +164,31 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
       capturedAmountInDollars: calcRobocallTotalInCents(100) / 100,
     })
     expect(messageId).toBe(`${outreachId}:receipt`)
+    // HUBSPOT_ROBOCALL_RECEIPT_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the Receipt single-send email with the captured amount, and still captures the money if it fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_RECEIPT_EMAIL_ID', '4249')
+    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
+    const outreachId = await createDraft({ completedCallCount: 100 })
+
+    await capture.captureDraft(outreachId)
+
+    // The capture already moved money; a lost single-send email must never
+    // fail (or undo) it.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.captured)
+    expect(captureSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4249,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(outreachId),
+        captured_amount_dollars: String(calcRobocallTotalInCents(100) / 100),
+      },
+    })
   })
 
   it('advances the spine to completed on a successful capture', async () => {

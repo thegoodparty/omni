@@ -18,6 +18,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
 // nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
@@ -76,6 +77,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
     private readonly hold: OutreachRobocallHoldService,
+    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
   ) {
     super()
   }
@@ -547,5 +549,14 @@ export class OutreachRobocallSendService extends createPrismaBase(
         'robocall dial-time hold_failed milestone emit failed',
       )
     }
+
+    // Single-send email leg (ENG-11035) — best-effort, never throws; see
+    // OutreachRobocallSingleSendService.
+    await this.robocallSingleSend.send(
+      EVENTS.Robocall.HoldFailed,
+      userId,
+      outreachId,
+      { outreach_id: String(outreachId) },
+    )
   }
 }
