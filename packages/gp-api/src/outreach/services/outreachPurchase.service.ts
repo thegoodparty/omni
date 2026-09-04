@@ -295,6 +295,12 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         this.logger.info(
           `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
         )
+        if (outreachId) {
+          await this.outreachService.markFreeTextsConsumed(
+            outreachId,
+            campaignId,
+          )
+        }
       }
     } catch (error) {
       this.logger.error(

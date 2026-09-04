@@ -16,6 +16,7 @@ import {
   OutreachType,
   User,
 } from '../../generated/prisma'
+import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { isBefore } from 'date-fns'
@@ -611,6 +612,31 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       campaignPlanDueDate: outreach.campaignPlanDueDate ?? undefined,
       textCount: outreach.textCount ?? undefined,
       billableTextCount: outreach.billableTextCount ?? undefined,
+    })
+  }
+
+  /**
+   * Stamped at redemption, from the server's own numbers: the row's
+   * billableTextCount is client-supplied at draft time and can be stale
+   * (a browser that missed a promo restore sends the full count), and the
+   * cancel path's promo restore keys on billable < textCount to tie
+   * consumption to THIS row. Server-authoritative stamp closes that hole.
+   */
+  async markFreeTextsConsumed(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<void> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!row || row.textCount === null) {
+      return
+    }
+    await this.model.update({
+      where: { id: outreachId },
+      data: {
+        billableTextCount: Math.max(0, row.textCount - FREE_TEXTS_OFFER.COUNT),
+      },
     })
   }
 

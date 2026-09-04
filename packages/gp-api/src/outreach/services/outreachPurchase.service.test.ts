@@ -24,6 +24,7 @@ const mockCampaignsService = {
 const mockOutreachService = {
   finalizeOutreachPurchase: vi.fn(),
   recordCheckoutSession: vi.fn(),
+  markFreeTextsConsumed: vi.fn(),
 } as unknown as OutreachService
 
 const mockPeerlyPhoneListService = {
@@ -741,6 +742,41 @@ describe('OutreachPurchaseHandlerService', () => {
           .invocationCallOrder,
       )
       expect(finalizeOrder).toBeLessThan(redeemOrder)
+    })
+
+    it('stamps the row consumed server-side after redeeming', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      await service.executePostPurchase('free_confirmed_xyz', {
+        ...purchaseMetadata,
+        outreachId: '124',
+      })
+
+      expect(mockOutreachService.markFreeTextsConsumed).toHaveBeenCalledWith(
+        124,
+        111,
+      )
+    })
+
+    it('does not stamp consumption when no offer was redeemed', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      await service.executePostPurchase('cs_test_session_2', {
+        ...purchaseMetadata,
+        outreachId: '125',
+      })
+
+      expect(mockOutreachService.markFreeTextsConsumed).not.toHaveBeenCalled()
     })
 
     it('rethrows a finalize failure and skips redemption', async () => {
