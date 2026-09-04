@@ -279,6 +279,22 @@ describe('TeamPage — loading and error states (ENG-11039)', () => {
     ).toBeInTheDocument()
   })
 
+  // ENG-11039: the specific bug window — orgSlug not yet resolved so the
+  // query is disabled (enabled: false). In React Query v5 isPending is true
+  // for a disabled query but isFetching is false, so the old isLoading check
+  // returned false and rendered a bare empty table instead of skeletons.
+  it('shows skeletons when orgSlug is not yet resolved (query disabled window)', () => {
+    mockUseOrganization.mockReturnValue(undefined)
+
+    const { container } = render(<TeamPage />)
+
+    expect(
+      screen.queryByText(/people on this campaign|person on this campaign/),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Owner Person')).not.toBeInTheDocument()
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3)
+  })
+
   it('shows an error message and no fabricated count or table when the team fetch fails', async () => {
     api.mock('GET /v1/organizations/team', {
       status: 500,
