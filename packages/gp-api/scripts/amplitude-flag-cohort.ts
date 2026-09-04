@@ -445,15 +445,18 @@ const main = async (): Promise<void> => {
   }
   console.log(`  preserving ${segments.length} existing segment(s)`)
 
-  if (!args.execute) {
-    console.log('\nDry run. Re-run with --execute to apply.')
+  // Ahead of the dry-run branch on purpose: a dry run exists to predict what
+  // --execute would do, so telling someone to re-run when the write would be
+  // skipped anyway mispredicts it. The casing fix counts as a write in its own
+  // right — skipping on `added` alone would leave addresses in the segment that
+  // the exact-match `is` operator never matches.
+  if (result.added.length === 0 && result.normalized.length === 0) {
+    console.log('\nNothing to add.')
     return
   }
 
-  // The casing fix is a write in its own right — skipping it here would leave
-  // addresses in the segment that the exact-match `is` operator never matches.
-  if (result.added.length === 0 && result.normalized.length === 0) {
-    console.log('\nNothing to add.')
+  if (!args.execute) {
+    console.log('\nDry run. Re-run with --execute to apply.')
     return
   }
 
