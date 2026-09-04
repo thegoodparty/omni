@@ -249,6 +249,63 @@ describe('TeamPage — invite flow', () => {
   })
 })
 
+describe('TeamPage — loading and error states (ENG-11039)', () => {
+  it('shows skeletons, never a count or a bare member table, before the fetch resolves', async () => {
+    let resolveTeam: (() => void) | undefined
+    api.mock(
+      'GET /v1/organizations/team',
+      () =>
+        new Promise((resolve) => {
+          resolveTeam = () =>
+            resolve({ status: 200, data: { members, pendingInvites } })
+        }),
+    )
+
+    const { container } = render(<TeamPage />)
+
+    expect(
+      screen.queryByText(/people on this campaign|person on this campaign/),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Owner Person')).not.toBeInTheDocument()
+    expect(screen.queryByText('Invitee Person')).not.toBeInTheDocument()
+    // Heading skeleton + the members table's skeleton row + the pending
+    // invites table's skeleton row.
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3)
+
+    await waitFor(() => expect(resolveTeam).toBeDefined())
+    resolveTeam?.()
+    expect(
+      await screen.findByText('2 people on this campaign'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows an error message and no fabricated count or table when the team fetch fails', async () => {
+    api.mock('GET /v1/organizations/team', {
+      status: 500,
+      data: { message: 'upstream error' },
+    })
+
+    render(<TeamPage />)
+
+    expect(
+      await screen.findByText(
+        'Couldn’t load your team. Try refreshing the page.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/people on this campaign|person on this campaign/),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Your team')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Couldn’t load pending invites. Try refreshing the page.',
+      ),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('TeamPage — revoking a pending invite', () => {
   it('revokes the invite and removes it from the list without a reload', async () => {
     const user = userEvent.setup()
