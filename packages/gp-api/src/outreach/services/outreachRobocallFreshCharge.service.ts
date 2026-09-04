@@ -3,10 +3,7 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import {
-  calcRobocallAmountInCents,
-  calcRobocallTotalInCents,
-} from '@/shared/util/robocallPricing.util'
+import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import {
   StripeChargeDeclinedError,
@@ -39,9 +36,10 @@ const isCaptureEnabled = () => process.env.ROBOCALL_CAPTURE_ENABLED === 'true'
 
 // The fresh-charge half of settlement recovery: for a DELIVERED run the capture
 // slice parked in `uncollectable` because its authorization hold lapsed before
-// capture (expired / canceled), charge the saved card OFF-SESSION for the actual
-// billable amount — clamped to the originally authorized amount (INV-1) so a
-// fresh charge can never exceed what the candidate authorized. The single-owner
+// capture (expired / canceled), charge the saved card OFF-SESSION for the FULL
+// authorized estimate — the amount held + quoted (INV-1 by equality), never the
+// count-derived total, which can be smaller than the authorize-time basis when
+// the audience grew after the draft and would undercharge. The single-owner
 // claim (`uncollectable → charging`) elects one charger, a stable idempotency
 // key makes a retry replay instead of double-charging, and the terminal is
 // `charged` (collected) or back to `uncollectable` with `chargeIntentId` set on
@@ -222,13 +220,14 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
       return
     }
 
-    // INV-1: never charge more than the originally authorized amount. The actual
-    // (calls + number fee) is <= the frozen estimate; clamp defensively either
-    // way.
-    const captureAmount = Math.min(
-      calcRobocallTotalInCents(completedCallCount),
-      authorizedAmountInCents,
-    )
+    // Charge the FULL authorized estimate — the amount held on the card and
+    // quoted to the candidate, independent of the dialed count. The draft-time
+    // billableCount (→ completedCallCount) can be SMALLER than the authorize-time
+    // basis when the audience grows in the up-to-~82-day draft→authorize gap, so
+    // charging min(calc(count), authorized) would undercharge below the estimate.
+    // Charging the authorization amount removes that drift and trivially
+    // satisfies INV-1 (it equals what was authorized).
+    const captureAmount = authorizedAmountInCents
     // Defensive: with the number fee as a floor, any run reaching fresh charge
     // owes at least the fee (>= Stripe's minimum), so this write-off does not
     // fire in practice — the capture slice routes a zero-connected gone-hold run
