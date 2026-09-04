@@ -53,7 +53,7 @@ interface WhoStepProps {
   // to cutting one by hand, not a filter.
   selectedListId: number | null
   onSelectList: (listId: number | null) => void
-  isElectedOfficial: boolean
+  isServeOrg: boolean
   // Which of the step's two faces is on screen: the list picker, or the
   // filter pills behind "Create a new list". Lifted so it survives a step back
   // from the draw step, which remounts this component.
@@ -121,7 +121,7 @@ export const WhoStep = ({
   allContactsHouseholds,
   selectedListId,
   onSelectList,
-  isElectedOfficial,
+  isServeOrg,
   building,
   onBuildingChange,
   open,
@@ -192,7 +192,7 @@ export const WhoStep = ({
           section.fields
             .filter(
               (field) =>
-                !isElectedOfficial || !WIN_ONLY_FIELD_KEYS.includes(field.key),
+                !isServeOrg || !WIN_ONLY_FIELD_KEYS.includes(field.key),
             )
             .map((field) => (
               <div key={field.key} className="flex flex-col gap-2">

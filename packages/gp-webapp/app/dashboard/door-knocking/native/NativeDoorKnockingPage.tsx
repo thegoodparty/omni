@@ -142,7 +142,7 @@ export default function NativeDoorKnockingPage({
   // would be offered a filter its every request 400s on. What the server will
   // accept and which surface is drawn are two questions, and only one of them
   // is about the URL the request goes to.
-  const serveOrg = Boolean(organization?.slug?.startsWith('eo-'))
+  const isServeOrg = Boolean(organization?.slug?.startsWith('eo-'))
   // Win or Serve, decided once here and handed down — see
   // `doorKnockingSurface.tsx` for why nothing below may re-derive it. A
   // Campaign takes precedence over an ElectedOffice, which is the same order
@@ -786,7 +786,7 @@ export default function NativeDoorKnockingPage({
                 color={draw.drawColor}
                 drawnStops={drawnStops}
                 onListCreated={handleListCreated}
-                isElectedOfficial={serveOrg}
+                isServeOrg={isServeOrg}
                 unpreviewableKeys={unpreviewableKeys}
                 orgSlug={organization?.slug}
                 preselectedListId={carriedListId}
@@ -800,6 +800,7 @@ export default function NativeDoorKnockingPage({
         {detailsTurf && (
           <TurfDetailsSheet
             turf={detailsTurf}
+            isServeOrg={isServeOrg}
             onClose={() => setDetailsTurf(null)}
             // Start knocking closes the drawer to uncover the walk, and closing
             // the walk brings it back: the candidate was reading this list's

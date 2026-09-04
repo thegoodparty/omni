@@ -57,7 +57,7 @@ const baseProps = {
   color: '#2563eb',
   drawnStops: null,
   onListCreated: vi.fn(),
-  isElectedOfficial: false,
+  isServeOrg: false,
   unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
@@ -1332,7 +1332,7 @@ describe('CreateListFlow', () => {
   it('hides the Win-only groups from an elected official', () => {
     const genderLabel = fieldLabel('gender')
 
-    renderAtWho({ isElectedOfficial: true })
+    renderAtWho({ isServeOrg: true })
     buildNewList()
 
     for (const key of ['contacts_made', 'political_party', 'voter_likely']) {

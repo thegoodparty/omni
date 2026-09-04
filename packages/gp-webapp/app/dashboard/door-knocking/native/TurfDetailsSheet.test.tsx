@@ -129,12 +129,14 @@ const renderSheet = ({
   onClose = vi.fn(),
   onKnock = vi.fn(),
   savedLists = [],
+  isServeOrg = false,
 }: {
   prop?: Partial<DoorKnockingTurf>
   live?: Partial<DoorKnockingTurf>
   onClose?: () => void
   onKnock?: (turf: DoorKnockingTurf) => void
   savedLists?: Record<string, unknown>[]
+  isServeOrg?: boolean
 } = {}) => {
   api.mock('GET /v1/voters/voter-file/filters', {
     status: 200,
@@ -147,7 +149,12 @@ const renderSheet = ({
     data: [turf(live ?? prop)],
   })
   render(
-    <TurfDetailsSheet turf={turf(prop)} onClose={onClose} onKnock={onKnock} />,
+    <TurfDetailsSheet
+      turf={turf(prop)}
+      onClose={onClose}
+      onKnock={onKnock}
+      isServeOrg={isServeOrg}
+    />,
   )
   return { onClose, onKnock }
 }
@@ -519,6 +526,32 @@ describe('TurfDetailsSheet applied filters', () => {
     expect(screen.getByText('Homeownership')).toBeInTheDocument()
     expect(screen.getByText('Yes')).toBeInTheDocument()
     expect(screen.getByText('Unknown')).toBeInTheDocument()
+  })
+
+  // Nothing backfills a saved filter, so an `eo-` org can hold a list cut on
+  // party — from the Win surface, or from before door knocking had a Serve
+  // gate. This is a read-back and not merely the mirror of a control that is
+  // no longer offered: the row itself still carries the column.
+  it('drops the Win-only groups from the read-back for a Serve org', async () => {
+    renderSheet({
+      isServeOrg: true,
+      savedLists: [
+        {
+          id: 7,
+          partyDemocrat: true,
+          audienceSuperVoters: true,
+          veteranYes: true,
+        },
+      ],
+    })
+
+    // The group that stays, awaited so the assertions below are made against a
+    // rendered read-back rather than against a sheet still loading its lists.
+    expect(await screen.findByText('Veteran Status')).toBeInTheDocument()
+    expect(screen.queryByText('Political Party')).toBeNull()
+    expect(screen.queryByText('Democrat')).toBeNull()
+    expect(screen.queryByText('Voter Likelihood')).toBeNull()
+    expect(screen.queryByText('Super')).toBeNull()
   })
 
   // Income ranges persist as the range strings themselves and language as
