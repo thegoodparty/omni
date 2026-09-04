@@ -617,7 +617,7 @@ describe('ActivityConditionResolutionService', () => {
             name,
             script: 'Hi',
             sheetCount: 1,
-            purpose: 'introduce',
+            purpose: 'introduce_myself',
           },
         })
         const outreach = await service.prisma.outreach.create({

@@ -508,6 +508,65 @@ describe('OrganizationPicker', () => {
     })
   })
 
+  it('does not fire Team - Campaign Switched for a solo owner (no membership role anywhere)', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OrgSwitcher.OrganizationSwitched,
+        expect.any(Object),
+      )
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+  })
+
+  it('fires Team - Campaign Switched when switching TO an org where the viewer is a non-owner member', async () => {
+    const user = userEvent.setup()
+    renderPicker(
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('campaignAdmin' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    // Organization Two (index 1) is the campaignAdmin-role destination.
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+    })
+  })
+
+  it('does not fire when switching between two owned orgs, even if the viewer is a manager elsewhere', async () => {
+    const user = userEvent.setup()
+    renderPicker(
+      // The viewer is a manager on Organization Two, but never switches to
+      // or from it here — the predicate must key off the destination org
+      // (Organization Three, role owner), not "is the viewer a manager
+      // anywhere" (delegate review, PR #1688).
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('campaignAdmin' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OrgSwitcher.OrganizationSwitched,
+        expect.any(Object),
+      )
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+  })
+
   it('does not track a switch when re-selecting the already-active org', async () => {
     const user = userEvent.setup()
     renderPicker()

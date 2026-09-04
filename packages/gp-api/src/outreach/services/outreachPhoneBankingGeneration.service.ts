@@ -80,9 +80,9 @@ interface DraftInput<TPurpose extends string> {
 //                                        instructions field when given
 //   early-voting window / election    -> buildDateContext below (grounded
 //   day date                             from campaign.details + a live
-//                                        milestones fetch, vote-early only)
+//                                        milestones fetch, early_voting only)
 const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
-  introduce:
+  introduce_myself:
     'Write a phonebank voter ID script for a volunteer introducing the ' +
     'candidate to a voter for the first time. This is an identification ' +
     'call, not a persuasion call, the goal is a respectful first ' +
@@ -102,7 +102,7 @@ const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
     'seconds of talk time, since voter ID calls work best when quick ' +
     'and respectful, with deeper persuasion happening on a separate ' +
     'call. Keep the language conversational and natural throughout.',
-  persuade:
+  persuade_voters:
     'Write a phonebank persuasion script for a volunteer talking with ' +
     'an undecided voter. Format as alternating You:/Voter: lines. Open ' +
     'with a brief rapport beat, then ask an open-ended question about ' +
@@ -119,7 +119,7 @@ const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
     'Keep the tone conversational and unhurried, this call is meant to ' +
     'build genuine understanding, not deliver a pitch, so favor ' +
     'listening over talking.',
-  event:
+  event_invite:
     'Write a phonebank script for a volunteer inviting a voter to a ' +
     'campaign event. Format as alternating You:/Voter: lines. Open ' +
     'with a brief rapport beat, then state the event name, date, ' +
@@ -133,7 +133,7 @@ const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
     'the first ask. Do not invent event details not provided. Avoid ' +
     'inflammatory language. Close by thanking them for their time ' +
     'regardless of their answer.',
-  'vote-early':
+  early_voting:
     'Write a phonebank script for a volunteer helping a voter make a ' +
     'specific plan to vote early, not just reminding them early ' +
     'voting exists. Format as alternating You:/Voter: lines. Open ' +
@@ -149,7 +149,7 @@ const WIN_PURPOSE_PROMPTS: Record<PhoneBankingScriptPurpose, string> = {
     'not provided. Avoid inflammatory language. Close by confirming ' +
     'their plan, asking for their support of the candidate as part of ' +
     'that plan, and thanking them.',
-  'election-day':
+  election_day_turnout:
     "Write a phonebank script confirming a known supporter's vote on " +
     'election day. This call should be noticeably shorter and more ' +
     'direct than the other scripts, election day calls work best when ' +
@@ -308,7 +308,7 @@ export const WIN_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<PhoneBankingScript
 // pair. "Voter:" is the CSV's own dialogue speaker label — format, not
 // candidate/voter framing.
 const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
-  introduce:
+  introduce_myself:
     'Write a phonebank script for a volunteer or staffer introducing ' +
     'the elected official to a constituent for the first time. Format ' +
     'as alternating You:/Voter: lines. Open with a warm, brief rapport ' +
@@ -323,7 +323,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
     'out anytime. Keep the whole call brief and low-pressure, the goal ' +
     'of a first constituent contact is building a relationship, not ' +
     'delivering a message.',
-  'explain-decision':
+  explain_decision:
     'Write a phonebank script for a volunteer or staffer explaining a ' +
     'recent decision or vote made by the elected official and the ' +
     'reasoning behind it. Format as alternating You:/Voter: lines. ' +
@@ -337,7 +337,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
     'avoid inflammatory language. Close by inviting further questions ' +
     'or feedback and thanking them for their time. Keep this call ' +
     'short and transparent in tone, informing rather than persuading.',
-  event:
+  event_invite:
     'Write a phonebank script for a volunteer or staffer inviting a ' +
     'constituent to a town hall or local event. Format as alternating ' +
     'You:/Voter: lines. Open with a brief rapport beat, then state the ' +
@@ -348,7 +348,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
     'information is available. Do not invent event details not ' +
     'provided. Avoid inflammatory language. Close by asking if they ' +
     'can make it and thanking them regardless of their answer.',
-  'community-input':
+  community_input:
     'Write a phonebank script for a volunteer or staffer inviting a ' +
     'constituent to share input on a local issue or upcoming decision. ' +
     'Format as alternating You:/Voter: lines. Open with a brief ' +
@@ -362,7 +362,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
     'letting them know their input will be passed along. Keep the tone ' +
     'unhurried and listening-focused throughout, this call is meant to ' +
     'hear from them, not to persuade or inform.',
-  'share-resource':
+  share_resource:
     'Write a phonebank script for a volunteer or staffer telling a ' +
     'constituent about a local program, service, or resource available ' +
     'to them. Format as alternating You:/Voter: lines. Open with a ' +
@@ -693,7 +693,7 @@ export class OutreachPhoneBankingGenerationService {
       )
     }
 
-    if (purpose !== 'vote-early') return blocks
+    if (purpose !== 'early_voting') return blocks
 
     // Milestones are grounding enrichment, same as office resolution in
     // the controller — a fetch failure must not fail the draft.

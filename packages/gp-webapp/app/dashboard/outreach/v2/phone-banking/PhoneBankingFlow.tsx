@@ -28,7 +28,10 @@ import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
-import { useOutreachAudience } from '../audience/useOutreachAudience'
+import {
+  intentForOutreachPurpose,
+  useOutreachAudience,
+} from '../audience/useOutreachAudience'
 import {
   PHONE_BANKING_PURPOSES,
   phoneBankingPurposeNameSuggestion,
@@ -254,11 +257,24 @@ export const PhoneBankingFlow = ({
   // flow) clobbering a newer draft — same convention as SocialFlow.
   const draftRequestRef = useRef(0)
 
+  // Reference equality against the Win singleton default, not a purpose
+  // check: recommended lists are Win-only (the endpoint 400s an eo- org
+  // outright), and Serve's own purpose vocabulary reuses some of the same
+  // slug strings (introduce_myself, event_invite, custom) for an unrelated,
+  // non-electoral meaning, so the purpose string alone can't tell the two
+  // apart.
+  const isWinPhoneBanking = surface === WIN_PHONE_BANKING_SURFACE
+  const recommendedListIntent =
+    isWinPhoneBanking && purpose
+      ? intentForOutreachPurpose(purpose as PhoneBankingPurpose)
+      : null
+
   const audience = useOutreachAudience({
     open,
     active: stepId === 'who',
     reachabilityKey: 'phoneBanking',
     countOverlay: PHONE_BANKING_COUNT_OVERLAY,
+    recommendedListIntent,
   })
   const {
     reset: resetAudience,
@@ -627,6 +643,13 @@ export const PhoneBankingFlow = ({
             selectedId={audience.selectedListId}
             onSelect={audience.onSelect}
             onStartBuilder={audience.startBuilder}
+            recommendedListsEnabled={audience.recommendedListsEnabled}
+            recommendations={audience.recommendations}
+            recommendationsLoading={audience.recommendationsLoading}
+            recommendationsError={audience.recommendationsError}
+            recommendedListsChannel={audience.recommendedListsChannel}
+            onSelectRecommendation={audience.applyRecommendation}
+            onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
             selectedListTotal={audience.selectedListTotal}

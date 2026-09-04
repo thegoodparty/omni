@@ -87,4 +87,37 @@ describe('resolvePostAuthRedirectPath', () => {
       '/dashboard',
     )
   })
+
+  it('routes a user with a pending team invite to /team-invite ahead of any campaign/onboarding branch', () => {
+    expect(
+      resolvePostAuthRedirectPath(
+        null,
+        { status: 'candidate' },
+        false,
+        true,
+        true,
+      ),
+    ).toBe('/team-invite')
+    expect(resolvePostAuthRedirectPath(null, null, true, false, true)).toBe(
+      '/team-invite',
+    )
+  })
+
+  it('prefers the sales role over a pending team invite', () => {
+    expect(
+      resolvePostAuthRedirectPath(
+        { roles: ['sales'] },
+        { status: 'candidate' },
+        false,
+        true,
+        true,
+      ),
+    ).toBe('/sales/add-campaign')
+  })
+
+  it('defaults hasPendingTeamInvite to false, leaving existing callers unaffected', () => {
+    expect(resolvePostAuthRedirectPath(null, { status: 'candidate' })).toBe(
+      '/dashboard',
+    )
+  })
 })

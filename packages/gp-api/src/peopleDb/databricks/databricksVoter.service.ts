@@ -16,6 +16,7 @@ import {
   PeopleOverlapCountResponse,
   PeopleOverlapCountResponseSchema,
   PeoplePrecinctsResponseSchema,
+  type IdOverrides,
   type PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import {
@@ -48,6 +49,11 @@ import {
   type DbxEvaluateRow,
   type DbxResidentRow,
 } from './databricksVoterSql.util'
+import type { FilterData } from '../schemas/filters.schema'
+import {
+  buildRankPrecinctsSql,
+  MAX_RANKED_PRECINCTS,
+} from './databricksRecommendedListsSql.util'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
@@ -109,6 +115,21 @@ const NUMERIC_RESIDENT_COLUMNS = new Set<string>([
   'Age_Int',
   'Estimated_Income_Amount_Int',
 ])
+
+export type RankedPrecinct = {
+  county: string
+  precinct: string
+  voters: number
+}
+
+export type RankPrecinctsResult = {
+  precincts: RankedPrecinct[]
+  totalVoters: number
+  // False both when the district ran out of matching precincts before
+  // reaching doorTarget and when MAX_RANKED_PRECINCTS was hit first -- see
+  // the comment on rankPrecincts.
+  reachedTarget: boolean
+}
 
 const toRecord = (
   columns: readonly string[],
@@ -276,6 +297,68 @@ export class DatabricksVoterService {
       voters: Number(row[2] ?? 0),
     }))
     return PeoplePrecinctsResponseSchema.parse({ options, truncated })
+  }
+
+  // A recommended-list variant's own count, scoped to a resolved district.
+  // Callers already have `district` -- the recommended-lists endpoint fans
+  // out several of these plus a districtTotal concurrently against one
+  // resolved district, so resolving it again per variant would be wasted work.
+  // `idOverrides` carries the Voter Likelihood override resolution, which
+  // every voterStatus-bearing filter picks up before it is countable; a
+  // count that dropped it would disagree with the list the same filter
+  // saves.
+  async countForFilter(
+    district: DbxDistrict,
+    filters: FilterData,
+    idOverrides?: IdOverrides,
+  ): Promise<number> {
+    const { rows } = await this.run(
+      buildCountSql({ district, filters, idOverrides }),
+    )
+    return Number(rows[0]?.[0] ?? 0)
+  }
+
+  async districtTotal(district: DbxDistrict): Promise<number> {
+    return this.countForFilter(district, EMPTY_FILTERS)
+  }
+
+  // The door-knocking precinct picker: the variant's matching voters ranked
+  // by precinct, taken in ranked order until the cumulative count reaches
+  // doorTarget. Widening N when a district falls short of doorTarget, and
+  // omitting the recommendation entirely if the district-wide total still
+  // doesn't reach it, are both decisions for the caller -- this just ranks
+  // and cuts. The rank itself is capped at MAX_RANKED_PRECINCTS, so on a
+  // district whose top precincts are unusually small this can return fewer
+  // voters than doorTarget rather than reaching further into the ranking.
+  // `reachedTarget` makes that outcome explicit rather than something the
+  // caller has to re-derive by summing `voters` itself: false covers both
+  // "the district ran out of matching precincts" and "hit the cap" -- either
+  // way, there is nothing more this method can return, and a below-floor
+  // widening loop needs to know it has hit that wall rather than assume
+  // widening N further would help.
+  async rankPrecincts(
+    district: DbxDistrict,
+    filters: FilterData,
+    doorTarget: number,
+    idOverrides?: IdOverrides,
+  ): Promise<RankPrecinctsResult> {
+    const { rows } = await this.run(
+      buildRankPrecinctsSql({
+        district,
+        filters,
+        idOverrides,
+        limit: MAX_RANKED_PRECINCTS,
+      }),
+    )
+    const precincts: RankedPrecinct[] = []
+    let totalVoters = 0
+    for (const row of rows) {
+      if (totalVoters >= doorTarget) break
+      const voters = Number(row[2] ?? 0)
+      precincts.push({ county: row[0] ?? '', precinct: row[1] ?? '', voters })
+      totalVoters += voters
+    }
+    return { precincts, totalVoters, reachedTarget: totalVoters >= doorTarget }
   }
 
   async findPeople(dto: ListPeopleDTO) {

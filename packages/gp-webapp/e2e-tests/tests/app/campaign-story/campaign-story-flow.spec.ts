@@ -7,7 +7,7 @@ import { completeOnboardingUpToPledge } from '../../../src/helpers/onboarding.he
 import { acceptCookieBanner } from '../../../src/helpers/campaignStory.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 
-// The campaign story (three onboarding steps + the "Your story" dashboard page
+// The campaign story (three onboarding steps + the "Your Story" dashboard page
 // + the tracker) is the only experience — no flag override needed, no flag-off
 // branch to cover.
 
@@ -116,7 +116,7 @@ test.describe('campaign story flow', () => {
     })
   })
 
-  test('"Your story" nav item is visible and the plan tab reads "Campaign Tracker"', async ({
+  test('"Your Story" nav item is visible and the plan tab reads "Campaign Tracker"', async ({
     page,
   }) => {
     await authenticateTestUser(page, { isolated: true })
@@ -137,9 +137,9 @@ test.describe('campaign story flow', () => {
 
     await page.goto('/dashboard/campaign-story')
 
-    // No guard redirect: the "Your story" navHeader renders directly.
+    // No guard redirect: the "Your Story" navHeader renders directly.
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Your story' }),
+      page.getByRole('heading', { level: 1, name: 'Your Story' }),
     ).toBeVisible({ timeout: 15000 })
 
     await expect(
@@ -160,7 +160,7 @@ test.describe('campaign story flow', () => {
     await page.reload()
 
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Your story' }),
+      page.getByRole('heading', { level: 1, name: 'Your Story' }),
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole('textbox').first()).toHaveValue(whyAnswer, {
       timeout: 15000,

@@ -66,6 +66,10 @@ import type {
   PeoplePrecinctsResponse,
   SmsDraftRequest,
   SmsDraftResponse,
+  AcceptInviteResponse,
+  RecommendedListChannel,
+  RecommendedListIntent,
+  RecommendedListsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -91,6 +95,7 @@ import type {
   CampaignStory,
   CampaignStoryRewrite,
   RaceOpponentThreatTier,
+  OrganizationRole,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -499,6 +504,15 @@ export type APIEndpoints = {
     Response: Organization
   }
 
+  // Idempotent: a double-accept (revisit, double-click) reads back the
+  // membership the first accept created rather than erroring. gp-api reads
+  // the invite payload from the signed-in user's own Clerk publicMetadata —
+  // no body — and 404s when there's no pending invite left to accept.
+  'POST /v1/organizations/team/invites/accept': {
+    Request: {}
+    Response: AcceptInviteResponse
+  }
+
   'PATCH /v1/organizations/:slug': {
     Request: {
       ballotReadyPositionId?: string | null | undefined
@@ -506,6 +520,48 @@ export type APIEndpoints = {
       customPositionName?: string | null | undefined
     }
     Response: Organization
+  }
+
+  // Team accounts (win-team-accounts). Mirrors gp-api's TeamController
+  // (packages/gp-api/src/organizations/team.controller.ts) and the
+  // @goodparty_org/contracts Team schemas, but createdAt is typed as string
+  // (see TeamMember/PendingInvite below) — same ISO-over-JSON convention as
+  // SelfResearchRecord.
+  'GET /v1/organizations/team': {
+    Request: {}
+    Response: TeamResponse
+  }
+
+  // Gated server-side by the win-team-accounts flag (404 while off) — the
+  // only route that can create a membership row, so gating just this one
+  // makes the whole feature inert at 0%.
+  'POST /v1/organizations/team/invites': {
+    Request: {
+      email: string
+      name: string
+      role: 'campaignAdmin'
+    }
+    Response: InviteMemberResponse
+  }
+
+  'DELETE /v1/organizations/team/invites/:id': {
+    Request: {}
+    Response: undefined
+  }
+
+  // Owner-only server-side (OwnerOnly guard); a manager's call 403s.
+  'PATCH /v1/organizations/team/members/:userId': {
+    Request: {
+      role: 'campaignAdmin'
+    }
+    Response: TeamMember
+  }
+
+  // Owner-only server-side. Also rejects (400) when userId is the owner —
+  // ownership transfer isn't a thing this route does.
+  'DELETE /v1/organizations/team/members/:userId': {
+    Request: {}
+    Response: undefined
   }
 
   // Mirrors gp-api's GET /v1/eligibility (EligibilitySchema in
@@ -935,6 +991,13 @@ export type APIEndpoints = {
   'GET /v1/voters/voter-file/filters': {
     Request: {}
     Response: SegmentResponse[]
+  }
+  'GET /v1/campaigns/mine/recommended-lists': {
+    Request: {
+      channel: RecommendedListChannel
+      intent?: RecommendedListIntent
+    }
+    Response: RecommendedListsResponse
   }
   'DELETE /v1/voters/voter-file/filter/:id': {
     Request: {}
@@ -2010,7 +2073,42 @@ export type Organization = {
   campaignId: number | null
   // Derived on read by gp-api (never persisted); present on every org response.
   status: 'active' | 'past'
+  // The viewer's own role in this org (owner via ownerId match, else their
+  // membership row's role). Only GET /v1/organizations (the list) sends this
+  // — the singular GET/PATCH /v1/organizations/:slug responses don't, since
+  // it's a per-viewer fact rather than a property of the org (mirrors gp-api's
+  // APIOrganizationWithRoleSchema, which is list-only for the same reason).
+  role?: OrganizationRole
 }
+
+// Wire shapes for team accounts (win-team-accounts / ENG-10816). Mirror
+// Team.schema.ts in @goodparty_org/contracts, but createdAt arrives over JSON
+// as an ISO string (the contract coerces it to Date) — same convention as
+// SelfResearchRecord above.
+export type TeamMember = {
+  userId: number
+  name: string | null
+  email: string
+  role: OrganizationRole
+  createdAt: string
+}
+
+export type PendingInvite = {
+  id: string
+  email: string
+  name: string
+  role: 'campaignAdmin' | 'volunteer'
+  createdAt: string
+}
+
+export type TeamResponse = {
+  members: TeamMember[]
+  pendingInvites: PendingInvite[]
+}
+
+export type InviteMemberResponse =
+  | { status: 'added'; member: TeamMember }
+  | { status: 'pending'; invite: PendingInvite }
 
 // Mirrors EligibilitySchema in @goodparty_org/contracts. Derived on read by
 // gp-api's EligibilityService; the webapp has no contracts dependency, so the

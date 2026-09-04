@@ -7,7 +7,7 @@ import { SERVE_PHONE_BANKING_PURPOSE_VALUES } from '../phoneBanking/PhoneBanking
 
 describe('PhoneBankingScriptDraftRequestSchema', () => {
   it('accepts a fresh generation with no currentDraft or previousDraft', () => {
-    const request = { purpose: 'introduce', tone: 'warm' }
+    const request = { purpose: 'introduce_myself', tone: 'warm' }
     expect(() =>
       PhoneBankingScriptDraftRequestSchema.parse(request),
     ).not.toThrow()
@@ -15,7 +15,7 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
 
   it('accepts currentDraft alone (improve path)', () => {
     const request = {
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'My own words.',
     }
@@ -26,7 +26,7 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
 
   it('accepts previousDraft alone (regenerate-variation path)', () => {
     const request = {
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       previousDraft: 'A script the candidate rejected.',
     }
@@ -37,13 +37,13 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
 
   it('accepts instructions alongside either currentDraft or previousDraft', () => {
     const withCurrentDraft = {
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'My own words.',
       instructions: 'mention the school levy',
     }
     const withPreviousDraft = {
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       previousDraft: 'A script the candidate rejected.',
       instructions: 'mention the school levy',
@@ -57,14 +57,18 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
   })
 
   it('normalizes whitespace-only instructions to absent instead of rejecting', () => {
-    const request = { purpose: 'introduce', tone: 'warm', instructions: '   ' }
+    const request = {
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      instructions: '   ',
+    }
     const parsed = PhoneBankingScriptDraftRequestSchema.parse(request)
     expect(parsed.instructions).toBeUndefined()
   })
 
   it('rejects currentDraft and previousDraft together', () => {
     const request = {
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'My own words.',
       previousDraft: 'A script the candidate rejected.',
@@ -75,7 +79,7 @@ describe('PhoneBankingScriptDraftRequestSchema', () => {
   })
 
   it('rejects a serve-only purpose slug', () => {
-    const request = { purpose: 'explain-decision', tone: 'warm' }
+    const request = { purpose: 'explain_decision', tone: 'warm' }
     expect(() => PhoneBankingScriptDraftRequestSchema.parse(request)).toThrow()
   })
 })
@@ -91,7 +95,7 @@ describe('ServePhoneBankingScriptDraftRequestSchema', () => {
     },
   )
 
-  it.each(['persuade', 'vote-early', 'election-day'])(
+  it.each(['persuade_voters', 'early_voting', 'election_day_turnout'])(
     'rejects the Win-only purpose slug %s',
     (purpose) => {
       const request = { purpose, tone: 'warm' as const }
@@ -103,7 +107,7 @@ describe('ServePhoneBankingScriptDraftRequestSchema', () => {
 
   it('rejects currentDraft and previousDraft together', () => {
     const request = {
-      purpose: 'introduce' as const,
+      purpose: 'introduce_myself' as const,
       tone: 'warm' as const,
       currentDraft: 'My own words.',
       previousDraft: 'A script the candidate rejected.',

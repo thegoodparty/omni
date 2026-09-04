@@ -13,12 +13,12 @@ import {
 describe('PHONE_BANKING_PURPOSES', () => {
   it('matches the canvas cards, in order', () => {
     expect(PHONE_BANKING_PURPOSES).toEqual([
-      { id: 'introduce', label: 'Introduce myself to voters' },
-      { id: 'persuade', label: 'Persuade likely voters' },
-      { id: 'event', label: 'Invite voters to a local event' },
-      { id: 'vote-early', label: 'Encourage voters to vote early' },
+      { id: 'introduce_myself', label: 'Introduce myself to voters' },
+      { id: 'persuade_voters', label: 'Persuade likely voters' },
+      { id: 'event_invite', label: 'Invite voters to a local event' },
+      { id: 'early_voting', label: 'Encourage voters to vote early' },
       {
-        id: 'election-day',
+        id: 'election_day_turnout',
         label: 'Encourage voters to vote on election day',
       },
       { id: 'custom', label: 'Write my own script' },
@@ -26,7 +26,7 @@ describe('PHONE_BANKING_PURPOSES', () => {
   })
 
   it('falls back for a slug it does not know', () => {
-    expect(phoneBankingPurposeLabel('introduce')).toBe(
+    expect(phoneBankingPurposeLabel('introduce_myself')).toBe(
       'Introduce myself to voters',
     )
     expect(phoneBankingPurposeLabel('not-a-purpose')).toBe(
@@ -37,10 +37,10 @@ describe('PHONE_BANKING_PURPOSES', () => {
 
 describe('PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS', () => {
   it('suggests a short campaign name, not the card copy', () => {
-    expect(phoneBankingPurposeNameSuggestion('election-day')).toBe(
+    expect(phoneBankingPurposeNameSuggestion('election_day_turnout')).toBe(
       'Election day calls',
     )
-    expect(phoneBankingPurposeNameSuggestion('introduce')).toBe(
+    expect(phoneBankingPurposeNameSuggestion('introduce_myself')).toBe(
       'Introduction calls',
     )
     expect(phoneBankingPurposeNameSuggestion('not-a-purpose')).toBe(

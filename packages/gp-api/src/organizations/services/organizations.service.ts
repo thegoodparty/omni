@@ -12,6 +12,7 @@ import {
   Campaign,
   ElectedOffice,
   Organization,
+  OrganizationRole,
   Prisma,
 } from '../../generated/prisma'
 import pmap from 'p-map'
@@ -83,10 +84,43 @@ export class OrganizationsService extends createPrismaBase(
 
   async listOrganizations(userId: number) {
     const orgs = await this.model.findMany({
-      where: { ownerId: userId },
-      include: { campaign: true, electedOffice: true },
+      where: {
+        OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
+      },
+      include: {
+        campaign: true,
+        electedOffice: true,
+        // Scoped to this viewer: an owner-owned org has none, a member org
+        // has exactly one (the unique [organizationSlug, userId] index).
+        memberships: { where: { userId } },
+      },
     })
-    return await Promise.all(orgs.map((org) => this.makeFriendly(org)))
+    return await Promise.all(
+      orgs.map(async (org) => {
+        const friendly = await this.makeFriendly(org)
+        return { ...friendly, role: this.viewerRole(org, userId) }
+      }),
+    )
+  }
+
+  // The `memberships` relation on `org` is already scoped to `userId` by the
+  // include `where` above, so a non-owner match from the OR filter is
+  // guaranteed to have exactly one row here — surfaced loudly rather than
+  // read as `[0]` if that invariant is ever wrong.
+  private viewerRole(
+    org: Organization & { memberships: { role: OrganizationRole }[] },
+    userId: number,
+  ): OrganizationRole {
+    if (org.ownerId === userId) {
+      return OrganizationRole.owner
+    }
+    const membership = org.memberships[0]
+    if (!membership) {
+      throw new InternalServerErrorException(
+        'Organization matched the owned-or-member filter but has no membership row',
+      )
+    }
+    return membership.role
   }
 
   async getOrganization(userId: number, slug: string) {

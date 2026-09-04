@@ -7,12 +7,15 @@ import {
   getPersistedClids,
   extractClids,
   setUserEmail,
+  setActorUserId,
+  setActorRole,
 } from 'helpers/analyticsHelper'
 import { useSearchParams } from 'next/navigation'
 import { useEffect } from 'react'
 import { identifyUser } from '@shared/utils/analytics'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 import { User } from 'helpers/types'
+import { useOrganizationRole } from '@shared/organization-picker'
 
 const identify = async (
   user: User | null,
@@ -48,10 +51,20 @@ const identify = async (
 const SegmentIdentify = (): null => {
   const [user] = useUser()
   const searchParams = useSearchParams()
+  const organizationRole = useOrganizationRole()
 
   useEffect(() => {
     identify(user, searchParams)
   }, [user, searchParams])
+
+  // Kept as its own effect (not folded into identify()) because the actor
+  // role changes on an org switch alone, without user identity changing —
+  // re-running the UTM/CLID persistence above on every org switch would be
+  // wasted work for a value that doesn't depend on it.
+  useEffect(() => {
+    setActorUserId(user?.id)
+    setActorRole(organizationRole ?? null)
+  }, [user?.id, organizationRole])
 
   return null
 }

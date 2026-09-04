@@ -55,6 +55,8 @@ import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.modu
 import { RaceOpponentModule } from '@/raceOpponent/raceOpponent.module'
 import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
+import { CampaignIdeologyModule } from '@/campaignIdeology/campaignIdeology.module'
+import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
 import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
 import { PeerlyModule } from '@/vendors/peerly/peerly.module'
 import { SegmentModule } from '@/vendors/segment/segment.module'
@@ -81,6 +83,7 @@ import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
     CampaignStrategyModule,
     RaceOpponentModule,
     CampaignStoryModule,
+    CampaignIdeologyModule,
     AnalyticsModule,
     UsersModule,
     FeaturesModule,
@@ -115,6 +118,7 @@ import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
     ContactEngagementModule,
     ContactInteractionModule,
     ContactNoteModule,
+    RecommendedListsModule,
     DoorKnockingModule,
     PhoneBankingModule,
     PollsModule,

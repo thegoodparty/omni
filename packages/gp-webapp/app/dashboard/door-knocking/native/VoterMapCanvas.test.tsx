@@ -553,12 +553,13 @@ describe('VoterMapCanvas drawing', () => {
     expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
   })
 
-  // Ending a walk invalidates the pack so the landing dots aren't stale, and
-  // the refetch hands down a fresh object. Keyed on that identity, the mount
-  // effect tore the MapLibre instance down through map.remove() and re-framed
-  // the district — the canvasser was looking at one block and landed back at
-  // district scale. The dots still have to recolour: that is the overlay
-  // effect's job and it keeps its own dependency on the pack.
+  // Ending a walk used to invalidate the pack so the landing dots weren't
+  // stale, and the refetch handed down a fresh object. Keyed on that identity,
+  // the mount effect tore the MapLibre instance down through map.remove() and
+  // re-framed the district — the canvasser was looking at one block and landed
+  // back at district scale. A pack can still arrive fresh for other reasons,
+  // and the dots still have to recolour: that is the overlay effect's job and
+  // it keeps its own dependency on the pack.
   it('repaints on a new pack without rebuilding the map', () => {
     const props = {
       ...baseProps,

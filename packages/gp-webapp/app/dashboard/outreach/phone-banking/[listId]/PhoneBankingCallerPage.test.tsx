@@ -54,7 +54,7 @@ const buildList = (): PhoneBankingList => ({
   name: 'August GOTV',
   script: 'Hi, this is a volunteer calling about the election.',
   sheetCount: 1,
-  purpose: 'introduce',
+  purpose: 'introduce_myself',
   createdAt: new Date('2026-01-01'),
   isServe: false,
   entries: [
@@ -118,7 +118,7 @@ const buildMultiSheetList = (): PhoneBankingList => ({
   name: 'August GOTV',
   script: 'Hi, this is a volunteer calling about the election.',
   sheetCount: 2,
-  purpose: 'introduce',
+  purpose: 'introduce_myself',
   createdAt: new Date('2026-01-01'),
   isServe: false,
   entries: [

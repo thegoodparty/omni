@@ -775,6 +775,7 @@ export default function NativeDoorKnockingPage({
                 onListCreated={handleListCreated}
                 isElectedOfficial={isElectedOfficial}
                 unpreviewableKeys={unpreviewableKeys}
+                orgSlug={organization?.slug}
                 preselectedListId={carriedListId}
                 onPreselectApplied={() =>
                   setSpentPreselectId(preselectedListId)

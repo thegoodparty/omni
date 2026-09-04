@@ -14,6 +14,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
 import {
+  OrganizationRoleSchema,
   OrganizationStatus,
   OrganizationStatusSchema,
 } from '@goodparty_org/contracts'
@@ -83,8 +84,18 @@ const APIOrganizationSchema = z.object({
 
 type APIOrganization = z.infer<typeof APIOrganizationSchema>
 
+// List-only: role is the viewer's own role in this org (owner via ownerId
+// match, else their membership row's role) — a per-viewer fact, not a
+// property of the org itself, so it stays off the shared APIOrganizationSchema
+// that the singular get/patch and admin routes also validate against.
+const APIOrganizationWithRoleSchema = APIOrganizationSchema.extend({
+  role: OrganizationRoleSchema,
+})
+
+type APIOrganizationWithRole = z.infer<typeof APIOrganizationWithRoleSchema>
+
 const ListOrganizationsResponseSchema = z.object({
-  organizations: z.array(APIOrganizationSchema),
+  organizations: z.array(APIOrganizationWithRoleSchema),
 })
 
 // /admin/list returns each org plus an `extra` block. `campaign.details` is a
@@ -189,16 +200,17 @@ export class OrganizationsController {
   @ResponseSchema(ListOrganizationsResponseSchema)
   async listOrganizations(
     @ReqUser() user: User,
-  ): Promise<{ organizations: APIOrganization[] }> {
+  ): Promise<{ organizations: APIOrganizationWithRole[] }> {
     const organizations = await this.organizationsService.listOrganizations(
       user.id,
     )
 
     const now = new Date()
     return {
-      organizations: organizations.map((org) =>
-        toAPIOrganization(org, organizationStatus(org, now)),
-      ),
+      organizations: organizations.map((org) => ({
+        ...toAPIOrganization(org, organizationStatus(org, now)),
+        role: org.role,
+      })),
     }
   }
 

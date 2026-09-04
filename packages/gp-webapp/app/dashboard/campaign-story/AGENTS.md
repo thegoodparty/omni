@@ -1,6 +1,6 @@
 # app/dashboard/campaign-story/
 
-**The standalone `/dashboard/campaign-story` route + "Your story" sidebar tab
+**The standalone `/dashboard/campaign-story` route + "Your Story" sidebar tab
 exist** (restored under the `campaign-story` flag). The page
 (`components/CampaignStoryPage.tsx`) renders the **onboarding** story cards
 (`app/onboarding/components/StoryIntakeCard` for why/background,
@@ -63,18 +63,18 @@ already round-trips through `Website.content.about`.
 
 | File | Role |
 |------|------|
-| `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one Save commits all dirty fields, a bottom Start over clears them. Its title comes from `DashboardLayout`'s shared `navHeader` (icon + tab name from `shared/navLabels.ts`), and `StoryEditorForm`'s Save portals into that bar via `DashboardNavHeaderAction` — the feature-local `StoryHeaderBar` band (gray `bg-base-muted`, `text-xl`, sticky) is gone |
+| `components/CampaignStoryPage.tsx` | The "Your Story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one Save commits all dirty fields, a bottom Start over clears them. Its title comes from `DashboardLayout`'s shared `navHeader` (icon + tab name from `shared/navLabels.ts`), and `StoryEditorForm`'s Save portals into that bar via `DashboardNavHeaderAction` — the feature-local `StoryHeaderBar` band (gray `bg-base-muted`, `text-xl`, sticky) is gone |
 | `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
 | `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanStoryGate` |
 
 ## Patterns
 
-- **Always on** — the onboarding story steps, the "Your story" dashboard page,
+- **Always on** — the onboarding story steps, the "Your Story" dashboard page,
   the plan tab's "Campaign Tracker" label and routing (`CampaignPlanRouter.tsx`,
   `CampaignPlanView.tsx`, `DashboardMenu.tsx`), and the story-completeness gate
   (`CampaignPlanStoryGate`) all run unconditionally now — there is no flag.
 - **Persistence (background).** Consumers (the onboarding story draft, the
-  "Your story" page, `CampaignPlanStoryGate`) read the story client-side via
+  "Your Story" page, `CampaignPlanStoryGate`) read the story client-side via
   `useCampaignStory()` (`GET /v1/campaigns/mine/story`) and write via
   `PUT /v1/campaigns/mine/story`. Backed by the `campaign_story` table in
   gp-api (`src/campaignStory/`); response shape is `CampaignStory`
@@ -114,7 +114,7 @@ already round-trips through `Website.content.about`.
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real
   rewrite AI.
-- **Shared cards live in onboarding.** Both onboarding and the "Your story"
+- **Shared cards live in onboarding.** Both onboarding and the "Your Story"
   dashboard page render the new-design `StoryIntakeCard` (why/background) +
   `StoryIssuesCard` (inline "Priority N" rows, no modal) from
   `app/onboarding/components/`. Onboarding is deferred (one save on the final
@@ -171,7 +171,7 @@ already round-trips through `Website.content.about`.
   on leaving the story) and the `/dashboard/campaign-story` page (single header
   Save + Start over) — see `app/onboarding/CLAUDE.md`.
 - `app/dashboard/shared/DashboardMenu.tsx` — always labels the plan tab
-  "Campaign Tracker" and always renders the "Your story" sidebar entry.
+  "Campaign Tracker" and always renders the "Your Story" sidebar entry.
 - `app/dashboard/campaign-plan/components/CampaignPlanStoryGate.tsx` — reads
   the story + website to gate/preview the plan tab before generation.
 - `packages/gp-api/src/campaignStory/` — `campaign_story` table (`background`,

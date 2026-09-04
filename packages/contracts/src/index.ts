@@ -80,6 +80,9 @@ export {
   type SocialAssetKind,
   SOCIAL_ASSET_KIND_VALUES,
   SocialAssetKindSchema,
+  type OrganizationRole,
+  ORGANIZATION_ROLE_VALUES,
+  OrganizationRoleSchema,
 } from './generated/enums'
 
 export {
@@ -421,6 +424,19 @@ export {
   type TeamInviteMetadata,
 } from './campaigns/TeamInviteMetadata.schema'
 
+export {
+  TeamMemberSchema,
+  type TeamMember,
+  PendingInviteSchema,
+  type PendingInvite,
+  TeamResponseSchema,
+  type TeamResponse,
+  InviteMemberResponseSchema,
+  type InviteMemberResponse,
+  AcceptInviteResponseSchema,
+  type AcceptInviteResponse,
+} from './campaigns/Team.schema'
+
 export * from './campaigns/compliance'
 
 export {
@@ -591,6 +607,7 @@ export {
 export * from './artifactReview'
 
 export * from './raceOpponent'
+export * from './recommendedLists'
 
 export * from './experiments'
 
@@ -721,6 +738,11 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export {
+  OUTREACH_PURPOSE_VALUES,
+  OutreachPurposeSchema,
+  type OutreachPurpose,
+} from './outreach/OutreachPurpose.schema'
 export {
   SOCIAL_PURPOSE_VALUES,
   SocialPurposeSchema,

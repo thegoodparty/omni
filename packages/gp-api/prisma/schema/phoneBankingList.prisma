@@ -1,16 +1,15 @@
-// Storage vocabulary for PhoneBankingCreateSchema's purpose (contracts uses
-// kebab/plain values like "vote-early"; Postgres enum labels must be valid
-// identifiers, so these are the snake_case equivalents — the service layer
-// maps between the two).
+// Storage vocabulary for PhoneBankingCreateSchema's purpose. Contracts'
+// OUTREACH_PURPOSE_VALUES (the canonical vocabulary shared by every outreach
+// channel) is already snake_case, so these labels match the wire values
+// directly — no service-layer mapping.
 enum PhoneBankingPurpose {
-  introduce
-  persuade
-  event
-  vote_early
-  election_day
+  introduce_myself
+  persuade_voters
+  event_invite
+  early_voting
+  election_day_turnout
   custom
-  // Serve-only purposes (ENG-10985): explain-decision / community-input /
-  // share-resource in contracts' kebab-case vocabulary.
+  // Serve-only purposes (ENG-10985).
   explain_decision
   community_input
   share_resource

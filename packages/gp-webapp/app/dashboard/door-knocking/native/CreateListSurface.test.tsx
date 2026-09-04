@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type {
+  SegmentResponse,
+  SupportStatusRollup,
+} from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
 import type { PolygonRing } from './VoterMapCanvas'
 import CreateListSurface, {
@@ -34,13 +37,38 @@ vi.mock('./createFlow/CreateListFlow', () => ({
     onShowAddresses: () => void
     onHideAddresses: () => void
     onStepChange: (step: CreateFlowStep) => void
-    onSelectedListChange: (listId: number | null) => void
+    onSelectedListChange: (
+      listId: number | null,
+      recommendedCriteria: {
+        precincts: string[]
+        supportStatus: SupportStatusRollup[]
+      },
+    ) => void
   }) => {
     flowProps.current = props
     return (
       <div data-testid="create-flow">
-        <button type="button" onClick={() => props.onSelectedListChange(4)}>
+        <button
+          type="button"
+          onClick={() =>
+            props.onSelectedListChange(4, {
+              precincts: [],
+              supportStatus: [],
+            })
+          }
+        >
           pick list 4
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            props.onSelectedListChange(null, {
+              precincts: ['Cook|101', 'Cook|102'],
+              supportStatus: ['undecided'],
+            })
+          }
+        >
+          accept recommendation
         </button>
         <button type="button" onClick={props.onShowAddresses}>
           show addresses
@@ -126,6 +154,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onListCreated={onListCreated}
     isElectedOfficial={false}
     unpreviewableKeys={[]}
+    orgSlug="campaign-9"
     {...overrides}
   />
 )
@@ -237,6 +266,27 @@ describe('CreateListSurface seam', () => {
       activityConditions: [
         { outreachType: 'text', outreachId: 12, actions: ['responded'] },
       ],
+    })
+  })
+
+  // An accepted recommendation is the same gap from the other side: it is a
+  // list that does not exist yet, so there is no saved row to read its
+  // clauses off, and precincts are the ONLY thing that narrows a door list.
+  // Without them this endpoint answers for the whole district inside the ring
+  // and the draw step prints that as the count the paid route is built from —
+  // and its `stops` is what the hard stop cap is checked against.
+  it('sends an accepted recommendation’s own clauses with the address preview', async () => {
+    render(surface())
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'accept recommendation' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'show addresses' }))
+
+    await waitFor(() => expect(previewCalls.count).toBe(1))
+    expect(previewCalls.bodies[0]?.filters).toMatchObject({
+      precincts: ['Cook|101', 'Cook|102'],
+      supportStatus: ['undecided'],
     })
   })
 

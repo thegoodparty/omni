@@ -8,11 +8,11 @@ import {
 // it is deliberately NOT social's shorter copy.
 export const PHONE_BANKING_PURPOSE_LABELS: Record<PhoneBankingPurpose, string> =
   {
-    introduce: 'Introduce myself to voters',
-    persuade: 'Persuade likely voters',
-    event: 'Invite voters to a local event',
-    'vote-early': 'Encourage voters to vote early',
-    'election-day': 'Encourage voters to vote on election day',
+    introduce_myself: 'Introduce myself to voters',
+    persuade_voters: 'Persuade likely voters',
+    event_invite: 'Invite voters to a local event',
+    early_voting: 'Encourage voters to vote early',
+    election_day_turnout: 'Encourage voters to vote on election day',
     custom: 'Write my own script',
   }
 
@@ -28,11 +28,11 @@ export const PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS: Record<
   PhoneBankingPurpose,
   string
 > = {
-  introduce: 'Introduction calls',
-  persuade: 'Persuasion calls',
-  event: 'Event invite calls',
-  'vote-early': 'Early voting calls',
-  'election-day': 'Election day calls',
+  introduce_myself: 'Introduction calls',
+  persuade_voters: 'Persuasion calls',
+  event_invite: 'Event invite calls',
+  early_voting: 'Early voting calls',
+  election_day_turnout: 'Election day calls',
   // The flow suggests nothing for custom; the entry keeps the record total so
   // a new purpose is a compile error here.
   custom: FALLBACK_NAME,

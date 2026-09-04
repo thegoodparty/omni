@@ -12,10 +12,8 @@ import {
   PhoneBankingList as PhoneBankingListResponse,
   PhoneBankingListEntry,
   PhoneBankingListPerson,
-  PhoneBankingPurpose,
   Person,
   ServePhoneBankingCreate,
-  ServePhoneBankingPurpose,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -33,7 +31,6 @@ import {
   OutreachStatus,
   OutreachType,
   Prisma,
-  PhoneBankingPurpose as PrismaPhoneBankingPurpose,
 } from '../../generated/prisma'
 
 // Mirrors p2pPhoneListUpload.service.ts's SEGMENT_PAGE_SIZE — the page size
@@ -68,39 +65,6 @@ const PHONE_BANKING_FILTER_LOCK_NAMESPACE = 25715
 const CONCURRENT_CREATE_RETRY_MESSAGE =
   'Another campaign was just created from this list and claimed these ' +
   'contacts — try again to get the next batch'
-
-// Keyed over the Win|Serve union (not just PhoneBankingPurpose) so a new
-// slug added to either contracts vocabulary without a matching entry here
-// is a compile error, not a runtime gap.
-export const PURPOSE_TO_DB: Record<
-  PhoneBankingPurpose | ServePhoneBankingPurpose,
-  PrismaPhoneBankingPurpose
-> = {
-  introduce: PrismaPhoneBankingPurpose.introduce,
-  persuade: PrismaPhoneBankingPurpose.persuade,
-  event: PrismaPhoneBankingPurpose.event,
-  'vote-early': PrismaPhoneBankingPurpose.vote_early,
-  'election-day': PrismaPhoneBankingPurpose.election_day,
-  custom: PrismaPhoneBankingPurpose.custom,
-  'explain-decision': PrismaPhoneBankingPurpose.explain_decision,
-  'community-input': PrismaPhoneBankingPurpose.community_input,
-  'share-resource': PrismaPhoneBankingPurpose.share_resource,
-}
-
-export const PURPOSE_FROM_DB: Record<
-  PrismaPhoneBankingPurpose,
-  PhoneBankingPurpose | ServePhoneBankingPurpose
-> = {
-  [PrismaPhoneBankingPurpose.introduce]: 'introduce',
-  [PrismaPhoneBankingPurpose.persuade]: 'persuade',
-  [PrismaPhoneBankingPurpose.event]: 'event',
-  [PrismaPhoneBankingPurpose.vote_early]: 'vote-early',
-  [PrismaPhoneBankingPurpose.election_day]: 'election-day',
-  [PrismaPhoneBankingPurpose.custom]: 'custom',
-  [PrismaPhoneBankingPurpose.explain_decision]: 'explain-decision',
-  [PrismaPhoneBankingPurpose.community_input]: 'community-input',
-  [PrismaPhoneBankingPurpose.share_resource]: 'share-resource',
-}
 
 const LIST_WITH_ENTRIES_INCLUDE = {
   entries: {
@@ -471,7 +435,7 @@ export class PhoneBankingListService extends createPrismaBase(
             name: input.name,
             script: input.script,
             sheetCount: input.sheetCount,
-            purpose: PURPOSE_TO_DB[input.purpose],
+            purpose: input.purpose,
             entries: { create: entriesData },
           },
         })
@@ -567,7 +531,7 @@ export class PhoneBankingListService extends createPrismaBase(
       name: list.name,
       script: list.script,
       sheetCount: list.sheetCount,
-      purpose: PURPOSE_FROM_DB[list.purpose],
+      purpose: list.purpose,
       createdAt: list.createdAt,
       entries,
       // Same `eo-` prefix check as `party` above — the system-wide Win/Serve

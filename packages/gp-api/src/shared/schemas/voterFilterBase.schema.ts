@@ -96,3 +96,5 @@ export const voterFilterBaseSchema = z.object({
   supportStatus: z.array(SupportStatusRollupSchema).optional(),
   activityConditions: z.array(activityConditionSchema).optional(),
 })
+
+export type VoterFilterBase = z.infer<typeof voterFilterBaseSchema>

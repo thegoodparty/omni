@@ -59,6 +59,7 @@ const baseProps = {
   onListCreated: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
+  orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
   previewFailed: false,
@@ -1352,18 +1353,19 @@ describe('CreateListFlow steps', () => {
   it('opens on door knocking’s own goal cards, and picking one advances', () => {
     render(<CreateListFlow {...baseProps} step="filters" />)
 
-    // Door knocking's list, not social's or phone banking's: these goals are
-    // about a conversation on a doorstep and have no equivalent on a channel
-    // that sends a message.
-    expect(screen.getByText('Discover local issues')).toBeInTheDocument()
+    // Door knocking's own wording for the shared outreach purpose vocabulary
+    // (docs/features/recommended-lists.md), not social's or phone banking's:
+    // these goals are about a conversation on a doorstep and have no
+    // equivalent on a channel that sends a message.
+    expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
     expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
     expect(
-      screen.getByText('Hear what neighbors care about most.'),
+      screen.getByText('Remind supporters to vote before election day.'),
     ).toBeInTheDocument()
     expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
 
     fireEvent.click(
-      screen.getByRole('button', { name: /Discover local issues/ }),
+      screen.getByRole('button', { name: /Encourage early voting/ }),
     )
     expect(heading('Who do you want to reach?')).toBeInTheDocument()
     expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
@@ -1719,7 +1721,7 @@ describe('CreateListFlow steps', () => {
     rerender(<CreateListFlow {...baseProps} step="filters" />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     fireEvent.click(
-      screen.getByRole('button', { name: /Discover local issues/ }),
+      screen.getByRole('button', { name: /Encourage early voting/ }),
     )
     rerender(<CreateListFlow {...baseProps} step="confirm" />)
     expect(screen.getByLabelText('Campaign name')).not.toHaveValue(

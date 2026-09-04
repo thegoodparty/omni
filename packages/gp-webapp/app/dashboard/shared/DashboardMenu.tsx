@@ -66,7 +66,9 @@ import {
 import {
   OrganizationPicker,
   useOrganization,
+  useOrganizationRole,
 } from '@shared/organization-picker'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 interface MenuItem {
   id: string
@@ -266,6 +268,21 @@ const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
+// win-team-accounts (ENG-10816/10827). Win-only in Phase 1 (ENG-10816
+// non-goal: Serve staff accounts are out of scope, so this never renders
+// for an elected-office org — see getDashboardMenuItems below and
+// gp-api's matching 400 on POST team/invites for an eo- org slug;
+// delegate review, PR #1688).
+const TEAM_MENU_ITEM: MenuItem = {
+  id: 'team-dashboard',
+  label: NAV_LABELS.team,
+  link: '/dashboard/team',
+  icon: <MdPeople />,
+  v2Icon: UsersRound,
+  v2Category: 'campaign',
+  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignTeam),
+}
+
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
   label: NAV_LABELS.knowYourOpponent,
@@ -278,6 +295,7 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
+  showTeamItem = false,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -334,7 +352,7 @@ export const getDashboardMenuItems = (
     (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
 
-  // The campaign tracker tab, and the "Your story" tab just above it (the
+  // The campaign tracker tab, and the "Your Story" tab just above it (the
   // story is what the tracker + plan are generated from).
   menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
@@ -352,6 +370,10 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
+  if (showTeamItem && !isElectedOffice) {
+    menuItems.push(TEAM_MENU_ITEM)
+  }
+
   return menuItems
 }
 
@@ -362,10 +384,18 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
+  // trackExposure=false: this is a render-decision read, not the experiment's
+  // treatment surface (the team page itself tracks exposure).
+  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
 
   const menuItems = useMemo(
-    () => getDashboardMenuItems(!!electedOffice, isElectedOfficeLoading),
-    [electedOffice, isElectedOfficeLoading],
+    () =>
+      getDashboardMenuItems(
+        !!electedOffice,
+        isElectedOfficeLoading,
+        teamAccountsEnabled,
+      ),
+    [electedOffice, isElectedOfficeLoading, teamAccountsEnabled],
   )
 
   useEffect(() => {
@@ -403,6 +433,11 @@ const NewNavMenu = ({
     (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
 
   const organization = useOrganization()
+  const organizationRole = useOrganizationRole()
+  // ENG-10829: a manager (campaignAdmin) never sees billing/account-settings.
+  // Owner (including every current solo user, since role is undefined until
+  // teams exist) sees today's menu exactly.
+  const isManager = organizationRole === 'campaignAdmin'
 
   const handleMenuItemClick = (item: MenuItem) => {
     item?.onClick?.()
@@ -533,7 +568,8 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
-                  {sidebarItem(accountManagementMenuItems.account)}
+                  {!isManager &&
+                    sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.logout)}
                   <SidebarSeparator />
@@ -574,7 +610,8 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
-                  {dropDownItem(accountManagementMenuItems.account)}
+                  {!isManager &&
+                    dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.community)}
                   <DropdownMenuSeparator />
