@@ -179,6 +179,24 @@ describe('mergeCohortIntoSegments', () => {
     ).toThrow('serves no variant, not "on"')
   })
 
+  it('refuses when the requested variant carries a zero weight', () => {
+    expect(() =>
+      mergeCohortIntoSegments(
+        [
+          {
+            ...emailSegment('Pilot allowlist', ['old@example.com']),
+            rolloutWeights: { on: 0, off: 1 },
+          },
+        ],
+        {
+          segmentName: 'Pilot allowlist',
+          variant: 'on',
+          emails: ['new@example.com'],
+        },
+      ),
+    ).toThrow('serves "off", not "on"')
+  })
+
   it('merges into a segment that carries no rolloutWeights', () => {
     const segment = emailSegment('Pilot allowlist', ['old@example.com'])
     delete segment.rolloutWeights

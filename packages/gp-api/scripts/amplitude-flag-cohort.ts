@@ -168,9 +168,13 @@ export const mergeCohortIntoSegments = (
   // `--variant` defaults to "on", so rewriting the weights to match it would
   // let an ordinary add-emails run silently flip a segment somebody pointed at
   // another variant. Make the operator say which one they mean.
-  // An absent `rolloutWeights` carries no variant to contradict; an empty one
-  // is a segment that resolves nobody, which is worth stopping on.
-  const served = Object.keys(existing.rolloutWeights ?? {})
+  //
+  // An absent `rolloutWeights` carries no variant to contradict. A zero weight
+  // routes nobody, so a key alone doesn't count as served — `{ on: 0, off: 1 }`
+  // would otherwise accept `--variant on` and send every user to `off`.
+  const served = Object.entries(existing.rolloutWeights ?? {})
+    .filter(([, weight]) => weight > 0)
+    .map(([key]) => key)
   if (existing.rolloutWeights !== undefined && !served.includes(variant)) {
     const serves = served.length > 0 ? `"${served.join('", "')}"` : 'no variant'
     throw new Error(
