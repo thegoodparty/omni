@@ -498,9 +498,12 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       const firstCall = smsAdmin.getDetail(row.id)
       const secondCall = smsAdmin.getDetail(row.id)
-      // Let both calls' own DB reads (findFirst + registrations + owners)
-      // land before answering the shared vendor read.
-      await new Promise<void>((resolve) => setTimeout(resolve, 50))
+      // Wait for the vendor mock to actually be invoked (not a fixed delay)
+      // before answering it — the calls' own DB prefixes (findFirst +
+      // registrations + owners) run first, at whatever speed the DB gives.
+      await vi.waitFor(() =>
+        expect(getJobDetailedStats).toHaveBeenCalledTimes(1),
+      )
       resolveStats(statsPayload())
 
       const [first, second] = await Promise.all([firstCall, secondCall])
