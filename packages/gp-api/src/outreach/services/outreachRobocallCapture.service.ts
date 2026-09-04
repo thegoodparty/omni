@@ -10,7 +10,11 @@ import {
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  Prisma,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
@@ -379,6 +383,13 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       { outreachId, capturedAmountInCents, completedCallCount },
       'robocall run captured',
     )
+    // The run dialed and settled, so the history UI must show "Completed"
+    // instead of staying "Sending"/"Scheduled". Best-effort + CAS-guarded on the
+    // pre-terminal visible states so it is idempotent and never flips a
+    // canceled/failed/already-completed row — mirrors markSpineScheduled/
+    // markSpineInProgress/markSpineFailed. A miss only leaves stale history; the
+    // money already committed, so it must never throw out of the capture path.
+    await this.markSpineCompleted(outreachId)
     if (userId == null) {
       this.logger.error(
         { outreachId },
@@ -399,6 +410,29 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       where: { outreachId, settleState: RobocallSettleState.capturing },
       data: { settleState: to },
     })
+  }
+
+  // Advance the spine to `completed` so the history UI shows "Completed" once a
+  // dialed run settles + captures. CAS-guarded on the pre-terminal visible states
+  // (pending/in_progress) so it never overrides canceled/failed and is idempotent
+  // on an already-completed row. Best-effort, like the sibling markSpine* helpers.
+  private async markSpineCompleted(outreachId: number): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: {
+          id: outreachId,
+          status: {
+            in: [OutreachStatus.pending, OutreachStatus.in_progress],
+          },
+        },
+        data: { status: OutreachStatus.completed },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to advance spine to completed',
+      )
+    }
   }
 
   // Best-effort receipt: the capture already committed, so a Segment failure must

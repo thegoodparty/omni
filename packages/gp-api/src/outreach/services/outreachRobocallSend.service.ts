@@ -12,9 +12,12 @@ import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHa
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
-import { OutreachMaterializationService } from './outreachMaterialization.service'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
 // nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
@@ -73,7 +76,6 @@ export class OutreachRobocallSendService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
     private readonly hold: OutreachRobocallHoldService,
-    private readonly materialization: OutreachMaterializationService,
   ) {
     super()
   }
@@ -445,50 +447,34 @@ export class OutreachRobocallSendService extends createPrismaBase(
       )
       return
     }
-    // The dial committed here — calls are actually going out (or already
-    // did, for the reconcile/stale-recovery callers that land in this same
-    // commit on a confirmed STARTED/ABORT/END read). Materialize the
-    // recipient rows now so the person feed reflects a robocall that
-    // actually dialed, mirroring how text/p2p materialize at launch.
-    await this.tryMaterializeRobocall(outreachId)
+    // The dial committed here — calls are actually going out (or already did,
+    // for the reconcile/stale-recovery callers that land in this same commit on
+    // a confirmed STARTED read). Advance the spine so the history UI shows the
+    // run is "Sending" during the run window rather than staying "Scheduled". NO
+    // per-contact ContactInteractionRobocall rows are written: this billing model
+    // does not know WHO was reached (CallHub reports no per-call disposition), so
+    // the robocall records only the aggregate audience/billable count on its
+    // OutreachRobocall row, never a per-person feed entry.
+    await this.markSpineInProgress(outreachId)
   }
 
-  // Best-effort, mirroring OutreachService.tryMaterializeOutreach: the dial
-  // already committed, so a materialization failure must only log — it must
-  // NEVER throw out of the send path or touch the hold. The commit above is a
-  // one-time `dialing → dialed` CAS (a repeat call finds the row no longer
-  // `dialing` and matches zero rows), so this fires at most once per
-  // outreach in practice; the (outreachId, personId) unique constraint's
-  // skipDuplicates write (ContactInteractionRobocallService.
-  // createManyIdempotent) makes a second invocation a no-op regardless.
-  private async tryMaterializeRobocall(outreachId: number): Promise<void> {
+  // Advance the spine `pending → in_progress` so the history UI shows "Sending"
+  // for the run window (a robocall otherwise sits at "Scheduled" from
+  // markSpineScheduled until capture flips it to "Completed"). Best-effort +
+  // CAS-guarded on `pending` so it is idempotent and never flips a
+  // canceled/failed row — mirrors markSpineScheduled/markSpineFailed in the hold
+  // service. A miss only leaves the row showing "Scheduled"; log it, never fail
+  // the dial (the call already went out).
+  private async markSpineInProgress(outreachId: number): Promise<void> {
     try {
-      // Loaded fresh rather than threaded through from startCampaign: this is
-      // also reached from reconcileDialing/recoverStaleDialing, which never
-      // load the outreach/campaign themselves.
-      const outreach = await this.client.outreach.findUnique({
-        where: { id: outreachId },
-        include: { campaign: true },
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.pending },
+        data: { status: OutreachStatus.in_progress },
       })
-      // A robocall row is always campaign-scoped (outreach.prisma) — a
-      // missing campaign here means the outreach itself is gone. Log and
-      // move on; the dial already happened and must not be affected.
-      if (!outreach?.campaign) {
-        this.logger.error(
-          { outreachId },
-          'robocall materialization: outreach or campaign not found',
-        )
-        return
-      }
-      await this.materialization.materializeOutreach(
-        outreach.campaign,
-        outreach,
-      )
     } catch (err) {
       this.logger.error(
         { err, outreachId },
-        'robocall recipient materialization failed after dial; the call ' +
-          'went out, only the person-feed audit rows are missing',
+        'robocall: failed to advance spine to in_progress',
       )
     }
   }

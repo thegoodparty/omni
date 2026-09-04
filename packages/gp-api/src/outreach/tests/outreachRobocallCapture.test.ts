@@ -8,7 +8,11 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import {
+  Campaign,
+  OutreachStatus,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
@@ -116,6 +120,15 @@ const createDraft = async ({
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
+const readSpine = (outreachId: number) =>
+  service.prisma.outreach.findUniqueOrThrow({ where: { id: outreachId } })
+
+const setSpineStatus = (outreachId: number, status: OutreachStatus) =>
+  service.prisma.outreach.update({
+    where: { id: outreachId },
+    data: { status },
+  })
+
 describe('OutreachRobocallCaptureService.captureDraft', () => {
   it('captures the actual amount off a live hold and records the receipt once', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
@@ -142,6 +155,34 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
       capturedAmountInDollars: calcRobocallTotalInCents(100) / 100,
     })
     expect(messageId).toBe(`${outreachId}:receipt`)
+  })
+
+  it('advances the spine to completed on a successful capture', async () => {
+    const outreachId = await createDraft({ completedCallCount: 100 })
+    // By capture time the dial has moved the spine to in_progress.
+    await setSpineStatus(outreachId, OutreachStatus.in_progress)
+
+    await capture.captureDraft(outreachId)
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.captured,
+    )
+    // The history UI now shows "Completed" instead of staying "Sending".
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.completed)
+  })
+
+  it('never flips a canceled spine to completed on capture (guarded, idempotent)', async () => {
+    const outreachId = await createDraft({ completedCallCount: 100 })
+    await setSpineStatus(outreachId, OutreachStatus.canceled)
+
+    await capture.captureDraft(outreachId)
+
+    // The money still captures, but the CAS on pending/in_progress leaves a
+    // canceled row canceled — never resurrected to completed.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.captured,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 
   it('undercharges when fewer calls completed than the hold estimate', async () => {
