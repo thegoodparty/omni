@@ -184,7 +184,7 @@ export interface CreateListSurfaceProps {
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
-  isElectedOfficial: boolean
+  isServeOrg: boolean
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
   unpreviewableKeys: string[]
@@ -221,7 +221,7 @@ export default function CreateListSurface({
   color,
   drawnStops,
   onListCreated,
-  isElectedOfficial,
+  isServeOrg,
   unpreviewableKeys,
   orgSlug,
   preselectedListId,
@@ -240,8 +240,9 @@ export default function CreateListSurface({
   const savedListsQuery = useQuery(savedListsQueryOptions)
   const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
   const audience = useMemo(
-    () => audienceOptions(savedListsQuery.data, packQuery.data ?? null),
-    [savedListsQuery.data, packQuery.data],
+    () =>
+      audienceOptions(savedListsQuery.data, packQuery.data ?? null, isServeOrg),
+    [savedListsQuery.data, packQuery.data, isServeOrg],
   )
   // Which list the who step is on, resolved against the same rows the picker
   // is drawn from. The flow owns the choice and reports the id; the row it
@@ -380,7 +381,7 @@ export default function CreateListSurface({
       color={color}
       drawnStops={drawnStops}
       onListCreated={onListCreated}
-      isElectedOfficial={isElectedOfficial}
+      isServeOrg={isServeOrg}
       unpreviewableKeys={unpreviewableKeys}
       orgSlug={orgSlug}
       preselectedListId={preselectedListId}

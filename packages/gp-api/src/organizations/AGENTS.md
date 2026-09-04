@@ -78,7 +78,12 @@ membership rows with `listPendingTeamInvitations(slug)`, which pages through
 Clerk's *entire instance-wide* pending-invitation list (it has no
 server-side org filter) before filtering to this org — a single page would
 silently drop this org's invites once the instance-wide pending count
-exceeds the page size.
+exceeds the page size. Each page uses `CLERK_LIST_TIMEOUT_MS` (10s), not the
+`SessionGuard`-tuned `CLERK_API_TIMEOUT_MS` (2s) — this loop is a heavy,
+non-hot-path list op, and a page merely running slow under normal Clerk
+latency shouldn't 502 the whole team read. A page that times out or hits a
+Clerk 429 gets up to 2 retries (honoring `retryAfter` on a 429) before the
+error propagates to `BadGatewayException`.
 
 **Revoke clears the invitee's own metadata too, not just the invitation.**
 An invitee who already signed up via the invite link carries the same
@@ -108,21 +113,44 @@ source is always the DB, not request input. The Clerk metadata clear runs
 **Owner has no membership row**, so `:userId === Organization.ownerId` is a
 400 on both member-management routes (ownership transfer is out of scope).
 
-## HubSpot contact sync (ENG-10826)
+## HubSpot contact sync (ENG-10826, ENG-11030)
 
-Direct-add, accept, and role-change each fire-and-forget
-`CrmTeamMembersService.syncTeamMember` (`src/crm/crmTeamMembers.service.ts`)
-after the Postgres write — a HubSpot outage must never fail or slow the
+Direct-add, accept, role-change, and removal each fire-and-forget a call
+into `CrmTeamMembersService` (`src/crm/crmTeamMembers.service.ts`) after
+the Postgres write — a HubSpot outage must never fail or slow the
 response, so the call is `void`-invoked and its own errors are caught and
-logged, never surfaced. It upserts a contact by email, sets the `team_role`
-property (values, not labels — `owner` / `campaign manager` / `volunteer`),
-and associates it with the campaign's company using the non-primary
-`companyToContact` association (280), not `primaryCompanyToContact` — a
-team member can already have their own primary company from their own
-campaign, and this association must not displace it. `team_role` must be
-defined as a contact property in the HubSpot portal (21589597) first;
-HubSpot silently drops writes to an undefined property. Member removal does
-not touch HubSpot — the contact and its `team_role` value are left as-is.
+logged, never surfaced.
+
+The role lives on the Contact-Company association as a user-defined
+**label** (Candidate / Campaign Manager / Volunteer), not on an unlabeled
+association — the relationship is many-to-many (one person can manage one
+campaign and own another), and a label says which company a role applies
+to. Label `associationTypeId`s are portal-specific (Ops creates them per
+portal), so they're resolved at runtime by label **name** via
+`AssociationLabelsService` (`src/crm/associationLabels.service.ts`, shared
+with the campaign-sync path in `crmCampaigns.service.ts`), cached per
+process. A label Ops hasn't created yet logs loudly and the labeled write
+is skipped — HubSpot silently drops writes to an undefined association
+type, so a silent miss would look like a success.
+
+- **Direct-add / accept**: upserts a contact by email and associates it
+  with the campaign's company under the role's label.
+- **Role change**: passes `fromRole` through so the old label is archived
+  (`batchApi.archiveLabels` — never `batchApi.archive`, which detaches the
+  contact from every company association) before the new one is written.
+- **Removal**: archives the labeled association for that campaign's
+  company. The `team_role` contact property is cleared only when the user
+  has no remaining `OrganizationMembership` row anywhere — a role on a
+  different campaign must not be blanked by this org's removal.
+
+The non-primary label association must never displace a team member's own
+`primaryCompanyToContact` association from their own campaign (ENG-10826
+regression, still covered).
+
+`team_role` (values, not labels — `owner` / `campaign manager` /
+`volunteer`) is still written alongside the label for CS, pending the data
+team's Attribute Registry recording one owner between the property and the
+label.
 
 ## Org listing gotcha
 

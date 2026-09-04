@@ -92,6 +92,12 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(res.data.refunded).toBe(true)
     expect(res.data.outreach.status).toBe('canceled')
     expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+    const stamped = await service.prisma.outreach.findFirstOrThrow({
+      where: { id: row.id },
+    })
+    expect(stamped.canceledAt).not.toBeNull()
+    expect(stamped.canceledBy).toBe('tests@goodparty.org')
+    expect(stamped.canceledByAdmin).toBe(false)
     expect(refundPaymentIntent).toHaveBeenCalledWith(
       'pi_test_1',
       `outreach-cancel-${row.id}`,

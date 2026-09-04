@@ -80,26 +80,13 @@ const createDraft = async ({
 
 describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalSend = process.env.ROBOCALL_SEND_ENABLED
-  const originalCapture = process.env.ROBOCALL_CAPTURE_ENABLED
 
   beforeEach(() => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    // The sweep is deliberately NOT kill-switch-gated: leave the send/capture
-    // switches unset to prove it still runs.
-    delete process.env.ROBOCALL_SEND_ENABLED
-    delete process.env.ROBOCALL_CAPTURE_ENABLED
   })
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalSend === undefined) delete process.env.ROBOCALL_SEND_ENABLED
-    else process.env.ROBOCALL_SEND_ENABLED = originalSend
-    if (originalCapture === undefined) {
-      delete process.env.ROBOCALL_CAPTURE_ENABLED
-    } else {
-      process.env.ROBOCALL_CAPTURE_ENABLED = originalCapture
-    }
   })
 
   it('fails a past-due authorized draft that never staged', async () => {
@@ -109,14 +96,6 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
 
     expect(failSendSpy).toHaveBeenCalledTimes(1)
     expect(failSendSpy).toHaveBeenCalledWith(outreachId, 'expired_unstaged')
-  })
-
-  it('runs with the send/capture kill-switches unset (not gated)', async () => {
-    await createDraft({ sendInDays: -1 })
-
-    await stranded.sweepStrandedAuthorized()
-
-    expect(failSendSpy).toHaveBeenCalledTimes(1)
   })
 
   it('skips a staged past-due authorized draft (send sweep owns it)', async () => {

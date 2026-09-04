@@ -901,6 +901,7 @@ export default function WalkView({
         <PersonSheet
           stop={sheetStop}
           stopSeq={sheetStop.seq}
+          isServe={Boolean(routeQuery.data?.isServe)}
           // Both go through `openStopFromMap`, which is the one entry that also
           // brings the list to the stop it opens — without it the canvasser
           // walks four doors from the sheet and closes it onto a list still

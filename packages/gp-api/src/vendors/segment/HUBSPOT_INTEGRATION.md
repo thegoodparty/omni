@@ -325,6 +325,51 @@ The cron enqueues the window in the SQS message itself, so manual triggering jus
 
 3. The consumer will query all campaigns, fire Segment events, and refresh the HubSpot contact fields. HubSpot's 5-day staleness check applies to whether the digest email sends — a manual recovery within ~5 days of the intended run should still trigger emails.
 
+## Door Knocking Canvassing Totals
+
+`DoorKnockingStatsService` fires `Door Knocking - Canvassing Totals Updated`
+with the organization's nine canvassing running totals — on turf create, turf
+complete and turf delete, and from a daily sweep over orgs that recorded a
+knock in the last 24 hours.
+
+| Event Name                                  | HubSpot Target                                        | Fired From                                      |
+| ------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------- |
+| `Door Knocking - Canvassing Totals Updated` | Nine properties on the contact, copied to the company | `DoorKnockingStatsService.emitCanvassingTotals` |
+
+**The workflow does not exist yet, and nothing reaches HubSpot until it does.**
+CS needs one workflow keyed on the exact event name that copies each property
+below onto the contact and then onto the associated company. Everything the
+event carries, in the camelCase the payload uses:
+
+| Property                | Type               | Means                                                                                             |
+| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------- |
+| `uniqueDoorsKnocked`    | number             | Distinct doors a knock was recorded at, whatever was learned there                                |
+| `doorAttempts`          | number             | Every knock recorded, repeat visits included. Always ≥ `uniqueDoorsKnocked`                       |
+| `uniqueContactsMade`    | number             | People who came to the door, counted once each                                                    |
+| `totalContactsMade`     | number             | Conversations at the door, counted every time                                                     |
+| `committedVoters`       | number             | Latest door-knock answers are `supporter` **and** will-vote `yes`                                 |
+| `votersPersuaded`       | number             | Answered `non_supporter` at one door and `supporter` at a later one                               |
+| `uniqueTurfsCreated`    | number             | Lists drawn and still held                                                                        |
+| `uniqueTurfsCompleted`  | number             | The subset marked done                                                                            |
+| `lastCanvassActivityAt` | ISO string \| null | The newest knock's timestamp                                                                      |
+| `organizationSlug`      | string             | Attribution                                                                                       |
+| `campaignId`            | number \| null     | Attribution; null for a Serve (`eo-`) org                                                         |
+| `email`                 | string \| null     | The acting user's, also present as a context trait                                                |
+| `hubspotContactId`      | string \| null     | The acting user's, also present as a context trait                                                |
+| `hubspotCompanyId`      | string \| null     | `campaign.data.hubspotId`; null until the first CRM sync back-fills it, and always null for Serve |
+
+Notes:
+
+- **Every number is a running total, deliberately.** A workflow can copy a
+  value onto a property but cannot sum across events, so the property should be
+  SET from the event, never incremented.
+- Property keys are camelCase here (the analytics standard) rather than
+  snake_case matching HubSpot internal names, unlike `Peerly Identity ID
+Created` above. The workflow maps them.
+- The full metric definitions, including the `refused_to_engage` judgement call
+  in the two contacts-made numbers, live in
+  `packages/gp-api/docs/door-knocking.md` § The canvassing totals rollup.
+
 ## Public Profile Completion Requests
 
 When a visitor on a public `/people/*` page asks an unclaimed person to complete their profile, gp-api fires `Person Profile - Completion Requested`. A HubSpot workflow sends the nudge email off it.
@@ -364,6 +409,7 @@ EVENTS.Outreach.CompliancePinSubmitted // 'Voter Outreach - 10DLC Compliance PIN
 EVENTS.Outreach.ComplianceCompleted // 'Voter Outreach - 10DLC Compliance Completed'
 EVENTS.Outreach.PeerlyIdentityIdCreated // 'Peerly Identity ID Created'
 EVENTS.CampaignPlan.WeeklyTasksDigest // 'Campaign Plan - Weekly Tasks Digest'
+EVENTS.DoorKnocking.CanvassingTotalsUpdated // 'Door Knocking - Canvassing Totals Updated'
 EVENTS.PersonProfiles.CompletionRequested // 'Person Profile - Completion Requested'
 ```
 
@@ -416,6 +462,23 @@ is the first path cut over. It still fires `CompliancePinSent` /
 for non-email actions); only the email leg moved. The asset id is
 `HUBSPOT_PIN_SENT_EMAIL_ID` — unset (every environment today, pending the
 Ops-created asset) skips the single-send call with no behavior change.
+
+The rest of the 10DLC / TCR compliance MOVE set (ENG-11035) is cut over the
+same way, each on its own asset id, each still firing its existing Segment
+event unchanged: Form Submitted (`campaignTcrCompliance.controller.ts`,
+`HUBSPOT_FORM_SUBMITTED_EMAIL_ID`), PIN Submitted (same controller,
+`HUBSPOT_PIN_SUBMITTED_EMAIL_ID`), Compliance Completed
+(`queueConsumer.service.ts` `handleTcrComplianceCheckMessage` — no acting
+user on this SQS-fired path, so the recipient is the campaign's account
+email resolved the same way the handler already resolves the Segment
+event's target `userId`; `HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID`), and
+Compliance Rejected (`campaignTcrCompliance.service.ts`, both the
+`cv_submit` and `cv_status_check` firing sites,
+`HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID`). All four env vars are unset in
+every environment today, pending their Ops-created assets. Ops removes each
+email's workflow send action once its asset is created and the env var is
+set in prod — until then every one of these paths is a no-op single-send
+alongside the unchanged workflow email.
 
 Poll results ready and meeting briefing ready (ENG-11035) follow the same
 pattern — see the Poll results / Meeting briefing ready sections above for

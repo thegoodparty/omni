@@ -321,6 +321,7 @@ export class OrganizationTeamService {
       email: updated.user.email,
       name: getUserFullName(updated.user) || null,
       role: updated.role,
+      fromRole: existing.role,
     })
 
     return {
@@ -347,6 +348,7 @@ export class OrganizationTeamService {
       organization.slug,
       targetUserId,
     )
+    const targetUser = await this.users.findUser({ id: targetUserId })
 
     await this.membership.model.delete({ where: { id: existing.id } })
 
@@ -355,6 +357,15 @@ export class OrganizationTeamService {
         role: existing.role,
       })
       .catch(() => undefined)
+
+    if (targetUser) {
+      void this.syncRemovalToHubspot({
+        organizationSlug: organization.slug,
+        email: targetUser.email,
+        role: existing.role,
+        userId: targetUserId,
+      })
+    }
   }
 
   private async findMembershipOrThrow(
@@ -551,6 +562,7 @@ export class OrganizationTeamService {
     email: string
     name: string | null
     role: OrganizationRole
+    fromRole?: OrganizationRole
   }): Promise<void> {
     const { organizationSlug, ...member } = params
     try {
@@ -560,6 +572,37 @@ export class OrganizationTeamService {
       this.logger.warn(
         { err, email: params.email, organizationSlug },
         'Failed to sync team member contact to HubSpot',
+      )
+    }
+  }
+
+  // ENG-10826/ENG-11030: best-effort removal sync — archives the labeled
+  // association for this campaign's company, and clears the shared
+  // team_role property only once no team membership remains anywhere for
+  // this user, since a role on a DIFFERENT campaign must not be blanked by
+  // this org's removal.
+  private async syncRemovalToHubspot(params: {
+    organizationSlug: string
+    email: string
+    role: OrganizationRole
+    userId: number
+  }): Promise<void> {
+    const { organizationSlug, email, role, userId } = params
+    try {
+      const [crmCompanyId, remainingMemberships] = await Promise.all([
+        this.resolveCrmCompanyId(organizationSlug),
+        this.membership.model.count({ where: { userId } }),
+      ])
+      await this.crmTeamMembers.removeTeamMemberAssociation({
+        email,
+        role,
+        crmCompanyId,
+        clearTeamRole: remainingMemberships === 0,
+      })
+    } catch (err) {
+      this.logger.warn(
+        { err, email, organizationSlug },
+        'Failed to sync team member removal to HubSpot',
       )
     }
   }

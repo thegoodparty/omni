@@ -126,6 +126,11 @@ export class DoorKnockingServeService extends createPrismaBase(
     const liveByAddressKey = new Map<string, LiveAddress>(
       residents.addresses.map((address) => [address.addressKey, address]),
     )
+    // The system-wide Win/Serve signal — the `eo-` slug prefix and nothing
+    // else (src/contacts/AGENTS.md), the same check `phoneBankingList.service`
+    // makes. It answers two questions here: what the payload declares itself
+    // to be, and whether party may appear on it at all.
+    const isServe = organization.slug.startsWith('eo-')
 
     const [
       statusByPersonId,
@@ -173,6 +178,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           notAVoterReasons,
           historyByPersonId,
           notesByPersonId,
+          isServe,
         )
         return {
           id: stop.id,
@@ -185,6 +191,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           addresses,
         }
       }),
+      isServe,
     }
   }
 
@@ -197,6 +204,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     notAVoterReasons: Map<string, NotAVoterReason>,
     historyByPersonId: Map<string, RouteTargetActivity[]>,
     notesByPersonId: Map<string, RoutePayloadTargetNotes>,
+    isServe: boolean,
   ): RoutePayloadAddress[] {
     const byAddressKey = new Map<string, DoorKnockingStopTarget[]>()
     for (const target of targets) {
@@ -232,7 +240,19 @@ export class DoorKnockingServeService extends createPrismaBase(
             // name renders for movers.
             name: composeName(livePerson) ?? target.name,
             age: livePerson?.age ?? null,
-            politicalParty: livePerson?.politicalParty ?? null,
+            // Never for Serve. A party value in any `eo-` response is a bug
+            // (src/contacts/AGENTS.md) — this is the last door-knocking
+            // surface that leaked one, and it leaked to four at once, since
+            // the walk, the person sheet, the printed sheet and the PDF all
+            // read this field.
+            //
+            // Nulled here rather than filtered out of the people-api read,
+            // because the residents response is shared with the pack's own
+            // district-scoped party dim; the choke point is the payload that
+            // reaches a canvasser's phone.
+            politicalParty: isServe
+              ? null
+              : (livePerson?.politicalParty ?? null),
             // Live-only, so a mover carries no number: livePerson is what
             // mayHaveMoved is derived from.
             cellPhone: livePerson?.cellPhone ?? null,

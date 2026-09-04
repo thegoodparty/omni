@@ -493,7 +493,7 @@ export class QueueConsumerService {
 
     const record = await this.tcrComplianceService.findFirstOrThrow({
       include: {
-        campaign: true,
+        campaign: { include: { user: true } },
       },
       where: { peerlyIdentityId },
     })
@@ -531,12 +531,27 @@ export class QueueConsumerService {
       `TCR Registration is active, updating TCR compliance w/ identity ID ${peerlyIdentityId} status to approved`,
     )
 
-    await this.tcrComplianceService.model.update({
-      where: { peerlyIdentityId },
+    // Atomic status-guarded claim (not a plain update): bootstrapTcrComplianceCheck
+    // re-queries every `pending` record and re-enqueues this message twice
+    // daily, so a backlog or a slow-handler redelivery can land two of these
+    // messages for the same record while it's still `pending`. Without a
+    // claim, both would pass the registrationStatus check above and both
+    // would fire the notification below — a real double-send, not a
+    // theoretical race (ENG-11035 review). Only the caller that actually
+    // transitions the status fires the notification.
+    const transitionClaim = await this.tcrComplianceService.model.updateMany({
+      where: {
+        peerlyIdentityId,
+        status: { not: TcrComplianceStatus.approved },
+      },
       data: {
         status: TcrComplianceStatus.approved,
       },
     })
+
+    if (transitionClaim.count === 0) {
+      return true
+    }
 
     try {
       await this.analytics.track(userId, EVENTS.Outreach.ComplianceCompleted)
@@ -548,6 +563,27 @@ export class QueueConsumerService {
         { analyticsError },
         `Failed to track analytics for TCR compliance: ${JSON.stringify(tcrCompliance)}`,
       )
+    }
+
+    // No acting user on this consumer path — resolve the account email off
+    // the same campaign relation the Segment event's target `userId` above
+    // came from, never a HubSpot contact (ENG-11035). Own try/catch so a
+    // single-send failure can never throw out of an SQS handler (infinite
+    // redelivery — src/queue/AGENTS.md) or affect the ack below.
+    const recipientEmail = record.campaign.user?.email
+    if (recipientEmail) {
+      try {
+        await this.tcrComplianceService.sendComplianceCompletedSingleSend(
+          recipientEmail,
+          { peerly_identity_id: peerlyIdentityId },
+        )
+      } catch (singleSendError) {
+        this.logger.error(
+          { singleSendError, peerlyIdentityId },
+          'HubSpot single-send failed for 10DLC Compliance Completed; the ' +
+            'workflow email path still fires from the Segment event',
+        )
+      }
     }
 
     return true

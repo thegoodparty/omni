@@ -17,6 +17,7 @@ import { formatDate } from '@/lib/utils/date'
 import { getSmsDetail } from '../actions'
 import { STANDARDS_RULE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../types'
 import { ApproveDenyActions } from '../components/ApproveDenyActions'
+import { CancelAction } from '../components/CancelAction'
 import { EditMessageAction } from '../components/EditMessageAction'
 
 export const metadata: Metadata = {
@@ -89,7 +90,7 @@ export default async function Page({ params }: PageProps) {
             <Text size="2" style={{ whiteSpace: 'pre-wrap' }}>
               {item.script ?? '—'}
             </Text>
-            {canDecide && item.script && (
+            {canDecide && item.script && item.approvalStatus !== 'canceled' && (
               <Box mt="3">
                 <EditMessageAction id={item.id} script={item.script} />
               </Box>
@@ -157,7 +158,9 @@ export default async function Page({ params }: PageProps) {
               <DataList.Item>
                 <DataList.Label>Vendor job</DataList.Label>
                 <DataList.Value>
-                  {item.job === null ? (
+                  {item.approvalStatus === 'canceled' ? (
+                    'Deleted with the cancel'
+                  ) : item.job === null ? (
                     'Live read failed'
                   ) : item.job.deliverabilityCheckError ? (
                     <Text color="red">{item.job.deliverabilityCheckError}</Text>
@@ -182,6 +185,19 @@ export default async function Page({ params }: PageProps) {
                   <DataList.Value>
                     {formatDate(item.deniedAt)} · {item.deniedBy}
                     {item.deniedReason ? ` — ${item.deniedReason}` : ''}
+                  </DataList.Value>
+                </DataList.Item>
+              )}
+              {item.canceledAt && (
+                <DataList.Item>
+                  <DataList.Label>Canceled</DataList.Label>
+                  <DataList.Value>
+                    {formatDate(item.canceledAt)} ·{' '}
+                    {item.canceledByAdmin
+                      ? `${item.canceledBy ?? 'staff'} (staff)`
+                      : item.canceledBy
+                        ? `${item.canceledBy} (candidate)`
+                        : 'candidate'}
                   </DataList.Value>
                 </DataList.Item>
               )}
@@ -229,6 +245,11 @@ export default async function Page({ params }: PageProps) {
           {canDecide && item.approvalStatus === 'awaiting_review' && (
             <Box mt="4">
               <ApproveDenyActions id={item.id} />
+            </Box>
+          )}
+          {canDecide && item.approvalStatus !== 'canceled' && (
+            <Box mt="4">
+              <CancelAction id={item.id} paid={item.paid} />
             </Box>
           )}
         </Box>

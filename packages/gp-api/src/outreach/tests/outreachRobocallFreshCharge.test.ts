@@ -348,17 +348,13 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
 
 describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
-  const originalFlag = process.env.ROBOCALL_CAPTURE_ENABLED
 
   beforeEach(() => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    process.env.ROBOCALL_CAPTURE_ENABLED = 'true'
   })
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
-    if (originalFlag === undefined) delete process.env.ROBOCALL_CAPTURE_ENABLED
-    else process.env.ROBOCALL_CAPTURE_ENABLED = originalFlag
   })
 
   it('charges an arrived uncollectable run once across repeat sweeps', async () => {
@@ -390,15 +386,6 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
 
   it('no-ops off prod', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
-    await createDraft()
-
-    await freshCharge.sweepFreshCharges()
-
-    expect(chargeSpy).not.toHaveBeenCalled()
-  })
-
-  it('no-ops with ROBOCALL_CAPTURE_ENABLED unset', async () => {
-    delete process.env.ROBOCALL_CAPTURE_ENABLED
     await createDraft()
 
     await freshCharge.sweepFreshCharges()
