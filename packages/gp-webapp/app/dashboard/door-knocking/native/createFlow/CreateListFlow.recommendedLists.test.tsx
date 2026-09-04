@@ -72,6 +72,11 @@ const baseProps = {
   onListCreated: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
+  // A settled pack: recommendations are about what the who step offers, not
+  // about the district figure beside it.
+  districtHouseholdsPending: false,
+  districtHouseholdsFailed: false,
+  districtUnavailable: false,
   orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
