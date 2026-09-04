@@ -519,7 +519,9 @@ export default function PersonSheet({
             Demographic information, Notes, Activity Feed. That is the Win
             order — in serve mode Talking points is withheld outright (see
             `serveMode` above) and the panel opens on Contact information,
-            with the rest unchanged.
+            the fourth card is headed for a constituent, and the fifth is
+            Follow-up in place of Voter support. The sequence itself is the
+            same on both rails.
 
             **Notes moving to seventh reverses a position ADR 0011 recorded.**
             The ADR argued it second, above the profile, because it is the only
@@ -657,9 +659,14 @@ export default function PersonSheet({
               **Targets only, and screen only.** Other residents behind the same
               door stay name-only in the Household card above, and both paper
               surfaces omit all of it — see the AGENTS.md note. */}
+          {/* The heading is the surface's word for the person, not for the
+              data: the two rows underneath are voter-file columns on both
+              rails, but an elected official is not knocking a voter — they are
+              knocking someone they already represent, whether or not that
+              person is on the roll. */}
           <FactCard
             icon={ClipboardListIcon}
-            title="Voter demographics"
+            title={isServe ? 'Constituent demographics' : 'Voter demographics'}
             facts={voterDemographicFacts(target, isServe)}
           />
 

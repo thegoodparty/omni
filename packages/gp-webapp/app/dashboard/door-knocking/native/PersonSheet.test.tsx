@@ -420,7 +420,7 @@ describe('PersonSheet card order', () => {
     expect(headings).toEqual([
       'Contact information',
       'Household',
-      'Voter demographics',
+      'Constituent demographics',
       'Demographic information',
       'Notes',
       'Activity Feed',

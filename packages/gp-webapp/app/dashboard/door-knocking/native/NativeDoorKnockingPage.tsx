@@ -19,10 +19,10 @@ import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
-  DISTRICT_UNAVAILABLE_MESSAGE,
-  PACK_ERROR_MESSAGE,
+  districtUnavailableMessage,
+  packErrorMessage,
   PACK_LOADING_DURATION,
-  PACK_LOADING_TITLE,
+  packLoadingTitle,
   recordLoggedKnocks,
   voterPackQueryOptions,
 } from './useVoterPack'
@@ -643,7 +643,7 @@ export default function NativeDoorKnockingPage({
                 otherwise spin forever. */}
               {isUnresolvable && (
                 <p className="p-4 text-sm text-muted-foreground">
-                  {DISTRICT_UNAVAILABLE_MESSAGE}
+                  {districtUnavailableMessage(isServeOrg)}
                 </p>
               )}
               {/* Titled, because an untitled "Loading... Something awesome."
@@ -656,7 +656,7 @@ export default function NativeDoorKnockingPage({
                   <LoadingAnimation
                     title={
                       <>
-                        {PACK_LOADING_TITLE}
+                        {packLoadingTitle(isServeOrg)}
                         <span className="mt-2 block text-base font-normal text-zinc-600">
                           {PACK_LOADING_DURATION}
                         </span>
@@ -667,7 +667,7 @@ export default function NativeDoorKnockingPage({
               )}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
-                  {PACK_ERROR_MESSAGE}
+                  {packErrorMessage(isServeOrg)}
                 </p>
               )}
               {packQuery.data && filterResult && (
