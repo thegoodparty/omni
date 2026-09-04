@@ -2,7 +2,6 @@ import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
-import { SlackService } from '@/vendors/slack/services/slack.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
@@ -14,7 +13,6 @@ const clearCanvassers = vi.fn()
 const getJobsByIdentityId = vi.fn()
 const getJob = vi.fn()
 const getJobDetailedStats = vi.fn()
-const slackMessage = vi.fn()
 const track = vi.fn()
 
 let campaignId: number
@@ -42,7 +40,6 @@ beforeEach(async () => {
     deliveryUnconfirmed: 4,
     totalCost: 3.5,
   })
-  slackMessage.mockReset().mockResolvedValue(undefined)
   track.mockReset().mockResolvedValue(undefined)
 
   const peerly = service.app.get(PeerlyP2pJobService)
@@ -54,9 +51,6 @@ beforeEach(async () => {
   vi.spyOn(peerly, 'getJob').mockImplementation(getJob)
   vi.spyOn(peerly, 'getJobDetailedStats').mockImplementation(
     getJobDetailedStats,
-  )
-  vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
-    slackMessage,
   )
   vi.spyOn(service.app.get(AnalyticsService), 'track').mockImplementation(track)
 
@@ -194,7 +188,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
   })
 
   describe('POST /v1/outreach/admin/sms/:id/approve', () => {
-    it('requests canvassers, stamps the row, notifies, and tracks', async () => {
+    it('requests canvassers, stamps the row, and tracks', async () => {
       const row = await seedOutreach()
 
       const res = await service.client.post(
@@ -213,7 +207,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.approvedBy).toBe('cas@goodparty.org')
       expect(updated.approvedAt).not.toBeNull()
       expect(updated.canvassRequestedAt).not.toBeNull()
-      expect(slackMessage).toHaveBeenCalled()
       expect(track).toHaveBeenCalledWith(
         service.user.id,
         'Voter Outreach - Campaign Approved',
@@ -329,7 +322,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.deniedReason).toBeNull()
       expect(updated.adminEditedBy).toBe('cas@goodparty.org')
       expect(updated.adminEditedAt).not.toBeNull()
-      expect(slackMessage).not.toHaveBeenCalled()
     })
 
     it('keeps an existing booking and approval intact', async () => {
