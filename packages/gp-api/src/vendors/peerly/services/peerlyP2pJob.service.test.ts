@@ -509,4 +509,56 @@ describe('PeerlyP2pJobService', () => {
       )
     })
   })
+
+  describe('getJobDetailedStats', () => {
+    const range = { startDate: '2026-08-01', endDate: '2026-09-05' }
+
+    it('requests the v2 endpoint with a required CUSTOM date range', async () => {
+      mockHttpService.get.mockResolvedValue({ data: {} })
+
+      await service.getJobDetailedStats('job-1', range)
+
+      expect(mockHttpService.get).toHaveBeenCalledWith(
+        '/v2/p2p/job-1/detailedstats',
+        {
+          params: {
+            date_range: 'CUSTOM',
+            start_date: range.startDate,
+            end_date: range.endDate,
+          },
+        },
+      )
+    })
+
+    it('sums sent/received/delivered counts and total cost from the response', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          messages: { TX_SUCCESS: 10, RX_SUCCESS: 2 },
+          mms_messages: { TX_SUCCESS: 3 },
+          delivery_receipts: { Delivered: 8, 'Delivery Failed': 1 },
+          mms_delivery_receipts: { Delivered: 2 },
+          total_cost: 12.5,
+        },
+      })
+
+      const result = await service.getJobDetailedStats('job-1', range)
+
+      expect(result).toEqual({
+        sentTotal: 13,
+        receivedTotal: 2,
+        delivered: 10,
+        deliveryFailed: 1,
+        deliveryUnconfirmed: 0,
+        totalCost: 12.5,
+      })
+    })
+
+    it('throws BadGatewayException when the vendor call fails', async () => {
+      mockHttpService.get.mockRejectedValue(new Error('API error'))
+
+      await expect(service.getJobDetailedStats('job-1', range)).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+  })
 })
