@@ -93,6 +93,9 @@ export interface MergeResult {
   segments: FlagSegment[]
   added: string[]
   alreadyPresent: string[]
+  // Addresses already in the segment whose casing this merge corrects. A run
+  // that adds nobody still has to be written when this is non-empty.
+  normalized: string[]
   createdSegment: boolean
 }
 
@@ -153,6 +156,7 @@ export const mergeCohortIntoSegments = (
       ],
       added: emails,
       alreadyPresent: [],
+      normalized: [],
       createdSegment: true,
     }
   }
@@ -186,6 +190,9 @@ export const mergeCohortIntoSegments = (
   const current = new Set(emailCondition.values.map((v) => v.toLowerCase()))
   const added = emails.filter((email) => !current.has(email))
   const alreadyPresent = emails.filter((email) => current.has(email))
+  const normalized = emailCondition.values.filter(
+    (value) => value !== value.toLowerCase(),
+  )
 
   return {
     segments: segments.map((segment) =>
@@ -213,6 +220,7 @@ export const mergeCohortIntoSegments = (
     ),
     added,
     alreadyPresent,
+    normalized,
     createdSegment: false,
   }
 }
@@ -419,6 +427,10 @@ const main = async (): Promise<void> => {
   if (result.alreadyPresent.length > 0) {
     console.log(`  already present: ${result.alreadyPresent.length}`)
   }
+  if (result.normalized.length > 0) {
+    console.log(`  lowercasing ${result.normalized.length} existing:`)
+    for (const email of result.normalized) console.log(`    ~ ${email}`)
+  }
   console.log(`  preserving ${segments.length} existing segment(s)`)
 
   if (!args.execute) {
@@ -426,7 +438,9 @@ const main = async (): Promise<void> => {
     return
   }
 
-  if (result.added.length === 0) {
+  // The casing fix is a write in its own right — skipping it here would leave
+  // addresses in the segment that the exact-match `is` operator never matches.
+  if (result.added.length === 0 && result.normalized.length === 0) {
     console.log('\nNothing to add.')
     return
   }
@@ -435,7 +449,10 @@ const main = async (): Promise<void> => {
     method: 'PATCH',
     body: JSON.stringify({ targetSegments: result.segments }),
   })
-  console.log(`\nApplied. ${result.added.length} address(es) added.`)
+  console.log(
+    `\nApplied. ${result.added.length} address(es) added, ` +
+      `${result.normalized.length} lowercased.`,
+  )
 }
 
 if (process.argv[1]?.includes('amplitude-flag-cohort')) {

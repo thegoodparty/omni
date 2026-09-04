@@ -128,6 +128,24 @@ describe('mergeCohortIntoSegments', () => {
       'old@example.com',
       'new@example.com',
     ])
+    expect(result.normalized).toEqual([])
+  })
+
+  // The casing fix is the whole point of the write in this case, so the run
+  // must not short-circuit on "nothing to add".
+  it('reports a casing fix even when no address is added', () => {
+    const result = mergeCohortIntoSegments(
+      [emailSegment('Pilot allowlist', ['Old@Example.com'])],
+      {
+        segmentName: 'Pilot allowlist',
+        variant: 'on',
+        emails: ['old@example.com'],
+      },
+    )
+
+    expect(result.added).toEqual([])
+    expect(result.normalized).toEqual(['Old@Example.com'])
+    expect(result.segments[0].conditions[0].values).toEqual(['old@example.com'])
   })
 
   // Amplitude's `is` operator is exact-match, so a mixed-case address added
@@ -146,6 +164,7 @@ describe('mergeCohortIntoSegments', () => {
       'old@example.com',
       'new@example.com',
     ])
+    expect(result.normalized).toEqual(['Old@Example.com'])
   })
 
   it('refuses when the segment serves a different variant', () => {
@@ -223,6 +242,7 @@ describe('mergeCohortIntoSegments', () => {
 
     expect(result.added).toEqual([])
     expect(result.alreadyPresent).toEqual(['a@example.com'])
+    expect(result.normalized).toEqual([])
     expect(result.segments[0].conditions[0].values).toEqual(['a@example.com'])
   })
 
@@ -295,6 +315,23 @@ describe('parseArgs', () => {
     expect(args.variant).toBe('on')
     expect(args.segment).toBe('Pilot allowlist')
     expect(args.execute).toBe(false)
+  })
+
+  it('reads the account-verification flags', () => {
+    expect(parseArgs(required).verifyAccounts).toBe(false)
+    expect(parseArgs(required).allowUnknown).toBe(false)
+
+    const verifying = parseArgs([...required, '--verify-accounts'])
+    expect(verifying.verifyAccounts).toBe(true)
+    expect(verifying.allowUnknown).toBe(false)
+
+    const permissive = parseArgs([
+      ...required,
+      '--verify-accounts',
+      '--allow-unknown',
+    ])
+    expect(permissive.verifyAccounts).toBe(true)
+    expect(permissive.allowUnknown).toBe(true)
   })
 
   it('rejects a value flag whose value is the next flag', () => {
