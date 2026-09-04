@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RecommendedListIntent,
   type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
@@ -87,6 +88,22 @@ const PRICE_PER_CONTACT =
 // useOutreachAudience — count-only, never written into the saved list).
 const ROBOCALL_COUNT_OVERLAY = { hasLandline: true }
 
+// The recommended-lists intent a purpose slug maps onto
+// (docs/features/recommended-lists.md): "custom" gets no recommendation.
+// Robocall shares SMS's canonical purpose vocabulary verbatim
+// (ROBOCALL_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES), so this mirrors
+// SmsFlow's map exactly rather than importing it — see the note there.
+const PURPOSE_TO_RECOMMENDED_INTENT: Record<
+  Exclude<RobocallPurpose, 'custom'>,
+  RecommendedListIntent
+> = {
+  introduce_myself: 'introduce',
+  persuade_voters: 'persuade',
+  event_invite: 'event',
+  early_voting: 'earlyVote',
+  election_day_turnout: 'electionDay',
+}
+
 interface RobocallFlowProps {
   open: boolean
   onClose: () => void
@@ -119,11 +136,17 @@ export const RobocallFlow = ({
   const [campaign] = useCampaign()
   const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
+  const recommendedListIntent: RecommendedListIntent | null =
+    purpose && purpose !== 'custom'
+      ? PURPOSE_TO_RECOMMENDED_INTENT[purpose]
+      : null
+
   const audience = useOutreachAudience({
     open,
     active: stepId === 'audience',
     reachabilityKey: 'robocall',
     countOverlay: ROBOCALL_COUNT_OVERLAY,
+    recommendedListIntent,
   })
   const { reset: resetAudience } = audience
 

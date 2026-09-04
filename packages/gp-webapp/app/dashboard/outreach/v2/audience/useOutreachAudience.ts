@@ -213,8 +213,23 @@ export const useOutreachAudience = ({
   useEffect(() => {
     if (!open || !active || !recommendedListsFlag.ready) return
     if (mode !== 'picker') return
+    // Structural eligibility, not the flag's value (fires for both arms) and
+    // not whether any variant ends up qualifying (a real recommendation call
+    // can still return zero rows). A null intent means this purpose/channel
+    // pairing could never show a card regardless of the flag — a Serve
+    // phone-banking session on a purpose slug it shares with Win
+    // (introduce_myself, event_invite) is exactly this case, and counting it
+    // would dilute the experiment with sessions that were never eligible.
+    if (recommendedListIntent === null) return
     exposure(WIN_RECOMMENDED_LISTS_FLAG_KEY)
-  }, [open, active, mode, recommendedListsFlag.ready, exposure])
+  }, [
+    open,
+    active,
+    mode,
+    recommendedListsFlag.ready,
+    recommendedListIntent,
+    exposure,
+  ])
 
   const recommendationsQuery = useQuery({
     queryKey: [
