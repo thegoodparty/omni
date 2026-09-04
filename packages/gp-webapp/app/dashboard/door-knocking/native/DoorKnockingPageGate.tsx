@@ -9,11 +9,11 @@ import {
   CardHeader,
   CardTitle,
   ProBadge,
+  Spinner,
 } from '@styleguide'
 import { LockIcon } from '@styleguide/components/ui/icons'
 import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import DoorKnockingPage from '../components/DoorKnockingPage'
 import NativeDoorKnockingPage from './NativeDoorKnockingPage'
@@ -128,7 +128,7 @@ export default function DoorKnockingPageGate({
         return (
           <DashboardLayout pathname={pathname} campaign={campaign}>
             <div className="flex w-full items-center justify-center py-20">
-              <LoadingAnimation />
+              <Spinner />
             </div>
           </DashboardLayout>
         )

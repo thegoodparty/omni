@@ -202,6 +202,13 @@ export const OutreachHubPage = ({
 }: OutreachHubPageProps) => {
   useSingleEffect(() => {
     trackEvent(EVENTS.Outreach.ViewAccessed, { surface: 'v2' })
+    // Warm the door-knocking map's chunk (maplibre + deck.gl, ~large) so the
+    // drawer opens over a hot cache instead of a spinner. Fire-and-forget:
+    // a failure here just means the drawer takes the fallback path on its
+    // own dynamic import.
+    void import('app/dashboard/door-knocking/native/VoterMapCanvas').catch(
+      () => undefined,
+    )
   }, [])
 
   return (

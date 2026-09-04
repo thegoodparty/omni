@@ -747,8 +747,8 @@ describe('NativeDoorKnockingPage create flow', () => {
     renderPage({ openCreateFlow: true })
     await screen.findByText(/Introduce myself/)
 
-    // Nothing picked, so the X is not a question.
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    // Nothing picked, so Exit is not a question.
+    fireEvent.click(screen.getByRole('button', { name: 'Exit' }))
 
     await waitFor(() => expect(router.back).toHaveBeenCalled())
     expect(router.push).not.toHaveBeenCalled()
@@ -761,7 +761,7 @@ describe('NativeDoorKnockingPage create flow', () => {
     renderPage()
     await screen.findByText(/Introduce myself/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Exit' }))
 
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(OUTREACH_HUB))
     expect(router.back).not.toHaveBeenCalled()

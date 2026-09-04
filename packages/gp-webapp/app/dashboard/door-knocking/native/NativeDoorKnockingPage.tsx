@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal, flushSync } from 'react-dom'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -13,8 +14,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  Spinner,
 } from '@styleguide'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -50,13 +51,13 @@ import type { PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
 
+// Neutral background while the maplibre+deck.gl chunk downloads. A spinner
+// here read as "the app is slow" — the outreach hub preloads the chunk on
+// mount so this fallback is a fraction of a second on a cold cache and
+// instant on a warm one.
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full w-full items-center justify-center">
-      <LoadingAnimation title="Loading the map…" />
-    </div>
-  ),
+  loading: () => <div className="h-full w-full bg-background" />,
 })
 
 interface NativeDoorKnockingPageProps {
@@ -79,6 +80,14 @@ interface NativeDoorKnockingPageProps {
   // rather than to look at the rail. The tile is the only caller, so closing
   // the flow it opened goes back to the hub it was pressed on.
   openCreateFlow?: boolean
+  // Standalone (default) wraps the surface in DashboardLayout, which is what
+  // the /dashboard/door-knocking route wants. When mounted inside the
+  // outreach hub's intercepting-route modal (@dk slot), the outreach layout
+  // above is already inside DashboardLayout, so setting standalone=false
+  // skips the double wrap. Also short-circuits the "Taking you back…"
+  // overlay (no bare map to hide in modal mode) and switches exits to
+  // window.location so vaul/Radix locks tear down cleanly.
+  standalone?: boolean
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -110,6 +119,55 @@ const SERVE_HUB = '/dashboard/constituent-outreach'
 // drawing surface is up, clearing that surface's own footer bar.
 const DRAW_CONTROLS_BOTTOM_PX = 96
 
+// Raise the exit loader and hand off to the browser. flushSync + rAF is
+// what forces React to commit the state change AND the browser to paint
+// it before the hard navigation starts — otherwise the drawer briefly
+// disappears over the hub before the reload actually begins. The loader
+// is portaled to <body> to escape DoorKnockingFlow's z-40 stacking
+// context, which would otherwise cap its z-index below vaul's z-50
+// overlay.
+const beginExitNavigation = (
+  setIsExiting: (next: boolean) => void,
+  destination: string,
+) => {
+  flushSync(() => setIsExiting(true))
+  requestAnimationFrame(() => {
+    window.location.href = destination
+  })
+}
+
+// Conditional layout: route mode (standalone=true) wraps in DashboardLayout,
+// preserving the wrapperClassName + hideMenu + hideChatDock chain the map's
+// height math depends on. Modal mode renders bare inside the intercepting-
+// route's fixed-inset container; the outreach hub above already provides
+// the layout.
+const DoorKnockingLayout = ({
+  standalone,
+  pathname,
+  campaign,
+  children,
+}: {
+  standalone: boolean
+  pathname: string
+  campaign: Campaign | null
+  children: React.ReactNode
+}) =>
+  standalone ? (
+    <DashboardLayout
+      pathname={pathname}
+      campaign={campaign}
+      wrapperClassName="!p-0 flex min-h-0 flex-col overflow-hidden"
+      hideMenu
+      hideChatDock
+    >
+      {children}
+    </DashboardLayout>
+  ) : (
+    <div className="flex h-full w-full flex-col overflow-hidden">
+      {children}
+    </div>
+  )
+
 // The orchestrator for the two door-knocking surfaces. What stays here is what
 // the MAP reads, plus the handoffs between surfaces: each surface declares its
 // own contract in its own file, and none of them reaches into this one. The two
@@ -122,6 +180,7 @@ export default function NativeDoorKnockingPage({
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
+  standalone = true,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -154,6 +213,13 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
+  // Modal-mode only: cover the whole viewport with the app's standard
+  // loading animation while `window.location.href` navigates back to the
+  // outreach hub. Set BEFORE the navigation is triggered so React commits
+  // the loader and the browser paints it before starting the tear-down —
+  // otherwise the candidate briefly sees the drawer disappear over the
+  // hub before the page reload actually begins.
+  const [isExiting, setIsExiting] = useState(false)
   // Which carried list has already been handed to the create flow. Kept here
   // because the flow itself is unmounted between opens while `?listId=` stays
   // in the address bar, so this is the only place that can remember. Compared
@@ -331,6 +397,14 @@ export default function NativeDoorKnockingPage({
       setDetailsTurf(origin.turf)
       return
     }
+    if (!standalone) {
+      const target =
+        origin.kind === 'outreach' && !serveMode
+          ? `${OUTREACH_HUB}?outreachId=${origin.outreachId}`
+          : hubPath
+      beginExitNavigation(setIsExiting, target)
+      return
+    }
     setLeaving(true)
     if (origin.kind === 'outreach') {
       // The hub's own consume-once deep link, the one the activity feed's
@@ -475,6 +549,10 @@ export default function NativeDoorKnockingPage({
   // on — the rail is gone — so closing the flow leaves door knocking, exactly
   // as closing the walk does.
   const closeFlow = () => {
+    if (!standalone) {
+      beginExitNavigation(setIsExiting, hubPath)
+      return
+    }
     setFlowStep(null)
     setFilters({})
     draw.clearDrawing()
@@ -534,73 +612,23 @@ export default function NativeDoorKnockingPage({
     ) : null
 
   return (
-    <DoorKnockingSurfaceProvider value={serveMode}>
-      <DashboardLayout
-        pathname={pathname}
-        campaign={campaign}
-        // This page is a full-bleed map with a floating card over it, so it has
-        // to be EXACTLY the height left by the dashboard chrome — scrolling
-        // belongs inside the card, never on the document.
-        //
-        // `min-h-0` is what makes that true without naming a number. The wrapper
-        // is `flex-1` inside `SidebarInset`, which is `flex-1` inside
-        // `SidebarProvider`'s `min-h-svh` row; a flex item's default
-        // `min-height: auto` lets its CONTENT set the floor, so anything the
-        // layout put beside this page pushed the document past the window (see
-        // the chat spacer below). With the floor removed the
-        // chain resolves the other way — the row settles at `min-h-svh` and the
-        // wrapper takes what the chrome above it leaves, whatever that is at
-        // this width. It replaces an `h-[calc(100dvh-4rem)]` on the child below,
-        // which hard-coded the mobile top bar's height and was wrong at `lg`,
-        // where that bar is `lg:hidden`: the map ended 64px short of the bottom
-        // of the window on every desktop.
-        //
-        // This is also what makes `DashboardLayout`'s own siblings behave. On
-        // Win (campaign) orgs, `DashboardCampaignManagerChat` renders
-        // an in-flow `h-24` spacer next to this page, reserving room for its
-        // fixed footer bar. Against a child with a hard viewport height that
-        // spacer was 96px of pure overflow and the page scrolled by exactly
-        // that; against `h-full` it is honoured INSIDE the window instead — the
-        // map stops 96px short and the bar sits in the gap rather than over the
-        // map. Nothing here reaches into the layout every dashboard page shares.
-        //
-        // `overflow-hidden` is the guard for the case that reservation cannot be
-        // met: if a sibling ever exceeds the window the map is squeezed to
-        // nothing rather than the document growing a scrollbar again.
-        //
-        // `svh` rather than `dvh` is inherited from `SidebarProvider`, and is
-        // the right value here: `svh` is the viewport with mobile browser chrome
-        // at its largest, so the page is whole in every chrome state — and since
-        // the document can no longer scroll, the chrome never retracts, which
-        // leaves `dvh` permanently equal to `svh` on this page anyway.
-        wrapperClassName="!p-0 flex min-h-0 flex-col overflow-hidden"
-        // Door knocking is drawn edge to edge. In the design it is a modal over
-        // the outreach hub — no nav rail, no page title over the map — and it
-        // is reached from that hub's tile and returns there from every exit, so
-        // the sidebar it would offer leads back where its own close button
-        // already goes. Dropping the menu here rather than rendering outside
-        // `DashboardLayout` keeps the providers this tree sits in
-        // (`EcanvasserProvider`, `SidebarProvider`, the impersonation banner)
-        // and costs the map only the chrome the design doesn't draw.
-        hideMenu
-        // The same argument one surface further down, and a worse consequence.
-        // The walk owns the bottom of the window: `PersonSheet` ends in the
-        // knock-log footer — `RecordKnockForm`'s "Did they answer?" ladder and
-        // `NotAVoterControl` — and the campaign-manager dock's fixed bar sits
-        // across exactly that strip, so a canvasser standing at the door with
-        // the answer in hand has nothing on screen to write it down with.
-        // Restacking is not the fix: the sheet is `fixed z-40` inside
-        // `WalkSurface`'s `absolute z-20`, so it is ranked within that context
-        // and can never outrank a bar in the root one.
-        //
-        // Its own prop rather than a second meaning for `hideMenu`, which four
-        // other routes pass and none of which has a bottom of its own to
-        // defend. Nothing here is taken away from the surfaces the manager is
-        // reachable from — this is the one page whose job it breaks.
-        hideChatDock
-      >
-        <div className="flex h-full w-full flex-col">
-          {/* No VISIBLE page header. The design draws door knocking as a bare
+    <>
+      {isExiting &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background">
+            <Spinner />
+          </div>,
+          document.body,
+        )}
+      <DoorKnockingSurfaceProvider value={serveMode}>
+        <DoorKnockingLayout
+          standalone={standalone}
+          pathname={pathname}
+          campaign={campaign}
+        >
+          <div className="flex h-full w-full flex-col">
+            {/* No VISIBLE page header. The design draws door knocking as a bare
             map with the current surface floating over it, and every title this
             row used to carry is already on that surface: the create flow names
             its own step, and the walk names its list on its sheet at the `peek`
@@ -616,216 +644,211 @@ export default function NativeDoorKnockingPage({
             find it by heading. Same answer `OutreachFlowShell` already gives
             for a design with no visible title — an accessible name that costs
             no pixels. */}
-          <h1 className="sr-only">Door knocking</h1>
-          {/* One arrangement for both modes: a full-bleed map with
+            <h1 className="sr-only">Door knocking</h1>
+            {/* One arrangement for both modes: a full-bleed map with
             whatever surface is current floating over it. The walk used to split
             this column — a 40% map band above a scrolling list — which is the
             one layout the design does not have, and which meant the street
             being walked got the smaller half of the screen at the moment it
             mattered most. */}
-          <div className="relative flex min-h-0 flex-1">
-            <div className="relative min-w-0 flex-1">
-              {/* Before the isPending branch: a district-gated query is neither
-                pending-with-a-request nor errored, so that branch would
-                otherwise spin forever. */}
-              {isUnresolvable && (
-                <p className="p-4 text-sm text-muted-foreground">
-                  {DISTRICT_UNAVAILABLE_MESSAGE}
-                </p>
-              )}
-              {/* Titled, because an untitled "Loading... Something awesome."
-                over a wait that runs to half a minute is the part of this that
-                got reported. The create flow says the same two sentences from
-                inside its own sheet — see `CreateListFlow` — since the sheet
-                covers this region for the whole of the wait that matters. */}
-              {!isUnresolvable && packQuery.isPending && (
-                <div className="flex h-full items-center justify-center">
-                  <LoadingAnimation
-                    title={
-                      <>
-                        {PACK_LOADING_TITLE}
-                        <span className="mt-2 block text-base font-normal text-zinc-600">
-                          {PACK_LOADING_DURATION}
-                        </span>
-                      </>
+            <div className="relative flex min-h-0 flex-1">
+              <div className="relative min-w-0 flex-1">
+                {/* Before the isPending branch: a district-gated query is
+                neither pending-with-a-request nor errored, so that branch
+                would otherwise spin forever. */}
+                {isUnresolvable && (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    {DISTRICT_UNAVAILABLE_MESSAGE}
+                  </p>
+                )}
+                {!isUnresolvable && packQuery.isPending && (
+                  <div className="flex h-full flex-col items-center justify-center gap-3">
+                    <Spinner />
+                    <p className="text-base font-semibold">
+                      {PACK_LOADING_TITLE}
+                    </p>
+                    <p className="text-base font-normal text-zinc-600">
+                      {PACK_LOADING_DURATION}
+                    </p>
+                  </div>
+                )}
+                {packQuery.isError && (
+                  <p className="p-4 text-sm text-destructive">
+                    {PACK_ERROR_MESSAGE}
+                  </p>
+                )}
+                {packQuery.data && filterResult && (
+                  <VoterMapCanvas
+                    pack={packQuery.data}
+                    filterResult={filterResult}
+                    turfs={visibleTurfs}
+                    routePins={walkMap.routePins}
+                    // The other half of the walk's one selection: the list marks
+                    // the row, the canvas rings the pin, and both read this.
+                    selectedStopId={walkMap.selectedStopId}
+                    routeLoop={walkMap.routeLoop}
+                    routeGeometry={walkMap.routeGeometry}
+                    // Nothing frames the camera at a saved turf any more: the
+                    // rail that used to select one is gone, and the walk frames
+                    // its own route.
+                    focusTurf={null}
+                    // Street level, where neighborhood street names first appear:
+                    // fitBounds to the whole district opens too far out to orient
+                    // against, and the map's job at mount is to say where you are.
+                    // Only the opening view — panning and turf focus own it after.
+                    initialZoom={16}
+                    startDrawToken={draw.startDrawToken}
+                    clearDrawToken={draw.clearDrawToken}
+                    undoDrawToken={draw.undoDrawToken}
+                    // The colour a new list is drawn in, on the boundary being cut
+                    // — state the map reads, so it lives up here.
+                    drawColor={draw.drawColor}
+                    frameDrawToken={draw.frameDrawToken}
+                    frameDrawBottomPct={draw.frameDrawBottomPct}
+                    // Every step of the create flow covers the map except the
+                    // drawing surface, and the draw step's preview window is a
+                    // picture with a shield over it — so outside that one state
+                    // the cluster would be buttons nobody can reach. Off the flow
+                    // it is the walk's sheet that decides, since at its full snap
+                    // it leaves nothing to zoom.
+                    controlsHidden={
+                      Boolean(flowStep)
+                        ? !draw.fullScreen
+                        : mapControlsOffset === null
                     }
+                    // The drawing surface's own footer is 88px of opaque bar
+                    // across the bottom, so the cluster clears it by the design's
+                    // 96 rather than sitting at the 16px edge underneath it —
+                    // which is what left the zoom buttons half-covered and the
+                    // locate toggle entirely hidden.
+                    controlsBottomPx={
+                      draw.fullScreen
+                        ? DRAW_CONTROLS_BOTTOM_PX
+                        : (mapControlsOffset ?? 16)
+                    }
+                    location={location}
+                    // The cluster's third button. The design's draw surface
+                    // carries the full cluster — plus, minus, locate — because a
+                    // boundary is cut standing on the street it covers as often
+                    // as at a desk, and knowing where you are is how you know
+                    // which blocks to enclose. Withheld on the flow's other
+                    // steps, where the map is a shielded picture.
+                    liveLocationEnabled={locationEnabled}
+                    onToggleLiveLocation={
+                      flowStep && !draw.fullScreen
+                        ? undefined
+                        : setLocationEnabled
+                    }
+                    // Who says so when the watch cannot produce a fix. The walk
+                    // has `WalkView`'s line for it; the drawing surface has
+                    // nothing, so the canvas speaks for itself there — otherwise
+                    // a refused OS permission is indistinguishable from a working
+                    // switch, which is exactly how it was reported.
+                    locationNotice={Boolean(flowStep)}
+                    onPolygonChange={setRing}
+                    onDrawPointCount={draw.onPointCount}
+                    onRoutePinClick={walkMap.onPinTap}
                   />
-                </div>
-              )}
-              {packQuery.isError && (
-                <p className="p-4 text-sm text-destructive">
-                  {PACK_ERROR_MESSAGE}
-                </p>
-              )}
-              {packQuery.data && filterResult && (
-                <VoterMapCanvas
-                  pack={packQuery.data}
-                  filterResult={filterResult}
-                  turfs={visibleTurfs}
-                  routePins={walkMap.routePins}
-                  // The other half of the walk's one selection: the list marks
-                  // the row, the canvas rings the pin, and both read this.
-                  selectedStopId={walkMap.selectedStopId}
-                  routeLoop={walkMap.routeLoop}
-                  routeGeometry={walkMap.routeGeometry}
-                  // Nothing frames the camera at a saved turf any more: the
-                  // rail that used to select one is gone, and the walk frames
-                  // its own route.
-                  focusTurf={null}
-                  // Street level, where neighborhood street names first appear:
-                  // fitBounds to the whole district opens too far out to orient
-                  // against, and the map's job at mount is to say where you are.
-                  // Only the opening view — panning and turf focus own it after.
-                  initialZoom={16}
-                  startDrawToken={draw.startDrawToken}
-                  clearDrawToken={draw.clearDrawToken}
-                  undoDrawToken={draw.undoDrawToken}
-                  // The colour a new list is drawn in, on the boundary being cut
-                  // — state the map reads, so it lives up here.
-                  drawColor={draw.drawColor}
-                  frameDrawToken={draw.frameDrawToken}
-                  frameDrawBottomPct={draw.frameDrawBottomPct}
-                  // Every step of the create flow covers the map except the
-                  // drawing surface, and the draw step's preview window is a
-                  // picture with a shield over it — so outside that one state
-                  // the cluster would be buttons nobody can reach. Off the flow
-                  // it is the walk's sheet that decides, since at its full snap
-                  // it leaves nothing to zoom.
-                  controlsHidden={
-                    Boolean(flowStep)
-                      ? !draw.fullScreen
-                      : mapControlsOffset === null
-                  }
-                  // The drawing surface's own footer is 88px of opaque bar
-                  // across the bottom, so the cluster clears it by the design's
-                  // 96 rather than sitting at the 16px edge underneath it —
-                  // which is what left the zoom buttons half-covered and the
-                  // locate toggle entirely hidden.
-                  controlsBottomPx={
-                    draw.fullScreen
-                      ? DRAW_CONTROLS_BOTTOM_PX
-                      : (mapControlsOffset ?? 16)
-                  }
-                  location={location}
-                  // The cluster's third button. The design's draw surface
-                  // carries the full cluster — plus, minus, locate — because a
-                  // boundary is cut standing on the street it covers as often
-                  // as at a desk, and knowing where you are is how you know
-                  // which blocks to enclose. Withheld on the flow's other
-                  // steps, where the map is a shielded picture.
-                  liveLocationEnabled={locationEnabled}
-                  onToggleLiveLocation={
-                    flowStep && !draw.fullScreen
-                      ? undefined
-                      : setLocationEnabled
-                  }
-                  // Who says so when the watch cannot produce a fix. The walk
-                  // has `WalkView`'s line for it; the drawing surface has
-                  // nothing, so the canvas speaks for itself there — otherwise
-                  // a refused OS permission is indistinguishable from a working
-                  // switch, which is exactly how it was reported.
-                  locationNotice={Boolean(flowStep)}
-                  onPolygonChange={setRing}
-                  onDrawPointCount={draw.onPointCount}
-                  onRoutePinClick={walkMap.onPinTap}
-                />
-              )}
-              <WalkMapHint visible={walkMap.hintVisible} />
-            </div>
-            {/* Above every surface, including the map: this is the frame after
+                )}
+                <WalkMapHint visible={walkMap.hintVisible} />
+              </div>
+              {/* Above every surface, including the map: this is the frame after
               the walk or the flow has been torn down and before the hub has
               arrived, and the whole point is that the map underneath is not
               what gets shown in it. */}
-            {leaving && (
-              <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
-                <LoadingAnimation title="Taking you back…" />
-              </div>
-            )}
-            {walkSurface()}
-            {flowStep && (
-              <CreateListSurface
-                step={flowStep}
-                filters={filters}
-                onFiltersChange={setFilters}
-                onStepChange={changeFlowStep}
-                onClose={closeFlow}
-                districtHouseholds={filterResult?.households ?? 0}
-                // The count above is derived from the pack, so it reads 0 for
-                // the whole of a download the sheet is drawn over. These two
-                // are what let the flow say so instead of printing that 0 as
-                // an answer.
-                // Same `!isUnresolvable` guard the map region carries: a
-                // district-gated query never leaves pending, so without it the
-                // sheet promises a download that was never requested, over a
-                // Continue that will never enable.
-                districtHouseholdsPending={
-                  !isUnresolvable && packQuery.isPending
-                }
-                districtHouseholdsFailed={packQuery.isError}
-                districtUnavailable={isUnresolvable}
-                ring={ring}
-                turfStats={turfStats}
-                drawPointCount={draw.pointCount}
-                onUndoPoint={draw.undoPoint}
-                drawFullScreen={draw.fullScreen}
-                onDrawFullScreenChange={draw.setFullScreen}
-                onRestartDrawing={draw.startDrawing}
-                color={draw.drawColor}
-                drawnStops={drawnStops}
-                onListCreated={handleListCreated}
-                isElectedOfficial={isElectedOfficial}
-                unpreviewableKeys={unpreviewableKeys}
-                orgSlug={organization?.slug}
-                preselectedListId={carriedListId}
-                onPreselectApplied={() =>
-                  setSpentPreselectId(preselectedListId)
-                }
-              />
-            )}
+              {standalone && leaving && (
+                <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
+                  <Spinner />
+                </div>
+              )}
+              {walkSurface()}
+              {flowStep && (
+                <CreateListSurface
+                  step={flowStep}
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  onStepChange={changeFlowStep}
+                  onClose={closeFlow}
+                  districtHouseholds={filterResult?.households ?? 0}
+                  // The count above is derived from the pack, so it reads 0 for
+                  // the whole of a download the sheet is drawn over. These two
+                  // are what let the flow say so instead of printing that 0 as
+                  // an answer.
+                  // Same `!isUnresolvable` guard the map region carries: a
+                  // district-gated query never leaves pending, so without it the
+                  // sheet promises a download that was never requested, over a
+                  // Continue that will never enable.
+                  districtHouseholdsPending={
+                    !isUnresolvable && packQuery.isPending
+                  }
+                  districtHouseholdsFailed={packQuery.isError}
+                  districtUnavailable={isUnresolvable}
+                  ring={ring}
+                  turfStats={turfStats}
+                  drawPointCount={draw.pointCount}
+                  onUndoPoint={draw.undoPoint}
+                  drawFullScreen={draw.fullScreen}
+                  onDrawFullScreenChange={draw.setFullScreen}
+                  onRestartDrawing={draw.startDrawing}
+                  color={draw.drawColor}
+                  drawnStops={drawnStops}
+                  onListCreated={handleListCreated}
+                  isElectedOfficial={isElectedOfficial}
+                  unpreviewableKeys={unpreviewableKeys}
+                  orgSlug={organization?.slug}
+                  preselectedListId={carriedListId}
+                  onPreselectApplied={() =>
+                    setSpentPreselectId(preselectedListId)
+                  }
+                />
+              )}
+            </div>
           </div>
-        </div>
-        {detailsTurf && (
-          <TurfDetailsSheet
-            turf={detailsTurf}
-            onClose={() => setDetailsTurf(null)}
-            // Start knocking closes the drawer to uncover the walk, and closing
-            // the walk brings it back: the candidate was reading this list's
-            // details and went to knock it, so the details are where they left
-            // off. The turf is captured rather than re-resolved because the row
-            // it names can be completed BY that walk.
-            onKnock={(turf) => {
-              setDetailsTurf(null)
-              startKnocking(turf, { kind: 'details', turf })
-            }}
-          />
-        )}
-        {/* One action and no cancel: there is nothing to decide here, and
+          {detailsTurf && (
+            <TurfDetailsSheet
+              turf={detailsTurf}
+              onClose={() => setDetailsTurf(null)}
+              // Start knocking closes the drawer to uncover the walk, and closing
+              // the walk brings it back: the candidate was reading this list's
+              // details and went to knock it, so the details are where they left
+              // off. The turf is captured rather than re-resolved because the row
+              // it names can be completed BY that walk.
+              onKnock={(turf) => {
+                setDetailsTurf(null)
+                startKnocking(turf, { kind: 'details', turf })
+              }}
+            />
+          )}
+          {/* One action and no cancel: there is nothing to decide here, and
             nothing the candidate can do to proceed today. The remedy the copy
             names — go knock what is already mapped — is behind this dialog on
             the rail it opened over. */}
-        <AlertDialog
-          open={refusedCampaignLimit !== null}
-          onOpenChange={(next) => {
-            if (!next) setRefusedCampaignLimit(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Daily limit reached</AlertDialogTitle>
-              <AlertDialogDescription>
-                You&apos;ve created {refusedCampaignLimit} door knocking
-                campaigns today. Go knock the doors you&apos;ve already mapped,
-                and build more lists tomorrow.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogAction onClick={() => setRefusedCampaignLimit(null)}>
-                Got it
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </DashboardLayout>
-    </DoorKnockingSurfaceProvider>
+          <AlertDialog
+            open={refusedCampaignLimit !== null}
+            onOpenChange={(next) => {
+              if (!next) setRefusedCampaignLimit(null)
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Daily limit reached</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You&apos;ve created {refusedCampaignLimit} door knocking
+                  campaigns today. Go knock the doors you&apos;ve already
+                  mapped, and build more lists tomorrow.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction
+                  onClick={() => setRefusedCampaignLimit(null)}
+                >
+                  Got it
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </DoorKnockingLayout>
+      </DoorKnockingSurfaceProvider>
+    </>
   )
 }

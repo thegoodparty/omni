@@ -17,9 +17,7 @@ export const PACK_FETCH_TIMEOUT_MS = 90_000
 // max 57s. It lives here beside the fetch and its timeouts because two surfaces
 // say it — the map region and the create flow's sheet, which covers that region
 // — and a candidate meeting both must not be told two different things about
-// the same wait. `LoadingAnimation`'s bar LOOKS determinate and is a fixed-width
-// indeterminate animation, so nothing here may imply progress: a duration is the
-// only honest promise this wait can make.
+// the same wait. A duration is the only honest promise this wait can make.
 export const PACK_LOADING_TITLE = 'Loading your voter map…'
 export const PACK_LOADING_DURATION =
   'Large districts can take up to 30 seconds.'

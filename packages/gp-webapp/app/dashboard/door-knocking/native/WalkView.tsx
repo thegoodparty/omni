@@ -19,10 +19,10 @@ import {
   DoorClosedIcon,
   FootprintsIcon,
   HouseIcon,
+  Spinner,
   UserIcon,
   UsersIcon,
 } from '@styleguide'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import { liveLocationMessage, type LiveLocation } from './useLiveLocation'
 import { formatDuration } from './formatDuration'
@@ -474,7 +474,7 @@ export default function WalkView({
     <div className="mx-auto min-h-0 w-full max-w-[608px] flex-1 overflow-y-auto px-4 pb-6">
       {routeQuery.isPending && (
         <div className="flex h-full items-center justify-center">
-          <LoadingAnimation />
+          <Spinner />
         </div>
       )}
       {/* Only when there is no route to walk. A background serve that fails —
