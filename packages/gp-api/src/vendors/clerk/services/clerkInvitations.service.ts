@@ -5,8 +5,58 @@ import {
   TeamInviteMetadata,
   TeamInviteMetadataSchema,
 } from '@goodparty_org/contracts'
+import { CLERK_LIST_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
-import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
+import {
+  clerkCall,
+  ClerkTimeoutError,
+} from '@/vendors/clerk/util/clerkCall.util'
+
+// Bounds retries of one page of listPendingTeamInvitations' paging loop —
+// not the whole loop, so a persistent failure still fails fast per page
+// instead of restarting from offset 0.
+const MAX_PAGE_ATTEMPTS = 3 // 1 initial try + 2 retries
+const RATE_LIMIT_STATUS = 429
+const RETRY_BACKOFF_MS = 300
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms))
+
+// Clerk's rate-limit error is a plain Error decorated with `status` (and
+// sometimes `retryAfter`, in seconds) by the SDK's internal request layer —
+// @clerk/backend does not export a class or type guard for it, so narrow
+// structurally rather than importing the undeclared @clerk/shared package
+// that actually defines the shape.
+const isClerkRateLimitError = (
+  err: unknown,
+): err is Error & { status: number; retryAfter?: number } =>
+  err instanceof Error && 'status' in err && err.status === RATE_LIMIT_STATUS
+
+// Retries one page fetch on a Clerk timeout or 429; any other error (or
+// exhausted retries) propagates so the caller's existing catch still maps it
+// to BadGatewayException.
+const fetchPageWithRetry = async <T>(
+  fetchPage: () => Promise<T>,
+): Promise<T> => {
+  let lastErr: unknown
+  for (let attempt = 0; attempt < MAX_PAGE_ATTEMPTS; attempt++) {
+    try {
+      return await fetchPage()
+    } catch (err) {
+      lastErr = err
+      const isTimeout = err instanceof ClerkTimeoutError
+      const isRateLimit = isClerkRateLimitError(err)
+      if (!isTimeout && !isRateLimit) throw err
+      if (attempt === MAX_PAGE_ATTEMPTS - 1) break
+      const delayMs =
+        isRateLimit && typeof err.retryAfter === 'number'
+          ? err.retryAfter * 1000
+          : RETRY_BACKOFF_MS
+      await sleep(delayMs)
+    }
+  }
+  throw lastErr
+}
 
 // Thin wrapper over clerkClient.invitations.* — pending team invites live in
 // Clerk, not Postgres (a pending invite is identity state, not a
@@ -63,18 +113,21 @@ export class ClerkInvitationsService {
       let offset = 0
       let totalCount = Infinity
       while (offset < totalCount) {
-        const page = await clerkCall(
-          'invitations.getInvitationList',
-          {
-            'clerk.organization_slug': organizationSlug,
-            'clerk.offset': offset,
-          },
-          () =>
-            this.clerkClient.invitations.getInvitationList({
-              status: 'pending',
-              limit: PAGE_SIZE,
-              offset,
-            }),
+        const page = await fetchPageWithRetry(() =>
+          clerkCall(
+            'invitations.getInvitationList',
+            {
+              'clerk.organization_slug': organizationSlug,
+              'clerk.offset': offset,
+            },
+            () =>
+              this.clerkClient.invitations.getInvitationList({
+                status: 'pending',
+                limit: PAGE_SIZE,
+                offset,
+              }),
+            CLERK_LIST_TIMEOUT_MS,
+          ),
         )
         invitations.push(...page.data)
         totalCount = page.totalCount
