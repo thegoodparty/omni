@@ -162,14 +162,11 @@ export type SmsAdminDetailResponse = z.infer<
 >
 
 // The M2M token identifies gp-admin, not the human — the acting admin's
-// identity rides in the body. Initials feed Peerly's request_canvassers.
+// identity rides in the body. Peerly's request_canvassers initials are
+// derived server-side from the Peerly API login (the vendor validates
+// them against the requesting user), so they don't ride here.
 export const ApproveSmsOutreachRequestSchema = z.object({
   approvedBy: z.string().min(1).max(255),
-  initials: z
-    .string()
-    .min(2)
-    .max(4)
-    .regex(/^[A-Za-z]+$/, 'Initials must be letters only'),
 })
 export type ApproveSmsOutreachRequest = z.infer<
   typeof ApproveSmsOutreachRequestSchema

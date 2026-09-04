@@ -26,10 +26,7 @@ async function requireApprover() {
   if (!email) {
     throw new Error('Could not resolve your admin identity')
   }
-  const initials =
-    `${user?.firstName?.[0] ?? ''}${user?.lastName?.[0] ?? ''}`.toUpperCase() ||
-    email.slice(0, 2).toUpperCase()
-  return { email, initials }
+  return { email }
 }
 
 export const getSmsQueue = async (): Promise<SmsApprovalQueueResponse> => {
@@ -51,9 +48,9 @@ export const getSmsDetail = async (
 }
 
 export const approveSms = async (id: number): Promise<SmsApprovalQueueItem> => {
-  const { email, initials } = await requireApprover()
+  const { email } = await requireApprover()
   const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.approve(id, { approvedBy: email, initials })
+    client.smsOutreachAdmin.approve(id, { approvedBy: email })
   )
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)

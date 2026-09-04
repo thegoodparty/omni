@@ -157,8 +157,12 @@ export const SmsReviewStep = ({
     <div className="space-y-6">
       <Intro
         channel="text"
-        title="Review & pay"
-        body="Review your campaign details and complete your payment."
+        title={isFree ? 'Review and send' : 'Review & pay'}
+        body={
+          isFree
+            ? 'Review your campaign details and schedule your send.'
+            : 'Review your campaign details and complete your payment.'
+        }
       />
 
       <Card className="gap-0 overflow-hidden p-0">
@@ -301,7 +305,7 @@ export const SmsReviewStep = ({
           disabled={isRedeeming}
           loading={isRedeeming}
         >
-          Pay $0.00
+          Schedule campaign
         </Button>
       ) : (
         <>

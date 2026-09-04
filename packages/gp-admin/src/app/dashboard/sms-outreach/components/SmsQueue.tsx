@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Badge,
@@ -59,6 +60,7 @@ const compareItems = (
 }
 
 export function SmsQueue({ items }: SmsQueueProps) {
+  const router = useRouter()
   const [tab, setTab] = useState<QueueTab>('awaiting')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('sendDate')
@@ -73,7 +75,9 @@ export function SmsQueue({ items }: SmsQueueProps) {
       (item) =>
         TAB_STATUSES[tab].includes(item.approvalStatus) &&
         (query.length === 0 ||
-          (item.candidateName ?? '').toLowerCase().includes(query))
+          [item.candidateName, item.name, item.campaignSlug].some((field) =>
+            (field ?? '').toLowerCase().includes(query)
+          ))
     )
     const sorted = [...filtered].sort((a, b) => compareItems(a, b, sortKey))
     return sortDir === 'asc' ? sorted : sorted.reverse()
@@ -113,10 +117,10 @@ export function SmsQueue({ items }: SmsQueueProps) {
           </Tabs.List>
         </Tabs.Root>
         <TextField.Root
-          placeholder="Search by candidate…"
+          placeholder="Search candidate, campaign, or slug…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          aria-label="Search by candidate"
+          aria-label="Search campaigns"
           style={{ minWidth: 220 }}
         />
       </Flex>
@@ -124,7 +128,7 @@ export function SmsQueue({ items }: SmsQueueProps) {
       {visible.length === 0 ? (
         <Text color="gray" size="3" mt="4" as="p">
           {search.trim().length > 0
-            ? 'No campaigns match that candidate.'
+            ? 'No campaigns match your search.'
             : 'Nothing here right now.'}
         </Text>
       ) : (
@@ -191,7 +195,16 @@ export function SmsQueue({ items }: SmsQueueProps) {
           </Table.Header>
           <Table.Body>
             {visible.map((item) => (
-              <Table.Row key={item.id}>
+              <Table.Row
+                key={item.id}
+                className="cursor-pointer hover:bg-[var(--gray-a2)]"
+                onClick={(event) => {
+                  // Leave modified clicks alone — the campaign link is the
+                  // open-in-new-tab affordance; the row must not hijack.
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) return
+                  router.push(`/dashboard/sms-outreach/${item.id}`)
+                }}
+              >
                 <Table.Cell>
                   <Flex direction="column">
                     <Text size="2">{item.candidateName ?? '—'}</Text>
@@ -204,6 +217,7 @@ export function SmsQueue({ items }: SmsQueueProps) {
                   <Link
                     href={`/dashboard/sms-outreach/${item.id}`}
                     className="text-[var(--accent-11)] hover:underline"
+                    onClick={(event) => event.stopPropagation()}
                   >
                     {item.name ?? `Campaign ${item.id}`}
                   </Link>

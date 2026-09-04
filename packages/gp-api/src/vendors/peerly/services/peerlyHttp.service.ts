@@ -45,6 +45,7 @@ interface PeerlyAuthenticationResponseBody {
 export class PeerlyHttpService extends PeerlyBaseConfig {
   private token: string | null = null
   private tokenExpiry: number | null = null
+  private authenticatedUser: PeerlyAuthenticatedUser | null = null
   private readonly tokenRenewalThreshold = 5 * 60
 
   constructor(
@@ -180,6 +181,7 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
         ) {
           this.token = token
           this.tokenExpiry = decodedToken.exp as number
+          this.authenticatedUser = data.user ?? null
           this.logger.debug(
             `Successfully renewed Peerly token${
               EXPLICITLY_LOG_PEERLY_TOKEN === 'true'
@@ -212,6 +214,22 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
       throw new Error('No valid Peerly token available')
     }
     return this.token
+  }
+
+  // Some Peerly writes (request_canvassers) validate fields against the
+  // API login's own user record, so callers need who we authenticate as.
+  // A user-less auth response only fails THIS path: re-auth once per call
+  // rather than throwing in renewToken, which would take down every
+  // Peerly call for the token's lifetime over a field only this needs.
+  async getAuthenticatedUser(): Promise<PeerlyAuthenticatedUser> {
+    await this.getToken()
+    if (!this.authenticatedUser) {
+      await this.renewToken()
+    }
+    if (!this.authenticatedUser) {
+      throw new Error('Peerly token-auth response did not include a user')
+    }
+    return this.authenticatedUser
   }
 
   private async getAuthorizationHeader() {

@@ -22,6 +22,7 @@ describe('PeerlyP2pJobService', () => {
     get: ReturnType<typeof vi.fn>
     delete: ReturnType<typeof vi.fn>
     validateResponse: ReturnType<typeof vi.fn>
+    getAuthenticatedUser: ReturnType<typeof vi.fn>
   }
   let mockErrorHandling: {
     handleApiError: ReturnType<typeof vi.fn>
@@ -55,6 +56,15 @@ describe('PeerlyP2pJobService', () => {
       validateResponse: vi
         .fn()
         .mockImplementation((_data, _dto, _ctx) => _data),
+      getAuthenticatedUser: vi.fn().mockResolvedValue({
+        user_id: 1,
+        first_name: 'jane',
+        last_name: 'doe',
+        email: 'api@goodparty.org',
+        user_type: 'api',
+        identities: [],
+        local_timezone: 'America/New_York',
+      }),
     }
     mockErrorHandling = {
       handleApiError: vi.fn().mockImplementation(() => {
@@ -454,6 +464,49 @@ describe('PeerlyP2pJobService', () => {
       )
 
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
+  })
+
+  describe('requestCanvassers', () => {
+    it('derives initials from the Peerly login and books the 9-9 window', async () => {
+      await service.requestCanvassers('job-1', { date: '2026-09-10' })
+
+      expect(mockHttpService.post).toHaveBeenCalledWith(
+        '/v2/p2p/job-1/request_canvassers',
+        {
+          requested_initials: 'JD',
+          requested_date: '2026-09-10',
+          requested_timeframe: 'CUSTOM',
+          requested_start_time: '09:00:00',
+          requested_end_time: '21:00:00',
+          requested_timezone: 'LOCAL',
+        },
+      )
+    })
+
+    it('omits requested_date when no date is given', async () => {
+      await service.requestCanvassers('job-1')
+
+      const [, body] = mockHttpService.post.mock.calls.at(-1) as [
+        string,
+        Record<string, string>,
+      ]
+      expect(body).not.toHaveProperty('requested_date')
+      expect(body.requested_initials).toBe('JD')
+    })
+
+    it('routes an auth-user failure through the shared error handler', async () => {
+      mockHttpService.getAuthenticatedUser.mockRejectedValue(
+        new Error('no user in token-auth response'),
+      )
+
+      await expect(service.requestCanvassers('job-1')).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockHttpService.post).not.toHaveBeenCalledWith(
+        expect.stringContaining('request_canvassers'),
+        expect.anything(),
+      )
     })
   })
 })

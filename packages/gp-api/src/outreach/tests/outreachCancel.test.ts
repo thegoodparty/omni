@@ -57,6 +57,8 @@ const seedOutreach = (
     projectId: string | null
     stripeCheckoutSessionId: string | null
     date: Date
+    textCount: number | null
+    billableTextCount: number | null
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -118,6 +120,81 @@ describe('POST /v1/outreach/:id/cancel', () => {
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(deleteJob).not.toHaveBeenCalled()
+  })
+
+  it('restores the free-texts offer when the canceled send consumed it', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        hasFreeTextsOffer: false,
+        freeTextsOfferRedeemedAt: new Date(),
+      },
+    })
+    const row = await seedOutreach({
+      stripeCheckoutSessionId: null,
+      textCount: 1780,
+      billableTextCount: 0,
+    })
+
+    const res = await postCancel(row.id)
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { id: campaignId },
+    })
+    expect(campaign.hasFreeTextsOffer).toBe(true)
+    expect(campaign.freeTextsOfferRedeemedAt).toBeNull()
+  })
+
+  it('restores the offer on a partial-subsidy cancel too', async () => {
+    // 5,000 promo texts + a paid remainder: the paid part is refunded by
+    // the Stripe path and the never-delivered promo comes back — product
+    // decision 2026-09-03 (cancel before send returns the whole benefit).
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        hasFreeTextsOffer: false,
+        freeTextsOfferRedeemedAt: new Date(),
+      },
+    })
+    const row = await seedOutreach({
+      stripeCheckoutSessionId: null,
+      textCount: 7000,
+      billableTextCount: 2000,
+    })
+
+    const res = await postCancel(row.id)
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { id: campaignId },
+    })
+    expect(campaign.hasFreeTextsOffer).toBe(true)
+    expect(campaign.freeTextsOfferRedeemedAt).toBeNull()
+  })
+
+  it('does not restore the offer for a full-price cancel', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        hasFreeTextsOffer: false,
+        freeTextsOfferRedeemedAt: new Date(),
+      },
+    })
+    const row = await seedOutreach({
+      stripeCheckoutSessionId: null,
+      textCount: 1200,
+      billableTextCount: 1200,
+    })
+
+    const res = await postCancel(row.id)
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { id: campaignId },
+    })
+    expect(campaign.hasFreeTextsOffer).toBe(false)
+    expect(campaign.freeTextsOfferRedeemedAt).not.toBeNull()
   })
 
   it('rejects a cancel at or past the scheduled send time (launch switch on)', async () => {

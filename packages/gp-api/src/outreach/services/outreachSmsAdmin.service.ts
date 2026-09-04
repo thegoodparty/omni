@@ -14,6 +14,7 @@ import {
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
 } from '@goodparty_org/contracts'
+import { addDays, format, subDays } from 'date-fns'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
@@ -35,6 +36,29 @@ type RegistrationNames = {
   candidateName: string | null
   committeeName: string | null
 }
+
+// Live vendor reads are additive detail, but Peerly has shown 45s-4min
+// detailedstats responses on the shared test account. Every live read is
+// timeboxed so a stalling vendor can never hold the queue or review page.
+const VENDOR_READ_TIMEOUT_MS = 10_000
+
+const timeboxed = <T>(read: Promise<T>): Promise<T> => {
+  // A read that loses the race is abandoned, not cancelled — hold its
+  // eventual rejection so it can't surface as an unhandled rejection.
+  void read.catch(() => undefined)
+  return Promise.race([
+    read,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Peerly read exceeded the timebox')),
+        VENDOR_READ_TIMEOUT_MS,
+      )
+      timer.unref?.()
+    }),
+  ])
+}
+
+const DATE_FMT = 'yyyy-MM-dd'
 
 // The CAS approval back office (gp-admin). Scope is deliberately the cancel
 // window: a p2p row at spine `pending` with a vendor job — the state where
@@ -91,25 +115,38 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     const registrations = await this.registrationsByCampaign([row])
     const owners = await this.ownersByCampaign([row])
 
-    // Live reads are additive detail — either failing must not 404 the row.
-    let job: PeerlyJob | null = null
-    try {
-      job = await this.peerlyP2pJobService.getJob(row.projectId)
-    } catch (err) {
-      this.logger.warn(
-        { err, outreachId },
-        'Admin detail: live job read failed; rendering without it',
-      )
-    }
-    let stats: SmsAdminJobStats | null = null
-    try {
-      stats = await this.peerlyP2pJobService.getJobDetailedStats(row.projectId)
-    } catch (err) {
-      this.logger.warn(
-        { err, outreachId },
-        'Admin detail: job stats read failed; rendering without them',
-      )
-    }
+    // Live reads are additive detail — either failing (or stalling past
+    // the timebox) must not 404 or hang the row. Parallel: neither read
+    // depends on the other.
+    const [job, stats] = await Promise.all([
+      timeboxed(this.peerlyP2pJobService.getJob(row.projectId)).catch(
+        (err: Error): PeerlyJob | null => {
+          this.logger.warn(
+            { err, outreachId },
+            'Admin detail: live job read failed; rendering without it',
+          )
+          return null
+        },
+      ),
+      timeboxed(
+        // Scoped to the row's lifetime: Peerly scans the requested span
+        // server-side, and the default THIS_YEAR over a busy account is
+        // what stalled this read for minutes. Window mirrors the inbound
+        // sweep's convention — padded a day each side (Peerly evaluates
+        // the range in its account timezone) and anchored on the send
+        // date (a backdated row's events can predate createdAt).
+        this.peerlyP2pJobService.getJobDetailedStats(row.projectId, {
+          startDate: format(subDays(row.date ?? row.createdAt, 1), DATE_FMT),
+          endDate: format(addDays(new Date(), 1), DATE_FMT),
+        }),
+      ).catch((err: Error): SmsAdminJobStats | null => {
+        this.logger.warn(
+          { err, outreachId },
+          'Admin detail: job stats read failed; rendering without them',
+        )
+        return null
+      }),
+    ])
 
     return {
       item: this.toQueueItem(
@@ -171,7 +208,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
     try {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
-        initials: input.initials,
         date: row.scheduledLocalDate ?? undefined,
       })
     } catch (error) {
@@ -328,7 +364,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       include: queueInclude,
     })
     const registrations = await this.registrationsByCampaign([updated])
-    await this.tryNotifyDecision(updated, 'edited', input.editedBy)
     return this.toQueueItem(
       updated,
       registrations.get(updated.campaignId ?? -1),
@@ -403,18 +438,24 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       ),
     ]
     const byProjectId = new Map<string, PeerlyJob>()
-    for (const identityId of identityIds) {
-      try {
-        const jobs =
-          await this.peerlyP2pJobService.getJobsByIdentityId(identityId)
-        for (const job of jobs) {
-          byProjectId.set(job.id, job)
-        }
-      } catch (err) {
-        this.logger.warn(
-          { err, identityId },
-          'Admin queue: live job read failed for identity; rendering rows without it',
-        )
+    // Parallel so the queue waits one timebox total, not one per identity.
+    const reads = await Promise.all(
+      identityIds.map((identityId) =>
+        timeboxed(this.peerlyP2pJobService.getJobsByIdentityId(identityId))
+          .then((jobs) => ({ identityId, jobs }))
+          .catch((err: Error) => {
+            this.logger.warn(
+              { err, identityId },
+              'Admin queue: live job read failed for identity; ' +
+                'rendering rows without it',
+            )
+            return { identityId, jobs: [] as PeerlyJob[] }
+          }),
+      ),
+    )
+    for (const { jobs } of reads) {
+      for (const job of jobs) {
+        byProjectId.set(job.id, job)
       }
     }
     return byProjectId
@@ -486,9 +527,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     return 'awaiting_review'
   }
 
+  // Approve/deny only — staff edits are routine fixes and deliberately
+  // don't post (product decision 2026-09-03).
   private async tryNotifyDecision(
     row: QueueRow,
-    decision: 'approved' | 'denied' | 'edited',
+    decision: 'approved' | 'denied',
     actor: string,
   ) {
     try {

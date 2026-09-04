@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Theme } from '@radix-ui/themes'
 import type { SmsApprovalQueueItem } from '@goodparty_org/contracts'
@@ -12,6 +12,30 @@ class ResizeObserverMock {
 }
 globalThis.ResizeObserver =
   ResizeObserverMock as unknown as typeof ResizeObserver
+
+const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+  }),
+}))
+// Plain anchor so clicking the campaign link in jsdom exercises our
+// bubbling behavior instead of Next's router internals.
+vi.mock('next/link', () => ({
+  default: ({
+    href,
+    children,
+    ...props
+  }: React.ComponentProps<'a'> & { href: string }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}))
+
+beforeEach(() => {
+  mockPush.mockReset()
+})
 
 const item = (
   overrides: Partial<SmsApprovalQueueItem>
@@ -87,6 +111,32 @@ describe('SmsQueue', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: /Denied \(1\)/ }))
     expect(screen.getByText('Denied send')).toBeInTheDocument()
+
+    // The whole row is clickable, not just the campaign link.
+    await userEvent.click(screen.getByText('Jane Doe'))
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/sms-outreach/43')
+  })
+
+  it('does not double-navigate or hijack modified clicks', async () => {
+    render(
+      <Theme>
+        <SmsQueue items={[item({ id: 41 })]} />
+      </Theme>
+    )
+
+    // The campaign link owns its own navigation — the row handler must
+    // not push a second history entry on top of it.
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Likely voters — SMS' })
+    )
+    expect(mockPush).not.toHaveBeenCalled()
+
+    // Cmd/ctrl-click stays with the browser (open in new tab).
+    fireEvent.click(screen.getByText('Jane Doe'), { metaKey: true })
+    expect(mockPush).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByText('Jane Doe'))
+    expect(mockPush).toHaveBeenCalledTimes(1)
   })
 
   it('flags standards failures and vendor readiness problems', () => {
@@ -143,6 +193,7 @@ describe('SmsQueue', () => {
               id: 52,
               candidateName: 'Amy Brown',
               name: 'Amy campaign',
+              campaignSlug: 'amy-brown-2026',
               sendAt: new Date('2026-09-12T15:00:00Z'),
             }),
           ]}
@@ -159,18 +210,29 @@ describe('SmsQueue', () => {
     expect(afterSort[0]).toHaveTextContent('Amy campaign')
 
     await userEvent.type(
-      screen.getByRole('textbox', { name: 'Search by candidate' }),
+      screen.getByRole('textbox', { name: 'Search campaigns' }),
       'zoe'
     )
     expect(screen.getByText('Zoe campaign')).toBeInTheDocument()
     expect(screen.queryByText('Amy campaign')).not.toBeInTheDocument()
 
     await userEvent.type(
-      screen.getByRole('textbox', { name: 'Search by candidate' }),
+      screen.getByRole('textbox', { name: 'Search campaigns' }),
       'zzz'
     )
     expect(
-      screen.getByText('No campaigns match that candidate.')
+      screen.getByText('No campaigns match your search.')
     ).toBeInTheDocument()
+
+    // Slug and campaign-name fields match too, not just the candidate.
+    await userEvent.clear(
+      screen.getByRole('textbox', { name: 'Search campaigns' })
+    )
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Search campaigns' }),
+      'amy-brown-2026'
+    )
+    expect(screen.getByText('Amy campaign')).toBeInTheDocument()
+    expect(screen.queryByText('Zoe campaign')).not.toBeInTheDocument()
   })
 })

@@ -268,16 +268,16 @@ describe('SmsFlow', () => {
 
     // Review: free-texts offer covers 1,200 → free branch.
     expect(
-      await screen.findByRole('heading', { level: 3, name: 'Review & pay' }),
+      await screen.findByRole('heading', { level: 3, name: 'Review and send' }),
     ).toBeInTheDocument()
     expect(await screen.findByText('1,200')).toBeInTheDocument()
     const scheduleButton = await screen.findByRole('button', {
-      name: 'Pay $0.00',
+      name: 'Schedule campaign',
     })
     await userEvent.click(scheduleButton)
 
     await waitFor(() =>
-      expect(screen.getByText('Payment successful!')).toBeInTheDocument(),
+      expect(screen.getByText('Scheduled!')).toBeInTheDocument(),
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
@@ -333,12 +333,12 @@ describe('SmsFlow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     const scheduleButton = await screen.findByRole('button', {
-      name: 'Pay $0.00',
+      name: 'Schedule campaign',
     })
     await userEvent.click(scheduleButton)
 
     expect(await screen.findByText(rejectionMessage)).toBeInTheDocument()
-    expect(screen.queryByText('Payment successful!')).not.toBeInTheDocument()
+    expect(screen.queryByText('Scheduled!')).not.toBeInTheDocument()
   })
 
   it('builds a new list in-flow and continues into scheduling', async () => {
