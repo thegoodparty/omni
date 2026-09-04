@@ -1626,6 +1626,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
   let mockSlack: { message: ReturnType<typeof vi.fn> }
   let mockCvValidation: { validate: ReturnType<typeof vi.fn> }
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
 
   const user = createMockUser({ clerkId: 'user_clerk_xyz' })
   const campaign = createMockCampaign({
@@ -1729,6 +1730,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     mockCvValidation = {
       validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
     }
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
     mockWebsites = {
       // The submit path resolves the website host from the campaign's
       // registered domain (apex), not the request.
@@ -1785,7 +1787,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         },
         {
           provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
+          useValue: { sendSingleSend: mockSendSingleSend },
         },
         CampaignTcrComplianceService,
       ],
@@ -2436,6 +2438,78 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         rejection_reason: cvErr.message,
       }),
     )
+  })
+
+  describe('ComplianceRejected single-send on a cv_submit rejection (ENG-11035)', () => {
+    it('does not call single-send when HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID is unset', async () => {
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+    })
+
+    it('sends to the triggering account email with the rejection details as call properties', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 777666,
+        to: user.email,
+        customProperties: {
+          rejection_source: 'cv_submit',
+          rejection_reason: cvErr.message,
+        },
+      })
+    })
+
+    it('still rethrows the original rejection when single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockAnalytics.track).toHaveBeenCalledWith(
+        user.id,
+        EVENTS.Outreach.ComplianceRejected,
+        expect.objectContaining({ rejection_source: 'cv_submit' }),
+      )
+    })
+
+    it('does not call single-send when a TTL re-claimant owns the record', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+      mockTcrModel.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+    })
   })
 
   it('does not fire the rejection event when the rejected stamp fails to commit', async () => {
@@ -4369,5 +4443,85 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
         cvValidationTransientCount: 0,
       },
     })
+  })
+})
+
+// Called by QueueConsumerService.handleTcrComplianceCheckMessage, which has
+// no acting user — this covers the env-var gating this public method owns;
+// the consumer-side recipient resolution is covered in
+// queueConsumer.service.test.ts.
+describe('CampaignTcrComplianceService - sendComplianceCompletedSingleSend (ENG-11035)', () => {
+  let service: CampaignTcrComplianceService
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  beforeEach(async () => {
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: {} } },
+        { provide: PeerlyIdentityService, useValue: {} },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: { track: vi.fn() } },
+        { provide: SlackService, useValue: {} },
+        { provide: CvPreSubmissionValidationService, useValue: {} },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
+        },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('does not call single-send when HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID is unset', async () => {
+    await service.sendComplianceCompletedSingleSend('candidate@example.com', {
+      peerly_identity_id: 'peerly-999',
+    })
+
+    expect(mockSendSingleSend).not.toHaveBeenCalled()
+  })
+
+  it('sends to the given recipient with the given properties once configured', async () => {
+    vi.stubEnv('HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID', '555444')
+
+    await service.sendComplianceCompletedSingleSend('candidate@example.com', {
+      peerly_identity_id: 'peerly-999',
+    })
+
+    expect(mockSendSingleSend).toHaveBeenCalledWith({
+      emailId: 555444,
+      to: 'candidate@example.com',
+      customProperties: { peerly_identity_id: 'peerly-999' },
+    })
+  })
+
+  it('propagates a single-send failure to the caller', async () => {
+    vi.stubEnv('HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID', '555444')
+    mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+
+    await expect(
+      service.sendComplianceCompletedSingleSend('candidate@example.com', {
+        peerly_identity_id: 'peerly-999',
+      }),
+    ).rejects.toThrow('HubSpot down')
   })
 })
