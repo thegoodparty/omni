@@ -21,6 +21,7 @@ import {
   ACTIVITY_CONDITION_CHANNEL_ACTIONS,
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
+  SELECTABLE_ACTIVITY_CONDITION_CHANNELS,
   CHANNELS_WITHOUT_CAMPAIGN_PICKER,
   type ActivityConditionChannel,
   type ActivityConditionInput,
@@ -259,7 +260,7 @@ export default function ActivityStep({
                   aria-label="Previous activity"
                   className="flex flex-wrap gap-2"
                 >
-                  {ACTIVITY_CONDITION_CHANNELS.map((channel) => (
+                  {SELECTABLE_ACTIVITY_CONDITION_CHANNELS.map((channel) => (
                     <ToggleGroupItem
                       key={channel.value}
                       value={channel.value}
