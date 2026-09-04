@@ -493,7 +493,35 @@ describe('OrganizationPicker', () => {
 
     await user.click(screen.getByText('Organization One'))
 
-    expect(screen.queryByText('·')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('org-secondary-line')).not.toBeInTheDocument()
+  })
+
+  it('prefers customPositionName over positionName for the secondary office line', async () => {
+    const user = userEvent.setup()
+    const customNameOrgs: Organization[] = [
+      {
+        slug: 'org-custom',
+        name: 'My Campaign',
+        customPositionName: 'Town Selectboard',
+        positionName: 'Other Position',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: 'Jane Candidate',
+      },
+    ]
+    renderPicker(customNameOrgs)
+
+    await user.click(screen.getByText('My Campaign'))
+
+    expect(
+      screen.getByText('Jane Candidate · Town Selectboard'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Jane Candidate · Other Position'),
+    ).not.toBeInTheDocument()
   })
 
   it('shows both run-for actions when eligible with a re-election office', async () => {

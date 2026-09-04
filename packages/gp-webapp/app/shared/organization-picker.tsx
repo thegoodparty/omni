@@ -311,7 +311,10 @@ export const OrganizationPicker = () => {
                         {org.name}
                       </span>
                       {secondaryLine && (
-                        <span className="truncate text-xs font-opensans text-muted-foreground">
+                        <span
+                          data-testid="org-secondary-line"
+                          className="truncate text-xs font-opensans text-muted-foreground"
+                        >
                           {secondaryLine}
                         </span>
                       )}
