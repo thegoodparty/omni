@@ -239,6 +239,153 @@ remembering to keep them in step. What blocked the button originally was reach:
 nothing in the drawer could name the turf until the detail block carried its
 id.
 
+## The canvassing totals rollup (Segment → HubSpot)
+
+`DoorKnockingStatsService` emits one server-side Segment event,
+**`Door Knocking - Canvassing Totals Updated`**, carrying nine running totals
+for the organization. Campaign Success owns a HubSpot workflow that copies each
+property onto the contact and then its associated company — see
+[`HUBSPOT_INTEGRATION.md`](../src/vendors/segment/HUBSPOT_INTEGRATION.md) for
+the property list and the workflow's shape.
+
+**One rollup event, not one event per action, and every number is a running
+total.** HubSpot workflows can copy a value onto a property; they cannot sum
+across events. So a "doors knocked" event carrying `1` would leave the property
+reading 1 forever. `Campaign Plan - Weekly Tasks Digest` already works this way
+and is the precedent.
+
+**Server-side rather than from the webapp**, for three reasons that each stand
+alone: `AnalyticsService` already resolves and attaches the user's `email` and
+`hubspotId`, the totals need SQL the browser does not have, and ad blockers
+drop client events while the writes still land. The existing client-side
+`EVENTS.DoorKnocking` events in gp-webapp are untouched — this is a parallel
+event, not a move.
+
+### The nine numbers
+
+All org-scoped and all-time. The definitions are one SQL statement in
+`doorKnockingStats.service.ts`, which is where the traps are commented; this
+table is the plain-language version CS reads.
+
+| Property                | Means                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `doorAttempts`          | Every knock recorded, including repeat visits to the same door. One row per attempt in `contact_interaction_door_knock`      |
+| `uniqueDoorsKnocked`    | Distinct doors a knock was recorded at, whatever was learned there. A door is a `(stop, addressKey)` pair                    |
+| `totalContactsMade`     | Knocks where somebody came to the door — outcome `answered` or `refused_to_engage`. Repeat conversations count separately    |
+| `uniqueContactsMade`    | The same population counted once per person                                                                                  |
+| `committedVoters`       | People whose latest door-knock support answer is `supporter` **and** whose latest door-knock GOTV answer is `will vote: yes` |
+| `votersPersuaded`       | People who answered `non_supporter` at one door and `supporter` at a later one                                               |
+| `uniqueTurfsCreated`    | Lists the organization has drawn and still has                                                                               |
+| `uniqueTurfsCompleted`  | The subset of those whose envelope reached `completed` ("End knocking session")                                              |
+| `lastCanvassActivityAt` | The newest `occurredAt` on any knock                                                                                         |
+
+The edges worth knowing:
+
+- **`uniqueDoorsKnocked` reuses the rail's door key and nothing else.** A door
+  is knocked when a knock was recorded at it, whatever was learned there. The
+  key stays a `(stopId, addressKey)` pair for the reason
+  `DoorKnockingTurfCountsService`'s header gives — stops are grouped by
+  coordinate, so one address key geocoded twice is two doors. The corollary is
+  that **two turfs overlapping the same address count it twice**, which is a
+  real (if unusual) overcount and the price of using one door key across the
+  feature.
+- **It deliberately does not reuse `deriveKnockStatus`, which the map and the
+  progress rail run on.** That predicate asks "is there work left at this
+  door?", so it treats an `answered` knock with an `unsure` answer as
+  unresolved — right for a rail, wrong for a cumulative total, which asks how
+  much work was done. An undecided voter who stood and talked is the
+  persuadable conversation a candidate most wants credit for, and that knock
+  already counts in `doorAttempts` and both contacts-made numbers, so excluding
+  it from the doors number made the event contradict itself. For the same
+  reason the rail's extra "doors with nobody knockable behind them" term is
+  dropped: it exists there so a do-not-knock house cannot hold a progress bar
+  below 100%, and a door nobody went to was not knocked.
+- **A manual `support_status` override does not make a door knocked.** Unlike
+  the map and Contacts, where an override wins over the interaction, a status
+  somebody typed into the CRM is not a visit. Overrides do not enter this
+  number in either direction — they cannot add a door, and they cannot retract
+  one that was walked to.
+- **`totalContactsMade` / `uniqueContactsMade` include `refused_to_engage`, and
+  that is a judgement call awaiting CS sign-off.** The knock form's second step
+  overwrites the first, so a door that physically opened and then refused
+  persists as a single `refused_to_engage` row, indistinguishable from one that
+  never opened. Excluding the outcome undercounts real conversations; including
+  it overcounts doors that were slammed. Changing it is one constant in the
+  service.
+- **`committedVoters` is door-attributed on purpose.** It does not use
+  `SupportStatusService.derivedStatusSql`, which unions phone banking — a
+  phone-banked supporter is not canvassing work. The two answers are read from
+  whichever visit gave each one, since a canvasser can capture support on one
+  trip and the GOTV answer on the next.
+- **`votersPersuaded` is history, not current state.** Someone who flips back
+  to `non_supporter` afterwards stays counted, because the persuasion still
+  happened. It is computed here rather than emitted at the door because the
+  knock write never reads prior status and so cannot know a transition
+  occurred.
+- **Turf-derived numbers describe live lists; interaction-derived numbers
+  describe recorded work.** The three turf numbers all exclude tombstoned
+  lists, which are unreachable from every read path in the product. The
+  interaction numbers cannot make that choice and do not: knock rows hang off
+  the organization rather than the turf and outlive it by design. So a deleted
+  list's knocks stay in `doorAttempts` while its doors leave
+  `uniqueDoorsKnocked`.
+
+`bad address count` from the source doc is **not** here. Nothing in the product
+records it, and the `not_a_voter` reason (moved / deceased, ADR 0008) is a
+different claim about a different thing.
+
+### What else rides the payload
+
+`email` and `hubspotContactId` (the user's), which `AnalyticsService` already
+attaches as Segment context traits — they are on the payload as well because
+the HubSpot workflow reads event properties rather than context.
+`hubspotCompanyId` is `campaign.data.hubspotId`, looked up by
+`organizationSlug`, alongside `campaignId` and `organizationSlug` for
+attribution.
+
+### When it fires
+
+- **Turf create**, after the transaction commits (`doorKnockingCreate.service.ts`).
+- **Turf complete**, behind the same idempotence guard as the write, so a
+  second tap on a finished list emits nothing (`doorKnockingTurf.service.ts`).
+- **Turf delete.** A tombstone moves the three turf-derived numbers _down_,
+  and the workflow SETs each property rather than accumulating, so the drop
+  has to be pushed. The sweep would not catch it: it is scoped to orgs that
+  recorded a knock, and an org that deletes a list and then stops has no next
+  event to correct the stale company record.
+- **A daily sweep** at 05:00 Eastern over every org that recorded a knock in
+  the last 24 hours, behind `CronLockService` so two replicas emit once. The
+  window is measured on `createdAt`, not `occurredAt`: it asks which rows
+  _landed_ since the last sweep, which is what catches a phone syncing a walk
+  it did offline and a manual log backdated to last week.
+
+**Not fired per knock.** A canvasser logs dozens a session and each would
+trigger an org-wide aggregate, for properties nobody reads in real time. The
+sweep is what keeps the knock-driven numbers fresh between the lifecycle
+moments.
+
+The three lifecycle firings are attributed to the user who pressed the button;
+the sweep is attributed to the organization's owner, because a volunteer's
+overnight sync should not move the candidate's numbers onto the volunteer's
+HubSpot contact. Segment identifies by user while the totals are the
+organization's, so on a team account the numbers are the org's either way.
+
+### Serve orgs, and the two things that read zero
+
+Nothing here crashes for an `eo-` org, and nothing here is built for one:
+`hubspotCompanyId` and `campaignId` are null (a Serve org has no campaign row),
+and `committedVoters` / `votersPersuaded` are support-answer-derived, so they
+read zero for a product that is moving away from asking about support at all.
+Making door knocking sensible for elected officials is separate in-flight work;
+this event will need revisiting when it lands.
+
+### The out-of-repo half
+
+Segment reaches HubSpot through the existing firehose, so **nothing lands in
+HubSpot until CS creates the workflow** keyed on the exact event name. The name
+carries a `DO NOT MODIFY` comment in `segment.types.ts` and is pinned by
+`segment-hubspot-events.test.ts` for that reason.
+
 ## Where the code lives
 
 `src/doorKnocking/` (turf CRUD + the create transaction; controller routes
