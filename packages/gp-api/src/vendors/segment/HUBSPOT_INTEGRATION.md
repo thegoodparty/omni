@@ -111,8 +111,8 @@ event carries, in the camelCase the payload uses:
 
 | Property                | Type               | Means                                                                                             |
 | ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------- |
-| `uniqueDoorsKnocked`    | number             | Distinct doors where somebody behind them has an answer written down                              |
-| `doorAttempts`          | number             | Every knock recorded, repeat visits included                                                      |
+| `uniqueDoorsKnocked`    | number             | Distinct doors a knock was recorded at, whatever was learned there                                |
+| `doorAttempts`          | number             | Every knock recorded, repeat visits included. Always ≥ `uniqueDoorsKnocked`                       |
 | `uniqueContactsMade`    | number             | People who came to the door, counted once each                                                    |
 | `totalContactsMade`     | number             | Conversations at the door, counted every time                                                     |
 | `committedVoters`       | number             | Latest door-knock answers are `supporter` **and** will-vote `yes`                                 |

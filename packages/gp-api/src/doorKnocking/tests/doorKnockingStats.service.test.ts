@@ -155,7 +155,7 @@ describe('DoorKnockingStatsService', () => {
   })
 
   describe('uniqueDoorsKnocked', () => {
-    it('counts a door once however many residents behind it were logged', async () => {
+    it('counts a door once however many residents behind it were knocked', async () => {
       await seedTurf({
         doors: [
           [
@@ -165,7 +165,7 @@ describe('DoorKnockingStatsService', () => {
         ],
       })
       await knock('p1', DoorKnockOutcome.answered, {
-        supportAnswer: SupportAnswer.supporter,
+        supportAnswer: SupportAnswer.unsure,
       })
       await knock('p2', DoorKnockOutcome.not_home)
 
@@ -181,13 +181,13 @@ describe('DoorKnockingStatsService', () => {
           ],
         ],
       })
-      await knock('p1', DoorKnockOutcome.not_home)
+      await knock('p1', DoorKnockOutcome.answered)
       await knock('p2', DoorKnockOutcome.not_home)
 
       expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(2)
     })
 
-    it('leaves out a door nobody behind it has been logged at', async () => {
+    it('leaves out a door nobody knocked', async () => {
       await seedTurf({
         doors: [
           [{ personId: 'p1', addressKey: '12 ELM|3B|60601' }],
@@ -197,6 +197,25 @@ describe('DoorKnockingStatsService', () => {
       await knock('p1', DoorKnockOutcome.not_home)
 
       expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(1)
+    })
+
+    // The conversation a candidate most wants credit for. `deriveKnockStatus`
+    // leaves this door grey and knockable, which is right for the map — there
+    // is work left here — and wrong for a cumulative total, which asks what
+    // was done. Counting it also keeps the event internally consistent: the
+    // same knock is already in `doorAttempts` and both contacts-made numbers.
+    it('counts a door where the conversation ended undecided', async () => {
+      await seedTurf({
+        doors: [[{ personId: 'p1', addressKey: '12 ELM|3B|60601' }]],
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        supportAnswer: SupportAnswer.unsure,
+      })
+
+      const totals = await stats.canvassingTotals(orgSlug)
+
+      expect(totals.uniqueDoorsKnocked).toBe(1)
+      expect(totals.uniqueContactsMade).toBe(1)
     })
 
     // The one place this deliberately parts company with
@@ -219,20 +238,8 @@ describe('DoorKnockingStatsService', () => {
       expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(0)
     })
 
-    // 'answered' with no support answer derives to `unknown` — the door opened
-    // but nothing was learned, so deriveKnockStatus has nothing to report.
-    it('does not count a door whose only answer derives to unknown', async () => {
-      await seedTurf({
-        doors: [[{ personId: 'p1', addressKey: '12 ELM|3B|60601' }]],
-      })
-      await knock('p1', DoorKnockOutcome.answered, {
-        supportAnswer: SupportAnswer.unsure,
-      })
-
-      expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(0)
-    })
-
-    it('counts a door logged only by a manual support-status override', async () => {
+    // A status typed into the CRM is not a door anybody walked to.
+    it('does not count a door known only from a manual support-status override', async () => {
       await seedTurf({
         doors: [[{ personId: 'p1', addressKey: '12 ELM|3B|60601' }]],
       })
@@ -245,10 +252,11 @@ describe('DoorKnockingStatsService', () => {
         },
       })
 
-      expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(1)
+      expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(0)
     })
 
-    it('lets an override back to unknown un-log a door the interaction logged', async () => {
+    // The converse: an override cannot retract a visit that happened.
+    it('keeps a knocked door when an override sets the resident back to unknown', async () => {
       await seedTurf({
         doors: [[{ personId: 'p1', addressKey: '12 ELM|3B|60601' }]],
       })
@@ -262,7 +270,38 @@ describe('DoorKnockingStatsService', () => {
         },
       })
 
-      expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(0)
+      expect((await stats.canvassingTotals(orgSlug)).uniqueDoorsKnocked).toBe(1)
+    })
+
+    // Both numbers now come from the same rows — every door counted here has
+    // at least one attempt behind it — so a fixture that inverted them would
+    // be reporting doors nobody knocked, which is the shape of the bug this
+    // definition replaced.
+    it('never reports more doors than attempts', async () => {
+      await seedTurf({
+        doors: [
+          [{ personId: 'p1', addressKey: '12 ELM|3B|60601' }],
+          [{ personId: 'p2', addressKey: '14 ELM||60601' }],
+          [{ personId: 'p3', addressKey: '16 ELM||60601' }],
+        ],
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T1,
+        supportAnswer: SupportAnswer.unsure,
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T2,
+        supportAnswer: SupportAnswer.supporter,
+      })
+      await knock('p2', DoorKnockOutcome.not_home, { occurredAt: T2 })
+
+      const totals = await stats.canvassingTotals(orgSlug)
+
+      expect(totals.doorAttempts).toBe(3)
+      expect(totals.uniqueDoorsKnocked).toBe(2)
+      expect(totals.doorAttempts).toBeGreaterThanOrEqual(
+        totals.uniqueDoorsKnocked,
+      )
     })
 
     it('leaves out the doors of a tombstoned list', async () => {

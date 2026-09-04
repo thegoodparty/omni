@@ -270,7 +270,7 @@ table is the plain-language version CS reads.
 | Property                | Means                                                                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `doorAttempts`          | Every knock recorded, including repeat visits to the same door. One row per attempt in `contact_interaction_door_knock`      |
-| `uniqueDoorsKnocked`    | Distinct doors where somebody behind them has an answer written down. A door is a `(stop, addressKey)` pair                  |
+| `uniqueDoorsKnocked`    | Distinct doors a knock was recorded at, whatever was learned there. A door is a `(stop, addressKey)` pair                    |
 | `totalContactsMade`     | Knocks where somebody came to the door — outcome `answered` or `refused_to_engage`. Repeat conversations count separately    |
 | `uniqueContactsMade`    | The same population counted once per person                                                                                  |
 | `committedVoters`       | People whose latest door-knock support answer is `supporter` **and** whose latest door-knock GOTV answer is `will vote: yes` |
@@ -279,23 +279,32 @@ table is the plain-language version CS reads.
 | `uniqueTurfsCompleted`  | The subset of those whose envelope reached `completed` ("End knocking session")                                              |
 | `lastCanvassActivityAt` | The newest `occurredAt` on any knock                                                                                         |
 
-Six of them are worth knowing the edges of:
+The edges worth knowing:
 
-- **`uniqueDoorsKnocked` reuses the rail's door key but not the rail's
-  numerator.** `DoorKnockingTurfCountsService` adds "doors with nobody knockable
-  behind them" to its knocked count so a do-not-knock house cannot hold a
-  progress bar below 100%. That term is deliberately dropped here: a door
-  nobody went to is not a door that was knocked. The key stays a
-  `(stopId, addressKey)` pair for the reason that service's header gives —
-  stops are grouped by coordinate, so one address key geocoded twice is two
-  doors. The corollary is that **two turfs overlapping the same address count
-  it twice**, which is a real (if unusual) overcount and the price of using one
-  door key across the feature.
-- **"Written down" is the effective status, override included.** A manual
-  `support_status` override wins over the interaction, exactly as it does at
-  the door and in Contacts. `answered` with no support answer derives to
-  `unknown` — the door opened and nothing was learned — so it does not log the
-  door on its own.
+- **`uniqueDoorsKnocked` reuses the rail's door key and nothing else.** A door
+  is knocked when a knock was recorded at it, whatever was learned there. The
+  key stays a `(stopId, addressKey)` pair for the reason
+  `DoorKnockingTurfCountsService`'s header gives — stops are grouped by
+  coordinate, so one address key geocoded twice is two doors. The corollary is
+  that **two turfs overlapping the same address count it twice**, which is a
+  real (if unusual) overcount and the price of using one door key across the
+  feature.
+- **It deliberately does not reuse `deriveKnockStatus`, which the map and the
+  progress rail run on.** That predicate asks "is there work left at this
+  door?", so it treats an `answered` knock with an `unsure` answer as
+  unresolved — right for a rail, wrong for a cumulative total, which asks how
+  much work was done. An undecided voter who stood and talked is the
+  persuadable conversation a candidate most wants credit for, and that knock
+  already counts in `doorAttempts` and both contacts-made numbers, so excluding
+  it from the doors number made the event contradict itself. For the same
+  reason the rail's extra "doors with nobody knockable behind them" term is
+  dropped: it exists there so a do-not-knock house cannot hold a progress bar
+  below 100%, and a door nobody went to was not knocked.
+- **A manual `support_status` override does not make a door knocked.** Unlike
+  the map and Contacts, where an override wins over the interaction, a status
+  somebody typed into the CRM is not a visit. Overrides do not enter this
+  number in either direction — they cannot add a door, and they cannot retract
+  one that was walked to.
 - **`totalContactsMade` / `uniqueContactsMade` include `refused_to_engage`, and
   that is a judgement call awaiting CS sign-off.** The knock form's second step
   overwrites the first, so a door that physically opened and then refused

@@ -145,56 +145,37 @@ export class DoorKnockingStatsService extends createPrismaBase(
         JOIN outreach o ON o.door_knocking_route_id = t.route_id
         WHERE o.status = 'completed'
       ),
-      -- The effective per-person knock status, mirroring
-      -- DoorKnockingStatusService.latestKnockStatuses: the latest
-      -- answer-bearing row wins over a later answerless one, so a re-attempt
-      -- that found nobody home does not retract support already given.
-      latest_knock AS (
-        SELECT DISTINCT ON (person_id) person_id, outcome, support_answer
-        FROM knock
-        ORDER BY
-          person_id,
-          (support_answer IS NOT NULL) DESC,
-          occurred_at DESC,
-          id DESC
-      ),
-      support_override AS (
-        SELECT person_id, value
-        FROM contact_current_status
-        WHERE organization_slug = ${organizationSlug}
-          AND field = 'support_status'
-      ),
-      -- "Somebody behind this door has been written down." A manual override
-      -- wins where it maps to a real status; 'unknown'/'undecided' override
-      -- back to nothing-known, and an unrecognised value falls through to the
-      -- interaction, exactly as overrideToKnockStatus does.
-      logged_person AS (
-        SELECT COALESCE(k.person_id, o.person_id) AS person_id
-        FROM latest_knock k
-        FULL JOIN support_override o ON o.person_id = k.person_id
-        WHERE CASE
-          WHEN o.value IN ('supporter', 'non_supporter', 'refused') THEN TRUE
-          WHEN o.value IN ('unknown', 'undecided') THEN FALSE
-          ELSE k.support_answer IN ('supporter', 'non_supporter')
-            OR k.outcome IN (
-              'refused_to_engage', 'inaccessible', 'not_a_voter', 'not_home'
-            )
-        END
-      ),
       -- Two targets are the same DOOR when they share a stop and an address
       -- key, the pair DoorKnockingTurfCountsService uses and for the reason
       -- its header gives: stops are grouped by COORDINATE, so one address key
-      -- geocoded twice is two doors. Unlike that service this does NOT add
-      -- doors with nobody knockable behind them — those exist there so a
-      -- do-not-knock house cannot hold a progress bar below 100%, and counting
-      -- them as knocked here would report doors nobody went to.
+      -- geocoded twice is two doors.
+      --
+      -- The door key is all this borrows from that service. A door is knocked
+      -- when a knock was RECORDED at it, whatever was learned there, and the
+      -- two neighbouring predicates are both wrong for that:
+      --
+      -- deriveKnockStatus, which the map and the progress rail run on, asks
+      -- "is there work LEFT at this door?" — so it leaves an answered knock
+      -- with an unsure support answer grey and knockable. Correct for a rail,
+      -- wrong here, where the question is how much work was DONE and an
+      -- undecided voter who stood and talked is exactly the work a candidate
+      -- wants credit for. It also made this event self-contradictory: that
+      -- same knock counts in doorAttempts and in both contacts-made numbers,
+      -- so the event could report a contact made at a door it called
+      -- unknocked. Nor does that service's extra term belong: it counts doors
+      -- with nobody knockable behind them as done so a do-not-knock house
+      -- cannot hold a progress bar below 100%, and a door nobody went to was
+      -- not knocked.
+      --
+      -- A manual support_status override is likewise not a knock — it is a
+      -- status somebody typed into the CRM, and nobody walked to that door.
       door AS (
         SELECT DISTINCT s.id AS stop_id, t.address_key
         FROM door_knocking_stop_target t
         JOIN door_knocking_stop s ON s.id = t.door_knocking_stop_id
         JOIN door_knocking_route r ON r.id = s.door_knocking_route_id
         JOIN turf tf ON tf.id = r.door_knocking_turf_id
-        WHERE t.person_id IN (SELECT person_id FROM logged_person)
+        WHERE t.person_id IN (SELECT person_id FROM knock)
       ),
       -- A mind changed at a door: an earlier non_supporter answer followed by
       -- a later supporter one. Not knowable at write time — the knock write
