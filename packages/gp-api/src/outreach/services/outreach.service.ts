@@ -967,9 +967,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // restored for the campaign's next send (product decision 2026-09-03).
     // Guarded on the redeemed state, so a cancel retry cannot double-grant,
     // and a later full-price campaign (billable == textCount) never
-    // triggers it. Best-effort: the cancel and refund are already
-    // committed, so a restore failure logs for manual fixing rather than
-    // faking a failed cancel.
+    // triggers it. A restore failure reverts the claim and rethrows like
+    // the refund path: a cancelled row cannot be retried (the idempotent
+    // early-return wins), so swallowing here would lose the promo for
+    // good. The vendor delete and refund are idempotent on retry.
     const consumedFreeTexts =
       outreach.textCount !== null &&
       outreach.billableTextCount !== null &&
@@ -990,8 +991,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       } catch (err) {
         this.logger.error(
           { err, outreachId, campaignId },
-          'Free-texts offer restore failed after cancel; restore manually',
+          `Free-texts restore failed canceling outreach ${outreachId}; ` +
+            'claim reverted so cancel can retry',
         )
+        await revertClaim('promo restore failure')
+        throw err
       }
     }
 
