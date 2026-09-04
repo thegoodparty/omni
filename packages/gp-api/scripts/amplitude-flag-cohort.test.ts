@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
   findCohortSegment,
+  findMissingAccounts,
   mergeCohortIntoSegments,
   parseArgs,
   parseEmails,
   parseResponseBody,
   type FlagSegment,
 } from './amplitude-flag-cohort'
+import type { UserEmailLookup } from './amplitude-flag-cohort'
+
+const stubPrisma = (emails: (string | null)[]): UserEmailLookup => ({
+  user: { findMany: async () => emails.map((email) => ({ email })) },
+})
 
 describe('parseResponseBody', () => {
   // Amplitude answers a successful PATCH with this, and parsing it as JSON
@@ -155,6 +161,37 @@ describe('mergeCohortIntoSegments', () => {
     ).toThrow('serves "on", not "off"')
   })
 
+  it('refuses when the segment resolves to no variant at all', () => {
+    expect(() =>
+      mergeCohortIntoSegments(
+        [
+          {
+            ...emailSegment('Pilot allowlist', ['old@example.com']),
+            rolloutWeights: {},
+          },
+        ],
+        {
+          segmentName: 'Pilot allowlist',
+          variant: 'on',
+          emails: ['new@example.com'],
+        },
+      ),
+    ).toThrow('serves no variant, not "on"')
+  })
+
+  it('merges into a segment that carries no rolloutWeights', () => {
+    const segment = emailSegment('Pilot allowlist', ['old@example.com'])
+    delete segment.rolloutWeights
+
+    const result = mergeCohortIntoSegments([segment], {
+      segmentName: 'Pilot allowlist',
+      variant: 'on',
+      emails: ['new@example.com'],
+    })
+
+    expect(result.added).toEqual(['new@example.com'])
+  })
+
   // Re-running the same batch is the expected way to confirm a write landed.
   it('is idempotent', () => {
     const result = mergeCohortIntoSegments(
@@ -252,5 +289,25 @@ describe('parseArgs', () => {
     expect(() => parseArgs([...required, '--segment'])).toThrow(
       '--segment requires a value.',
     )
+  })
+})
+
+describe('findMissingAccounts', () => {
+  it('matches accounts regardless of the casing the database holds', async () => {
+    const missing = await findMissingAccounts(
+      ['a@example.com', 'b@example.com'],
+      stubPrisma(['A@Example.com']),
+    )
+
+    expect(missing).toEqual(['b@example.com'])
+  })
+
+  it('reports every address when nothing matches', async () => {
+    const missing = await findMissingAccounts(
+      ['a@example.com'],
+      stubPrisma([null]),
+    )
+
+    expect(missing).toEqual(['a@example.com'])
   })
 })

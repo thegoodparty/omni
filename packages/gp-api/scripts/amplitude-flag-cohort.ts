@@ -168,11 +168,14 @@ export const mergeCohortIntoSegments = (
   // `--variant` defaults to "on", so rewriting the weights to match it would
   // let an ordinary add-emails run silently flip a segment somebody pointed at
   // another variant. Make the operator say which one they mean.
+  // An absent `rolloutWeights` carries no variant to contradict; an empty one
+  // is a segment that resolves nobody, which is worth stopping on.
   const served = Object.keys(existing.rolloutWeights ?? {})
-  if (served.length > 0 && !served.includes(variant)) {
+  if (existing.rolloutWeights !== undefined && !served.includes(variant)) {
+    const serves = served.length > 0 ? `"${served.join('", "')}"` : 'no variant'
     throw new Error(
-      `Segment "${segmentName}" serves "${served.join('", "')}", not "${variant}". ` +
-        `Re-run with --variant ${served[0]}, or repoint the segment in Amplitude.`,
+      `Segment "${segmentName}" serves ${serves}, not "${variant}". ` +
+        `Repoint the segment in Amplitude, or re-run with a matching --variant.`,
     )
   }
 
@@ -313,20 +316,30 @@ const findFlag = async (key: string, apiKey: string): Promise<Flag> => {
 
 // ── Account verification ─────────────────────────────────────────────────────
 
-const findMissingAccounts = async (emails: string[]): Promise<string[]> => {
-  const prisma = new PrismaClient()
-  try {
-    const users = await prisma.user.findMany({
-      where: { email: { in: emails, mode: 'insensitive' } },
-      select: { email: true },
-    })
-    const found = new Set(
-      users.map((user) => user.email?.toLowerCase()).filter(Boolean),
-    )
-    return emails.filter((email) => !found.has(email))
-  } finally {
-    await prisma.$disconnect()
+// Narrow enough that a test can hand over a stub, wide enough that the real
+// client satisfies it — the client is passed in rather than opened here so the
+// set-difference is testable without a database.
+export interface UserEmailLookup {
+  user: {
+    findMany(args: {
+      where: { email: { in: string[]; mode: 'insensitive' } }
+      select: { email: true }
+    }): Promise<{ email: string | null }[]>
   }
+}
+
+export const findMissingAccounts = async (
+  emails: string[],
+  prisma: UserEmailLookup,
+): Promise<string[]> => {
+  const users = await prisma.user.findMany({
+    where: { email: { in: emails, mode: 'insensitive' } },
+    select: { email: true },
+  })
+  const found = new Set(
+    users.map((user) => user.email?.toLowerCase()).filter(Boolean),
+  )
+  return emails.filter((email) => !found.has(email))
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -349,7 +362,10 @@ const main = async (): Promise<void> => {
   console.log(`Read ${emails.length} address(es) from ${args.emailsFile}`)
 
   if (args.verifyAccounts) {
-    const missing = await findMissingAccounts(emails)
+    const prisma = new PrismaClient()
+    const missing = await findMissingAccounts(emails, prisma).finally(() =>
+      prisma.$disconnect(),
+    )
     if (missing.length > 0) {
       console.log(`\n${missing.length} address(es) have no account:`)
       for (const email of missing) console.log(`  ${email}`)
