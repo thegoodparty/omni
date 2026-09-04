@@ -65,6 +65,17 @@ export const RecordDoorKnockInteractionSchema = z
     message: 'followUp and supportAnswer belong to different surfaces',
     path: ['followUp'],
   })
+  // `willVote` is the other half of the Win ladder and is refused for the same
+  // reason, one step further out: it is the only field here that leaves door
+  // knocking, as `emitLikelihoodEvent` turns it into a `voter_likelihood`
+  // ContactStatusEvent. That write is already `eo-`-gated, so this refine is
+  // not what stops the event — it stops the row. A stored `willVote` on a
+  // follow-up knock is an answer to a question the canvasser was never shown,
+  // and it would read as one to every later reader of the interaction table.
+  .refine((v) => v.followUp === undefined || v.willVote === undefined, {
+    message: 'followUp and willVote belong to different surfaces',
+    path: ['followUp'],
+  })
 
 export type RecordDoorKnockInteraction = z.infer<
   typeof RecordDoorKnockInteractionSchema

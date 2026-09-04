@@ -3023,6 +3023,24 @@ describe('door-knocking routes', () => {
         expect(res.status).toBe(400)
       })
 
+      // The other half of the Win ladder, refused separately: `willVote` is the
+      // one field on this payload that leaves door knocking, so a row carrying
+      // it alongside a follow-up answer is worth its own assertion even though
+      // the likelihood writer would have declined it anyway.
+      it('refuses a follow-up payload that also answers will-vote', async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+          willVote: 'yes',
+        })
+
+        expect(res.status).toBe(400)
+      })
+
       it('refuses follow-up on a door that never answered', async () => {
         const target = await knockAndGetTarget()
 
