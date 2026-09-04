@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -275,5 +275,51 @@ describe('SmsFlow — recommended lists', () => {
     expect(screen.queryByTestId('recommended-lists-loading')).toBeNull()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
     expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
+  })
+
+  // The flow host stays mounted with `open` never going false between steps,
+  // so without an active/mode gate this warehouse-backed query kept
+  // refetching on window focus for screens that don't show it at all
+  // (schedule/compose/review) — caught by a live reviewer mutation test on
+  // the first round, now pinned here.
+  it('stops refetching recommendations once the audience step is left behind', async () => {
+    let requestCount = 0
+    api.mock('GET /v1/campaigns/mine/recommended-lists', () => {
+      requestCount += 1
+      return { status: 200, data: [] }
+    })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 1, name: 'Likely voters' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 100, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 90,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    await openToAudience()
+    await waitFor(() => expect(requestCount).toBe(1))
+
+    await userEvent.click(screen.getByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue/ }),
+    )
+    await screen.findByText('When do you want to send it?')
+
+    window.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('focus'))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(requestCount).toBe(1)
   })
 })

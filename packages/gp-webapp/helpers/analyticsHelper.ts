@@ -598,6 +598,13 @@ export const EVENTS = {
       ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
       CallLogged: 'Outreach - Phone Banking: Call Logged',
     },
+    // The audience step's recommended-lists cards (win-recommended-lists).
+    // Fires once the recommendation is accepted (the saved list is created),
+    // not on card selection — modified vs as-is is only knowable at that
+    // point (useOutreachAudience.ts).
+    RecommendedList: {
+      Accepted: 'Voter Outreach - Recommended List Accepted',
+    },
     ActionClicked: 'Outreach - Action Clicked',
   },
   CandidateWebsite: {

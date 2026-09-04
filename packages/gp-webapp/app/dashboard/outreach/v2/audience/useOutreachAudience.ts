@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ListDetailReachability,
+  OutreachPurpose,
   RecommendedList,
   RecommendedListChannel,
   RecommendedListFilter,
@@ -9,6 +10,7 @@ import type {
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
@@ -61,6 +63,31 @@ const builderFiltersFromRecommendation = (
   if (filter.hasAnyPhone) result.hasAnyPhone = true
   return result
 }
+
+// The recommended-lists intent a purpose slug maps onto
+// (docs/features/recommended-lists.md). Every outreach channel has shared one
+// purpose vocabulary since Task 0 — SmsPurpose/RobocallPurpose/
+// PhoneBankingPurpose are literal re-exports of the same OutreachPurpose
+// array, not per-channel variants, so this is the one map every flow calls
+// rather than three copies that must stay byte-identical by hand. "custom"
+// gets no recommendation; Serve's own non-electoral vocabulary shares some
+// of these slug strings for an unrelated meaning and must be excluded by the
+// caller (checking its own Win/Serve surface) before ever reaching this.
+const PURPOSE_TO_RECOMMENDED_INTENT: Record<
+  Exclude<OutreachPurpose, 'custom'>,
+  RecommendedListIntent
+> = {
+  introduce_myself: 'introduce',
+  persuade_voters: 'persuade',
+  event_invite: 'event',
+  early_voting: 'earlyVote',
+  election_day_turnout: 'electionDay',
+}
+
+export const intentForOutreachPurpose = (
+  purpose: OutreachPurpose,
+): RecommendedListIntent | null =>
+  purpose === 'custom' ? null : PURPOSE_TO_RECOMMENDED_INTENT[purpose]
 
 // The reachability leaf that matches the feature's channel: SMS/polls read the
 // cell-phone count, robocall/phoneBanking the landline count, doorKnocking the
@@ -179,13 +206,17 @@ export const useOutreachAudience = ({
   const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
   const [builderName, setBuilderName] = useState('')
   // Provenance of the current builder selection, when it originated from a
-  // recommendation (Task 7 persists these on the created filter, and diffs
-  // the submitted filter against the recommendation to set
-  // recommendedModified — this is just the carrier).
+  // recommendation. gp-api persists variant/channel/intent on the created
+  // filter and diffs the submitted filter against `filter` (the
+  // recommendation's own unsaved shape) to set recommendedModified — this
+  // is just the carrier, plus what the analytics event needs on accept.
   const [recommendedMeta, setRecommendedMeta] = useState<{
     variant: RecommendedListVariant
     channel: RecommendedListChannel
     intent: RecommendedListIntent
+    filter: RecommendedListFilter
+    count: number
+    districtShare?: number
   } | null>(null)
 
   const { data: electedOffice } = useElectedOffice()
@@ -249,8 +280,15 @@ export const useOutreachAudience = ({
       )
       return data
     },
+    // Same gating as precinctOptions/builderCountResult elsewhere in this
+    // hook: the flow host stays mounted (open never goes false between
+    // steps), so without active/mode this kept refetching a
+    // warehouse-backed call on window-focus for schedule/compose/review —
+    // steps that don't show it.
     enabled:
       open &&
+      active &&
+      mode === 'picker' &&
       recommendedListsFlag.ready &&
       recommendedListsFlag.enabled &&
       recommendedListIntent !== null,
@@ -369,15 +407,16 @@ export const useOutreachAudience = ({
         {
           name: builderName.trim(),
           ...createPayload,
-          // Forward-compatible with Task 7's persistence columns: gp-api's
-          // create schema currently strips unrecognized keys silently (it
-          // isn't `.strict()`), so sending these today is a no-op until that
-          // task lands the fields — not a 400.
+          // recommendedFilter is the recommendation's own unsaved filter
+          // shape, sent alongside the submitted criteria purely so gp-api
+          // can diff the two and persist recommendedModified — nothing
+          // recommendation-time is otherwise saved anywhere to diff against.
           ...(recommendedMeta
             ? {
                 recommendedVariant: recommendedMeta.variant,
                 recommendedChannel: recommendedMeta.channel,
                 recommendedIntent: recommendedMeta.intent,
+                recommendedFilter: recommendedMeta.filter,
               }
             : {}),
         },
@@ -435,6 +474,9 @@ export const useOutreachAudience = ({
         // Only called while recommendations are loaded, which only happens
         // with a non-null intent (the query's own `enabled` gate).
         intent: recommendedListIntent as RecommendedListIntent,
+        filter: recommendation.filter,
+        count: recommendation.count,
+        districtShare: recommendation.districtShare,
       })
       setMode('name')
     },
@@ -443,6 +485,20 @@ export const useOutreachAudience = ({
 
   const createList = useCallback(async (): Promise<SegmentResponse> => {
     const created = await runCreateList()
+    // Only knowable now: whether the candidate accepted the recommendation
+    // as-is or edited it first (gp-api's recommendedModified, computed at
+    // create time). Fires here rather than on card selection, and not at
+    // all for a hand-built list (recommendedMeta null).
+    if (recommendedMeta) {
+      trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+        variant: recommendedMeta.variant,
+        channel: recommendedMeta.channel,
+        intent: recommendedMeta.intent,
+        count: recommendedMeta.count,
+        districtShare: recommendedMeta.districtShare,
+        modified: created.recommendedModified ?? false,
+      })
+    }
     await queryClient.invalidateQueries({
       queryKey: outreachAudienceListsKey(orgSlug),
     })

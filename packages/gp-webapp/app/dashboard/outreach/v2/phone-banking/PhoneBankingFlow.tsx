@@ -11,7 +11,6 @@ import {
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
-  type RecommendedListIntent,
   type ServePhoneBankingCreate,
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
@@ -29,7 +28,10 @@ import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
-import { useOutreachAudience } from '../audience/useOutreachAudience'
+import {
+  intentForOutreachPurpose,
+  useOutreachAudience,
+} from '../audience/useOutreachAudience'
 import {
   PHONE_BANKING_PURPOSES,
   phoneBankingPurposeNameSuggestion,
@@ -117,25 +119,6 @@ const SERVE_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
 // rather than every matching voter (ENG-10957). The saved list itself stays
 // overlay-free and reusable by other channels.
 const PHONE_BANKING_COUNT_OVERLAY = { hasAnyPhone: true }
-
-// The recommended-lists intent a purpose slug maps onto
-// (docs/features/recommended-lists.md), Win only — recommended lists are a
-// Win-only product surface (the endpoint 400s an eo- org outright), and
-// Serve's own purpose vocabulary reuses some of the same slug strings
-// (introduce_myself, event_invite, custom) for an unrelated, non-electoral
-// meaning, so this can't be resolved from the purpose string alone; see
-// where it's read below. Mirrors SmsFlow's map exactly rather than
-// importing it — see the note there.
-const PURPOSE_TO_RECOMMENDED_INTENT: Record<
-  Exclude<PhoneBankingPurpose, 'custom'>,
-  RecommendedListIntent
-> = {
-  introduce_myself: 'introduce',
-  persuade_voters: 'persuade',
-  event_invite: 'event',
-  early_voting: 'earlyVote',
-  election_day_turnout: 'electionDay',
-}
 
 // The purpose union across every surface the flow can render — same
 // convention as SocialFlow's SocialFlowPurpose.
@@ -275,14 +258,15 @@ export const PhoneBankingFlow = ({
   const draftRequestRef = useRef(0)
 
   // Reference equality against the Win singleton default, not a purpose
-  // check — see PURPOSE_TO_RECOMMENDED_INTENT above for why the purpose
-  // string alone can't tell the two vocabularies apart.
+  // check: recommended lists are Win-only (the endpoint 400s an eo- org
+  // outright), and Serve's own purpose vocabulary reuses some of the same
+  // slug strings (introduce_myself, event_invite, custom) for an unrelated,
+  // non-electoral meaning, so the purpose string alone can't tell the two
+  // apart.
   const isWinPhoneBanking = surface === WIN_PHONE_BANKING_SURFACE
-  const recommendedListIntent: RecommendedListIntent | null =
-    isWinPhoneBanking && purpose && purpose !== 'custom'
-      ? PURPOSE_TO_RECOMMENDED_INTENT[
-          purpose as Exclude<PhoneBankingPurpose, 'custom'>
-        ]
+  const recommendedListIntent =
+    isWinPhoneBanking && purpose
+      ? intentForOutreachPurpose(purpose as PhoneBankingPurpose)
       : null
 
   const audience = useOutreachAudience({
