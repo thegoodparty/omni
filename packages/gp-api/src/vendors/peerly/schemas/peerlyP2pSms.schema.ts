@@ -46,13 +46,30 @@ export class GetJobResponseDto extends createZodDto(getJobResponseSchema) {}
 // count objects and total cost — the endpoint returns much more). Records
 // are label→count maps whose exact key set Peerly doesn't document, so the
 // mapper sums by TX/RX prefix instead of naming keys.
-const jobDetailedStatsResponseSchema = z.object({
-  messages: z.record(z.string(), z.number()).optional(),
-  mms_messages: z.record(z.string(), z.number()).optional(),
-  delivery_receipts: z.record(z.string(), z.number()).optional(),
-  mms_delivery_receipts: z.record(z.string(), z.number()).optional(),
-  total_cost: z.number().optional(),
-})
+const jobDetailedStatsResponseSchema = z
+  .object({
+    messages: z.record(z.string(), z.number()).optional(),
+    mms_messages: z.record(z.string(), z.number()).optional(),
+    delivery_receipts: z.record(z.string(), z.number()).optional(),
+    mms_delivery_receipts: z.record(z.string(), z.number()).optional(),
+    total_cost: z.number().optional(),
+  })
+  // All-optional fields would let an unrecognized v2 shape parse to
+  // undefined everywhere and render as zeros; require at least one
+  // expected counter so a key miss fails loudly instead.
+  .refine(
+    (data) =>
+      data.messages !== undefined ||
+      data.mms_messages !== undefined ||
+      data.delivery_receipts !== undefined ||
+      data.mms_delivery_receipts !== undefined ||
+      data.total_cost !== undefined,
+    {
+      message:
+        'detailedstats response contains none of the expected counter ' +
+        'fields — possible API shape mismatch',
+    },
+  )
 
 export class JobDetailedStatsResponseDto extends createZodDto(
   jobDetailedStatsResponseSchema,

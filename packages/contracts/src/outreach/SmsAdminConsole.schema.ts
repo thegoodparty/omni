@@ -10,12 +10,14 @@ import { P2P_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
 // job. `awaiting_review` is the actionable state; `denied` stays visible
 // until an edit (usually CAS's own) re-queues it or the campaign is
 // canceled; `canvass_requested` means the send is booked with the vendor;
-// `peerly_approved` means the vendor's own review confirmed it.
+// `peerly_approved` means the vendor's own review confirmed it; `canceled`
+// rows stay visible for the audit trail (who ended the send, and when).
 export const SMS_APPROVAL_STATUS_VALUES = [
   'awaiting_review',
   'denied',
   'canvass_requested',
   'peerly_approved',
+  'canceled',
 ] as const
 export const SmsApprovalStatusSchema = z.enum(SMS_APPROVAL_STATUS_VALUES)
 export type SmsApprovalStatus = z.infer<typeof SmsApprovalStatusSchema>
@@ -119,6 +121,9 @@ export const SmsApprovalQueueItemSchema = z.object({
   canvassRequestedAt: zCoerceDate().nullable(),
   adminEditedAt: zCoerceDate().nullable(),
   adminEditedBy: z.string().nullable(),
+  canceledAt: zCoerceDate().nullable(),
+  canceledBy: z.string().nullable(),
+  canceledByAdmin: z.boolean(),
   standards: SmsStandardsVerdictSchema.nullable(),
   // Live Peerly job readiness; null when the live read failed (the queue
   // must not 502 because one identity's vendor read did).
@@ -178,6 +183,15 @@ export const DenySmsOutreachRequestSchema = z.object({
 })
 export type DenySmsOutreachRequest = z.infer<
   typeof DenySmsOutreachRequestSchema
+>
+
+// Admin cancel runs the same unwind as the candidate's (vendor job
+// deleted, refund, promo restore) and additionally records who ended it.
+export const CancelSmsOutreachRequestSchema = z.object({
+  canceledBy: z.string().min(1).max(255),
+})
+export type CancelSmsOutreachRequest = z.infer<
+  typeof CancelSmsOutreachRequestSchema
 >
 
 // CAS's fix path: staff correct the message in place, then approve. Any

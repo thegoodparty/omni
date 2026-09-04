@@ -7,6 +7,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { OutreachStatus, Prisma } from '../../generated/prisma'
 import { lockTurf } from '../utils/turfLock.util'
 import { activeTurfScope, railTurfScope } from '../utils/turfScope.util'
+import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import {
   DoorKnockingTurfCounts,
   DoorKnockingTurfCountsService,
@@ -93,7 +94,10 @@ const assertRouted = (turf: TurfWithRoute): RoutedTurf => {
 export class DoorKnockingTurfService extends createPrismaBase(
   MODELS.DoorKnockingTurf,
 ) {
-  constructor(private readonly counts: DoorKnockingTurfCountsService) {
+  constructor(
+    private readonly counts: DoorKnockingTurfCountsService,
+    private readonly stats: DoorKnockingStatsService,
+  ) {
     super()
   }
 
@@ -176,7 +180,11 @@ export class DoorKnockingTurfService extends createPrismaBase(
   // an unbought drawing has nothing left to match — 3.0 has no such turf, and
   // the migration removed the ones that predate it. The knock interactions
   // survive either way: they hang off the organization, not this chain.
-  async delete(id: number, organizationSlug: string): Promise<void> {
+  async delete(
+    id: number,
+    organizationSlug: string,
+    actorUserId: number,
+  ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const turf = await this.lockAndFind(tx, id, organizationSlug)
       await tx.doorKnockingTurf.update({
@@ -184,6 +192,15 @@ export class DoorKnockingTurfService extends createPrismaBase(
         data: { deletedAt: new Date() },
       })
     })
+
+    // A tombstone moves three of the rollup's totals DOWN — the turf-derived
+    // numbers all scope to live lists — and HubSpot SETs each property from
+    // the event rather than accumulating, so without this the company would
+    // hold the pre-delete values until the org's next create, complete or
+    // knock. An org that deletes a list and then stops has no next one.
+    void this.stats
+      .emitCanvassingTotals(actorUserId, organizationSlug)
+      .catch(() => undefined)
   }
 
   // "End knocking session", written straight onto the envelope, which is the
@@ -199,7 +216,9 @@ export class DoorKnockingTurfService extends createPrismaBase(
   async complete(
     id: number,
     organizationSlug: string,
+    actorUserId: number,
   ): Promise<DoorKnockingTurf> {
+    let completedNow = false
     const turf = await this.client.$transaction(async (tx) => {
       const locked = await this.lockAndFind(tx, id, organizationSlug)
       if (locked.route.outreach.status === OutreachStatus.completed) {
@@ -210,8 +229,19 @@ export class DoorKnockingTurfService extends createPrismaBase(
         where: { doorKnockingRouteId: locked.route.id },
         data: { status: OutreachStatus.completed },
       })
+      completedNow = true
       return this.restamp(locked, { status: OutreachStatus.completed })
     })
+
+    // Behind the same idempotence guard as the write, so a second tap on a
+    // finished list emits nothing — the totals would be identical, and a
+    // repeated event teaches HubSpot that a list was completed twice.
+    if (completedNow) {
+      void this.stats
+        .emitCanvassingTotals(actorUserId, organizationSlug)
+        .catch(() => undefined)
+    }
+
     return this.withCounts(turf, organizationSlug)
   }
 

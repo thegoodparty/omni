@@ -28,7 +28,7 @@ const baseProps = {
   allContactsHouseholds: 1000,
   selectedListId: null,
   onSelectList: vi.fn(),
-  isElectedOfficial: false,
+  isServeOrg: false,
   building: false,
   onBuildingChange: vi.fn(),
   open: false,

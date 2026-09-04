@@ -39,7 +39,9 @@ const {
   // Which org is selected. Mutable because it is what decides Win or Serve
   // for this page — a Campaign takes precedence and an `electedOfficeId` is
   // consulted in its absence — and both answers change where exits land.
-  organization: { current: null as { electedOfficeId?: number } | null },
+  organization: {
+    current: null as { electedOfficeId?: number; slug?: string } | null,
+  },
   // Whether this org's district can be identified at all. Mutable because
   // the page's first branch is the one drawn when it cannot, and a static
   // mock can only ever exercise the other side of it.
@@ -938,6 +940,51 @@ describe('NativeDoorKnockingPage create flow', () => {
 
     expect(walkSurface().getByText('Introduction walk')).toBeInTheDocument()
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
+  })
+
+  // Three discriminators live on this page and they are NOT interchangeable.
+  // `serveMode` decides which rail's lists are on screen and lets a Campaign
+  // win; the Win-only filter groups are hidden off the `eo-` slug prefix
+  // instead, because that is the rule gp-api's own gate reads
+  // (`ContactsService.hasElectedOfficeAccess`) and a filter it will 400 must
+  // not be offered on either surface. This fixture is the case that tells them
+  // apart: an `eo-` org holding a live Campaign, which is Win by `serveMode`
+  // and still an elected office to every request it makes.
+  const openFilterFace = async () => {
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+    // The pills are the who step's second face, behind the picker's "Create a
+    // new list" row.
+    fireEvent.click(await audiencePicker())
+    fireEvent.click(screen.getByRole('button', { name: /Create a new list/ }))
+  }
+
+  it('hides the Win-only filters for an eo- org that also holds a campaign', async () => {
+    organization.current = { slug: 'eo-city-council', electedOfficeId: 9 }
+
+    renderPage()
+    await openFilterFace()
+
+    expect(screen.queryByLabelText('Political Party')).toBeNull()
+    expect(screen.queryByLabelText('Voter Likelihood')).toBeNull()
+    expect(screen.queryByLabelText('Prior Contacts Made')).toBeNull()
+    // The control, so the absences above are the Win-only rule rather than a
+    // face of the step that never opened.
+    expect(screen.getByLabelText('Gender')).toBeTruthy()
+  })
+
+  // The mirror, and the one the old `electedOfficeId` read got wrong: a
+  // campaign org that has picked up an ElectedOffice row without the slug that
+  // makes it a Serve org keeps every filter, because gp-api will honour them.
+  it('keeps them for a campaign-slug org holding an elected office', async () => {
+    organization.current = { slug: 'campaign-mayor', electedOfficeId: 9 }
+
+    renderPage()
+    await openFilterFace()
+
+    expect(screen.getByLabelText('Political Party')).toBeTruthy()
+    expect(screen.getByLabelText('Voter Likelihood')).toBeTruthy()
   })
 })
 

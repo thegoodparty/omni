@@ -68,7 +68,12 @@ const TeamPage = (): React.JSX.Element => {
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [inviteOpen, setInviteOpen] = useState(false)
 
-  const { data, isLoading, isError } = useQuery({
+  // isPending, not isLoading: in React Query v5 isLoading = isPending &&
+  // isFetching, so while the query is disabled (orgSlug not resolved yet)
+  // isFetching is false and isLoading reads false too — the page would
+  // render as loaded-and-empty (bare table, "0 people") for that whole
+  // window instead of a skeleton (ENG-11039).
+  const { data, isPending, isError } = useQuery({
     queryKey: teamQueryKey(orgSlug),
     queryFn: () =>
       clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
@@ -136,8 +141,12 @@ const TeamPage = (): React.JSX.Element => {
           <Card className="flex flex-col gap-4 p-6">
             <div className="flex items-center justify-between gap-4">
               <h2 className="m-0 text-xl font-semibold text-foreground">
-                {isLoading ? (
+                {isPending ? (
                   <Skeleton className="h-6 w-40" />
+                ) : isError ? (
+                  // Never render a count derived from the [] fallback below
+                  // — a failed fetch has no member count to report.
+                  'Your team'
                 ) : (
                   `${members.length} ${members.length === 1 ? 'person' : 'people'} on this campaign`
                 )}
@@ -170,7 +179,7 @@ const TeamPage = (): React.JSX.Element => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isLoading ? (
+                  {isPending ? (
                     <TableRow>
                       <TableCell colSpan={4}>
                         <Skeleton className="h-6 w-full" />
@@ -228,7 +237,13 @@ const TeamPage = (): React.JSX.Element => {
             <h2 className="m-0 text-xl font-semibold text-foreground">
               Pending invites
             </h2>
-            {!isLoading && pendingInvites.length === 0 ? (
+            {isError ? (
+              // Same "never fabricate from the [] fallback" rule as the
+              // members card above — an error here is never "no invites."
+              <p className="m-0 text-sm text-destructive">
+                Couldn’t load pending invites. Try refreshing the page.
+              </p>
+            ) : !isPending && pendingInvites.length === 0 ? (
               <p className="m-0 text-sm text-muted-foreground">
                 No pending invites.
               </p>
@@ -243,7 +258,7 @@ const TeamPage = (): React.JSX.Element => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isLoading ? (
+                  {isPending ? (
                     <TableRow>
                       <TableCell colSpan={4}>
                         <Skeleton className="h-6 w-full" />

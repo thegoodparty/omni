@@ -86,11 +86,18 @@ const withFallback = (
 // the party in this card, and it is the better place for it: party is a
 // voter-file attribute like the two above it, while the subtitle is meant to
 // identify the person at a glance.
+//
+// **The party row is dropped entirely on Serve, not blanked.** gp-api already
+// nulls `politicalParty` for an `eo-` org, so leaving the row in place would
+// hand it to `withFallback` and print "Not on file" — which reads as a gap in
+// the voter file rather than as a fact this product does not state to an
+// elected official. An absent row says nothing, which is the whole rule.
 export const voterDemographicFacts = (
   target: Pick<
     RoutePayloadTarget,
     'registeredVoter' | 'turnoutLikelihood' | 'politicalParty'
   >,
+  isServe = false,
 ): DemographicFact[] =>
   withFallback([
     { label: 'Registered voter', value: yesNo(target.registeredVoter) },
@@ -100,7 +107,9 @@ export const voterDemographicFacts = (
     // registration — a column we do not have. The canvas's label would name
     // this field as something it isn't.
     { label: 'Turnout likelihood', value: target.turnoutLikelihood },
-    { label: 'Political party', value: target.politicalParty },
+    ...(isServe
+      ? []
+      : [{ label: 'Political party', value: target.politicalParty }]),
   ])
 
 // The canvas's "Demographic information": the personal profile, which is

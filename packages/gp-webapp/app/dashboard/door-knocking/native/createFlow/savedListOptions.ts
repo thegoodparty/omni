@@ -35,9 +35,15 @@ export interface AudienceOptions {
 // lists. That is the price of the parenthesised counts the canvas asks for;
 // nothing here re-runs while the candidate is toggling pills, because the
 // draft is not an input.
+// `isServe` reaches `savedListFilterKeys` so a legacy list's party and voter-
+// likelihood columns are dropped before they become a draft: the picker's own
+// door count is computed off the same keys the pick seeds the pills with, so
+// stripping anywhere later would leave the count describing a cut the flow no
+// longer applies.
 export const audienceOptions = (
   lists: SegmentResponse[] | undefined,
   pack: DecodedPack | null,
+  isServe = false,
 ): AudienceOptions => ({
   allContactsHouseholds: pack
     ? (runFilter(pack, new Map()).households ?? null)
@@ -47,7 +53,7 @@ export const audienceOptions = (
       Boolean(list.name),
     )
     .map((list) => {
-      const filters = savedListFilterKeys(list)
+      const filters = savedListFilterKeys(list, isServe)
       return {
         id: list.id,
         name: list.name,

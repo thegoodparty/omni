@@ -58,7 +58,7 @@ const baseProps = {
   color: '#2563eb',
   drawnStops: null,
   onListCreated: vi.fn(),
-  isElectedOfficial: false,
+  isServeOrg: false,
   unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
@@ -1319,20 +1319,29 @@ describe('CreateListFlow', () => {
     expect(turfBody).toMatchObject({ color: '#16a34a' })
   })
 
-  // gp-api 400s a contacts-made selection from an elected-office org
-  // (assertNoContactsMadeFilterForElectedOffice), so offering it would only
-  // ever surface as a failed knock.
-  it('hides the contacts-made group from an elected official', () => {
-    const contactsMadeLabel = fieldLabel('contacts_made')
-    const partyLabel = fieldLabel('political_party')
+  // The three Win-only groups, and each one is a real 400 rather than a
+  // preference: gp-api rejects a contacts-made selection
+  // (`assertNoContactsMadeFilterForElectedOffice`) and a party filter
+  // (`assertNoPartyFilterForElectedOffice`) from an `eo-` org outright, so
+  // offering either only ever surfaces as a failed knock — an address preview
+  // that never answers, then a create that cannot buy its route, with nothing
+  // on screen naming the pill responsible.
+  //
+  // Voter likelihood joins them for the product reason rather than a licensing
+  // one: it is turnout propensity for a contested election, which is not a
+  // question an office holder has.
+  it('hides the Win-only groups from an elected official', () => {
+    const genderLabel = fieldLabel('gender')
 
-    renderAtWho({ isElectedOfficial: true })
+    renderAtWho({ isServeOrg: true })
     buildNewList()
 
-    expect(screen.queryByLabelText(contactsMadeLabel as string)).toBeNull()
-    // Its neighbours are still there, so the absence above is the Win-only
-    // rule rather than a face of the step that never opened.
-    expect(screen.getByLabelText(partyLabel as string)).toBeTruthy()
+    for (const key of ['contacts_made', 'political_party', 'voter_likely']) {
+      expect(screen.queryByLabelText(fieldLabel(key) as string)).toBeNull()
+    }
+    // A neighbour that stays, so the absences above are the Win-only rule
+    // rather than a face of the step that never opened.
+    expect(screen.getByLabelText(genderLabel as string)).toBeTruthy()
   })
 })
 

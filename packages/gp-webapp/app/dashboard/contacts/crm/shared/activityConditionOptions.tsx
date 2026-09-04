@@ -55,6 +55,16 @@ export const ACTIVITY_CONDITION_CHANNELS: {
   },
 ]
 
+// Channels the list-wizard actually offers as a selectable "Previous activity"
+// filter. Robocall is hidden here: under the new robocall billing model we no
+// longer record per-contact ContactInteractionRobocall rows, so a
+// "robocalled" activity filter would match nobody. It stays in
+// ACTIVITY_CONDITION_CHANNELS above so a list saved before this change still
+// describes itself (ListFilterSummary reads the full list). Restore robocall
+// to this set when per-contact robocall results return via the BigQuery route.
+export const SELECTABLE_ACTIVITY_CONDITION_CHANNELS =
+  ACTIVITY_CONDITION_CHANNELS.filter((channel) => channel.value !== 'robocall')
+
 // Per-channel outcome vocabulary. Mirrors gp-api's
 // ACTIVITY_CONDITION_CHANNEL_ACTIONS (src/shared/schemas/activityCondition.schema.ts)
 // by hand — that map isn't exported through @goodparty_org/contracts, and its

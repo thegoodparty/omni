@@ -124,6 +124,7 @@ const Harness = ({
     <PersonSheet
       stop={stop(residents, door)}
       stopSeq={7}
+      isServe={false}
       onOpenPreviousStop={null}
       onOpenNextStop={null}
       selectedTargetId={selectedTargetId}
@@ -1193,6 +1194,7 @@ describe('PersonSheet demographic information', () => {
           ],
         }}
         stopSeq={7}
+        isServe={false}
         onOpenPreviousStop={null}
         onOpenNextStop={null}
         selectedTargetId={21}
