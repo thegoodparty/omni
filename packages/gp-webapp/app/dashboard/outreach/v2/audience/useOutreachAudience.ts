@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ListDetailReachability,
-  OutreachPurpose,
   RecommendedList,
   RecommendedListChannel,
   RecommendedListFilter,
@@ -34,60 +33,12 @@ import {
 } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useListWizardCount } from 'app/dashboard/contacts/crm/wizard/useListWizardCount'
 import type { OutreachAudienceMode } from './OutreachAudienceStep'
+import {
+  builderFiltersFromRecommendation,
+  intentForOutreachPurpose,
+} from './recommendedListMapping.util'
 
-// Voter_Status band values (docs/features/recommended-lists.md) as they
-// arrive on a RecommendedListFilter, mapped onto the builder's voter-file
-// boolean keys (filters.config.ts). Kept here rather than a shared util —
-// this is the one place a recommendation's filter becomes a builder filter.
-const VOTER_STATUS_TO_BUILDER_KEY: Record<string, string> = {
-  Super: 'audienceSuperVoters',
-  Likely: 'audienceLikelyVoters',
-  Unreliable: 'audienceUnreliableVoters',
-  Unlikely: 'audienceUnlikelyVoters',
-  Unknown: 'audienceUnknown',
-}
-
-const builderFiltersFromRecommendation = (
-  filter: RecommendedListFilter,
-): VoterFileFilters => {
-  const result: VoterFileFilters = {}
-  for (const status of filter.voterStatus ?? []) {
-    const key = VOTER_STATUS_TO_BUILDER_KEY[status]
-    if (key) result[key] = true
-  }
-  if (filter.independentAffinity) result.independentAffinity = true
-  if (filter.ideologyLiberal) result.ideologyLiberal = true
-  if (filter.ideologyModerate) result.ideologyModerate = true
-  if (filter.ideologyConservative) result.ideologyConservative = true
-  if (filter.hasCellPhone) result.hasCellPhone = true
-  if (filter.hasAnyPhone) result.hasAnyPhone = true
-  return result
-}
-
-// The recommended-lists intent a purpose slug maps onto
-// (docs/features/recommended-lists.md). Every outreach channel has shared one
-// purpose vocabulary since Task 0 — SmsPurpose/RobocallPurpose/
-// PhoneBankingPurpose are literal re-exports of the same OutreachPurpose
-// array, not per-channel variants, so this is the one map every flow calls
-// rather than three copies that must stay byte-identical by hand. "custom"
-// gets no recommendation; Serve's own non-electoral vocabulary shares some
-// of these slug strings for an unrelated meaning and must be excluded by the
-// caller (checking its own Win/Serve surface) before ever reaching this.
-const PURPOSE_TO_RECOMMENDED_INTENT: Record<
-  Exclude<OutreachPurpose, 'custom'>,
-  RecommendedListIntent
-> = {
-  introduce_myself: 'introduce',
-  persuade_voters: 'persuade',
-  event_invite: 'event',
-  early_voting: 'earlyVote',
-  election_day_turnout: 'electionDay',
-}
-
-export const intentForOutreachPurpose = (
-  purpose: OutreachPurpose,
-): RecommendedListIntent | null =>
-  purpose === 'custom' ? null : PURPOSE_TO_RECOMMENDED_INTENT[purpose]
+export { intentForOutreachPurpose }
 
 // The reachability leaf that matches the feature's channel: SMS/polls read the
 // cell-phone count, robocall/phoneBanking the landline count, doorKnocking the

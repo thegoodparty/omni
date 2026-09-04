@@ -10,11 +10,14 @@ import {
 import {
   CheckIcon,
   ChevronDownIcon,
+  Loader2Icon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
+import type { RecommendedList } from '@goodparty_org/contracts'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { PILL_TOGGLE_ITEM_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { RecommendedListCard } from 'app/dashboard/outreach/v2/audience/RecommendedListCard'
 import type { SavedListOption } from './savedListOptions'
 
 // Contacts made is how a candidate says "only doors I haven't been to yet",
@@ -46,6 +49,18 @@ interface WhoStepProps {
   // new list" action above the options that is not itself an option.
   open: boolean
   onOpenChange: (open: boolean) => void
+  // Recommended lists (docs/features/recommended-lists.md), rendered above
+  // "All lists" in the picker face only — the same placement Task 8 used for
+  // the shared outreach audience step. `recommendedListsEnabled` reflects
+  // the win-recommended-lists flag; false renders this step with none of
+  // this, byte-identical to before the feature existed.
+  recommendedListsEnabled: boolean
+  recommendations: RecommendedList[]
+  recommendationsLoading: boolean
+  // A recommendation that already exists as a saved list is routed to that
+  // list by the caller (reusing `onSelectList`'s own side effects) rather
+  // than creating a duplicate; this fires for every card regardless.
+  onSelectRecommendation: (recommendation: RecommendedList) => void
 }
 
 // The unit the rows are counted in, spelled out rather than parenthesised:
@@ -92,6 +107,10 @@ export const WhoStep = ({
   onBuildingChange,
   open,
   onOpenChange,
+  recommendedListsEnabled,
+  recommendations,
+  recommendationsLoading,
+  onSelectRecommendation,
 }: WhoStepProps) => {
   const pickerRef = useRef<HTMLDivElement>(null)
 
@@ -203,101 +222,130 @@ export const WhoStep = ({
   const active = options.find((option) => option.id === activeId) ?? options[0]
 
   return (
-    <div ref={pickerRef} className="relative flex flex-col gap-2">
-      <Eyebrow id="create-list-audience-label">All lists</Eyebrow>
-
-      <Card
-        role="combobox"
-        tabIndex={0}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-labelledby="create-list-audience-label"
-        onClick={() => onOpenChange(!open)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onOpenChange(!open)
-          }
-        }}
-        className="cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4"
-      >
-        <span className="min-w-0">
-          <span className="block truncate font-medium">
-            {active ? active.name : 'Select a list'}
-          </span>
-          <span className="block text-sm text-muted-foreground">
-            {active ? active.sub : ''}
-          </span>
-        </span>
-        <ChevronDownIcon
-          className={cn(
-            'size-5 shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-180',
-          )}
-        />
-      </Card>
-
-      {open && (
-        // The panel is one card but not one listbox. "Create a new list" is an
-        // ACTION and not an audience — it opens the filter pills rather than
-        // choosing anything — so it sits outside the listbox: a listbox's
-        // children have to be options, and a stray button among them is
-        // skipped by some screen readers. That would strand the only route to
-        // the filter face for anyone not using the pointer.
-        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 overflow-hidden rounded-md border border-border bg-card shadow-md">
-          <button
-            type="button"
-            onClick={() => {
-              onBuildingChange(true)
-              onOpenChange(false)
-            }}
-            className="flex w-full items-center gap-3 border-b border-border p-4 text-left hover:bg-muted/60"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <PlusIcon className="size-4 text-primary" />
-            </span>
-            <span>
-              <span className="block font-medium text-primary">
-                Create a new list
-              </span>
-              <span className="block text-sm text-muted-foreground">
-                Build a custom audience
-              </span>
-            </span>
-          </button>
-
-          <div role="listbox" aria-labelledby="create-list-audience-label">
-            {options.map((option) => {
-              const selected = option.id === activeId
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => {
-                    onSelectList(option.listId)
-                    onOpenChange(false)
-                  }}
-                  className={cn(ROW_CLASSNAME, selected && 'bg-muted')}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">
-                      {option.name}
-                    </span>
-                    <span className="block text-sm text-muted-foreground">
-                      {option.sub}
-                    </span>
-                  </span>
-                  {selected && (
-                    <CheckIcon className="size-5 shrink-0 text-primary" />
-                  )}
-                </button>
-              )
-            })}
+    <>
+      {recommendedListsEnabled &&
+        (recommendationsLoading || recommendations.length > 0) && (
+          <div className="flex flex-col gap-2">
+            <Eyebrow>Recommended for you</Eyebrow>
+            {recommendationsLoading ? (
+              <div
+                data-testid="recommended-lists-loading"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground"
+              >
+                <Loader2Icon className="size-3.5 animate-spin" />
+                Finding your best audiences…
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {recommendations.map((recommendation) => (
+                  <RecommendedListCard
+                    key={recommendation.variant}
+                    recommendation={recommendation}
+                    channel="doorKnocking"
+                    onSelect={() => onSelectRecommendation(recommendation)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+      <div ref={pickerRef} className="relative flex flex-col gap-2">
+        <Eyebrow id="create-list-audience-label">All lists</Eyebrow>
+
+        <Card
+          role="combobox"
+          tabIndex={0}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-labelledby="create-list-audience-label"
+          onClick={() => onOpenChange(!open)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              onOpenChange(!open)
+            }
+          }}
+          className="cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4"
+        >
+          <span className="min-w-0">
+            <span className="block truncate font-medium">
+              {active ? active.name : 'Select a list'}
+            </span>
+            <span className="block text-sm text-muted-foreground">
+              {active ? active.sub : ''}
+            </span>
+          </span>
+          <ChevronDownIcon
+            className={cn(
+              'size-5 shrink-0 text-muted-foreground transition-transform',
+              open && 'rotate-180',
+            )}
+          />
+        </Card>
+
+        {open && (
+          // The panel is one card but not one listbox. "Create a new list" is an
+          // ACTION and not an audience — it opens the filter pills rather than
+          // choosing anything — so it sits outside the listbox: a listbox's
+          // children have to be options, and a stray button among them is
+          // skipped by some screen readers. That would strand the only route to
+          // the filter face for anyone not using the pointer.
+          <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 overflow-hidden rounded-md border border-border bg-card shadow-md">
+            <button
+              type="button"
+              onClick={() => {
+                onBuildingChange(true)
+                onOpenChange(false)
+              }}
+              className="flex w-full items-center gap-3 border-b border-border p-4 text-left hover:bg-muted/60"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                <PlusIcon className="size-4 text-primary" />
+              </span>
+              <span>
+                <span className="block font-medium text-primary">
+                  Create a new list
+                </span>
+                <span className="block text-sm text-muted-foreground">
+                  Build a custom audience
+                </span>
+              </span>
+            </button>
+
+            <div role="listbox" aria-labelledby="create-list-audience-label">
+              {options.map((option) => {
+                const selected = option.id === activeId
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => {
+                      onSelectList(option.listId)
+                      onOpenChange(false)
+                    }}
+                    className={cn(ROW_CLASSNAME, selected && 'bg-muted')}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {option.name}
+                      </span>
+                      <span className="block text-sm text-muted-foreground">
+                        {option.sub}
+                      </span>
+                    </span>
+                    {selected && (
+                      <CheckIcon className="size-5 shrink-0 text-primary" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

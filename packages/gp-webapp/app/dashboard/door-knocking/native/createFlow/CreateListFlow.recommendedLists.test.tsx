@@ -1,0 +1,357 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ComponentProps } from 'react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import { WIN_RECOMMENDED_LISTS_FLAG_KEY } from '@shared/experiments/winRecommendedListsFlag'
+import CreateListFlow from './CreateListFlow'
+import type { PolygonRing } from '../VoterMapCanvas'
+
+// The recommendations query and its exposure both read
+// useWinRecommendedListsFlag, which reads useFlagOn/useFeatureFlags —
+// module-mocked the same way SmsFlow.recommendedLists.test.tsx pins the same
+// flag/seam.
+vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
+  useFlagOn: vi.fn(),
+  useFeatureFlags: vi.fn(),
+}))
+
+const { useFlagOn, useFeatureFlags } =
+  await import('@shared/experiments/FeatureFlagsProvider')
+const mockedUseFlagOn = vi.mocked(useFlagOn)
+const mockedUseFeatureFlags = vi.mocked(useFeatureFlags)
+const exposure = vi.fn()
+
+const setFlag = ({
+  ready = true,
+  on = true,
+}: {
+  ready?: boolean
+  on?: boolean
+}) => {
+  mockedUseFlagOn.mockReturnValue({ ready, on })
+}
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+// mapbox-gl-draw hands back an open ring; save must close it before POSTing.
+const OPEN_RING: PolygonRing = [
+  [-87.66, 41.92],
+  [-87.65, 41.92],
+  [-87.65, 41.93],
+]
+
+const baseProps = {
+  filters: {},
+  onFiltersChange: vi.fn(),
+  onStepChange: vi.fn(),
+  onClose: vi.fn(),
+  districtHouseholds: 1500,
+  savedLists: [],
+  allContactsHouseholds: 12000,
+  ring: OPEN_RING,
+  turfStats: {
+    stops: 14,
+    people: 22,
+    households: 9,
+    partyMix: [],
+    ageMix: [],
+  },
+  drawPointCount: 3,
+  onUndoPoint: vi.fn(),
+  drawFullScreen: false,
+  onDrawFullScreenChange: vi.fn(),
+  onRestartDrawing: vi.fn(),
+  color: '#2563eb',
+  drawnStops: null,
+  onListCreated: vi.fn(),
+  isElectedOfficial: false,
+  unpreviewableKeys: [],
+  addressPreview: null,
+  previewPending: false,
+  previewFailed: false,
+  previewStale: false,
+  onShowAddresses: vi.fn(),
+  onHideAddresses: vi.fn(),
+  onRetryAddresses: vi.fn(),
+}
+
+const savedTurf = {
+  id: 5,
+  voterFileFilterId: 21,
+  name: 'Tuesday evening',
+  color: '#2563eb',
+  geoPoly: {
+    type: 'Polygon' as const,
+    coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
+  },
+  doorCount: 9,
+  peopleCount: 22,
+  loggedCount: 0,
+  knockedDoorCount: 0,
+  routeSeconds: 1860,
+  completed: false,
+  archivedAt: null,
+  createdAt: new Date('2026-08-20T00:00:00Z'),
+  updatedAt: new Date('2026-08-20T00:00:00Z'),
+}
+
+// The flow opens on the goal cards, and the recommendations query only fires
+// once a purpose maps onto an intent — "Introduce myself" is
+// `introduce_myself`, mapping onto `introduce`.
+const renderAtWho = (
+  props: Partial<ComponentProps<typeof CreateListFlow>> = {},
+) => {
+  const view = render(
+    <CreateListFlow {...baseProps} step="filters" {...props} />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+  return view
+}
+
+const RECOMMENDATION = {
+  variant: 'introNeverIded' as const,
+  filter: {
+    voterStatus: ['Super', 'Likely'],
+    precincts: ['Cook|101', 'Cook|102'],
+  },
+  count: 4200,
+  districtShare: 0.28,
+  copy: {
+    title: 'Voters you have not met',
+    criteriaSummary: 'Moderate to high propensity voters, never contacted',
+  },
+  existingFilterId: null,
+}
+
+const EXISTING_RECOMMENDATION = {
+  ...RECOMMENDATION,
+  variant: 'persuadeAffinity' as const,
+  copy: {
+    title: 'Persuadable independents',
+    criteriaSummary: 'Moderate to high propensity independents',
+  },
+  existingFilterId: 501,
+}
+
+beforeEach(() => {
+  testQueryClient.clear()
+  api.reset()
+  vi.clearAllMocks()
+  mockedUseFeatureFlags.mockReturnValue({
+    ready: true,
+    variant: () => ({ value: undefined }),
+    all: () => ({}),
+    exposure,
+    refresh: vi.fn(),
+    clear: vi.fn(),
+  } as ReturnType<typeof useFeatureFlags>)
+  setFlag({ ready: true, on: true })
+})
+
+const exposureCalls = () =>
+  exposure.mock.calls.filter(([key]) => key === WIN_RECOMMENDED_LISTS_FLAG_KEY)
+
+describe('CreateListFlow — recommended lists', () => {
+  it('records the exposure once the who step renders', () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [],
+    })
+    renderAtWho()
+
+    expect(exposureCalls()).toHaveLength(1)
+  })
+
+  it('records the exposure for the control arm too', () => {
+    setFlag({ ready: true, on: false })
+    renderAtWho()
+
+    expect(exposureCalls()).toHaveLength(1)
+  })
+
+  // End to end: the flag being off means the recommendations query itself
+  // never fires (this file's own gate), so this pins the request-level
+  // guard. WhoStep.recommendedLists.test.tsx pins the component's own
+  // `recommendedListsEnabled` render gate directly — a mutation to that gate
+  // alone can't surface here, because the query would still return no data
+  // with the flag off regardless.
+  it('shows nothing extra when the flag is off', async () => {
+    let requested = false
+    setFlag({ ready: true, on: false })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', () => {
+      requested = true
+      return { status: 200, data: [RECOMMENDATION] }
+    })
+    renderAtWho()
+
+    // A settled query the picker never renders — off-flag has to prove the
+    // card stays absent, not merely that it hasn't appeared yet.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(requested).toBe(false)
+    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
+    expect(
+      screen.getByRole('combobox', { name: 'All lists' }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the who step unchanged when there are no recommendations', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [],
+    })
+    renderAtWho()
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('recommended-list-card')).toBeNull(),
+    )
+    expect(
+      screen.getByRole('combobox', { name: 'All lists' }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a loading state while recommendations resolve', async () => {
+    api.mock(
+      'GET /v1/campaigns/mine/recommended-lists',
+      () => new Promise(() => undefined),
+    )
+    renderAtWho()
+
+    expect(
+      await screen.findByTestId('recommended-lists-loading'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
+  })
+
+  // The households-vs-voters caveat (RecommendedListCard.tsx) is gated on
+  // channel === 'doorKnocking' and had never been reachable in practice
+  // before this task wired a caller that passes that channel.
+  it('shows the door-knocking households-vs-voters caveat', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [RECOMMENDATION],
+    })
+    renderAtWho()
+
+    await screen.findByText('Voters you have not met')
+    expect(
+      screen.getByText('Counts individual voters, not households.'),
+    ).toBeInTheDocument()
+  })
+
+  // Door knocking is the one channel whose recommendation carries a precinct
+  // filter (docs/features/recommended-lists.md). Selecting it has to reach
+  // the map preview, carry the pill draft it prefilled and the precincts, and
+  // finally reach the created filter's POST body.
+  it('carries a recommendation’s precincts through to the created filter', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [RECOMMENDATION],
+    })
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 200,
+      data: { ...savedTurf, voterFileFilterId: 88 },
+    }))
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return { status: 200, data: { id: 88, name: body.name as string } }
+    })
+    const onFiltersChange = vi.fn()
+    const { rerender } = renderAtWho({ onFiltersChange })
+
+    const card = await screen.findByTestId('recommended-list-card')
+    fireEvent.click(card)
+
+    // The pill draft the recommendation resolves to, bubbled up exactly like
+    // picking a saved list does — the caller (the page, here the test) is
+    // what actually applies it back down as `filters`.
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      audienceSuperVoters: true,
+      audienceLikelyVoters: true,
+    })
+    const appliedFilters = onFiltersChange.mock.calls.at(-1)?.[0]
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        onFiltersChange={onFiltersChange}
+        filters={appliedFilters}
+        step="confirm"
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        onFiltersChange={onFiltersChange}
+        filters={appliedFilters}
+        step="route"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(filterCalls).toHaveLength(1))
+    expect(filterCalls[0]).toMatchObject({
+      precincts: ['Cook|101', 'Cook|102'],
+      recommendedVariant: 'introNeverIded',
+      recommendedChannel: 'doorKnocking',
+      recommendedIntent: 'introduce',
+      audienceSuperVoters: true,
+      audienceLikelyVoters: true,
+    })
+  })
+
+  it('selects the existing list instead of creating a duplicate', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [EXISTING_RECOMMENDATION],
+    })
+    const filterCalls: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return { status: 200, data: { id: 999 } }
+    })
+    let turfBody: unknown = null
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfBody = body
+      return { status: 200, data: savedTurf }
+    })
+    const savedLists = [
+      {
+        id: 501,
+        name: 'Persuadable independents',
+        households: 4200,
+        filters: { independentAffinity: true },
+      },
+    ]
+    const { rerender } = renderAtWho({ savedLists })
+
+    const card = await screen.findByTestId('recommended-list-card')
+    fireEvent.click(card)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(
+      <CreateListFlow {...baseProps} savedLists={savedLists} step="confirm" />,
+    )
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Tuesday evening' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    rerender(
+      <CreateListFlow {...baseProps} savedLists={savedLists} step="route" />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(turfBody).not.toBeNull())
+    expect(filterCalls).toHaveLength(0)
+    expect(turfBody).toMatchObject({ voterFileFilterId: 501 })
+  })
+})

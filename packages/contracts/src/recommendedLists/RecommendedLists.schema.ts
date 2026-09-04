@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import { SupportStatusRollupSchema } from '../people/Person.schema'
 
-// The channel picked first in the outreach flow. Door knocking has no
-// purpose step of its own yet (Task 9 adds one), but reads the same
-// vocabulary once it does.
+// The channel picked first in the outreach flow. Door knocking's own purpose
+// step (its native create flow's "purpose" stage) reads the same
+// `OUTREACH_PURPOSE_VALUES` vocabulary as every other channel (Task 9).
 export const RECOMMENDED_LIST_CHANNEL_VALUES = [
   'sms',
   'robocall',
