@@ -81,6 +81,7 @@ import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvSt
 import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -97,6 +98,17 @@ type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 // unbounded burst at typical poll sizes (the burst pays a degradation penalty),
 // so we bound the fan-out here.
 const PEOPLE_LOOKUP_CONCURRENCY = 20
+
+// Unset in every environment today — Ops has not yet created the poll
+// results single-send email asset in HubSpot (ENG-11035). Read live rather
+// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID, so a prod
+// cutover needs no redeploy. Until it's set, the existing Segment-event ->
+// HubSpot workflow email path is unchanged.
+const getPollResultsSingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_POLL_RESULTS_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
 
 const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
   ExperimentRunStatus.COMPLETED,
@@ -158,6 +170,7 @@ export class QueueConsumerService {
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
+    private readonly hubspotSingleSend: HubspotSingleSendService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -874,31 +887,89 @@ export class QueueConsumerService {
       )
     }
 
-    await Promise.all([
-      this.analytics.identify(office.userId, { pollcount: pollCount }),
-      this.analytics.track(
-        office.userId,
-        EVENTS.Polls.ResultsSynthesisCompleted,
-        {
-          pollId,
-          path: `/dashboard/polls/${pollId}`,
-          constituencyName: district?.l2Name,
-          'issue 1': issues?.at(0)?.theme || null,
-          'issue 2': issues?.at(1)?.theme || null,
-          'issue 3': issues?.at(2)?.theme || null,
-          ...buildIssueProperties(issues?.at(0), 1),
-          ...buildIssueProperties(issues?.at(1), 2),
-          ...buildIssueProperties(issues?.at(2), 3),
-          pollsSent: poll.targetAudienceSize,
-          pollResponses: totalResponses,
-          pollResponseRate:
-            totalResponses > 0
-              ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
-              : '0%',
-        },
-      ),
-    ])
+    try {
+      await Promise.all([
+        this.analytics.identify(office.userId, { pollcount: pollCount }),
+        this.analytics.track(
+          office.userId,
+          EVENTS.Polls.ResultsSynthesisCompleted,
+          {
+            pollId,
+            path: `/dashboard/polls/${pollId}`,
+            constituencyName: district?.l2Name,
+            'issue 1': issues?.at(0)?.theme || null,
+            'issue 2': issues?.at(1)?.theme || null,
+            'issue 3': issues?.at(2)?.theme || null,
+            ...buildIssueProperties(issues?.at(0), 1),
+            ...buildIssueProperties(issues?.at(1), 2),
+            ...buildIssueProperties(issues?.at(2), 3),
+            pollsSent: poll.targetAudienceSize,
+            pollResponses: totalResponses,
+            pollResponseRate:
+              totalResponses > 0
+                ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
+                : '0%',
+          },
+        ),
+      ])
+    } catch (err) {
+      this.logger.error(
+        { err, pollId },
+        'Failed to track analytics for Poll Results Synthesis Completed',
+      )
+    }
+
+    await this.sendPollResultsSingleSend(office.userId, pollId)
+
     return true
+  }
+
+  // The email leg of this notification moves to a direct HubSpot single-send
+  // call (ENG-11035) — recipient is the elected official the poll belongs
+  // to, not whatever email a HubSpot workflow would resolve off the contact
+  // record. Reuses the existing "Serve - Transactional Email - Results
+  // Ready" asset as-is (per HUBSPOT_INTEGRATION.md); the Segment event above
+  // keeps firing unchanged for non-email consumers. A single-send failure
+  // must never throw here — this runs inside an SQS handler, and throwing
+  // triggers infinite redelivery rather than a DLQ (see queue/CLAUDE.md).
+  private async sendPollResultsSingleSend(
+    officeUserId: number,
+    pollId: string,
+  ): Promise<void> {
+    const emailId = getPollResultsSingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_POLL_RESULTS_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this notification',
+      )
+      return
+    }
+    try {
+      const user = await this.usersService.findUnique({
+        where: { id: officeUserId },
+      })
+      if (!user) {
+        this.logger.warn(
+          { officeUserId, pollId },
+          'Poll results single-send skipped: office user not found',
+        )
+        return
+      }
+      await this.hubspotSingleSend.sendSingleSend({
+        emailId,
+        to: user.email,
+        customProperties: {
+          poll_id: pollId,
+          path: `/dashboard/polls/${pollId}`,
+        },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, pollId },
+        'HubSpot single-send failed for Poll Results Ready; the workflow ' +
+          'email path still fires from the Segment event',
+      )
+    }
   }
 
   private async handlePollCreation(

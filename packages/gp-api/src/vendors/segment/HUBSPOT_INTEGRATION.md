@@ -89,6 +89,12 @@ Reason: one-time notice that a specific poll's results are ready, addressed by
 a link (`path`) into that poll — no ongoing personalization, no merge-clobber
 exposure.
 
+**Cut over (ENG-11035).** `QueueConsumerService.sendPollResultsSingleSend`
+sends via `HubspotSingleSendService`, gated on `HUBSPOT_POLL_RESULTS_EMAIL_ID`
+— unset (every environment today, pending the Ops-created asset) skips the
+single-send call with no behavior change; the Segment event above keeps
+firing unchanged.
+
 ### Meeting briefing ready — MOVE
 
 | Event                              | Fired from                              | HubSpot asset       | Single-send asset to create                       | Recipient |
@@ -111,6 +117,16 @@ persistent contact field, move this row into the personalization-gap
 section instead — it would have the same merge-clobber exposure.
 
 ### Robocall payment / receipt — MOVE (ENG-11035, shipped)
+
+**Cut over (ENG-11035), pending the caveat above.**
+`MeetingBriefingsService.sendAgendaCreatedSingleSend` sends via
+`HubspotSingleSendService`, gated on `HUBSPOT_BRIEFING_READY_EMAIL_ID` —
+unset (every environment today) skips the single-send call with no behavior
+change. If the Ops portal spot-check finds this event actually populates a
+persistent contact field, Ops simply never sets the env var and this stays
+on the workflow path; no code change needed either way.
+
+### Robocall payment / receipt — MOVE
 
 Named explicitly in the TDD as move-eligible. Every milestone below carries a
 deterministic Segment `messageId` (`<outreachId>:<milestone>[:<suffix>]`) so a
@@ -494,6 +510,10 @@ and a HubSpot failure is logged and swallowed rather than thrown — these
 fire from an HTTP authorize call, a payment capture/charge, or a `@Cron`
 sweep transition, where a thrown error would fail an already-committed
 money operation or abort a sweep's remaining rows.
+
+Poll results ready and meeting briefing ready (ENG-11035) follow the same
+pattern — see the Poll results / Meeting briefing ready sections above for
+their asset ids and per-email notes.
 
 ## HubSpot Workflow Configuration
 
