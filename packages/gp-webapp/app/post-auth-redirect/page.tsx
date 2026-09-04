@@ -208,12 +208,19 @@ const PostAuthRedirectPage = () => {
         // Clerk-backed lookup off the hot path of every established user's
         // login.
         if (!hasPendingTeamInvite && organizations.length === 0) {
-          const inviteRes = await clientRequest(
-            'GET /v1/organizations/team/invites/mine',
-            {},
-            { ignoreResponseError: true },
-          )
-          hasPendingTeamInvite = inviteRes.ok && !!inviteRes.data.invite
+          try {
+            const inviteRes = await clientRequest(
+              'GET /v1/organizations/team/invites/mine',
+              {},
+              { ignoreResponseError: true },
+            )
+            hasPendingTeamInvite = inviteRes.ok && !!inviteRes.data.invite
+          } catch {
+            // ignoreResponseError only suppresses HTTP errors — a transport
+            // failure here still throws, and letting it reach the outer
+            // catch would abandon the whole resolution flow instead of just
+            // this best-effort probe.
+          }
         }
 
         const resolvedPath = resolvePostAuthRedirectPath(
