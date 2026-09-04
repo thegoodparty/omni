@@ -15,6 +15,7 @@ import {
 } from '../utils/packEncoder.utils'
 import { buildPackSql, PACK_CSV_COLUMNS } from './databricksVoterSql.util'
 import { DatabricksVoterService } from './databricksVoter.service'
+import { readCsvChunkBody } from './csvChunkBody.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxTimeoutError,
@@ -101,7 +102,7 @@ export class DatabricksVoterPackService {
       // 22.6s of drain against 736ms of query -- of which ~6.5s was link round
       // trips waiting on nothing. Two chunks in memory rather than one.
       let chunk: PeopleDbxCsvChunk | null = firstChunk
-      let body = this.readChunk(chunk)
+      let body = readCsvChunkBody(chunk.externalLink, this.logger)
       let ahead: Promise<PeopleDbxCsvChunk> | null = null
       try {
         while (chunk && !signal?.aborted) {
@@ -112,7 +113,7 @@ export class DatabricksVoterPackService {
           chunk = ahead ? await ahead : null
           ahead = null
           body = chunk
-            ? this.readChunk(chunk)
+            ? readCsvChunkBody(chunk.externalLink, this.logger)
             : Promise.resolve(Buffer.alloc(0))
         }
       } finally {
@@ -135,20 +136,6 @@ export class DatabricksVoterPackService {
     }
 
     return encoder.toBuffer(new Date().toISOString())
-  }
-
-  private async readChunk(chunk: PeopleDbxCsvChunk): Promise<Buffer> {
-    const response = await fetch(chunk.externalLink)
-    if (!response.ok) {
-      // Classified, not bare: presigned chunk links expire in ~15 minutes, so
-      // a long multi-chunk build can genuinely lose one mid-scan. A plain
-      // Error escapes build()'s catch unlogged and lands as a 500, which reads
-      // as a bug in the pack rather than the upstream fetch failure it is.
-      throw new PeopleDbxUnavailableError(
-        `CSV chunk fetch failed with ${response.status}`,
-      )
-    }
-    return Buffer.from(await response.arrayBuffer())
   }
 
   private async parseChunk(body: Buffer, encoder: PackEncoder): Promise<void> {

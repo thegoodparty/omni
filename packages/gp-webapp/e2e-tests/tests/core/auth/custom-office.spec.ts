@@ -129,6 +129,9 @@ test.describe('Custom office flow', () => {
       // Org list now carries a derived status (ENG-10381); future election +
       // no result => active.
       status: 'active',
+      // Org list carries the viewer's role (ENG-10823); the creator is the
+      // owner.
+      role: 'owner',
     })
 
     const { data: campaign } = await client.get<{
