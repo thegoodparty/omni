@@ -142,6 +142,13 @@ export default function NativeDoorKnockingPage({
   // would be offered a filter its every request 400s on. What the server will
   // accept and which surface is drawn are two questions, and only one of them
   // is about the URL the request goes to.
+  //
+  // Nor is it the flag the surface's WORDS come from. Copy names what is on
+  // screen, so it follows `serveMode` like the rest of this page's surface
+  // logic: a dual-role org drawing its Win rail is looking at a Win map, and
+  // calling it a constituent map would describe the wrong one. Party is the
+  // only thing that follows the slug, because party is about what the server
+  // will accept rather than about what is being drawn.
   const isServeOrg = Boolean(organization?.slug?.startsWith('eo-'))
   // Win or Serve, decided once here and handed down — see
   // `doorKnockingSurface.tsx` for why nothing below may re-derive it. A
@@ -643,7 +650,7 @@ export default function NativeDoorKnockingPage({
                 otherwise spin forever. */}
               {isUnresolvable && (
                 <p className="p-4 text-sm text-muted-foreground">
-                  {districtUnavailableMessage(isServeOrg)}
+                  {districtUnavailableMessage(serveMode)}
                 </p>
               )}
               {/* Titled, because an untitled "Loading... Something awesome."
@@ -656,7 +663,7 @@ export default function NativeDoorKnockingPage({
                   <LoadingAnimation
                     title={
                       <>
-                        {packLoadingTitle(isServeOrg)}
+                        {packLoadingTitle(serveMode)}
                         <span className="mt-2 block text-base font-normal text-zinc-600">
                           {PACK_LOADING_DURATION}
                         </span>
@@ -667,7 +674,7 @@ export default function NativeDoorKnockingPage({
               )}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
-                  {packErrorMessage(isServeOrg)}
+                  {packErrorMessage(serveMode)}
                 </p>
               )}
               {packQuery.data && filterResult && (

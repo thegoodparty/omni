@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { Campaign } from 'helpers/types'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -637,6 +638,27 @@ describe('NativeDoorKnockingPage create flow while the pack loads', () => {
       })
     }
   }
+
+  // The WORDS follow `serveMode`, not the `eo-` slug `isServeOrg` reads for
+  // party. The two diverge for an elected official still holding a live
+  // campaign, and this is that org: it is drawing its Win rail, so it is
+  // looking at a Win map. Both the sheet and the region under it say so, which
+  // is the drift the shared accessors exist to prevent — they cover each other
+  // for the whole of this wait.
+  it('names the map for the rail on screen, not for the slug', async () => {
+    organization.current = { slug: 'eo-city-council', electedOfficeId: 9 }
+    const release = holdPack()
+    // The live campaign is what makes this the divergent case: `serveMode`
+    // lets a Campaign win, so this org is Win by rail and Serve by slug.
+    renderPage({ campaign: { id: 3 } as Campaign })
+
+    expect(
+      (await screen.findAllByText('Loading your voter map…')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('Loading your constituent map…')).toBeNull()
+
+    await release()
+  })
 
   // `Continue (0)` is not a pending state. It is a real-looking number, and the
   // only reading available for it — this district has nobody in it — is the
