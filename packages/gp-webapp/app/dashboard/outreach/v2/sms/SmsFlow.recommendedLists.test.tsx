@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { WIN_RECOMMENDED_LISTS_FLAG_KEY } from '@shared/experiments/winRecommendedListsFlag'
 import { SmsFlow } from './SmsFlow'
 
@@ -114,6 +115,13 @@ beforeEach(() => {
 const exposureCalls = () =>
   exposure.mock.calls.filter(([key]) => key === WIN_RECOMMENDED_LISTS_FLAG_KEY)
 
+const acceptedCalls = () =>
+  vi
+    .mocked(trackEvent)
+    .mock.calls.filter(
+      ([name]) => name === EVENTS.Outreach.RecommendedList.Accepted,
+    )
+
 const openToAudience = async () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
@@ -156,7 +164,13 @@ describe('SmsFlow — recommended lists', () => {
     const filterCalls: Record<string, unknown>[] = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       filterCalls.push(body)
-      return { status: 200, data: { id: 88, name: body.name } }
+      return {
+        status: 200,
+        // gp-api's own diff of the recommendation against what was
+        // submitted. The conversion event reports it verbatim, so it is
+        // scripted true here rather than left to the default.
+        data: { id: 88, name: body.name, recommendedModified: true },
+      }
     })
     await openToAudience()
 
@@ -184,6 +198,20 @@ describe('SmsFlow — recommended lists', () => {
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'sms',
       recommendedIntent: 'introduce',
+    })
+
+    // The experiment's numerator. It can only be fired here, after the
+    // create response carries gp-api's `recommendedModified` — and it
+    // reads state the create callback closes over, so a missing dependency
+    // silently leaves the exposures with no conversions at all.
+    await waitFor(() => expect(acceptedCalls()).toHaveLength(1))
+    expect(acceptedCalls()[0]?.[1]).toEqual({
+      variant: 'persuadeAffinity',
+      channel: 'sms',
+      intent: 'introduce',
+      count: 19000,
+      districtShare: 0.48,
+      modified: true,
     })
   })
 

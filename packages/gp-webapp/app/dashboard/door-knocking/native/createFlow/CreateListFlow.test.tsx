@@ -56,6 +56,7 @@ const baseProps = {
   onListCreated: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
+  orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
   previewFailed: false,

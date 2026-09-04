@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import {
@@ -171,6 +171,10 @@ interface CreateListFlowProps {
   // Selected filter option keys the map preview can't narrow by, so the drawn
   // shape shows more people than the list will target.
   unpreviewableKeys: string[]
+  // The organization the recommendations are asked for, purely as a cache-key
+  // segment. A prop rather than a `useOrganization()` read for the same
+  // reason as `isElectedOfficial` above.
+  orgSlug: string | undefined
   // A saved list the candidate arrived on `?listId=` with, from the outreach
   // hub's door-knocking tile. Undefined is the ordinary flow.
   preselectedListId?: number
@@ -184,7 +188,26 @@ interface CreateListFlowProps {
   // `filters` alone. The id travels rather than the clauses because the
   // surface already holds the picker's rows, and resolving a list in two
   // places is two chances to disagree about what it carries.
-  onSelectedListChange?: (listId: number | null) => void
+  //
+  // An ACCEPTED recommendation has no such row to resolve — it is a list that
+  // does not exist yet — so its own two non-boolean clauses travel by value
+  // beside the id. Without them the preview asks about the whole district
+  // inside the ring while the list being built is supporters-only in a
+  // handful of precincts, and the draw step prints that district figure as
+  // the count the paid route is built from.
+  onSelectedListChange?: (
+    listId: number | null,
+    recommendedCriteria: RecommendedCriteria,
+  ) => void
+}
+
+// The clauses an accepted recommendation carries that the who step's boolean
+// pill draft has no plane for. Same three-way split as
+// `savedListUnshadeableCriteria`, minus activity conditions, which no
+// recommendation produces.
+export interface RecommendedCriteria {
+  precincts: string[]
+  supportStatus: SupportStatusRollup[]
 }
 
 // The design's stage copy, verbatim (Door knocking 3.0, `renderDkFlow`'s
@@ -250,6 +273,7 @@ export default function CreateListFlow({
   onListCreated,
   isElectedOfficial,
   unpreviewableKeys,
+  orgSlug,
   preselectedListId,
   onPreselectApplied,
   onSelectedListChange,
@@ -265,10 +289,19 @@ export default function CreateListFlow({
   const [purpose, setPurpose] = useState<DoorKnockingPurpose | null>(null)
   // The recommended-lists intent this purpose maps onto
   // (docs/features/recommended-lists.md) — null for `custom`, which gets no
-  // recommendation.
-  const recommendedListIntent = purpose
-    ? intentForOutreachPurpose(purpose)
-    : null
+  // recommendation, and null for the whole Serve surface.
+  //
+  // `!serveMode` is not belt-and-braces: recommended lists are Win-only (the
+  // endpoint 400s an eo- org outright) and door knocking is ONE route serving
+  // both rails, so the purpose slug alone cannot tell them apart — an elected
+  // official picking "Introduce myself" reads as `introduce` exactly as a
+  // candidate's does. Without this an eo- session records a
+  // win-recommended-lists exposure it can never be treated on, polluting the
+  // experiment's denominator with sessions the feature is unreachable for.
+  // `PhoneBankingFlow` gates the same map on the same reasoning, from its own
+  // Win/Serve discriminator; this is the third surface to need it.
+  const recommendedListIntent =
+    !serveMode && purpose ? intentForOutreachPurpose(purpose) : null
   // Null means the whole contact universe.
   const [savedListId, setSavedListId] = useState<number | null>(null)
   // The who step's two faces and its panel. Held here rather than in the step
@@ -345,10 +378,23 @@ export default function CreateListFlow({
         selectList(recommendation.existingFilterId)
         return
       }
+      const precincts = recommendation.filter.precincts ?? []
+      const supportStatus = recommendation.filter.supportStatus ?? []
       setSavedListId(null)
-      onFiltersChange(builderFiltersFromRecommendation(recommendation.filter))
-      setRecommendedPrecincts(recommendation.filter.precincts ?? [])
-      setRecommendedSupportStatus(recommendation.filter.supportStatus ?? [])
+      // The boolean MARKS beside the pill draft, exactly as
+      // `savedListFilterKeys` leaves them for a picked list: they narrow
+      // nothing (`transformVoterFileFiltersForBackend` only emits option
+      // keys, so they never reach a create body) and exist so the page's
+      // `unpreviewableFilterKeys` can name them in the disclosure. Without
+      // them a precinct-restricted recommendation previews as the whole
+      // district with nothing on screen saying why.
+      onFiltersChange({
+        ...builderFiltersFromRecommendation(recommendation.filter),
+        ...(precincts.length ? { precincts: true } : {}),
+        ...(supportStatus.length ? { supportStatus: true } : {}),
+      })
+      setRecommendedPrecincts(precincts)
+      setRecommendedSupportStatus(supportStatus)
       setRecommendedMeta({
         variant: recommendation.variant,
         // Only reachable while the recommendations query below is enabled,
@@ -391,9 +437,19 @@ export default function CreateListFlow({
   // behind. A fourth writer is easy to add and easy to forget to announce,
   // and the surface above pays for a missed one by previewing an audience the
   // list would not knock.
+  // Memoised so the report below fires only when one of the two actually
+  // changes: the surface stores what it is handed, and a fresh object every
+  // render would set state every render.
+  const recommendedCriteria = useMemo(
+    () => ({
+      precincts: recommendedPrecincts,
+      supportStatus: recommendedSupportStatus,
+    }),
+    [recommendedPrecincts, recommendedSupportStatus],
+  )
   useEffect(() => {
-    onSelectedListChange?.(savedListId)
-  }, [savedListId, onSelectedListChange])
+    onSelectedListChange?.(savedListId, recommendedCriteria)
+  }, [savedListId, recommendedCriteria, onSelectedListChange])
 
   const stage = flowStage(step, preDrawStage)
 
@@ -417,12 +473,13 @@ export default function CreateListFlow({
     exposure,
   ])
   const recommendationsQuery = useQuery({
-    // No org-slug key segment: this flow is unmounted on every org switch
+    // Keyed on the org even though this flow is unmounted on every org switch
     // (it opens from the current org's outreach hub, per
-    // `door-knocking/CLAUDE.md`), unlike useOutreachAudience's long-lived
-    // hook, which stays mounted across a switch and needs the org in its key
-    // to avoid serving a stale cache entry.
-    queryKey: ['door-knocking-recommendations', recommendedListIntent],
+    // `door-knocking/CLAUDE.md`): the react-query cache is global and
+    // outlives the unmount by `gcTime`, so an org-less key would hand the
+    // next org the previous one's cards for the render before the refetch
+    // lands. Matches useOutreachAudience's key.
+    queryKey: ['door-knocking-recommendations', orgSlug, recommendedListIntent],
     queryFn: async () => {
       const { data } = await clientRequest(
         'GET /v1/campaigns/mine/recommended-lists',

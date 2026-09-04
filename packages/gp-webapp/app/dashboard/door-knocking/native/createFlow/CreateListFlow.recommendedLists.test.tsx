@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { WIN_RECOMMENDED_LISTS_FLAG_KEY } from '@shared/experiments/winRecommendedListsFlag'
+import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
 
@@ -70,6 +71,7 @@ const baseProps = {
   onListCreated: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
+  orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
   previewFailed: false,
@@ -104,9 +106,18 @@ const savedTurf = {
 // `introduce_myself`, mapping onto `introduce`.
 const renderAtWho = (
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
+  { serveMode = false }: { serveMode?: boolean } = {},
 ) => {
+  const flow = <CreateListFlow {...baseProps} step="filters" {...props} />
+  // Only the Serve case needs the provider: the context defaults to Win, and
+  // the rerenders below re-render a bare flow, which a wrapper here would
+  // unmount and remount (losing the flow's own state) on every step change.
   const view = render(
-    <CreateListFlow {...baseProps} step="filters" {...props} />,
+    serveMode ? (
+      <DoorKnockingSurfaceProvider value>{flow}</DoorKnockingSurfaceProvider>
+    ) : (
+      flow
+    ),
   )
   fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
   return view
@@ -171,6 +182,26 @@ describe('CreateListFlow — recommended lists', () => {
     renderAtWho()
 
     expect(exposureCalls()).toHaveLength(1)
+  })
+
+  // Door knocking is ONE route for both rails, and Serve's purpose cards
+  // reuse the same slug strings for a non-electoral meaning, so the purpose
+  // alone cannot tell a candidate from an elected official. Recommended
+  // lists are Win-only — gp-api 400s an eo- org — so a Serve session must
+  // neither record an exposure it can never be treated on nor ask for
+  // recommendations it cannot have.
+  it('records no exposure and asks for nothing on the Serve surface', async () => {
+    let requested = false
+    api.mock('GET /v1/campaigns/mine/recommended-lists', () => {
+      requested = true
+      return { status: 200, data: [RECOMMENDATION] }
+    })
+    renderAtWho({}, { serveMode: true })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(exposureCalls()).toHaveLength(0)
+    expect(requested).toBe(false)
+    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 
   // End to end: the flag being off means the recommendations query itself
@@ -268,10 +299,14 @@ describe('CreateListFlow — recommended lists', () => {
 
     // The pill draft the recommendation resolves to, bubbled up exactly like
     // picking a saved list does — the caller (the page, here the test) is
-    // what actually applies it back down as `filters`.
+    // what actually applies it back down as `filters`. `precincts: true` is
+    // a MARK and not a filter: `savedListFilterKeys` leaves the same one for
+    // a picked list, and the page turns it into the "the map can't shade by
+    // Precinct" disclosure. The transform drops it from every request body.
     expect(onFiltersChange).toHaveBeenCalledWith({
       audienceSuperVoters: true,
       audienceLikelyVoters: true,
+      precincts: true,
     })
     const appliedFilters = onFiltersChange.mock.calls.at(-1)?.[0]
 

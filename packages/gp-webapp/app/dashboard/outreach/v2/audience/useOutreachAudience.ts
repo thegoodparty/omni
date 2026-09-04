@@ -463,7 +463,7 @@ export const useOutreachAudience = ({
     setSelectedListId(created.id)
     resetBuilder()
     return created
-  }, [runCreateList, queryClient, resetBuilder, orgSlug])
+  }, [runCreateList, recommendedMeta, queryClient, resetBuilder, orgSlug])
 
   return {
     mode,
