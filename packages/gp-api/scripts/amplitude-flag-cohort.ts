@@ -199,7 +199,7 @@ export const mergeCohortIntoSegments = (
 
 // ── Arg parsing ──────────────────────────────────────────────────────────────
 
-interface Args {
+export interface Args {
   flag: string
   emailsFile: string
   variant: string
@@ -209,10 +209,17 @@ interface Args {
   execute: boolean
 }
 
-const parseArgs = (argv: string[]): Args => {
+export const parseArgs = (argv: string[]): Args => {
+  // A missing value would otherwise swallow the following flag, so `--variant
+  // --execute` would target a variant literally named "--execute".
   const value = (name: string): string | undefined => {
     const index = argv.indexOf(`--${name}`)
-    return index === -1 ? undefined : argv[index + 1]
+    if (index === -1) return undefined
+    const next = argv[index + 1]
+    if (next === undefined || next.startsWith('--')) {
+      throw new Error(`--${name} requires a value.`)
+    }
+    return next
   }
   const flag = value('flag')
   const emailsFile = value('emails-file')

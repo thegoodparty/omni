@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   findCohortSegment,
   mergeCohortIntoSegments,
+  parseArgs,
   parseEmails,
   type FlagSegment,
 } from './amplitude-flag-cohort'
@@ -197,5 +198,29 @@ describe('findCohortSegment', () => {
     expect(
       findCohortSegment([emailSegment('Pilot allowlist', [])]),
     ).toBeUndefined()
+  })
+})
+
+describe('parseArgs', () => {
+  const required = ['--flag', 'my-flag', '--emails-file', 'cohort.txt']
+
+  it('defaults the segment and variant', () => {
+    const args = parseArgs(required)
+
+    expect(args.variant).toBe('on')
+    expect(args.segment).toBe('Pilot allowlist')
+    expect(args.execute).toBe(false)
+  })
+
+  it('rejects a value flag whose value is the next flag', () => {
+    expect(() => parseArgs([...required, '--variant', '--execute'])).toThrow(
+      '--variant requires a value.',
+    )
+  })
+
+  it('rejects a value flag at the end of the line', () => {
+    expect(() => parseArgs([...required, '--segment'])).toThrow(
+      '--segment requires a value.',
+    )
   })
 })
