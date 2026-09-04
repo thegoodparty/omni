@@ -149,13 +149,22 @@ people-db marts and their entries in
 
 ## 7. Checklist
 
-- [ ] New marts `m_election_api__district_voter_density` and
-      `..._meta`, same logic as the `m_people_api__*` pair, full-rebuild
-      materialization.
-- [ ] Upsert queries in `write__election_api_db.py`, mirroring
-      `DISTRICT_UPSERT_QUERY`, with the guarded `District` existence check
-      from §3.
-- [ ] Load ordered after `District`.
+This section assumed the upsert writer in `write__election_api_db.py`. The
+delivered loader is the `sync_election_api_density` DAG instead — a staged
+build swapped in whole, the same lifecycle `sync_election_api` uses — so the
+first three items are recorded here as what was actually done.
+
+- [x] No new marts. The DAG reads `m_people_api__district_voter_density` and
+      `..._meta` directly: both mart folders resolve to the same `dbt` schema,
+      so a pass-through copy would buy nothing. Renaming them to
+      `m_election_api__*` is right once the people-db copy retires.
+- [x] No upsert queries. The swap replaces each table whole, which is what the
+      full-rebuild rule in §5 requires anyway — a cell dropping below K
+      disappears rather than lingering as a stale row.
+- [x] **Not** ordered after `District`, and it must not be. The DAG runs
+      `@monthly` and independently; §3's prune is what makes that safe, and a
+      DAG dependency would trade it for a monthly load that fails whenever
+      District is mid-flight.
 - [ ] Both people-db and election-db published from the same build for the
       duration of the dual-read window (§6).
 - [ ] After cutover: drop the `m_people_api__*` density marts and their loader
