@@ -209,10 +209,12 @@ export const OrganizationPicker = () => {
       toStatus: org.status,
       isElectedOfficeOrg: Boolean(org.electedOfficeId),
     })
-    // Team accounts (ENG-10816): a user with any non-owner org membership is
-    // a "member" for this event's purpose — a solo owner switching between
-    // their own campaigns never fires it.
-    if (organizations.some((o) => o.role && o.role !== 'owner')) {
+    // Team accounts (ENG-10816): scoped to the DESTINATION org's role only —
+    // not "does the viewer have a non-owner role anywhere" (delegate review,
+    // PR #1688). That broader check fired for every switch an owner made
+    // between their own owned orgs, as long as they were a manager on some
+    // unrelated third org, which isn't what this event is meant to measure.
+    if (org.role && org.role !== 'owner') {
       trackEvent(EVENTS.Team.CampaignSwitched)
     }
     setSelectedSlug(org.slug)

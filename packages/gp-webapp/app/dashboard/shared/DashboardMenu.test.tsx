@@ -210,11 +210,13 @@ describe('getDashboardMenuItems — Team nav item (win-team-accounts)', () => {
     expect(team?.v2Category).toBe('campaign')
   })
 
-  it('shows the Team item for a Serve org when the flag is on', () => {
+  // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal: Serve staff
+  // accounts are out of scope). Delegate review (PR #1688) flagged the
+  // TeamPage heading hardcoding "campaign" for a page Serve orgs could
+  // reach — the fix is to exclude Serve here rather than reword the copy.
+  it('does not show the Team item for a Serve (elected-office) org, even when the flag is on', () => {
     const items = links({ isElectedOffice: true, showTeamItem: true })
-    const team = items.find((i) => i.id === 'team-dashboard')
-    expect(team).toBeDefined()
-    expect(team?.v2Category).toBe('elected-office')
+    expect(items.some((i) => i.id === 'team-dashboard')).toBe(false)
   })
 })
 

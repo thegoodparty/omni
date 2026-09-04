@@ -268,15 +268,18 @@ const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
-// win-team-accounts (ENG-10816/10827). v2Category is set per-render (below)
-// to match the current org type, the same way PUBLIC_PROFILE_MENU_ITEM is
-// pushed twice for the two org types — Team is available to both.
-const TEAM_MENU_ITEM: Omit<MenuItem, 'v2Category'> = {
+// win-team-accounts (ENG-10816/10827). Win-only in Phase 1 (ENG-10816
+// non-goal: Serve staff accounts are out of scope, so this never renders
+// for an elected-office org — see getDashboardMenuItems below and
+// gp-api's matching 400 on POST team/invites for an eo- org slug;
+// delegate review, PR #1688).
+const TEAM_MENU_ITEM: MenuItem = {
   id: 'team-dashboard',
   label: NAV_LABELS.team,
   link: '/dashboard/team',
   icon: <MdPeople />,
   v2Icon: UsersRound,
+  v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignTeam),
 }
 
@@ -367,11 +370,8 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
-  if (showTeamItem) {
-    menuItems.push({
-      ...TEAM_MENU_ITEM,
-      v2Category: isElectedOffice ? 'elected-office' : 'campaign',
-    })
+  if (showTeamItem && !isElectedOffice) {
+    menuItems.push(TEAM_MENU_ITEM)
   }
 
   return menuItems

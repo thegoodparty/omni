@@ -57,6 +57,13 @@ const TeamPage = (): React.JSX.Element => {
   const role = useOrganizationRole()
   const isOwner = role === 'owner'
   const orgSlug = organization?.slug
+  // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal: Serve staff
+  // accounts are out of scope — every elected-office surface stays
+  // owner-only). The nav item is already excluded for an eo- org
+  // (DashboardMenu.tsx), but a direct visit must still degrade cleanly
+  // rather than fetch data or render Win-flavored copy (delegate review,
+  // PR #1688).
+  const isElectedOffice = !!organization?.electedOfficeId
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -65,7 +72,7 @@ const TeamPage = (): React.JSX.Element => {
     queryKey: teamQueryKey(orgSlug),
     queryFn: () =>
       clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
-    enabled: !!orgSlug,
+    enabled: !!orgSlug && !isElectedOffice,
   })
 
   const invalidateTeam = () =>
@@ -96,6 +103,21 @@ const TeamPage = (): React.JSX.Element => {
   const members: TeamMember[] = data?.members ?? []
   const pendingInvites: PendingInvite[] = data?.pendingInvites ?? []
 
+  if (isElectedOffice) {
+    return (
+      <DashboardLayout
+        pathname="/dashboard/team"
+        navHeader={{ icon: 'users', label: NAV_LABELS.team }}
+      >
+        <div className="flex w-full items-center justify-center px-4 py-16 text-center">
+          <p className="m-0 max-w-md text-sm text-muted-foreground">
+            Team accounts aren’t available for elected offices yet.
+          </p>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout
       pathname="/dashboard/team"
@@ -120,6 +142,13 @@ const TeamPage = (): React.JSX.Element => {
                   `${members.length} ${members.length === 1 ? 'person' : 'people'} on this campaign`
                 )}
               </h2>
+              {/* Deliberately not owner-gated: "a manager can invite other
+                  managers" is a stated ENG-10816 goal, and POST
+                  /v1/organizations/team/invites is intentionally
+                  UseOrganization()-only (no @OwnerOnly()) — see the same
+                  decision recorded on that route in team.controller.ts.
+                  Revoke (below) is manager+ for the same reason (delegate
+                  review, PR #1688). */}
               <Button onClick={() => setInviteOpen(true)}>
                 <PlusIcon />
                 Invite
@@ -230,7 +259,16 @@ const TeamPage = (): React.JSX.Element => {
                             variant="ghost"
                             size="small"
                             aria-label={`Revoke invite for ${invite.email}`}
-                            disabled={revokeMutation.isPending}
+                            // Scoped to THIS row's invite id, not just
+                            // isPending — one shared mutation instance backs
+                            // every row, so isPending alone would disable
+                            // every other pending invite's button while any
+                            // one revoke is in flight (delegate review, PR
+                            // #1688).
+                            disabled={
+                              revokeMutation.isPending &&
+                              revokeMutation.variables === invite.id
+                            }
                             onClick={() => revokeMutation.mutate(invite.id)}
                           >
                             <Trash2Icon />

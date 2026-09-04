@@ -55,6 +55,14 @@ const pendingInvite: PendingInvite = {
   createdAt: '2024-01-03T00:00:00.000Z',
 }
 
+const pendingInvite2: PendingInvite = {
+  id: 'invite-2',
+  name: 'Second Invitee',
+  email: 'second-invitee@example.com',
+  role: 'campaignAdmin',
+  createdAt: '2024-01-04T00:00:00.000Z',
+}
+
 // Mutable so DELETE mock handlers can simulate a real backend: a mutation's
 // onSuccess triggers a GET refetch (invalidateTeam), and that refetch has to
 // reflect the mutation or "removes it from the list without a reload" isn't a
@@ -98,6 +106,31 @@ describe('TeamPage — members and pending invites', () => {
       await screen.findByText('1 person on this campaign'),
     ).toBeInTheDocument()
     expect(screen.getByText('No pending invites.')).toBeInTheDocument()
+  })
+})
+
+describe('TeamPage — elected-office (Serve) orgs are out of scope (ENG-10816 non-goal)', () => {
+  it('renders a neutral state and never fetches the team endpoint for an eo- org', async () => {
+    mockUseOrganization.mockReturnValue({
+      slug: 'eo-1',
+      electedOfficeId: 'eo-1',
+    })
+    let fetched = false
+    api.mock('GET /v1/organizations/team', () => {
+      fetched = true
+      return { status: 200, data: { members: [owner], pendingInvites: [] } }
+    })
+
+    render(<TeamPage />)
+
+    expect(
+      await screen.findByText(
+        'Team accounts aren’t available for elected offices yet.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Invite')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(fetched).toBe(false)
   })
 })
 
@@ -237,5 +270,50 @@ describe('TeamPage — revoking a pending invite', () => {
       expect(screen.queryByText('Invitee Person')).not.toBeInTheDocument()
     })
     expect(screen.getByText('No pending invites.')).toBeInTheDocument()
+  })
+
+  // One shared revokeMutation instance backs every row (delegate review, PR
+  // #1688) — disabling on isPending alone would lock out every OTHER
+  // pending invite's button while any one revoke is in flight. Proving that
+  // needs two pending invites and a revoke that doesn't resolve until this
+  // test says so.
+  it('disables only the row being revoked, leaving other pending invites revokable', async () => {
+    const user = userEvent.setup()
+    pendingInvites = [pendingInvite, pendingInvite2]
+    let resolveRevoke: (() => void) | undefined
+    api.mock(
+      'DELETE /v1/organizations/team/invites/:id',
+      (req) =>
+        new Promise((resolve) => {
+          resolveRevoke = () => {
+            pendingInvites = pendingInvites.filter(
+              (i) => i.id !== req.params.id,
+            )
+            resolve({ status: 200, data: undefined })
+          }
+        }),
+    )
+
+    render(<TeamPage />)
+    await screen.findByText('Invitee Person')
+    await screen.findByText('Second Invitee')
+
+    const firstRevoke = screen.getByRole('button', {
+      name: 'Revoke invite for invitee@example.com',
+    })
+    const secondRevoke = screen.getByRole('button', {
+      name: 'Revoke invite for second-invitee@example.com',
+    })
+
+    await user.click(firstRevoke)
+
+    await waitFor(() => expect(firstRevoke).toBeDisabled())
+    expect(secondRevoke).not.toBeDisabled()
+
+    resolveRevoke?.()
+    await waitFor(() => {
+      expect(screen.queryByText('Invitee Person')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('Second Invitee')).toBeInTheDocument()
   })
 })

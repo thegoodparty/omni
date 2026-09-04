@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -57,6 +58,11 @@ export class TeamController {
   // The only route this flag gates: membership rows are created here (or by
   // accept, which is unreachable without an invite created here), so gating
   // just this route is what makes the whole feature inert at 0%.
+  //
+  // Deliberately NOT @OwnerOnly(): "a manager can invite other managers" is
+  // a stated ENG-10816 goal, so any resolved role (owner or campaignAdmin)
+  // may invite — same reasoning as revokeInvite below being manager+
+  // (delegate review, PR #1688).
   @Post('invites')
   @UseOrganization()
   @ResponseSchema(InviteMemberResponseSchema)
@@ -66,6 +72,19 @@ export class TeamController {
     @ReqOrganizationRole() invitedByRole: OrganizationRole,
     @Body() input: InviteTeamMemberDto,
   ) {
+    // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal: Serve
+    // staff accounts are out of scope — every elected-office surface stays
+    // owner-only via UseElectedOfficeGuard). A membership row on an eo- org
+    // would half-work: org-scoped routes would admit the member, but no
+    // Serve surface actually checks for anything but ownership — a broken
+    // state Phase 1 must not create. This is the only route that can create
+    // a membership row, so it's the only place this needs enforcing.
+    if (organization.slug.startsWith('eo-')) {
+      throw new BadRequestException(
+        'Team accounts are not available for elected offices yet',
+      )
+    }
+
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: WIN_TEAM_ACCOUNTS_FLAG,
@@ -82,6 +101,7 @@ export class TeamController {
     })
   }
 
+  // Manager+ (no @OwnerOnly()), same as createInvite above.
   @Delete('invites/:id')
   @UseOrganization()
   @HttpCode(HttpStatus.NO_CONTENT)
