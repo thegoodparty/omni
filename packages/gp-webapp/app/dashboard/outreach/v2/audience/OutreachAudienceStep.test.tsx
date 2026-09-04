@@ -24,7 +24,7 @@ const RECOMMENDATION: RecommendedList = {
   variant: 'persuadeAffinity',
   filter: { independentAffinity: true },
   count: 19000,
-  districtShare: 0.48,
+  voteGoalShare: 0.48,
   copy: {
     title: 'Persuadable independents',
     criteriaSummary: 'Moderate to high propensity voters',
@@ -84,7 +84,7 @@ const baseProps = () => ({
 })
 
 describe('OutreachAudienceStep — recommended lists', () => {
-  it('shows a recommendation card with its size and district share', () => {
+  it('shows a recommendation card with its size and vote-goal share', () => {
     render(
       <OutreachAudienceStep
         {...baseProps()}
@@ -94,7 +94,7 @@ describe('OutreachAudienceStep — recommended lists', () => {
 
     expect(screen.getByText('Persuadable independents')).toBeInTheDocument()
     expect(screen.getByText(/19,000 people/)).toBeInTheDocument()
-    expect(screen.getByText(/48% of your district/)).toBeInTheDocument()
+    expect(screen.getByText(/48% of your vote goal/)).toBeInTheDocument()
   })
 
   it('shows nothing extra when the flag is off', () => {

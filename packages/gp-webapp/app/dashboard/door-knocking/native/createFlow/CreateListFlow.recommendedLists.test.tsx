@@ -131,7 +131,7 @@ const RECOMMENDATION = {
     precincts: ['Cook|101', 'Cook|102'],
   },
   count: 4200,
-  districtShare: 0.28,
+  voteGoalShare: 0.28,
   copy: {
     title: 'Voters you have not met',
     criteriaSummary: 'Moderate to high propensity voters, never contacted',
@@ -368,7 +368,7 @@ describe('CreateListFlow — recommended lists', () => {
       channel: 'doorKnocking',
       intent: 'introduce',
       count: 4200,
-      districtShare: 0.28,
+      voteGoalShare: 0.28,
       modified: true,
       reusedExistingList: false,
     })
@@ -451,7 +451,7 @@ describe('CreateListFlow — recommended lists', () => {
       channel: 'doorKnocking',
       intent: 'introduce',
       count: 4200,
-      districtShare: 0.28,
+      voteGoalShare: 0.28,
       modified: false,
       reusedExistingList: true,
     })

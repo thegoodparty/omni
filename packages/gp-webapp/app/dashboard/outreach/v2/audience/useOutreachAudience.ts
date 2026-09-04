@@ -172,7 +172,7 @@ export const useOutreachAudience = ({
     intent: RecommendedListIntent
     filter: RecommendedListFilter
     count: number
-    districtShare?: number
+    voteGoalShare?: number
   } | null>(null)
 
   const { data: electedOffice } = useElectedOffice()
@@ -432,7 +432,7 @@ export const useOutreachAudience = ({
         intent: recommendedListIntent as RecommendedListIntent,
         filter: recommendation.filter,
         count: recommendation.count,
-        districtShare: recommendation.districtShare,
+        voteGoalShare: recommendation.voteGoalShare,
       })
       setMode('name')
     },
@@ -455,7 +455,7 @@ export const useOutreachAudience = ({
         // a non-null intent (the query's own `enabled` gate).
         intent: recommendedListIntent as RecommendedListIntent,
         count: recommendation.count,
-        districtShare: recommendation.districtShare,
+        voteGoalShare: recommendation.voteGoalShare,
         modified: false,
         reusedExistingList: true,
       })
@@ -475,7 +475,7 @@ export const useOutreachAudience = ({
         channel: recommendedMeta.channel,
         intent: recommendedMeta.intent,
         count: recommendedMeta.count,
-        districtShare: recommendedMeta.districtShare,
+        voteGoalShare: recommendedMeta.voteGoalShare,
         modified: created.recommendedModified ?? false,
         reusedExistingList: false,
       })

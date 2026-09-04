@@ -13,7 +13,7 @@ const RECOMMENDATION = {
   variant: 'introNeverIded' as const,
   filter: { voterStatus: ['Super'], precincts: ['Cook|101'] },
   count: 4200,
-  districtShare: 0.28,
+  voteGoalShare: 0.28,
   copy: {
     title: 'Voters you have not met',
     criteriaSummary: 'Never contacted',
