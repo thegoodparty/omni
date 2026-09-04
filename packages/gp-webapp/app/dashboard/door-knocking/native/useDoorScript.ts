@@ -2,10 +2,14 @@ import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import { useDoorKnockingServeMode } from './doorKnockingSurface'
+import {
+  useDoorKnockingOfficeName,
+  useDoorKnockingServeMode,
+} from './doorKnockingSurface'
 import {
   buildIntro,
   buildScriptIssues,
+  buildServeIntro,
   type ScriptIssue,
 } from './doorScriptContent'
 
@@ -20,6 +24,7 @@ export const useDoorScript = (): { intro: string; issues: ScriptIssue[] } => {
   // a Serve org has neither — so the positions request is never spent on one,
   // rather than firing on an undefined campaign id and self-hiding by accident.
   const serveMode = useDoorKnockingServeMode()
+  const officeName = useDoorKnockingOfficeName()
   const campaignId = campaign?.id
 
   const positionsQuery = useQuery({
@@ -33,6 +38,18 @@ export const useDoorScript = (): { intro: string; issues: ScriptIssue[] } => {
     // which is not something that happens mid-walk.
     staleTime: 5 * 60 * 1000,
   })
+
+  // Serve gets an opener and nothing under it. That is not a gap waiting to be
+  // filled: the issue list is the candidate's own stances from the campaign
+  // issues editor, and an elected official has no campaign to have written
+  // them in. The card is worth drawing on one line, because the line an
+  // official's canvasser most needs is the one that says whose door-knocker
+  // they are — a volunteer for a sitting member opens by naming the seat, and
+  // that sentence is exactly the one the Win rail was building and Serve was
+  // getting blank.
+  if (serveMode) {
+    return { intro: buildServeIntro(user, officeName), issues: [] }
+  }
 
   return {
     intro: buildIntro(user, campaign),

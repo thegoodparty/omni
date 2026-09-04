@@ -33,7 +33,7 @@ import {
   type FilterResult,
 } from './filterEngine'
 import { quotaQueryOptions, turfsQueryOptions } from './turfQueries'
-import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
+import { DoorKnockingSurface } from './doorKnockingSurface'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
 import {
   filtersToDimSelections,
@@ -553,8 +553,15 @@ export default function NativeDoorKnockingPage({
       />
     ) : null
 
+  // `officeName` is the Serve door script's opener, read at this level because
+  // it is the only one that can: the organization provider is above this page
+  // and `useOrganization` throws below it. Win ignores it — its intro names the
+  // office the campaign is FOR, which the campaign row already carries.
   return (
-    <DoorKnockingSurfaceProvider value={serveMode}>
+    <DoorKnockingSurface
+      serveMode={serveMode}
+      officeName={organization?.positionName ?? ''}
+    >
       <DashboardLayout
         pathname={pathname}
         campaign={campaign}
@@ -847,6 +854,6 @@ export default function NativeDoorKnockingPage({
           </AlertDialogContent>
         </AlertDialog>
       </DashboardLayout>
-    </DoorKnockingSurfaceProvider>
+    </DoorKnockingSurface>
   )
 }

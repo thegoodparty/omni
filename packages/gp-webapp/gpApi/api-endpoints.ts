@@ -1095,6 +1095,16 @@ export type APIEndpoints = {
     Request: CreateDoorKnockingTurf
     Response: DoorKnockingTurf
   }
+  // One turf, org-scoped and NOT surface-scoped — which is what the two print
+  // surfaces need it for. They hold an id they already fetched a route with,
+  // so the rail's surface filter would only be able to hide a list they are
+  // demonstrably entitled to, and did: a Serve turf is absent from the Win
+  // rail, so both paper formats titled every elected official's sheet with
+  // their fallback.
+  'GET /v1/door-knocking/turfs/:id': {
+    Request: {}
+    Response: DoorKnockingTurf
+  }
   // Name and colour only. The polygon is what the frozen route was computed
   // from, so it is not editable at all.
   'PUT /v1/door-knocking/turfs/:id': {

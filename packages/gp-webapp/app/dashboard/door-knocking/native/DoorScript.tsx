@@ -5,6 +5,13 @@ import type { ScriptIssue } from './doorScriptContent'
 interface DoorScriptProps {
   intro: string
   issues: ScriptIssue[]
+  // Only to head the card, not to change what is in it — the hook decides
+  // that. A Serve card is the opener and can never be anything else, so
+  // "Talking points" would name a thing this card does not hold; a Win
+  // candidate who has written no issues yet still gets the Win heading,
+  // because for them the list is empty rather than absent and the editor is
+  // where they fill it.
+  isServe: boolean
 }
 
 // The canvas's first card in the panel body: `panelCard('Talking points',
@@ -23,14 +30,21 @@ interface DoorScriptProps {
 // issue stances, assembled by `doorScriptContent.ts` from what they already
 // wrote in the issues editor. Printing the canvas's sentence would describe the
 // feature as something it isn't, on the one surface a canvasser reads out loud.
-export default function DoorScript({ intro, issues }: DoorScriptProps) {
+export default function DoorScript({
+  intro,
+  issues,
+  isServe,
+}: DoorScriptProps) {
   // Nothing the candidate wrote, so nothing to say. An empty card would read as
   // a broken feature; the issues editor is where this gets fixed, not here.
   if (!intro && issues.length === 0) return null
 
   return (
     <section className="mb-4 rounded-xl border border-border">
-      <SheetSectionHeader icon={MessageSquareIcon} title="Talking points" />
+      <SheetSectionHeader
+        icon={MessageSquareIcon}
+        title={isServe ? 'Introduction' : 'Talking points'}
+      />
       <div className="flex flex-col gap-4 p-4 text-sm">
         {intro && <p>{intro}</p>}
         {issues.length > 0 && (
