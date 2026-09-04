@@ -209,12 +209,15 @@ const PostAuthRedirectPage = () => {
           hasPendingTeamInvite,
         )
         // Honor the explicit deep-link destination now that the org slug cookie
-        // is set and the session is established. Re-derive a same-origin
+        // is set and the session is established — unless a pending team invite
+        // demands the acceptance screen: an unaccepted invite must win over any
+        // `?next=` a marketing link appended, or the invitee silently lands in
+        // a dashboard they aren't a member of yet. Re-derive a same-origin
         // relative path before navigating: `safeNext` is already validated, but
         // rebuilding from `URL().pathname` strips any host an attacker could
         // smuggle in, keeping the redirect provably same-origin.
         const destination = new URL(
-          safeNext ?? resolvedPath,
+          hasPendingTeamInvite ? resolvedPath : (safeNext ?? resolvedPath),
           window.location.origin,
         )
         // Hard nav so the destination renders with fresh auth'd server

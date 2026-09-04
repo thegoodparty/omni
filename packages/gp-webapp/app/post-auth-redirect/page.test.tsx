@@ -188,6 +188,42 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/team-invite'))
   })
 
+  it('routes to /team-invite even when a ?next= param is present (pending invite takes priority)', async () => {
+    setLocation('?next=%2Fdashboard%2Fbriefings')
+    const clerkMod = await import('@clerk/nextjs')
+    vi.mocked(clerkMod.useUser).mockReturnValueOnce({
+      isSignedIn: true,
+      isLoaded: true,
+      user: {
+        primaryEmailAddress: { emailAddress: 'invitee@example.com' },
+        publicMetadata: {
+          organizationSlug: 'org-one',
+          role: 'campaignAdmin',
+          name: 'Invitee Name',
+          invitedByUserId: 7,
+        },
+      },
+    } as any)
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: 'candidate', slug: 'org-one' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/team-invite'))
+  })
+
   it('ignores malformed Clerk publicMetadata and falls through to the normal candidate routing', async () => {
     const clerkMod = await import('@clerk/nextjs')
     vi.mocked(clerkMod.useUser).mockReturnValueOnce({
