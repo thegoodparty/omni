@@ -1902,6 +1902,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: OrdinanceCodePersistService, useValue: {} },
         { provide: OrdinanceQualityLoopService, useValue: {} },
         { provide: AnnotationAttachmentService, useValue: {} },
+        { provide: HubspotSingleSendService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
