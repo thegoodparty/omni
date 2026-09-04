@@ -16,6 +16,7 @@ import {
   OutreachType,
   User,
 } from '../../generated/prisma'
+import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { isBefore } from 'date-fns'
@@ -612,6 +613,47 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       textCount: outreach.textCount ?? undefined,
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
+  }
+
+  /**
+   * Stamped BEFORE redemption, from the server's own numbers: the row's
+   * billableTextCount is client-supplied at draft time and can be stale
+   * (a browser that missed a promo restore sends the full count), and the
+   * cancel path's promo restore keys on billable < textCount to tie
+   * consumption to THIS row. Running the stamp first makes the invariant
+   * one-directional — a consumed promo is always a stamped row — because
+   * a stamp failure skips redemption and the webhook retry re-runs both.
+   */
+  async markFreeTextsConsumed(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<boolean> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!row) {
+      this.logger.error(
+        { outreachId, campaignId },
+        'markFreeTextsConsumed: no such row for this campaign — ' +
+          'redemption must not proceed unstamped',
+      )
+      return false
+    }
+    if (row.textCount === null) {
+      this.logger.error(
+        { outreachId, campaignId },
+        'markFreeTextsConsumed: textCount is null — billableTextCount ' +
+          'cannot be stamped; redemption must not proceed unstamped',
+      )
+      return false
+    }
+    await this.model.update({
+      where: { id: outreachId },
+      data: {
+        billableTextCount: Math.max(0, row.textCount - FREE_TEXTS_OFFER.COUNT),
+      },
+    })
+    return true
   }
 
   /**

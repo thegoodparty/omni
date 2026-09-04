@@ -24,6 +24,7 @@ const mockCampaignsService = {
 const mockOutreachService = {
   finalizeOutreachPurchase: vi.fn(),
   recordCheckoutSession: vi.fn(),
+  markFreeTextsConsumed: vi.fn(),
 } as unknown as OutreachService
 
 const mockPeerlyPhoneListService = {
@@ -720,6 +721,9 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(true)
 
       await service.executePostPurchase('pi_draft', {
         ...purchaseMetadata,
@@ -743,6 +747,115 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(finalizeOrder).toBeLessThan(redeemOrder)
     })
 
+    it('stamps the row consumed server-side before redeeming', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(true)
+
+      await service.executePostPurchase('free_confirmed_xyz', {
+        ...purchaseMetadata,
+        outreachId: '124',
+      })
+
+      expect(mockOutreachService.markFreeTextsConsumed).toHaveBeenCalledWith(
+        124,
+        111,
+      )
+      const stampOrder = firstOrThrow(
+        vi.mocked(mockOutreachService.markFreeTextsConsumed).mock
+          .invocationCallOrder,
+      )
+      const redeemOrder = firstOrThrow(
+        vi.mocked(mockCampaignsService.redeemFreeTexts).mock
+          .invocationCallOrder,
+      )
+      expect(stampOrder).toBeLessThan(redeemOrder)
+    })
+
+    it('skips redemption and surfaces the error when the stamp fails', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockRejectedValueOnce(new Error('db write failed'))
+
+      await expect(
+        service.executePostPurchase('free_confirmed_stamp_fail', {
+          ...purchaseMetadata,
+          outreachId: '126',
+        }),
+      ).rejects.toThrow('db write failed')
+
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a redemption failure so the webhook retries', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(mockCampaignsService.redeemFreeTexts).mockRejectedValueOnce(
+        new Error('serialization conflict'),
+      )
+
+      await expect(
+        service.executePostPurchase('free_confirmed_redeem_fail', {
+          ...purchaseMetadata,
+          outreachId: '127',
+        }),
+      ).rejects.toThrow('serialization conflict')
+    })
+
+    it('skips redemption when the row cannot be stamped', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(false)
+
+      await service.executePostPurchase('free_confirmed_unstampable', {
+        ...purchaseMetadata,
+        outreachId: '128',
+      })
+
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
+    })
+
+    it('does not stamp consumption when no offer was redeemed', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      await service.executePostPurchase('cs_test_session_2', {
+        ...purchaseMetadata,
+        outreachId: '125',
+      })
+
+      expect(mockOutreachService.markFreeTextsConsumed).not.toHaveBeenCalled()
+    })
+
     it('rethrows a finalize failure and skips redemption', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
@@ -761,7 +874,7 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
     })
 
-    it('runs legacy redemption when metadata has no outreachId', async () => {
+    it('leaves the offer unredeemed for a legacy no-outreachId session', async () => {
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -771,7 +884,10 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(
         mockOutreachService.finalizeOutreachPurchase,
       ).not.toHaveBeenCalled()
-      expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
+      // Consuming the offer with no row to stamp would defeat the cancel
+      // path's restore — legacy sessions leave the offer with the candidate.
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
+      expect(mockOutreachService.markFreeTextsConsumed).not.toHaveBeenCalled()
     })
 
     it('does nothing for non-p2p outreachType even with an outreachId', async () => {

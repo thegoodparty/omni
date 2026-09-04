@@ -2,6 +2,7 @@ import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
+import { OutreachService } from '../services/outreach.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { OutreachStatus, OutreachType } from '../../generated/prisma'
 
@@ -310,5 +311,69 @@ describe('POST /v1/outreach/:id/cancel', () => {
     const res = await postCancel(row.id)
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('markFreeTextsConsumed', () => {
+  it('stamps billable from the server math, not the stored value', async () => {
+    const row = await seedOutreach({
+      textCount: 7000,
+      billableTextCount: 7000,
+    })
+    const stamped = await service.app
+      .get(OutreachService)
+      .markFreeTextsConsumed(row.id, campaignId)
+    expect(stamped).toBe(true)
+    const updated = await service.prisma.outreach.findFirstOrThrow({
+      where: { id: row.id },
+    })
+    expect(updated.billableTextCount).toBe(2000)
+  })
+
+  it('floors at zero when the offer covers the whole send', async () => {
+    const row = await seedOutreach({
+      textCount: 1780,
+      billableTextCount: 1780,
+    })
+    await service.app
+      .get(OutreachService)
+      .markFreeTextsConsumed(row.id, campaignId)
+    const updated = await service.prisma.outreach.findFirstOrThrow({
+      where: { id: row.id },
+    })
+    expect(updated.billableTextCount).toBe(0)
+  })
+
+  it('does nothing for a missing row or a foreign campaign', async () => {
+    const row = await seedOutreach({
+      textCount: 1780,
+      billableTextCount: 1780,
+    })
+    const outreachService = service.app.get(OutreachService)
+    expect(
+      await outreachService.markFreeTextsConsumed(999999, campaignId),
+    ).toBe(false)
+    expect(
+      await outreachService.markFreeTextsConsumed(row.id, campaignId + 1),
+    ).toBe(false)
+    const untouched = await service.prisma.outreach.findFirstOrThrow({
+      where: { id: row.id },
+    })
+    expect(untouched.billableTextCount).toBe(1780)
+  })
+
+  it('leaves a null textCount unstamped', async () => {
+    const row = await seedOutreach({
+      textCount: null,
+      billableTextCount: null,
+    })
+    const stamped = await service.app
+      .get(OutreachService)
+      .markFreeTextsConsumed(row.id, campaignId)
+    expect(stamped).toBe(false)
+    const untouched = await service.prisma.outreach.findFirstOrThrow({
+      where: { id: row.id },
+    })
+    expect(untouched.billableTextCount).toBeNull()
   })
 })

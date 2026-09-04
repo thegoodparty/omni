@@ -291,16 +291,48 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       const hasOffer =
         await this.campaignsService.checkFreeTextsEligibility(campaignId)
       if (hasOffer) {
-        await this.campaignsService.redeemFreeTexts(campaignId)
-        this.logger.info(
-          `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
-        )
+        if (outreachId) {
+          // Stamp BEFORE redeeming, and let any failure propagate: the
+          // idempotency marker is then never written, Stripe redelivers,
+          // and the retry re-runs whatever is left. Ordering makes the
+          // invariant one-directional — a consumed promo always has a
+          // stamped row, so the cancel path's restore can trust the
+          // count. An unstampable row (missing, or no textCount) skips
+          // redemption the same way the legacy branch does: the offer
+          // stays with the candidate — the safe direction — rather than
+          // being consumed unstamped or retry-storming the webhook over
+          // a permanent data anomaly.
+          const stamped = await this.outreachService.markFreeTextsConsumed(
+            outreachId,
+            campaignId,
+          )
+          if (stamped) {
+            await this.campaignsService.redeemFreeTexts(campaignId)
+            this.logger.info(
+              `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
+            )
+          } else {
+            this.logger.warn(
+              `Free texts offer left unredeemed for campaign ${campaignId}: ` +
+                `outreach ${outreachId} could not be stamped`,
+            )
+          }
+        } else {
+          // Pre-draft-first sessions carry no outreachId. Consuming the
+          // offer with no row to stamp would silently defeat the cancel
+          // path's restore, so the offer is left with the candidate.
+          this.logger.warn(
+            `Free texts offer left unredeemed for campaign ${campaignId}: ` +
+              `payment ${paymentIntentId} has no outreachId to stamp`,
+          )
+        }
       }
     } catch (error) {
       this.logger.error(
         { error },
         `Failed to redeem free texts offer for campaign ${campaignId} after payment ${paymentIntentId}:`,
       )
+      throw error
     }
   }
 }
