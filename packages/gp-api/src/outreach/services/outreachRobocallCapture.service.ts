@@ -3,14 +3,15 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import {
-  calcRobocallAmountInCents,
-  calcRobocallTotalInCents,
-} from '@/shared/util/robocallPricing.util'
+import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  Prisma,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
@@ -42,8 +43,8 @@ const isCaptureEnabled = () => process.env.ROBOCALL_CAPTURE_ENABLED === 'true'
 
 // The capture half of settlement: for a robocall run the completion sweep left
 // in `settling` with a confirmed `completedCallCount`, capture the authorized
-// hold for the ACTUAL billable amount — always <= the authorized amount (INV-1;
-// Stripe releases the remainder). The single-owner claim (`settling →
+// hold for the FULL authorized estimate (the amount held + quoted; INV-1 holds
+// by equality). The single-owner claim (`settling →
 // capturing`) elects one capturer, a FRESH PaymentIntent re-read decides the
 // branch (never trust the persisted state before moving money), and the terminal
 // is `captured` (charged), `voided` (zero billable), or `uncollectable` (the
@@ -232,15 +233,9 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // ALREADY CAPTURED (idempotent reconcile): a prior capture committed at
     // Stripe but lost its DB commit. Record the real captured amount and settle;
     // do NOT capture again. If amount_received is somehow absent, fall back to the
-    // amount we WOULD have captured (min(actual, authorized)) — never the
-    // authorized ceiling, which would overstate an undercharge run's receipt.
+    // authorized estimate — the amount we WOULD have captured.
     if (intent.status === 'succeeded') {
-      const captured =
-        intent.amount_received ??
-        Math.min(
-          calcRobocallTotalInCents(completedCallCount),
-          authorizedAmountInCents,
-        )
+      const captured = intent.amount_received ?? authorizedAmountInCents
       await this.commitCaptured(
         outreachId,
         captured,
@@ -312,10 +307,14 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // INV-1: capture the ACTUAL amount (calls + number fee), clamped to never
-    // exceed the authorized hold. Stripe releases any remainder.
-    const actual = calcRobocallTotalInCents(completedCallCount)
-    const captureAmount = Math.min(actual, authorizedAmountInCents)
+    // Capture the FULL authorized estimate — the amount held on the card and
+    // quoted to the candidate, independent of the dialed count. The draft-time
+    // billableCount (→ completedCallCount) can be SMALLER than the authorize-time
+    // basis when the audience grows in the up-to-~82-day draft→authorize gap, so
+    // clamping to min(calc(count), authorized) would undercharge below the hold.
+    // Capturing the authorization amount removes that drift and trivially
+    // satisfies INV-1 (it equals the hold). Stripe releases any remainder.
+    const captureAmount = authorizedAmountInCents
 
     try {
       // Stable idempotency key (amount is deterministic per outreach — the count
@@ -379,6 +378,13 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       { outreachId, capturedAmountInCents, completedCallCount },
       'robocall run captured',
     )
+    // The run dialed and settled, so the history UI must show "Completed"
+    // instead of staying "Sending"/"Scheduled". Best-effort + CAS-guarded on the
+    // pre-terminal visible states so it is idempotent and never flips a
+    // canceled/failed/already-completed row — mirrors markSpineScheduled/
+    // markSpineInProgress/markSpineFailed. A miss only leaves stale history; the
+    // money already committed, so it must never throw out of the capture path.
+    await this.markSpineCompleted(outreachId)
     if (userId == null) {
       this.logger.error(
         { outreachId },
@@ -399,6 +405,29 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       where: { outreachId, settleState: RobocallSettleState.capturing },
       data: { settleState: to },
     })
+  }
+
+  // Advance the spine to `completed` so the history UI shows "Completed" once a
+  // dialed run settles + captures. CAS-guarded on the pre-terminal visible states
+  // (pending/in_progress) so it never overrides canceled/failed and is idempotent
+  // on an already-completed row. Best-effort, like the sibling markSpine* helpers.
+  private async markSpineCompleted(outreachId: number): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: {
+          id: outreachId,
+          status: {
+            in: [OutreachStatus.pending, OutreachStatus.in_progress],
+          },
+        },
+        data: { status: OutreachStatus.completed },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to advance spine to completed',
+      )
+    }
   }
 
   // Best-effort receipt: the capture already committed, so a Segment failure must

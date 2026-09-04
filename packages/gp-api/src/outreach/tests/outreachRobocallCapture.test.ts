@@ -8,7 +8,11 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import {
+  Campaign,
+  OutreachStatus,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
@@ -116,6 +120,15 @@ const createDraft = async ({
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
+const readSpine = (outreachId: number) =>
+  service.prisma.outreach.findUniqueOrThrow({ where: { id: outreachId } })
+
+const setSpineStatus = (outreachId: number, status: OutreachStatus) =>
+  service.prisma.outreach.update({
+    where: { id: outreachId },
+    data: { status },
+  })
+
 describe('OutreachRobocallCaptureService.captureDraft', () => {
   it('captures the actual amount off a live hold and records the receipt once', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
@@ -144,20 +157,61 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect(messageId).toBe(`${outreachId}:receipt`)
   })
 
-  it('undercharges when fewer calls completed than the hold estimate', async () => {
-    // Hold was for 100 (650c); only 60 dialed → 270c calls + 200c fee = 470c
-    // captured, remainder freed.
-    const outreachId = await createDraft({ completedCallCount: 60 })
+  it('advances the spine to completed on a successful capture', async () => {
+    const outreachId = await createDraft({ completedCallCount: 100 })
+    // By capture time the dial has moved the spine to in_progress.
+    await setSpineStatus(outreachId, OutreachStatus.in_progress)
 
     await capture.captureDraft(outreachId)
 
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.captured,
+    )
+    // The history UI now shows "Completed" instead of staying "Sending".
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.completed)
+  })
+
+  it('never flips a canceled spine to completed on capture (guarded, idempotent)', async () => {
+    const outreachId = await createDraft({ completedCallCount: 100 })
+    await setSpineStatus(outreachId, OutreachStatus.canceled)
+
+    await capture.captureDraft(outreachId)
+
+    // The money still captures, but the CAS on pending/in_progress leaves a
+    // canceled row canceled — never resurrected to completed.
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.captured,
+    )
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+  })
+
+  it('captures the FULL authorized estimate when the draft-time count is smaller than the authorize basis (audience grew)', async () => {
+    // DRIFT: completedCallCount is the DRAFT-time billableCount snapshot, but
+    // authorizedAmountInCents is re-derived at AUTHORIZE time (up to ~82 days
+    // later). If the landline audience grew in that gap, calc(completedCallCount)
+    // is SMALLER than the amount held on the card and quoted. We must capture the
+    // FULL authorized estimate, never the smaller draft-count amount — a
+    // min(calc(count), authorized) clamp would leak revenue below the hold.
+    const outreachId = await createDraft({
+      completedCallCount: 60,
+      authorizedAmountInCents: calcRobocallTotalInCents(100),
+    })
+
+    await capture.captureDraft(outreachId)
+
+    // The full authorized estimate (650c) is captured, NOT the smaller calc(60).
     expect(captureSpy).toHaveBeenCalledWith(
+      'pi_1',
+      calcRobocallTotalInCents(100),
+      `robocall-capture-${outreachId}`,
+    )
+    expect(captureSpy).not.toHaveBeenCalledWith(
       'pi_1',
       calcRobocallTotalInCents(60),
       expect.any(String),
     )
     expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(
-      calcRobocallTotalInCents(60),
+      calcRobocallTotalInCents(100),
     )
   })
 
