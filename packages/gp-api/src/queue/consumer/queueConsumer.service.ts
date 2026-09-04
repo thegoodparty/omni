@@ -887,30 +887,37 @@ export class QueueConsumerService {
       )
     }
 
-    await Promise.all([
-      this.analytics.identify(office.userId, { pollcount: pollCount }),
-      this.analytics.track(
-        office.userId,
-        EVENTS.Polls.ResultsSynthesisCompleted,
-        {
-          pollId,
-          path: `/dashboard/polls/${pollId}`,
-          constituencyName: district?.l2Name,
-          'issue 1': issues?.at(0)?.theme || null,
-          'issue 2': issues?.at(1)?.theme || null,
-          'issue 3': issues?.at(2)?.theme || null,
-          ...buildIssueProperties(issues?.at(0), 1),
-          ...buildIssueProperties(issues?.at(1), 2),
-          ...buildIssueProperties(issues?.at(2), 3),
-          pollsSent: poll.targetAudienceSize,
-          pollResponses: totalResponses,
-          pollResponseRate:
-            totalResponses > 0
-              ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
-              : '0%',
-        },
-      ),
-    ])
+    try {
+      await Promise.all([
+        this.analytics.identify(office.userId, { pollcount: pollCount }),
+        this.analytics.track(
+          office.userId,
+          EVENTS.Polls.ResultsSynthesisCompleted,
+          {
+            pollId,
+            path: `/dashboard/polls/${pollId}`,
+            constituencyName: district?.l2Name,
+            'issue 1': issues?.at(0)?.theme || null,
+            'issue 2': issues?.at(1)?.theme || null,
+            'issue 3': issues?.at(2)?.theme || null,
+            ...buildIssueProperties(issues?.at(0), 1),
+            ...buildIssueProperties(issues?.at(1), 2),
+            ...buildIssueProperties(issues?.at(2), 3),
+            pollsSent: poll.targetAudienceSize,
+            pollResponses: totalResponses,
+            pollResponseRate:
+              totalResponses > 0
+                ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
+                : '0%',
+          },
+        ),
+      ])
+    } catch (err) {
+      this.logger.error(
+        { err, pollId },
+        'Failed to track analytics for Poll Results Synthesis Completed',
+      )
+    }
 
     await this.sendPollResultsSingleSend(office.userId, pollId)
 
