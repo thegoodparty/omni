@@ -198,30 +198,98 @@ describe('ClerkInvitationsService', () => {
     })
   })
 
-  describe('getTeamInviteMetadata', () => {
-    it('parses valid metadata off the Clerk user', async () => {
-      const getUser = vi.fn().mockResolvedValue({ publicMetadata: metadata })
+  describe('getTeamInviteState', () => {
+    const emailAddresses = [
+      {
+        emailAddress: 'Verified@Example.com',
+        verification: { status: 'verified' },
+      },
+      {
+        emailAddress: 'unverified@example.com',
+        verification: { status: 'unverified' },
+      },
+      { emailAddress: 'never-attempted@example.com', verification: null },
+    ]
+
+    it('parses valid metadata off the Clerk user and lowercases only verified emails', async () => {
+      const getUser = vi
+        .fn()
+        .mockResolvedValue({ publicMetadata: metadata, emailAddresses })
       const { service } = makeService({ getUser })
 
-      await expect(service.getTeamInviteMetadata('user_1')).resolves.toEqual(
+      await expect(service.getTeamInviteState('user_1')).resolves.toEqual({
         metadata,
-      )
+        verifiedEmails: ['verified@example.com'],
+      })
       expect(getUser).toHaveBeenCalledWith('user_1')
     })
 
-    it('returns null when the metadata does not parse as an invite', async () => {
-      const getUser = vi.fn().mockResolvedValue({ publicMetadata: {} })
+    it('returns null metadata when it does not parse as an invite', async () => {
+      const getUser = vi
+        .fn()
+        .mockResolvedValue({ publicMetadata: {}, emailAddresses: [] })
       const { service } = makeService({ getUser })
 
-      await expect(service.getTeamInviteMetadata('user_1')).resolves.toBeNull()
+      await expect(service.getTeamInviteState('user_1')).resolves.toEqual({
+        metadata: null,
+        verifiedEmails: [],
+      })
     })
 
     it('throws BadGatewayException when Clerk fails to fetch the user', async () => {
       const getUser = vi.fn().mockRejectedValue(new Error('down'))
       const { service } = makeService({ getUser })
 
+      await expect(service.getTeamInviteState('user_1')).rejects.toBeInstanceOf(
+        BadGatewayException,
+      )
+    })
+  })
+
+  describe('findPendingTeamInvitationsByEmail', () => {
+    it('queries pending invitations by email and keeps only exact-email team invites', async () => {
+      const getInvitationList = vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: 'inv_1',
+            emailAddress: 'Invitee@Example.com',
+            publicMetadata: metadata,
+          },
+          // `query` can match partially — a different address must not redeem
+          {
+            id: 'inv_2',
+            emailAddress: 'other-invitee@example.com',
+            publicMetadata: metadata,
+          },
+          // a non-team invitation (e.g. waitlist) has no parseable metadata
+          {
+            id: 'inv_3',
+            emailAddress: 'invitee@example.com',
+            publicMetadata: {},
+          },
+        ],
+        totalCount: 3,
+      })
+      const { service } = makeService({ getInvitationList })
+
+      const result = await service.findPendingTeamInvitationsByEmail(
+        'Invitee@example.com',
+      )
+
+      expect(result.map((invitation) => invitation.id)).toEqual(['inv_1'])
+      expect(getInvitationList).toHaveBeenCalledWith({
+        status: 'pending',
+        query: 'invitee@example.com',
+        limit: 500,
+      })
+    })
+
+    it('throws BadGatewayException when Clerk fails to list', async () => {
+      const getInvitationList = vi.fn().mockRejectedValue(new Error('down'))
+      const { service } = makeService({ getInvitationList })
+
       await expect(
-        service.getTeamInviteMetadata('user_1'),
+        service.findPendingTeamInvitationsByEmail('x@example.com'),
       ).rejects.toBeInstanceOf(BadGatewayException)
     })
   })

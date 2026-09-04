@@ -11,7 +11,9 @@ import { PinoLogger } from 'nestjs-pino'
 import {
   AcceptInviteResponse,
   InviteMemberResponse,
+  MyPendingInviteResponse,
   PendingInvite,
+  TeamInviteMetadata,
   TeamInviteMetadataSchema,
   TeamInviteRole,
   TeamMember,
@@ -182,12 +184,11 @@ export class OrganizationTeamService {
       throw new NotFoundException('No pending invitation found')
     }
 
-    const metadata = await this.clerkInvitations.getTeamInviteMetadata(
-      user.clerkId,
-    )
-    if (!metadata) {
+    const resolved = await this.resolvePendingInvite(user.clerkId)
+    if (!resolved) {
       throw new NotFoundException('No pending invitation found')
     }
+    const { metadata, invitationId } = resolved
 
     let membership: OrganizationMembership
     try {
@@ -238,6 +239,23 @@ export class OrganizationTeamService {
 
     await this.clearInviteMetadata(user.clerkId)
 
+    if (invitationId) {
+      // Fallback path only: the membership came from the invitation object
+      // itself (the user never carried the copied metadata), so retire the
+      // invitation — otherwise it stays acceptable and keeps showing as
+      // pending in the team list. Best-effort like the metadata clear: the
+      // membership row is already the committed source of truth, and a
+      // re-accept resolves to that row via the unique-constraint path.
+      try {
+        await this.clerkInvitations.revokeInvitation(invitationId)
+      } catch (err) {
+        this.logger.warn(
+          { err, invitationId },
+          'Failed to revoke a fallback-accepted Clerk invitation',
+        )
+      }
+    }
+
     void this.syncTeamMemberToHubspot({
       organizationSlug: membership.organizationSlug,
       email: user.email,
@@ -248,6 +266,21 @@ export class OrganizationTeamService {
     return {
       organizationSlug: membership.organizationSlug,
       role: membership.role,
+    }
+  }
+
+  async getMyPendingInvite(user: User): Promise<MyPendingInviteResponse> {
+    if (!user.clerkId) {
+      return { invite: null }
+    }
+    const resolved = await this.resolvePendingInvite(user.clerkId)
+    return {
+      invite: resolved
+        ? {
+            organizationSlug: resolved.metadata.organizationSlug,
+            role: resolved.metadata.role,
+          }
+        : null,
     }
   }
 
@@ -405,6 +438,45 @@ export class OrganizationTeamService {
         createdAt: created.createdAt,
       },
     }
+  }
+
+  // How "does this signed-in user hold a pending invite" is answered: the
+  // metadata Clerk copied onto their user at ticket sign-up wins; an
+  // organically-signed-up invitee never got that copy (Clerk only copies it
+  // when the account is created THROUGH the ticket), so fall back to the
+  // pending invitation addressed to one of their Clerk-VERIFIED emails
+  // (ENG-11027). Exactly one match redeems — zero or several (ambiguous)
+  // resolve to none rather than guessing an org. A revoked invitation is
+  // absent from the pending list, so revocation is honored for free.
+  private async resolvePendingInvite(clerkId: string): Promise<{
+    metadata: TeamInviteMetadata
+    invitationId: string | null
+  } | null> {
+    const { metadata, verifiedEmails } =
+      await this.clerkInvitations.getTeamInviteState(clerkId)
+    if (metadata) {
+      return { metadata, invitationId: null }
+    }
+    if (!verifiedEmails.length) {
+      return null
+    }
+
+    const invitations = (
+      await Promise.all(
+        verifiedEmails.map((email) =>
+          this.clerkInvitations.findPendingTeamInvitationsByEmail(email),
+        ),
+      )
+    ).flat()
+    const [invitation] = invitations
+    if (invitations.length !== 1 || !invitation) {
+      return null
+    }
+
+    const parsed = TeamInviteMetadataSchema.safeParse(invitation.publicMetadata)
+    return parsed.success
+      ? { metadata: parsed.data, invitationId: invitation.id }
+      : null
   }
 
   private async createPendingInvite(params: {

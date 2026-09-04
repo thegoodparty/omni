@@ -18,6 +18,7 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import {
   AcceptInviteResponseSchema,
   InviteMemberResponseSchema,
+  MyPendingInviteResponseSchema,
   TeamResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -110,6 +111,16 @@ export class TeamController {
     @Param('id') id: string,
   ): Promise<void> {
     await this.team.revokeInvite(organization, id)
+  }
+
+  // Session-only and ungated, same reasoning as accept below: it resolves
+  // only the caller's own pending invite (no org scope exists yet), returns
+  // nothing unless an invite was created while the flag was on, and gating
+  // it would strand an in-flight invitee if the flag ramps back down.
+  @Get('invites/mine')
+  @ResponseSchema(MyPendingInviteResponseSchema)
+  getMyPendingInvite(@ReqUser() user: User) {
+    return this.team.getMyPendingInvite(user)
   }
 
   // Ungated on purpose: invites cannot exist unless the flag was on when

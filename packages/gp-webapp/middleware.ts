@@ -27,6 +27,12 @@ const isPublicRoute = createRouteMatcher([
   // Staff-issued one-time sign-in link: the recipient is not yet authenticated
   // when they land here; the ticket is redeemed client-side on click.
   '/sign-in-link(.*)',
+  // Team-invite landing page (ENG-11027): Clerk's hosted accept URL redirects
+  // here with __clerk_ticket, and a brand-new invitee has no session yet — an
+  // auth wall would strand the ticket URL-encoded inside /login's
+  // redirect_url where nothing can redeem it. The ticket is redeemed
+  // client-side on the page (same pattern as /serve/welcome).
+  '/team-invite(.*)',
   // Machine endpoint: gated by its own REVALIDATE_SECRET (see
   // app/api/revalidate/route.ts), not a Clerk user session.
   '/api/revalidate',
