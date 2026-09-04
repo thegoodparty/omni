@@ -297,16 +297,26 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
           // and the retry re-runs whatever is left. Ordering makes the
           // invariant one-directional — a consumed promo always has a
           // stamped row, so the cancel path's restore can trust the
-          // count. The reverse strand (stamped, redeem lost) leaves the
-          // offer with the candidate — the safe direction.
-          await this.outreachService.markFreeTextsConsumed(
+          // count. An unstampable row (missing, or no textCount) skips
+          // redemption the same way the legacy branch does: the offer
+          // stays with the candidate — the safe direction — rather than
+          // being consumed unstamped or retry-storming the webhook over
+          // a permanent data anomaly.
+          const stamped = await this.outreachService.markFreeTextsConsumed(
             outreachId,
             campaignId,
           )
-          await this.campaignsService.redeemFreeTexts(campaignId)
-          this.logger.info(
-            `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
-          )
+          if (stamped) {
+            await this.campaignsService.redeemFreeTexts(campaignId)
+            this.logger.info(
+              `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
+            )
+          } else {
+            this.logger.warn(
+              `Free texts offer left unredeemed for campaign ${campaignId}: ` +
+                `outreach ${outreachId} could not be stamped`,
+            )
+          }
         } else {
           // Pre-draft-first sessions carry no outreachId. Consuming the
           // offer with no row to stamp would silently defeat the cancel

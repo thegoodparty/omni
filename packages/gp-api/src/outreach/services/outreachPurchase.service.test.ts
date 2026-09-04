@@ -721,6 +721,9 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(true)
 
       await service.executePostPurchase('pi_draft', {
         ...purchaseMetadata,
@@ -744,12 +747,15 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(finalizeOrder).toBeLessThan(redeemOrder)
     })
 
-    it('stamps the row consumed server-side after redeeming', async () => {
+    it('stamps the row consumed server-side before redeeming', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
       ).mockResolvedValueOnce(undefined)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
       ).mockResolvedValueOnce(true)
 
       await service.executePostPurchase('free_confirmed_xyz', {
@@ -800,6 +806,9 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(true)
       vi.mocked(mockCampaignsService.redeemFreeTexts).mockRejectedValueOnce(
         new Error('serialization conflict'),
       )
@@ -810,6 +819,25 @@ describe('OutreachPurchaseHandlerService', () => {
           outreachId: '127',
         }),
       ).rejects.toThrow('serialization conflict')
+    })
+
+    it('skips redemption when the row cannot be stamped', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+      vi.mocked(
+        mockOutreachService.markFreeTextsConsumed,
+      ).mockResolvedValueOnce(false)
+
+      await service.executePostPurchase('free_confirmed_unstampable', {
+        ...purchaseMetadata,
+        outreachId: '128',
+      })
+
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
     })
 
     it('does not stamp consumption when no offer was redeemed', async () => {

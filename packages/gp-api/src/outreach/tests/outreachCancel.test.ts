@@ -320,9 +320,10 @@ describe('markFreeTextsConsumed', () => {
       textCount: 7000,
       billableTextCount: 7000,
     })
-    await service.app
+    const stamped = await service.app
       .get(OutreachService)
       .markFreeTextsConsumed(row.id, campaignId)
+    expect(stamped).toBe(true)
     const updated = await service.prisma.outreach.findFirstOrThrow({
       where: { id: row.id },
     })
@@ -349,8 +350,12 @@ describe('markFreeTextsConsumed', () => {
       billableTextCount: 1780,
     })
     const outreachService = service.app.get(OutreachService)
-    await outreachService.markFreeTextsConsumed(999999, campaignId)
-    await outreachService.markFreeTextsConsumed(row.id, campaignId + 1)
+    expect(
+      await outreachService.markFreeTextsConsumed(999999, campaignId),
+    ).toBe(false)
+    expect(
+      await outreachService.markFreeTextsConsumed(row.id, campaignId + 1),
+    ).toBe(false)
     const untouched = await service.prisma.outreach.findFirstOrThrow({
       where: { id: row.id },
     })
@@ -362,9 +367,10 @@ describe('markFreeTextsConsumed', () => {
       textCount: null,
       billableTextCount: null,
     })
-    await service.app
+    const stamped = await service.app
       .get(OutreachService)
       .markFreeTextsConsumed(row.id, campaignId)
+    expect(stamped).toBe(false)
     const untouched = await service.prisma.outreach.findFirstOrThrow({
       where: { id: row.id },
     })

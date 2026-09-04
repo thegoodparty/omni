@@ -627,21 +627,25 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   async markFreeTextsConsumed(
     outreachId: number,
     campaignId: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const row = await this.model.findFirst({
       where: { id: outreachId, campaignId },
     })
     if (!row) {
-      return
+      this.logger.error(
+        { outreachId, campaignId },
+        'markFreeTextsConsumed: no such row for this campaign — ' +
+          'redemption must not proceed unstamped',
+      )
+      return false
     }
     if (row.textCount === null) {
       this.logger.error(
         { outreachId, campaignId },
         'markFreeTextsConsumed: textCount is null — billableTextCount ' +
-          'cannot be stamped; promo restore will not fire if this row ' +
-          'is later canceled',
+          'cannot be stamped; redemption must not proceed unstamped',
       )
-      return
+      return false
     }
     await this.model.update({
       where: { id: outreachId },
@@ -649,6 +653,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         billableTextCount: Math.max(0, row.textCount - FREE_TEXTS_OFFER.COUNT),
       },
     })
+    return true
   }
 
   /**
