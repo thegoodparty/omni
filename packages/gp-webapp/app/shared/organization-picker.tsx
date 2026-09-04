@@ -304,6 +304,7 @@ export const OrganizationPicker = () => {
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col">
                       <span
+                        data-testid="org-picker-item-name"
                         className={`truncate text-sm font-opensans ${
                           isPast ? 'text-muted-foreground' : ''
                         }`}

@@ -232,7 +232,16 @@ export const getOrgPickerOptions = async (page: Page): Promise<string[]> => {
   const texts: string[] = []
   const count = await items.count()
   for (let i = 0; i < count; i++) {
-    const text = await items.nth(i).textContent()
+    // Org entries carry a secondary "owner · office" line (ENG-11041);
+    // textContent() would concatenate it onto the name with no separator,
+    // producing a string that never matches the item's accessible name.
+    // Read just the name span on org entries; other menuitems (the run-for
+    // actions) have no such span and keep their full text.
+    const nameSpan = items.nth(i).getByTestId('org-picker-item-name')
+    const text =
+      (await nameSpan.count()) > 0
+        ? await nameSpan.textContent()
+        : await items.nth(i).textContent()
     texts.push((text ?? '').trim())
   }
 
