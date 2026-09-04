@@ -393,4 +393,70 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
       )
     })
   })
+
+  describe('ComplianceRejected single-send (ENG-11035)', () => {
+    it('does not call single-send when HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID is unset', async () => {
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.REJECTED,
+        pinDelivery: null,
+      })
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+      // The Segment-event workflow email path is unaffected.
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends to the triggering account email with the rejection details as call properties', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.REJECTED,
+        pinDelivery: null,
+      })
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 777666,
+        to: user.email,
+        customProperties: {
+          rejection_source: 'cv_status_check',
+          peerly_identity_id: '11540083',
+        },
+      })
+    })
+
+    it('does not send when another caller already claimed the rejection', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.REJECTED,
+        pinDelivery: null,
+      })
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+    })
+
+    it('logs loudly and does not throw when single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      mockSendSingleSend.mockRejectedValue(new Error('HubSpot down'))
+
+      await expect(
+        detect(record, {
+          status: PeerlyCvVerificationStatus.REJECTED,
+          pinDelivery: null,
+        }),
+      ).resolves.not.toThrow()
+
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.any(Error),
+          campaignId: campaignWithUser.id,
+        }),
+        expect.stringContaining(
+          'HubSpot single-send failed for Compliance Rejected',
+        ),
+      )
+    })
+  })
 })
