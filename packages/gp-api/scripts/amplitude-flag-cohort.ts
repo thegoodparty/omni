@@ -109,11 +109,11 @@ export const parseEmails = (contents: string): string[] => {
   for (const rawLine of contents.split('\n')) {
     const line = rawLine.split('#')[0].trim()
     if (!line) continue
-    // Tolerates "Name <addr>" and bare addresses, which is how these lists
-    // arrive from CS.
-    const match = line.match(/[^\s<>,;]+@[^\s<>,;]+/)
-    if (!match) continue
-    seen.add(match[0].replace(/\.+$/, '').toLowerCase())
+    // Tolerates "Name <addr>", bare addresses, and several per line, which is
+    // how these lists arrive from CS.
+    for (const [match] of line.matchAll(/[^\s<>,;]+@[^\s<>,;]+/g)) {
+      seen.add(match.replace(/\.+$/, '').toLowerCase())
+    }
   }
   return [...seen]
 }
@@ -179,12 +179,24 @@ export const mergeCohortIntoSegments = (
   const served = Object.entries(existing.rolloutWeights ?? {})
     .filter(([, weight]) => weight > 0)
     .map(([key]) => key)
-  if (existing.rolloutWeights !== undefined && !served.includes(variant)) {
-    const serves = served.length > 0 ? `"${served.join('", "')}"` : 'no variant'
-    throw new Error(
-      `Segment "${segmentName}" serves ${serves}, not "${variant}". ` +
-        `Repoint the segment in Amplitude, or re-run with a matching --variant.`,
-    )
+  if (existing.rolloutWeights !== undefined) {
+    // Split traffic assigns the cohort at random, so "the variant this cohort
+    // gets" has no answer — adding emails would not do what the operator asked.
+    if (served.length > 1) {
+      throw new Error(
+        `Segment "${segmentName}" splits traffic across ` +
+          `"${served.join('", "')}". Repoint it at a single variant in ` +
+          `Amplitude, then re-run.`,
+      )
+    }
+    if (!served.includes(variant)) {
+      const serves =
+        served.length > 0 ? `"${served.join('", "')}"` : 'no variant'
+      throw new Error(
+        `Segment "${segmentName}" serves ${serves}, not "${variant}". ` +
+          `Repoint the segment in Amplitude, or re-run with a matching --variant.`,
+      )
+    }
   }
 
   const current = new Set(emailCondition.values.map((v) => v.toLowerCase()))

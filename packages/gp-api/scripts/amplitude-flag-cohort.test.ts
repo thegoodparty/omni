@@ -67,6 +67,14 @@ describe('parseEmails', () => {
     ])
   })
 
+  it('reads several addresses from one line', () => {
+    expect(parseEmails('a@example.com, b@example.com; c@example.com')).toEqual([
+      'a@example.com',
+      'b@example.com',
+      'c@example.com',
+    ])
+  })
+
   it('strips a trailing period from a bare address', () => {
     expect(parseEmails('user@example.com.')).toEqual(['user@example.com'])
   })
@@ -196,6 +204,24 @@ describe('mergeCohortIntoSegments', () => {
         },
       ),
     ).toThrow('serves no variant, not "on"')
+  })
+
+  it('refuses a segment that splits traffic across variants', () => {
+    expect(() =>
+      mergeCohortIntoSegments(
+        [
+          {
+            ...emailSegment('Pilot allowlist', ['old@example.com']),
+            rolloutWeights: { on: 1, off: 1 },
+          },
+        ],
+        {
+          segmentName: 'Pilot allowlist',
+          variant: 'on',
+          emails: ['new@example.com'],
+        },
+      ),
+    ).toThrow('splits traffic across "on", "off"')
   })
 
   it('refuses when the requested variant carries a zero weight', () => {
