@@ -1227,6 +1227,62 @@ describe('recommended-list provenance on create', () => {
     expect(created.data.recommendedModified).toBe(true)
   })
 
+  // What the webapp ACTUALLY posts on an unedited accept. Its builder draft
+  // is boolean option keys — `builderFiltersFromRecommendation` turns
+  // voterStatus ['Super','Likely'] into audienceSuperVoters /
+  // audienceLikelyVoters, and the transform emits those — while
+  // `recommendedFilter` carries the array form verbatim. The diff runs on
+  // the CONVERTED payload for exactly this reason: compared raw, every
+  // unmodified accept in production would report modified.
+  it('reads the boolean spelling of a recommendation as unmodified', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents',
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+        recommendedFilter: RECOMMENDED_FILTER,
+        audienceSuperVoters: true,
+        audienceLikelyVoters: true,
+        independentAffinity: true,
+        hasCellPhone: true,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data.recommendedModified).toBe(false)
+  })
+
+  // The same spelling with one band added is still an edit — the join must
+  // not be so loose that it stops seeing a real change.
+  it('still reads an edited boolean spelling as modified', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents, widened',
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+        recommendedFilter: RECOMMENDED_FILTER,
+        audienceSuperVoters: true,
+        audienceLikelyVoters: true,
+        audienceUnreliableVoters: true,
+        independentAffinity: true,
+        hasCellPhone: true,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data.recommendedModified).toBe(true)
+  })
+
   it('leaves all four columns null on a hand-built list', async () => {
     await seedWinCampaign()
 

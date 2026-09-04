@@ -378,7 +378,21 @@ export default function CreateListFlow({
   // still presses Continue, exactly as picking a saved list does.
   const applyRecommendation = useCallback(
     (recommendation: RecommendedList) => {
-      if (recommendation.existingFilterId !== null) {
+      // Matched against the picker's own rows before it is trusted, exactly
+      // as the `?listId=` preselect below is: `existingFilterId` is resolved
+      // server-side against this org's saved filters, but a row deleted in
+      // the CRM between the recommendations query and the tap would leave
+      // `selectList` pointing the picker at a list that is not there — and
+      // `selectList` reads that row for the draft's own filters, so a miss
+      // silently seeds an EMPTY audience. Falling through builds the list
+      // instead, which is what the recommendation described anyway.
+      const existingRow =
+        recommendation.existingFilterId === null
+          ? undefined
+          : savedLists.find(
+              (list) => list.id === recommendation.existingFilterId,
+            )
+      if (recommendation.existingFilterId !== null && existingRow) {
         // This branch never reaches the create below, so without its own
         // event an accept of a recommendation the candidate has taken
         // before is invisible. `modified` is false by construction —
@@ -392,7 +406,7 @@ export default function CreateListFlow({
           modified: false,
           reusedExistingList: true,
         })
-        selectList(recommendation.existingFilterId)
+        selectList(existingRow.id)
         return
       }
       const precincts = recommendation.filter.precincts ?? []
@@ -422,7 +436,7 @@ export default function CreateListFlow({
         districtShare: recommendation.districtShare,
       })
     },
-    [onFiltersChange, selectList, recommendedListIntent],
+    [onFiltersChange, selectList, savedLists, recommendedListIntent],
   )
 
   // A list carried in from the outreach hub's door-knocking tile, so "start a

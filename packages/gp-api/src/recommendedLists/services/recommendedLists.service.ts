@@ -18,7 +18,11 @@ import {
 import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
 import type { Organization } from '../../generated/prisma'
-import { fillCopy, variantsForIntent } from '../recommendedLists.registry'
+import {
+  fillCopy,
+  variantsForIntent,
+  RECOMMENDED_LISTS_REGISTRY,
+} from '../recommendedLists.registry'
 import { buildVariantFilter } from '../recommendedListsUniverse.util'
 import { findEquivalentFilter } from '../recommendedListsDedupe.util'
 import {
@@ -96,11 +100,20 @@ export class RecommendedListsService {
       )
     }
 
+    const variants = variantsForIntent(intent)
+    // `introduce` has no ideology variant, so classifying its campaign is an
+    // LLM call whose only possible consumer is absent. Gated on the registry
+    // rather than on the intent name so a variant added to any intent picks
+    // the call back up on its own.
+    const needsIdeology = variants.some(
+      (variant) => RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket,
+    )
+
     const [districtId, ideologyBucket, savedFilters] = await Promise.all([
       this.contacts.resolveEligibleDistrictId(organization),
       // Never throws: a classification failure returns null, which hides
       // the ideology variants. That is the common case, not the edge one.
-      this.ideology.bucketForCampaign(campaignId),
+      needsIdeology ? this.ideology.bucketForCampaign(campaignId) : null,
       // Loaded with `activityConditions` included, which the dedupe
       // comparison reads straight off the row. Rows without the relation
       // all look condition-free, so two lists differing only in their
@@ -113,7 +126,7 @@ export class RecommendedListsService {
 
     // A null filter is an ideology variant with no bucket to match
     // against; that null is how those variants hide.
-    const drafts = variantsForIntent(intent)
+    const drafts = variants
       .map((variant) => ({
         variant,
         filter: buildVariantFilter(variant, channel, ideologyBucket),

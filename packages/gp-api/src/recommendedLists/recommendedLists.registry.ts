@@ -24,7 +24,6 @@ export const IDEOLOGY_COLUMN_VALUE = {
 
 interface RecommendedListRegistryEntry {
   intent: RecommendedListIntent
-  order: number
   requiresIdeologyBucket: boolean
   copy: { title: string; criteriaSummary: string }
 }
@@ -35,7 +34,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
 > = {
   introNeverIded: {
     intent: 'introduce',
-    order: 0,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Meet voters who have not heard from you',
@@ -45,7 +43,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   persuadeAffinity: {
     intent: 'persuade',
-    order: 1,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Persuadable independent-leaning voters',
@@ -55,7 +52,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   persuadeIdeology: {
     intent: 'persuade',
-    order: 2,
     requiresIdeologyBucket: true,
     copy: {
       title: 'Voters who may lean {bucket}',
@@ -66,7 +62,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   persuadeUndecided: {
     intent: 'persuade',
-    order: 3,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Voters still on the fence',
@@ -77,7 +72,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   eventSupporters: {
     intent: 'event',
-    order: 4,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Invite your supporters',
@@ -88,7 +82,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   eventAffinity: {
     intent: 'event',
-    order: 5,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Invite independent-leaning voters',
@@ -99,7 +92,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   eventIdeology: {
     intent: 'event',
-    order: 6,
     requiresIdeologyBucket: true,
     copy: {
       title: 'Invite voters who may lean {bucket}',
@@ -111,7 +103,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   earlyVoteSupporters: {
     intent: 'earlyVote',
-    order: 7,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Get your supporters voting early',
@@ -122,7 +113,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   earlyVoteAffinity: {
     intent: 'earlyVote',
-    order: 8,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Encourage independent-leaning voters to vote early',
@@ -132,7 +122,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   earlyVoteIdeology: {
     intent: 'earlyVote',
-    order: 9,
     requiresIdeologyBucket: true,
     copy: {
       title: 'Encourage voters who may lean {bucket} to vote early',
@@ -143,7 +132,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   electionDaySupporters: {
     intent: 'electionDay',
-    order: 10,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Chase supporters who need a reminder',
@@ -154,7 +142,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   electionDayAffinity: {
     intent: 'electionDay',
-    order: 11,
     requiresIdeologyBucket: false,
     copy: {
       title: 'Turn out independent-leaning voters',
@@ -165,7 +152,6 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
   electionDayIdeology: {
     intent: 'electionDay',
-    order: 12,
     requiresIdeologyBucket: true,
     copy: {
       title: 'Turn out voters who may lean {bucket}',
@@ -176,14 +162,16 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   },
 }
 
+// Display order is the contracts array's own order, which this filter
+// preserves. The registry used to carry a duplicate `order` field and sort by
+// it; the two agreed by hand, which is one more place for them to stop
+// agreeing than the feature needs. If display order ever has to differ from
+// the enum's, reintroduce it deliberately rather than restating it.
 export const variantsForIntent = (
   intent: RecommendedListIntent,
 ): RecommendedListVariant[] =>
   RECOMMENDED_LIST_VARIANT_VALUES.filter(
     (variant) => RECOMMENDED_LISTS_REGISTRY[variant].intent === intent,
-  ).sort(
-    (a, b) =>
-      RECOMMENDED_LISTS_REGISTRY[a].order - RECOMMENDED_LISTS_REGISTRY[b].order,
   )
 
 export const fillCopy = (

@@ -374,6 +374,30 @@ describe('CreateListFlow — recommended lists', () => {
     })
   })
 
+  // `existingFilterId` is resolved server-side, so a list deleted in the CRM
+  // between the recommendations query and the tap leaves an id the picker
+  // has no row for — and `selectList` reads that row for the draft's own
+  // filters, so trusting the id blind seeds an empty audience under a name
+  // that promises a specific one. Falling through builds the recommendation.
+  it('builds the list when the existing id names no picker row', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [EXISTING_RECOMMENDATION],
+    })
+    const onFiltersChange = vi.fn()
+    // savedLists deliberately empty: id 501 resolves to nothing.
+    renderAtWho({ onFiltersChange })
+
+    fireEvent.click(await screen.findByTestId('recommended-list-card'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      audienceSuperVoters: true,
+      audienceLikelyVoters: true,
+      precincts: true,
+    })
+    expect(acceptedCalls()).toHaveLength(0)
+  })
+
   it('selects the existing list instead of creating a duplicate', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,

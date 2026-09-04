@@ -37,6 +37,22 @@ describe('RecommendedListCard', () => {
     expect(screen.getByText(/48% of your district/)).toBeInTheDocument()
   })
 
+  // A list that clears the 250-voter floor in a very large district really
+  // can round to zero, and "0% of your district" reads as an empty list —
+  // the one thing the floor exists to guarantee it is not.
+  it('floors a very small share to <1% rather than printing 0%', () => {
+    render(
+      <RecommendedListCard
+        recommendation={{ ...RECOMMENDATION, districtShare: 0.001 }}
+        channel="sms"
+        onSelect={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/<1% of your district/)).toBeInTheDocument()
+    expect(screen.queryByText(/0% of your district/)).not.toBeInTheDocument()
+  })
+
   // The service omits the key entirely when the district-total query fails
   // (docs/features/recommended-lists.md) — rendering "undefined%" or "0% of
   // your district" here would misreport a real number.

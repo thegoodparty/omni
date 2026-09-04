@@ -44,7 +44,13 @@ export const RecommendedListCard = ({
       </p>
       {districtShare !== undefined && (
         <p className="text-sm text-muted-foreground">
-          {Math.round(districtShare * 100)}% of your district
+          {/* A real list rounding to 0% reads as an empty one, and the size
+              floor guarantees it is not — so the small case is floored to
+              "<1%" rather than printed as zero. */}
+          {districtShare > 0 && districtShare < 0.005
+            ? '<1'
+            : Math.round(districtShare * 100)}
+          % of your district
         </p>
       )}
       {channel === 'doorKnocking' && (

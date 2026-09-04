@@ -239,6 +239,33 @@ describe('RecommendedListsService.recommend', () => {
     expect(first?.existingFilterId).toBe(77)
   })
 
+  // A list the candidate built in the CRM stores propensity as the
+  // `audience*Voters` booleans, never as a `voterStatus` array — that column
+  // is only populated by a recommendation-derived create. The converter
+  // emits the same payload from either spelling, which is the whole reason
+  // dedupe compares payloads; nothing pinned that until here.
+  it('matches a saved list storing the same universe as booleans', async () => {
+    findByOrganizationSlug.mockResolvedValue([
+      {
+        id: 78,
+        audienceSuperVoters: true,
+        audienceLikelyVoters: true,
+        supportStatus: ['unknown'],
+        hasCellPhone: true,
+        activityConditions: [],
+      },
+    ])
+
+    const [first] = await service.recommend(
+      organization,
+      CAMPAIGN_ID,
+      'sms',
+      'introduce',
+    )
+
+    expect(first?.existingFilterId).toBe(78)
+  })
+
   // The over-match the loaded `activityConditions` relation exists to
   // prevent: same universe, one extra condition, and it is a different
   // list. A saved row read without the relation looks condition-free and
@@ -374,6 +401,21 @@ describe('RecommendedListsService.recommend', () => {
 
     expect(results).toEqual([])
     expect(countForFilter).not.toHaveBeenCalled()
+  })
+
+  // The classifier is an LLM call, and `introduce` has no variant that could
+  // use a bucket — so asking for one buys nothing on the intent every flow
+  // opens on.
+  it('does not classify ideology for an intent with no ideology variant', async () => {
+    await service.recommend(organization, CAMPAIGN_ID, 'sms', 'introduce')
+
+    expect(bucketForCampaign).not.toHaveBeenCalled()
+  })
+
+  it('classifies ideology for an intent that has an ideology variant', async () => {
+    await service.recommend(organization, CAMPAIGN_ID, 'sms', 'persuade')
+
+    expect(bucketForCampaign).toHaveBeenCalledWith(CAMPAIGN_ID)
   })
 
   it('returns nothing for an intent with no variants', async () => {
