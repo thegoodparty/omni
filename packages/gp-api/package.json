@@ -76,6 +76,7 @@
     "@geoapify/route-planner-sdk": "^2.0.0",
     "@goodparty_org/contracts": "*",
     "@goodparty_org/nest-common": "*",
+    "@google-cloud/bigquery": "^9.0.3",
     "@google/genai": "^2.3.0",
     "@graphql-codegen/typescript-resolvers": "^4.4.2",
     "@hubspot/api-client": "^12.0.1",
