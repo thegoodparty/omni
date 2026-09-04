@@ -54,6 +54,18 @@ export const WIN_ONLY_FILTER_FIELD_KEYS = ['political_party', 'voter_likely']
 // Stripping at the re-expansion closes it for all three readers at once, since
 // they share this function precisely so they cannot disagree about what a list
 // carries.
+//
+// **This narrows the DRAFT, never the saved row, and one case is left open on
+// purpose.** Picking a list sends its `voterFileFilterId`, and gp-api resolves
+// that row itself — so an `eo-` org whose saved list genuinely carries a party
+// column still meets `assertNoPartyFilterForElectedOffice` at
+// `POST /door-knocking/address-preview` and again at create. That 400 is the
+// server being right: the list really is cut by party, and the alternative is
+// buying a route against criteria the official cannot see. What this file
+// removes is only the phantom — pills re-checked in a hidden group and a map
+// shaded by them. Making such a list PICKABLE for Serve would mean copying it
+// minus its Win-only columns at create, which is a product decision about
+// whose list it then is, and no surface asks for it today.
 const WIN_ONLY_FILTER_KEYS = new Set(
   filterSections
     .flatMap((section) => section.fields)

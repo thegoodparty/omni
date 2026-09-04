@@ -125,11 +125,24 @@ export default function NativeDoorKnockingPage({
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
-  // Win-only filters are hidden for an elected-office org, matching the CRM
-  // wizard — gp-api rejects a contacts-made selection from one outright, so
-  // offering it here would only surface as a 400 at knock time.
   const organization = useOrganization()
   const isElectedOfficial = Boolean(organization?.electedOfficeId)
+  // Win-only filters — contacts made, political party, voter likelihood — are
+  // hidden for an `eo-` org, matching the CRM wizard, because gp-api rejects
+  // all three from one outright and offering them here only surfaces as a 400
+  // at knock time.
+  //
+  // **This is the org-slug prefix and deliberately neither of the two booleans
+  // beside it.** It is not `isElectedOfficial`, which is true of an org holding
+  // an ElectedOffice row whatever its slug — and the server's gate
+  // (`ContactsService.hasElectedOfficeAccess`) reads the slug and nothing else,
+  // so that boolean would hide a party pill gp-api would happily have honoured.
+  // It is not `serveMode` either: that decides which rail's LISTS are on screen
+  // and a Campaign takes precedence in it, so an `eo-` org with a campaign
+  // would be offered a filter its every request 400s on. What the server will
+  // accept and which surface is drawn are two questions, and only one of them
+  // is about the URL the request goes to.
+  const serveOrg = Boolean(organization?.slug?.startsWith('eo-'))
   // Win or Serve, decided once here and handed down — see
   // `doorKnockingSurface.tsx` for why nothing below may re-derive it. A
   // Campaign takes precedence over an ElectedOffice, which is the same order
@@ -773,7 +786,7 @@ export default function NativeDoorKnockingPage({
                 color={draw.drawColor}
                 drawnStops={drawnStops}
                 onListCreated={handleListCreated}
-                isElectedOfficial={isElectedOfficial}
+                isElectedOfficial={serveOrg}
                 unpreviewableKeys={unpreviewableKeys}
                 orgSlug={organization?.slug}
                 preselectedListId={carriedListId}
