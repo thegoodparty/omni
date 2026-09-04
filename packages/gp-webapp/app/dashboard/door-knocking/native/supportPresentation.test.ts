@@ -5,7 +5,11 @@ import {
   RoutePayloadTarget,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
-import { supportAsOf, supportStatus } from './supportPresentation'
+import {
+  followUpAnswerFor,
+  supportAsOf,
+  supportStatus,
+} from './supportPresentation'
 
 const target = (history?: RouteTargetActivity[]): RoutePayloadTarget => ({
   stopTargetId: 21,
@@ -164,5 +168,21 @@ describe('supportAsOf', () => {
     expect(
       supportAsOf(target([knock('not a date', 'supporter')]), 'supporter'),
     ).toBeNull()
+  })
+})
+
+// The Serve counterpart of the `supportStatus` sweep above, and swept for the
+// same reason: the card that reads this is silent on a null, so a status that
+// should have mapped to an answer and quietly does not shows up as a missing
+// card rather than as a wrong one.
+describe('followUpAnswerFor', () => {
+  it.each(DOOR_KNOCK_STATUSES)('answers for %s or stays silent', (status) => {
+    if (status === 'needs_follow_up') {
+      expect(followUpAnswerFor(status)).toBe('yes')
+    } else if (status === 'engaged') {
+      expect(followUpAnswerFor(status)).toBe('no')
+    } else {
+      expect(followUpAnswerFor(status)).toBeNull()
+    }
   })
 })

@@ -240,6 +240,22 @@ const STATUS_ACTIONABILITY: Record<DoorKnockStatus, number> = {
   not_a_voter: 6,
 }
 
+// The same ranking addressed by PACK BYTE rather than by name, for the map's
+// filter engine — which never holds a status word, only the index the pack
+// encoded it as. Derived from the two definitions above rather than written
+// out, so the byte-indexed answer and the name-indexed one cannot disagree; a
+// hand-kept parallel array is exactly the drift `STATUS_ACTIONABILITY` exists
+// to end.
+const STATUS_BYTE_ACTIONABILITY: Uint8Array = Uint8Array.from(
+  DOOR_KNOCK_STATUSES.map((status) => STATUS_ACTIONABILITY[status]),
+)
+
+// A byte the pack never encoded — the filter engine's own 255 "no matched
+// people" sentinel among them — ranks below everything, so it can never win a
+// comparison against a real status.
+export const statusByteActionability = (byte: number): number =>
+  STATUS_BYTE_ACTIONABILITY[byte] ?? Number.MAX_SAFE_INTEGER
+
 // Most-actionable-first rollup, and the only one: an 'unknown' person keeps the
 // whole stop knockable, and an empty stop rolls up to 'unknown'.
 //

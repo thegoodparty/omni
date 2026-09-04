@@ -18,6 +18,7 @@ import type { LiveLocation } from './useLiveLocation'
 import {
   PROGRESS_LEGEND_ORDER,
   PROGRESS_STATUS_ORDER,
+  progressStatusOrder,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
   STATUS_RGB,
@@ -2856,6 +2857,15 @@ describe('WalkView notes', () => {
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
+
+    // The bar under the same words, in the same order: a legend that named the
+    // Serve endings while the segments beneath it kept the Win order would be
+    // two accounts of one walk.
+    expect(
+      Array.from(document.querySelectorAll<HTMLElement>('[data-status]')).map(
+        (segment) => segment.dataset.status,
+      ),
+    ).toEqual([...progressStatusOrder(true)])
 
     expect(legendCount('Not yet contacted')).toBe('1')
     expect(legendCount('Support unknown')).toBeUndefined()

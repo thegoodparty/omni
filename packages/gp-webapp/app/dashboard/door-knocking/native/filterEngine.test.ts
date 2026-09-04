@@ -83,6 +83,27 @@ describe('applyLoggedKnocks', () => {
     expect(statuses(withKnocks([knock(-86.78, 36.16, 1)]))).toEqual([0, 0])
   })
 
+  // The bytes are indices into `DOOR_KNOCK_STATUSES`, which the two Serve
+  // statuses were APPENDED to so that packs already on phones keep decoding —
+  // so byte order is not actionability order, and every comparison here goes
+  // through `statusByteActionability`. Read raw, `engaged` (7) would lose to
+  // `refused` (5) at a shared coordinate and a Serve dot where a conversation
+  // happened would print black.
+  it('ranks the appended Serve statuses by actionability, not by byte', () => {
+    expect(
+      statuses(withKnocks([knock(-87.65, 41.9, 5), knock(-87.65, 41.9, 7)])),
+    ).toEqual([7, 0])
+  })
+
+  // The same table on the floor side, where the comparison runs the other way:
+  // a knock lands only if it makes the dot LESS actionable. Dot 1 is `unknown`
+  // (0) in the pack and a Serve conversation happened there, so `engaged` (7)
+  // lands — by rank, 2 over 0, which is the same answer `supporter` would get
+  // and the point of the table.
+  it('floors a dot by rank rather than by byte value', () => {
+    expect(statuses(withKnocks([knock(-87.66, 41.91, 7)]))).toEqual([0, 7])
+  })
+
   it('leaves the people and household counts alone', () => {
     const decoded = withKnocks([knock(-87.65, 41.9, 1)])
     const result = applyLoggedKnocks(decoded, runFilter(decoded, new Map()))
