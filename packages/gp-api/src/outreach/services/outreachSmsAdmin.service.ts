@@ -7,6 +7,7 @@ import {
 import {
   checkSmsStandards,
   type ApproveSmsOutreachRequest,
+  type CancelSmsOutreachRequest,
   type DenySmsOutreachRequest,
   type EditSmsOutreachRequest,
   type SmsAdminDetailResponse,
@@ -17,6 +18,7 @@ import { addDays, format, subDays } from 'date-fns'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { OutreachService } from './outreach.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
@@ -67,6 +69,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
+    private readonly outreachService: OutreachService,
   ) {
     super()
   }
@@ -74,7 +77,9 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   private queueWhere(): Prisma.OutreachWhereInput {
     return {
       outreachType: OutreachType.p2p,
-      status: OutreachStatus.pending,
+      // Canceled rows stay visible (the Canceled tab's audit trail); only
+      // pending rows are actionable.
+      status: { in: [OutreachStatus.pending, OutreachStatus.canceled] },
       projectId: { not: null },
     }
   }
@@ -145,6 +150,39 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       ),
       stats,
     }
+  }
+
+  /**
+   * Admin cancel runs the candidate's own unwind (vendor delete, refund,
+   * promo restore) with staff attribution. The past-send-time guard
+   * inside cancelOutreach applies to staff too — a mid-send vendor
+   * delete is a mess regardless of who clicks.
+   */
+  async cancel(
+    outreachId: number,
+    input: CancelSmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, outreachType: OutreachType.p2p },
+      include: queueInclude,
+    })
+    if (!row || !row.campaignId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    await this.outreachService.cancelOutreach(outreachId, row.campaignId, {
+      canceledBy: input.canceledBy,
+      byAdmin: true,
+    })
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const registrations = await this.registrationsByCampaign([updated])
+    return this.toQueueItem(
+      updated,
+      registrations.get(updated.campaignId ?? -1),
+      null,
+    )
   }
 
   /**
@@ -419,6 +457,9 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     const identityIds = [
       ...new Set(
         rows
+          // A canceled row's vendor job was deleted with the cancel — a
+          // read for it can only fail.
+          .filter((row) => row.status === OutreachStatus.pending)
           .map((row) => row.identityId)
           .filter((id): id is string => id !== null),
       ),
@@ -521,6 +562,9 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       canvassRequestedAt: row.canvassRequestedAt,
       adminEditedAt: row.adminEditedAt,
       adminEditedBy: row.adminEditedBy,
+      canceledAt: row.canceledAt,
+      canceledBy: row.canceledBy,
+      canceledByAdmin: row.canceledByAdmin,
       standards: row.script
         ? checkSmsStandards(row.script, {
             candidateNames,
@@ -543,6 +587,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     row: QueueRow,
     job: PeerlyJob | null,
   ): SmsApprovalStatus {
+    if (row.status === OutreachStatus.canceled) return 'canceled'
     if (row.deniedAt) return 'denied'
     if (job?.canvassers_schedule?.approved) return 'peerly_approved'
     if (row.canvassRequestedAt) return 'canvass_requested'

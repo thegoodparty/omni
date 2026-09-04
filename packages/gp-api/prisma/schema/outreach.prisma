@@ -96,6 +96,12 @@ model Outreach {
   // candidate's name.
   adminEditedAt                     DateTime?                          @map("admin_edited_at")
   adminEditedBy                     String?                            @map("admin_edited_by")
+  // Cancel attribution for the console's Canceled tab: who ended the send
+  // (the candidate from the webapp, or a named admin from the console).
+  // Nullable — pre-attribution cancels carry only the status flip.
+  canceledAt                        DateTime?                          @map("canceled_at")
+  canceledBy                        String?                            @map("canceled_by")
+  canceledByAdmin                   Boolean                            @default(false) @map("canceled_by_admin")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill. Invariant (DB-enforced by a CHECK, see migration
   // add_outreach_org_scope): every row needs exactly one scoping path —

@@ -853,6 +853,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   async cancelOutreach(
     outreachId: number,
     campaignId: number,
+    attribution?: { canceledBy: string; byAdmin: boolean },
   ): Promise<{ outreach: Outreach; refunded: boolean }> {
     const outreach = await this.model.findFirst({
       where: { id: outreachId, campaignId },
@@ -892,7 +893,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
     const claimed = await this.model.updateMany({
       where: { id: outreachId, status: OutreachStatus.pending },
-      data: { status: OutreachStatus.canceled },
+      data: {
+        status: OutreachStatus.canceled,
+        canceledAt: new Date(),
+        canceledBy: attribution?.canceledBy ?? null,
+        canceledByAdmin: attribution?.byAdmin ?? false,
+      },
     })
     if (claimed.count === 0) {
       const current = await this.model.findFirstOrThrow({
@@ -912,7 +918,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       try {
         await this.model.update({
           where: { id: outreachId },
-          data: { status: OutreachStatus.pending },
+          data: {
+            status: OutreachStatus.pending,
+            canceledAt: null,
+            canceledBy: null,
+            canceledByAdmin: false,
+          },
         })
       } catch (revertErr) {
         this.logger.error(
