@@ -37,14 +37,6 @@ const ROBOCALL_SEND_SWEEP_JOB = 'robocallSendSweep'
 // window while still recovering a stranded hold long before it matters.
 const ROBOCALL_DIALING_STALE_MINUTES = 15
 
-// The deliberate enable-switch for the hand-supervised live dial test, matching
-// the MEETINGS_AUTOMATION_ENABLED feature-flag pattern. Default OFF: the send
-// cron dials real phones, so it stays a no-op until this is explicitly set AND
-// the persisted compliance-pass gate (below) is wired. Not a substitute for the
-// prod-only guard — both must pass.
-const isRobocallSendEnabled = (): boolean =>
-  process.env.ROBOCALL_SEND_ENABLED === 'true'
-
 // Why a launch attempt did not cleanly commit `dialed`, which decides how a
 // reconcile treats a PAUSED / unresolved status read (see `reconcileDialing`):
 //   - `permanent`: a definitive 4xx reject — the START was refused, so the
@@ -89,19 +81,17 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // campaign is launched/reconciled once. @Cron (not @Interval) so the schedule
   // survives deploys and every replica fires on the same instant.
   //
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard) AND behind the
-  // ROBOCALL_SEND_ENABLED kill-switch: this sweep DIALS REAL PHONES against a
-  // rate-limited vendor and spends the authorized hold, so it must never fire on
-  // dev/preview, nor on prod until the dial test is deliberately enabled. The
-  // Pro/paywall gate is inherited: a draft only reaches `authorized` + a staged
-  // campaign by passing the Pro-gated authorize + staging path.
+  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): this sweep DIALS REAL
+  // PHONES against a rate-limited vendor and spends the authorized hold, so it
+  // must never fire on dev/preview. The Pro/paywall gate is inherited: a draft
+  // only reaches `authorized` + a staged campaign by passing the Pro-gated
+  // authorize + staging path.
   @Cron(ROBOCALL_SEND_SWEEP_CRON, {
     name: ROBOCALL_SEND_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallSend(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
-    if (!isRobocallSendEnabled()) return
 
     const now = new Date()
     const arrived = await this.model.findMany({

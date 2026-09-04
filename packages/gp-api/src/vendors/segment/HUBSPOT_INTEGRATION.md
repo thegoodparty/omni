@@ -469,6 +469,23 @@ for non-email actions); only the email leg moved. The asset id is
 `HUBSPOT_PIN_SENT_EMAIL_ID` — unset (every environment today, pending the
 Ops-created asset) skips the single-send call with no behavior change.
 
+The rest of the 10DLC / TCR compliance MOVE set (ENG-11035) is cut over the
+same way, each on its own asset id, each still firing its existing Segment
+event unchanged: Form Submitted (`campaignTcrCompliance.controller.ts`,
+`HUBSPOT_FORM_SUBMITTED_EMAIL_ID`), PIN Submitted (same controller,
+`HUBSPOT_PIN_SUBMITTED_EMAIL_ID`), Compliance Completed
+(`queueConsumer.service.ts` `handleTcrComplianceCheckMessage` — no acting
+user on this SQS-fired path, so the recipient is the campaign's account
+email resolved the same way the handler already resolves the Segment
+event's target `userId`; `HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID`), and
+Compliance Rejected (`campaignTcrCompliance.service.ts`, both the
+`cv_submit` and `cv_status_check` firing sites,
+`HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID`). All four env vars are unset in
+every environment today, pending their Ops-created assets. Ops removes each
+email's workflow send action once its asset is created and the env var is
+set in prod — until then every one of these paths is a no-op single-send
+alongside the unchanged workflow email.
+
 The seven robocall payment/receipt milestones (ENG-11035, see the
 "Robocall payment / receipt" table above) are the second batch cut over,
 via the shared `OutreachRobocallSingleSendService`. Same shape: each

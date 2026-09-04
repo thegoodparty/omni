@@ -156,6 +156,22 @@ const getPinSentSingleSendEmailId = (): number | null => {
   return Number.isFinite(emailId) ? emailId : null
 }
 
+// Same pattern as HUBSPOT_PIN_SENT_EMAIL_ID above, for the ComplianceRejected
+// notification (ENG-11035). Unset in every environment today.
+const getComplianceRejectedSingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
+
+// Same pattern, for the ComplianceCompleted (texting-unlocked) notification
+// the SQS consumer fires from handleTcrComplianceCheckMessage (ENG-11035).
+const getComplianceCompletedSingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
+
 // Filler for the NOT NULL business columns on an internal-testing approval
 // row — the row never reaches Peerly (no identity is ever minted for it), so
 // these values are display-only.
@@ -499,6 +515,19 @@ export class CampaignTcrComplianceService extends createPrismaBase(
               : {}),
           })
           .catch(() => undefined)
+        try {
+          await this.sendComplianceRejectedSingleSend(user.email, {
+            rejection_source: 'cv_status_check',
+            peerly_identity_id: peerlyIdentityId,
+          })
+        } catch (err) {
+          this.logger.error(
+            { err, campaignId: campaign.id },
+            '[TCR Compliance] HubSpot single-send failed for Compliance ' +
+              'Rejected; the workflow email path still fires from the ' +
+              'Segment event',
+          )
+        }
       }
       return
     }
@@ -649,6 +678,55 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       this.logger.debug(
         'HUBSPOT_PIN_SENT_EMAIL_ID not set — skipping HubSpot single-send; ' +
           'the workflow email path still covers this notification',
+      )
+      return
+    }
+    await this.hubspotSingleSend.sendSingleSend({
+      emailId,
+      to,
+      customProperties,
+    })
+  }
+
+  // Shared by both ComplianceRejected firing sites below (the synchronous
+  // cv_submit rejection and the CV status scan's later cv_status_check
+  // detection). Unset HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID is a no-op, same
+  // as sendPinNotificationSingleSend above.
+  private async sendComplianceRejectedSingleSend(
+    to: string,
+    customProperties: Record<string, string>,
+  ): Promise<void> {
+    const emailId = getComplianceRejectedSingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this ' +
+          'notification',
+      )
+      return
+    }
+    await this.hubspotSingleSend.sendSingleSend({
+      emailId,
+      to,
+      customProperties,
+    })
+  }
+
+  // Called by the SQS consumer's handleTcrComplianceCheckMessage — that
+  // path has no acting user, so it resolves the account email off the
+  // campaign relation the same way it already resolves the Segment event's
+  // target userId, and passes it in here. Unset
+  // HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID is a no-op, same as the others.
+  async sendComplianceCompletedSingleSend(
+    to: string,
+    customProperties: Record<string, string>,
+  ): Promise<void> {
+    const emailId = getComplianceCompletedSingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this ' +
+          'notification',
       )
       return
     }
@@ -1576,6 +1654,19 @@ export class CampaignTcrComplianceService extends createPrismaBase(
               : {}),
           })
           .catch(() => undefined)
+        try {
+          await this.sendComplianceRejectedSingleSend(user.email, {
+            rejection_source: 'cv_submit',
+            rejection_reason: error.message,
+          })
+        } catch (err) {
+          this.logger.error(
+            { err, campaignId: campaign.id },
+            '[TCR Compliance] HubSpot single-send failed for Compliance ' +
+              'Rejected; the workflow email path still fires from the ' +
+              'Segment event',
+          )
+        }
       }
       throw error
     }

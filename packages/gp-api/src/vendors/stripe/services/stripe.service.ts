@@ -401,8 +401,8 @@ export class StripeService {
   // + outreachId metadata createOffSessionCharge stamps. The crash-recovery path
   // uses it to reconcile a charge that landed before its DB commit was lost —
   // WITHOUT re-charging — so recovery is idempotent independent of Stripe's 24h
-  // idempotency-key window (which the capture kill-switch's own toggling can
-  // outlast). Search is eventually consistent (~1m index lag); recovery only
+  // idempotency-key window (which a recovery delayed days can outlast). Search
+  // is eventually consistent (~1m index lag); recovery only
   // runs on rows already stranded past ROBOCALL_CHARGING_STALE_MINUTES, far
   // longer. Returns the succeeded PI's id + amount_received, or null.
   async findSucceededChargeByOutreach(outreachId: number): Promise<{

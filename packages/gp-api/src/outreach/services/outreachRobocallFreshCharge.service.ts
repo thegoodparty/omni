@@ -30,11 +30,6 @@ const ROBOCALL_CHARGING_STALE_MINUTES = 15
 // why only this path guards it). A run billing under the minimum is written off.
 const STRIPE_MIN_CHARGE_CENTS = 50
 
-// Kill-switch, default OFF: this MOVES REAL MONEY (a fresh off-session charge).
-// Shares ROBOCALL_CAPTURE_ENABLED with the hold-capture path — both are the
-// settlement charge, enabled together for the supervised live test.
-const isCaptureEnabled = () => process.env.ROBOCALL_CAPTURE_ENABLED === 'true'
-
 // The fresh-charge half of settlement recovery: for a DELIVERED run the capture
 // slice parked in `uncollectable` because its authorization hold lapsed before
 // capture (expired / canceled), charge the saved card OFF-SESSION for the FULL
@@ -46,8 +41,8 @@ const isCaptureEnabled = () => process.env.ROBOCALL_CAPTURE_ENABLED === 'true'
 // `charged` (collected) or back to `uncollectable` with `chargeIntentId` set on
 // a decline (so the run is never charge-attempted again and a later dispute
 // reconciles). This charges a card WITHOUT a live pre-authorization, so it is
-// the riskiest money step — gated behind the capture kill-switch and reached
-// only for the rare lapsed-hold run the capture sweep already alerted CRITICAL.
+// the riskiest money step, reached only for the rare lapsed-hold run the capture
+// sweep already alerted CRITICAL.
 @Injectable()
 export class OutreachRobocallFreshChargeService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -63,14 +58,13 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
   // No CronLockService: idempotent per record behind the `uncollectable →
   // charging` claim, so two replicas both SELECT the same candidates but only
   // ONE wins each row's claim. Prod-only (a real charge; Stripe is stubbed on
-  // dev/preview) AND kill-switch-gated (default OFF).
+  // dev/preview).
   @Cron(ROBOCALL_FRESH_CHARGE_SWEEP_CRON, {
     name: ROBOCALL_FRESH_CHARGE_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepFreshCharges(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
-    if (!isCaptureEnabled()) return
 
     // Chargeable = a delivered, lapsed-hold run with the data to bill exactly
     // and a saved card, that has NOT yet been charge-attempted (chargeIntentId
@@ -252,9 +246,9 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
     // IDEMPOTENT-FOREVER GUARD: before charging, check whether a prior attempt's
     // charge already SUCCEEDED at Stripe (a stale-charging recovery whose commit
     // was lost, or a lost response). Reconcile it WITHOUT charging again. This
-    // does not rely on Stripe's 24h idempotency-key window — which the capture
-    // kill-switch's toggling can outlast — so a recovery days later never
-    // double-charges. On the first (non-recovery) settle this returns null.
+    // does not rely on Stripe's 24h idempotency-key window — which a recovery
+    // delayed by a crash + investigation can outlast — so a recovery days later
+    // never double-charges. On the first (non-recovery) settle this returns null.
     const existing = await this.stripe.findSucceededChargeByOutreach(outreachId)
     if (existing) {
       this.logger.info(

@@ -172,6 +172,7 @@ const buildService = (latency: Latency) => {
     users,
     {} as unknown as HubspotService,
     {} as never,
+    {} as never,
     organizations,
     aiChat,
     voterFile,

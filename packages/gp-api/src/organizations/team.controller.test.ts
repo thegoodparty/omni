@@ -86,13 +86,17 @@ const stubEmail = () => service.app.get(EmailService)
 const stubAnalytics = () => service.app.get(AnalyticsService)
 const stubCrmTeamMembers = () => service.app.get(CrmTeamMembersService)
 
-// Every membership-creation/role-change path fire-and-forgets a HubSpot
-// sync (ENG-10826). Default it to a resolved no-op so tests that don't
-// care about it don't leave a real, unmocked DB lookup racing in the
-// background into the next test — individual tests below re-spy this to
-// assert on it or to simulate a HubSpot failure.
+// Every membership-creation/role-change/removal path fire-and-forgets a
+// HubSpot sync (ENG-10826, ENG-11030). Default both to a resolved no-op so
+// tests that don't care about it don't leave a real, unmocked DB lookup
+// racing in the background into the next test — individual tests below
+// re-spy these to assert on them or to simulate a HubSpot failure.
 beforeEach(() => {
   vi.spyOn(stubCrmTeamMembers(), 'syncTeamMember').mockResolvedValue(undefined)
+  vi.spyOn(
+    stubCrmTeamMembers(),
+    'removeTeamMemberAssociation',
+  ).mockResolvedValue(undefined)
 })
 
 const createCampaignWithHubspotId = (hubspotId: string) =>
@@ -1246,6 +1250,7 @@ describe('PATCH /v1/organizations/team/members/:userId', () => {
       name: null,
       role: 'campaignAdmin',
       crmCompanyId: 'company-789',
+      fromRole: 'volunteer',
     })
   })
 
@@ -1373,6 +1378,101 @@ describe('DELETE /v1/organizations/team/members/:userId', () => {
       'Team - Member Removed',
       { role: 'campaignAdmin' },
     )
+  })
+
+  it('syncs the removal to HubSpot and clears team_role when no membership remains', async () => {
+    await createOrg()
+    await createCampaignWithHubspotId('company-remove-1')
+    const member = await createMemberUser({ email: 'remove-synced@x.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+    const removeTeamMemberAssociation = vi
+      .spyOn(stubCrmTeamMembers(), 'removeTeamMemberAssociation')
+      .mockResolvedValue(undefined)
+
+    const result = await service.client.delete(
+      `${TEAM_PATH}/members/${member.id}`,
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(204)
+    // Fire-and-forget: a previous test's late call can land during this
+    // one, so anchor the wait on THIS call's exact args (toHaveBeenCalledWith
+    // matches any recorded call) rather than a bare toHaveBeenCalled(),
+    // which a stale call would satisfy before the real one has landed.
+    await vi.waitFor(() =>
+      expect(removeTeamMemberAssociation).toHaveBeenCalledWith({
+        email: 'remove-synced@x.com',
+        role: 'campaignAdmin',
+        crmCompanyId: 'company-remove-1',
+        clearTeamRole: true,
+      }),
+    )
+  })
+
+  it('does not clear team_role when the member has a membership on another team', async () => {
+    await createOrg()
+    await createCampaignWithHubspotId('company-remove-2')
+    const member = await createMemberUser({ email: 'multi-team@x.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+    const otherOrg = await service.prisma.organization.create({
+      data: { slug: 'other-team-org', ownerId: service.user.id },
+    })
+    await service.prisma.organizationMembership.create({
+      data: {
+        organizationSlug: otherOrg.slug,
+        userId: member.id,
+        role: OrganizationRole.volunteer,
+      },
+    })
+    const removeTeamMemberAssociation = vi
+      .spyOn(stubCrmTeamMembers(), 'removeTeamMemberAssociation')
+      .mockResolvedValue(undefined)
+
+    const result = await service.client.delete(
+      `${TEAM_PATH}/members/${member.id}`,
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(204)
+    // Same fire-and-forget hazard as above — anchor on this test's own
+    // email/clearTeamRole combination so a stale call from a previous test
+    // (a different email, clearTeamRole: true) can't satisfy the wait.
+    await vi.waitFor(() =>
+      expect(removeTeamMemberAssociation).toHaveBeenCalledWith({
+        email: 'multi-team@x.com',
+        role: 'campaignAdmin',
+        crmCompanyId: 'company-remove-2',
+        clearTeamRole: false,
+      }),
+    )
+  })
+
+  it('does not fail removal when the HubSpot sync throws', async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'remove-resilient@x.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+    const removeTeamMemberAssociation = vi
+      .spyOn(stubCrmTeamMembers(), 'removeTeamMemberAssociation')
+      .mockRejectedValue(new Error('hubspot down'))
+
+    const result = await service.client.delete(
+      `${TEAM_PATH}/members/${member.id}`,
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(204)
+    await vi.waitFor(() =>
+      expect(removeTeamMemberAssociation).toHaveBeenCalled(),
+    )
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: member.id,
+        },
+      },
+    })
+    expect(row).toBeNull()
   })
 
   it("a removed member's next org-scoped request 404s", async () => {

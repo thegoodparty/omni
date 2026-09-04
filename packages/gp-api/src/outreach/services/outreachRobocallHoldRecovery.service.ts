@@ -26,10 +26,10 @@ const ROBOCALL_HOLD_RECOVERY_SWEEP_JOB = 'robocallHoldRecoverySweep'
 // row to pending_payment with a bumped payAttempt so the normal on-session
 // re-authorize (or the deferred sweep) re-places cleanly under a fresh
 // idempotency key rather than replaying the just-cancelled PI. It never places
-// or captures — only cancels and reverts, both safe — so it is
-// prod-only but deliberately NOT kill-switch-gated: a hold_pending strand can
-// happen during the supervised live test (placement is on-session, unswitched),
-// and leaving reserved money stranded is the harm it exists to rescue.
+// or captures — only cancels and reverts, both safe — so it needs no gate
+// beyond prod-only: a hold_pending strand can happen whenever a placement dies
+// mid-commit, and leaving reserved money stranded is the harm it exists to
+// rescue.
 @Injectable()
 export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
   MODELS.OutreachRobocall,

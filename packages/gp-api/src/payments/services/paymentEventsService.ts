@@ -132,7 +132,7 @@ export class PaymentEventsService {
   // this customer's hold_failed robocall drafts whose send is still ahead — the
   // team flow's "card updated before send time → retry the hold now" arm, so the
   // candidate does not wait for the daily reminder. Cards only; the service owns
-  // the off-session-money kill-switch and the per-draft placement CAS.
+  // the per-draft placement CAS.
   async paymentMethodAttachedHandler(
     event: Stripe.PaymentMethodAttachedEvent,
   ): Promise<void> {

@@ -5,7 +5,7 @@ import { CommitteeType, TcrComplianceStatus } from '../../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceController } from './campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
@@ -20,6 +20,7 @@ import {
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 
 function getGuards(methodName: keyof CampaignTcrComplianceController) {
   return (
@@ -64,11 +65,17 @@ describe('CampaignTcrComplianceController', () => {
   let mockComplianceStateService: {
     findStateForCampaign: ReturnType<typeof vi.fn>
   }
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
 
   beforeEach(async () => {
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
     }
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
 
     mockTcrService = {
       fetchByCampaignId: vi.fn().mockResolvedValue(null),
@@ -121,6 +128,10 @@ describe('CampaignTcrComplianceController', () => {
         { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
+        },
         CampaignTcrComplianceController,
       ],
     }).compile()
@@ -195,6 +206,38 @@ describe('CampaignTcrComplianceController', () => {
       )
 
       expect(result).toEqual(mockTcrCompliance)
+    })
+
+    describe('HubSpot single-send (ENG-11035)', () => {
+      it('does not call single-send when HUBSPOT_FORM_SUBMITTED_EMAIL_ID is unset', async () => {
+        await controller.createTcrCompliance(mockCampaign, tcrComplianceDto)
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('sends to the triggering account email once configured', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+
+        await controller.createTcrCompliance(mockCampaign, tcrComplianceDto)
+
+        expect(mockSendSingleSend).toHaveBeenCalledWith({
+          emailId: 111222,
+          to: mockUser.email,
+          customProperties: { source: 'compliance_flow' },
+        })
+      })
+
+      it('still returns the result when single-send fails', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+
+        const result = await controller.createTcrCompliance(
+          mockCampaign,
+          tcrComplianceDto,
+        )
+
+        expect(result).toEqual(mockTcrCompliance)
+      })
     })
   })
 
@@ -272,6 +315,50 @@ describe('CampaignTcrComplianceController', () => {
       await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
 
       expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+
+    describe('HubSpot single-send (ENG-11035)', () => {
+      it('does not call single-send when HUBSPOT_FORM_SUBMITTED_EMAIL_ID is unset', async () => {
+        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('sends to the triggering account email with the agentic source once configured', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+
+        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
+
+        expect(mockSendSingleSend).toHaveBeenCalledWith({
+          emailId: 111222,
+          to: mockUser.email,
+          customProperties: { source: 'agentic_compliance_flow' },
+        })
+      })
+
+      it('does not call single-send on an idempotent re-call', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+        mockTcrService.createAgentic.mockResolvedValue({
+          record: mockTcrCompliance,
+          created: false,
+        })
+
+        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('still returns the record when single-send fails', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+
+        const result = await controller.createAgenticTcrCompliance(
+          mockCampaign,
+          agenticDto,
+        )
+
+        expect(result).toEqual(mockTcrCompliance)
+      })
     })
 
     it('still returns the result when analytics tracking fails', async () => {
@@ -369,6 +456,54 @@ describe('CampaignTcrComplianceController', () => {
       )
 
       expect(result).toEqual(expectedBrand)
+    })
+
+    describe('HubSpot single-send (ENG-11035)', () => {
+      it('does not call single-send when HUBSPOT_PIN_SUBMITTED_EMAIL_ID is unset', async () => {
+        await controller.submitCampaignVerifyPIN(
+          mockTcrCompliance.id,
+          { pin: '123456' },
+          mockUser,
+          mockCampaign,
+        )
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('sends to the triggering account email once configured', async () => {
+        vi.stubEnv('HUBSPOT_PIN_SUBMITTED_EMAIL_ID', '333444')
+
+        await controller.submitCampaignVerifyPIN(
+          mockTcrCompliance.id,
+          { pin: '123456' },
+          mockUser,
+          mockCampaign,
+        )
+
+        expect(mockSendSingleSend).toHaveBeenCalledWith({
+          emailId: 333444,
+          to: mockUser.email,
+          customProperties: { source: 'compliance_flow' },
+        })
+      })
+
+      it('still returns the result when single-send fails', async () => {
+        vi.stubEnv('HUBSPOT_PIN_SUBMITTED_EMAIL_ID', '333444')
+        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+        const expectedBrand = { brand: 'ok' }
+        mockTcrService.submitCampaignVerifyToken.mockResolvedValue(
+          expectedBrand,
+        )
+
+        const result = await controller.submitCampaignVerifyPIN(
+          mockTcrCompliance.id,
+          { pin: '123456' },
+          mockUser,
+          mockCampaign,
+        )
+
+        expect(result).toEqual(expectedBrand)
+      })
     })
   })
 

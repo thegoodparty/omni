@@ -28,12 +28,6 @@ const ROBOCALL_DEFERRED_HOLD_SWEEP_JOB = 'robocallDeferredHoldSweep'
 const ROBOCALL_DEFERRED_CANCEL_SWEEP_CRON = '1,16,31,46 * * * *'
 const ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB = 'robocallDeferredCancelSweep'
 
-// Kill-switch, default OFF. This sweep RESERVES REAL MONEY off-session without
-// the candidate present, so it must not auto-run until deliberately enabled —
-// same shape as MEETINGS_AUTOMATION_ENABLED.
-const isDeferredHoldEnabled = () =>
-  process.env.ROBOCALL_DEFERRED_HOLD_ENABLED === 'true'
-
 // Places the deferred authorization hold once a scheduled robocall enters the
 // hold window. At schedule time a send more than ROBOCALL_HOLD_WINDOW_DAYS out
 // returns `deferred` and places nothing, persisting only the chosen card
@@ -47,10 +41,9 @@ const isDeferredHoldEnabled = () =>
 // thrown) — so this sweep has no separate escalation call that could itself fail
 // and strand a retry storm. None of that is reimplemented here. A SECOND @Cron
 // here is the cancel-at-deadline cleanup: a deferred draft whose send passes
-// before a hold is ever placed (the leak when placement stays disabled past the
-// window) is transitioned pending_payment → cancelled + emits Canceled — prod-
-// only but NOT kill-switched, so the drafts stranded by a disabled placement
-// flag are still rescued.
+// before a hold is ever placed (repeated transient placement failures, or a
+// send that fell past its date between daily passes) is transitioned
+// pending_payment → cancelled + emits Canceled — prod-only, moving no money.
 @Injectable()
 export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -70,16 +63,14 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   // `authorized` is a no-op on the next pass. @Cron (not @Interval) so the
   // schedule survives deploys and every replica fires on the same instant.
   //
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard) AND kill-switch-gated:
-  // it reserves real money off-session, so it must not fire on dev/preview where
-  // Stripe is stubbed, and must stay OFF until explicitly enabled.
+  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): it reserves real money
+  // off-session, so it must not fire on dev/preview where Stripe is stubbed.
   @Cron(ROBOCALL_DEFERRED_HOLD_SWEEP_CRON, {
     name: ROBOCALL_DEFERRED_HOLD_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepDeferredHolds(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
-    if (!isDeferredHoldEnabled()) return
 
     const now = new Date()
     // Entered the window, still future: a card was chosen at schedule time (both
@@ -149,13 +140,11 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   }
 
   // Cancel-at-deadline cleanup for deferred drafts whose send passed WITHOUT a
-  // hold ever being placed. Prod-only, but deliberately NOT behind the
-  // ROBOCALL_DEFERRED_HOLD_ENABLED kill-switch: the leak this rescues happens
-  // PRECISELY when placement is disabled (the flag defaults OFF; if it stays off
-  // for >= ROBOCALL_HOLD_WINDOW_DAYS while a deferred draft exists, the send
-  // passes and the placement sweep — which only selects future sends — can never
-  // touch it again). Gating this on the same flag would let those exact stranded
-  // drafts leak forever. Cancel + notify move no money, so nothing to gate.
+  // hold ever being placed. The placement sweep only selects FUTURE sends, so
+  // once the send date passes — a draft whose window was missed by repeated
+  // transient placement failures, or one whose send fell past its date between
+  // daily passes — no other sweep can touch it, and it would strand in
+  // pending_payment forever. Cancel + notify move no money. Prod-only.
   @Cron(ROBOCALL_DEFERRED_CANCEL_SWEEP_CRON, {
     name: ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
