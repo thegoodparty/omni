@@ -201,7 +201,10 @@ const TeamPage = (): React.JSX.Element => {
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem
                                   variant="destructive"
-                                  disabled={removeMutation.isPending}
+                                  disabled={
+                                    removeMutation.isPending &&
+                                    removeMutation.variables === member.userId
+                                  }
                                   onClick={() =>
                                     removeMutation.mutate(member.userId)
                                   }
