@@ -185,20 +185,33 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 
-  it('undercharges when fewer calls completed than the hold estimate', async () => {
-    // Hold was for 100 (650c); only 60 dialed → 270c calls + 200c fee = 470c
-    // captured, remainder freed.
-    const outreachId = await createDraft({ completedCallCount: 60 })
+  it('captures the FULL authorized estimate when the draft-time count is smaller than the authorize basis (audience grew)', async () => {
+    // DRIFT: completedCallCount is the DRAFT-time billableCount snapshot, but
+    // authorizedAmountInCents is re-derived at AUTHORIZE time (up to ~82 days
+    // later). If the landline audience grew in that gap, calc(completedCallCount)
+    // is SMALLER than the amount held on the card and quoted. We must capture the
+    // FULL authorized estimate, never the smaller draft-count amount — a
+    // min(calc(count), authorized) clamp would leak revenue below the hold.
+    const outreachId = await createDraft({
+      completedCallCount: 60,
+      authorizedAmountInCents: calcRobocallTotalInCents(100),
+    })
 
     await capture.captureDraft(outreachId)
 
+    // The full authorized estimate (650c) is captured, NOT the smaller calc(60).
     expect(captureSpy).toHaveBeenCalledWith(
+      'pi_1',
+      calcRobocallTotalInCents(100),
+      `robocall-capture-${outreachId}`,
+    )
+    expect(captureSpy).not.toHaveBeenCalledWith(
       'pi_1',
       calcRobocallTotalInCents(60),
       expect.any(String),
     )
     expect((await readSatellite(outreachId)).capturedAmountInCents).toBe(
-      calcRobocallTotalInCents(60),
+      calcRobocallTotalInCents(100),
     )
   })
 

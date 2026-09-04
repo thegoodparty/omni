@@ -3,10 +3,7 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import {
-  calcRobocallAmountInCents,
-  calcRobocallTotalInCents,
-} from '@/shared/util/robocallPricing.util'
+import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -46,8 +43,8 @@ const isCaptureEnabled = () => process.env.ROBOCALL_CAPTURE_ENABLED === 'true'
 
 // The capture half of settlement: for a robocall run the completion sweep left
 // in `settling` with a confirmed `completedCallCount`, capture the authorized
-// hold for the ACTUAL billable amount — always <= the authorized amount (INV-1;
-// Stripe releases the remainder). The single-owner claim (`settling →
+// hold for the FULL authorized estimate (the amount held + quoted; INV-1 holds
+// by equality). The single-owner claim (`settling →
 // capturing`) elects one capturer, a FRESH PaymentIntent re-read decides the
 // branch (never trust the persisted state before moving money), and the terminal
 // is `captured` (charged), `voided` (zero billable), or `uncollectable` (the
@@ -236,15 +233,9 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // ALREADY CAPTURED (idempotent reconcile): a prior capture committed at
     // Stripe but lost its DB commit. Record the real captured amount and settle;
     // do NOT capture again. If amount_received is somehow absent, fall back to the
-    // amount we WOULD have captured (min(actual, authorized)) — never the
-    // authorized ceiling, which would overstate an undercharge run's receipt.
+    // authorized estimate — the amount we WOULD have captured.
     if (intent.status === 'succeeded') {
-      const captured =
-        intent.amount_received ??
-        Math.min(
-          calcRobocallTotalInCents(completedCallCount),
-          authorizedAmountInCents,
-        )
+      const captured = intent.amount_received ?? authorizedAmountInCents
       await this.commitCaptured(
         outreachId,
         captured,
@@ -316,10 +307,14 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
 
-    // INV-1: capture the ACTUAL amount (calls + number fee), clamped to never
-    // exceed the authorized hold. Stripe releases any remainder.
-    const actual = calcRobocallTotalInCents(completedCallCount)
-    const captureAmount = Math.min(actual, authorizedAmountInCents)
+    // Capture the FULL authorized estimate — the amount held on the card and
+    // quoted to the candidate, independent of the dialed count. The draft-time
+    // billableCount (→ completedCallCount) can be SMALLER than the authorize-time
+    // basis when the audience grows in the up-to-~82-day draft→authorize gap, so
+    // clamping to min(calc(count), authorized) would undercharge below the hold.
+    // Capturing the authorization amount removes that drift and trivially
+    // satisfies INV-1 (it equals the hold). Stripe releases any remainder.
+    const captureAmount = authorizedAmountInCents
 
     try {
       // Stable idempotency key (amount is deterministic per outreach — the count
