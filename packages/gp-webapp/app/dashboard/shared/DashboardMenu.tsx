@@ -352,7 +352,7 @@ export const getDashboardMenuItems = (
     (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
 
-  // The campaign tracker tab, and the "Your story" tab just above it (the
+  // The campaign tracker tab, and the "Your Story" tab just above it (the
   // story is what the tracker + plan are generated from).
   menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)

@@ -34,7 +34,7 @@ interface CampaignStoryPageProps {
   pathname?: string
 }
 
-// The standalone "Your story" dashboard page. Reuses the same onboarding story
+// The standalone "Your Story" dashboard page. Reuses the same onboarding story
 // cards (StoryIntakeCard for why/background, StoryIssuesCard for the policy
 // priorities). Unlike onboarding, it's a single editable page: one page-level
 // Save in the title bar commits every field at once, and a "Start over" clears
