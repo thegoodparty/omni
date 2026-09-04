@@ -2,11 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  DOOR_KNOCK_STATUSES,
-  DoorKnockingTurf,
-  DoorKnockStatus,
-} from '@goodparty_org/contracts'
+import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import {
   ActivityIcon,
   Button,
@@ -53,6 +49,7 @@ import {
   knockStatusCounts,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
+  surfaceStatuses,
 } from './statusPresentation'
 import { countDoors, knockableTargets } from '../routeCounts'
 
@@ -150,10 +147,16 @@ const StatusBreakdownTable = ({
   counts,
   total,
   caption,
+  statuses,
 }: {
   counts: Record<DoorKnockStatus, number>
   total: number
   caption: string
+  // The rows to print, which is one surface's vocabulary and not the whole
+  // wire enum: a Win list has no follow-up doors to report and a Serve list has
+  // no supporters, and a row that can only ever read zero is not the same
+  // statement as a row that happens to.
+  statuses: DoorKnockStatus[]
 }) => (
   <div className="overflow-hidden rounded-xl border border-border bg-card">
     <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
@@ -161,7 +164,7 @@ const StatusBreakdownTable = ({
       <p className="text-xs">{caption}</p>
     </div>
     <dl className="m-0">
-      {DOOR_KNOCK_STATUSES.map((status) => {
+      {statuses.map((status) => {
         const people = counts[status]
         const percent = total > 0 ? Math.round((people / total) * 100) : 0
         return (
@@ -559,6 +562,7 @@ export default function TurfDetailsSheet({
             <>
               <StatusBreakdownTable
                 counts={statusCounts}
+                statuses={surfaceStatuses(Boolean(route?.isServe))}
                 total={targets.length}
                 caption={`Based on ${targets.length.toLocaleString()} door knocking contact${
                   targets.length === 1 ? '' : 's'

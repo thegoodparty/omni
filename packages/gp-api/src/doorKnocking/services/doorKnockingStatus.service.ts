@@ -57,7 +57,12 @@ export class DoorKnockingStatusService extends createPrismaBase(
           { occurredAt: Prisma.SortOrder.desc },
           { id: Prisma.SortOrder.desc },
         ],
-        select: { personId: true, outcome: true, supportAnswer: true },
+        select: {
+          personId: true,
+          outcome: true,
+          supportAnswer: true,
+          followUp: true,
+        },
       }),
       this.contactStatus.currentStatusForPeople(
         organizationSlug,
@@ -71,6 +76,12 @@ export class DoorKnockingStatusService extends createPrismaBase(
     // mirrors derivedStatusSql's `(support_answer IS NOT NULL) DESC` ordering:
     // a later "not home" is a failed re-attempt, not a retraction of the
     // support they already told us about.
+    //
+    // "Answer-bearing" means either surface's answer. A Serve row carries only
+    // `followUp`, so reading support alone would leave every Serve knock out of
+    // this map and hand a later not-home the last word over the conversation
+    // that actually happened — the Serve version of exactly the retraction this
+    // preference exists to prevent.
     const latest = new Map<string, (typeof interactions)[number]>()
     const latestAnswered = new Map<string, (typeof interactions)[number]>()
     for (const interaction of interactions) {
@@ -78,7 +89,7 @@ export class DoorKnockingStatusService extends createPrismaBase(
         latest.set(interaction.personId, interaction)
       }
       if (
-        interaction.supportAnswer !== null &&
+        (interaction.supportAnswer !== null || interaction.followUp !== null) &&
         !latestAnswered.has(interaction.personId)
       ) {
         latestAnswered.set(interaction.personId, interaction)

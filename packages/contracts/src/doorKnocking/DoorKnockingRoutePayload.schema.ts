@@ -98,8 +98,25 @@ export type RoutePayloadTargetNotes = z.infer<
 >
 
 // Knock statuses derived from the CRM door-knock vocabulary (outcome +
-// supportAnswer). 'unknown' covers never-knocked, answered-but-unsure, and
-// unsure support.
+// supportAnswer + followUp). 'unknown' covers never-knocked,
+// answered-but-unsure, and unsure support.
+//
+// The last two are the Serve surface's endings, and they exist because
+// 'unknown' is what a Serve conversation would otherwise derive to. `answered`
+// is not a member of this array — everything under a support answer is a way a
+// door FAILED — so a walk whose canvasser is never asked about support would
+// never leave 'unknown', and `knockStatus !== 'unknown'` is the "logged"
+// predicate in the walk view, walk completion, the server-side turf counts and
+// both paper surfaces. A Serve walk needed its own terminal statuses to
+// register any progress at all.
+//
+// **Appended rather than slotted in beside the support answers they replace.**
+// The pack encodes a status as this array's index in a byte, and a frozen pack
+// on a phone is read against whatever vocabulary the client shipped with, so
+// inserting a member would silently re-label every existing byte during the
+// deploy skew. What the array order costs is the actionability ranking that
+// used to be read off it — see `STATUS_ACTIONABILITY` in the webapp's
+// `statusPresentation.ts`, which is now an explicit table for that reason.
 export const DOOR_KNOCK_STATUSES = [
   'unknown',
   'not_home',
@@ -108,6 +125,8 @@ export const DOOR_KNOCK_STATUSES = [
   'inaccessible',
   'refused',
   'not_a_voter',
+  'engaged',
+  'needs_follow_up',
 ] as const
 
 export const DoorKnockStatusSchema = z.enum(DOOR_KNOCK_STATUSES)

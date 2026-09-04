@@ -30,7 +30,12 @@ import {
   voterDemographicFacts,
 } from './demographicFacts'
 import RecordKnockForm from './RecordKnockForm'
-import { SUPPORT_OPTIONS } from './knockQuestions'
+import {
+  FOLLOW_UP_OPTIONS,
+  FOLLOW_UP_QUESTION,
+  SUPPORT_OPTIONS,
+  SUPPORT_QUESTION,
+} from './knockQuestions'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
@@ -44,7 +49,11 @@ import {
   STATUS_LABELS,
   targetMarker,
 } from './statusPresentation'
-import { supportAsOf, supportStatus } from './supportPresentation'
+import {
+  followUpAnswerFor,
+  supportAsOf,
+  supportStatus,
+} from './supportPresentation'
 
 const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
   <span
@@ -153,11 +162,36 @@ const VoterSupportCard = ({
     <section className="mb-4 rounded-xl border border-border">
       <SheetSectionHeader icon={BadgeCheckIcon} title="Voter support" />
       <div className="flex flex-col gap-4 p-4">
-        <FactRow label="Do they support you?" value={answer ?? NOT_ON_FILE} />
+        <FactRow label={SUPPORT_QUESTION} value={answer ?? NOT_ON_FILE} />
         {/* Not a canvas row. The status carries no timestamp, so this is read
             off the resident's own history and is simply absent when nothing
             there states the answer being shown — see `supportAsOf`. */}
         {asOf && <p className="text-sm text-muted-foreground">As of {asOf}</p>}
+      </div>
+    </section>
+  )
+}
+
+// The Serve surface's version of the card above, and it makes the same claim
+// under the same rule: silent unless the status came from a follow-up answer,
+// because every other status is a door nobody had a conversation at.
+//
+// **No "As of" line.** Support gets one by reading the resident's history for a
+// row that states the same answer, and `RouteTargetActivity`'s door-knock row
+// carries `supportAnswer` and nothing about follow-up — so there is no row here
+// that could date this. Absent rather than approximated from the newest knock,
+// which is the same call `supportAsOf` documents: a date read off a row that
+// does not state the answer being shown is a date attached to the wrong visit.
+// If a Serve official asks for one, the history row is where it comes from.
+const FollowUpCard = ({ status }: { status: DoorKnockStatus }) => {
+  const followUp = followUpAnswerFor(status)
+  if (!followUp) return null
+  const answer = FOLLOW_UP_OPTIONS.find(([option]) => option === followUp)?.[1]
+  return (
+    <section className="mb-4 rounded-xl border border-border">
+      <SheetSectionHeader icon={BadgeCheckIcon} title="Follow-up" />
+      <div className="flex flex-col gap-4 p-4">
+        <FactRow label={FOLLOW_UP_QUESTION} value={answer ?? NOT_ON_FILE} />
       </div>
     </section>
   )
@@ -629,9 +663,16 @@ export default function PersonSheet({
             facts={voterDemographicFacts(target, isServe)}
           />
 
-          {flagControl === null && (
-            <VoterSupportCard target={target} status={statusFor(target)} />
-          )}
+          {/* One card or the other, never both — the two read back answers to
+              questions only one surface asks, and a route only carries one
+              surface's answers. Each is silent for a status that came from
+              neither, so the pair renders nothing at an unopened door. */}
+          {flagControl === null &&
+            (isServe ? (
+              <FollowUpCard status={statusFor(target)} />
+            ) : (
+              <VoterSupportCard target={target} status={statusFor(target)} />
+            ))}
 
           <FactCard
             icon={FolderOpenIcon}

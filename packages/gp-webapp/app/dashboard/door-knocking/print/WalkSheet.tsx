@@ -16,8 +16,9 @@ import {
   legTravelLine,
   MARK_INSTRUCTION,
   RECORDS_NOTICE,
-  SUPPORT_BOXES,
+  answerBoxes,
   targetPhone,
+  walkColumns,
   WALK_COLUMNS,
   walkSummary,
 } from './walkFacts'
@@ -77,6 +78,9 @@ interface ResidentRowProps {
   address: string | null
   travel: string | null
   alsoHere: string | null
+  // Which surface's answer column this row prints, off the route payload. Paper
+  // has no organization above it to ask.
+  isServe: boolean
 }
 
 const ResidentRow = ({
@@ -87,6 +91,7 @@ const ResidentRow = ({
   address,
   travel,
   alsoHere,
+  isServe,
 }: ResidentRowProps) => {
   const meta = describeTarget(target)
   const lastContact = lastContactLine(target)
@@ -154,12 +159,13 @@ const ResidentRow = ({
           <td>
             <MarkBoxes options={ANSWERED_BOXES} />
           </td>
-          {/* Support, with the one engagement answer a canvasser still has to be
-              able to write down in front of it — paper cannot branch the way the
+          {/* The surface's own last question — support on Win, follow-up on
+              Serve — with the one engagement answer a canvasser still has to be
+              able to write down in front of it: paper cannot branch the way the
               app's walkthrough does, so the ending and the answer share a
               column. Assembled in `walkFacts` from the form's own constants. */}
           <td>
-            <MarkBoxes options={SUPPORT_BOXES} />
+            <MarkBoxes options={answerBoxes(isServe)} />
           </td>
           {/* Empty and stays empty. This is the column the canvasser writes in;
               the ruled line the old layout drew inside it only limited them to
@@ -290,6 +296,10 @@ export default function WalkSheet({
   payload,
 }: WalkSheetProps) {
   const stops = payload.stops.slice().sort((a, b) => a.seq - b.seq)
+  // Absent reads as Win: every route frozen before `isServe` shipped belonged
+  // to that surface, and a service worker's snapshot carries no such key.
+  const isServe = Boolean(payload.isServe)
+  const columns = walkColumns(isServe)
 
   return (
     <div className="ws mx-auto max-w-[10in] p-6 print:max-w-none print:p-0">
@@ -320,7 +330,7 @@ export default function WalkSheet({
       ) : (
         <table className="ws-table">
           <colgroup>
-            {WALK_COLUMNS.map(({ key, width }) => (
+            {columns.map(({ key, width }) => (
               <col key={key} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
@@ -346,7 +356,7 @@ export default function WalkSheet({
               </td>
             </tr>
             <tr className="ws-cols">
-              {WALK_COLUMNS.map(({ key, label }) => (
+              {columns.map(({ key, label }) => (
                 <th key={key} scope="col">
                   {label}
                 </th>
@@ -369,7 +379,7 @@ export default function WalkSheet({
             {stops.map((stop) => (
               <Fragment key={stop.id}>
                 {stopRows(stop).map(({ key, ...row }) => (
-                  <ResidentRow key={key} {...row} />
+                  <ResidentRow key={key} {...row} isServe={isServe} />
                 ))}
               </Fragment>
             ))}

@@ -78,7 +78,12 @@ export class DoorKnockingPackService extends createPrismaBase(
         // means truncation (absurd knock volume) drops the OLDEST rows, and a
         // dropped person just renders as unknown on the map.
         take: 200_000,
-        select: { personId: true, outcome: true, supportAnswer: true },
+        select: {
+          personId: true,
+          outcome: true,
+          supportAnswer: true,
+          followUp: true,
+        },
       }),
     ])
     // `null` (over the cap) becomes absent, not empty — the contract's two

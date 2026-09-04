@@ -5,6 +5,7 @@ import { useMutation } from '@tanstack/react-query'
 import {
   DoorKnockOutcome,
   DoorKnockStatus,
+  FollowUpAnswer,
   RoutePayloadTarget,
   SupportAnswer,
   WillVoteAnswer,
@@ -20,6 +21,8 @@ import {
   ANSWER_OPTIONS,
   ENGAGEMENT_OPTIONS,
   ENGAGEMENT_QUESTION,
+  FOLLOW_UP_OPTIONS,
+  FOLLOW_UP_QUESTION,
   NOTE_QUESTION,
   OUTCOME_QUESTION,
   SUPPORT_OPTIONS,
@@ -99,8 +102,15 @@ export default function RecordKnockForm({
   clientKey,
   onRecorded,
 }: RecordKnockFormProps) {
-  // A Serve org (an elected official) has no election on the calendar for a
-  // resident to vote in, so the question — and the answer — never exist here.
+  // Which surface's engaged branch this is. An elected official's canvasser
+  // asks neither of the Win questions — a constituent has no candidate to
+  // support and no election on the calendar to turn out for — so Serve gets one
+  // question of its own in place of both.
+  //
+  // It has to have one. Every "logged" predicate in this feature is
+  // `knockStatus !== 'unknown'`, and with no answer at all an engaged Serve
+  // door derives to exactly that: the walk would not advance, the list would
+  // never complete, and paper would reprint the door with empty boxes.
   const serveMode = useDoorKnockingServeMode()
   // Two steps, two pieces of state, because the contract's five-way outcome is
   // a flattening of the tree the canvasser walks: `answered` in step one only
@@ -111,6 +121,7 @@ export default function RecordKnockForm({
     SupportAnswer | undefined
   >()
   const [willVote, setWillVote] = useState<WillVoteAnswer | undefined>()
+  const [followUp, setFollowUp] = useState<FollowUpAnswer | undefined>()
   const [note, setNote] = useState('')
   // Dictation is the point of the notes field in the field: nobody types a
   // paragraph one-handed on a doorstep in the rain. The shared hook already
@@ -129,6 +140,7 @@ export default function RecordKnockForm({
       outcome: DoorKnockOutcome
       supportAnswer?: SupportAnswer
       willVote?: WillVoteAnswer
+      followUp?: FollowUpAnswer
       note?: string
     }) =>
       clientRequest('POST /v1/door-knocking/interactions', {
@@ -137,6 +149,7 @@ export default function RecordKnockForm({
         outcome: input.outcome,
         ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
         ...(input.willVote ? { willVote: input.willVote } : {}),
+        ...(input.followUp ? { followUp: input.followUp } : {}),
         ...(input.note ? { note: input.note } : {}),
       }).then((res) => res.data),
     onSuccess: (data, input) => {
@@ -148,6 +161,7 @@ export default function RecordKnockForm({
         hasNote: Boolean(input.note),
         ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
         ...(input.willVote ? { willVote: input.willVote } : {}),
+        ...(input.followUp ? { followUp: input.followUp } : {}),
       })
       onRecorded(data.personId, data.knockStatus)
     },
@@ -159,12 +173,11 @@ export default function RecordKnockForm({
   // which was only ever the branch into it.
   const finalOutcome = opened ? engagement : outcome
   // Every branch has an ending, and the buttons appear when the canvasser
-  // reaches one. An engaged door isn't finished until both answers are in —
-  // except in serve mode, where will-vote is never asked, so support alone
-  // finishes the branch.
+  // reaches one. An engaged Win door isn't finished until both answers are in;
+  // an engaged Serve door has exactly one question and is finished by it.
   const complete = engaged
     ? serveMode
-      ? Boolean(supportAnswer)
+      ? Boolean(followUp)
       : Boolean(supportAnswer && willVote)
     : Boolean(finalOutcome)
 
@@ -173,6 +186,7 @@ export default function RecordKnockForm({
     setEngagement(undefined)
     setSupportAnswer(undefined)
     setWillVote(undefined)
+    setFollowUp(undefined)
     setNote('')
     // The failure banner isn't gated on the walk, so without this a Cancel
     // after a failed save leaves it sitting over an empty form promising that
@@ -187,9 +201,12 @@ export default function RecordKnockForm({
       outcome: finalOutcome,
       // The contract rejects answers on anything but `answered`, so a
       // canvasser who backed out of the engaged branch can't ship the answers
-      // they had picked inside it.
-      ...(engaged && supportAnswer ? { supportAnswer } : {}),
+      // they had picked inside it. The surface guards are the same rule one
+      // step further in: the contract also refuses support and follow-up on one
+      // payload, and only the form knows which branch it just walked.
+      ...(engaged && supportAnswer && !serveMode ? { supportAnswer } : {}),
       ...(engaged && willVote && !serveMode ? { willVote } : {}),
+      ...(engaged && followUp && serveMode ? { followUp } : {}),
       // The note is deliberately NOT guarded the same way. Support and
       // will-vote are answers to questions this door was never asked, but a
       // note is text a person wrote, and the contract takes one on any outcome
@@ -221,6 +238,7 @@ export default function RecordKnockForm({
           setEngagement(undefined)
           setSupportAnswer(undefined)
           setWillVote(undefined)
+          setFollowUp(undefined)
         }}
       />
 
@@ -238,12 +256,19 @@ export default function RecordKnockForm({
             if (value !== 'answered') {
               setSupportAnswer(undefined)
               setWillVote(undefined)
+              setFollowUp(undefined)
             }
           }}
         />
       )}
 
-      {engaged && (
+      {/* The engaged branch is the one place the two surfaces ask different
+          things, and they ask a different NUMBER of things: Win asks support
+          and then turnout, Serve asks whether anything is owed afterwards.
+          Everything above and below this is shared, because how a door
+          answered and what the canvasser wrote down are the same questions
+          whoever is knocking. */}
+      {engaged && !serveMode && (
         <ChoiceRow
           label={SUPPORT_QUESTION}
           options={SUPPORT_OPTIONS}
@@ -261,7 +286,16 @@ export default function RecordKnockForm({
         />
       )}
 
-      {engaged && supportAnswer && !serveMode && (
+      {engaged && serveMode && (
+        <ChoiceRow
+          label={FOLLOW_UP_QUESTION}
+          options={FOLLOW_UP_OPTIONS}
+          value={followUp}
+          onChange={setFollowUp}
+        />
+      )}
+
+      {engaged && supportAnswer && (
         <ChoiceRow
           label={WILL_VOTE_QUESTION}
           options={WILL_VOTE_OPTIONS}

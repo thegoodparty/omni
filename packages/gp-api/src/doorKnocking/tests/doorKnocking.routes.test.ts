@@ -2928,6 +2928,134 @@ describe('door-knocking routes', () => {
         },
       ])
     })
+    // The Serve surface's terminal answer. It exists because without one a
+    // conversation an elected official's canvasser actually had derives to
+    // `unknown`, which every "logged" predicate in the product reads as a door
+    // nobody has been to — so these assert the status, not merely the column.
+    describe('follow-up, the Serve answer', () => {
+      it('derives needs_follow_up and engaged from the answer', async () => {
+        const target = await knockAndGetTarget()
+
+        const yes = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        expect(yes.status).toBe(201)
+        expect(yes.data).toEqual({
+          personId: target.personId,
+          knockStatus: 'needs_follow_up',
+        })
+
+        const row =
+          await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+            where: { organizationSlug: orgSlug },
+          })
+        expect(row).toMatchObject({
+          outcome: 'answered',
+          followUp: 'yes',
+          supportAnswer: null,
+          willVote: null,
+        })
+
+        const no = await record({
+          stopTargetId: target.id,
+          clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+          outcome: 'answered',
+          followUp: 'no',
+        })
+        expect(no.data.knockStatus).toBe('engaged')
+      })
+
+      // The whole point: `knockStatus !== 'unknown'` is what the walk view,
+      // walk completion, the turf counts and both paper surfaces read as
+      // "logged", so a Serve knock has to move the served route off `unknown`.
+      it('the served route reports the Serve status back', async () => {
+        stubVendors({ residents: { addresses: [] } })
+        const turf = await createTurf()
+        const target =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+        const targets = (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{ personId: string; knockStatus: string }>
+            }>
+          }>
+        )
+          .flatMap((s) => s.addresses)
+          .flatMap((a) => a.targets)
+        expect(
+          targets.find((t) => t.personId === target.personId)?.knockStatus,
+        ).toBe('needs_follow_up')
+      })
+
+      // One surface's vocabulary per row. Both answers on one payload would
+      // derive as Serve whatever the caller meant, since follow-up is checked
+      // first, so the contract refuses it rather than letting a status be
+      // decided by an ambiguity.
+      it("refuses a payload carrying both surfaces' answers", async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          followUp: 'yes',
+        })
+
+        expect(res.status).toBe(400)
+      })
+
+      it('refuses follow-up on a door that never answered', async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'not_home',
+          followUp: 'yes',
+        })
+
+        expect(res.status).toBe(400)
+      })
+
+      // ENG-10841's mapping is keyed off `willVote`, which a Serve row never
+      // carries — and the writer already refuses `eo-` orgs outright. Asserted
+      // so a later change to either cannot start writing a turnout model
+      // against constituents of an office holder.
+      it('writes no voter_likelihood event', async () => {
+        const target = await knockAndGetTarget()
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, field: 'voter_likelihood' },
+        })
+        expect(events).toHaveLength(0)
+      })
+    })
+
     describe('willVote -> voter_likelihood override events (ENG-10841)', () => {
       const recordWillVote = async (willVote: string) => {
         const target = await knockAndGetTarget()

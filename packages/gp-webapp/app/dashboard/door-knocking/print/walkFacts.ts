@@ -8,6 +8,8 @@ import { formatDistance } from '../native/routeFormat'
 import {
   ANSWER_OPTIONS,
   ENGAGEMENT_OPTIONS,
+  FOLLOW_UP_OPTIONS,
+  FOLLOW_UP_QUESTION,
   OUTCOME_OPTIONS,
   OUTCOME_QUESTION,
   SUPPORT_OPTIONS,
@@ -53,6 +55,22 @@ export const WALK_COLUMNS = [
 
 export type WalkColumnKey = (typeof WALK_COLUMNS)[number]['key']
 
+// The same grid for a Serve walk, differing in the one heading whose question
+// differs. Same key, same width: paper's column is "the answer column", and
+// which question is printed over it is the only thing the surface changes.
+// Sharing the key is what lets `ANSWER_COLUMN_KEYS`, the skip instruction's
+// `colSpan` and the already-logged row stay one definition for both.
+const SERVE_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
+  column.key === 'support' ? { ...column, label: FOLLOW_UP_QUESTION } : column,
+) as unknown as typeof WALK_COLUMNS
+
+// Which grid a sheet prints, off the payload's own `isServe`. Paper is the
+// reason that flag is on the payload at all: `print/[turfId]` and its PDF
+// sibling render server-side with no organization provider over them, so the
+// route is the only thing on the page that knows which product it belongs to.
+export const walkColumns = (isServe: boolean): typeof WALK_COLUMNS =>
+  isServe ? SERVE_WALK_COLUMNS : WALK_COLUMNS
+
 // The three answer columns a blank form fills, in order. What a skip
 // instruction or an already-logged answer spans, on both surfaces.
 export const ANSWER_COLUMN_KEYS = [
@@ -95,6 +113,20 @@ export const SUPPORT_BOXES: ReadonlyArray<readonly [string, string]> = [
   option(ENGAGEMENT_OPTIONS, 'refused_to_engage'),
   ...SUPPORT_OPTIONS,
 ]
+
+// The Serve column's boxes, built the same way and for the same reason:
+// `Refused` is the engagement answer paper cannot branch to, and the follow-up
+// answers are the ending. Three boxes rather than four, because the question
+// itself is binary — see `FOLLOW_UP_OPTIONS`.
+const FOLLOW_UP_BOXES: ReadonlyArray<readonly [string, string]> = [
+  option(ENGAGEMENT_OPTIONS, 'refused_to_engage'),
+  ...FOLLOW_UP_OPTIONS,
+]
+
+export const answerBoxes = (
+  isServe: boolean,
+): ReadonlyArray<readonly [string, string]> =>
+  isServe ? FOLLOW_UP_BOXES : SUPPORT_BOXES
 
 // The one sentence above the grid: how to fill the sheet in.
 export const MARK_INSTRUCTION =

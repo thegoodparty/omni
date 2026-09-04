@@ -10,6 +10,11 @@ import { isKnockable, knockableTargets } from '../routeCounts'
 
 // 'unknown' is not "never knocked" — it also covers answered-but-unsure
 // (deriveKnockStatus), so the label matches the filter vocabulary.
+//
+// The Serve pair is named for what happened rather than for what was answered.
+// "Spoke with" is the whole point of a Serve door — a conversation, with no
+// stance attached to it — and "Needs follow-up" is the only thing the walk owes
+// anyone afterwards.
 export const STATUS_LABELS: Record<DoorKnockStatus, string> = {
   unknown: 'Support unknown',
   not_home: 'Not home',
@@ -18,6 +23,8 @@ export const STATUS_LABELS: Record<DoorKnockStatus, string> = {
   inaccessible: 'Inaccessible',
   refused: 'Refused',
   not_a_voter: 'Not a voter',
+  engaged: 'Spoke with',
+  needs_follow_up: 'Needs follow-up',
 }
 
 // THE status palette — the map dots (deck.gl RGBA) and every legend chip
@@ -25,6 +32,14 @@ export const STATUS_LABELS: Record<DoorKnockStatus, string> = {
 // The vocabulary is the demo's: unknown grey, not home yellow, supporter
 // green, non-supporter red, inaccessible dark grey, refused black.
 // not_a_voter (ours, not in the demo legend) is warm stone.
+//
+// The Serve pair has no demo position either. `engaged` reuses supporter's
+// green because the two hold the same place on their own surface — the good
+// ending of a conversation — and the surfaces never draw both, so no legend
+// shows one green twice. `needs_follow_up` is blue rather than the obvious
+// amber: amber is `not_home`, and a door that needs following up is the
+// opposite of a door nobody opened. Blue is also the only hue in the palette
+// that reads as a task rather than as a verdict.
 export const STATUS_RGB: Record<DoorKnockStatus, [number, number, number]> = {
   unknown: [156, 163, 175],
   not_home: [234, 179, 8],
@@ -33,6 +48,8 @@ export const STATUS_RGB: Record<DoorKnockStatus, [number, number, number]> = {
   inaccessible: [71, 85, 105],
   refused: [10, 10, 10],
   not_a_voter: [120, 113, 108],
+  engaged: [22, 163, 74],
+  needs_follow_up: [37, 99, 235],
 }
 
 const toHex = ([r, g, b]: [number, number, number]): string =>
@@ -61,6 +78,61 @@ export const PROGRESS_LEGEND_ORDER: DoorKnockStatus[] = [
   'not_a_voter',
 ]
 
+// The same order for a Serve walk, with the two answers a Serve door is never
+// asked for replaced by the two it can give. Positional, not appended: the
+// canvas puts the two conversational endings first because they are what the
+// walk is for, and a Serve legend that listed them after "Not a voter" would
+// read as an afterthought to a ladder of failures.
+//
+// A second array rather than a filter over the first, because the two
+// vocabularies are not a superset and a subset — they are alternatives, and
+// only one is ever on screen. Deriving one from the other would hide that.
+const SERVE_PROGRESS_LEGEND_ORDER: DoorKnockStatus[] = [
+  'engaged',
+  'needs_follow_up',
+  'not_home',
+  'unknown',
+  'inaccessible',
+  'refused',
+  'not_a_voter',
+]
+
+// The statuses that belong to one surface and not the other. Everything not
+// named here — the outcome ladder and `unknown` — is shared, because how a door
+// failed to answer is the same question whoever knocked it.
+const WIN_ONLY_STATUSES = new Set<DoorKnockStatus>([
+  'supporter',
+  'non_supporter',
+])
+const SERVE_ONLY_STATUSES = new Set<DoorKnockStatus>([
+  'engaged',
+  'needs_follow_up',
+])
+
+// One surface's vocabulary in the WIRE order, for readers that enumerate the
+// statuses rather than lay them out — the details drawer's outcome table reads
+// this so its rows keep the order they have always had while dropping the pair
+// the list cannot contain. `progressLegendOrder` below is the same membership
+// in the order the canvas draws it; `statusPresentation.test.ts` holds them to
+// that.
+export const surfaceStatuses = (isServe: boolean): DoorKnockStatus[] =>
+  DOOR_KNOCK_STATUSES.filter((status) =>
+    isServe ? !WIN_ONLY_STATUSES.has(status) : !SERVE_ONLY_STATUSES.has(status),
+  )
+
+// Which vocabulary a surface reports in. Win never shows the Serve pair and
+// Serve never shows the support answers, so both bars stay seven-wide and
+// neither prints a bucket for a question its canvasser was never asked.
+//
+// **Existing `eo-` pilot rows are the one crack in that**: they carry support
+// answers logged before this surface had its own, so they still derive
+// `supporter`/`non_supporter` and go uncounted in a Serve legend. They are not
+// backfilled (see `deriveKnockStatus`), and the alternative — showing a Serve
+// official two party-shaped buckets — is worse than a handful of doors that
+// read as unlogged on a beta list.
+export const progressLegendOrder = (isServe: boolean): DoorKnockStatus[] =>
+  isServe ? SERVE_PROGRESS_LEGEND_ORDER : PROGRESS_LEGEND_ORDER
+
 // The same order, for the segments of the bar those words sit under — derived
 // and not written out again, because a bar whose segments ran in a different
 // order from the legend below it would be two accounts of one walk.
@@ -73,6 +145,9 @@ export const PROGRESS_LEGEND_ORDER: DoorKnockStatus[] = [
 // yet — the canvas leaves it out for the same reason.
 export const PROGRESS_STATUS_ORDER: DoorKnockStatus[] =
   PROGRESS_LEGEND_ORDER.filter((status) => status !== 'unknown')
+
+export const progressStatusOrder = (isServe: boolean): DoorKnockStatus[] =>
+  progressLegendOrder(isServe).filter((status) => status !== 'unknown')
 
 // Whichever of white and black is legible ON a given fill, by WCAG's own
 // relative-luminance formula; the crossover is 0.179. Two things in this feature
@@ -109,15 +184,48 @@ export const readableInkOnHex = (hex: string): string => {
   ])
 }
 
+// How much a status says a stop is still worth walking to, lowest first.
+//
+// **This used to be `DOOR_KNOCK_STATUSES`' own array order**, on the grounds
+// that one array cannot fall out of step with itself. That held only while the
+// vocabulary was closed. The Serve statuses had to be APPENDED — the pack
+// encodes a status as an index into that array, so inserting one re-labels
+// every byte in a pack already on a phone — and appending put the two endings
+// of a Serve conversation at ranks 8 and 9, below every way a door can fail.
+// A stop where one resident engaged and another was not home would then have
+// rolled up to `not_home`: the Serve walk would have reported its own
+// successes as misses.
+//
+// So the rank is stated here, and the wire order is free to be whatever
+// backward compatibility needs. `Record<DoorKnockStatus, number>` is the point
+// of the shape: it is exhaustive over the union, so a status added to the
+// contract fails this file to compile rather than arriving silently ranked
+// last. The Serve pair sits at the ranks the support answers hold on the Win
+// surface, because they are the same thing — the endings that mean a
+// conversation happened — and the two vocabularies never appear together.
+const STATUS_ACTIONABILITY: Record<DoorKnockStatus, number> = {
+  unknown: 0,
+  not_home: 1,
+  supporter: 2,
+  engaged: 2,
+  non_supporter: 3,
+  needs_follow_up: 3,
+  inaccessible: 4,
+  refused: 5,
+  not_a_voter: 6,
+}
+
 // Most-actionable-first rollup, and the only one: an 'unknown' person keeps the
-// whole stop knockable, and an empty stop rolls up to 'unknown'. The ranking is
-// `DOOR_KNOCK_STATUSES`' own order rather than a second table beside it, so a
-// status added to the vocabulary cannot arrive unranked.
+// whole stop knockable, and an empty stop rolls up to 'unknown'.
+//
+// Ties keep the first status seen, which is what the old index comparison did
+// too. The only ties the table introduces are between a Win status and its
+// Serve counterpart, and no route carries both.
 const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
   statuses.length === 0
     ? 'unknown'
     : statuses.reduce((best, status) =>
-        DOOR_KNOCK_STATUSES.indexOf(status) < DOOR_KNOCK_STATUSES.indexOf(best)
+        STATUS_ACTIONABILITY[status] < STATUS_ACTIONABILITY[best]
           ? status
           : best,
       )
@@ -160,11 +268,19 @@ export const stopIsKnockable = (stop: RoutePayloadStop): boolean =>
 //
 // The denominator is `knockableTargets`, like every people figure in this
 // feature: ADR 0007 do-not-knock and ADR 0008 not-a-voter residents are dropped,
-// so these seven sum to the People stat rather than to a wider population, and
-// the six non-`unknown` buckets sum to the people-logged figure. Every status is
+// so these sum to the People stat rather than to a wider population, and the
+// non-`unknown` buckets sum to the people-logged figure. Every status is
 // present at zero, because the vocabulary is fixed and "nobody refused" is an
 // answer — a bucket that vanishes when it empties would make the table's own
 // shape a fact about the list.
+//
+// It buckets the WHOLE vocabulary, both surfaces' — nine now rather than seven
+// — while each surface renders the seven its own order names. That is not a
+// leak: a route only ever carries one surface's answers, so the other two
+// buckets are zero and the seven on screen still sum to People. The exception
+// is an `eo-` pilot route whose rows predate the Serve ladder, where the two
+// support buckets hold counts a Serve legend does not print (see
+// `progressLegendOrder`), which is the same handful of doors named there.
 //
 // `not_a_voter` is the one bucket whose membership is partial, and deliberately
 // so. ADR 0008's follow-up is optional, so a resident logged not-a-voter at the

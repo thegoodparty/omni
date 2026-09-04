@@ -1,5 +1,6 @@
 import {
   DoorKnockOutcome,
+  FollowUpAnswer,
   SupportAnswer,
   WillVoteAnswer,
 } from '@goodparty_org/contracts'
@@ -52,8 +53,19 @@ export const WILL_VOTE_OPTIONS: Array<[WillVoteAnswer, string]> = [
   ['unsure', 'Unsure'],
 ]
 
+// The Serve door's last question, and the whole of its engaged branch — where
+// Win asks two. Binary where support and will-vote are three-way: "Unsure"
+// there is a real answer about a resident who has not decided, but a canvasser
+// standing at a door either owes them something afterwards or does not, and an
+// Unsure would only be a way of not writing the note.
+export const FOLLOW_UP_OPTIONS: Array<[FollowUpAnswer, string]> = [
+  ['yes', 'Yes'],
+  ['no', 'No'],
+]
+
 export const OUTCOME_QUESTION = 'Did they answer?'
 export const ENGAGEMENT_QUESTION = 'Did they engage?'
 export const SUPPORT_QUESTION = 'Do they support you?'
 export const WILL_VOTE_QUESTION = 'Will they vote this election?'
+export const FOLLOW_UP_QUESTION = 'Do they need follow-up?'
 export const NOTE_QUESTION = 'Note'

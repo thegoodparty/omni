@@ -2,22 +2,45 @@ import {
   DoorKnockStatus,
   DoorKnockStatusSchema,
 } from '@goodparty_org/contracts'
-import { DoorKnockOutcome, SupportAnswer } from '../../generated/prisma'
+import {
+  DoorKnockOutcome,
+  FollowUpAnswer,
+  SupportAnswer,
+} from '../../generated/prisma'
 
 const STATUS = DoorKnockStatusSchema.enum
 
 type KnockAnswers = {
   outcome: DoorKnockOutcome
   supportAnswer: SupportAnswer | null
+  followUp: FollowUpAnswer | null
 }
 
 // Support answers outrank door outcomes; 'unsure' (and answered-with-no-
 // support-answer) deliberately reads as unknown — the door is still worth
 // knocking.
+//
+// **This stays a pure function of the row, with no org flag threaded into it.**
+// A non-null `followUp` can only have come from a Serve form — the contract
+// refuses it beside a support answer, and no Win surface offers the question —
+// so the surface is already recorded in the answers themselves. Passing the
+// org in would mean the pack service, the status service and every caller
+// between them learning about Win and Serve to re-derive something the row
+// already says, and a Serve row read with a Win flag would then derive
+// differently depending on who asked.
+//
+// Existing `eo-` pilot rows carry support answers and no follow-up, so they
+// keep deriving supporter/non_supporter. Not backfilled: at internal-beta
+// volume the rows are countable, and rewriting logged answers into a
+// vocabulary their canvasser was never offered would be inventing data.
 export const deriveKnockStatus = (
   interaction: KnockAnswers | undefined,
 ): DoorKnockStatus => {
   if (!interaction) return STATUS.unknown
+  if (interaction.followUp === FollowUpAnswer.yes) {
+    return STATUS.needs_follow_up
+  }
+  if (interaction.followUp === FollowUpAnswer.no) return STATUS.engaged
   if (interaction.supportAnswer === SupportAnswer.supporter) {
     return STATUS.supporter
   }

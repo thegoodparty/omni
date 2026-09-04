@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   DoorKnockOutcomeSchema,
+  FollowUpAnswerSchema,
   SupportAnswerSchema,
   WillVoteAnswerSchema,
 } from '../generated/enums'
@@ -18,6 +19,8 @@ export const RecordDoorKnockInteractionSchema = z
     outcome: DoorKnockOutcomeSchema,
     supportAnswer: SupportAnswerSchema.optional(),
     willVote: WillVoteAnswerSchema.optional(),
+    // The Serve surface's terminal answer, in place of the two above.
+    followUp: FollowUpAnswerSchema.optional(),
     note: z.string().max(2_000).optional(),
   })
   .strict()
@@ -43,6 +46,25 @@ export const RecordDoorKnockInteractionSchema = z
       path: ['willVote'],
     },
   )
+  .refine(
+    (v) =>
+      v.followUp === undefined ||
+      v.outcome === DoorKnockOutcomeSchema.enum.answered,
+    {
+      message: 'followUp is only valid when outcome is answered',
+      path: ['followUp'],
+    },
+  )
+  // One surface's vocabulary per row. The two answer sets are alternatives, not
+  // additions — a Serve canvasser is never asked about support and a Win
+  // canvasser is never asked about follow-up — and a row carrying both would be
+  // read as Serve whatever it meant, because `deriveKnockStatus` has to check
+  // follow-up first to keep the Win ladder below it unchanged. Refusing the
+  // payload is the only way that ambiguity never reaches a status.
+  .refine((v) => v.followUp === undefined || v.supportAnswer === undefined, {
+    message: 'followUp and supportAnswer belong to different surfaces',
+    path: ['followUp'],
+  })
 
 export type RecordDoorKnockInteraction = z.infer<
   typeof RecordDoorKnockInteractionSchema

@@ -39,8 +39,8 @@ import {
 import { routeQueryOptions } from './turfQueries'
 import {
   knockStatusCounts,
-  PROGRESS_LEGEND_ORDER,
-  PROGRESS_STATUS_ORDER,
+  progressLegendOrder,
+  progressStatusOrder,
   readableInkOn,
   rollupStopStatus,
   STATUS_DOT_COLORS,
@@ -343,6 +343,12 @@ export default function WalkView({
   // table also reads — one bucketing of one frozen route, so the walk and the
   // planning surface cannot report the same list differently.
   const statusCounts = useMemo(() => knockStatusCounts(stops), [stops])
+  // Which vocabulary the strip reports in, off the route rather than the
+  // surface context: the route is what the counts are OF, and a walk opened on
+  // a list carries its own answer even when nothing above it does — which is
+  // also how the two paper surfaces get theirs.
+  const legendOrder = progressLegendOrder(Boolean(routeQuery.data?.isServe))
+  const barOrder = progressStatusOrder(Boolean(routeQuery.data?.isServe))
   const stopStatus = rollupStopStatus
   const targetsForStop = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
     stop.addresses.flatMap((address) => address.targets)
@@ -536,7 +542,7 @@ export default function WalkView({
               aria-hidden="true"
               className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
             >
-              {PROGRESS_STATUS_ORDER.map((status) => (
+              {barOrder.map((status) => (
                 <span
                   key={status}
                   data-status={status}
@@ -566,7 +572,7 @@ export default function WalkView({
               aria-label="Outcomes so far"
               className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
             >
-              {PROGRESS_LEGEND_ORDER.map((status) => (
+              {legendOrder.map((status) => (
                 <span key={status} className="inline-flex items-center gap-1.5">
                   <span
                     className="h-2.5 w-2.5 rounded-full"
