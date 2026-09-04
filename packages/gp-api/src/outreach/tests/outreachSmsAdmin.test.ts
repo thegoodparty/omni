@@ -299,6 +299,27 @@ describe('CAS SMS console (gp-api admin surface)', () => {
     })
   })
 
+  describe('PATCH on a canceled row', () => {
+    it('400s before any vendor write', async () => {
+      const peerly = service.app.get(PeerlyP2pJobService)
+      const updateJob = vi
+        .spyOn(peerly, 'updatePeerlyP2pJob')
+        .mockResolvedValue(undefined)
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+      await service.client.post(`/v1/outreach/admin/sms/${row.id}/cancel`, {
+        canceledBy: 'cas@goodparty.org',
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'new text', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJob).not.toHaveBeenCalled()
+    })
+  })
+
   describe('POST /v1/outreach/admin/sms/:id/deny', () => {
     it('stamps the denial internally without contacting the candidate', async () => {
       const row = await seedOutreach()

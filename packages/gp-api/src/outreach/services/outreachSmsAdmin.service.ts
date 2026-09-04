@@ -338,6 +338,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (!row || !row.projectId) {
       throw new NotFoundException('Scheduled SMS campaign not found')
     }
+    // A canceled row is in queue scope for the audit trail, but its vendor
+    // job is deleted — the edit's vendor write must never fire for it.
+    if (row.status !== OutreachStatus.pending) {
+      throw new BadRequestException('Only scheduled campaigns can be edited')
+    }
     if (!row.identityId || row.campaignId === null) {
       throw new BadRequestException(
         'This campaign is missing its sending identity and cannot be edited',
