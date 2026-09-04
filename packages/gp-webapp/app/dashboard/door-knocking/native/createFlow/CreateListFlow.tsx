@@ -25,6 +25,7 @@ import {
   WIN_RECOMMENDED_LISTS_FLAG_KEY,
 } from '@shared/experiments/winRecommendedListsFlag'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
+import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
   builderFiltersFromRecommendation,
@@ -59,10 +60,15 @@ import {
   type PreDrawStage,
 } from './createFlowSteps'
 import {
+  DOOR_KNOCKING_PURPOSES,
   doorKnockingPurposeNameSuggestion,
   type DoorKnockingPurpose,
 } from './doorKnockingPurposes'
-import { PurposeStep } from './PurposeStep'
+import {
+  SERVE_DOOR_KNOCKING_PURPOSES,
+  serveDoorKnockingPurposeNameSuggestion,
+  type ServeDoorKnockingPurpose,
+} from './serveDoorKnockingPurposes'
 import { WhoStep } from './WhoStep'
 import { DrawStep } from './DrawStep'
 import { DrawFullScreen } from './DrawFullScreen'
@@ -256,6 +262,10 @@ const STAGE_META: Record<
   },
 }
 
+// The purpose union across both rails this one route serves — same
+// convention as PhoneBankingFlow's PhoneBankingFlowPurpose.
+type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
+
 const ROUTE_CAPTION =
   'This builds the route and locks the turf — the list of doors is frozen so ' +
   'everyone works from the same plan, and the directions are bought for the ' +
@@ -305,7 +315,16 @@ export default function CreateListFlow({
   // nobody else's business. Survives Back from the draw step because this
   // component stays mounted for the whole flow.
   const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>('purpose')
-  const [purpose, setPurpose] = useState<DoorKnockingPurpose | null>(null)
+  const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(null)
+  // The goal cards and the name they suggest are the surface's answer: Serve
+  // carries its own vocabulary (no election mechanics), and door knocking has
+  // ONE route for both rails, so this is the only place the two can differ.
+  const purposes = serveMode
+    ? SERVE_DOOR_KNOCKING_PURPOSES
+    : DOOR_KNOCKING_PURPOSES
+  const purposeNameSuggestion = serveMode
+    ? serveDoorKnockingPurposeNameSuggestion
+    : doorKnockingPurposeNameSuggestion
   // The recommended-lists intent this purpose maps onto
   // (docs/features/recommended-lists.md) — null for `custom`, which gets no
   // recommendation, and null for the whole Serve surface.
@@ -319,8 +338,14 @@ export default function CreateListFlow({
   // experiment's denominator with sessions the feature is unreachable for.
   // `PhoneBankingFlow` gates the same map on the same reasoning, from its own
   // Win/Serve discriminator; this is the third surface to need it.
+  //
+  // The cast rides on that same gate: `!serveMode` is what makes this purpose
+  // a member of the Win vocabulary, which is the only one an intent exists
+  // for.
   const recommendedListIntent =
-    !serveMode && purpose ? intentForOutreachPurpose(purpose) : null
+    !serveMode && purpose
+      ? intentForOutreachPurpose(purpose as DoorKnockingPurpose)
+      : null
   // Null means the whole contact universe.
   const [savedListId, setSavedListId] = useState<number | null>(null)
   // The who step's two faces and its panel. Held here rather than in the step
@@ -625,11 +650,11 @@ export default function CreateListFlow({
   const appliedSuggestion = useRef<string | null>(null)
   useEffect(() => {
     if (step !== 'confirm' || nameTouched.current) return
-    const suggestion = purpose ? doorKnockingPurposeNameSuggestion(purpose) : ''
+    const suggestion = purpose ? purposeNameSuggestion(purpose) : ''
     if (!suggestion || suggestion === appliedSuggestion.current) return
     appliedSuggestion.current = suggestion
     setName(suggestion)
-  }, [step, purpose])
+  }, [step, purpose, purposeNameSuggestion])
 
   // Stops are what the router and its 150-stop cap are denominated in; doors
   // are what the candidate walks and what the time estimate is worth. At a
@@ -1058,6 +1083,7 @@ export default function CreateListFlow({
 
         {stage === 'purpose' && (
           <PurposeStep
+            purposes={purposes}
             selected={purpose}
             onSelect={(next) => {
               setPurpose(next)

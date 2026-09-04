@@ -5,6 +5,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import RecordKnockForm from './RecordKnockForm'
+import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -61,13 +62,15 @@ const target: RoutePayloadTarget = {
 // next value for the field.
 const dictate = (text: string) => act(() => mocks.input.current?.onChange(text))
 
-const renderForm = (onRecorded = vi.fn()) => {
+const renderForm = (onRecorded = vi.fn(), serveMode = false) => {
   render(
-    <RecordKnockForm
-      target={target}
-      clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
-      onRecorded={onRecorded}
-    />,
+    <DoorKnockingSurfaceProvider value={serveMode}>
+      <RecordKnockForm
+        target={target}
+        clientKey="6f1d7a9c-3f1e-4f0a-9f4e-2f5a6b7c8d90"
+        onRecorded={onRecorded}
+      />
+    </DoorKnockingSurfaceProvider>,
   )
   return onRecorded
 }
@@ -523,6 +526,99 @@ describe('RecordKnockForm saving', () => {
     expect(screen.queryByText(/Saving failed/)).toBeNull()
     answer('Did they answer?', 'Not home')
     expect(screen.queryByText(/Saving failed/)).toBeNull()
+  })
+})
+
+// A Serve org (an elected official) is never asked whether a resident will
+// vote THIS election — there is no election on their calendar to vote in.
+// Win's walkthrough is unchanged; these assert the Serve branch differs only
+// in dropping that one question and everything downstream of it.
+describe('RecordKnockForm in serve mode', () => {
+  it('asks support but never will-vote once engaged', () => {
+    renderForm(vi.fn(), true)
+    walkToEngaged()
+
+    answer('Do they support you?', 'Yes')
+
+    expect(screen.getByText('Do they support you?')).toBeVisible()
+    expect(screen.queryByText('Will they vote this election?')).toBeNull()
+  })
+
+  it('completes on support alone and posts with no willVote', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'supporter' },
+      }
+    })
+    renderForm(vi.fn(), true)
+    walkToEngaged()
+
+    answer('Do they support you?', 'Yes')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      outcome: 'answered',
+      supportAnswer: 'supporter',
+    })
+    expect(posted[0]).not.toHaveProperty('willVote')
+  })
+
+  it('reports the door with no willVote in the DoorLogged payload', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'supporter' },
+    })
+    renderForm(vi.fn(), true)
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        outcome: 'answered',
+        knockStatus: 'supporter',
+        hasNote: false,
+        supportAnswer: 'supporter',
+      }),
+    )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.some(([, payload]) =>
+          Object.prototype.hasOwnProperty.call(payload ?? {}, 'willVote'),
+        ),
+    ).toBe(false)
+  })
+
+  // Win regression: an org that isn't in serve mode keeps the question and
+  // keeps sending the answer.
+  it('still asks and posts will-vote in win mode', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'supporter' },
+      }
+    })
+    renderForm(vi.fn(), false)
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+
+    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+    answer('Will they vote this election?', 'Yes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ willVote: 'yes' })
   })
 })
 

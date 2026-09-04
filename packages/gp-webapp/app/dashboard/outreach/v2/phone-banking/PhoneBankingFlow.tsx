@@ -24,6 +24,10 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { PurposeStep } from '../PurposeStep'
+// Intro is a channel-generic v2 component that currently lives under
+// social/; reused read-only here (same precedent as RobocallPurposeStep).
+import { Intro } from '../social/Intro'
 import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
@@ -40,7 +44,6 @@ import {
   SERVE_PHONE_BANKING_PURPOSES,
   servePhoneBankingPurposeNameSuggestion,
 } from '../servePhoneBankingPurposes'
-import { PurposeStep } from './PurposeStep'
 import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
@@ -627,11 +630,18 @@ export const PhoneBankingFlow = ({
       dirty={dirty}
     >
       {stepId === 'purpose' ? (
-        <PurposeStep
-          purposes={surface.purposes}
-          selected={purpose}
-          onSelect={handleSelectPurpose}
-        />
+        <div className="space-y-6">
+          <Intro
+            channel="phoneBanking"
+            title="What do you want to do?"
+            body="This helps us tailor your script and who to call."
+          />
+          <PurposeStep
+            purposes={surface.purposes}
+            selected={purpose}
+            onSelect={handleSelectPurpose}
+          />
+        </div>
       ) : stepId === 'who' ? (
         <>
           <OutreachAudienceStep
